@@ -1,0 +1,7 @@
+.gradle/
+.chatgpt/
+build/
+*/build/
+.check-classes/
+sources.txt
+*.class
