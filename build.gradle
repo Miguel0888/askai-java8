@@ -1,0 +1,19 @@
+allprojects {
+    group = 'com.aresstack.askai.java8'
+    version = (findProperty('releaseVersion') ?: '0.1.0').toString()
+
+    repositories {
+        mavenCentral()
+    }
+}
+
+subprojects {
+    apply plugin: 'java'
+
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+
+    tasks.withType(JavaCompile) {
+        options.encoding = 'UTF-8'
+    }
+}
