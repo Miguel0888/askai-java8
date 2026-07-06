@@ -1,0 +1,34 @@
+apply plugin: 'application'
+
+dependencies {
+    implementation project(':ollama4j-java8')
+}
+
+mainClassName = 'com.aresstack.askai.java8.AskAiJava8App'
+
+jar {
+    manifest {
+        attributes('Main-Class': mainClassName)
+    }
+}
+
+task fatJar(type: Jar) {
+    group = 'build'
+    description = 'Build a Java 8 runnable jar containing AskAI and the embedded ollama4j-java8 project.'
+    archiveBaseName = 'askai-java8'
+    archiveClassifier = ''
+    archiveVersion = project.version.toString()
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+
+    dependsOn classes
+    dependsOn ':ollama4j-java8:classes'
+
+    from sourceSets.main.output
+    from project(':ollama4j-java8').sourceSets.main.output
+
+    manifest {
+        attributes('Main-Class': mainClassName)
+    }
+}
+
+build.dependsOn fatJar
