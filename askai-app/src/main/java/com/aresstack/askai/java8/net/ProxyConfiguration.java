@@ -167,7 +167,7 @@ public final class ProxyConfiguration {
         if (value == null || value.toUpperCase().indexOf("DIRECT") >= 0) {
             return Proxy.NO_PROXY;
         }
-        String[] parts = value.split("[ ,;()]+{}");
+        String[] parts = value.split("[ ,;()]+");
         for (int i = 0; i < parts.length; i++) {
             String token = parts[i];
             int colon = token.lastIndexOf(':');
