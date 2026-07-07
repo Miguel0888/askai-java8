@@ -23,7 +23,7 @@ public final class HuggingFaceClient {
     private final String accessToken;
 
     public HuggingFaceClient(ProxyConfiguration proxyConfiguration, String accessToken) {
-        this.proxyConfiguration = proxyConfiguration == null ? ProxyConfiguration.disabled() : proxyConfiguration;
+        this.proxyConfiguration = proxyConfiguration == null ? ProxyConfiguration.defaults() : proxyConfiguration;
         this.accessToken = accessToken == null ? "" : accessToken.trim();
     }
 
@@ -122,7 +122,7 @@ public final class HuggingFaceClient {
     }
 
     private HttpURLConnection open(String url) throws IOException {
-        Proxy proxy = proxyConfiguration.toProxy();
+        Proxy proxy = proxyConfiguration.toProxyFor(url);
         HttpURLConnection connection = (HttpURLConnection) (proxy == Proxy.NO_PROXY
                 ? new URL(url).openConnection()
                 : new URL(url).openConnection(proxy));
