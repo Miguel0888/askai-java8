@@ -2,7 +2,6 @@ package com.aresstack.askai.java8.net;
 
 import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -17,29 +16,23 @@ public final class PacUrlDiscoveryService {
         builder.append("Option Explicit\r\n");
         builder.append("Dim shell\r\n");
         builder.append("Set shell = CreateObject(\"WScript.Shell\")\r\n");
-        writeRegistryProbe(builder, "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings\\AutoConfigURL");
-        writeRegistryProbe(builder, "HKCU\\Software\\Policies\\Microsoft\\Windows\\CurrentVersion\\Internet Settings\\AutoConfigURL");
-        writeRegistryProbe(builder, "HKLM\\Software\\Policies\\Microsoft\\Windows\\CurrentVersion\\Internet Settings\\AutoConfigURL");
-        writeRegistryProbe(builder, "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings\\AutoConfigURL");
+        builder.append("Probe shell, \"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings\\AutoConfigURL\"\r\n");
+        builder.append("Probe shell, \"HKCU\\Software\\Policies\\Microsoft\\Windows\\CurrentVersion\\Internet Settings\\AutoConfigURL\"\r\n");
+        builder.append("Probe shell, \"HKLM\\Software\\Policies\\Microsoft\\Windows\\CurrentVersion\\Internet Settings\\AutoConfigURL\"\r\n");
+        builder.append("Probe shell, \"HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings\\AutoConfigURL\"\r\n");
         builder.append("WScript.Quit 1\r\n");
+        builder.append("Sub Probe(shell, registryPath)\r\n");
+        builder.append("    Dim value\r\n");
+        builder.append("    On Error Resume Next\r\n");
+        builder.append("    Err.Clear\r\n");
+        builder.append("    value = shell.RegRead(registryPath)\r\n");
+        builder.append("    If Err.Number = 0 Then\r\n");
+        builder.append("        WScript.Echo CStr(value)\r\n");
+        builder.append("        WScript.Quit 0\r\n");
+        builder.append("    End If\r\n");
+        builder.append("    On Error GoTo 0\r\n");
+        builder.append("End Sub\r\n");
         return builder.toString();
-    }
-
-    private static void writeRegistryProbe(StringBuilder builder, String registryPath) {
-        builder.append("PrintRegistryValue shell, \"").append(registryPath).append("\"\r\n");
-        if (builder.indexOf("Sub PrintRegistryValue") < 0) {
-            builder.append("Sub PrintRegistryValue(shell, registryPath)\r\n");
-            builder.append("    Dim value\r\n");
-            builder.append("    On Error Resume Next\r\n");
-            builder.append("    Err.Clear\r\n");
-            builder.append("    value = shell.RegRead(registryPath)\r\n");
-            builder.append("    If Err.Number = 0 Then\r\n");
-            builder.append("        WScript.Echo CStr(value)\r\n");
-            builder.append("        WScript.Quit 0\r\n");
-            builder.append("    End If\r\n");
-            builder.append("    On Error GoTo 0\r\n");
-            builder.append("End Sub\r\n");
-        }
     }
 
     public String discoverWithScript(String script) throws IOException {
@@ -47,7 +40,7 @@ public final class PacUrlDiscoveryService {
         File directory = createWorkingDirectory();
         File scriptFile = new File(directory, "askai-pac-discovery.vbs");
         writeScript(scriptFile, configuredScript);
-        return runWScriptAndReadFirstLine(scriptFile);
+        return runScriptAndReadFirstLine(scriptFile);
     }
 
     public String discoverWithWScript() throws IOException {
@@ -77,24 +70,24 @@ public final class PacUrlDiscoveryService {
         }
     }
 
-    private String runWScriptAndReadFirstLine(File scriptFile) throws IOException {
-        Process process = new ProcessBuilder("wscript.exe", "//B", "//Nologo", scriptFile.getAbsolutePath()).redirectErrorStream(true).start();
+    private String runScriptAndReadFirstLine(File scriptFile) throws IOException {
+        Process process = new ProcessBuilder("cscript.exe", "//NoLogo", scriptFile.getAbsolutePath()).redirectErrorStream(true).start();
         String output = readText(process);
         try {
             if (!process.waitFor(20L, TimeUnit.SECONDS)) {
                 process.destroy();
-                throw new IOException("WScript PAC discovery timed out.");
+                throw new IOException("Script PAC discovery timed out.");
             }
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
-            throw new IOException("WScript PAC discovery was interrupted.", ex);
+            throw new IOException("Script PAC discovery was interrupted.", ex);
         }
         if (process.exitValue() != 0) {
-            throw new IOException("WScript PAC discovery failed with exit code " + process.exitValue() + ": " + output);
+            throw new IOException("Script PAC discovery failed with exit code " + process.exitValue() + ": " + output);
         }
         String result = firstUsableLine(output);
         if (result == null) {
-            throw new IOException("WScript PAC discovery did not print an AutoConfigURL.");
+            throw new IOException("Script PAC discovery did not print an AutoConfigURL. Output was: " + output);
         }
         return result;
     }
