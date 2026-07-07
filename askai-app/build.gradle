@@ -22,10 +22,9 @@ task fatJar(type: Jar) {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 
     dependsOn classes
-    dependsOn ':ollama4j-java8:classes'
+    dependsOn ':ollama4j-java8:jar'
 
     from sourceSets.main.output
-    from project(':ollama4j-java8').sourceSets.main.output
     from {
         configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
     }
