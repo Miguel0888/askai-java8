@@ -2,6 +2,7 @@ package com.aresstack.askai.java8.ui;
 
 import com.aresstack.askai.java8.config.AppConfiguration;
 import com.aresstack.askai.java8.config.AppConfigurationRepository;
+import com.aresstack.askai.java8.net.PacUrlDiscoveryService;
 import com.aresstack.askai.java8.net.ProxyConfiguration;
 import com.aresstack.winproxy.ProxyDefaults;
 import com.aresstack.winproxy.ProxyMode;
@@ -38,6 +39,7 @@ public final class ProxyPanel extends JPanel {
     };
 
     private final AppConfigurationRepository configurationRepository;
+    private final PacUrlDiscoveryService pacUrlDiscoveryService;
     private final JComboBox<ProxyMode> mode;
     private final JTextField testUrl;
     private final JTextField pacUrlDiscoveryScript;
@@ -48,6 +50,7 @@ public final class ProxyPanel extends JPanel {
 
     public ProxyPanel(AppConfigurationRepository configurationRepository) {
         this.configurationRepository = configurationRepository;
+        this.pacUrlDiscoveryService = new PacUrlDiscoveryService();
         ProxyConfiguration cfg = configurationRepository.load().getProxyConfiguration();
         setLayout(new BorderLayout(8, 8));
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
@@ -76,10 +79,13 @@ public final class ProxyPanel extends JPanel {
         form.add(manualPort);
 
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        JButton discoverWithWScript = new JButton("Discover PAC URL via WScript");
+        discoverWithWScript.addActionListener(e -> discoverPacUrlWithWScript());
         JButton test = new JButton("Resolve test URL");
         test.addActionListener(e -> resolveTestUrl());
         JButton defaults = new JButton("Reset default");
         defaults.addActionListener(e -> resetDefault());
+        buttons.add(discoverWithWScript);
         buttons.add(test);
         buttons.add(defaults);
 
@@ -93,6 +99,7 @@ public final class ProxyPanel extends JPanel {
         add(new JScrollPane(log), BorderLayout.CENTER);
         append("Proxy changes apply immediately to all Hugging Face operations.");
         append("PAC_URL_MANUAL means: paste the exact PAC/WPAD URL into 'Explicit PAC/WPAD URL'.");
+        append("Use 'Discover PAC URL via WScript' when PowerShell, CMD, regedit, or direct registry tools are blocked but Windows Script Host is allowed.");
         append("PAC_URL_WINDOWS_SETTINGS means: read AutoConfigURL/WPAD from Windows settings automatically.");
         append("PAC_URL_POWERSHELL means: discover the PAC URL via the configured PowerShell script.");
         installLiveBindings();
@@ -139,6 +146,30 @@ public final class ProxyPanel extends JPanel {
         appendModeHelp(cfg.getMode());
     }
 
+    private void discoverPacUrlWithWScript() {
+        append("Discovering PAC URL via Windows Script Host registry read ...");
+        new SwingWorker<String, Void>() {
+            protected String doInBackground() throws Exception {
+                return pacUrlDiscoveryService.discoverWithWScript();
+            }
+
+            protected void done() {
+                try {
+                    String discoveredUrl = get();
+                    pacUrl.setText(discoveredUrl);
+                    mode.setSelectedItem(ProxyMode.PAC_URL_MANUAL);
+                    writeConfiguration();
+                    append("Discovered PAC URL: " + discoveredUrl);
+                    append("Mode set to PAC_URL_MANUAL. You can now resolve the test URL.");
+                } catch (Exception ex) {
+                    append("ERROR: WScript PAC URL discovery failed: " + rootMessage(ex));
+                    JOptionPane.showMessageDialog(ProxyPanel.this, rootMessage(ex),
+                            "PAC URL discovery failed", JOptionPane.WARNING_MESSAGE);
+                }
+            }
+        }.execute();
+    }
+
     private void resolveTestUrl() {
         final ProxyConfiguration cfg = buildConfiguration();
         writeConfiguration();
@@ -165,7 +196,7 @@ public final class ProxyPanel extends JPanel {
                     JOptionPane.showMessageDialog(ProxyPanel.this, detail,
                             "Proxy Test - " + cfg.getMode(), JOptionPane.INFORMATION_MESSAGE);
                 } catch (Exception ex) {
-                    append("ERROR: " + ex.getMessage());
+                    append("ERROR: " + rootMessage(ex));
                 }
             }
         }.execute();
@@ -188,7 +219,7 @@ public final class ProxyPanel extends JPanel {
 
     private void appendModeHelp(ProxyMode selectedMode) {
         if (selectedMode == ProxyMode.PAC_URL_MANUAL) {
-            append("PAC_URL_MANUAL: paste the PAC/WPAD URL manually. Example: http://wpad/wpad.dat or your Windows AutoConfigURL.");
+            append("PAC_URL_MANUAL: paste the PAC/WPAD URL manually or use WScript discovery. Example: http://wpad/wpad.dat or your Windows AutoConfigURL.");
         } else if (selectedMode == ProxyMode.PAC_URL_WINDOWS_SETTINGS) {
             append("PAC_URL_WINDOWS_SETTINGS: the PAC URL is taken from Windows proxy settings; do not use the manual PAC field for this mode.");
         } else if (selectedMode == ProxyMode.PAC_URL_POWERSHELL) {
@@ -204,6 +235,14 @@ public final class ProxyPanel extends JPanel {
                 log.append(message + System.lineSeparator());
             }
         });
+    }
+
+    private String rootMessage(Exception ex) {
+        Throwable current = ex;
+        while (current.getCause() != null) {
+            current = current.getCause();
+        }
+        return current.getMessage() == null ? String.valueOf(current) : current.getMessage();
     }
 
     private static String defaultPacScript(ProxyConfiguration cfg) {
