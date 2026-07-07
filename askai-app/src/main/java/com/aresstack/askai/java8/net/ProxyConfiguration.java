@@ -61,7 +61,7 @@ public final class ProxyConfiguration {
     public String getModeName() { return mode.name(); }
     public String getTestUrl() { return testUrl; }
     public String getPacUrlDiscoveryScript() { return pacUrlDiscoveryScript; }
-    public String getPacUrl() { return pacUrl; }
+    public String getPacUrl() { return manualPacUrl(); }
     public String getHost() { return manualProxyHost; }
     public String getManualProxyHost() { return manualProxyHost; }
     public int getPort() { return manualProxyPort; }
@@ -72,8 +72,9 @@ public final class ProxyConfiguration {
                 .mode(mode)
                 .testUrl(testUrl)
                 .pacUrlDiscoveryScript(pacUrlDiscoveryScript);
-        if (trimToNull(pacUrl) != null) {
-            builder.pacUrl(pacUrl);
+        String effectivePacUrl = manualPacUrl();
+        if (trimToNull(effectivePacUrl) != null) {
+            builder.pacUrl(effectivePacUrl);
         }
         if (trimToNull(manualProxyHost) != null) {
             builder.manualProxyHost(manualProxyHost);
@@ -142,9 +143,16 @@ public final class ProxyConfiguration {
             }
             return;
         }
-        if (mode == ProxyMode.PAC_URL_MANUAL && trimToNull(pacUrl) == null) {
-            throw new IOException("PAC_URL_MANUAL requires the explicit PAC/WPAD URL in the PAC URL field, e.g. http://wpad/wpad.dat or the AutoConfigURL from Windows settings.");
+        if (mode == ProxyMode.PAC_URL_MANUAL && trimToNull(pacUrlDiscoveryScript) == null) {
+            throw new IOException("PAC_URL_MANUAL requires the PAC/WPAD URL in the PAC URL discovery script field, e.g. http://wpad/wpad.dat or the AutoConfigURL from Windows settings.");
         }
+    }
+
+    private String manualPacUrl() {
+        if (mode == ProxyMode.PAC_URL_MANUAL) {
+            return pacUrlDiscoveryScript;
+        }
+        return pacUrl;
     }
 
     private Proxy reflectProxy(Object result) {
