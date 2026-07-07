@@ -68,11 +68,14 @@ public final class ProxyConfiguration {
     public int getManualProxyPort() { return manualProxyPort; }
 
     public com.aresstack.winproxy.ProxyConfiguration toWinProxyConfiguration() {
+        return toWinProxyConfiguration(mode, manualPacUrl());
+    }
+
+    private com.aresstack.winproxy.ProxyConfiguration toWinProxyConfiguration(ProxyMode configuredMode, String effectivePacUrl) {
         com.aresstack.winproxy.ProxyConfiguration.Builder builder = com.aresstack.winproxy.ProxyConfiguration.builder()
-                .mode(mode)
+                .mode(configuredMode)
                 .testUrl(testUrl)
                 .pacUrlDiscoveryScript(pacUrlDiscoveryScript);
-        String effectivePacUrl = manualPacUrl();
         if (trimToNull(effectivePacUrl) != null) {
             builder.pacUrl(effectivePacUrl);
         }
@@ -86,7 +89,7 @@ public final class ProxyConfiguration {
     }
 
     public Object resolve(String url) {
-        return new WindowsProxyResolver(toWinProxyConfiguration()).resolve(url);
+        return resolveWithConfiguration(toWinProxyConfiguration(), url);
     }
 
     public Proxy toProxy() {
@@ -109,12 +112,7 @@ public final class ProxyConfiguration {
         if (mode == ProxyMode.MANUAL_PROXY) {
             return new Proxy(Proxy.Type.HTTP, new InetSocketAddress(manualProxyHost, manualProxyPort));
         }
-        Object result;
-        try {
-            result = resolve(nonBlank(url, testUrl));
-        } catch (RuntimeException ex) {
-            throw new IOException("Proxy resolution failed: " + ex.getMessage(), ex);
-        }
+        Object result = resolveWithFallback(nonBlank(url, testUrl));
         String text = result == null ? "" : String.valueOf(result);
         if (text.toUpperCase().startsWith("ERROR")) {
             throw new IOException("Proxy resolution failed: " + text);
@@ -131,6 +129,48 @@ public final class ProxyConfiguration {
             return parsed;
         }
         return Proxy.NO_PROXY;
+    }
+
+    private Object resolveWithFallback(String url) throws IOException {
+        Object first;
+        try {
+            first = resolveWithConfiguration(toWinProxyConfiguration(), url);
+        } catch (RuntimeException ex) {
+            if (!isWScriptFallbackMode()) {
+                throw new IOException("Proxy resolution failed: " + ex.getMessage(), ex);
+            }
+            return resolveWithDiscoveredPacUrl(url, ex.getMessage());
+        }
+        String text = first == null ? "" : String.valueOf(first);
+        if (text.toUpperCase().startsWith("ERROR") && isWScriptFallbackMode()) {
+            return resolveWithDiscoveredPacUrl(url, text);
+        }
+        return first;
+    }
+
+    private Object resolveWithDiscoveredPacUrl(String url, String previousFailure) throws IOException {
+        String discoveredPacUrl;
+        try {
+            discoveredPacUrl = new PacUrlDiscoveryService().discoverWithWScript();
+        } catch (IOException ex) {
+            throw new IOException("Proxy resolution failed: " + previousFailure + "; WScript discovery also failed: " + ex.getMessage(), ex);
+        }
+        com.aresstack.winproxy.ProxyConfiguration discoveredConfiguration =
+                toWinProxyConfiguration(ProxyMode.PAC_URL_MANUAL, discoveredPacUrl);
+        Object second = resolveWithConfiguration(discoveredConfiguration, url);
+        String text = second == null ? "" : String.valueOf(second);
+        if (text.toUpperCase().startsWith("ERROR")) {
+            throw new IOException("Proxy resolution failed after WScript PAC discovery (" + discoveredPacUrl + "): " + text);
+        }
+        return second;
+    }
+
+    private boolean isWScriptFallbackMode() {
+        return mode == ProxyMode.PAC_URL_POWERSHELL || mode == ProxyMode.PAC_URL_WINDOWS_SETTINGS;
+    }
+
+    private Object resolveWithConfiguration(com.aresstack.winproxy.ProxyConfiguration configuration, String url) {
+        return new WindowsProxyResolver(configuration).resolve(url);
     }
 
     public void validateForUse() throws IOException {
