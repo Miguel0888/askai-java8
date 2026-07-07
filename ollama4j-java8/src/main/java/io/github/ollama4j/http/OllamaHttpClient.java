@@ -4,6 +4,8 @@ import io.github.ollama4j.exceptions.OllamaException;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -33,6 +35,40 @@ public final class OllamaHttpClient {
 
     public OllamaHttpResponse post(String path, String body) throws OllamaException {
         return request("POST", path, body);
+    }
+
+    public OllamaHttpResponse postBinary(String path, File file) throws OllamaException {
+        HttpURLConnection connection = null;
+        FileInputStream inputStream = null;
+        OutputStream outputStream = null;
+        try {
+            connection = openConnection(path, "POST");
+            connection.setDoOutput(true);
+            connection.setRequestProperty("Content-Type", "application/octet-stream");
+            connection.setRequestProperty("Content-Length", String.valueOf(file.length()));
+            inputStream = new FileInputStream(file);
+            outputStream = connection.getOutputStream();
+            byte[] buffer = new byte[1024 * 1024];
+            int read;
+            while ((read = inputStream.read(buffer)) >= 0) {
+                outputStream.write(buffer, 0, read);
+            }
+            outputStream.close();
+            outputStream = null;
+            int statusCode = connection.getResponseCode();
+            String responseBody = readBody(statusCode >= 200 && statusCode < 300
+                    ? connection.getInputStream()
+                    : connection.getErrorStream());
+            return new OllamaHttpResponse(statusCode, responseBody);
+        } catch (IOException ex) {
+            throw new OllamaException("Binary HTTP request failed: " + ex.getMessage(), ex);
+        } finally {
+            closeQuietly(inputStream);
+            closeQuietly(outputStream);
+            if (connection != null) {
+                connection.disconnect();
+            }
+        }
     }
 
     public OllamaHttpResponse delete(String path, String body) throws OllamaException {
@@ -143,6 +179,26 @@ public final class OllamaHttpClient {
             }
         } finally {
             reader.close();
+        }
+    }
+
+    private void closeQuietly(InputStream inputStream) {
+        if (inputStream == null) {
+            return;
+        }
+        try {
+            inputStream.close();
+        } catch (IOException ignored) {
+        }
+    }
+
+    private void closeQuietly(OutputStream outputStream) {
+        if (outputStream == null) {
+            return;
+        }
+        try {
+            outputStream.close();
+        } catch (IOException ignored) {
         }
     }
 
