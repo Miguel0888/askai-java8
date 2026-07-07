@@ -7,6 +7,16 @@ Java 8 compatible AskAI multi-project.
 - `ollama4j-java8`: small Java 8 Ollama client backed by `HttpURLConnection`.
 - `askai-app`: Swing application that uses the embedded Java 8 Ollama client.
 
+## Features
+
+- Connect to a remote Ollama server.
+- Refresh installed remote Ollama models.
+- Chat with streamed responses.
+- Pull Ollama registry models on the remote Ollama server.
+- Search HuggingFace GGUF models.
+- List and download GGUF files from HuggingFace.
+- Use HTTP proxy settings for HuggingFace access.
+
 ## Build
 
 ```bash
