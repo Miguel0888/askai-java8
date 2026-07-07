@@ -2,6 +2,7 @@ package com.aresstack.askai.java8.ui;
 
 import com.aresstack.askai.java8.config.AppConfiguration;
 import com.aresstack.askai.java8.config.AppConfigurationRepository;
+import com.aresstack.askai.java8.net.PacUrlDiscoveryService;
 import com.aresstack.askai.java8.net.ProxyConfiguration;
 import com.aresstack.winproxy.ProxyDefaults;
 
@@ -45,16 +46,30 @@ public final class ProxyPanel extends JPanel {
     private final JTextField manualPort;
     private final JTextArea log;
 
+    private String activeScriptMode;
+    private String manualPacUrlText;
+    private String powerShellScriptText;
+    private String wScriptText;
+    private String otherScriptText;
+    private boolean updatingScriptText;
+
     public ProxyPanel(AppConfigurationRepository configurationRepository) {
         this.configurationRepository = configurationRepository;
         ProxyConfiguration cfg = configurationRepository.load().getProxyConfiguration();
+        this.manualPacUrlText = "";
+        this.powerShellScriptText = ProxyDefaults.DEFAULT_PAC_URL_DISCOVERY_SCRIPT;
+        this.wScriptText = PacUrlDiscoveryService.defaultScript();
+        this.otherScriptText = "";
+        rememberScriptText(cfg.getModeName(), cfg.getPacUrlDiscoveryScript());
+        this.activeScriptMode = cfg.getModeName();
+
         setLayout(new BorderLayout(8, 8));
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
         this.mode = new JComboBox<String>(UI_MODES);
         this.mode.setSelectedItem(cfg.getModeName());
         this.testUrl = new JTextField(cfg.getTestUrl());
-        this.pacUrlDiscoveryScript = new JTextField(defaultScriptFor(cfg));
+        this.pacUrlDiscoveryScript = new JTextField(scriptTextFor(cfg.getModeName()));
         this.manualHost = new JTextField(empty(cfg.getManualProxyHost()));
         this.manualPort = new JTextField(cfg.getManualProxyPort() > 0 ? String.valueOf(cfg.getManualProxyPort()) : "");
 
@@ -96,26 +111,65 @@ public final class ProxyPanel extends JPanel {
     }
 
     private void installLiveBindings() {
-        mode.addActionListener(e -> {
-            if (ProxyConfiguration.PAC_URL_WSCRIPT.equals(selectedMode())) {
-                ProxyConfiguration current = buildConfiguration();
-                if (isDefaultPowerShellScript(current.getPacUrlDiscoveryScript())) {
-                    pacUrlDiscoveryScript.setText(com.aresstack.askai.java8.net.PacUrlDiscoveryService.defaultScript());
-                }
-            }
-            writeConfiguration();
-            append("Proxy mode: " + selectedMode());
-            appendModeHelp(selectedMode());
-        });
+        mode.addActionListener(e -> switchScriptTextForSelectedMode());
         DocumentListener onEdit = new DocumentListener() {
-            public void insertUpdate(DocumentEvent event) { writeConfiguration(); }
-            public void removeUpdate(DocumentEvent event) { writeConfiguration(); }
-            public void changedUpdate(DocumentEvent event) { writeConfiguration(); }
+            public void insertUpdate(DocumentEvent event) { onFieldEdited(); }
+            public void removeUpdate(DocumentEvent event) { onFieldEdited(); }
+            public void changedUpdate(DocumentEvent event) { onFieldEdited(); }
         };
         JTextComponent[] fields = new JTextComponent[]{manualHost, manualPort, testUrl, pacUrlDiscoveryScript};
         for (int i = 0; i < fields.length; i++) {
             fields[i].getDocument().addDocumentListener(onEdit);
         }
+    }
+
+    private void switchScriptTextForSelectedMode() {
+        if (!updatingScriptText) {
+            rememberScriptText(activeScriptMode, pacUrlDiscoveryScript.getText());
+        }
+        activeScriptMode = selectedMode();
+        updatingScriptText = true;
+        try {
+            pacUrlDiscoveryScript.setText(scriptTextFor(activeScriptMode));
+        } finally {
+            updatingScriptText = false;
+        }
+        writeConfiguration();
+        append("Proxy mode: " + activeScriptMode);
+        appendModeHelp(activeScriptMode);
+    }
+
+    private void onFieldEdited() {
+        if (!updatingScriptText) {
+            rememberScriptText(activeScriptMode, pacUrlDiscoveryScript.getText());
+        }
+        writeConfiguration();
+    }
+
+    private void rememberScriptText(String modeName, String value) {
+        String text = value == null ? "" : value;
+        if (ProxyConfiguration.PAC_URL_MANUAL.equals(modeName)) {
+            manualPacUrlText = text;
+        } else if (ProxyConfiguration.PAC_URL_WSCRIPT.equals(modeName)) {
+            wScriptText = text.length() == 0 ? PacUrlDiscoveryService.defaultScript() : text;
+        } else if (ProxyConfiguration.PAC_URL_POWERSHELL.equals(modeName)) {
+            powerShellScriptText = text.length() == 0 ? ProxyDefaults.DEFAULT_PAC_URL_DISCOVERY_SCRIPT : text;
+        } else {
+            otherScriptText = text;
+        }
+    }
+
+    private String scriptTextFor(String modeName) {
+        if (ProxyConfiguration.PAC_URL_MANUAL.equals(modeName)) {
+            return manualPacUrlText;
+        }
+        if (ProxyConfiguration.PAC_URL_WSCRIPT.equals(modeName)) {
+            return wScriptText == null || wScriptText.length() == 0 ? PacUrlDiscoveryService.defaultScript() : wScriptText;
+        }
+        if (ProxyConfiguration.PAC_URL_POWERSHELL.equals(modeName)) {
+            return powerShellScriptText == null || powerShellScriptText.length() == 0 ? ProxyDefaults.DEFAULT_PAC_URL_DISCOVERY_SCRIPT : powerShellScriptText;
+        }
+        return otherScriptText == null ? "" : otherScriptText;
     }
 
     private void writeConfiguration() {
@@ -130,9 +184,19 @@ public final class ProxyPanel extends JPanel {
 
     private void resetDefault() {
         ProxyConfiguration cfg = ProxyConfiguration.defaults();
+        manualPacUrlText = "";
+        powerShellScriptText = ProxyDefaults.DEFAULT_PAC_URL_DISCOVERY_SCRIPT;
+        wScriptText = PacUrlDiscoveryService.defaultScript();
+        otherScriptText = "";
+        activeScriptMode = cfg.getModeName();
         mode.setSelectedItem(cfg.getModeName());
         testUrl.setText(cfg.getTestUrl());
-        pacUrlDiscoveryScript.setText(defaultScriptFor(cfg));
+        updatingScriptText = true;
+        try {
+            pacUrlDiscoveryScript.setText(scriptTextFor(activeScriptMode));
+        } finally {
+            updatingScriptText = false;
+        }
         manualHost.setText(empty(cfg.getManualProxyHost()));
         manualPort.setText(cfg.getManualProxyPort() > 0 ? String.valueOf(cfg.getManualProxyPort()) : "");
         writeConfiguration();
@@ -176,7 +240,7 @@ public final class ProxyPanel extends JPanel {
         return new ProxyConfiguration(
                 selectedMode(),
                 nonBlank(testUrl.getText(), ProxyConfiguration.defaults().getTestUrl()),
-                nonBlank(pacUrlDiscoveryScript.getText(), ProxyDefaults.DEFAULT_PAC_URL_DISCOVERY_SCRIPT),
+                scriptTextFor(selectedMode()),
                 "",
                 empty(manualHost.getText()),
                 parsePort(manualPort.getText()));
@@ -199,17 +263,6 @@ public final class ProxyPanel extends JPanel {
         } else if (ProxyConfiguration.MANUAL_PROXY.equals(selectedMode)) {
             append("MANUAL_PROXY: enter proxy host and port; PAC fields are ignored.");
         }
-    }
-
-    private String defaultScriptFor(ProxyConfiguration cfg) {
-        if (ProxyConfiguration.PAC_URL_WSCRIPT.equals(cfg.getModeName())) {
-            return com.aresstack.askai.java8.net.PacUrlDiscoveryService.defaultScript();
-        }
-        return nonBlank(cfg.getPacUrlDiscoveryScript(), ProxyDefaults.DEFAULT_PAC_URL_DISCOVERY_SCRIPT);
-    }
-
-    private boolean isDefaultPowerShellScript(String value) {
-        return value == null || value.trim().length() == 0 || ProxyDefaults.DEFAULT_PAC_URL_DISCOVERY_SCRIPT.equals(value);
     }
 
     private void append(String message) {
