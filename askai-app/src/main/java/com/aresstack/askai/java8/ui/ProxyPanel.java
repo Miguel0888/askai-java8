@@ -68,7 +68,7 @@ public final class ProxyPanel extends JPanel {
         form.add(testUrl);
         form.add(new JLabel("PAC URL discovery script"));
         form.add(pacUrlDiscoveryScript);
-        form.add(new JLabel("Explicit PAC URL (optional)"));
+        form.add(new JLabel("Explicit PAC/WPAD URL"));
         form.add(pacUrl);
         form.add(new JLabel("Manual host"));
         form.add(manualHost);
@@ -92,14 +92,18 @@ public final class ProxyPanel extends JPanel {
         log.setEditable(false);
         add(new JScrollPane(log), BorderLayout.CENTER);
         append("Proxy changes apply immediately to all Hugging Face operations.");
-        append("Default is PAC_URL: Windows AutoConfigURL/WPAD -> PAC download -> FindProxyForURL.");
+        append("PAC_URL_MANUAL means: paste the exact PAC/WPAD URL into 'Explicit PAC/WPAD URL'.");
+        append("PAC_URL_WINDOWS_SETTINGS means: read AutoConfigURL/WPAD from Windows settings automatically.");
+        append("PAC_URL_POWERSHELL means: discover the PAC URL via the configured PowerShell script.");
         installLiveBindings();
+        appendModeHelp(selectedMode());
     }
 
     private void installLiveBindings() {
         mode.addActionListener(e -> {
             writeConfiguration();
             append("Proxy mode: " + selectedMode());
+            appendModeHelp(selectedMode());
         });
         DocumentListener onEdit = new DocumentListener() {
             public void insertUpdate(DocumentEvent event) { writeConfiguration(); }
@@ -127,17 +131,26 @@ public final class ProxyPanel extends JPanel {
         mode.setSelectedItem(cfg.getMode());
         testUrl.setText(cfg.getTestUrl());
         pacUrlDiscoveryScript.setText(defaultPacScript(cfg));
-        pacUrl.setText("");
-        manualHost.setText("");
-        manualPort.setText("");
+        pacUrl.setText(empty(cfg.getPacUrl()));
+        manualHost.setText(empty(cfg.getManualProxyHost()));
+        manualPort.setText(cfg.getManualProxyPort() > 0 ? String.valueOf(cfg.getManualProxyPort()) : "");
         writeConfiguration();
         append("Reset to win-proxy-java defaults: " + cfg.getMode());
+        appendModeHelp(cfg.getMode());
     }
 
     private void resolveTestUrl() {
         final ProxyConfiguration cfg = buildConfiguration();
         writeConfiguration();
         final String url = cfg.getTestUrl();
+        try {
+            cfg.validateForUse();
+        } catch (Exception ex) {
+            append("ERROR: " + ex.getMessage());
+            JOptionPane.showMessageDialog(this, ex.getMessage(),
+                    "Proxy configuration incomplete", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
         append("Resolving " + url + " ...");
         new SwingWorker<Object, Void>() {
             protected Object doInBackground() {
@@ -170,7 +183,19 @@ public final class ProxyPanel extends JPanel {
 
     private ProxyMode selectedMode() {
         Object selected = mode.getSelectedItem();
-        return selected instanceof ProxyMode ? (ProxyMode) selected : ProxyMode.PAC_URL_POWERSHELL;
+        return selected instanceof ProxyMode ? (ProxyMode) selected : ProxyConfiguration.defaults().getMode();
+    }
+
+    private void appendModeHelp(ProxyMode selectedMode) {
+        if (selectedMode == ProxyMode.PAC_URL_MANUAL) {
+            append("PAC_URL_MANUAL: paste the PAC/WPAD URL manually. Example: http://wpad/wpad.dat or your Windows AutoConfigURL.");
+        } else if (selectedMode == ProxyMode.PAC_URL_WINDOWS_SETTINGS) {
+            append("PAC_URL_WINDOWS_SETTINGS: the PAC URL is taken from Windows proxy settings; do not use the manual PAC field for this mode.");
+        } else if (selectedMode == ProxyMode.PAC_URL_POWERSHELL) {
+            append("PAC_URL_POWERSHELL: the PowerShell script discovers the PAC URL; use the script field if the default command is not allowed.");
+        } else if (selectedMode == ProxyMode.MANUAL_PROXY) {
+            append("MANUAL_PROXY: enter proxy host and port; PAC fields are ignored.");
+        }
     }
 
     private void append(String message) {
