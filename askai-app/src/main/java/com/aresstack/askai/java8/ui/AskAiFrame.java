@@ -13,6 +13,9 @@ import javax.swing.JButton;
 import javax.swing.JComboBox;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
+import javax.swing.JMenu;
+import javax.swing.JMenuBar;
+import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
@@ -73,17 +76,31 @@ public final class AskAiFrame {
         inputArea.setWrapStyleWord(true);
 
         frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
+        frame.setJMenuBar(createMenuBar());
         frame.setLayout(new BorderLayout(8, 8));
         frame.add(createTopPanel(), BorderLayout.NORTH);
         frame.add(createCenterPanel(), BorderLayout.CENTER);
         frame.add(createBottomPanel(), BorderLayout.SOUTH);
-        frame.setSize(1000, 700);
+        frame.setSize(1100, 760);
         frame.setLocationRelativeTo(null);
         frame.addWindowListener(new WindowAdapter() {
             public void windowClosed(WindowEvent event) {
                 askAiService.shutdown();
             }
         });
+    }
+
+    private JMenuBar createMenuBar() {
+        JMenuBar menuBar = new JMenuBar();
+        JMenu modelsMenu = new JMenu("Models");
+        JMenuItem manageModelsItem = new JMenuItem("Models / Downloads...");
+        JMenuItem refreshModelsItem = new JMenuItem("Refresh installed models");
+        manageModelsItem.addActionListener(event -> openModelManager());
+        refreshModelsItem.addActionListener(event -> refreshModels());
+        modelsMenu.add(manageModelsItem);
+        modelsMenu.add(refreshModelsItem);
+        menuBar.add(modelsMenu);
+        return menuBar;
     }
 
     private JPanel createTopPanel() {
