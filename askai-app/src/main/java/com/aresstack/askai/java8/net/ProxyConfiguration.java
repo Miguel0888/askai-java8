@@ -94,7 +94,7 @@ public final class ProxyConfiguration {
         if (MANUAL_PROXY.equals(mode)) { return new Proxy(Proxy.Type.HTTP, new InetSocketAddress(manualProxyHost, manualProxyPort)); }
         Object result = resolveByMode(nonBlank(url, testUrl));
         String text = result == null ? "" : String.valueOf(result);
-        if (text.toUpperCase().startsWith("ERROR")) { throw new IOException("Proxy resolution failed: " + text); }
+        if (text.toUpperCase().startsWith("ERROR") || text.indexOf("\nERROR") >= 0) { throw new IOException("Proxy resolution failed: " + text); }
         if (text.toUpperCase().indexOf("DIRECT") >= 0) { return Proxy.NO_PROXY; }
         Proxy reflected = reflectProxy(result);
         if (reflected != null) { return reflected; }
@@ -105,7 +105,12 @@ public final class ProxyConfiguration {
     private Object resolveByMode(String url) throws IOException {
         if (PAC_URL_WSCRIPT.equals(mode)) {
             String discoveredPacUrl = new PacUrlDiscoveryService().discoverWithScript(pacUrlDiscoveryScript);
-            return resolveWithConfiguration(toWinProxyConfiguration(ProxyMode.PAC_URL_MANUAL, discoveredPacUrl), url);
+            Object result = resolveWithConfiguration(toWinProxyConfiguration(ProxyMode.PAC_URL_MANUAL, discoveredPacUrl), url);
+            String text = result == null ? "" : String.valueOf(result);
+            if (text.toUpperCase().startsWith("ERROR")) {
+                return "PAC URL discovered by WSCRIPT: " + discoveredPacUrl + System.lineSeparator() + text;
+            }
+            return result;
         }
         return resolveWithConfiguration(toWinProxyConfiguration(), url);
     }
