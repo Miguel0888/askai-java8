@@ -1,7 +1,6 @@
 package com.aresstack.askai.java8.config;
 
 import com.aresstack.askai.java8.net.ProxyConfiguration;
-import com.aresstack.winproxy.ProxyMode;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -39,19 +38,19 @@ public final class AppConfigurationRepository {
             properties.load(inputStream);
             AppConfiguration defaults = AppConfiguration.defaults();
             ProxyConfiguration defaultProxy = defaults.getProxyConfiguration();
+            String mode = properties.getProperty(PROXY_MODE, defaultProxy.getModeName());
             return new AppConfiguration(
                     properties.getProperty(OLLAMA_BASE_URL, defaults.getOllamaBaseUrl()),
                     properties.getProperty(KEEP_ALIVE, defaults.getKeepAlive()),
                     new ProxyConfiguration(
-                            parseMode(properties.getProperty(PROXY_MODE, defaultProxy.getModeName())),
+                            mode,
                             properties.getProperty(PROXY_TEST_URL, defaultProxy.getTestUrl()),
                             properties.getProperty(PROXY_PAC_SCRIPT, defaultProxy.getPacUrlDiscoveryScript()),
                             properties.getProperty(PROXY_PAC_URL, defaultProxy.getPacUrl()),
                             properties.getProperty(PROXY_HOST, defaultProxy.getManualProxyHost()),
                             parseInt(properties.getProperty(PROXY_PORT, String.valueOf(defaultProxy.getManualProxyPort())))),
                     properties.getProperty(HF_TOKEN, ""),
-                    new File(properties.getProperty(DOWNLOAD_DIRECTORY,
-                            defaults.getModelDownloadDirectory().getAbsolutePath())));
+                    new File(properties.getProperty(DOWNLOAD_DIRECTORY, defaults.getModelDownloadDirectory().getAbsolutePath())));
         } catch (IOException ex) {
             return AppConfiguration.defaults();
         } finally {
@@ -92,14 +91,6 @@ public final class AppConfigurationRepository {
             return new File(appData, ".askai-java8");
         }
         return new File(System.getProperty("user.home"), ".askai-java8");
-    }
-
-    private ProxyMode parseMode(String value) {
-        try {
-            return ProxyMode.valueOf(value);
-        } catch (Exception ex) {
-            return ProxyConfiguration.defaults().getMode();
-        }
     }
 
     private int parseInt(String value) {
