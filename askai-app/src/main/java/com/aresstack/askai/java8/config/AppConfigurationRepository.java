@@ -1,6 +1,7 @@
 package com.aresstack.askai.java8.config;
 
 import com.aresstack.askai.java8.net.ProxyConfiguration;
+import com.aresstack.winproxy.ProxyMode;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -12,7 +13,10 @@ public final class AppConfigurationRepository {
 
     private static final String OLLAMA_BASE_URL = "ollama.baseUrl";
     private static final String KEEP_ALIVE = "ollama.keepAlive";
-    private static final String PROXY_ENABLED = "proxy.enabled";
+    private static final String PROXY_MODE = "proxy.mode";
+    private static final String PROXY_TEST_URL = "proxy.testUrl";
+    private static final String PROXY_PAC_SCRIPT = "proxy.pacUrlDiscoveryScript";
+    private static final String PROXY_PAC_URL = "proxy.pacUrl";
     private static final String PROXY_HOST = "proxy.host";
     private static final String PROXY_PORT = "proxy.port";
     private static final String HF_TOKEN = "huggingface.token";
@@ -34,13 +38,17 @@ public final class AppConfigurationRepository {
             inputStream = new FileInputStream(configurationFile);
             properties.load(inputStream);
             AppConfiguration defaults = AppConfiguration.defaults();
+            ProxyConfiguration defaultProxy = defaults.getProxyConfiguration();
             return new AppConfiguration(
                     properties.getProperty(OLLAMA_BASE_URL, defaults.getOllamaBaseUrl()),
                     properties.getProperty(KEEP_ALIVE, defaults.getKeepAlive()),
                     new ProxyConfiguration(
-                            Boolean.parseBoolean(properties.getProperty(PROXY_ENABLED, "false")),
-                            properties.getProperty(PROXY_HOST, ""),
-                            parseInt(properties.getProperty(PROXY_PORT, "0"))),
+                            parseMode(properties.getProperty(PROXY_MODE, defaultProxy.getModeName())),
+                            properties.getProperty(PROXY_TEST_URL, defaultProxy.getTestUrl()),
+                            properties.getProperty(PROXY_PAC_SCRIPT, defaultProxy.getPacUrlDiscoveryScript()),
+                            properties.getProperty(PROXY_PAC_URL, defaultProxy.getPacUrl()),
+                            properties.getProperty(PROXY_HOST, defaultProxy.getManualProxyHost()),
+                            parseInt(properties.getProperty(PROXY_PORT, String.valueOf(defaultProxy.getManualProxyPort())))),
                     properties.getProperty(HF_TOKEN, ""),
                     new File(properties.getProperty(DOWNLOAD_DIRECTORY,
                             defaults.getModelDownloadDirectory().getAbsolutePath())));
@@ -56,12 +64,16 @@ public final class AppConfigurationRepository {
         if (!directory.isDirectory() && !directory.mkdirs()) {
             return;
         }
+        ProxyConfiguration proxy = configuration.getProxyConfiguration();
         Properties properties = new Properties();
         properties.setProperty(OLLAMA_BASE_URL, configuration.getOllamaBaseUrl());
         properties.setProperty(KEEP_ALIVE, configuration.getKeepAlive());
-        properties.setProperty(PROXY_ENABLED, String.valueOf(configuration.getProxyConfiguration().isEnabled()));
-        properties.setProperty(PROXY_HOST, configuration.getProxyConfiguration().getHost());
-        properties.setProperty(PROXY_PORT, String.valueOf(configuration.getProxyConfiguration().getPort()));
+        properties.setProperty(PROXY_MODE, proxy.getModeName());
+        properties.setProperty(PROXY_TEST_URL, proxy.getTestUrl());
+        properties.setProperty(PROXY_PAC_SCRIPT, proxy.getPacUrlDiscoveryScript());
+        properties.setProperty(PROXY_PAC_URL, proxy.getPacUrl());
+        properties.setProperty(PROXY_HOST, proxy.getManualProxyHost());
+        properties.setProperty(PROXY_PORT, String.valueOf(proxy.getManualProxyPort()));
         properties.setProperty(HF_TOKEN, configuration.getHuggingFaceToken());
         properties.setProperty(DOWNLOAD_DIRECTORY, configuration.getModelDownloadDirectory().getAbsolutePath());
         FileOutputStream outputStream = null;
@@ -80,6 +92,14 @@ public final class AppConfigurationRepository {
             return new File(appData, ".askai-java8");
         }
         return new File(System.getProperty("user.home"), ".askai-java8");
+    }
+
+    private ProxyMode parseMode(String value) {
+        try {
+            return ProxyMode.valueOf(value);
+        } catch (Exception ex) {
+            return ProxyConfiguration.defaults().getMode();
+        }
     }
 
     private int parseInt(String value) {
