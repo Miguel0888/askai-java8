@@ -16,7 +16,7 @@ Java 8 compatible AskAI multi-project.
 - Search HuggingFace GGUF models.
 - List and download GGUF files from HuggingFace.
 - Use HTTP proxy settings for HuggingFace access.
-- Resolve proxy settings automatically, including WScript registry discovery as a fallback when PAC discovery through PowerShell or Windows settings fails.
+- Select the script based PAC discovery option as its own proxy mode; the PAC URL discovery script field contains the script for that mode.
 
 ## Build
 
