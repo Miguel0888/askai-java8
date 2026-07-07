@@ -55,45 +55,16 @@ public final class ProxyConfiguration {
                 defaults.getManualProxyPort());
     }
 
-    public boolean isEnabled() {
-        return mode != ProxyMode.DISABLED;
-    }
-
-    public ProxyMode getMode() {
-        return mode;
-    }
-
-    public String getModeName() {
-        return mode.name();
-    }
-
-    public String getTestUrl() {
-        return testUrl;
-    }
-
-    public String getPacUrlDiscoveryScript() {
-        return pacUrlDiscoveryScript;
-    }
-
-    public String getPacUrl() {
-        return pacUrl;
-    }
-
-    public String getHost() {
-        return manualProxyHost;
-    }
-
-    public String getManualProxyHost() {
-        return manualProxyHost;
-    }
-
-    public int getPort() {
-        return manualProxyPort;
-    }
-
-    public int getManualProxyPort() {
-        return manualProxyPort;
-    }
+    public boolean isEnabled() { return mode != ProxyMode.DISABLED; }
+    public ProxyMode getMode() { return mode; }
+    public String getModeName() { return mode.name(); }
+    public String getTestUrl() { return testUrl; }
+    public String getPacUrlDiscoveryScript() { return pacUrlDiscoveryScript; }
+    public String getPacUrl() { return pacUrl; }
+    public String getHost() { return manualProxyHost; }
+    public String getManualProxyHost() { return manualProxyHost; }
+    public int getPort() { return manualProxyPort; }
+    public int getManualProxyPort() { return manualProxyPort; }
 
     public com.aresstack.winproxy.ProxyConfiguration toWinProxyConfiguration() {
         com.aresstack.winproxy.ProxyConfiguration.Builder builder = com.aresstack.winproxy.ProxyConfiguration.builder()
@@ -196,7 +167,7 @@ public final class ProxyConfiguration {
         if (value == null || value.toUpperCase().indexOf("DIRECT") >= 0) {
             return Proxy.NO_PROXY;
         }
-        String[] parts = value.split("[ ,;()]+|");
+        String[] parts = value.split("[ ,;()]+{}");
         for (int i = 0; i < parts.length; i++) {
             String token = parts[i];
             int colon = token.lastIndexOf(':');
