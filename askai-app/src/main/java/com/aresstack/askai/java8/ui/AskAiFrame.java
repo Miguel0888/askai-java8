@@ -40,6 +40,7 @@ public final class AskAiFrame {
     private final JButton sendButton;
     private final JButton refreshButton;
     private final JButton saveButton;
+    private final JButton modelManagerButton;
 
     public AskAiFrame(AppConfigurationRepository configurationRepository, AskAiService askAiService) {
         this.configurationRepository = configurationRepository;
@@ -54,6 +55,7 @@ public final class AskAiFrame {
         this.sendButton = new JButton("Send");
         this.refreshButton = new JButton("Refresh models");
         this.saveButton = new JButton("Save settings");
+        this.modelManagerButton = new JButton("Models / Downloads");
     }
 
     public void showFrame() {
@@ -95,9 +97,11 @@ public final class AskAiFrame {
         panel.add(new JLabel("Model:"));
         panel.add(modelComboBox);
         panel.add(refreshButton);
+        panel.add(modelManagerButton);
 
         saveButton.addActionListener(event -> saveConfiguration());
         refreshButton.addActionListener(event -> refreshModels());
+        modelManagerButton.addActionListener(event -> openModelManager());
         return panel;
     }
 
@@ -127,8 +131,22 @@ public final class AskAiFrame {
     }
 
     private void saveConfiguration() {
-        configurationRepository.save(new AppConfiguration(baseUrlField.getText(), keepAliveField.getText()));
+        AppConfiguration current = configurationRepository.load();
+        configurationRepository.save(new AppConfiguration(
+                baseUrlField.getText(),
+                keepAliveField.getText(),
+                current.getProxyConfiguration(),
+                current.getHuggingFaceToken(),
+                current.getModelDownloadDirectory()));
         setStatus("Settings saved.");
+    }
+
+    private void openModelManager() {
+        saveConfiguration();
+        ModelManagerDialog dialog = new ModelManagerDialog(frame, configurationRepository, askAiService);
+        dialog.showDialog();
+        loadConfiguration();
+        refreshModels();
     }
 
     private void refreshModels() {
@@ -217,6 +235,7 @@ public final class AskAiFrame {
         sendButton.setEnabled(!busy);
         refreshButton.setEnabled(!busy);
         saveButton.setEnabled(!busy);
+        modelManagerButton.setEnabled(!busy);
         setStatus(status);
     }
 
