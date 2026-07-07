@@ -4,6 +4,7 @@ import com.aresstack.winproxy.ProxyDefaults;
 import com.aresstack.winproxy.ProxyMode;
 import com.aresstack.winproxy.WindowsProxyResolver;
 
+import java.io.IOException;
 import java.lang.reflect.Method;
 import java.net.InetSocketAddress;
 import java.net.Proxy;
@@ -92,19 +93,58 @@ public final class ProxyConfiguration {
     }
 
     public Proxy toProxyFor(String url) {
+        try {
+            return resolveJavaProxy(url);
+        } catch (IOException ex) {
+            return Proxy.NO_PROXY;
+        }
+    }
+
+    public Proxy resolveJavaProxy(String url) throws IOException {
+        validateForUse();
         if (mode == ProxyMode.DISABLED) {
             return Proxy.NO_PROXY;
         }
-        if (mode == ProxyMode.MANUAL_PROXY && manualProxyHost.length() > 0 && manualProxyPort > 0) {
+        if (mode == ProxyMode.MANUAL_PROXY) {
             return new Proxy(Proxy.Type.HTTP, new InetSocketAddress(manualProxyHost, manualProxyPort));
         }
-        Object result = resolve(nonBlank(url, testUrl));
+        Object result;
+        try {
+            result = resolve(nonBlank(url, testUrl));
+        } catch (RuntimeException ex) {
+            throw new IOException("Proxy resolution failed: " + ex.getMessage(), ex);
+        }
+        String text = result == null ? "" : String.valueOf(result);
+        if (text.toUpperCase().startsWith("ERROR")) {
+            throw new IOException("Proxy resolution failed: " + text);
+        }
+        if (text.toUpperCase().indexOf("DIRECT") >= 0) {
+            return Proxy.NO_PROXY;
+        }
         Proxy reflected = reflectProxy(result);
         if (reflected != null) {
             return reflected;
         }
-        Proxy parsed = parseProxy(result == null ? "" : result.toString());
-        return parsed == null ? Proxy.NO_PROXY : parsed;
+        Proxy parsed = parseProxy(text);
+        if (parsed != null) {
+            return parsed;
+        }
+        return Proxy.NO_PROXY;
+    }
+
+    public void validateForUse() throws IOException {
+        if (mode == ProxyMode.DISABLED) {
+            return;
+        }
+        if (mode == ProxyMode.MANUAL_PROXY) {
+            if (trimToNull(manualProxyHost) == null || manualProxyPort <= 0) {
+                throw new IOException("MANUAL_PROXY requires manual host and port.");
+            }
+            return;
+        }
+        if (mode == ProxyMode.PAC_URL_MANUAL && trimToNull(pacUrl) == null) {
+            throw new IOException("PAC_URL_MANUAL requires the explicit PAC/WPAD URL in the PAC URL field, e.g. http://wpad/wpad.dat or the AutoConfigURL from Windows settings.");
+        }
     }
 
     private Proxy reflectProxy(Object result) {
