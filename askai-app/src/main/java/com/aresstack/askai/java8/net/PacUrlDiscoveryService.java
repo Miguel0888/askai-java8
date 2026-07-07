@@ -72,16 +72,18 @@ public final class PacUrlDiscoveryService {
 
     private String runScriptAndReadFirstLine(File scriptFile) throws IOException {
         Process process = new ProcessBuilder("cscript.exe", "//NoLogo", scriptFile.getAbsolutePath()).redirectErrorStream(true).start();
-        String output = readText(process);
+        boolean completed;
         try {
-            if (!process.waitFor(20L, TimeUnit.SECONDS)) {
-                process.destroy();
-                throw new IOException("Script PAC discovery timed out.");
-            }
+            completed = process.waitFor(20L, TimeUnit.SECONDS);
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
             throw new IOException("Script PAC discovery was interrupted.", ex);
         }
+        if (!completed) {
+            process.destroy();
+            throw new IOException("Script PAC discovery timed out.");
+        }
+        String output = readText(process);
         if (process.exitValue() != 0) {
             throw new IOException("Script PAC discovery failed with exit code " + process.exitValue() + ": " + output);
         }
