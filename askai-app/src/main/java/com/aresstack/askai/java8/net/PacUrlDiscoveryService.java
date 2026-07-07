@@ -12,17 +12,46 @@ import java.util.concurrent.TimeUnit;
 
 public final class PacUrlDiscoveryService {
 
-    public String discoverWithWScript() throws IOException {
+    public static String defaultScript() {
+        StringBuilder builder = new StringBuilder();
+        builder.append("Option Explicit\r\n");
+        builder.append("Dim shell\r\n");
+        builder.append("Set shell = CreateObject(\"WScript.Shell\")\r\n");
+        writeRegistryProbe(builder, "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings\\AutoConfigURL");
+        writeRegistryProbe(builder, "HKCU\\Software\\Policies\\Microsoft\\Windows\\CurrentVersion\\Internet Settings\\AutoConfigURL");
+        writeRegistryProbe(builder, "HKLM\\Software\\Policies\\Microsoft\\Windows\\CurrentVersion\\Internet Settings\\AutoConfigURL");
+        writeRegistryProbe(builder, "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings\\AutoConfigURL");
+        builder.append("WScript.Quit 1\r\n");
+        return builder.toString();
+    }
+
+    private static void writeRegistryProbe(StringBuilder builder, String registryPath) {
+        builder.append("PrintRegistryValue shell, \"").append(registryPath).append("\"\r\n");
+        if (builder.indexOf("Sub PrintRegistryValue") < 0) {
+            builder.append("Sub PrintRegistryValue(shell, registryPath)\r\n");
+            builder.append("    Dim value\r\n");
+            builder.append("    On Error Resume Next\r\n");
+            builder.append("    Err.Clear\r\n");
+            builder.append("    value = shell.RegRead(registryPath)\r\n");
+            builder.append("    If Err.Number = 0 Then\r\n");
+            builder.append("        WScript.Echo CStr(value)\r\n");
+            builder.append("        WScript.Quit 0\r\n");
+            builder.append("    End If\r\n");
+            builder.append("    On Error GoTo 0\r\n");
+            builder.append("End Sub\r\n");
+        }
+    }
+
+    public String discoverWithScript(String script) throws IOException {
+        String configuredScript = script == null || script.trim().length() == 0 ? defaultScript() : script;
         File directory = createWorkingDirectory();
         File scriptFile = new File(directory, "askai-pac-discovery.vbs");
-        File outputFile = new File(directory, "askai-pac-discovery.txt");
-        writeScript(scriptFile, outputFile);
-        runWScript(scriptFile);
-        String result = readFirstAutoConfigUrl(outputFile);
-        if (result == null || result.trim().length() == 0) {
-            throw new IOException("No AutoConfigURL found via WScript registry discovery. If AutoDetect=1 is used without AutoConfigURL, use a WPAD-capable mode instead.");
-        }
-        return result.trim();
+        writeScript(scriptFile, configuredScript);
+        return runWScriptAndReadFirstLine(scriptFile);
+    }
+
+    public String discoverWithWScript() throws IOException {
+        return discoverWithScript(defaultScript());
     }
 
     private File createWorkingDirectory() throws IOException {
@@ -33,46 +62,14 @@ public final class PacUrlDiscoveryService {
         return directory;
     }
 
-    private void writeScript(File scriptFile, File outputFile) throws IOException {
+    private void writeScript(File scriptFile, String script) throws IOException {
         Writer writer = null;
         try {
             writer = new OutputStreamWriter(new FileOutputStream(scriptFile), "UTF-8");
-            writer.write("Option Explicit\r\n");
-            writer.write("Dim shell, fileSystem, outputFile\r\n");
-            writer.write("Set shell = CreateObject(\"WScript.Shell\")\r\n");
-            writer.write("Set fileSystem = CreateObject(\"Scripting.FileSystemObject\")\r\n");
-            writer.write("Set outputFile = fileSystem.CreateTextFile(\"");
-            writer.write(escapeForVbScript(outputFile.getAbsolutePath()));
-            writer.write("\", True)\r\n");
-            writeRegistryLine(writer, "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings\\AutoConfigURL");
-            writeRegistryLine(writer, "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings\\AutoDetect");
-            writeRegistryLine(writer, "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings\\ProxyEnable");
-            writeRegistryLine(writer, "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings\\ProxyServer");
-            writer.write("outputFile.WriteLine \"\"\r\n");
-            writeRegistryLine(writer, "HKCU\\Software\\Policies\\Microsoft\\Windows\\CurrentVersion\\Internet Settings\\AutoConfigURL");
-            writeRegistryLine(writer, "HKCU\\Software\\Policies\\Microsoft\\Windows\\CurrentVersion\\Internet Settings\\ProxyEnable");
-            writeRegistryLine(writer, "HKCU\\Software\\Policies\\Microsoft\\Windows\\CurrentVersion\\Internet Settings\\ProxyServer");
-            writer.write("outputFile.WriteLine \"\"\r\n");
-            writeRegistryLine(writer, "HKLM\\Software\\Policies\\Microsoft\\Windows\\CurrentVersion\\Internet Settings\\AutoConfigURL");
-            writeRegistryLine(writer, "HKLM\\Software\\Policies\\Microsoft\\Windows\\CurrentVersion\\Internet Settings\\ProxyEnable");
-            writeRegistryLine(writer, "HKLM\\Software\\Policies\\Microsoft\\Windows\\CurrentVersion\\Internet Settings\\ProxyServer");
-            writer.write("outputFile.WriteLine \"\"\r\n");
-            writeRegistryLine(writer, "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings\\AutoConfigURL");
-            writeRegistryLine(writer, "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings\\ProxyEnable");
-            writeRegistryLine(writer, "HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings\\ProxyServer");
-            writer.write("outputFile.Close\r\n");
-            writer.write("Sub WriteRegistryValue(outputFile, shell, registryPath)\r\n");
-            writer.write("    Dim value\r\n");
-            writer.write("    On Error Resume Next\r\n");
-            writer.write("    Err.Clear\r\n");
-            writer.write("    value = shell.RegRead(registryPath)\r\n");
-            writer.write("    If Err.Number = 0 Then\r\n");
-            writer.write("        outputFile.WriteLine registryPath & \" = \" & CStr(value)\r\n");
-            writer.write("    Else\r\n");
-            writer.write("        outputFile.WriteLine registryPath & \" = <not found>\"\r\n");
-            writer.write("    End If\r\n");
-            writer.write("    On Error GoTo 0\r\n");
-            writer.write("End Sub\r\n");
+            writer.write(script);
+            if (!script.endsWith("\n")) {
+                writer.write("\r\n");
+            }
         } finally {
             if (writer != null) {
                 writer.close();
@@ -80,14 +77,9 @@ public final class PacUrlDiscoveryService {
         }
     }
 
-    private void writeRegistryLine(Writer writer, String path) throws IOException {
-        writer.write("WriteRegistryValue outputFile, shell, \"");
-        writer.write(path);
-        writer.write("\"\r\n");
-    }
-
-    private void runWScript(File scriptFile) throws IOException {
-        Process process = new ProcessBuilder("wscript.exe", "//B", "//Nologo", scriptFile.getAbsolutePath()).start();
+    private String runWScriptAndReadFirstLine(File scriptFile) throws IOException {
+        Process process = new ProcessBuilder("wscript.exe", "//B", "//Nologo", scriptFile.getAbsolutePath()).redirectErrorStream(true).start();
+        String output = readText(process);
         try {
             if (!process.waitFor(20L, TimeUnit.SECONDS)) {
                 process.destroy();
@@ -98,25 +90,25 @@ public final class PacUrlDiscoveryService {
             throw new IOException("WScript PAC discovery was interrupted.", ex);
         }
         if (process.exitValue() != 0) {
-            throw new IOException("WScript PAC discovery failed with exit code " + process.exitValue() + ".");
+            throw new IOException("WScript PAC discovery failed with exit code " + process.exitValue() + ": " + output);
         }
+        String result = firstUsableLine(output);
+        if (result == null) {
+            throw new IOException("WScript PAC discovery did not print an AutoConfigURL.");
+        }
+        return result;
     }
 
-    private String readFirstAutoConfigUrl(File outputFile) throws IOException {
-        if (!outputFile.isFile()) {
-            throw new IOException("WScript PAC discovery did not create an output file.");
-        }
+    private String readText(Process process) throws IOException {
         BufferedReader reader = null;
         try {
-            reader = new BufferedReader(new InputStreamReader(new FileInputStream(outputFile), "UTF-8"));
+            reader = new BufferedReader(new InputStreamReader(process.getInputStream(), "UTF-8"));
+            StringBuilder builder = new StringBuilder();
             String line;
             while ((line = reader.readLine()) != null) {
-                String value = parseAutoConfigUrl(line);
-                if (value != null) {
-                    return value;
-                }
+                builder.append(line).append('\n');
             }
-            return null;
+            return builder.toString();
         } finally {
             if (reader != null) {
                 reader.close();
@@ -124,22 +116,17 @@ public final class PacUrlDiscoveryService {
         }
     }
 
-    private String parseAutoConfigUrl(String line) {
-        if (line == null || line.indexOf("AutoConfigURL") < 0) {
+    private String firstUsableLine(String output) {
+        if (output == null) {
             return null;
         }
-        int separator = line.indexOf('=');
-        if (separator < 0) {
-            return null;
+        String[] lines = output.split("\\r?\\n");
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i] == null ? "" : lines[i].trim();
+            if (line.length() > 0 && line.toLowerCase().startsWith("http")) {
+                return line;
+            }
         }
-        String value = line.substring(separator + 1).trim();
-        if (value.length() == 0 || "<not found>".equalsIgnoreCase(value)) {
-            return null;
-        }
-        return value;
-    }
-
-    private String escapeForVbScript(String value) {
-        return value.replace("\"", "\"\"");
+        return null;
     }
 }
