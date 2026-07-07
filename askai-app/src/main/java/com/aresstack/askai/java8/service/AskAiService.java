@@ -1,7 +1,11 @@
 package com.aresstack.askai.java8.service;
 
+import com.aresstack.askai.java8.hf.HuggingFaceFile;
+import com.aresstack.askai.java8.hf.HuggingFaceModel;
 import io.github.ollama4j.models.Model;
+import io.github.ollama4j.models.PullProgress;
 
+import java.io.File;
 import java.util.List;
 
 public interface AskAiService {
@@ -9,6 +13,16 @@ public interface AskAiService {
     void listModels(ModelListListener listener);
 
     void sendChat(ChatRequest request, ChatListener listener);
+
+    void pullOllamaModel(String modelName, PullListener listener);
+
+    void searchHuggingFaceModels(String query, HuggingFaceModelListener listener);
+
+    void listHuggingFaceFiles(String modelId, HuggingFaceFileListener listener);
+
+    void downloadHuggingFaceFile(HuggingFaceFile file, DownloadListener listener);
+
+    void installGgufFile(String modelName, File ggufFile, ActionListener listener);
 
     void shutdown();
 
@@ -22,6 +36,40 @@ public interface AskAiService {
         void onToken(String token);
 
         void onComplete(ChatSummary summary);
+
+        void onError(Exception ex);
+    }
+
+    interface PullListener {
+        void onProgress(PullProgress progress);
+
+        void onComplete(String message);
+
+        void onError(Exception ex);
+    }
+
+    interface HuggingFaceModelListener {
+        void onModels(List<HuggingFaceModel> models);
+
+        void onError(Exception ex);
+    }
+
+    interface HuggingFaceFileListener {
+        void onFiles(List<HuggingFaceFile> files);
+
+        void onError(Exception ex);
+    }
+
+    interface DownloadListener {
+        void onProgress(long completed, long total);
+
+        void onComplete(File file);
+
+        void onError(Exception ex);
+    }
+
+    interface ActionListener {
+        void onComplete(String message);
 
         void onError(Exception ex);
     }
