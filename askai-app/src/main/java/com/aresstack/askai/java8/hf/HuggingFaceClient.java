@@ -122,7 +122,7 @@ public final class HuggingFaceClient {
     }
 
     private HttpURLConnection open(String url) throws IOException {
-        Proxy proxy = proxyConfiguration.toProxyFor(url);
+        Proxy proxy = proxyConfiguration.resolveJavaProxy(url);
         HttpURLConnection connection = (HttpURLConnection) (proxy == Proxy.NO_PROXY
                 ? new URL(url).openConnection()
                 : new URL(url).openConnection(proxy));
