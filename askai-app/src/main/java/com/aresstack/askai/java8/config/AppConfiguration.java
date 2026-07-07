@@ -13,14 +13,14 @@ public final class AppConfiguration {
     private final File modelDownloadDirectory;
 
     public AppConfiguration(String ollamaBaseUrl, String keepAlive) {
-        this(ollamaBaseUrl, keepAlive, ProxyConfiguration.disabled(), "", defaultDownloadDirectory());
+        this(ollamaBaseUrl, keepAlive, ProxyConfiguration.defaults(), "", defaultDownloadDirectory());
     }
 
     public AppConfiguration(String ollamaBaseUrl, String keepAlive, ProxyConfiguration proxyConfiguration,
                             String huggingFaceToken, File modelDownloadDirectory) {
         this.ollamaBaseUrl = normalizeBaseUrl(ollamaBaseUrl);
         this.keepAlive = keepAlive == null || keepAlive.trim().length() == 0 ? "5m" : keepAlive.trim();
-        this.proxyConfiguration = proxyConfiguration == null ? ProxyConfiguration.disabled() : proxyConfiguration;
+        this.proxyConfiguration = proxyConfiguration == null ? ProxyConfiguration.defaults() : proxyConfiguration;
         this.huggingFaceToken = huggingFaceToken == null ? "" : huggingFaceToken.trim();
         this.modelDownloadDirectory = modelDownloadDirectory == null ? defaultDownloadDirectory() : modelDownloadDirectory;
     }
