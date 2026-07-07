@@ -11,7 +11,17 @@ import java.net.Proxy;
 
 public final class ProxyConfiguration {
 
-    private final ProxyMode mode;
+    public static final String DISABLED = "DISABLED";
+    public static final String MANUAL_PROXY = "MANUAL_PROXY";
+    public static final String WINDOWS_STATIC_PROXY = "WINDOWS_STATIC_PROXY";
+    public static final String PAC_URL_MANUAL = "PAC_URL_MANUAL";
+    public static final String PAC_URL_POWERSHELL = "PAC_URL_POWERSHELL";
+    public static final String PAC_URL_WSCRIPT = "PAC_URL_WSCRIPT";
+    public static final String PAC_URL_WINDOWS_SETTINGS = "PAC_URL_WINDOWS_SETTINGS";
+    public static final String WINDOWS_NATIVE_PROXY_SETTINGS = "WINDOWS_NATIVE_PROXY_SETTINGS";
+    public static final String WINDOWS_NATIVE_ROUTE_RESOLVER = "WINDOWS_NATIVE_ROUTE_RESOLVER";
+
+    private final String mode;
     private final String testUrl;
     private final String pacUrlDiscoveryScript;
     private final String pacUrl;
@@ -19,7 +29,7 @@ public final class ProxyConfiguration {
     private final int manualProxyPort;
 
     public ProxyConfiguration(boolean enabled, String host, int port) {
-        this(enabled ? ProxyMode.MANUAL_PROXY : ProxyMode.DISABLED,
+        this(enabled ? MANUAL_PROXY : DISABLED,
                 defaults().getTestUrl(),
                 defaults().getPacUrlDiscoveryScript(),
                 "",
@@ -27,18 +37,23 @@ public final class ProxyConfiguration {
                 port);
     }
 
-    public ProxyConfiguration(ProxyMode mode, String testUrl, String pacUrlDiscoveryScript,
+    public ProxyConfiguration(String mode, String testUrl, String pacUrlDiscoveryScript,
                               String pacUrl, String manualProxyHost, int manualProxyPort) {
-        this.mode = mode == null ? ProxyMode.PAC_URL_POWERSHELL : mode;
+        this.mode = normalizeMode(mode);
         this.testUrl = nonBlank(testUrl, com.aresstack.winproxy.ProxyConfiguration.defaults().getTestUrl());
-        this.pacUrlDiscoveryScript = nonBlank(pacUrlDiscoveryScript, ProxyDefaults.DEFAULT_PAC_URL_DISCOVERY_SCRIPT);
+        this.pacUrlDiscoveryScript = nonBlank(pacUrlDiscoveryScript, defaultDiscoveryScript(this.mode));
         this.pacUrl = empty(pacUrl);
         this.manualProxyHost = empty(manualProxyHost);
         this.manualProxyPort = manualProxyPort;
     }
 
+    public ProxyConfiguration(ProxyMode mode, String testUrl, String pacUrlDiscoveryScript,
+                              String pacUrl, String manualProxyHost, int manualProxyPort) {
+        this(mode == null ? null : mode.name(), testUrl, pacUrlDiscoveryScript, pacUrl, manualProxyHost, manualProxyPort);
+    }
+
     public static ProxyConfiguration disabled() {
-        return new ProxyConfiguration(ProxyMode.DISABLED,
+        return new ProxyConfiguration(DISABLED,
                 com.aresstack.winproxy.ProxyConfiguration.defaults().getTestUrl(),
                 ProxyDefaults.DEFAULT_PAC_URL_DISCOVERY_SCRIPT,
                 "",
@@ -48,7 +63,7 @@ public final class ProxyConfiguration {
 
     public static ProxyConfiguration defaults() {
         com.aresstack.winproxy.ProxyConfiguration defaults = com.aresstack.winproxy.ProxyConfiguration.defaults();
-        return new ProxyConfiguration(defaults.getMode(),
+        return new ProxyConfiguration(defaults.getMode().name(),
                 defaults.getTestUrl(),
                 defaultPacScript(defaults),
                 defaults.getPacUrl(),
@@ -56,9 +71,9 @@ public final class ProxyConfiguration {
                 defaults.getManualProxyPort());
     }
 
-    public boolean isEnabled() { return mode != ProxyMode.DISABLED; }
-    public ProxyMode getMode() { return mode; }
-    public String getModeName() { return mode.name(); }
+    public boolean isEnabled() { return !DISABLED.equals(mode); }
+    public String getMode() { return mode; }
+    public String getModeName() { return mode; }
     public String getTestUrl() { return testUrl; }
     public String getPacUrlDiscoveryScript() { return pacUrlDiscoveryScript; }
     public String getPacUrl() { return manualPacUrl(); }
@@ -68,7 +83,7 @@ public final class ProxyConfiguration {
     public int getManualProxyPort() { return manualProxyPort; }
 
     public com.aresstack.winproxy.ProxyConfiguration toWinProxyConfiguration() {
-        return toWinProxyConfiguration(mode, manualPacUrl());
+        return toWinProxyConfiguration(toWinProxyMode(mode), manualPacUrl());
     }
 
     private com.aresstack.winproxy.ProxyConfiguration toWinProxyConfiguration(ProxyMode configuredMode, String effectivePacUrl) {
@@ -89,7 +104,11 @@ public final class ProxyConfiguration {
     }
 
     public Object resolve(String url) {
-        return resolveWithConfiguration(toWinProxyConfiguration(), url);
+        try {
+            return resolveByMode(nonBlank(url, testUrl));
+        } catch (IOException ex) {
+            return "ERROR (" + ex.getMessage() + ")";
+        }
     }
 
     public Proxy toProxy() {
@@ -106,13 +125,13 @@ public final class ProxyConfiguration {
 
     public Proxy resolveJavaProxy(String url) throws IOException {
         validateForUse();
-        if (mode == ProxyMode.DISABLED) {
+        if (DISABLED.equals(mode)) {
             return Proxy.NO_PROXY;
         }
-        if (mode == ProxyMode.MANUAL_PROXY) {
+        if (MANUAL_PROXY.equals(mode)) {
             return new Proxy(Proxy.Type.HTTP, new InetSocketAddress(manualProxyHost, manualProxyPort));
         }
-        Object result = resolveWithFallback(nonBlank(url, testUrl));
+        Object result = resolveByMode(nonBlank(url, testUrl));
         String text = result == null ? "" : String.valueOf(result);
         if (text.toUpperCase().startsWith("ERROR")) {
             throw new IOException("Proxy resolution failed: " + text);
@@ -131,42 +150,12 @@ public final class ProxyConfiguration {
         return Proxy.NO_PROXY;
     }
 
-    private Object resolveWithFallback(String url) throws IOException {
-        Object first;
-        try {
-            first = resolveWithConfiguration(toWinProxyConfiguration(), url);
-        } catch (RuntimeException ex) {
-            if (!isWScriptFallbackMode()) {
-                throw new IOException("Proxy resolution failed: " + ex.getMessage(), ex);
-            }
-            return resolveWithDiscoveredPacUrl(url, ex.getMessage());
+    private Object resolveByMode(String url) throws IOException {
+        if (PAC_URL_WSCRIPT.equals(mode)) {
+            String discoveredPacUrl = new PacUrlDiscoveryService().discoverWithScript(pacUrlDiscoveryScript);
+            return resolveWithConfiguration(toWinProxyConfiguration(ProxyMode.PAC_URL_MANUAL, discoveredPacUrl), url);
         }
-        String text = first == null ? "" : String.valueOf(first);
-        if (text.toUpperCase().startsWith("ERROR") && isWScriptFallbackMode()) {
-            return resolveWithDiscoveredPacUrl(url, text);
-        }
-        return first;
-    }
-
-    private Object resolveWithDiscoveredPacUrl(String url, String previousFailure) throws IOException {
-        String discoveredPacUrl;
-        try {
-            discoveredPacUrl = new PacUrlDiscoveryService().discoverWithWScript();
-        } catch (IOException ex) {
-            throw new IOException("Proxy resolution failed: " + previousFailure + "; WScript discovery also failed: " + ex.getMessage(), ex);
-        }
-        com.aresstack.winproxy.ProxyConfiguration discoveredConfiguration =
-                toWinProxyConfiguration(ProxyMode.PAC_URL_MANUAL, discoveredPacUrl);
-        Object second = resolveWithConfiguration(discoveredConfiguration, url);
-        String text = second == null ? "" : String.valueOf(second);
-        if (text.toUpperCase().startsWith("ERROR")) {
-            throw new IOException("Proxy resolution failed after WScript PAC discovery (" + discoveredPacUrl + "): " + text);
-        }
-        return second;
-    }
-
-    private boolean isWScriptFallbackMode() {
-        return mode == ProxyMode.PAC_URL_POWERSHELL || mode == ProxyMode.PAC_URL_WINDOWS_SETTINGS;
+        return resolveWithConfiguration(toWinProxyConfiguration(), url);
     }
 
     private Object resolveWithConfiguration(com.aresstack.winproxy.ProxyConfiguration configuration, String url) {
@@ -174,25 +163,54 @@ public final class ProxyConfiguration {
     }
 
     public void validateForUse() throws IOException {
-        if (mode == ProxyMode.DISABLED) {
+        if (DISABLED.equals(mode)) {
             return;
         }
-        if (mode == ProxyMode.MANUAL_PROXY) {
+        if (MANUAL_PROXY.equals(mode)) {
             if (trimToNull(manualProxyHost) == null || manualProxyPort <= 0) {
                 throw new IOException("MANUAL_PROXY requires manual host and port.");
             }
             return;
         }
-        if (mode == ProxyMode.PAC_URL_MANUAL && trimToNull(pacUrlDiscoveryScript) == null) {
-            throw new IOException("PAC_URL_MANUAL requires the PAC/WPAD URL in the PAC URL discovery script field, e.g. http://wpad/wpad.dat or the AutoConfigURL from Windows settings.");
+        if (PAC_URL_MANUAL.equals(mode) && trimToNull(pacUrlDiscoveryScript) == null) {
+            throw new IOException("PAC_URL_MANUAL requires the PAC/WPAD URL in the PAC URL discovery script field.");
+        }
+        if (PAC_URL_WSCRIPT.equals(mode) && trimToNull(pacUrlDiscoveryScript) == null) {
+            throw new IOException("PAC_URL_WSCRIPT requires a WScript discovery script in the PAC URL discovery script field.");
         }
     }
 
     private String manualPacUrl() {
-        if (mode == ProxyMode.PAC_URL_MANUAL) {
+        if (PAC_URL_MANUAL.equals(mode)) {
             return pacUrlDiscoveryScript;
         }
         return pacUrl;
+    }
+
+    private ProxyMode toWinProxyMode(String configuredMode) {
+        if (PAC_URL_WSCRIPT.equals(configuredMode)) {
+            return ProxyMode.PAC_URL_MANUAL;
+        }
+        return ProxyMode.valueOf(configuredMode);
+    }
+
+    private static String normalizeMode(String value) {
+        String candidate = value == null || value.trim().length() == 0 ? PAC_URL_POWERSHELL : value.trim();
+        if (PAC_URL_WSCRIPT.equals(candidate)) {
+            return candidate;
+        }
+        try {
+            return ProxyMode.valueOf(candidate).name();
+        } catch (Exception ex) {
+            return PAC_URL_POWERSHELL;
+        }
+    }
+
+    private static String defaultDiscoveryScript(String configuredMode) {
+        if (PAC_URL_WSCRIPT.equals(configuredMode)) {
+            return PacUrlDiscoveryService.defaultScript();
+        }
+        return ProxyDefaults.DEFAULT_PAC_URL_DISCOVERY_SCRIPT;
     }
 
     private Proxy reflectProxy(Object result) {
