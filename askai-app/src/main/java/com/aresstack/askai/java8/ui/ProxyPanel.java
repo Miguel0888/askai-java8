@@ -43,7 +43,6 @@ public final class ProxyPanel extends JPanel {
     private final JComboBox<ProxyMode> mode;
     private final JTextField testUrl;
     private final JTextField pacUrlDiscoveryScript;
-    private final JTextField pacUrl;
     private final JTextField manualHost;
     private final JTextField manualPort;
     private final JTextArea log;
@@ -59,7 +58,6 @@ public final class ProxyPanel extends JPanel {
         this.mode.setSelectedItem(cfg.getMode());
         this.testUrl = new JTextField(cfg.getTestUrl());
         this.pacUrlDiscoveryScript = new JTextField(defaultPacScript(cfg));
-        this.pacUrl = new JTextField(empty(cfg.getPacUrl()));
         this.manualHost = new JTextField(empty(cfg.getManualProxyHost()));
         this.manualPort = new JTextField(cfg.getManualProxyPort() > 0 ? String.valueOf(cfg.getManualProxyPort()) : "");
 
@@ -71,8 +69,6 @@ public final class ProxyPanel extends JPanel {
         form.add(testUrl);
         form.add(new JLabel("PAC URL discovery script"));
         form.add(pacUrlDiscoveryScript);
-        form.add(new JLabel("Explicit PAC/WPAD URL"));
-        form.add(pacUrl);
         form.add(new JLabel("Manual host"));
         form.add(manualHost);
         form.add(new JLabel("Manual port"));
@@ -98,10 +94,10 @@ public final class ProxyPanel extends JPanel {
         log.setEditable(false);
         add(new JScrollPane(log), BorderLayout.CENTER);
         append("Proxy changes apply immediately to all Hugging Face operations.");
-        append("PAC_URL_MANUAL means: paste the exact PAC/WPAD URL into 'Explicit PAC/WPAD URL'.");
+        append("For PAC_URL_MANUAL, put the PAC/WPAD URL directly into 'PAC URL discovery script'.");
         append("Use 'Discover PAC URL via WScript' when PowerShell, CMD, regedit, or direct registry tools are blocked but Windows Script Host is allowed.");
-        append("PAC_URL_WINDOWS_SETTINGS means: read AutoConfigURL/WPAD from Windows settings automatically.");
-        append("PAC_URL_POWERSHELL means: discover the PAC URL via the configured PowerShell script.");
+        append("PAC_URL_WINDOWS_SETTINGS reads AutoConfigURL/WPAD from Windows settings automatically.");
+        append("PAC_URL_POWERSHELL executes the configured discovery script.");
         installLiveBindings();
         appendModeHelp(selectedMode());
     }
@@ -117,7 +113,7 @@ public final class ProxyPanel extends JPanel {
             public void removeUpdate(DocumentEvent event) { writeConfiguration(); }
             public void changedUpdate(DocumentEvent event) { writeConfiguration(); }
         };
-        JTextComponent[] fields = new JTextComponent[]{manualHost, manualPort, pacUrl, testUrl, pacUrlDiscoveryScript};
+        JTextComponent[] fields = new JTextComponent[]{manualHost, manualPort, testUrl, pacUrlDiscoveryScript};
         for (int i = 0; i < fields.length; i++) {
             fields[i].getDocument().addDocumentListener(onEdit);
         }
@@ -138,7 +134,6 @@ public final class ProxyPanel extends JPanel {
         mode.setSelectedItem(cfg.getMode());
         testUrl.setText(cfg.getTestUrl());
         pacUrlDiscoveryScript.setText(defaultPacScript(cfg));
-        pacUrl.setText(empty(cfg.getPacUrl()));
         manualHost.setText(empty(cfg.getManualProxyHost()));
         manualPort.setText(cfg.getManualProxyPort() > 0 ? String.valueOf(cfg.getManualProxyPort()) : "");
         writeConfiguration();
@@ -156,11 +151,11 @@ public final class ProxyPanel extends JPanel {
             protected void done() {
                 try {
                     String discoveredUrl = get();
-                    pacUrl.setText(discoveredUrl);
+                    pacUrlDiscoveryScript.setText(discoveredUrl);
                     mode.setSelectedItem(ProxyMode.PAC_URL_MANUAL);
                     writeConfiguration();
                     append("Discovered PAC URL: " + discoveredUrl);
-                    append("Mode set to PAC_URL_MANUAL. You can now resolve the test URL.");
+                    append("Mode set to PAC_URL_MANUAL. The PAC URL is now in 'PAC URL discovery script'.");
                 } catch (Exception ex) {
                     append("ERROR: WScript PAC URL discovery failed: " + rootMessage(ex));
                     JOptionPane.showMessageDialog(ProxyPanel.this, rootMessage(ex),
@@ -207,7 +202,7 @@ public final class ProxyPanel extends JPanel {
                 selectedMode(),
                 nonBlank(testUrl.getText(), ProxyConfiguration.defaults().getTestUrl()),
                 nonBlank(pacUrlDiscoveryScript.getText(), ProxyDefaults.DEFAULT_PAC_URL_DISCOVERY_SCRIPT),
-                empty(pacUrl.getText()),
+                "",
                 empty(manualHost.getText()),
                 parsePort(manualPort.getText()));
     }
@@ -219,11 +214,11 @@ public final class ProxyPanel extends JPanel {
 
     private void appendModeHelp(ProxyMode selectedMode) {
         if (selectedMode == ProxyMode.PAC_URL_MANUAL) {
-            append("PAC_URL_MANUAL: paste the PAC/WPAD URL manually or use WScript discovery. Example: http://wpad/wpad.dat or your Windows AutoConfigURL.");
+            append("PAC_URL_MANUAL: paste the PAC/WPAD URL into 'PAC URL discovery script', or use WScript discovery.");
         } else if (selectedMode == ProxyMode.PAC_URL_WINDOWS_SETTINGS) {
-            append("PAC_URL_WINDOWS_SETTINGS: the PAC URL is taken from Windows proxy settings; do not use the manual PAC field for this mode.");
+            append("PAC_URL_WINDOWS_SETTINGS: the PAC URL is taken from Windows proxy settings.");
         } else if (selectedMode == ProxyMode.PAC_URL_POWERSHELL) {
-            append("PAC_URL_POWERSHELL: the PowerShell script discovers the PAC URL; use the script field if the default command is not allowed.");
+            append("PAC_URL_POWERSHELL: the field contains the PowerShell discovery script.");
         } else if (selectedMode == ProxyMode.MANUAL_PROXY) {
             append("MANUAL_PROXY: enter proxy host and port; PAC fields are ignored.");
         }
