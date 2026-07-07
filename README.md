@@ -16,6 +16,7 @@ Java 8 compatible AskAI multi-project.
 - Search HuggingFace GGUF models.
 - List and download GGUF files from HuggingFace.
 - Use HTTP proxy settings for HuggingFace access.
+- Discover a PAC URL through Windows Script Host and use it in the PAC URL discovery script field for manual PAC mode.
 
 ## Build
 
