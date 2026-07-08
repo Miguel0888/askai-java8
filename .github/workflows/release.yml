@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release version, for example 0.2.5'
+        description: 'Release version, for example 0.2.8'
         required: true
-        default: '0.2.5'
+        default: '0.2.8'
   push:
     branches:
       - main
@@ -49,7 +49,7 @@ jobs:
             VERSION="${{ github.event.inputs.version }}"
             VERSION="${VERSION#v}"
           else
-            VERSION="0.2.5"
+            VERSION="0.2.8"
           fi
           echo "VERSION=${VERSION}" >> "${GITHUB_ENV}"
           echo "TAG=v${VERSION}" >> "${GITHUB_ENV}"
