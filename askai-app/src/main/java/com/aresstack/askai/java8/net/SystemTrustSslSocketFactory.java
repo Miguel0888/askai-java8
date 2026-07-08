@@ -12,58 +12,61 @@ import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Provides an {@link SSLSocketFactory} that trusts certificates from the JVM default trust store
- * (the bundled {@code cacerts} file) <em>and</em> the Windows system root store ({@code Windows-ROOT}).
- *
- * <p>Corporate proxies frequently terminate TLS and re-sign responses with a private CA. That CA is
- * installed in the Windows certificate store (so browsers and {@code curl --ssl-no-revoke} work) but
- * is unknown to the JVM's bundled {@code cacerts}. Without merging the Windows store, every HTTPS
- * request to huggingface.co fails during the TLS handshake with
- * {@code PKIX path building failed ... unable to find valid certification path to requested target},
- * even though proxy discovery/resolution succeeds.</p>
- *
- * <p>Because {@code SunMSCAPI} only exposes {@code Windows-ROOT} (not the Windows
- * <em>Intermediate Certification Authorities</em> store), this factory additionally reads the Root
- * and Intermediate CA stores via {@link WindowsCertificateStores} and adds them as trust anchors.
- * Trusting the intermediate CA directly lets PKIX build the chain even when the proxy omits the
- * intermediate from the TLS handshake &mdash; the exact case {@code Windows-ROOT} alone cannot
- * validate.</p>
- *
- * <p>The factory only ever <em>adds</em> trust anchors that the operating system already trusts, so
- * it does not weaken certificate validation. On non-Windows platforms (or when SunMSCAPI is
- * unavailable) the Windows store is silently skipped and only the JVM default trust store is used.</p>
- */
 public final class SystemTrustSslSocketFactory {
 
+    private static volatile String cachedKey;
     private static volatile SSLSocketFactory cached;
 
     private SystemTrustSslSocketFactory() {
     }
 
-    /**
-     * @return a cached socket factory trusting both the JVM default and Windows root certificates,
-     *         falling back to the JVM default socket factory if a combined context cannot be built.
-     */
     public static SSLSocketFactory get() {
+        return get(CertificateTrustConfiguration.defaults());
+    }
+
+    public static SSLSocketFactory get(CertificateTrustConfiguration configuration) {
+        CertificateTrustConfiguration effective = configuration == null
+                ? CertificateTrustConfiguration.defaults()
+                : configuration;
+        String key = effective.key();
         SSLSocketFactory factory = cached;
-        if (factory == null) {
+        if (factory == null || !key.equals(cachedKey)) {
             synchronized (SystemTrustSslSocketFactory.class) {
                 factory = cached;
-                if (factory == null) {
-                    factory = build();
+                if (factory == null || !key.equals(cachedKey)) {
+                    factory = build(effective);
                     cached = factory;
+                    cachedKey = key;
                 }
             }
         }
         return factory;
     }
 
-    private static SSLSocketFactory build() {
+    public static String describe(CertificateTrustConfiguration configuration) {
+        CertificateTrustConfiguration effective = configuration == null
+                ? CertificateTrustConfiguration.defaults()
+                : configuration;
+        StringBuilder builder = new StringBuilder();
+        builder.append("Certificate trust: ").append(effective.describe());
+        if (effective.isUseWindowsCaStores()) {
+            builder.append("; Windows exported certificates: ")
+                    .append(WindowsCertificateStores.loadRootAndIntermediateCertificates().size());
+        }
+        return builder.toString();
+    }
+
+    private static SSLSocketFactory build(CertificateTrustConfiguration configuration) {
         List<X509TrustManager> delegates = new ArrayList<X509TrustManager>();
-        addTrustManager(delegates, null);            // JVM default (cacerts)
-        addWindowsRootTrustManager(delegates);       // Windows-ROOT (no-op off Windows)
-        addWindowsCaTrustManager(delegates);         // Windows Root + Intermediate CA stores (no-op off Windows)
+        if (configuration.isUseJvmDefaultTrustStore()) {
+            addTrustManager(delegates, null);
+        }
+        if (configuration.isUseWindowsRootStore()) {
+            addWindowsRootTrustManager(delegates);
+        }
+        if (configuration.isUseWindowsCaStores()) {
+            addWindowsCaTrustManager(delegates);
+        }
 
         if (delegates.isEmpty()) {
             return (SSLSocketFactory) SSLSocketFactory.getDefault();
@@ -84,17 +87,10 @@ public final class SystemTrustSslSocketFactory {
             keyStore.load(null, null);
             addTrustManager(delegates, keyStore);
         } catch (Exception ex) {
-            // Not running on Windows or SunMSCAPI unavailable: the JVM default trust store is enough.
+            // Not running on Windows or SunMSCAPI unavailable.
         }
     }
 
-    /**
-     * Adds the certificates from the Windows Root <em>and</em> Intermediate Certification Authorities
-     * stores (which {@code SunMSCAPI}'s {@code Windows-ROOT} keystore does not expose) as trust
-     * anchors. Making the corporate intermediate CA an anchor lets PKIX build the chain even when a
-     * TLS-intercepting proxy omits the intermediate from the handshake, which is the case
-     * {@code Windows-ROOT} alone cannot cover.
-     */
     private static void addWindowsCaTrustManager(List<X509TrustManager> delegates) {
         List<X509Certificate> certificates = WindowsCertificateStores.loadRootAndIntermediateCertificates();
         if (certificates.isEmpty()) {
@@ -114,8 +110,7 @@ public final class SystemTrustSslSocketFactory {
 
     private static void addTrustManager(List<X509TrustManager> delegates, KeyStore keyStore) {
         try {
-            TrustManagerFactory factory =
-                    TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+            TrustManagerFactory factory = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
             factory.init(keyStore);
             for (TrustManager trustManager : factory.getTrustManagers()) {
                 if (trustManager instanceof X509TrustManager) {
@@ -127,11 +122,7 @@ public final class SystemTrustSslSocketFactory {
         }
     }
 
-    /**
-     * Accepts a certificate chain when <em>any</em> of the delegate trust managers accepts it.
-     */
     private static final class CompositeX509TrustManager implements X509TrustManager {
-
         private final List<X509TrustManager> delegates;
 
         CompositeX509TrustManager(List<X509TrustManager> delegates) {
@@ -148,8 +139,7 @@ public final class SystemTrustSslSocketFactory {
                     last = ex;
                 }
             }
-            throw last != null ? last
-                    : new CertificateException("No trust manager accepted the client certificate chain.");
+            throw last != null ? last : new CertificateException("No trust manager accepted the client certificate chain.");
         }
 
         public void checkServerTrusted(X509Certificate[] chain, String authType) throws CertificateException {
@@ -162,8 +152,7 @@ public final class SystemTrustSslSocketFactory {
                     last = ex;
                 }
             }
-            throw last != null ? last
-                    : new CertificateException("No trust manager accepted the server certificate chain.");
+            throw last != null ? last : new CertificateException("No trust manager accepted the server certificate chain.");
         }
 
         public X509Certificate[] getAcceptedIssuers() {
@@ -171,8 +160,8 @@ public final class SystemTrustSslSocketFactory {
             for (X509TrustManager delegate : delegates) {
                 X509Certificate[] certificates = delegate.getAcceptedIssuers();
                 if (certificates != null) {
-                    for (X509Certificate certificate : certificates) {
-                        issuers.add(certificate);
+                    for (int i = 0; i < certificates.length; i++) {
+                        issuers.add(certificates[i]);
                     }
                 }
             }
