@@ -18,8 +18,11 @@ import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import javax.net.ssl.HttpsURLConnection;
 
@@ -78,27 +81,61 @@ public final class HuggingFaceClient {
             resolvedProxy = "unresolved (" + messageOf(ex) + ")";
         }
 
-        // Probe every URL with the default and the browser-like User-Agent, so proxy User-Agent
-        // filtering shows up: if the browser UA still gets 403 it is almost certainly proxy auth/policy.
-        String[][] userAgents = {
-                {HttpClientConfiguration.DEFAULT_USER_AGENT, "askai-java8 (default)"},
-                {HttpClientConfiguration.BROWSER_USER_AGENT, "browser (Firefox)"}
-        };
+        // Probe every URL with an honest and a browser-like header profile. The honest profile is what
+        // real operations send; the browser-like profile is diagnostic only. If browser-like is allowed
+        // while the honest one is blocked, the proxy is blocking the application's client identity.
+        List<HeaderProfile> profiles = testProfiles();
 
         List<HuggingFaceConnectionTestResult.Endpoint> endpoints =
                 new ArrayList<HuggingFaceConnectionTestResult.Endpoint>();
         for (int u = 0; u < TEST_URLS.length; u++) {
-            for (int a = 0; a < userAgents.length; a++) {
-                endpoints.add(probe(TEST_URLS[u], userAgents[a][0], userAgents[a][1]));
+            for (int p = 0; p < profiles.size(); p++) {
+                endpoints.add(probe(TEST_URLS[u], profiles.get(p)));
             }
         }
         return new HuggingFaceConnectionTestResult(resolvedProxy, trust, buildNotes(), endpoints);
     }
 
+    /** A named set of request headers to probe with. */
+    private static final class HeaderProfile {
+        final String label;
+        final Map<String, String> headers;
+
+        HeaderProfile(String label, Map<String, String> headers) {
+            this.label = label;
+            this.headers = headers;
+        }
+    }
+
+    private List<HeaderProfile> testProfiles() {
+        List<HeaderProfile> profiles = new ArrayList<HeaderProfile>();
+
+        Map<String, String> honest = new LinkedHashMap<String, String>();
+        honest.put("Accept", "application/json");
+        honest.put("User-Agent", HttpClientConfiguration.DEFAULT_USER_AGENT);
+        profiles.add(new HeaderProfile("askai-java8 (honest default)", honest));
+
+        // Browser-like headers for diagnosis only. Deliberately no Accept-Encoding, so the body stays
+        // readable for block-page detection.
+        Map<String, String> browser = new LinkedHashMap<String, String>();
+        browser.put("User-Agent", HttpClientConfiguration.BROWSER_USER_AGENT);
+        browser.put("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+        browser.put("Accept-Language", "de-DE,de;q=0.8,en-US;q=0.5,en;q=0.3");
+        browser.put("Upgrade-Insecure-Requests", "1");
+        browser.put("Sec-Fetch-Dest", "document");
+        browser.put("Sec-Fetch-Mode", "navigate");
+        browser.put("Sec-Fetch-Site", "none");
+        browser.put("Sec-Fetch-User", "?1");
+        profiles.add(new HeaderProfile("browser-like (diagnostic)", browser));
+
+        return profiles;
+    }
+
     private List<String> buildNotes() {
         List<String> notes = new ArrayList<String>();
         notes.add("Configured User-Agent (search/download): " + httpClientConfiguration.getUserAgent());
-        notes.add("User-Agents probed here: askai-java8 (default), browser (Firefox)");
+        notes.add("Header profiles probed here: askai-java8 (honest default), browser-like (diagnostic)");
+        notes.add("Browser-like headers are for DIAGNOSIS only; real operations keep the honest identity.");
         HttpClientConfiguration.ProxyAuthMode mode = httpClientConfiguration.getProxyAuthMode();
         if (mode == HttpClientConfiguration.ProxyAuthMode.BASIC) {
             String user = httpClientConfiguration.getProxyAuthUsername();
@@ -115,10 +152,10 @@ public final class HuggingFaceClient {
         return notes;
     }
 
-    private HuggingFaceConnectionTestResult.Endpoint probe(String url, String userAgent, String userAgentLabel) {
+    private HuggingFaceConnectionTestResult.Endpoint probe(String url, HeaderProfile profile) {
         HttpURLConnection connection = null;
         try {
-            connection = open(url, userAgent);
+            connection = open(url, profile.headers);
             int status = connection.getResponseCode();
             boolean ok = status >= 200 && status < 300;
             Map<String, List<String>> headerFields = connection.getHeaderFields();
@@ -126,17 +163,76 @@ public final class HuggingFaceClient {
             InputStream inputStream = ok ? connection.getInputStream() : connection.getErrorStream();
             String body = readBodyExcerpt(inputStream);
             closeQuietly(inputStream);
+
+            String contentType = safe(headerValue(headerFields, "Content-Type")).toLowerCase();
+            boolean json = contentType.contains("application/json") || looksLikeJson(body);
+            boolean blockPage = isBlockPage(body);
+            String policyId = blockPage ? extractPolicyId(body) : null;
+            String contentKind = describeContentKind(json, blockPage, contentType, body);
+
             String assessment = ok ? "" : classifyNon2xx(url, status, headerFields, body);
             List<String> detail = buildDetailLines(headerFields, headers, body);
-            return HuggingFaceConnectionTestResult.Endpoint.http(url, userAgentLabel, status, assessment, detail);
+            return HuggingFaceConnectionTestResult.Endpoint.http(url, profile.label, status, contentKind,
+                    policyId, json, blockPage, assessment, detail);
         } catch (Exception ex) {
-            return HuggingFaceConnectionTestResult.Endpoint.error(url, userAgentLabel, isCertificateFailure(ex),
+            return HuggingFaceConnectionTestResult.Endpoint.error(url, profile.label, isCertificateFailure(ex),
                     messageOf(ex));
         } finally {
             if (connection != null) {
                 connection.disconnect();
             }
         }
+    }
+
+    private static String describeContentKind(boolean json, boolean blockPage, String contentType, String body) {
+        if (json) {
+            return "JSON (HuggingFace API data)";
+        }
+        if (blockPage) {
+            return "HTML block page (proxy/web-filter policy)";
+        }
+        if (contentType.contains("text/html") || safe(body).toLowerCase().contains("<html")) {
+            return "HTML page";
+        }
+        return safe(body).length() == 0 ? "empty" : "other";
+    }
+
+    private static final String[] BLOCK_PAGE_MARKERS = {
+            "access denied", "blockpage", "block page", "zugriff wurde verweigert", "zugriff verweigert",
+            "richtlinien-id", "richtlinien id", "policy id", "policy-id", "this request was blocked",
+            "web filter", "url filtering"
+    };
+
+    /** Detects a corporate proxy/web-filter block page (e.g. ZFD "Access Denied"/"Blockpage"). */
+    private static boolean isBlockPage(String body) {
+        String haystack = safe(body).toLowerCase();
+        for (int i = 0; i < BLOCK_PAGE_MARKERS.length; i++) {
+            if (haystack.contains(BLOCK_PAGE_MARKERS[i])) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static final Pattern UUID_PATTERN = Pattern.compile(
+            "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
+
+    private static final Pattern POLICY_ID_PATTERN = Pattern.compile(
+            "(?i)(?:richtlinien[- ]?id|policy[- ]?id|reference[- ]?id|ref[- ]?id)[^0-9a-f]{0,20}"
+                    + "([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})");
+
+    /** Extracts a policy/reference id (UUID) from a block page, preferring one next to a policy label. */
+    private static String extractPolicyId(String body) {
+        String text = safe(body);
+        Matcher labelled = POLICY_ID_PATTERN.matcher(text);
+        if (labelled.find()) {
+            return labelled.group(1);
+        }
+        Matcher any = UUID_PATTERN.matcher(text);
+        if (any.find()) {
+            return any.group();
+        }
+        return null;
     }
 
     /**
@@ -518,15 +614,20 @@ public final class HuggingFaceClient {
     }
 
     private HttpURLConnection open(String url) throws IOException {
-        return open(url, httpClientConfiguration.getUserAgent());
+        // Real operations keep the honest, configured identity (default: askai-java8).
+        Map<String, String> headers = new LinkedHashMap<String, String>();
+        headers.put("Accept", "application/json");
+        headers.put("User-Agent", httpClientConfiguration.getUserAgent());
+        return open(url, headers);
     }
 
     /**
      * Opens a connection using the same proxy resolution and TLS trust as all HuggingFace operations,
-     * but with an explicit {@code User-Agent}. The connection test uses this to probe the default and a
-     * browser-like User-Agent so proxy User-Agent filtering can be spotted.
+     * but with an explicit set of request headers. The connection test uses this to probe an honest and
+     * a browser-like header profile, so a proxy that blocks the application's client identity can be
+     * distinguished from one that blocks the URL itself.
      */
-    private HttpURLConnection open(String url, String userAgent) throws IOException {
+    private HttpURLConnection open(String url, Map<String, String> headers) throws IOException {
         Proxy proxy = proxyConfiguration.resolveJavaProxy(url);
         HttpURLConnection connection = (HttpURLConnection) (proxy == Proxy.NO_PROXY
                 ? new URL(url).openConnection()
@@ -541,9 +642,9 @@ public final class HuggingFaceClient {
         }
         connection.setConnectTimeout(30000);
         connection.setReadTimeout(3600000);
-        connection.setRequestProperty("Accept", "application/json");
-        connection.setRequestProperty("User-Agent",
-                userAgent == null || userAgent.length() == 0 ? HttpClientConfiguration.DEFAULT_USER_AGENT : userAgent);
+        for (Map.Entry<String, String> header : headers.entrySet()) {
+            connection.setRequestProperty(header.getKey(), header.getValue());
+        }
         applyProxyAuthorization(connection);
         if (accessToken.length() > 0) {
             connection.setRequestProperty("Authorization", "Bearer " + accessToken);
