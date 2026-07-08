@@ -7,10 +7,13 @@ import com.aresstack.askai.java8.net.SystemTrustSslSocketFactory;
 import io.github.ollama4j.json.OllamaJson;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UnsupportedEncodingException;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
 import java.net.Proxy;
@@ -550,13 +553,41 @@ public final class HuggingFaceClient {
                 String type = string(map, "type");
                 String path = string(map, "path");
                 if ((type.length() == 0 || "file".equals(type)) && path.toLowerCase().endsWith(".gguf")) {
-                    files.add(new HuggingFaceFile(modelId, path, number(map, "size")));
+                    // For LFS files (all GGUF), the "lfs" block carries the authoritative size and the
+                    // sha256 oid; fall back to the top-level size when absent.
+                    long size = number(map, "size");
+                    String sha256 = "";
+                    Object lfs = map.get("lfs");
+                    if (lfs instanceof Map) {
+                        Map lfsMap = (Map) lfs;
+                        long lfsSize = number(lfsMap, "size");
+                        if (lfsSize > 0) {
+                            size = lfsSize;
+                        }
+                        String oid = string(lfsMap, "oid");
+                        if (oid.toLowerCase().startsWith("sha256:")) {
+                            sha256 = oid.substring("sha256:".length());
+                        }
+                    }
+                    files.add(new HuggingFaceFile(modelId, path, size, sha256));
                 }
             }
         }
         return files;
     }
 
+    private static final int MAX_DOWNLOAD_ATTEMPTS = 5;
+
+    /**
+     * Downloads a GGUF file with resume + retry, and only returns once the file is verifiably complete.
+     *
+     * <p>A dropped connection ends the input stream with EOF, which the naive loop mistook for
+     * "complete" and produced a truncated file that Ollama later rejected. This implementation streams
+     * to a {@code .part} file, retries on interruption (resuming with HTTP {@code Range}), and finalises
+     * only when the byte count matches the expected size (and the SHA-256 matches when HuggingFace
+     * provides it). If it cannot complete, it throws instead of returning a partial file — and the
+     * {@code .part} file is kept so a later attempt can resume.</p>
+     */
     public File download(HuggingFaceFile file, File targetDirectory, DownloadProgressListener listener) throws IOException {
         if (!targetDirectory.isDirectory() && !targetDirectory.mkdirs()) {
             throw new IOException("Could not create download directory: " + targetDirectory.getAbsolutePath());
@@ -566,20 +597,91 @@ public final class HuggingFaceClient {
             throw new IOException("Could not create model directory: " + modelDirectory.getAbsolutePath());
         }
         File targetFile = new File(modelDirectory, file.getFileName());
+        File partFile = new File(modelDirectory, file.getFileName() + ".part");
         String url = "https://huggingface.co/" + encodePath(file.getModelId()) + "/resolve/main/" + encodePath(file.getPath());
+        long expectedSize = file.getSize();
+
+        IOException last = null;
+        for (int attempt = 1; attempt <= MAX_DOWNLOAD_ATTEMPTS; attempt++) {
+            long resumeFrom = partFile.isFile() ? partFile.length() : 0L;
+            if (expectedSize > 0 && resumeFrom > expectedSize) {
+                // The partial is larger than the whole file: it is stale/corrupt, so start over.
+                deleteQuietly(partFile);
+                resumeFrom = 0L;
+            }
+            try {
+                long total = downloadOnce(url, partFile, resumeFrom, expectedSize, listener);
+                long actual = partFile.length();
+                long expected = expectedSize > 0 ? expectedSize : total;
+                if (expected > 0 && actual != expected) {
+                    last = new IOException("Incomplete download: got " + actual + " of " + expected + " bytes");
+                    continue; // resume on the next attempt
+                }
+                verifySha256(file, partFile);
+                if (targetFile.isFile() && !targetFile.delete()) {
+                    throw new IOException("Could not replace existing file: " + targetFile.getAbsolutePath());
+                }
+                if (!partFile.renameTo(targetFile)) {
+                    throw new IOException("Could not finalise download: " + targetFile.getAbsolutePath());
+                }
+                return targetFile;
+            } catch (Sha256MismatchException ex) {
+                // A corrupt body will not fix itself by resuming; restart from scratch (limited attempts).
+                deleteQuietly(partFile);
+                last = ex;
+            } catch (IOException ex) {
+                // Keep the .part file so the next attempt resumes from where it stopped.
+                last = ex;
+            }
+        }
+        throw new IOException("Download failed after " + MAX_DOWNLOAD_ATTEMPTS + " attempts: "
+                + (last == null ? "unknown error" : last.getMessage())
+                + ". The partial file was kept for a later resume.", last);
+    }
+
+    /**
+     * Performs a single download pass into {@code partFile}, resuming from {@code resumeFrom} via a
+     * {@code Range} request when possible.
+     *
+     * @return the total expected file size derived from the response (Content-Range/Content-Length), or
+     *         0 when the server did not report it.
+     */
+    private long downloadOnce(String url, File partFile, long resumeFrom, long expectedSize,
+                              DownloadProgressListener listener) throws IOException {
         HttpURLConnection connection = open(url);
+        if (resumeFrom > 0) {
+            connection.setRequestProperty("Range", "bytes=" + resumeFrom + "-");
+        }
         InputStream inputStream = null;
         FileOutputStream outputStream = null;
         try {
             int status = connection.getResponseCode();
-            if (status < 200 || status >= 300) {
-                throw new IOException("HuggingFace download failed with HTTP " + status);
+            boolean append;
+            long baseCompleted;
+            if (resumeFrom > 0 && status == 206) {
+                append = true;
+                baseCompleted = resumeFrom;
+            } else if (status == 200) {
+                append = false; // server ignored Range or fresh start; overwrite from the beginning
+                baseCompleted = 0L;
+            } else if (status == 416) {
+                // Requested range beyond the file: it is already fully downloaded when sizes match.
+                if (expectedSize > 0 && partFile.length() == expectedSize) {
+                    return expectedSize;
+                }
+                deleteQuietly(partFile);
+                throw new IOException("Server rejected the resume range (HTTP 416); restarting.");
+            } else {
+                String body = readBodyExcerpt(connection.getErrorStream());
+                throw new IOException("HuggingFace download failed with HTTP " + status
+                        + (body.length() > 0 ? ": " + body : ""));
             }
-            long total = connection.getContentLengthLong();
+
+            long total = totalFromResponse(connection, baseCompleted, expectedSize);
             inputStream = connection.getInputStream();
-            outputStream = new FileOutputStream(targetFile);
+            outputStream = new FileOutputStream(partFile, append);
             byte[] buffer = new byte[1024 * 1024];
-            long completed = 0L;
+            long completed = baseCompleted;
             int read;
             while ((read = inputStream.read(buffer)) >= 0) {
                 outputStream.write(buffer, 0, read);
@@ -588,11 +690,90 @@ public final class HuggingFaceClient {
                     listener.onProgress(completed, total);
                 }
             }
-            return targetFile;
+            outputStream.flush();
+            return total;
         } finally {
             closeQuietly(inputStream);
             closeQuietly(outputStream);
             connection.disconnect();
+        }
+    }
+
+    /** Derives the full expected size from Content-Range (preferred), else Content-Length, else the HF size. */
+    private long totalFromResponse(HttpURLConnection connection, long baseCompleted, long expectedSize) {
+        String contentRange = connection.getHeaderField("Content-Range");
+        if (contentRange != null) {
+            int slash = contentRange.lastIndexOf('/');
+            if (slash >= 0 && slash + 1 < contentRange.length()) {
+                try {
+                    return Long.parseLong(contentRange.substring(slash + 1).trim());
+                } catch (NumberFormatException ignored) {
+                    // fall through
+                }
+            }
+        }
+        long contentLength = connection.getContentLengthLong();
+        if (contentLength >= 0) {
+            return baseCompleted + contentLength;
+        }
+        return expectedSize;
+    }
+
+    private void verifySha256(HuggingFaceFile file, File partFile) throws IOException {
+        String expected = file.getSha256();
+        if (expected == null || expected.length() == 0) {
+            return; // HuggingFace did not provide a checksum; the size check already passed.
+        }
+        String actual = sha256Hex(partFile);
+        if (!expected.equalsIgnoreCase(actual)) {
+            throw new Sha256MismatchException("Checksum mismatch: expected " + expected + " but got " + actual);
+        }
+    }
+
+    private static String sha256Hex(File file) throws IOException {
+        MessageDigest digest;
+        try {
+            digest = MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException ex) {
+            throw new IOException("SHA-256 not available: " + ex.getMessage(), ex);
+        }
+        FileInputStream inputStream = null;
+        try {
+            inputStream = new FileInputStream(file);
+            byte[] buffer = new byte[1024 * 1024];
+            int read;
+            while ((read = inputStream.read(buffer)) >= 0) {
+                digest.update(buffer, 0, read);
+            }
+        } finally {
+            if (inputStream != null) {
+                try {
+                    inputStream.close();
+                } catch (IOException ignored) {
+                }
+            }
+        }
+        byte[] bytes = digest.digest();
+        StringBuilder builder = new StringBuilder(bytes.length * 2);
+        for (int i = 0; i < bytes.length; i++) {
+            String hex = Integer.toHexString(bytes[i] & 0xff);
+            if (hex.length() == 1) {
+                builder.append('0');
+            }
+            builder.append(hex);
+        }
+        return builder.toString();
+    }
+
+    private void deleteQuietly(File file) {
+        if (file != null && file.isFile()) {
+            file.delete();
+        }
+    }
+
+    private static final class Sha256MismatchException extends IOException {
+        Sha256MismatchException(String message) {
+            super(message);
         }
     }
 

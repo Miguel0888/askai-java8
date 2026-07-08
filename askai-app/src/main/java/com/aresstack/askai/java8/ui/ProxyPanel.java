@@ -58,6 +58,7 @@ public final class ProxyPanel extends JPanel {
     private final JComboBox<String> proxyAuthMode;
     private final JTextField proxyAuthUser;
     private final JPasswordField proxyAuthPassword;
+    private final JCheckBox preferIpv6;
     private final JTextArea log;
 
     private static final String[] PROXY_AUTH_MODES = {"NONE", "BASIC", "WINDOWS_INTEGRATED"};
@@ -99,6 +100,7 @@ public final class ProxyPanel extends JPanel {
         this.proxyAuthMode.setSelectedItem(http.getProxyAuthMode().name());
         this.proxyAuthUser = new JTextField(empty(http.getProxyAuthUsername()), 16);
         this.proxyAuthPassword = new JPasswordField(empty(http.getProxyAuthPassword()), 16);
+        this.preferIpv6 = new JCheckBox("Prefer IPv6 (needs restart; use when IPv4 egress is broken)", http.isPreferIpv6());
 
         JPanel form = new JPanel(new GridLayout(0, 2, 6, 6));
         form.setBorder(BorderFactory.createTitledBorder("Proxy resolution"));
@@ -135,6 +137,8 @@ public final class ProxyPanel extends JPanel {
         httpPanel.add(proxyAuthUser);
         httpPanel.add(new JLabel("Proxy password (BASIC)"));
         httpPanel.add(proxyAuthPassword);
+        httpPanel.add(new JLabel("Network"));
+        httpPanel.add(preferIpv6);
 
         JPanel groups = new JPanel();
         groups.setLayout(new BoxLayout(groups, BoxLayout.Y_AXIS));
@@ -191,6 +195,10 @@ public final class ProxyPanel extends JPanel {
         proxyAuthMode.addActionListener(e -> {
             updateProxyAuthEnabled();
             writeConfiguration();
+        });
+        preferIpv6.addActionListener(e -> {
+            writeConfiguration();
+            append("Prefer IPv6 = " + preferIpv6.isSelected() + " (takes effect after an app restart).");
         });
         updateProxyAuthEnabled();
     }
@@ -274,7 +282,8 @@ public final class ProxyPanel extends JPanel {
                 userAgentField.getText(),
                 HttpClientConfiguration.parseProxyAuthMode(String.valueOf(proxyAuthMode.getSelectedItem())),
                 proxyAuthUser.getText(),
-                new String(proxyAuthPassword.getPassword()));
+                new String(proxyAuthPassword.getPassword()),
+                preferIpv6.isSelected());
     }
 
     private void resetDefault() {
@@ -303,6 +312,7 @@ public final class ProxyPanel extends JPanel {
         proxyAuthMode.setSelectedItem(httpDefaults.getProxyAuthMode().name());
         proxyAuthUser.setText(empty(httpDefaults.getProxyAuthUsername()));
         proxyAuthPassword.setText(empty(httpDefaults.getProxyAuthPassword()));
+        preferIpv6.setSelected(httpDefaults.isPreferIpv6());
         updateProxyAuthEnabled();
         writeConfiguration();
         append("Reset to win-proxy-java defaults: " + cfg.getModeName());

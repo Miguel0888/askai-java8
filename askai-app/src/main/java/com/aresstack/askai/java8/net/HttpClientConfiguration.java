@@ -36,18 +36,20 @@ public final class HttpClientConfiguration {
     private final ProxyAuthMode proxyAuthMode;
     private final String proxyAuthUsername;
     private final String proxyAuthPassword;
+    private final boolean preferIpv6;
 
     public HttpClientConfiguration(String userAgent, ProxyAuthMode proxyAuthMode,
-                                   String proxyAuthUsername, String proxyAuthPassword) {
+                                   String proxyAuthUsername, String proxyAuthPassword, boolean preferIpv6) {
         this.userAgent = userAgent == null || userAgent.trim().length() == 0
                 ? DEFAULT_USER_AGENT : userAgent.trim();
         this.proxyAuthMode = proxyAuthMode == null ? ProxyAuthMode.NONE : proxyAuthMode;
         this.proxyAuthUsername = proxyAuthUsername == null ? "" : proxyAuthUsername;
         this.proxyAuthPassword = proxyAuthPassword == null ? "" : proxyAuthPassword;
+        this.preferIpv6 = preferIpv6;
     }
 
     public static HttpClientConfiguration defaults() {
-        return new HttpClientConfiguration(DEFAULT_USER_AGENT, ProxyAuthMode.NONE, "", "");
+        return new HttpClientConfiguration(DEFAULT_USER_AGENT, ProxyAuthMode.NONE, "", "", false);
     }
 
     public String getUserAgent() {
@@ -64,6 +66,15 @@ public final class HttpClientConfiguration {
 
     public String getProxyAuthPassword() {
         return proxyAuthPassword;
+    }
+
+    /**
+     * @return whether Java should prefer IPv6 addresses. Useful when the machine's IPv4 egress is
+     *         broken (e.g. a LAN cable steals the default route) but IPv6 works, as browsers do.
+     *         Applied at startup via {@code java.net.preferIPv6Addresses}; changing it needs a restart.
+     */
+    public boolean isPreferIpv6() {
+        return preferIpv6;
     }
 
     /** @return {@code true} when BASIC auth is selected and a username is present. */

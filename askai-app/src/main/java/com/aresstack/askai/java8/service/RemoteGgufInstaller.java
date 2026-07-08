@@ -1,5 +1,6 @@
 package com.aresstack.askai.java8.service;
 
+import com.aresstack.askai.java8.hf.GgufFile;
 import io.github.ollama4j.json.OllamaJson;
 
 import java.io.ByteArrayOutputStream;
@@ -29,6 +30,9 @@ public final class RemoteGgufInstaller {
         if (file == null || !file.isFile()) {
             throw new IllegalArgumentException("GGUF file does not exist.");
         }
+        // Reject a truncated/corrupt GGUF up front, so the failure is clear here instead of surfacing
+        // as an opaque HTTP 500 from Ollama's import ("tensor offset+size exceeds file size").
+        GgufFile.validate(file);
         String checksum = sha256(file);
         postFile("/api/" + "blobs/sha256:" + checksum, file);
         Map files = new LinkedHashMap();

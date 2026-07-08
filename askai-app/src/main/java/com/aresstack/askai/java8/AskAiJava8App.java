@@ -12,9 +12,13 @@ public final class AskAiJava8App {
     }
 
     public static void main(String[] args) {
+        final AppConfigurationRepository configurationRepository = new AppConfigurationRepository();
+        // Must be set before any networking (java.net.InetAddress reads it once, at class init).
+        if (configurationRepository.load().getHttpClientConfiguration().isPreferIpv6()) {
+            System.setProperty("java.net.preferIPv6Addresses", "true");
+        }
         SwingUtilities.invokeLater(new Runnable() {
             public void run() {
-                AppConfigurationRepository configurationRepository = new AppConfigurationRepository();
                 DefaultAskAiService askAiService = new DefaultAskAiService(configurationRepository);
                 AskAiFrame frame = new AskAiFrame(configurationRepository, askAiService);
                 frame.showFrame();

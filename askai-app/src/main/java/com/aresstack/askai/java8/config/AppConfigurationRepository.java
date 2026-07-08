@@ -26,6 +26,7 @@ public final class AppConfigurationRepository {
     private static final String TRUST_WINDOWS_ROOT = "trust.windowsRoot";
     private static final String TRUST_WINDOWS_CA_STORES = "trust.windowsCaStores";
     private static final String HTTP_USER_AGENT = "http.userAgent";
+    private static final String HTTP_PREFER_IPV6 = "http.preferIpv6";
     private static final String PROXY_AUTH_MODE = "proxyauth.mode";
     private static final String PROXY_AUTH_USERNAME = "proxyauth.username";
     private static final String PROXY_AUTH_PASSWORD = "proxyauth.password";
@@ -69,7 +70,8 @@ public final class AppConfigurationRepository {
                             HttpClientConfiguration.parseProxyAuthMode(
                                     properties.getProperty(PROXY_AUTH_MODE, defaultHttp.getProxyAuthMode().name())),
                             properties.getProperty(PROXY_AUTH_USERNAME, defaultHttp.getProxyAuthUsername()),
-                            properties.getProperty(PROXY_AUTH_PASSWORD, defaultHttp.getProxyAuthPassword())),
+                            properties.getProperty(PROXY_AUTH_PASSWORD, defaultHttp.getProxyAuthPassword()),
+                            parseBoolean(properties.getProperty(HTTP_PREFER_IPV6), defaultHttp.isPreferIpv6())),
                     properties.getProperty(HF_TOKEN, ""),
                     new File(properties.getProperty(DOWNLOAD_DIRECTORY, defaults.getModelDownloadDirectory().getAbsolutePath())));
         } catch (IOException ex) {
@@ -100,6 +102,7 @@ public final class AppConfigurationRepository {
         properties.setProperty(TRUST_WINDOWS_ROOT, String.valueOf(trust.isUseWindowsRoot()));
         properties.setProperty(TRUST_WINDOWS_CA_STORES, String.valueOf(trust.isUseWindowsCaStores()));
         properties.setProperty(HTTP_USER_AGENT, http.getUserAgent());
+        properties.setProperty(HTTP_PREFER_IPV6, String.valueOf(http.isPreferIpv6()));
         properties.setProperty(PROXY_AUTH_MODE, http.getProxyAuthMode().name());
         properties.setProperty(PROXY_AUTH_USERNAME, http.getProxyAuthUsername());
         properties.setProperty(PROXY_AUTH_PASSWORD, http.getProxyAuthPassword());
