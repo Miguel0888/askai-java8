@@ -172,6 +172,7 @@ public final class ModelManagerDialog {
                 current.getOllamaBaseUrl(),
                 current.getKeepAlive(),
                 new ProxyConfiguration(proxyEnabledCheckBox.isSelected(), proxyHostField.getText(), parseInt(proxyPortField.getText())),
+                current.getCertificateTrustConfiguration(),
                 hfTokenField.getText(),
                 new File(downloadDirectoryField.getText())));
         setStatus("Settings saved.");

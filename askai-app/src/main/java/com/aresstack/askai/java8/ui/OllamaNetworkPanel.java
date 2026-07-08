@@ -62,6 +62,7 @@ public final class OllamaNetworkPanel extends JPanel {
                 current.getOllamaBaseUrl(),
                 current.getKeepAlive(),
                 new ProxyConfiguration(enabledBox.isSelected(), hostField.getText(), parseInt(portField.getText())),
+                current.getCertificateTrustConfiguration(),
                 current.getHuggingFaceToken(),
                 new java.io.File(downloadDirectoryField.getText())));
         statusLabel.setText("Saved.");

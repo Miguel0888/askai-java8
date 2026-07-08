@@ -51,6 +51,7 @@ public final class OllamaConfigPanel extends JPanel {
                 baseUrlField.getText(),
                 keepAliveField.getText(),
                 current.getProxyConfiguration(),
+                current.getCertificateTrustConfiguration(),
                 current.getHuggingFaceToken(),
                 current.getModelDownloadDirectory()));
         statusLabel.setText("Saved.");

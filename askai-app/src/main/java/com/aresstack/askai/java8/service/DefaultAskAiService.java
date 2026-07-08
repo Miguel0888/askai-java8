@@ -153,7 +153,10 @@ public final class DefaultAskAiService implements AskAiService {
 
     private HuggingFaceClient huggingFaceClient() {
         AppConfiguration configuration = configurationRepository.load();
-        return new HuggingFaceClient(configuration.getProxyConfiguration(), configuration.getHuggingFaceToken());
+        return new HuggingFaceClient(
+                configuration.getProxyConfiguration(),
+                configuration.getCertificateTrustConfiguration(),
+                configuration.getHuggingFaceToken());
     }
 
     private static final class DaemonThreadFactory implements ThreadFactory {

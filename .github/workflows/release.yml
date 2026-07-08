@@ -9,8 +9,7 @@ on:
         default: '0.2.5'
   push:
     branches:
-      - main
-      - 'v*'
+      - '**'
     tags:
       - 'v*'
 
@@ -72,3 +71,50 @@ jobs:
           generate_release_notes: true
           files: askai-app/build/libs/askai-java8-${{ env.VERSION }}.jar
           fail_on_unmatched_files: true
+
+  # Rolling snapshot for quick testing. Runs on every push to any branch other than
+  # main and the v* release branches, and is completely independent of the real
+  # release job above. It always overwrites the single "snapshot" pre-release (tag and
+  # jar) with the latest build instead of producing versioned artifacts.
+  snapshot:
+    name: Build snapshot jar
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'push' &&
+      startsWith(github.ref, 'refs/heads/') &&
+      github.ref != 'refs/heads/main' &&
+      !startsWith(github.ref, 'refs/heads/v')
+    concurrency:
+      group: askai-java8-snapshot
+      cancel-in-progress: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 8
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '8'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '7.6.4'
+
+      - name: Build snapshot fat jar
+        run: gradle --no-daemon clean :askai-app:fatJar -PreleaseVersion=snapshot
+
+      - name: Overwrite rolling snapshot release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Remove the previous snapshot release and its tag so the new one fully replaces it.
+          gh release delete snapshot --yes --cleanup-tag || true
+          gh release create snapshot \
+            askai-app/build/libs/askai-java8-snapshot.jar \
+            --prerelease \
+            --target "${GITHUB_SHA}" \
+            --title "Snapshot (latest build)" \
+            --notes "Rolling snapshot built from \`${GITHUB_REF_NAME}\` @ ${GITHUB_SHA}. Overwritten on every non-main push; this is a test build, not a real release."

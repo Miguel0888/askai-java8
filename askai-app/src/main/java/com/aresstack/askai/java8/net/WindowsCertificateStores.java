@@ -3,6 +3,7 @@ package com.aresstack.askai.java8.net;
 import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -37,7 +38,13 @@ import java.util.concurrent.TimeUnit;
  * build the chain even when the proxy omits the intermediate. Only certificates the operating system
  * already trusts are returned, so certificate validation is not weakened.</p>
  *
- * <p>On non-Windows platforms (or when PowerShell is unavailable) an empty list is returned.</p>
+ * <p>To avoid a stdout pipe-buffer deadlock, the PowerShell script writes the Base64-encoded
+ * certificates to a temporary <em>file</em>. Java waits for the process to exit and only then reads
+ * that file. Any failure (for example when corporate policy blocks PowerShell) is reported through
+ * {@link Result#getError()} instead of being silently swallowed, so the HuggingFace connection test
+ * can surface it.</p>
+ *
+ * <p>On non-Windows platforms an empty result with no error is returned.</p>
  */
 final class WindowsCertificateStores {
 
@@ -47,19 +54,46 @@ final class WindowsCertificateStores {
     }
 
     /**
-     * @return the certificates found in the Windows Root and Intermediate CA stores, or an empty list
-     *         when they cannot be read (for example on non-Windows platforms).
+     * The outcome of reading the Windows Root/Intermediate CA stores: the certificates found plus an
+     * optional human-readable error describing why the export could not be performed.
      */
-    static List<X509Certificate> loadRootAndIntermediateCertificates() {
+    static final class Result {
+
+        private final List<X509Certificate> certificates;
+        private final String error;
+
+        Result(List<X509Certificate> certificates, String error) {
+            this.certificates = certificates;
+            this.error = error;
+        }
+
+        List<X509Certificate> getCertificates() {
+            return certificates;
+        }
+
+        /**
+         * @return {@code null} when the stores were read successfully (or the platform is not
+         *         Windows), otherwise a message describing the failure.
+         */
+        String getError() {
+            return error;
+        }
+    }
+
+    /**
+     * @return the certificates found in the Windows Root and Intermediate CA stores plus a diagnostic
+     *         error when they could not be read (for example when PowerShell is blocked). On
+     *         non-Windows platforms an empty result with no error is returned.
+     */
+    static Result loadRootAndIntermediateCertificates() {
         if (!isWindows()) {
-            return new ArrayList<X509Certificate>();
+            return new Result(new ArrayList<X509Certificate>(), null);
         }
         try {
-            String output = runPowerShell(buildScript());
-            return parseCertificates(output);
+            return exportViaFile();
         } catch (Exception ex) {
-            // PowerShell unavailable or failed: fall back to whatever SunMSCAPI already provides.
-            return new ArrayList<X509Certificate>();
+            return new Result(new ArrayList<X509Certificate>(),
+                    "Windows certificate export failed: " + messageOf(ex));
         }
     }
 
@@ -68,32 +102,62 @@ final class WindowsCertificateStores {
         return osName.toLowerCase().contains("win");
     }
 
-    /**
-     * PowerShell script that prints each certificate as a single line of Base64-encoded DER,
-     * gathered from the Root and Intermediate CA stores in both machine and user scopes.
-     */
-    private static String buildScript() {
-        StringBuilder builder = new StringBuilder();
-        builder.append("$ErrorActionPreference = 'SilentlyContinue'\r\n");
-        builder.append("$stores = @('Cert:\\LocalMachine\\CA','Cert:\\CurrentUser\\CA',");
-        builder.append("'Cert:\\LocalMachine\\Root','Cert:\\CurrentUser\\Root')\r\n");
-        builder.append("foreach ($store in $stores) {\r\n");
-        builder.append("    Get-ChildItem -Path $store | ForEach-Object {\r\n");
-        builder.append("        [Convert]::ToBase64String($_.RawData)\r\n");
-        builder.append("    }\r\n");
-        builder.append("}\r\n");
-        return builder.toString();
-    }
-
-    private static String runPowerShell(String script) throws IOException {
+    private static Result exportViaFile() throws IOException, CertificateException {
         File directory = new File(System.getProperty("java.io.tmpdir"), "askai-java8-proxy");
         if (!directory.isDirectory() && !directory.mkdirs()) {
             throw new IOException("Could not create temporary directory: " + directory.getAbsolutePath());
         }
         File scriptFile = new File(directory, "askai-windows-ca-export.ps1");
-        writeScript(scriptFile, script);
+        File outputFile = new File(directory, "askai-windows-ca-export.b64");
+        deleteQuietly(outputFile);
+        writeText(scriptFile, buildScript(outputFile));
 
-        Process process = new ProcessBuilder(
+        String consoleOutput = runPowerShell(scriptFile);
+
+        if (!outputFile.isFile()) {
+            String detail = consoleOutput.trim();
+            String message = "PowerShell did not produce the certificate export file"
+                    + (detail.length() > 0 ? " (" + detail + ")" : "") + ".";
+            return new Result(new ArrayList<X509Certificate>(), message);
+        }
+
+        List<X509Certificate> certificates = parseCertificates(readText(outputFile));
+        deleteQuietly(outputFile);
+        String error = certificates.isEmpty() && consoleOutput.trim().length() > 0
+                ? "PowerShell reported: " + consoleOutput.trim()
+                : null;
+        return new Result(certificates, error);
+    }
+
+    /**
+     * PowerShell script that writes each certificate as a single line of Base64-encoded DER to the
+     * given output file, gathered from the Root and Intermediate CA stores in both machine and user
+     * scopes. Writing to a file (rather than stdout) avoids a pipe-buffer deadlock.
+     */
+    private static String buildScript(File outputFile) {
+        String outputPath = outputFile.getAbsolutePath().replace("'", "''");
+        StringBuilder builder = new StringBuilder();
+        builder.append("$ErrorActionPreference = 'SilentlyContinue'\r\n");
+        builder.append("$out = '").append(outputPath).append("'\r\n");
+        builder.append("$stores = @('Cert:\\LocalMachine\\CA','Cert:\\CurrentUser\\CA',");
+        builder.append("'Cert:\\LocalMachine\\Root','Cert:\\CurrentUser\\Root')\r\n");
+        builder.append("$lines = New-Object System.Collections.Generic.List[string]\r\n");
+        builder.append("foreach ($store in $stores) {\r\n");
+        builder.append("    Get-ChildItem -Path $store | ForEach-Object {\r\n");
+        builder.append("        $lines.Add([Convert]::ToBase64String($_.RawData))\r\n");
+        builder.append("    }\r\n");
+        builder.append("}\r\n");
+        builder.append("[System.IO.File]::WriteAllLines($out, $lines)\r\n");
+        return builder.toString();
+    }
+
+    /**
+     * Runs the export script and returns whatever it printed to stdout/stderr (used only for
+     * diagnostics). stdout is drained on a separate thread so a full pipe buffer cannot block the
+     * process; the certificate data itself goes to the output file, not the pipe.
+     */
+    private static String runPowerShell(File scriptFile) throws IOException {
+        final Process process = new ProcessBuilder(
                 "powershell.exe",
                 "-NoProfile",
                 "-NonInteractive",
@@ -101,6 +165,31 @@ final class WindowsCertificateStores {
                 "-File", scriptFile.getAbsolutePath())
                 .redirectErrorStream(true)
                 .start();
+
+        final StringBuilder console = new StringBuilder();
+        Thread drain = new Thread(new Runnable() {
+            public void run() {
+                BufferedReader reader = null;
+                try {
+                    reader = new BufferedReader(new InputStreamReader(process.getInputStream(), "UTF-8"));
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        synchronized (console) {
+                            if (console.length() < 4000) {
+                                console.append(line).append('\n');
+                            }
+                        }
+                    }
+                } catch (IOException ignored) {
+                    // Nothing useful to report; the output file presence is the real signal.
+                } finally {
+                    closeQuietly(reader);
+                }
+            }
+        }, "askai-windows-ca-drain");
+        drain.setDaemon(true);
+        drain.start();
+
         boolean completed;
         try {
             completed = process.waitFor(TIMEOUT_SECONDS, TimeUnit.SECONDS);
@@ -111,27 +200,32 @@ final class WindowsCertificateStores {
         }
         if (!completed) {
             process.destroy();
-            throw new IOException("Reading Windows certificate stores timed out.");
+            throw new IOException("Reading Windows certificate stores timed out after " + TIMEOUT_SECONDS + "s.");
         }
-        return readText(process);
+        try {
+            drain.join(TimeUnit.SECONDS.toMillis(2));
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+        }
+        synchronized (console) {
+            return console.toString();
+        }
     }
 
-    private static void writeScript(File scriptFile, String script) throws IOException {
+    private static void writeText(File file, String text) throws IOException {
         Writer writer = null;
         try {
-            writer = new OutputStreamWriter(new FileOutputStream(scriptFile), "UTF-8");
-            writer.write(script);
+            writer = new OutputStreamWriter(new FileOutputStream(file), "UTF-8");
+            writer.write(text);
         } finally {
-            if (writer != null) {
-                writer.close();
-            }
+            closeQuietly(writer);
         }
     }
 
-    private static String readText(Process process) throws IOException {
+    private static String readText(File file) throws IOException {
         BufferedReader reader = null;
         try {
-            reader = new BufferedReader(new InputStreamReader(process.getInputStream(), "UTF-8"));
+            reader = new BufferedReader(new InputStreamReader(new FileInputStream(file), "UTF-8"));
             StringBuilder builder = new StringBuilder();
             String line;
             while ((line = reader.readLine()) != null) {
@@ -139,15 +233,13 @@ final class WindowsCertificateStores {
             }
             return builder.toString();
         } finally {
-            if (reader != null) {
-                reader.close();
-            }
+            closeQuietly(reader);
         }
     }
 
     /**
-     * Parses the PowerShell output, one Base64-encoded DER certificate per line, de-duplicating
-     * repeated certificates (the machine and user scopes overlap heavily).
+     * Parses the export output, one Base64-encoded DER certificate per line, de-duplicating repeated
+     * certificates (the machine and user scopes overlap heavily).
      */
     private static List<X509Certificate> parseCertificates(String output) throws CertificateException {
         List<X509Certificate> certificates = new ArrayList<X509Certificate>();
@@ -185,5 +277,29 @@ final class WindowsCertificateStores {
         } catch (RuntimeException ex) {
             return null;
         }
+    }
+
+    private static void deleteQuietly(File file) {
+        if (file != null && file.isFile()) {
+            file.delete();
+        }
+    }
+
+    private static void closeQuietly(java.io.Closeable closeable) {
+        if (closeable == null) {
+            return;
+        }
+        try {
+            closeable.close();
+        } catch (IOException ignored) {
+        }
+    }
+
+    private static String messageOf(Throwable throwable) {
+        if (throwable == null) {
+            return "unknown error";
+        }
+        String message = throwable.getMessage();
+        return message != null && message.trim().length() > 0 ? message : throwable.getClass().getName();
     }
 }
