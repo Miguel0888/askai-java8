@@ -24,7 +24,14 @@ import javax.net.ssl.HttpsURLConnection;
 
 public final class HuggingFaceClient {
 
-    private static final String TEST_URL = "https://huggingface.co/api/models?limit=1";
+    // Probed in order; the last one (the JSON API) decides overall success. The bare site is probed
+    // first so an HTML/policy page there can be compared against the API's JSON response.
+    private static final String[] TEST_URLS = {
+            "https://huggingface.co/",
+            "https://huggingface.co/api/models?limit=1"
+    };
+
+    private static final int BODY_EXCERPT_LIMIT = 1200;
 
     private final ProxyConfiguration proxyConfiguration;
     private final CertificateTrustConfiguration trustConfiguration;
@@ -43,40 +50,227 @@ public final class HuggingFaceClient {
     }
 
     /**
-     * Performs a real HTTPS request against HuggingFace using the exact same code path (proxy
+     * Performs real HTTPS requests against HuggingFace using the exact same code path (proxy
      * resolution, TLS handshake, certificate validation, HTTP request) as search and download, so a
-     * PKIX/certificate problem can be told apart from a proxy problem. Never throws; failures are
-     * reported through the returned result.
+     * PKIX/certificate problem can be told apart from a proxy problem. For non-2xx responses the
+     * relevant response headers and a body excerpt are captured and a heuristic decides whether the
+     * block looks like a corporate proxy policy or a HuggingFace/Cloudflare origin response. Never
+     * throws and never disables certificate validation; failures are reported through the result.
      */
     public HuggingFaceConnectionTestResult testConnection() {
         SystemTrustSslSocketFactory.Result trust = SystemTrustSslSocketFactory.build(trustConfiguration);
 
         String resolvedProxy;
         try {
-            resolvedProxy = describeProxy(proxyConfiguration.resolveJavaProxy(TEST_URL));
+            resolvedProxy = describeProxy(proxyConfiguration.resolveJavaProxy(TEST_URLS[TEST_URLS.length - 1]));
         } catch (IOException ex) {
-            return HuggingFaceConnectionTestResult.failure(TEST_URL, "unresolved", false,
-                    "Proxy resolution failed: " + messageOf(ex), trust);
+            resolvedProxy = "unresolved (" + messageOf(ex) + ")";
         }
 
+        List<HuggingFaceConnectionTestResult.Endpoint> endpoints =
+                new ArrayList<HuggingFaceConnectionTestResult.Endpoint>();
+        for (int i = 0; i < TEST_URLS.length; i++) {
+            endpoints.add(probe(TEST_URLS[i]));
+        }
+        return new HuggingFaceConnectionTestResult(resolvedProxy, trust, endpoints);
+    }
+
+    private HuggingFaceConnectionTestResult.Endpoint probe(String url) {
         HttpURLConnection connection = null;
         try {
-            connection = open(TEST_URL);
+            connection = open(url);
             int status = connection.getResponseCode();
-            InputStream inputStream = status >= 200 && status < 300
-                    ? connection.getInputStream() : connection.getErrorStream();
-            readText(inputStream);
+            List<String> headers = collectRelevantHeaders(connection);
+            boolean ok = status >= 200 && status < 300;
+            InputStream inputStream = ok ? connection.getInputStream() : connection.getErrorStream();
+            String body = readBodyExcerpt(inputStream);
             closeQuietly(inputStream);
-            return HuggingFaceConnectionTestResult.success(TEST_URL, resolvedProxy, status, trust);
+            String assessment = ok ? "" : classifyNon2xx(url, status, connection.getHeaderFields(), body);
+            return HuggingFaceConnectionTestResult.Endpoint.http(url, status, headers, body, assessment);
         } catch (Exception ex) {
-            boolean certificateFailure = isCertificateFailure(ex);
-            return HuggingFaceConnectionTestResult.failure(TEST_URL, resolvedProxy, certificateFailure,
-                    messageOf(ex), trust);
+            return HuggingFaceConnectionTestResult.Endpoint.error(url, isCertificateFailure(ex), messageOf(ex));
         } finally {
             if (connection != null) {
                 connection.disconnect();
             }
         }
+    }
+
+    private static final String[] RELEVANT_HEADERS = {
+            "Server", "Via", "Content-Type", "Content-Length", "Connection",
+            "Proxy-Connection", "Proxy-Authenticate", "WWW-Authenticate", "Cache-Control",
+            "Location", "Date", "X-Cache", "CF-RAY"
+    };
+
+    /**
+     * Returns a curated list of "Name: value" header lines: a fixed allowlist plus any header whose
+     * name starts with {@code X-} or {@code CF-} (proxy and CDN vendors expose themselves there).
+     */
+    private List<String> collectRelevantHeaders(HttpURLConnection connection) {
+        List<String> lines = new ArrayList<String>();
+        Map<String, List<String>> fields = connection.getHeaderFields();
+        if (fields == null) {
+            return lines;
+        }
+        for (Map.Entry entry : fields.entrySet()) {
+            Object nameObject = entry.getKey();
+            if (nameObject == null) {
+                continue;
+            }
+            String name = String.valueOf(nameObject);
+            if (!isRelevantHeader(name)) {
+                continue;
+            }
+            Object valueObject = entry.getValue();
+            String value = valueObject instanceof List ? joinValues((List) valueObject) : String.valueOf(valueObject);
+            lines.add(name + ": " + value);
+        }
+        return lines;
+    }
+
+    private boolean isRelevantHeader(String name) {
+        String lower = name.toLowerCase();
+        if (lower.startsWith("x-") || lower.startsWith("cf-")) {
+            return true;
+        }
+        for (int i = 0; i < RELEVANT_HEADERS.length; i++) {
+            if (RELEVANT_HEADERS[i].toLowerCase().equals(lower)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String joinValues(List values) {
+        StringBuilder builder = new StringBuilder();
+        for (int i = 0; i < values.size(); i++) {
+            if (i > 0) {
+                builder.append(", ");
+            }
+            builder.append(String.valueOf(values.get(i)));
+        }
+        return builder.toString();
+    }
+
+    /**
+     * Reads at most {@link #BODY_EXCERPT_LIMIT} characters from the stream and normalises whitespace so
+     * the excerpt stays log-friendly. Does not consume the whole (possibly large) body.
+     */
+    private String readBodyExcerpt(InputStream inputStream) throws IOException {
+        if (inputStream == null) {
+            return "";
+        }
+        byte[] buffer = new byte[4096];
+        StringBuilder builder = new StringBuilder();
+        int read;
+        while (builder.length() < BODY_EXCERPT_LIMIT && (read = inputStream.read(buffer)) >= 0) {
+            builder.append(new String(buffer, 0, read, StandardCharsets.UTF_8));
+        }
+        String text = builder.toString().replaceAll("\\s+", " ").trim();
+        if (text.length() > BODY_EXCERPT_LIMIT) {
+            text = text.substring(0, BODY_EXCERPT_LIMIT) + " …";
+        }
+        return text;
+    }
+
+    private static final String[] PROXY_VENDOR_SIGNATURES = {
+            "zscaler", "bluecoat", "blue coat", "blue-coat", "forcepoint", "websense", "fortinet",
+            "fortigate", "fortiguard", "mcafee", "web gateway", "webwasher", "squid", "ironport",
+            "sophos", "palo alto", "check point", "checkpoint", "netskope", "trend micro", "sonicwall",
+            "barracuda", "symantec web", "cisco web", "iboss"
+    };
+
+    private static final String[] PROXY_POLICY_PHRASES = {
+            "access denied", "access to this", "this site is blocked", "site blocked", "blocked category",
+            "blocked by", "content blocked", "web filter", "url filtering", "filtering policy",
+            "your organization", "company policy", "corporate policy", "not permitted", "denied by policy",
+            "proxy policy", "gesperrt", "blockiert", "richtlinie", "nicht erlaubt"
+    };
+
+    private static final String[] CLOUDFLARE_SIGNATURES = {
+            "cloudflare", "cf-ray", "attention required", "error 1020", "ray id"
+    };
+
+    /**
+     * Heuristically classifies a non-2xx response as a corporate proxy block vs. a HuggingFace/
+     * Cloudflare origin response, based on status code, selected headers and the body excerpt. This is
+     * a hint only; the raw headers and body are always shown so the user can judge for themselves.
+     */
+    private String classifyNon2xx(String url, int status, Map<String, List<String>> headerFields, String body) {
+        String proxyAuthenticate = headerValue(headerFields, "Proxy-Authenticate");
+        if (status == 407 || proxyAuthenticate != null) {
+            return "CORPORATE PROXY requires authentication (HTTP 407 / Proxy-Authenticate present).";
+        }
+
+        String server = safe(headerValue(headerFields, "Server"));
+        String via = safe(headerValue(headerFields, "Via"));
+        String contentType = safe(headerValue(headerFields, "Content-Type")).toLowerCase();
+        String cfRay = headerValue(headerFields, "CF-RAY");
+        String haystack = (server + " " + via + " " + safe(body)).toLowerCase();
+
+        String vendor = firstMatch(haystack, PROXY_VENDOR_SIGNATURES);
+        if (vendor != null) {
+            return "Looks like a CORPORATE PROXY block (matched proxy vendor \"" + vendor + "\" in headers/body).";
+        }
+
+        boolean cloudflare = cfRay != null || firstMatch(haystack, CLOUDFLARE_SIGNATURES) != null;
+        if (cloudflare) {
+            return "Looks like a HuggingFace/Cloudflare (origin/CDN) response (Cloudflare signature present), "
+                    + "not the corporate proxy.";
+        }
+
+        String phrase = firstMatch(safe(body).toLowerCase(), PROXY_POLICY_PHRASES);
+        if (phrase != null) {
+            return "Looks like a CORPORATE PROXY policy page (matched \"" + phrase + "\" in the body).";
+        }
+
+        boolean json = contentType.contains("application/json") || looksLikeJson(body);
+        if (json) {
+            return "Looks like a HuggingFace origin response (JSON body) — likely auth/authorization "
+                    + "(token or gated repo), not the proxy.";
+        }
+
+        boolean html = contentType.contains("text/html") || safe(body).toLowerCase().contains("<html");
+        if (html && url.contains("/api/")) {
+            return "Likely a CORPORATE PROXY page: HTML returned where the API normally returns JSON.";
+        }
+
+        return "Origin unclear — inspect the headers and body below.";
+    }
+
+    private static String headerValue(Map<String, List<String>> headerFields, String name) {
+        if (headerFields == null) {
+            return null;
+        }
+        for (Map.Entry entry : headerFields.entrySet()) {
+            Object key = entry.getKey();
+            if (key != null && name.equalsIgnoreCase(String.valueOf(key))) {
+                Object value = entry.getValue();
+                if (value instanceof List && !((List) value).isEmpty()) {
+                    return String.valueOf(((List) value).get(0));
+                }
+                return value == null ? null : String.valueOf(value);
+            }
+        }
+        return null;
+    }
+
+    private static String firstMatch(String haystack, String[] needles) {
+        for (int i = 0; i < needles.length; i++) {
+            if (haystack.contains(needles[i])) {
+                return needles[i];
+            }
+        }
+        return null;
+    }
+
+    private static boolean looksLikeJson(String body) {
+        String trimmed = safe(body).trim();
+        return trimmed.startsWith("{") || trimmed.startsWith("[");
+    }
+
+    private static String safe(String value) {
+        return value == null ? "" : value;
     }
 
     public List<HuggingFaceModel> searchModels(String query, int limit) throws IOException {

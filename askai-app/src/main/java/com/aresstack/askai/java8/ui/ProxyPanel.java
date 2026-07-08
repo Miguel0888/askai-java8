@@ -309,7 +309,7 @@ public final class ProxyPanel extends JPanel {
                 try {
                     HuggingFaceConnectionTestResult result = get();
                     append(result.describe());
-                    JOptionPane.showMessageDialog(ProxyPanel.this, result.describe(),
+                    JOptionPane.showMessageDialog(ProxyPanel.this, result.shortSummary(),
                             "HuggingFace HTTPS - " + (result.isSuccess() ? "OK" : "Problem"),
                             result.isSuccess() ? JOptionPane.INFORMATION_MESSAGE : JOptionPane.WARNING_MESSAGE);
                 } catch (Exception ex) {
