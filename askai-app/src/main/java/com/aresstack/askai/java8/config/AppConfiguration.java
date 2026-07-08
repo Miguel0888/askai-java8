@@ -13,6 +13,7 @@ public final class AppConfiguration {
     private final ProxyConfiguration proxyConfiguration;
     private final CertificateTrustConfiguration certificateTrustConfiguration;
     private final HttpClientConfiguration httpClientConfiguration;
+    private final String defaultQuantization;
     private final String huggingFaceToken;
     private final File modelDownloadDirectory;
 
@@ -38,6 +39,14 @@ public final class AppConfiguration {
                             CertificateTrustConfiguration certificateTrustConfiguration,
                             HttpClientConfiguration httpClientConfiguration,
                             String huggingFaceToken, File modelDownloadDirectory) {
+        this(ollamaBaseUrl, keepAlive, proxyConfiguration, certificateTrustConfiguration,
+                httpClientConfiguration, "Q4_K_M", huggingFaceToken, modelDownloadDirectory);
+    }
+
+    public AppConfiguration(String ollamaBaseUrl, String keepAlive, ProxyConfiguration proxyConfiguration,
+                            CertificateTrustConfiguration certificateTrustConfiguration,
+                            HttpClientConfiguration httpClientConfiguration, String defaultQuantization,
+                            String huggingFaceToken, File modelDownloadDirectory) {
         this.ollamaBaseUrl = normalizeBaseUrl(ollamaBaseUrl);
         this.keepAlive = keepAlive == null || keepAlive.trim().length() == 0 ? "5m" : keepAlive.trim();
         this.proxyConfiguration = proxyConfiguration == null ? ProxyConfiguration.defaults() : proxyConfiguration;
@@ -45,6 +54,8 @@ public final class AppConfiguration {
                 ? CertificateTrustConfiguration.defaults() : certificateTrustConfiguration;
         this.httpClientConfiguration = httpClientConfiguration == null
                 ? HttpClientConfiguration.defaults() : httpClientConfiguration;
+        this.defaultQuantization = defaultQuantization == null || defaultQuantization.trim().length() == 0
+                ? "Q4_K_M" : defaultQuantization.trim();
         this.huggingFaceToken = huggingFaceToken == null ? "" : huggingFaceToken.trim();
         this.modelDownloadDirectory = modelDownloadDirectory == null ? defaultDownloadDirectory() : modelDownloadDirectory;
     }
@@ -71,6 +82,10 @@ public final class AppConfiguration {
 
     public HttpClientConfiguration getHttpClientConfiguration() {
         return httpClientConfiguration;
+    }
+
+    public String getDefaultQuantization() {
+        return defaultQuantization;
     }
 
     public String getHuggingFaceToken() {

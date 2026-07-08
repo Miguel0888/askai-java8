@@ -14,6 +14,7 @@ public final class AppConfigurationRepository {
 
     private static final String OLLAMA_BASE_URL = "ollama.baseUrl";
     private static final String KEEP_ALIVE = "ollama.keepAlive";
+    private static final String OLLAMA_QUANTIZATION = "ollama.quantization";
     private static final String PROXY_MODE = "proxy.mode";
     private static final String PROXY_TEST_URL = "proxy.testUrl";
     private static final String PROXY_PAC_SCRIPT = "proxy.pacUrlDiscoveryScript";
@@ -72,6 +73,7 @@ public final class AppConfigurationRepository {
                             properties.getProperty(PROXY_AUTH_USERNAME, defaultHttp.getProxyAuthUsername()),
                             properties.getProperty(PROXY_AUTH_PASSWORD, defaultHttp.getProxyAuthPassword()),
                             parseBoolean(properties.getProperty(HTTP_PREFER_IPV6), defaultHttp.isPreferIpv6())),
+                    properties.getProperty(OLLAMA_QUANTIZATION, defaults.getDefaultQuantization()),
                     properties.getProperty(HF_TOKEN, ""),
                     new File(properties.getProperty(DOWNLOAD_DIRECTORY, defaults.getModelDownloadDirectory().getAbsolutePath())));
         } catch (IOException ex) {
@@ -92,6 +94,7 @@ public final class AppConfigurationRepository {
         Properties properties = new Properties();
         properties.setProperty(OLLAMA_BASE_URL, configuration.getOllamaBaseUrl());
         properties.setProperty(KEEP_ALIVE, configuration.getKeepAlive());
+        properties.setProperty(OLLAMA_QUANTIZATION, configuration.getDefaultQuantization());
         properties.setProperty(PROXY_MODE, proxy.getModeName());
         properties.setProperty(PROXY_TEST_URL, proxy.getTestUrl());
         properties.setProperty(PROXY_PAC_SCRIPT, proxy.getPacUrlDiscoveryScript());

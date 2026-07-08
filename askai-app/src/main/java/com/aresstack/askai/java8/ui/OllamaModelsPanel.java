@@ -1,71 +1,296 @@
 package com.aresstack.askai.java8.ui;
 
-import com.aresstack.askai.java8.service.AskAiService;
-import io.github.ollama4j.models.Model;
+import com.aresstack.askai.java8.AskAiModel;
+import com.aresstack.askai.java8.client.OllamaModelInfo;
+import com.aresstack.askai.java8.client.OllamaRunningModelInfo;
+import com.aresstack.askai.java8.service.OllamaService;
 
 import javax.swing.BorderFactory;
-import javax.swing.DefaultListModel;
+import javax.swing.Box;
+import javax.swing.BoxLayout;
 import javax.swing.JButton;
-import javax.swing.JList;
+import javax.swing.JLabel;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
-import javax.swing.JTextArea;
+import javax.swing.JTabbedPane;
 import javax.swing.SwingUtilities;
 import java.awt.BorderLayout;
 import java.awt.FlowLayout;
 import java.util.List;
 
+/**
+ * Shows installed and currently loaded Ollama models as rich object cards.
+ */
 public final class OllamaModelsPanel extends JPanel {
 
-    private final AskAiService askAiService;
-    private final DefaultListModel<String> models;
-    private final JTextArea detailsArea;
+    private final AskAiModel model;
+    private final OllamaService ollamaService;
+    private final JTabbedPane tabs;
+    private final JPanel installedCardsPanel;
+    private final JPanel runningCardsPanel;
+    private final JLabel installedStatusLabel;
+    private final JLabel runningStatusLabel;
+    private final JLabel informationLabel;
+    private boolean refreshedOnce;
 
-    public OllamaModelsPanel(AskAiService askAiService) {
-        this.askAiService = askAiService;
-        this.models = new DefaultListModel<String>();
-        this.detailsArea = new JTextArea(8, 80);
+    public OllamaModelsPanel(AskAiModel model, OllamaService ollamaService) {
+        this.model = model;
+        this.ollamaService = ollamaService;
+        this.tabs = new JTabbedPane();
+        this.installedCardsPanel = createCardsPanel();
+        this.runningCardsPanel = createCardsPanel();
+        this.installedStatusLabel = new JLabel("Installed models are not loaded yet.");
+        this.runningStatusLabel = new JLabel("Running models are not loaded yet.");
+        this.informationLabel = new JLabel("Ollama server information is not loaded yet.");
         buildUserInterface();
+    }
+
+    public void onShown() {
+        if (!refreshedOnce) {
+            refreshedOnce = true;
+            refreshInstalledModels();
+            refreshServerInformation();
+            return;
+        }
+        refreshSelectedTab();
     }
 
     private void buildUserInterface() {
         setLayout(new BorderLayout(8, 8));
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        JList<String> list = new JList<String>(models);
-        JScrollPane scrollPane = new JScrollPane(list);
-        scrollPane.setBorder(BorderFactory.createTitledBorder("Installed Ollama models"));
-        add(scrollPane, BorderLayout.CENTER);
-        detailsArea.setEditable(false);
-        add(new JScrollPane(detailsArea), BorderLayout.SOUTH);
-        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
-        JButton refreshButton = new JButton("Refresh");
-        refreshButton.addActionListener(event -> onShown());
-        buttons.add(refreshButton);
-        add(buttons, BorderLayout.NORTH);
+        tabs.addTab("Installed Models", createInstalledModelsTab());
+        tabs.addTab("Running Models", createRunningModelsTab());
+        tabs.addChangeListener(event -> refreshSelectedTab());
+        add(tabs, BorderLayout.CENTER);
+        informationLabel.setBorder(BorderFactory.createEmptyBorder(4, 4, 0, 4));
+        add(informationLabel, BorderLayout.SOUTH);
     }
 
-    public void onShown() {
-        detailsArea.setText("Loading installed models ...\n");
-        askAiService.listModels(new AskAiService.ModelListListener() {
-            public void onModels(final List<Model> result) {
-                SwingUtilities.invokeLater(new Runnable() {
+    private JPanel createInstalledModelsTab() {
+        JPanel panel = new JPanel(new BorderLayout(8, 8));
+        panel.add(createInstalledToolbar(), BorderLayout.NORTH);
+        panel.add(new JScrollPane(installedCardsPanel), BorderLayout.CENTER);
+        showInstalledPlaceholder("Open Models or click Refresh to load installed models.");
+        return panel;
+    }
+
+    private JPanel createRunningModelsTab() {
+        JPanel panel = new JPanel(new BorderLayout(8, 8));
+        panel.add(createRunningToolbar(), BorderLayout.NORTH);
+        panel.add(new JScrollPane(runningCardsPanel), BorderLayout.CENTER);
+        showRunningPlaceholder("Switch to this tab to load running models.");
+        return panel;
+    }
+
+    private JPanel createInstalledToolbar() {
+        JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        JButton refreshButton = new JButton("Refresh");
+        refreshButton.addActionListener(event -> refreshInstalledModels());
+        toolbar.add(refreshButton);
+        toolbar.add(installedStatusLabel);
+        return toolbar;
+    }
+
+    private JPanel createRunningToolbar() {
+        JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        JButton refreshButton = new JButton("Refresh");
+        refreshButton.addActionListener(event -> refreshRunningModels());
+        toolbar.add(refreshButton);
+        toolbar.add(runningStatusLabel);
+        return toolbar;
+    }
+
+    private static JPanel createCardsPanel() {
+        JPanel panel = new JPanel();
+        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+        panel.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+        return panel;
+    }
+
+    private void refreshSelectedTab() {
+        if (tabs.getSelectedIndex() == 0) {
+            refreshInstalledModels();
+        } else if (tabs.getSelectedIndex() == 1) {
+            refreshRunningModels();
+        }
+    }
+
+    private void refreshInstalledModels() {
+        installedStatusLabel.setText("Loading installed models from " + model.getOllamaBaseUrl() + " ...");
+        showInstalledPlaceholder("Loading installed models ...");
+        ollamaService.listInstalledModels(new OllamaService.InstalledModelsListener() {
+            @Override
+            public void onInstalledModels(final List<OllamaModelInfo> models) {
+                onUi(new Runnable() {
+                    @Override
                     public void run() {
-                        models.clear();
-                        for (Model model : result) {
-                            models.addElement(model.getName());
-                        }
-                        detailsArea.append("Loaded " + result.size() + " model(s).\n");
+                        showInstalledModels(models);
+                        installedStatusLabel.setText("Loaded " + models.size() + " installed models.");
                     }
                 });
             }
 
+            @Override
             public void onError(final Exception ex) {
-                SwingUtilities.invokeLater(new Runnable() {
+                onUi(new Runnable() {
+                    @Override
                     public void run() {
-                        detailsArea.append("ERROR: " + ex.getMessage() + "\n");
+                        showInstalledPlaceholder("Could not load installed models: " + ex.getMessage());
+                        installedStatusLabel.setText("Error while loading installed models.");
                     }
                 });
             }
         });
+    }
+
+    private void refreshRunningModels() {
+        runningStatusLabel.setText("Loading running models from " + model.getOllamaBaseUrl() + " ...");
+        showRunningPlaceholder("Loading running models ...");
+        ollamaService.listRunningModels(new OllamaService.RunningModelsListener() {
+            @Override
+            public void onRunningModels(final List<OllamaRunningModelInfo> models) {
+                onUi(new Runnable() {
+                    @Override
+                    public void run() {
+                        showRunningModels(models);
+                        runningStatusLabel.setText("Loaded " + models.size() + " running models.");
+                    }
+                });
+            }
+
+            @Override
+            public void onError(final Exception ex) {
+                onUi(new Runnable() {
+                    @Override
+                    public void run() {
+                        showRunningPlaceholder("Could not load running models: " + ex.getMessage());
+                        runningStatusLabel.setText("Error while loading running models.");
+                    }
+                });
+            }
+        });
+    }
+
+    private void refreshServerInformation() {
+        informationLabel.setText("Loading Ollama server information ...");
+        ollamaService.getServerVersion(new OllamaService.ServerVersionListener() {
+            @Override
+            public void onServerVersion(final String version) {
+                onUi(new Runnable() {
+                    @Override
+                    public void run() {
+                        informationLabel.setText(version == null || version.isEmpty()
+                                ? "Ollama server: " + model.getOllamaBaseUrl()
+                                : "Ollama server: " + model.getOllamaBaseUrl() + " | version " + version);
+                    }
+                });
+            }
+
+            @Override
+            public void onError(Exception ex) {
+                onUi(new Runnable() {
+                    @Override
+                    public void run() {
+                        informationLabel.setText("Ollama server: " + model.getOllamaBaseUrl());
+                    }
+                });
+            }
+        });
+    }
+
+    private void showInstalledModels(List<OllamaModelInfo> models) {
+        installedCardsPanel.removeAll();
+        if (models.isEmpty()) {
+            addPlaceholder(installedCardsPanel, "No installed models returned by Ollama.");
+        } else {
+            for (final OllamaModelInfo modelInfo : models) {
+                installedCardsPanel.add(OllamaModelCard.installed(modelInfo, new Runnable() {
+                    @Override
+                    public void run() {
+                        confirmAndDelete(modelInfo.getDisplayName());
+                    }
+                }));
+                installedCardsPanel.add(Box.createVerticalStrut(6));
+            }
+        }
+        refreshCards(installedCardsPanel);
+    }
+
+    private void showRunningModels(List<OllamaRunningModelInfo> models) {
+        runningCardsPanel.removeAll();
+        if (models.isEmpty()) {
+            addPlaceholder(runningCardsPanel, "No running models returned by Ollama.");
+        } else {
+            for (OllamaRunningModelInfo modelInfo : models) {
+                runningCardsPanel.add(OllamaModelCard.running(modelInfo));
+                runningCardsPanel.add(Box.createVerticalStrut(6));
+            }
+        }
+        refreshCards(runningCardsPanel);
+    }
+
+    private void showInstalledPlaceholder(String message) {
+        installedCardsPanel.removeAll();
+        addPlaceholder(installedCardsPanel, message);
+        refreshCards(installedCardsPanel);
+    }
+
+    private void showRunningPlaceholder(String message) {
+        runningCardsPanel.removeAll();
+        addPlaceholder(runningCardsPanel, message);
+        refreshCards(runningCardsPanel);
+    }
+
+    private void confirmAndDelete(final String modelName) {
+        int answer = JOptionPane.showConfirmDialog(this,
+                "Delete model '" + modelName + "' from Ollama?",
+                "Delete model",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.WARNING_MESSAGE);
+        if (answer != JOptionPane.YES_OPTION) {
+            return;
+        }
+        installedStatusLabel.setText("Deleting " + modelName + " ...");
+        ollamaService.deleteModel(modelName, new OllamaService.ActionListener() {
+            @Override
+            public void onComplete(final String message) {
+                onUi(new Runnable() {
+                    @Override
+                    public void run() {
+                        installedStatusLabel.setText(message);
+                        refreshInstalledModels();
+                        if (tabs.getSelectedIndex() == 1) {
+                            refreshRunningModels();
+                        }
+                    }
+                });
+            }
+
+            @Override
+            public void onError(final Exception ex) {
+                onUi(new Runnable() {
+                    @Override
+                    public void run() {
+                        installedStatusLabel.setText("Could not delete " + modelName + ": " + ex.getMessage());
+                    }
+                });
+            }
+        });
+    }
+
+    private static void addPlaceholder(JPanel target, String message) {
+        JLabel label = new JLabel(message);
+        label.setBorder(BorderFactory.createEmptyBorder(18, 18, 18, 18));
+        target.add(label);
+    }
+
+    private static void refreshCards(JPanel panel) {
+        panel.revalidate();
+        panel.repaint();
+    }
+
+    private static void onUi(Runnable runnable) {
+        SwingUtilities.invokeLater(runnable);
     }
 }
