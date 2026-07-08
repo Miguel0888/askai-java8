@@ -2,12 +2,15 @@ package com.aresstack.askai.java8.ui;
 
 import com.aresstack.askai.java8.config.AppConfiguration;
 import com.aresstack.askai.java8.config.AppConfigurationRepository;
+import com.aresstack.askai.java8.net.CertificateTrustConfiguration;
 import com.aresstack.askai.java8.net.PacUrlDiscoveryService;
 import com.aresstack.askai.java8.net.ProxyConfiguration;
+import com.aresstack.askai.java8.service.AskAiService;
 import com.aresstack.winproxy.ProxyDefaults;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
+import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
@@ -39,11 +42,15 @@ public final class ProxyPanel extends JPanel {
     };
 
     private final AppConfigurationRepository configurationRepository;
+    private final AskAiService askAiService;
     private final JComboBox<String> mode;
     private final JTextField testUrl;
     private final JTextField pacUrlDiscoveryScript;
     private final JTextField manualHost;
     private final JTextField manualPort;
+    private final JCheckBox trustJvmDefault;
+    private final JCheckBox trustWindowsRoot;
+    private final JCheckBox trustWindowsCaStores;
     private final JTextArea log;
 
     private String activeScriptMode;
@@ -53,9 +60,12 @@ public final class ProxyPanel extends JPanel {
     private String otherScriptText;
     private boolean updatingScriptText;
 
-    public ProxyPanel(AppConfigurationRepository configurationRepository) {
+    public ProxyPanel(AppConfigurationRepository configurationRepository, AskAiService askAiService) {
         this.configurationRepository = configurationRepository;
-        ProxyConfiguration cfg = configurationRepository.load().getProxyConfiguration();
+        this.askAiService = askAiService;
+        AppConfiguration appConfiguration = configurationRepository.load();
+        ProxyConfiguration cfg = appConfiguration.getProxyConfiguration();
+        CertificateTrustConfiguration trust = appConfiguration.getCertificateTrustConfiguration();
         this.manualPacUrlText = "";
         this.powerShellScriptText = ProxyDefaults.DEFAULT_PAC_URL_DISCOVERY_SCRIPT;
         this.wScriptText = PacUrlDiscoveryService.defaultScript();
@@ -72,37 +82,55 @@ public final class ProxyPanel extends JPanel {
         this.pacUrlDiscoveryScript = new JTextField(scriptTextFor(cfg.getModeName()));
         this.manualHost = new JTextField(empty(cfg.getManualProxyHost()));
         this.manualPort = new JTextField(cfg.getManualProxyPort() > 0 ? String.valueOf(cfg.getManualProxyPort()) : "");
+        this.trustJvmDefault = new JCheckBox("Use JVM default cacerts", trust.isUseJvmDefaultTrustStore());
+        this.trustWindowsRoot = new JCheckBox("Use Windows-ROOT store", trust.isUseWindowsRootStore());
+        this.trustWindowsCaStores = new JCheckBox("Use Windows Root/Intermediate stores", trust.isUseWindowsCaStores());
 
-        JPanel form = new JPanel(new GridLayout(0, 2, 6, 6));
-        form.setBorder(BorderFactory.createTitledBorder("Proxy for model downloads"));
-        form.add(new JLabel("Mode"));
-        form.add(mode);
-        form.add(new JLabel("Test URL"));
-        form.add(testUrl);
-        form.add(new JLabel("PAC URL discovery script"));
-        form.add(pacUrlDiscoveryScript);
-        form.add(new JLabel("Manual host"));
-        form.add(manualHost);
-        form.add(new JLabel("Manual port"));
-        form.add(manualPort);
+        JPanel proxyForm = new JPanel(new GridLayout(0, 2, 6, 6));
+        proxyForm.setBorder(BorderFactory.createTitledBorder("Proxy resolution"));
+        proxyForm.add(new JLabel("Mode"));
+        proxyForm.add(mode);
+        proxyForm.add(new JLabel("Test URL"));
+        proxyForm.add(testUrl);
+        proxyForm.add(new JLabel("PAC URL discovery script"));
+        proxyForm.add(pacUrlDiscoveryScript);
+        proxyForm.add(new JLabel("Manual host"));
+        proxyForm.add(manualHost);
+        proxyForm.add(new JLabel("Manual port"));
+        proxyForm.add(manualPort);
+
+        JPanel trustForm = new JPanel(new GridLayout(0, 1, 6, 6));
+        trustForm.setBorder(BorderFactory.createTitledBorder("TLS certificate trust"));
+        trustForm.add(trustJvmDefault);
+        trustForm.add(trustWindowsRoot);
+        trustForm.add(trustWindowsCaStores);
+
+        JPanel forms = new JPanel(new BorderLayout(8, 8));
+        forms.add(proxyForm, BorderLayout.NORTH);
+        forms.add(trustForm, BorderLayout.SOUTH);
 
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT));
         JButton test = new JButton("Resolve test URL");
         test.addActionListener(e -> resolveTestUrl());
+        JButton hfTest = new JButton("Test HuggingFace HTTPS");
+        hfTest.addActionListener(e -> testHuggingFaceHttps());
         JButton defaults = new JButton("Reset default");
         defaults.addActionListener(e -> resetDefault());
         buttons.add(test);
+        buttons.add(hfTest);
         buttons.add(defaults);
 
         JPanel top = new JPanel(new BorderLayout(8, 8));
-        top.add(form, BorderLayout.CENTER);
+        top.add(forms, BorderLayout.CENTER);
         top.add(buttons, BorderLayout.SOUTH);
         add(top, BorderLayout.NORTH);
 
         log = new JTextArea(12, 60);
         log.setEditable(false);
         add(new JScrollPane(log), BorderLayout.CENTER);
-        append("Proxy changes apply immediately to all Hugging Face operations.");
+        append("Proxy settings and TLS trust settings are separate.");
+        append("Resolve test URL checks only PAC/proxy resolution.");
+        append("Test HuggingFace HTTPS performs the real proxy + TLS + certificate path.");
         append("PAC_URL_POWERSHELL: field contains a PowerShell discovery script.");
         append("PAC_URL_WSCRIPT: field contains a VBScript/WScript discovery script.");
         append("PAC_URL_MANUAL: field contains the PAC/WPAD URL directly.");
@@ -121,6 +149,9 @@ public final class ProxyPanel extends JPanel {
         for (int i = 0; i < fields.length; i++) {
             fields[i].getDocument().addDocumentListener(onEdit);
         }
+        trustJvmDefault.addActionListener(e -> writeConfiguration());
+        trustWindowsRoot.addActionListener(e -> writeConfiguration());
+        trustWindowsCaStores.addActionListener(e -> writeConfiguration());
     }
 
     private void switchScriptTextForSelectedMode() {
@@ -177,13 +208,15 @@ public final class ProxyPanel extends JPanel {
         configurationRepository.save(new AppConfiguration(
                 current.getOllamaBaseUrl(),
                 current.getKeepAlive(),
-                buildConfiguration(),
+                buildProxyConfiguration(),
+                buildCertificateTrustConfiguration(),
                 current.getHuggingFaceToken(),
                 current.getModelDownloadDirectory()));
     }
 
     private void resetDefault() {
         ProxyConfiguration cfg = ProxyConfiguration.defaults();
+        CertificateTrustConfiguration trust = CertificateTrustConfiguration.defaults();
         manualPacUrlText = "";
         powerShellScriptText = ProxyDefaults.DEFAULT_PAC_URL_DISCOVERY_SCRIPT;
         wScriptText = PacUrlDiscoveryService.defaultScript();
@@ -199,13 +232,16 @@ public final class ProxyPanel extends JPanel {
         }
         manualHost.setText(empty(cfg.getManualProxyHost()));
         manualPort.setText(cfg.getManualProxyPort() > 0 ? String.valueOf(cfg.getManualProxyPort()) : "");
+        trustJvmDefault.setSelected(trust.isUseJvmDefaultTrustStore());
+        trustWindowsRoot.setSelected(trust.isUseWindowsRootStore());
+        trustWindowsCaStores.setSelected(trust.isUseWindowsCaStores());
         writeConfiguration();
-        append("Reset to win-proxy-java defaults: " + cfg.getModeName());
+        append("Reset network settings to defaults.");
         appendModeHelp(cfg.getModeName());
     }
 
     private void resolveTestUrl() {
-        final ProxyConfiguration cfg = buildConfiguration();
+        final ProxyConfiguration cfg = buildProxyConfiguration();
         writeConfiguration();
         final String url = cfg.getTestUrl();
         try {
@@ -240,7 +276,26 @@ public final class ProxyPanel extends JPanel {
         }.execute();
     }
 
-    private ProxyConfiguration buildConfiguration() {
+    private void testHuggingFaceHttps() {
+        writeConfiguration();
+        append("Testing HuggingFace HTTPS via real client path ...");
+        askAiService.testHuggingFaceConnection(new AskAiService.ActionListener() {
+            public void onComplete(String message) {
+                append(message);
+                JOptionPane.showMessageDialog(ProxyPanel.this, message,
+                        "HuggingFace HTTPS Test", JOptionPane.INFORMATION_MESSAGE);
+            }
+
+            public void onError(Exception ex) {
+                String message = rootMessage(ex);
+                append("ERROR: " + message);
+                JOptionPane.showMessageDialog(ProxyPanel.this, message,
+                        "HuggingFace HTTPS Test failed", JOptionPane.WARNING_MESSAGE);
+            }
+        });
+    }
+
+    private ProxyConfiguration buildProxyConfiguration() {
         return new ProxyConfiguration(
                 selectedMode(),
                 nonBlank(testUrl.getText(), ProxyConfiguration.defaults().getTestUrl()),
@@ -248,6 +303,13 @@ public final class ProxyPanel extends JPanel {
                 "",
                 empty(manualHost.getText()),
                 parsePort(manualPort.getText()));
+    }
+
+    private CertificateTrustConfiguration buildCertificateTrustConfiguration() {
+        return new CertificateTrustConfiguration(
+                trustJvmDefault.isSelected(),
+                trustWindowsRoot.isSelected(),
+                trustWindowsCaStores.isSelected());
     }
 
     private String selectedMode() {
