@@ -3,6 +3,7 @@ package com.aresstack.askai.java8.net;
 import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -17,28 +18,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
-/**
- * Reads X.509 certificates from the Windows certificate stores that Java's {@code SunMSCAPI}
- * provider does <em>not</em> expose.
- *
- * <p>{@code SunMSCAPI} only offers {@code Windows-ROOT} (Trusted Root Certification Authorities) and
- * {@code Windows-MY} (Personal). It has <strong>no</strong> access to the Windows
- * <em>Intermediate Certification Authorities</em> store. Corporate TLS-intercepting proxies present
- * a leaf certificate signed by an intermediate CA whose root is trusted in {@code Windows-ROOT}, but
- * the intermediate itself lives in the intermediate store and is frequently <em>not</em> sent in the
- * TLS handshake. Windows/SChannel (browsers, {@code curl}) build the chain by pulling the
- * intermediate from that store, but Java's PKIX validator only has the server-sent certificates plus
- * the {@code Windows-ROOT} anchors, so path building fails with
- * {@code unable to find valid certification path to requested target}.</p>
- *
- * <p>To close that gap this helper enumerates the Root <em>and</em> Intermediate CA stores (both the
- * {@code LocalMachine} and {@code CurrentUser} scopes, which include GPO/enterprise-pushed CAs) via
- * PowerShell and returns their certificates. Adding those certificates as trust anchors lets PKIX
- * build the chain even when the proxy omits the intermediate. Only certificates the operating system
- * already trusts are returned, so certificate validation is not weakened.</p>
- *
- * <p>On non-Windows platforms (or when PowerShell is unavailable) an empty list is returned.</p>
- */
 final class WindowsCertificateStores {
 
     private static final long TIMEOUT_SECONDS = 25L;
@@ -46,10 +25,6 @@ final class WindowsCertificateStores {
     private WindowsCertificateStores() {
     }
 
-    /**
-     * @return the certificates found in the Windows Root and Intermediate CA stores, or an empty list
-     *         when they cannot be read (for example on non-Windows platforms).
-     */
     static List<X509Certificate> loadRootAndIntermediateCertificates() {
         if (!isWindows()) {
             return new ArrayList<X509Certificate>();
@@ -58,7 +33,6 @@ final class WindowsCertificateStores {
             String output = runPowerShell(buildScript());
             return parseCertificates(output);
         } catch (Exception ex) {
-            // PowerShell unavailable or failed: fall back to whatever SunMSCAPI already provides.
             return new ArrayList<X509Certificate>();
         }
     }
@@ -68,10 +42,6 @@ final class WindowsCertificateStores {
         return osName.toLowerCase().contains("win");
     }
 
-    /**
-     * PowerShell script that prints each certificate as a single line of Base64-encoded DER,
-     * gathered from the Root and Intermediate CA stores in both machine and user scopes.
-     */
     private static String buildScript() {
         StringBuilder builder = new StringBuilder();
         builder.append("$ErrorActionPreference = 'SilentlyContinue'\r\n");
@@ -91,7 +61,11 @@ final class WindowsCertificateStores {
             throw new IOException("Could not create temporary directory: " + directory.getAbsolutePath());
         }
         File scriptFile = new File(directory, "askai-windows-ca-export.ps1");
+        File outputFile = new File(directory, "askai-windows-ca-export.txt");
         writeScript(scriptFile, script);
+        if (outputFile.isFile() && !outputFile.delete()) {
+            throw new IOException("Could not replace temporary certificate export file: " + outputFile.getAbsolutePath());
+        }
 
         Process process = new ProcessBuilder(
                 "powershell.exe",
@@ -100,20 +74,29 @@ final class WindowsCertificateStores {
                 "-ExecutionPolicy", "Bypass",
                 "-File", scriptFile.getAbsolutePath())
                 .redirectErrorStream(true)
+                .redirectOutput(outputFile)
                 .start();
         boolean completed;
         try {
             completed = process.waitFor(TIMEOUT_SECONDS, TimeUnit.SECONDS);
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
-            process.destroy();
+            destroy(process);
             throw new IOException("Reading Windows certificate stores was interrupted.", ex);
         }
         if (!completed) {
-            process.destroy();
+            destroy(process);
             throw new IOException("Reading Windows certificate stores timed out.");
         }
-        return readText(process);
+        return readText(outputFile);
+    }
+
+    private static void destroy(Process process) {
+        try {
+            process.destroyForcibly();
+        } catch (Throwable ignored) {
+            process.destroy();
+        }
     }
 
     private static void writeScript(File scriptFile, String script) throws IOException {
@@ -128,10 +111,13 @@ final class WindowsCertificateStores {
         }
     }
 
-    private static String readText(Process process) throws IOException {
+    private static String readText(File file) throws IOException {
+        if (!file.isFile()) {
+            return "";
+        }
         BufferedReader reader = null;
         try {
-            reader = new BufferedReader(new InputStreamReader(process.getInputStream(), "UTF-8"));
+            reader = new BufferedReader(new InputStreamReader(new FileInputStream(file), "UTF-8"));
             StringBuilder builder = new StringBuilder();
             String line;
             while ((line = reader.readLine()) != null) {
@@ -145,10 +131,6 @@ final class WindowsCertificateStores {
         }
     }
 
-    /**
-     * Parses the PowerShell output, one Base64-encoded DER certificate per line, de-duplicating
-     * repeated certificates (the machine and user scopes overlap heavily).
-     */
     private static List<X509Certificate> parseCertificates(String output) throws CertificateException {
         List<X509Certificate> certificates = new ArrayList<X509Certificate>();
         if (output == null || output.trim().length() == 0) {
