@@ -266,6 +266,7 @@ public final class ProxyPanel extends JPanel {
                 buildConfiguration(),
                 buildTrustConfiguration(),
                 buildHttpClientConfiguration(),
+                current.getDefaultQuantization(),
                 current.getHuggingFaceToken(),
                 current.getModelDownloadDirectory()));
     }

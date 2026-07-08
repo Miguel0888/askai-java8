@@ -1,7 +1,12 @@
 package com.aresstack.askai.java8.ui;
 
+import com.aresstack.askai.java8.AskAiModel;
 import com.aresstack.askai.java8.config.AppConfigurationRepository;
 import com.aresstack.askai.java8.service.AskAiService;
+import com.aresstack.askai.java8.service.DefaultOllamaService;
+import com.aresstack.askai.java8.service.FeatureActionService;
+import com.aresstack.askai.java8.service.OllamaFeatureActionService;
+import com.aresstack.askai.java8.service.OllamaService;
 
 import javax.swing.Box;
 import javax.swing.JFrame;
@@ -18,7 +23,12 @@ import java.awt.event.MouseEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 
-public final class AskAiFrame {
+/**
+ * Main frame for provider-based AI chat and model installation. Java 8 port of the original AskAI
+ * frame: same menu structure and cards; the Install and Network views are the Java 8 panels that
+ * carry this port's extensions (HuggingFace GGUF flow, WScript proxy discovery, TLS trust, IPv6).
+ */
+public final class AskAiFrame extends JFrame {
 
     private static final String CHAT_VIEW = "chat";
     private static final String MODELS_VIEW = "models";
@@ -28,47 +38,49 @@ public final class AskAiFrame {
     private static final String NETWORK_VIEW = "network";
     private static final String ABOUT_VIEW = "about";
 
+    private final AskAiModel model;
     private final AppConfigurationRepository configurationRepository;
     private final AskAiService askAiService;
-    private final JFrame frame;
+    private final OllamaService ollamaService;
+    private final FeatureActionService featureActionService;
     private final JLabel connectionStatusLabel;
     private final CardLayout contentLayout;
     private final JPanel contentPanel;
-    private final OllamaChatPanel chatPanel;
     private final OllamaModelsPanel modelsPanel;
-    private final OllamaConfigPanel configPanel;
 
-    public AskAiFrame(AppConfigurationRepository configurationRepository, AskAiService askAiService) {
+    public AskAiFrame(AppConfigurationRepository configurationRepository, final AskAiService askAiService) {
+        super("AskAI");
         this.configurationRepository = configurationRepository;
         this.askAiService = askAiService;
-        this.frame = new JFrame("AskAI");
+        this.model = new AskAiModel(configurationRepository);
+        this.ollamaService = new DefaultOllamaService(model);
+        this.featureActionService = new OllamaFeatureActionService(model);
         this.connectionStatusLabel = new JLabel();
         this.contentLayout = new CardLayout();
         this.contentPanel = new JPanel(contentLayout);
-        this.chatPanel = new OllamaChatPanel(configurationRepository, askAiService);
-        this.modelsPanel = new OllamaModelsPanel(askAiService);
-        this.configPanel = new OllamaConfigPanel(configurationRepository);
-    }
-
-    public void showFrame() {
-        configureFrame();
-        showScreen(CHAT_VIEW);
-        frame.setVisible(true);
-    }
-
-    private void configureFrame() {
-        frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
-        frame.setJMenuBar(createMenuBar());
-        frame.getContentPane().setLayout(new BorderLayout());
-        frame.getContentPane().add(createContentPanel(), BorderLayout.CENTER);
-        frame.setSize(1180, 820);
-        frame.setMinimumSize(new Dimension(980, 680));
-        frame.setLocationRelativeTo(null);
-        frame.addWindowListener(new WindowAdapter() {
+        this.modelsPanel = new OllamaModelsPanel(model, ollamaService);
+        setDefaultCloseOperation(DISPOSE_ON_CLOSE);
+        addWindowListener(new WindowAdapter() {
             public void windowClosed(WindowEvent event) {
                 askAiService.shutdown();
             }
         });
+        setSize(1180, 820);
+        setMinimumSize(new Dimension(980, 680));
+        setLocationRelativeTo(null);
+        buildUserInterface();
+        showScreen(CHAT_VIEW);
+    }
+
+    /** Kept for the existing launcher: builds the frame and makes it visible. */
+    public void showFrame() {
+        setVisible(true);
+    }
+
+    private void buildUserInterface() {
+        setJMenuBar(createMenuBar());
+        getContentPane().setLayout(new BorderLayout());
+        getContentPane().add(createContentPanel(), BorderLayout.CENTER);
     }
 
     private JMenuBar createMenuBar() {
@@ -87,6 +99,7 @@ public final class AskAiFrame {
     private JMenu createTopLevelMenu(String title, String screenName) {
         final JMenu menu = new JMenu(title);
         menu.addMouseListener(new MouseAdapter() {
+            @Override
             public void mouseClicked(MouseEvent event) {
                 showScreen(screenName);
                 menu.setSelected(false);
@@ -116,11 +129,14 @@ public final class AskAiFrame {
     }
 
     private JPanel createContentPanel() {
-        contentPanel.add(chatPanel, CHAT_VIEW);
+        contentPanel.add(new OllamaChatPanel(model, ollamaService), CHAT_VIEW);
         contentPanel.add(modelsPanel, MODELS_VIEW);
-        contentPanel.add(new OllamaActionsPanel(askAiService), ACTIONS_VIEW);
+        contentPanel.add(new OllamaActionsPanel(featureActionService, ollamaService), ACTIONS_VIEW);
+        // Java 8 port: the HuggingFace GGUF search/download/install panel replaces the original
+        // huggingface4j-based download/import view.
         contentPanel.add(new OllamaInstallPanel(configurationRepository, askAiService), INSTALL_VIEW);
-        contentPanel.add(configPanel, CONNECTIONS_VIEW);
+        contentPanel.add(new OllamaConfigPanel(model, ollamaService), CONNECTIONS_VIEW);
+        // Java 8 port: the extended proxy panel (WScript discovery, TLS trust, HTTP client, IPv6).
         contentPanel.add(new ProxyPanel(configurationRepository), NETWORK_VIEW);
         contentPanel.add(new OllamaAboutPanel(), ABOUT_VIEW);
         return contentPanel;
@@ -128,20 +144,14 @@ public final class AskAiFrame {
 
     private void showScreen(String screenName) {
         contentLayout.show(contentPanel, screenName);
-        if (CHAT_VIEW.equals(screenName)) {
-            chatPanel.onShown();
-        }
         if (MODELS_VIEW.equals(screenName)) {
             modelsPanel.onShown();
-        }
-        if (CONNECTIONS_VIEW.equals(screenName)) {
-            configPanel.load();
         }
         refreshConnectionStatus(screenName);
     }
 
     private void refreshConnectionStatus(String screenName) {
-        connectionStatusLabel.setText("Ollama - " + configurationRepository.load().getOllamaBaseUrl() + " - " + resolveScreenTitle(screenName));
+        connectionStatusLabel.setText("Ollama - " + model.getOllamaBaseUrl() + " - " + resolveScreenTitle(screenName));
     }
 
     private String resolveScreenTitle(String screenName) {
