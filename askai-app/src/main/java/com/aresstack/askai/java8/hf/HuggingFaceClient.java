@@ -1,6 +1,7 @@
 package com.aresstack.askai.java8.hf;
 
 import com.aresstack.askai.java8.net.ProxyConfiguration;
+import com.aresstack.askai.java8.net.SystemTrustSslSocketFactory;
 import io.github.ollama4j.json.OllamaJson;
 
 import java.io.File;
@@ -16,6 +17,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+
+import javax.net.ssl.HttpsURLConnection;
 
 public final class HuggingFaceClient {
 
@@ -126,6 +129,12 @@ public final class HuggingFaceClient {
         HttpURLConnection connection = (HttpURLConnection) (proxy == Proxy.NO_PROXY
                 ? new URL(url).openConnection()
                 : new URL(url).openConnection(proxy));
+        if (connection instanceof HttpsURLConnection) {
+            // Corporate proxies terminate TLS with a private CA that lives in the Windows
+            // certificate store but not in the JVM cacerts. Trust both so the handshake with
+            // huggingface.co does not fail with "PKIX path building failed".
+            ((HttpsURLConnection) connection).setSSLSocketFactory(SystemTrustSslSocketFactory.get());
+        }
         connection.setConnectTimeout(30000);
         connection.setReadTimeout(3600000);
         connection.setRequestProperty("Accept", "application/json");
