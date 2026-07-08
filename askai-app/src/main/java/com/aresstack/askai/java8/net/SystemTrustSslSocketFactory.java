@@ -23,6 +23,13 @@ import java.util.List;
  * {@code PKIX path building failed ... unable to find valid certification path to requested target},
  * even though proxy discovery/resolution succeeds.</p>
  *
+ * <p>Because {@code SunMSCAPI} only exposes {@code Windows-ROOT} (not the Windows
+ * <em>Intermediate Certification Authorities</em> store), this factory additionally reads the Root
+ * and Intermediate CA stores via {@link WindowsCertificateStores} and adds them as trust anchors.
+ * Trusting the intermediate CA directly lets PKIX build the chain even when the proxy omits the
+ * intermediate from the TLS handshake &mdash; the exact case {@code Windows-ROOT} alone cannot
+ * validate.</p>
+ *
  * <p>The factory only ever <em>adds</em> trust anchors that the operating system already trusts, so
  * it does not weaken certificate validation. On non-Windows platforms (or when SunMSCAPI is
  * unavailable) the Windows store is silently skipped and only the JVM default trust store is used.</p>
@@ -56,6 +63,7 @@ public final class SystemTrustSslSocketFactory {
         List<X509TrustManager> delegates = new ArrayList<X509TrustManager>();
         addTrustManager(delegates, null);            // JVM default (cacerts)
         addWindowsRootTrustManager(delegates);       // Windows-ROOT (no-op off Windows)
+        addWindowsCaTrustManager(delegates);         // Windows Root + Intermediate CA stores (no-op off Windows)
 
         if (delegates.isEmpty()) {
             return (SSLSocketFactory) SSLSocketFactory.getDefault();
@@ -77,6 +85,30 @@ public final class SystemTrustSslSocketFactory {
             addTrustManager(delegates, keyStore);
         } catch (Exception ex) {
             // Not running on Windows or SunMSCAPI unavailable: the JVM default trust store is enough.
+        }
+    }
+
+    /**
+     * Adds the certificates from the Windows Root <em>and</em> Intermediate Certification Authorities
+     * stores (which {@code SunMSCAPI}'s {@code Windows-ROOT} keystore does not expose) as trust
+     * anchors. Making the corporate intermediate CA an anchor lets PKIX build the chain even when a
+     * TLS-intercepting proxy omits the intermediate from the handshake, which is the case
+     * {@code Windows-ROOT} alone cannot cover.
+     */
+    private static void addWindowsCaTrustManager(List<X509TrustManager> delegates) {
+        List<X509Certificate> certificates = WindowsCertificateStores.loadRootAndIntermediateCertificates();
+        if (certificates.isEmpty()) {
+            return;
+        }
+        try {
+            KeyStore keyStore = KeyStore.getInstance(KeyStore.getDefaultType());
+            keyStore.load(null, null);
+            for (int i = 0; i < certificates.size(); i++) {
+                keyStore.setCertificateEntry("askai-windows-ca-" + i, certificates.get(i));
+            }
+            addTrustManager(delegates, keyStore);
+        } catch (Exception ex) {
+            // Could not assemble the extra anchors: keep whatever trust sources were already added.
         }
     }
 
