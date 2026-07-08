@@ -1,5 +1,6 @@
 package com.aresstack.askai.java8.hf;
 
+import com.aresstack.askai.java8.net.CertificateTrustConfiguration;
 import com.aresstack.askai.java8.net.ProxyConfiguration;
 import com.aresstack.askai.java8.net.SystemTrustSslSocketFactory;
 import io.github.ollama4j.json.OllamaJson;
@@ -23,11 +24,27 @@ import javax.net.ssl.HttpsURLConnection;
 public final class HuggingFaceClient {
 
     private final ProxyConfiguration proxyConfiguration;
+    private final CertificateTrustConfiguration certificateTrustConfiguration;
     private final String accessToken;
 
     public HuggingFaceClient(ProxyConfiguration proxyConfiguration, String accessToken) {
+        this(proxyConfiguration, CertificateTrustConfiguration.defaults(), accessToken);
+    }
+
+    public HuggingFaceClient(ProxyConfiguration proxyConfiguration,
+                             CertificateTrustConfiguration certificateTrustConfiguration,
+                             String accessToken) {
         this.proxyConfiguration = proxyConfiguration == null ? ProxyConfiguration.defaults() : proxyConfiguration;
+        this.certificateTrustConfiguration = certificateTrustConfiguration == null
+                ? CertificateTrustConfiguration.defaults()
+                : certificateTrustConfiguration;
         this.accessToken = accessToken == null ? "" : accessToken.trim();
+    }
+
+    public String testConnection() throws IOException {
+        String body = getText("https://huggingface.co/api/models?limit=1");
+        return "HuggingFace HTTPS test OK (" + body.length() + " bytes). "
+                + SystemTrustSslSocketFactory.describe(certificateTrustConfiguration);
     }
 
     public List<HuggingFaceModel> searchModels(String query, int limit) throws IOException {
@@ -130,10 +147,8 @@ public final class HuggingFaceClient {
                 ? new URL(url).openConnection()
                 : new URL(url).openConnection(proxy));
         if (connection instanceof HttpsURLConnection) {
-            // Corporate proxies terminate TLS with a private CA that lives in the Windows
-            // certificate store but not in the JVM cacerts. Trust both so the handshake with
-            // huggingface.co does not fail with "PKIX path building failed".
-            ((HttpsURLConnection) connection).setSSLSocketFactory(SystemTrustSslSocketFactory.get());
+            ((HttpsURLConnection) connection).setSSLSocketFactory(
+                    SystemTrustSslSocketFactory.get(certificateTrustConfiguration));
         }
         connection.setConnectTimeout(30000);
         connection.setReadTimeout(3600000);
