@@ -13,7 +13,9 @@ import javax.swing.JComboBox;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JList;
+import javax.swing.JMenuItem;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import javax.swing.JProgressBar;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
@@ -26,6 +28,9 @@ import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
 import java.io.File;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 
 public final class OllamaInstallPanel extends JPanel {
@@ -142,14 +147,21 @@ public final class OllamaInstallPanel extends JPanel {
         JButton downloadButton = new JButton("Download");
         JButton fullInstallButton = new JButton("Download and install");
         JButton importLastButton = new JButton("Install downloaded file");
+        final JButton importMenuButton = new JButton("▾");
+        importMenuButton.setToolTipText("Install another already-downloaded model");
         filesButton.addActionListener(event -> loadFiles());
         downloadButton.addActionListener(event -> downloadSelected(false));
         fullInstallButton.addActionListener(event -> downloadSelected(true));
         importLastButton.addActionListener(event -> installDownloadedFile());
+        importMenuButton.addActionListener(event -> showDownloadedFilesMenu(importMenuButton));
+        // A split button: primary installs the current download, the arrow lists all downloads.
+        JPanel installSplit = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        installSplit.add(importLastButton);
+        installSplit.add(importMenuButton);
         buttons.add(filesButton);
         buttons.add(downloadButton);
         buttons.add(fullInstallButton);
-        buttons.add(importLastButton);
+        buttons.add(installSplit);
 
         GridBagConstraints buttonConstraints = new GridBagConstraints();
         buttonConstraints.gridx = 0;
@@ -301,6 +313,84 @@ public final class OllamaInstallPanel extends JPanel {
                 });
             }
         });
+    }
+
+    /**
+     * Shows a popup listing every already-downloaded GGUF file (not just the last one), so a model
+     * downloaded earlier but not yet installed remotely can be installed too.
+     */
+    private void showDownloadedFilesMenu(JButton anchor) {
+        List<File> files = findDownloadedGgufFiles();
+        JPopupMenu menu = new JPopupMenu();
+        if (files.isEmpty()) {
+            JMenuItem empty = new JMenuItem("No downloaded GGUF files found");
+            empty.setEnabled(false);
+            menu.add(empty);
+        } else {
+            for (int i = 0; i < files.size(); i++) {
+                final File file = files.get(i);
+                JMenuItem item = new JMenuItem(downloadedFileLabel(file));
+                item.addActionListener(event -> chooseAndInstall(file));
+                menu.add(item);
+            }
+        }
+        menu.show(anchor, 0, anchor.getHeight());
+    }
+
+    private void chooseAndInstall(File file) {
+        lastDownloadedFile = file;
+        // Match the install name to the chosen file, since installing it under another model's name
+        // would be wrong.
+        installAsField.setText(suggestInstallNameForFile(file));
+        append("Selected downloaded file: " + file.getAbsolutePath());
+        installDownloadedFile();
+    }
+
+    /** @return all downloaded {@code .gguf} files under the model download directory, newest first. */
+    private List<File> findDownloadedGgufFiles() {
+        List<File> found = new ArrayList<File>();
+        collectGgufFiles(configurationRepository.load().getModelDownloadDirectory(), found, 0);
+        Collections.sort(found, new Comparator<File>() {
+            public int compare(File a, File b) {
+                return Long.compare(b.lastModified(), a.lastModified());
+            }
+        });
+        return found;
+    }
+
+    private void collectGgufFiles(File directory, List<File> out, int depth) {
+        if (directory == null || !directory.isDirectory() || depth > 4) {
+            return;
+        }
+        File[] children = directory.listFiles();
+        if (children == null) {
+            return;
+        }
+        for (int i = 0; i < children.length; i++) {
+            File child = children[i];
+            if (child.isDirectory()) {
+                collectGgufFiles(child, out, depth + 1);
+            } else if (child.isFile() && child.getName().toLowerCase().endsWith(".gguf")) {
+                out.add(child);
+            }
+        }
+    }
+
+    private String downloadedFileLabel(File file) {
+        File parent = file.getParentFile();
+        String relative = (parent != null ? parent.getName() + "/" : "") + file.getName();
+        long megabytes = file.length() / (1024L * 1024L);
+        return relative + "  (" + megabytes + " MB)";
+    }
+
+    private String suggestInstallNameForFile(File file) {
+        String name = file.getName();
+        int dot = name.toLowerCase().lastIndexOf(".gguf");
+        if (dot >= 0) {
+            name = name.substring(0, dot);
+        }
+        String cleaned = name.toLowerCase().replaceAll("[^a-z0-9._-]", "-");
+        return cleaned.length() == 0 ? "model" : cleaned;
     }
 
     private void installDownloadedFile() {
