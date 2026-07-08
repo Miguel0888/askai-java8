@@ -9,11 +9,13 @@ import com.aresstack.askai.java8.service.AskAiService;
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListModel;
 import javax.swing.JButton;
-import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
+import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JList;
+import javax.swing.JMenuItem;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import javax.swing.JProgressBar;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
@@ -22,26 +24,35 @@ import javax.swing.ListSelectionModel;
 import javax.swing.SwingUtilities;
 import java.awt.BorderLayout;
 import java.awt.FlowLayout;
-import java.awt.GridLayout;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
+import java.awt.Insets;
 import java.io.File;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 
 public final class OllamaInstallPanel extends JPanel {
 
+    private static final String PROFILE_AUTO = "Auto (recommended)";
+    private static final String PROFILE_QWEN = "Qwen ChatML";
+    private static final String PROFILE_DEFAULT = "Default";
+
     private final AppConfigurationRepository configurationRepository;
     private final AskAiService askAiService;
-    private final JTextField queryField;
-    private final JTextField repositoryField;
+    private final JTextField searchField;
+    private final JButton searchButton;
+    private final DefaultListModel<HuggingFaceModel> resultsModel;
+    private final JList<HuggingFaceModel> resultsList;
+    private final DefaultListModel<HuggingFaceFile> filesModel;
+    private final JList<HuggingFaceFile> filesList;
+    private final JTextField repoField;
     private final JTextField revisionField;
     private final JTextField tokenField;
     private final JTextField installAsField;
-    private final JComboBox<String> profileBox;
-    private final JComboBox<String> quantizationBox;
-    private final JCheckBox installAfterDownloadBox;
-    private final DefaultListModel<HuggingFaceModel> modelResults;
-    private final JList<HuggingFaceModel> modelResultsList;
-    private final DefaultListModel<HuggingFaceFile> fileResults;
-    private final JList<HuggingFaceFile> filesList;
+    private final JTextField quantizationField;
+    private final JComboBox<String> profileCombo;
     private final JProgressBar progressBar;
     private final JTextArea logArea;
     private File lastDownloadedFile;
@@ -49,112 +60,157 @@ public final class OllamaInstallPanel extends JPanel {
     public OllamaInstallPanel(AppConfigurationRepository configurationRepository, AskAiService askAiService) {
         this.configurationRepository = configurationRepository;
         this.askAiService = askAiService;
-        this.queryField = new JTextField("qwen gguf", 28);
-        this.repositoryField = new JTextField(32);
+        this.searchField = new JTextField(28);
+        this.searchButton = new JButton("Search Hugging Face");
+        this.resultsModel = new DefaultListModel<HuggingFaceModel>();
+        this.resultsList = new JList<HuggingFaceModel>(resultsModel);
+        this.filesModel = new DefaultListModel<HuggingFaceFile>();
+        this.filesList = new JList<HuggingFaceFile>(filesModel);
+        this.repoField = new JTextField(30);
         this.revisionField = new JTextField("main", 10);
-        this.tokenField = new JTextField(28);
+        this.tokenField = new JTextField(24);
         this.installAsField = new JTextField(24);
-        this.profileBox = new JComboBox<String>(new String[]{"Generic GGUF", "Qwen Instruct", "Llama Instruct"});
-        this.quantizationBox = new JComboBox<String>(new String[]{"auto", "q4_K_M", "q4_0", "q8_0"});
-        this.installAfterDownloadBox = new JCheckBox("Install into remote Ollama after download", true);
-        this.modelResults = new DefaultListModel<HuggingFaceModel>();
-        this.modelResultsList = new JList<HuggingFaceModel>(modelResults);
-        this.fileResults = new DefaultListModel<HuggingFaceFile>();
-        this.filesList = new JList<HuggingFaceFile>(fileResults);
+        this.quantizationField = new JTextField("Q4_K_M", 10);
+        this.profileCombo = new JComboBox<String>(new String[]{PROFILE_AUTO, PROFILE_QWEN, PROFILE_DEFAULT});
         this.progressBar = new JProgressBar(0, 100);
-        this.logArea = new JTextArea(10, 70);
+        this.logArea = new JTextArea(12, 80);
         buildUserInterface();
-        loadTokenFromConfiguration();
     }
 
     private void buildUserInterface() {
         setLayout(new BorderLayout(8, 8));
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        add(buildTop(), BorderLayout.NORTH);
+        add(buildCenter(), BorderLayout.CENTER);
+        progressBar.setStringPainted(true);
+        add(progressBar, BorderLayout.SOUTH);
+        loadTokenFromConfiguration();
+    }
 
-        JPanel top = new JPanel(new BorderLayout(8, 8));
-        top.add(buildSearchPanel(), BorderLayout.NORTH);
-        top.add(buildConfigPanel(), BorderLayout.CENTER);
-        add(top, BorderLayout.NORTH);
+    private JComponent buildTop() {
+        JPanel searchBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
+        searchBar.add(new JLabel("Search"));
+        searchBar.add(searchField);
+        searchBar.add(searchButton);
+        searchButton.addActionListener(event -> searchModels());
+        searchField.addActionListener(event -> searchModels());
 
-        JPanel lists = new JPanel(new GridLayout(1, 2, 8, 8));
-        modelResultsList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        filesList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        modelResultsList.addListSelectionListener(event -> {
+        resultsList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        resultsList.setVisibleRowCount(5);
+        resultsList.addListSelectionListener(event -> {
             if (!event.getValueIsAdjusting()) {
-                HuggingFaceModel selected = modelResultsList.getSelectedValue();
-                if (selected != null) {
-                    repositoryField.setText(selected.getId());
-                    installAsField.setText(suggestInstallName(selected.getId()));
-                    listFiles(selected.getId());
-                }
+                onResultSelected();
             }
         });
-        lists.add(new JScrollPane(modelResultsList));
-        lists.add(new JScrollPane(filesList));
-        add(lists, BorderLayout.CENTER);
+        filesList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        filesList.setVisibleRowCount(5);
 
-        JPanel bottom = new JPanel(new BorderLayout(8, 8));
-        progressBar.setStringPainted(true);
-        bottom.add(progressBar, BorderLayout.NORTH);
+        JPanel listsPanel = new JPanel(new GridBagLayout());
+        GridBagConstraints constraints = new GridBagConstraints();
+        constraints.gridx = 0;
+        constraints.gridy = 0;
+        constraints.weightx = 0.5d;
+        constraints.weighty = 1.0d;
+        constraints.fill = GridBagConstraints.BOTH;
+        JScrollPane resultsScroll = new JScrollPane(resultsList);
+        resultsScroll.setBorder(BorderFactory.createTitledBorder("Hugging Face models"));
+        listsPanel.add(resultsScroll, constraints);
+        constraints.gridx = 1;
+        JScrollPane filesScroll = new JScrollPane(filesList);
+        filesScroll.setBorder(BorderFactory.createTitledBorder("GGUF files"));
+        listsPanel.add(filesScroll, constraints);
+
+        JPanel top = new JPanel(new BorderLayout(6, 6));
+        top.add(searchBar, BorderLayout.NORTH);
+        top.add(listsPanel, BorderLayout.CENTER);
+        top.add(buildForm(), BorderLayout.SOUTH);
+        return top;
+    }
+
+    private JComponent buildForm() {
+        JPanel form = new JPanel(new GridBagLayout());
+        form.setBorder(BorderFactory.createTitledBorder("Install"));
+        GridBagConstraints constraints = new GridBagConstraints();
+        constraints.insets = new Insets(3, 4, 3, 4);
+        constraints.fill = GridBagConstraints.HORIZONTAL;
+        constraints.anchor = GridBagConstraints.WEST;
+
+        addRow(form, constraints, 0, "Repository", repoField);
+        addRow(form, constraints, 1, "Revision / branch", revisionField);
+        addRow(form, constraints, 2, "HF token (gated, optional)", tokenField);
+        addRow(form, constraints, 3, "Install as", installAsField);
+        addRow(form, constraints, 4, "Ollama profile", profileCombo);
+        addRow(form, constraints, 5, "Quantization", quantizationField);
+
+        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
+        JButton filesButton = new JButton("Load GGUF files");
+        JButton downloadButton = new JButton("Download");
+        JButton fullInstallButton = new JButton("Download and install");
+        JButton importLastButton = new JButton("Install downloaded file");
+        final JButton importMenuButton = new JButton("▾");
+        importMenuButton.setToolTipText("Install another already-downloaded model");
+        filesButton.addActionListener(event -> loadFiles());
+        downloadButton.addActionListener(event -> downloadSelected(false));
+        fullInstallButton.addActionListener(event -> downloadSelected(true));
+        importLastButton.addActionListener(event -> installDownloadedFile());
+        importMenuButton.addActionListener(event -> showDownloadedFilesMenu(importMenuButton));
+        // A split button: primary installs the current download, the arrow lists all downloads.
+        JPanel installSplit = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        installSplit.add(importLastButton);
+        installSplit.add(importMenuButton);
+        buttons.add(filesButton);
+        buttons.add(downloadButton);
+        buttons.add(fullInstallButton);
+        buttons.add(installSplit);
+
+        GridBagConstraints buttonConstraints = new GridBagConstraints();
+        buttonConstraints.gridx = 0;
+        buttonConstraints.gridy = 6;
+        buttonConstraints.gridwidth = 2;
+        buttonConstraints.anchor = GridBagConstraints.WEST;
+        form.add(buttons, buttonConstraints);
+        return form;
+    }
+
+    private JComponent buildCenter() {
         logArea.setEditable(false);
-        bottom.add(new JScrollPane(logArea), BorderLayout.CENTER);
-        add(bottom, BorderLayout.SOUTH);
+        logArea.setLineWrap(true);
+        logArea.setWrapStyleWord(true);
+        JScrollPane scroll = new JScrollPane(logArea);
+        scroll.setBorder(BorderFactory.createTitledBorder("Log"));
+        return scroll;
     }
 
-    private JPanel buildSearchPanel() {
-        JPanel panel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
-        panel.setBorder(BorderFactory.createTitledBorder("Hugging Face search"));
-        panel.add(new JLabel("Search"));
-        panel.add(queryField);
-        JButton searchButton = new JButton("Search Hugging Face");
-        searchButton.addActionListener(event -> searchModels());
-        panel.add(searchButton);
-        return panel;
-    }
-
-    private JPanel buildConfigPanel() {
-        JPanel panel = new JPanel(new GridLayout(0, 2, 8, 4));
-        panel.setBorder(BorderFactory.createTitledBorder("Download and install"));
-        panel.add(new JLabel("Repository"));
-        panel.add(repositoryField);
-        panel.add(new JLabel("Revision"));
-        panel.add(revisionField);
-        panel.add(new JLabel("HF token"));
-        panel.add(tokenField);
-        panel.add(new JLabel("Install as"));
-        panel.add(installAsField);
-        panel.add(new JLabel("Ollama profile"));
-        panel.add(profileBox);
-        panel.add(new JLabel("Quantization"));
-        panel.add(quantizationBox);
-        panel.add(new JLabel("Install"));
-        panel.add(installAfterDownloadBox);
-        JButton downloadButton = new JButton("Download selected GGUF");
-        downloadButton.addActionListener(event -> downloadSelectedFile());
-        panel.add(downloadButton);
-        JButton installButton = new JButton("Install last downloaded file");
-        installButton.addActionListener(event -> installDownloadedFile());
-        panel.add(installButton);
-        return panel;
+    private void addRow(JPanel form, GridBagConstraints constraints, int row, String label, java.awt.Component field) {
+        constraints.gridx = 0;
+        constraints.gridy = row;
+        constraints.weightx = 0.0d;
+        form.add(new JLabel(label), constraints);
+        constraints.gridx = 1;
+        constraints.weightx = 1.0d;
+        form.add(field, constraints);
     }
 
     private void searchModels() {
-        saveTokenToConfiguration();
-        String query = queryField.getText().trim();
+        final String query = searchField.getText().trim();
         if (query.length() == 0) {
-            append("Enter a Hugging Face search query.");
+            append("Enter a search term, e.g. qwen2.5 coder 0.5b.");
             return;
         }
-        append("Searching Hugging Face for: " + query);
+        saveTokenToConfiguration();
+        searchButton.setEnabled(false);
+        append("Searching Hugging Face for \"" + query + "\" ...");
         askAiService.searchHuggingFaceModels(query, new AskAiService.HuggingFaceModelListener() {
             public void onModels(final List<HuggingFaceModel> models) {
                 onUi(new Runnable() {
                     public void run() {
-                        modelResults.clear();
-                        for (int i = 0; i < models.size(); i++) {
-                            modelResults.addElement(models.get(i));
+                        searchButton.setEnabled(true);
+                        resultsModel.clear();
+                        filesModel.clear();
+                        for (HuggingFaceModel model : models) {
+                            resultsModel.addElement(model);
                         }
-                        append("Found " + models.size() + " model repositories.");
+                        append("Found " + models.size() + " model(s). Select one to install.");
                     }
                 });
             }
@@ -162,24 +218,42 @@ public final class OllamaInstallPanel extends JPanel {
             public void onError(final Exception ex) {
                 onUi(new Runnable() {
                     public void run() {
-                        append("ERROR: " + ex.getMessage());
+                        searchButton.setEnabled(true);
+                        append("Search failed: " + ex.getMessage());
                     }
                 });
             }
         });
     }
 
-    private void listFiles(final String modelId) {
-        append("Listing GGUF files for " + modelId + " ...");
-        askAiService.listHuggingFaceFiles(modelId, new AskAiService.HuggingFaceFileListener() {
+    private void onResultSelected() {
+        HuggingFaceModel selected = resultsList.getSelectedValue();
+        if (selected == null) {
+            return;
+        }
+        repoField.setText(selected.getId());
+        installAsField.setText(suggestInstallName(selected.getId()));
+        profileCombo.setSelectedItem(PROFILE_AUTO);
+        loadFiles();
+    }
+
+    private void loadFiles() {
+        final String repoId = repoField.getText().trim();
+        if (repoId.length() == 0) {
+            append("Pick a model from the list or type a repository id.");
+            return;
+        }
+        saveTokenToConfiguration();
+        append("Loading GGUF files for " + repoId + " ...");
+        askAiService.listHuggingFaceFiles(repoId, new AskAiService.HuggingFaceFileListener() {
             public void onFiles(final List<HuggingFaceFile> files) {
                 onUi(new Runnable() {
                     public void run() {
-                        fileResults.clear();
-                        for (int i = 0; i < files.size(); i++) {
-                            fileResults.addElement(files.get(i));
+                        filesModel.clear();
+                        for (HuggingFaceFile file : files) {
+                            filesModel.addElement(file);
                         }
-                        append("Found " + files.size() + " GGUF files.");
+                        append("Found " + files.size() + " GGUF file(s).");
                     }
                 });
             }
@@ -187,15 +261,14 @@ public final class OllamaInstallPanel extends JPanel {
             public void onError(final Exception ex) {
                 onUi(new Runnable() {
                     public void run() {
-                        append("ERROR: " + ex.getMessage());
+                        append("Could not load files: " + ex.getMessage());
                     }
                 });
             }
         });
     }
 
-    private void downloadSelectedFile() {
-        final boolean installAfterDownload = installAfterDownloadBox.isSelected();
+    private void downloadSelected(final boolean installAfterDownload) {
         HuggingFaceFile selected = filesList.getSelectedValue();
         if (selected == null) {
             append("Select a GGUF file first.");
@@ -240,6 +313,84 @@ public final class OllamaInstallPanel extends JPanel {
                 });
             }
         });
+    }
+
+    /**
+     * Shows a popup listing every already-downloaded GGUF file (not just the last one), so a model
+     * downloaded earlier but not yet installed remotely can be installed too.
+     */
+    private void showDownloadedFilesMenu(JButton anchor) {
+        List<File> files = findDownloadedGgufFiles();
+        JPopupMenu menu = new JPopupMenu();
+        if (files.isEmpty()) {
+            JMenuItem empty = new JMenuItem("No downloaded GGUF files found");
+            empty.setEnabled(false);
+            menu.add(empty);
+        } else {
+            for (int i = 0; i < files.size(); i++) {
+                final File file = files.get(i);
+                JMenuItem item = new JMenuItem(downloadedFileLabel(file));
+                item.addActionListener(event -> chooseAndInstall(file));
+                menu.add(item);
+            }
+        }
+        menu.show(anchor, 0, anchor.getHeight());
+    }
+
+    private void chooseAndInstall(File file) {
+        lastDownloadedFile = file;
+        // Match the install name to the chosen file, since installing it under another model's name
+        // would be wrong.
+        installAsField.setText(suggestInstallNameForFile(file));
+        append("Selected downloaded file: " + file.getAbsolutePath());
+        installDownloadedFile();
+    }
+
+    /** @return all downloaded {@code .gguf} files under the model download directory, newest first. */
+    private List<File> findDownloadedGgufFiles() {
+        List<File> found = new ArrayList<File>();
+        collectGgufFiles(configurationRepository.load().getModelDownloadDirectory(), found, 0);
+        Collections.sort(found, new Comparator<File>() {
+            public int compare(File a, File b) {
+                return Long.compare(b.lastModified(), a.lastModified());
+            }
+        });
+        return found;
+    }
+
+    private void collectGgufFiles(File directory, List<File> out, int depth) {
+        if (directory == null || !directory.isDirectory() || depth > 4) {
+            return;
+        }
+        File[] children = directory.listFiles();
+        if (children == null) {
+            return;
+        }
+        for (int i = 0; i < children.length; i++) {
+            File child = children[i];
+            if (child.isDirectory()) {
+                collectGgufFiles(child, out, depth + 1);
+            } else if (child.isFile() && child.getName().toLowerCase().endsWith(".gguf")) {
+                out.add(child);
+            }
+        }
+    }
+
+    private String downloadedFileLabel(File file) {
+        File parent = file.getParentFile();
+        String relative = (parent != null ? parent.getName() + "/" : "") + file.getName();
+        long megabytes = file.length() / (1024L * 1024L);
+        return relative + "  (" + megabytes + " MB)";
+    }
+
+    private String suggestInstallNameForFile(File file) {
+        String name = file.getName();
+        int dot = name.toLowerCase().lastIndexOf(".gguf");
+        if (dot >= 0) {
+            name = name.substring(0, dot);
+        }
+        String cleaned = name.toLowerCase().replaceAll("[^a-z0-9._-]", "-");
+        return cleaned.length() == 0 ? "model" : cleaned;
     }
 
     private void installDownloadedFile() {
@@ -287,6 +438,7 @@ public final class OllamaInstallPanel extends JPanel {
                 current.getKeepAlive(),
                 current.getProxyConfiguration(),
                 current.getCertificateTrustConfiguration(),
+                current.getHttpClientConfiguration(),
                 tokenField.getText(),
                 current.getModelDownloadDirectory()));
     }

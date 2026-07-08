@@ -121,7 +121,7 @@ public final class AskAiFrame {
         contentPanel.add(new OllamaActionsPanel(askAiService), ACTIONS_VIEW);
         contentPanel.add(new OllamaInstallPanel(configurationRepository, askAiService), INSTALL_VIEW);
         contentPanel.add(configPanel, CONNECTIONS_VIEW);
-        contentPanel.add(new ProxyPanel(configurationRepository, askAiService), NETWORK_VIEW);
+        contentPanel.add(new ProxyPanel(configurationRepository), NETWORK_VIEW);
         contentPanel.add(new OllamaAboutPanel(), ABOUT_VIEW);
         return contentPanel;
     }

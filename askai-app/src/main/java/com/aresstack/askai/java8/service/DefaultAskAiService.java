@@ -84,18 +84,6 @@ public final class DefaultAskAiService implements AskAiService {
         });
     }
 
-    public void testHuggingFaceConnection(final ActionListener listener) {
-        executorService.submit(new Runnable() {
-            public void run() {
-                try {
-                    listener.onComplete(huggingFaceClient().testConnection());
-                } catch (Exception ex) {
-                    listener.onError(ex);
-                }
-            }
-        });
-    }
-
     public void searchHuggingFaceModels(final String query, final HuggingFaceModelListener listener) {
         executorService.submit(new Runnable() {
             public void run() {
@@ -165,8 +153,10 @@ public final class DefaultAskAiService implements AskAiService {
 
     private HuggingFaceClient huggingFaceClient() {
         AppConfiguration configuration = configurationRepository.load();
-        return new HuggingFaceClient(configuration.getProxyConfiguration(),
+        return new HuggingFaceClient(
+                configuration.getProxyConfiguration(),
                 configuration.getCertificateTrustConfiguration(),
+                configuration.getHttpClientConfiguration(),
                 configuration.getHuggingFaceToken());
     }
 

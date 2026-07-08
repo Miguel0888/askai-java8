@@ -16,8 +16,6 @@ public interface AskAiService {
 
     void pullOllamaModel(String modelName, PullListener listener);
 
-    void testHuggingFaceConnection(ActionListener listener);
-
     void searchHuggingFaceModels(String query, HuggingFaceModelListener listener);
 
     void listHuggingFaceFiles(String modelId, HuggingFaceFileListener listener);
