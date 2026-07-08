@@ -126,6 +126,76 @@ public final class ProxyConfiguration {
         }
     }
 
+    /**
+     * Produces a human readable diagnostic of the PAC script source for the current mode. This is
+     * used by the UI to log whether the PAC/WPAD URL was discovered and whether the PAC script file
+     * is actually reachable, which helps tell a discovery/download problem apart from an engine
+     * evaluation problem (win-proxy-java only reports the opaque "pac-evaluation-failed" reason).
+     *
+     * @return a diagnostic message, or {@code null} when the current mode does not use a PAC script
+     *         we can inspect here.
+     */
+    public String describePacSource() {
+        String pacUrl;
+        try {
+            pacUrl = discoverPacUrl();
+        } catch (IOException ex) {
+            return "PAC URL discovery failed: " + messageOf(ex);
+        }
+        if (pacUrl == null) {
+            return null;
+        }
+        if (trimToNull(pacUrl) == null) {
+            return "No PAC/WPAD URL was discovered.";
+        }
+        StringBuilder message = new StringBuilder("PAC URL: ").append(pacUrl);
+        try {
+            int bytes = pacScriptLength(pacUrl);
+            message.append(" (PAC script reachable, ").append(bytes).append(" bytes)");
+        } catch (IOException ex) {
+            message.append(" (PAC script NOT reachable: ").append(messageOf(ex)).append(")");
+        }
+        return message.toString();
+    }
+
+    private String discoverPacUrl() throws IOException {
+        if (PAC_URL_WSCRIPT.equals(mode)) {
+            return new PacUrlDiscoveryService().discoverWithScript(pacUrlDiscoveryScript);
+        }
+        if (PAC_URL_MANUAL.equals(mode)) {
+            return pacUrlDiscoveryScript;
+        }
+        return null;
+    }
+
+    private int pacScriptLength(String pacUrl) throws IOException {
+        java.net.HttpURLConnection connection = null;
+        try {
+            java.net.URLConnection raw = new java.net.URL(pacUrl).openConnection();
+            raw.setConnectTimeout(10000);
+            raw.setReadTimeout(10000);
+            if (raw instanceof java.net.HttpURLConnection) {
+                connection = (java.net.HttpURLConnection) raw;
+            }
+            java.io.InputStream input = raw.getInputStream();
+            try {
+                byte[] buffer = new byte[8192];
+                int total = 0;
+                int read;
+                while ((read = input.read(buffer)) != -1) {
+                    total += read;
+                }
+                return total;
+            } finally {
+                input.close();
+            }
+        } finally {
+            if (connection != null) {
+                connection.disconnect();
+            }
+        }
+    }
+
     public Proxy toProxy() {
         return toProxyFor(testUrl);
     }

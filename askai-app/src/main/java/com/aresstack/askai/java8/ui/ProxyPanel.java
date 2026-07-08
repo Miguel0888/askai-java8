@@ -219,6 +219,10 @@ public final class ProxyPanel extends JPanel {
         append("Resolving " + url + " ...");
         new SwingWorker<Object, Void>() {
             protected Object doInBackground() {
+                String diagnostic = cfg.describePacSource();
+                if (diagnostic != null) {
+                    append(diagnostic);
+                }
                 return cfg.resolve(url);
             }
 
