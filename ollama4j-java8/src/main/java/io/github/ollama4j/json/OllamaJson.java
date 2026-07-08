@@ -1,9 +1,8 @@
 package io.github.ollama4j.json;
 
-import javax.script.ScriptEngine;
-import javax.script.ScriptEngineManager;
-import javax.script.ScriptException;
+import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -12,15 +11,254 @@ public final class OllamaJson {
     private OllamaJson() {
     }
 
+    /**
+     * Parses a JSON document into plain Java values: {@link LinkedHashMap} for objects (with
+     * {@link String} keys), {@link ArrayList} for arrays, {@link String}, {@link Long}/{@link Double}
+     * for numbers, {@link Boolean}, or {@code null}.
+     *
+     * <p>This is a self-contained parser on purpose: the previous implementation relied on a
+     * JavaScript engine ({@code getEngineByName("javascript")} plus the Nashorn-only
+     * {@code Java.asJSONCompatible}), which fails on JVMs where Nashorn was removed (Java 15+) or where
+     * only GraalVM JS is present, producing "No JavaScript engine available for JSON parsing".</p>
+     *
+     * @throws IllegalArgumentException when the input is not valid JSON.
+     */
     public static Object parse(String json) {
-        try {
-            ScriptEngine engine = new ScriptEngineManager().getEngineByName("javascript");
-            if (engine == null) {
-                throw new IllegalStateException("No JavaScript engine available for JSON parsing.");
+        if (json == null) {
+            throw new IllegalArgumentException("Invalid JSON: input was null.");
+        }
+        JsonParser parser = new JsonParser(json);
+        Object value = parser.parseValue();
+        parser.skipWhitespace();
+        if (!parser.atEnd()) {
+            throw new IllegalArgumentException("Invalid JSON: unexpected trailing content at index " + parser.index());
+        }
+        return value;
+    }
+
+    /** Minimal recursive-descent JSON parser with no external dependencies. */
+    private static final class JsonParser {
+
+        private final String source;
+        private int index;
+
+        JsonParser(String source) {
+            this.source = source;
+        }
+
+        int index() {
+            return index;
+        }
+
+        boolean atEnd() {
+            return index >= source.length();
+        }
+
+        void skipWhitespace() {
+            while (index < source.length()) {
+                char c = source.charAt(index);
+                if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
+                    index++;
+                } else {
+                    break;
+                }
             }
-            return engine.eval("Java.asJSONCompatible(" + json + ")");
-        } catch (ScriptException ex) {
-            throw new IllegalArgumentException("Invalid JSON: " + ex.getMessage(), ex);
+        }
+
+        Object parseValue() {
+            skipWhitespace();
+            if (atEnd()) {
+                throw new IllegalArgumentException("Invalid JSON: unexpected end of input.");
+            }
+            char c = source.charAt(index);
+            switch (c) {
+                case '{':
+                    return parseObject();
+                case '[':
+                    return parseArray();
+                case '"':
+                    return parseString();
+                case 't':
+                case 'f':
+                    return parseBoolean();
+                case 'n':
+                    return parseNull();
+                default:
+                    if (c == '-' || (c >= '0' && c <= '9')) {
+                        return parseNumber();
+                    }
+                    throw new IllegalArgumentException("Invalid JSON: unexpected character '" + c + "' at index " + index);
+            }
+        }
+
+        private Map<String, Object> parseObject() {
+            Map<String, Object> map = new LinkedHashMap<String, Object>();
+            index++; // consume '{'
+            skipWhitespace();
+            if (!atEnd() && source.charAt(index) == '}') {
+                index++;
+                return map;
+            }
+            while (true) {
+                skipWhitespace();
+                if (atEnd() || source.charAt(index) != '"') {
+                    throw new IllegalArgumentException("Invalid JSON: expected string key at index " + index);
+                }
+                String key = parseString();
+                skipWhitespace();
+                expect(':');
+                Object value = parseValue();
+                map.put(key, value);
+                skipWhitespace();
+                char c = next("Invalid JSON: unterminated object.");
+                if (c == '}') {
+                    return map;
+                }
+                if (c != ',') {
+                    throw new IllegalArgumentException("Invalid JSON: expected ',' or '}' at index " + (index - 1));
+                }
+            }
+        }
+
+        private List<Object> parseArray() {
+            List<Object> list = new ArrayList<Object>();
+            index++; // consume '['
+            skipWhitespace();
+            if (!atEnd() && source.charAt(index) == ']') {
+                index++;
+                return list;
+            }
+            while (true) {
+                list.add(parseValue());
+                skipWhitespace();
+                char c = next("Invalid JSON: unterminated array.");
+                if (c == ']') {
+                    return list;
+                }
+                if (c != ',') {
+                    throw new IllegalArgumentException("Invalid JSON: expected ',' or ']' at index " + (index - 1));
+                }
+            }
+        }
+
+        private String parseString() {
+            index++; // consume opening quote
+            StringBuilder builder = new StringBuilder();
+            while (true) {
+                if (atEnd()) {
+                    throw new IllegalArgumentException("Invalid JSON: unterminated string.");
+                }
+                char c = source.charAt(index++);
+                if (c == '"') {
+                    return builder.toString();
+                }
+                if (c == '\\') {
+                    builder.append(parseEscape());
+                } else {
+                    builder.append(c);
+                }
+            }
+        }
+
+        private char parseEscape() {
+            char c = next("Invalid JSON: unterminated escape sequence.");
+            switch (c) {
+                case '"':
+                    return '"';
+                case '\\':
+                    return '\\';
+                case '/':
+                    return '/';
+                case 'b':
+                    return '\b';
+                case 'f':
+                    return '\f';
+                case 'n':
+                    return '\n';
+                case 'r':
+                    return '\r';
+                case 't':
+                    return '\t';
+                case 'u':
+                    if (index + 4 > source.length()) {
+                        throw new IllegalArgumentException("Invalid JSON: truncated \\u escape.");
+                    }
+                    String hex = source.substring(index, index + 4);
+                    index += 4;
+                    try {
+                        return (char) Integer.parseInt(hex, 16);
+                    } catch (NumberFormatException ex) {
+                        throw new IllegalArgumentException("Invalid JSON: bad \\u escape '" + hex + "'.");
+                    }
+                default:
+                    throw new IllegalArgumentException("Invalid JSON: unsupported escape '\\" + c + "'.");
+            }
+        }
+
+        private Object parseNumber() {
+            int start = index;
+            if (!atEnd() && source.charAt(index) == '-') {
+                index++;
+            }
+            boolean floating = false;
+            while (!atEnd()) {
+                char c = source.charAt(index);
+                if (c >= '0' && c <= '9') {
+                    index++;
+                } else if (c == '.' || c == 'e' || c == 'E' || c == '+' || c == '-') {
+                    floating = floating || c == '.' || c == 'e' || c == 'E';
+                    index++;
+                } else {
+                    break;
+                }
+            }
+            String token = source.substring(start, index);
+            try {
+                if (!floating) {
+                    return Long.valueOf(Long.parseLong(token));
+                }
+            } catch (NumberFormatException ex) {
+                // Fall through to double (e.g. an integer larger than Long).
+            }
+            try {
+                return Double.valueOf(Double.parseDouble(token));
+            } catch (NumberFormatException ex) {
+                throw new IllegalArgumentException("Invalid JSON: bad number '" + token + "'.");
+            }
+        }
+
+        private Boolean parseBoolean() {
+            if (source.startsWith("true", index)) {
+                index += 4;
+                return Boolean.TRUE;
+            }
+            if (source.startsWith("false", index)) {
+                index += 5;
+                return Boolean.FALSE;
+            }
+            throw new IllegalArgumentException("Invalid JSON: expected boolean at index " + index);
+        }
+
+        private Object parseNull() {
+            if (source.startsWith("null", index)) {
+                index += 4;
+                return null;
+            }
+            throw new IllegalArgumentException("Invalid JSON: expected null at index " + index);
+        }
+
+        private void expect(char expected) {
+            char c = next("Invalid JSON: expected '" + expected + "' but reached end of input.");
+            if (c != expected) {
+                throw new IllegalArgumentException("Invalid JSON: expected '" + expected + "' at index " + (index - 1));
+            }
+        }
+
+        private char next(String errorMessage) {
+            if (atEnd()) {
+                throw new IllegalArgumentException(errorMessage);
+            }
+            return source.charAt(index++);
         }
     }
 
