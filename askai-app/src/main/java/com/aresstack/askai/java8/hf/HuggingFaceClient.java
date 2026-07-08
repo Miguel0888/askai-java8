@@ -1,6 +1,7 @@
 package com.aresstack.askai.java8.hf;
 
 import com.aresstack.askai.java8.net.CertificateTrustConfiguration;
+import com.aresstack.askai.java8.net.HttpClientConfiguration;
 import com.aresstack.askai.java8.net.ProxyConfiguration;
 import com.aresstack.askai.java8.net.SystemTrustSslSocketFactory;
 import io.github.ollama4j.json.OllamaJson;
@@ -35,17 +36,27 @@ public final class HuggingFaceClient {
 
     private final ProxyConfiguration proxyConfiguration;
     private final CertificateTrustConfiguration trustConfiguration;
+    private final HttpClientConfiguration httpClientConfiguration;
     private final String accessToken;
 
     public HuggingFaceClient(ProxyConfiguration proxyConfiguration, String accessToken) {
-        this(proxyConfiguration, CertificateTrustConfiguration.defaults(), accessToken);
+        this(proxyConfiguration, CertificateTrustConfiguration.defaults(),
+                HttpClientConfiguration.defaults(), accessToken);
     }
 
     public HuggingFaceClient(ProxyConfiguration proxyConfiguration,
                              CertificateTrustConfiguration trustConfiguration, String accessToken) {
+        this(proxyConfiguration, trustConfiguration, HttpClientConfiguration.defaults(), accessToken);
+    }
+
+    public HuggingFaceClient(ProxyConfiguration proxyConfiguration,
+                             CertificateTrustConfiguration trustConfiguration,
+                             HttpClientConfiguration httpClientConfiguration, String accessToken) {
         this.proxyConfiguration = proxyConfiguration == null ? ProxyConfiguration.defaults() : proxyConfiguration;
         this.trustConfiguration = trustConfiguration == null
                 ? CertificateTrustConfiguration.defaults() : trustConfiguration;
+        this.httpClientConfiguration = httpClientConfiguration == null
+                ? HttpClientConfiguration.defaults() : httpClientConfiguration;
         this.accessToken = accessToken == null ? "" : accessToken.trim();
     }
 
@@ -67,33 +78,102 @@ public final class HuggingFaceClient {
             resolvedProxy = "unresolved (" + messageOf(ex) + ")";
         }
 
+        // Probe every URL with the default and the browser-like User-Agent, so proxy User-Agent
+        // filtering shows up: if the browser UA still gets 403 it is almost certainly proxy auth/policy.
+        String[][] userAgents = {
+                {HttpClientConfiguration.DEFAULT_USER_AGENT, "askai-java8 (default)"},
+                {HttpClientConfiguration.BROWSER_USER_AGENT, "browser (Firefox)"}
+        };
+
         List<HuggingFaceConnectionTestResult.Endpoint> endpoints =
                 new ArrayList<HuggingFaceConnectionTestResult.Endpoint>();
-        for (int i = 0; i < TEST_URLS.length; i++) {
-            endpoints.add(probe(TEST_URLS[i]));
+        for (int u = 0; u < TEST_URLS.length; u++) {
+            for (int a = 0; a < userAgents.length; a++) {
+                endpoints.add(probe(TEST_URLS[u], userAgents[a][0], userAgents[a][1]));
+            }
         }
-        return new HuggingFaceConnectionTestResult(resolvedProxy, trust, endpoints);
+        return new HuggingFaceConnectionTestResult(resolvedProxy, trust, buildNotes(), endpoints);
     }
 
-    private HuggingFaceConnectionTestResult.Endpoint probe(String url) {
+    private List<String> buildNotes() {
+        List<String> notes = new ArrayList<String>();
+        notes.add("Configured User-Agent (search/download): " + httpClientConfiguration.getUserAgent());
+        notes.add("User-Agents probed here: askai-java8 (default), browser (Firefox)");
+        HttpClientConfiguration.ProxyAuthMode mode = httpClientConfiguration.getProxyAuthMode();
+        if (mode == HttpClientConfiguration.ProxyAuthMode.BASIC) {
+            String user = httpClientConfiguration.getProxyAuthUsername();
+            notes.add("Proxy auth: BASIC" + (user.length() > 0
+                    ? " (user \"" + user + "\", Proxy-Authorization sent)"
+                    : " (no username set — nothing sent)"));
+        } else if (mode == HttpClientConfiguration.ProxyAuthMode.WINDOWS_INTEGRATED) {
+            notes.add("Proxy auth: WINDOWS_INTEGRATED (prepared/diagnostic only — NTLM/Kerberos negotiation "
+                    + "is not wired, so no credentials are sent. If the browser works via SSO, the proxy likely "
+                    + "expects integrated auth that this client cannot perform yet.)");
+        } else {
+            notes.add("Proxy auth: NONE");
+        }
+        return notes;
+    }
+
+    private HuggingFaceConnectionTestResult.Endpoint probe(String url, String userAgent, String userAgentLabel) {
         HttpURLConnection connection = null;
         try {
-            connection = open(url);
+            connection = open(url, userAgent);
             int status = connection.getResponseCode();
-            List<String> headers = collectRelevantHeaders(connection);
             boolean ok = status >= 200 && status < 300;
+            Map<String, List<String>> headerFields = connection.getHeaderFields();
+            List<String> headers = collectRelevantHeaders(connection);
             InputStream inputStream = ok ? connection.getInputStream() : connection.getErrorStream();
             String body = readBodyExcerpt(inputStream);
             closeQuietly(inputStream);
-            String assessment = ok ? "" : classifyNon2xx(url, status, connection.getHeaderFields(), body);
-            return HuggingFaceConnectionTestResult.Endpoint.http(url, status, headers, body, assessment);
+            String assessment = ok ? "" : classifyNon2xx(url, status, headerFields, body);
+            List<String> detail = buildDetailLines(headerFields, headers, body);
+            return HuggingFaceConnectionTestResult.Endpoint.http(url, userAgentLabel, status, assessment, detail);
         } catch (Exception ex) {
-            return HuggingFaceConnectionTestResult.Endpoint.error(url, isCertificateFailure(ex), messageOf(ex));
+            return HuggingFaceConnectionTestResult.Endpoint.error(url, userAgentLabel, isCertificateFailure(ex),
+                    messageOf(ex));
         } finally {
             if (connection != null) {
                 connection.disconnect();
             }
         }
+    }
+
+    /**
+     * Builds the per-probe detail block: the relevant response headers, and for HTML responses the
+     * extracted title, highlighted policy/auth terms and visible text (scripts/styles/tags stripped).
+     * For non-HTML responses the raw body excerpt is shown instead.
+     */
+    private List<String> buildDetailLines(Map<String, List<String>> headerFields, List<String> headers, String body) {
+        List<String> lines = new ArrayList<String>();
+        if (!headers.isEmpty()) {
+            lines.add("Response headers:");
+            for (int i = 0; i < headers.size(); i++) {
+                lines.add("  " + headers.get(i));
+            }
+        }
+        String contentType = safe(headerValue(headerFields, "Content-Type")).toLowerCase();
+        boolean html = contentType.contains("text/html") || safe(body).toLowerCase().contains("<html")
+                || safe(body).toLowerCase().contains("<!doctype html");
+        if (html) {
+            String title = extractTitle(body);
+            if (title.length() > 0) {
+                lines.add("Page title: \"" + title + "\"");
+            }
+            String highlighted = joinValues(highlightTerms(body));
+            if (highlighted.length() > 0) {
+                lines.add("Highlighted terms: " + highlighted);
+            }
+            String visible = extractVisibleText(body);
+            if (visible.length() > 0) {
+                lines.add("Visible page text (excerpt):");
+                lines.add("  " + visible);
+            }
+        } else if (safe(body).length() > 0) {
+            lines.add("Body (excerpt):");
+            lines.add("  " + body);
+        }
+        return lines;
     }
 
     private static final String[] RELEVANT_HEADERS = {
@@ -171,6 +251,76 @@ public final class HuggingFaceClient {
             text = text.substring(0, BODY_EXCERPT_LIMIT) + " …";
         }
         return text;
+    }
+
+    private static final String[] HIGHLIGHT_TERMS = {
+            "access denied", "access to this", "not authorized", "unauthorized", "authentication",
+            "authorization", "sign in", "log in", "login", "captive portal", "policy", "category",
+            "web filter", "url filtering", "blocked", "forbidden", "denied", "proxy", "fortinet",
+            "fortiguard", "zscaler", "blue coat", "bluecoat", "forcepoint", "websense", "mcafee",
+            "netskope", "squid", "gesperrt", "blockiert", "richtlinie", "anmeldung", "nicht erlaubt"
+    };
+
+    /** Extracts the {@code <title>} text from an HTML body excerpt, or "" when absent. */
+    private static String extractTitle(String body) {
+        if (body == null) {
+            return "";
+        }
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("<title[^>]*>(.*?)</title>", java.util.regex.Pattern.CASE_INSENSITIVE | java.util.regex.Pattern.DOTALL)
+                .matcher(body);
+        if (matcher.find()) {
+            return decodeEntities(matcher.group(1)).replaceAll("\\s+", " ").trim();
+        }
+        return "";
+    }
+
+    /**
+     * Strips {@code <script>}/{@code <style>} blocks and all tags from an HTML body excerpt and returns
+     * the collapsed visible text, capped to keep the log readable.
+     */
+    private static String extractVisibleText(String body) {
+        if (body == null) {
+            return "";
+        }
+        String text = body
+                .replaceAll("(?is)<script[^>]*>.*?</script>", " ")
+                .replaceAll("(?is)<style[^>]*>.*?</style>", " ")
+                .replaceAll("(?is)<!--.*?-->", " ")
+                .replaceAll("(?is)<[^>]+>", " ");
+        text = decodeEntities(text).replaceAll("\\s+", " ").trim();
+        int cap = 600;
+        if (text.length() > cap) {
+            text = text.substring(0, cap) + " …";
+        }
+        return text;
+    }
+
+    /** Returns the distinct policy/auth terms present in the body, in a stable order, for highlighting. */
+    private static List<String> highlightTerms(String body) {
+        List<String> matches = new ArrayList<String>();
+        String haystack = safe(body).toLowerCase();
+        for (int i = 0; i < HIGHLIGHT_TERMS.length; i++) {
+            String term = HIGHLIGHT_TERMS[i];
+            if (haystack.contains(term) && !matches.contains(term)) {
+                matches.add(term);
+            }
+        }
+        return matches;
+    }
+
+    private static String decodeEntities(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value
+                .replace("&nbsp;", " ")
+                .replace("&amp;", "&")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&quot;", "\"")
+                .replace("&#39;", "'")
+                .replace("&apos;", "'");
     }
 
     private static final String[] PROXY_VENDOR_SIGNATURES = {
@@ -368,6 +518,15 @@ public final class HuggingFaceClient {
     }
 
     private HttpURLConnection open(String url) throws IOException {
+        return open(url, httpClientConfiguration.getUserAgent());
+    }
+
+    /**
+     * Opens a connection using the same proxy resolution and TLS trust as all HuggingFace operations,
+     * but with an explicit {@code User-Agent}. The connection test uses this to probe the default and a
+     * browser-like User-Agent so proxy User-Agent filtering can be spotted.
+     */
+    private HttpURLConnection open(String url, String userAgent) throws IOException {
         Proxy proxy = proxyConfiguration.resolveJavaProxy(url);
         HttpURLConnection connection = (HttpURLConnection) (proxy == Proxy.NO_PROXY
                 ? new URL(url).openConnection()
@@ -383,11 +542,27 @@ public final class HuggingFaceClient {
         connection.setConnectTimeout(30000);
         connection.setReadTimeout(3600000);
         connection.setRequestProperty("Accept", "application/json");
-        connection.setRequestProperty("User-Agent", "askai-java8");
+        connection.setRequestProperty("User-Agent",
+                userAgent == null || userAgent.length() == 0 ? HttpClientConfiguration.DEFAULT_USER_AGENT : userAgent);
+        applyProxyAuthorization(connection);
         if (accessToken.length() > 0) {
             connection.setRequestProperty("Authorization", "Bearer " + accessToken);
         }
         return connection;
+    }
+
+    /**
+     * Applies proxy credentials when BASIC auth is configured. WINDOWS_INTEGRATED is intentionally not
+     * wired here (it would require NTLM/Kerberos negotiation); it is only surfaced diagnostically.
+     */
+    private void applyProxyAuthorization(HttpURLConnection connection) {
+        if (!httpClientConfiguration.hasBasicCredentials()) {
+            return;
+        }
+        String raw = httpClientConfiguration.getProxyAuthUsername() + ":"
+                + httpClientConfiguration.getProxyAuthPassword();
+        String encoded = java.util.Base64.getEncoder().encodeToString(raw.getBytes(StandardCharsets.UTF_8));
+        connection.setRequestProperty("Proxy-Authorization", "Basic " + encoded);
     }
 
     private String readText(InputStream inputStream) throws IOException {

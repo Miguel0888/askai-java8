@@ -348,6 +348,7 @@ public final class OllamaInstallPanel extends JPanel {
                 current.getKeepAlive(),
                 current.getProxyConfiguration(),
                 current.getCertificateTrustConfiguration(),
+                current.getHttpClientConfiguration(),
                 tokenField.getText(),
                 current.getModelDownloadDirectory()));
     }

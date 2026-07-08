@@ -156,6 +156,7 @@ public final class DefaultAskAiService implements AskAiService {
         return new HuggingFaceClient(
                 configuration.getProxyConfiguration(),
                 configuration.getCertificateTrustConfiguration(),
+                configuration.getHttpClientConfiguration(),
                 configuration.getHuggingFaceToken());
     }
 

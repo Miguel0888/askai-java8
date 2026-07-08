@@ -5,6 +5,7 @@ import com.aresstack.askai.java8.config.AppConfigurationRepository;
 import com.aresstack.askai.java8.hf.HuggingFaceClient;
 import com.aresstack.askai.java8.hf.HuggingFaceConnectionTestResult;
 import com.aresstack.askai.java8.net.CertificateTrustConfiguration;
+import com.aresstack.askai.java8.net.HttpClientConfiguration;
 import com.aresstack.askai.java8.net.PacUrlDiscoveryService;
 import com.aresstack.askai.java8.net.ProxyConfiguration;
 import com.aresstack.winproxy.ProxyDefaults;
@@ -17,6 +18,7 @@ import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.JPasswordField;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
@@ -52,7 +54,13 @@ public final class ProxyPanel extends JPanel {
     private final JCheckBox trustJvmDefault;
     private final JCheckBox trustWindowsRoot;
     private final JCheckBox trustWindowsCaStores;
+    private final JTextField userAgentField;
+    private final JComboBox<String> proxyAuthMode;
+    private final JTextField proxyAuthUser;
+    private final JPasswordField proxyAuthPassword;
     private final JTextArea log;
+
+    private static final String[] PROXY_AUTH_MODES = {"NONE", "BASIC", "WINDOWS_INTEGRATED"};
 
     private String activeScriptMode;
     private String manualPacUrlText;
@@ -75,6 +83,7 @@ public final class ProxyPanel extends JPanel {
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
         CertificateTrustConfiguration trust = configurationRepository.load().getCertificateTrustConfiguration();
+        HttpClientConfiguration http = configurationRepository.load().getHttpClientConfiguration();
 
         this.mode = new JComboBox<String>(UI_MODES);
         this.mode.setSelectedItem(cfg.getModeName());
@@ -85,6 +94,11 @@ public final class ProxyPanel extends JPanel {
         this.trustJvmDefault = new JCheckBox("Use JVM default cacerts", trust.isUseJvmDefault());
         this.trustWindowsRoot = new JCheckBox("Use Windows-ROOT store", trust.isUseWindowsRoot());
         this.trustWindowsCaStores = new JCheckBox("Use Windows Root/Intermediate stores", trust.isUseWindowsCaStores());
+        this.userAgentField = new JTextField(http.getUserAgent(), 28);
+        this.proxyAuthMode = new JComboBox<String>(PROXY_AUTH_MODES);
+        this.proxyAuthMode.setSelectedItem(http.getProxyAuthMode().name());
+        this.proxyAuthUser = new JTextField(empty(http.getProxyAuthUsername()), 16);
+        this.proxyAuthPassword = new JPasswordField(empty(http.getProxyAuthPassword()), 16);
 
         JPanel form = new JPanel(new GridLayout(0, 2, 6, 6));
         form.setBorder(BorderFactory.createTitledBorder("Proxy resolution"));
@@ -105,10 +119,28 @@ public final class ProxyPanel extends JPanel {
         trustPanel.add(trustWindowsRoot);
         trustPanel.add(trustWindowsCaStores);
 
+        JButton browserUserAgent = new JButton("Use browser UA");
+        browserUserAgent.addActionListener(e -> userAgentField.setText(HttpClientConfiguration.BROWSER_USER_AGENT));
+        JPanel userAgentRow = new JPanel(new BorderLayout(6, 0));
+        userAgentRow.add(userAgentField, BorderLayout.CENTER);
+        userAgentRow.add(browserUserAgent, BorderLayout.EAST);
+
+        JPanel httpPanel = new JPanel(new GridLayout(0, 2, 6, 6));
+        httpPanel.setBorder(BorderFactory.createTitledBorder("HTTP client & proxy authentication"));
+        httpPanel.add(new JLabel("User-Agent"));
+        httpPanel.add(userAgentRow);
+        httpPanel.add(new JLabel("Proxy auth mode"));
+        httpPanel.add(proxyAuthMode);
+        httpPanel.add(new JLabel("Proxy username (BASIC)"));
+        httpPanel.add(proxyAuthUser);
+        httpPanel.add(new JLabel("Proxy password (BASIC)"));
+        httpPanel.add(proxyAuthPassword);
+
         JPanel groups = new JPanel();
         groups.setLayout(new BoxLayout(groups, BoxLayout.Y_AXIS));
         groups.add(form);
         groups.add(trustPanel);
+        groups.add(httpPanel);
 
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT));
         JButton test = new JButton("Resolve test URL");
@@ -146,7 +178,9 @@ public final class ProxyPanel extends JPanel {
             public void removeUpdate(DocumentEvent event) { onFieldEdited(); }
             public void changedUpdate(DocumentEvent event) { onFieldEdited(); }
         };
-        JTextComponent[] fields = new JTextComponent[]{manualHost, manualPort, testUrl, pacUrlDiscoveryScript};
+        JTextComponent[] fields = new JTextComponent[]{
+                manualHost, manualPort, testUrl, pacUrlDiscoveryScript,
+                userAgentField, proxyAuthUser, proxyAuthPassword};
         for (int i = 0; i < fields.length; i++) {
             fields[i].getDocument().addDocumentListener(onEdit);
         }
@@ -154,6 +188,17 @@ public final class ProxyPanel extends JPanel {
         for (int i = 0; i < trustBoxes.length; i++) {
             trustBoxes[i].addActionListener(e -> writeConfiguration());
         }
+        proxyAuthMode.addActionListener(e -> {
+            updateProxyAuthEnabled();
+            writeConfiguration();
+        });
+        updateProxyAuthEnabled();
+    }
+
+    private void updateProxyAuthEnabled() {
+        boolean basic = "BASIC".equals(String.valueOf(proxyAuthMode.getSelectedItem()));
+        proxyAuthUser.setEnabled(basic);
+        proxyAuthPassword.setEnabled(basic);
     }
 
     private void switchScriptTextForSelectedMode() {
@@ -212,6 +257,7 @@ public final class ProxyPanel extends JPanel {
                 current.getKeepAlive(),
                 buildConfiguration(),
                 buildTrustConfiguration(),
+                buildHttpClientConfiguration(),
                 current.getHuggingFaceToken(),
                 current.getModelDownloadDirectory()));
     }
@@ -221,6 +267,14 @@ public final class ProxyPanel extends JPanel {
                 trustJvmDefault.isSelected(),
                 trustWindowsRoot.isSelected(),
                 trustWindowsCaStores.isSelected());
+    }
+
+    private HttpClientConfiguration buildHttpClientConfiguration() {
+        return new HttpClientConfiguration(
+                userAgentField.getText(),
+                HttpClientConfiguration.parseProxyAuthMode(String.valueOf(proxyAuthMode.getSelectedItem())),
+                proxyAuthUser.getText(),
+                new String(proxyAuthPassword.getPassword()));
     }
 
     private void resetDefault() {
@@ -244,6 +298,12 @@ public final class ProxyPanel extends JPanel {
         trustJvmDefault.setSelected(trustDefaults.isUseJvmDefault());
         trustWindowsRoot.setSelected(trustDefaults.isUseWindowsRoot());
         trustWindowsCaStores.setSelected(trustDefaults.isUseWindowsCaStores());
+        HttpClientConfiguration httpDefaults = HttpClientConfiguration.defaults();
+        userAgentField.setText(httpDefaults.getUserAgent());
+        proxyAuthMode.setSelectedItem(httpDefaults.getProxyAuthMode().name());
+        proxyAuthUser.setText(empty(httpDefaults.getProxyAuthUsername()));
+        proxyAuthPassword.setText(empty(httpDefaults.getProxyAuthPassword()));
+        updateProxyAuthEnabled();
         writeConfiguration();
         append("Reset to win-proxy-java defaults: " + cfg.getModeName());
         appendModeHelp(cfg.getModeName());
@@ -298,11 +358,12 @@ public final class ProxyPanel extends JPanel {
             return;
         }
         final CertificateTrustConfiguration trust = buildTrustConfiguration();
+        final HttpClientConfiguration http = buildHttpClientConfiguration();
         final String token = configurationRepository.load().getHuggingFaceToken();
-        append("Testing HuggingFace HTTPS (real request, TLS + certificate validation) ...");
+        append("Testing HuggingFace HTTPS (real request; probes default + browser User-Agent) ...");
         new SwingWorker<HuggingFaceConnectionTestResult, Void>() {
             protected HuggingFaceConnectionTestResult doInBackground() {
-                return new HuggingFaceClient(proxy, trust, token).testConnection();
+                return new HuggingFaceClient(proxy, trust, http, token).testConnection();
             }
 
             protected void done() {

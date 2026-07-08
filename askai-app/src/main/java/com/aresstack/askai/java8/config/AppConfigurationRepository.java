@@ -1,6 +1,7 @@
 package com.aresstack.askai.java8.config;
 
 import com.aresstack.askai.java8.net.CertificateTrustConfiguration;
+import com.aresstack.askai.java8.net.HttpClientConfiguration;
 import com.aresstack.askai.java8.net.ProxyConfiguration;
 
 import java.io.File;
@@ -24,6 +25,10 @@ public final class AppConfigurationRepository {
     private static final String TRUST_JVM_DEFAULT = "trust.jvmDefault";
     private static final String TRUST_WINDOWS_ROOT = "trust.windowsRoot";
     private static final String TRUST_WINDOWS_CA_STORES = "trust.windowsCaStores";
+    private static final String HTTP_USER_AGENT = "http.userAgent";
+    private static final String PROXY_AUTH_MODE = "proxyauth.mode";
+    private static final String PROXY_AUTH_USERNAME = "proxyauth.username";
+    private static final String PROXY_AUTH_PASSWORD = "proxyauth.password";
 
     private final File configurationFile;
 
@@ -43,6 +48,7 @@ public final class AppConfigurationRepository {
             AppConfiguration defaults = AppConfiguration.defaults();
             ProxyConfiguration defaultProxy = defaults.getProxyConfiguration();
             CertificateTrustConfiguration defaultTrust = defaults.getCertificateTrustConfiguration();
+            HttpClientConfiguration defaultHttp = defaults.getHttpClientConfiguration();
             String mode = properties.getProperty(PROXY_MODE, defaultProxy.getModeName());
             return new AppConfiguration(
                     properties.getProperty(OLLAMA_BASE_URL, defaults.getOllamaBaseUrl()),
@@ -58,6 +64,12 @@ public final class AppConfigurationRepository {
                             parseBoolean(properties.getProperty(TRUST_JVM_DEFAULT), defaultTrust.isUseJvmDefault()),
                             parseBoolean(properties.getProperty(TRUST_WINDOWS_ROOT), defaultTrust.isUseWindowsRoot()),
                             parseBoolean(properties.getProperty(TRUST_WINDOWS_CA_STORES), defaultTrust.isUseWindowsCaStores())),
+                    new HttpClientConfiguration(
+                            properties.getProperty(HTTP_USER_AGENT, defaultHttp.getUserAgent()),
+                            HttpClientConfiguration.parseProxyAuthMode(
+                                    properties.getProperty(PROXY_AUTH_MODE, defaultHttp.getProxyAuthMode().name())),
+                            properties.getProperty(PROXY_AUTH_USERNAME, defaultHttp.getProxyAuthUsername()),
+                            properties.getProperty(PROXY_AUTH_PASSWORD, defaultHttp.getProxyAuthPassword())),
                     properties.getProperty(HF_TOKEN, ""),
                     new File(properties.getProperty(DOWNLOAD_DIRECTORY, defaults.getModelDownloadDirectory().getAbsolutePath())));
         } catch (IOException ex) {
@@ -74,6 +86,7 @@ public final class AppConfigurationRepository {
         }
         ProxyConfiguration proxy = configuration.getProxyConfiguration();
         CertificateTrustConfiguration trust = configuration.getCertificateTrustConfiguration();
+        HttpClientConfiguration http = configuration.getHttpClientConfiguration();
         Properties properties = new Properties();
         properties.setProperty(OLLAMA_BASE_URL, configuration.getOllamaBaseUrl());
         properties.setProperty(KEEP_ALIVE, configuration.getKeepAlive());
@@ -86,6 +99,10 @@ public final class AppConfigurationRepository {
         properties.setProperty(TRUST_JVM_DEFAULT, String.valueOf(trust.isUseJvmDefault()));
         properties.setProperty(TRUST_WINDOWS_ROOT, String.valueOf(trust.isUseWindowsRoot()));
         properties.setProperty(TRUST_WINDOWS_CA_STORES, String.valueOf(trust.isUseWindowsCaStores()));
+        properties.setProperty(HTTP_USER_AGENT, http.getUserAgent());
+        properties.setProperty(PROXY_AUTH_MODE, http.getProxyAuthMode().name());
+        properties.setProperty(PROXY_AUTH_USERNAME, http.getProxyAuthUsername());
+        properties.setProperty(PROXY_AUTH_PASSWORD, http.getProxyAuthPassword());
         properties.setProperty(HF_TOKEN, configuration.getHuggingFaceToken());
         properties.setProperty(DOWNLOAD_DIRECTORY, configuration.getModelDownloadDirectory().getAbsolutePath());
         FileOutputStream outputStream = null;
