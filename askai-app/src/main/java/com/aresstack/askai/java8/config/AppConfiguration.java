@@ -3,6 +3,7 @@ package com.aresstack.askai.java8.config;
 import com.aresstack.askai.java8.net.CertificateTrustConfiguration;
 import com.aresstack.askai.java8.net.HttpClientConfiguration;
 import com.aresstack.askai.java8.net.ProxyConfiguration;
+import com.aresstack.askai.java8.stt.SpeechToTextConfiguration;
 
 import java.io.File;
 
@@ -16,6 +17,7 @@ public final class AppConfiguration {
     private final String defaultQuantization;
     private final String huggingFaceToken;
     private final File modelDownloadDirectory;
+    private final SpeechToTextConfiguration speechToTextConfiguration;
 
     public AppConfiguration(String ollamaBaseUrl, String keepAlive) {
         this(ollamaBaseUrl, keepAlive, ProxyConfiguration.defaults(),
@@ -47,6 +49,16 @@ public final class AppConfiguration {
                             CertificateTrustConfiguration certificateTrustConfiguration,
                             HttpClientConfiguration httpClientConfiguration, String defaultQuantization,
                             String huggingFaceToken, File modelDownloadDirectory) {
+        this(ollamaBaseUrl, keepAlive, proxyConfiguration, certificateTrustConfiguration,
+                httpClientConfiguration, defaultQuantization, huggingFaceToken, modelDownloadDirectory,
+                SpeechToTextConfiguration.defaults());
+    }
+
+    private AppConfiguration(String ollamaBaseUrl, String keepAlive, ProxyConfiguration proxyConfiguration,
+                             CertificateTrustConfiguration certificateTrustConfiguration,
+                             HttpClientConfiguration httpClientConfiguration, String defaultQuantization,
+                             String huggingFaceToken, File modelDownloadDirectory,
+                             SpeechToTextConfiguration speechToTextConfiguration) {
         this.ollamaBaseUrl = normalizeBaseUrl(ollamaBaseUrl);
         this.keepAlive = keepAlive == null || keepAlive.trim().length() == 0 ? "5m" : keepAlive.trim();
         this.proxyConfiguration = proxyConfiguration == null ? ProxyConfiguration.defaults() : proxyConfiguration;
@@ -58,6 +70,18 @@ public final class AppConfiguration {
                 ? "Q4_K_M" : defaultQuantization.trim();
         this.huggingFaceToken = huggingFaceToken == null ? "" : huggingFaceToken.trim();
         this.modelDownloadDirectory = modelDownloadDirectory == null ? defaultDownloadDirectory() : modelDownloadDirectory;
+        this.speechToTextConfiguration = speechToTextConfiguration == null
+                ? SpeechToTextConfiguration.defaults() : speechToTextConfiguration;
+    }
+
+    /**
+     * @return a copy of this configuration with the given speech-to-text settings. Save sites that
+     *         rebuild an {@code AppConfiguration} use this to carry the STT settings over.
+     */
+    public AppConfiguration withSpeechToTextConfiguration(SpeechToTextConfiguration configuration) {
+        return new AppConfiguration(ollamaBaseUrl, keepAlive, proxyConfiguration,
+                certificateTrustConfiguration, httpClientConfiguration, defaultQuantization,
+                huggingFaceToken, modelDownloadDirectory, configuration);
     }
 
     public static AppConfiguration defaults() {
@@ -86,6 +110,10 @@ public final class AppConfiguration {
 
     public String getDefaultQuantization() {
         return defaultQuantization;
+    }
+
+    public SpeechToTextConfiguration getSpeechToTextConfiguration() {
+        return speechToTextConfiguration;
     }
 
     public String getHuggingFaceToken() {

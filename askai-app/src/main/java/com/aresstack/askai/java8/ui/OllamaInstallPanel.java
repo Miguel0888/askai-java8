@@ -441,7 +441,8 @@ public final class OllamaInstallPanel extends JPanel {
                 current.getHttpClientConfiguration(),
                 current.getDefaultQuantization(),
                 tokenField.getText(),
-                current.getModelDownloadDirectory()));
+                current.getModelDownloadDirectory())
+                .withSpeechToTextConfiguration(current.getSpeechToTextConfiguration()));
     }
 
     private String suggestInstallName(String repoId) {

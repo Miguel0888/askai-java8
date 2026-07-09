@@ -3,6 +3,8 @@ package com.aresstack.askai.java8.ui;
 import com.aresstack.askai.java8.AskAiModel;
 import com.aresstack.askai.java8.client.OllamaChatTurn;
 import com.aresstack.askai.java8.service.OllamaService;
+import com.aresstack.askai.java8.stt.DefaultSpeechToTextService;
+import com.aresstack.askai.java8.stt.SpeechToTextService;
 
 import javax.swing.AbstractAction;
 import javax.swing.BorderFactory;
@@ -10,6 +12,7 @@ import javax.swing.Box;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
+import javax.swing.JFileChooser;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
@@ -18,11 +21,13 @@ import javax.swing.JTextField;
 import javax.swing.KeyStroke;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
+import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.event.ActionEvent;
+import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -37,6 +42,7 @@ public final class OllamaChatPanel extends JPanel {
 
     private final AskAiModel model;
     private final OllamaService ollamaService;
+    private final SpeechToTextService speechToTextService;
 
     private final JComboBox<String> modelCombo;
     private final JTextField keepAliveField;
@@ -46,16 +52,21 @@ public final class OllamaChatPanel extends JPanel {
     private final JLabel statusLabel;
     private final JButton sendButton;
     private final JButton stopButton;
+    private final JButton audioButton;
 
     private final List<OllamaChatTurn> history = new ArrayList<OllamaChatTurn>();
     private final StringBuilder streamingAssistant = new StringBuilder();
     private OllamaService.Task chatTask;
+    private SpeechToTextService.Task transcriptionTask;
+    private File lastAudioDirectory;
     private Timer elapsedTimer;
     private long requestStartedAtMillis;
 
-    public OllamaChatPanel(AskAiModel model, OllamaService ollamaService) {
+    public OllamaChatPanel(AskAiModel model, OllamaService ollamaService,
+                           SpeechToTextService speechToTextService) {
         this.model = model;
         this.ollamaService = ollamaService;
+        this.speechToTextService = speechToTextService;
         this.modelCombo = new JComboBox<String>();
         this.keepAliveField = new JTextField(model.getDefaultKeepAlive(), 6);
         this.systemPromptArea = new JTextArea("You are a concise local assistant.", 2, 40);
@@ -64,6 +75,8 @@ public final class OllamaChatPanel extends JPanel {
         this.statusLabel = new JLabel("Select a model and start chatting.");
         this.sendButton = new JButton("Send");
         this.stopButton = new JButton("Stop");
+        this.audioButton = new JButton("Audio...");
+        this.audioButton.setToolTipText("Transcribe an audio file into the message field (speech-to-text)");
         buildUserInterface();
         setBusy(false);
         showEmptyState();
@@ -116,11 +129,15 @@ public final class OllamaChatPanel extends JPanel {
         buttons.setLayout(new javax.swing.BoxLayout(buttons, javax.swing.BoxLayout.Y_AXIS));
         sendButton.setAlignmentX(CENTER_ALIGNMENT);
         stopButton.setAlignmentX(CENTER_ALIGNMENT);
+        audioButton.setAlignmentX(CENTER_ALIGNMENT);
         sendButton.addActionListener(event -> sendChat());
         stopButton.addActionListener(event -> stopChat());
+        audioButton.addActionListener(event -> onAudioAction());
         buttons.add(sendButton);
         buttons.add(Box.createVerticalStrut(4));
         buttons.add(stopButton);
+        buttons.add(Box.createVerticalStrut(4));
+        buttons.add(audioButton);
 
         JPanel composer = new JPanel(new BorderLayout(8, 4));
         composer.add(new JScrollPane(inputArea), BorderLayout.CENTER);
@@ -329,6 +346,96 @@ public final class OllamaChatPanel extends JPanel {
         }
     }
 
+    /** The Audio button starts a transcription, or cancels the one in flight. */
+    private void onAudioAction() {
+        if (transcriptionTask != null) {
+            cancelTranscription();
+            return;
+        }
+        JFileChooser chooser = new JFileChooser(lastAudioDirectory);
+        chooser.setDialogTitle("Transcribe audio");
+        chooser.setFileFilter(new FileNameExtensionFilter(
+                "Audio files (wav, mp3, m4a, ogg, flac)", DefaultSpeechToTextService.supportedExtensions()));
+        if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) {
+            return;
+        }
+        File audioFile = chooser.getSelectedFile();
+        lastAudioDirectory = audioFile.getParentFile();
+        transcribe(audioFile);
+    }
+
+    private void transcribe(File audioFile) {
+        String sttModel = model.getSpeechToTextConfiguration().getModelName();
+        boolean fallback = sttModel.length() == 0;
+        if (fallback) {
+            Object selected = modelCombo.getSelectedItem();
+            sttModel = selected == null ? "" : String.valueOf(selected);
+        }
+        final boolean usedChatModelFallback = fallback;
+
+        audioButton.setText("Cancel");
+        setStatus("Transcribing audio ...");
+        SpeechToTextService.TranscriptionRequest request = new SpeechToTextService.TranscriptionRequest(
+                audioFile, sttModel, "", "");
+        transcriptionTask = speechToTextService.transcribe(request, new SpeechToTextService.TranscriptionListener() {
+            @Override
+            public void onTranscription(final String text) {
+                onUi(new Runnable() {
+                    @Override
+                    public void run() {
+                        finishTranscription();
+                        insertTranscription(text);
+                        setStatus("Transcription ready. Review the text and press Send.");
+                    }
+                });
+            }
+
+            @Override
+            public void onError(final Exception ex) {
+                onUi(new Runnable() {
+                    @Override
+                    public void run() {
+                        finishTranscription();
+                        String message = ex.getMessage() == null ? ex.toString() : ex.getMessage();
+                        if (usedChatModelFallback) {
+                            message += " (No dedicated STT model is configured, so the current chat model"
+                                    + " was used — it may not support audio input. Configure a"
+                                    + " Speech-to-Text model under Configuration > Connections.)";
+                        }
+                        setStatus("Transcription failed.");
+                        transcript.appendInfo("Transcription failed: " + message);
+                    }
+                });
+            }
+        });
+    }
+
+    /** Writes the transcription into the input field without sending; existing text is kept. */
+    private void insertTranscription(String text) {
+        String existing = inputArea.getText();
+        if (existing != null && existing.trim().length() > 0) {
+            inputArea.setText(existing + "\n" + text);
+        } else {
+            inputArea.setText(text);
+        }
+        inputArea.requestFocusInWindow();
+        inputArea.setCaretPosition(inputArea.getText().length());
+    }
+
+    private void cancelTranscription() {
+        SpeechToTextService.Task task = transcriptionTask;
+        if (task != null) {
+            task.cancel();
+        }
+        finishTranscription();
+        setStatus("Transcription cancelled.");
+    }
+
+    private void finishTranscription() {
+        transcriptionTask = null;
+        audioButton.setText("Audio...");
+    }
+
     private void startElapsedTimer() {
         requestStartedAtMillis = System.currentTimeMillis();
         elapsedTimer = new Timer(1000, event -> {
@@ -350,6 +457,9 @@ public final class OllamaChatPanel extends JPanel {
         stopButton.setEnabled(busy);
         modelCombo.setEnabled(!busy);
         inputArea.setEnabled(!busy);
+        // Speech-to-text is unavailable while a chat is streaming, and hidden behind the
+        // configuration switch so the feature can be turned off entirely.
+        audioButton.setEnabled(!busy && model.getSpeechToTextConfiguration().isEnabled());
         if (!busy) {
             inputArea.requestFocusInWindow();
         }
