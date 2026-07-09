@@ -1,3 +1,4 @@
 rootProject.name = 'askai-java8'
 include 'ollama4j-java8'
 include 'askai-app'
+include 'audio-dsp'

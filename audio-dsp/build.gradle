@@ -1,0 +1,10 @@
+// Audio capture + DSP module. Pure Java 8, no runtime dependencies; JUnit 4 for tests.
+// The module also ships a standalone Maven pom.xml with the identical layout.
+
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
+}
+
+test {
+    useJUnit()
+}

@@ -6,3 +6,4 @@ build/
 .check-classes/
 sources.txt
 *.class
+audio-dsp/speech-input.wav
