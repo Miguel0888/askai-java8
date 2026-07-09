@@ -24,20 +24,21 @@ public final class AppConfiguration {
      * Default HuggingFace search suggestions for the Install panel dropdown, curated for a 16 GB
      * VRAM card. Mix of chat models (gpt-oss-20b fits in MXFP4; the rest comfortably at Q4/Q5) and
      * audio-capable models for the speech-to-text feature (gemma-3n, voxtral, qwen3-asr, ultravox —
-     * plain llama/gemma/gpt-oss cannot take audio input).
+     * plain llama/gemma/gpt-oss cannot take audio input). Format per line:
+     * {@code <term> | <modality>,<modality>} — see {@link HuggingFaceSearchSuggestion}.
      */
     public static final String DEFAULT_HF_SEARCH_SUGGESTIONS =
-            "gpt-oss-20b\n"
-                    + "llama-3.1-8b-instruct\n"
-                    + "gemma-3-12b-it\n"
-                    + "qwen2.5-14b-instruct\n"
-                    + "qwen2.5-coder-14b\n"
-                    + "phi-4\n"
-                    + "mistral-nemo\n"
-                    + "gemma-3n-e4b\n"
-                    + "voxtral-mini-3b\n"
-                    + "qwen3-asr\n"
-                    + "ultravox";
+            "gpt-oss-20b | text\n"
+                    + "llama-3.1-8b-instruct | text\n"
+                    + "gemma-3-12b-it | text,vision\n"
+                    + "qwen2.5-14b-instruct | text\n"
+                    + "qwen2.5-coder-14b | text\n"
+                    + "phi-4 | text\n"
+                    + "mistral-nemo | text\n"
+                    + "gemma-3n-e4b | text,audio,vision\n"
+                    + "voxtral-mini-3b | text,audio\n"
+                    + "qwen3-asr | audio\n"
+                    + "ultravox | text,audio";
 
     public AppConfiguration(String ollamaBaseUrl, String keepAlive) {
         this(ollamaBaseUrl, keepAlive, ProxyConfiguration.defaults(),
@@ -155,17 +156,9 @@ public final class AppConfiguration {
         return huggingFaceSearchSuggestions;
     }
 
-    /** @return the HuggingFace search suggestions for the Install panel dropdown, in order. */
-    public java.util.List<String> getHuggingFaceSearchSuggestions() {
-        java.util.List<String> suggestions = new java.util.ArrayList<String>();
-        String[] lines = huggingFaceSearchSuggestions.split("\\r?\\n");
-        for (int i = 0; i < lines.length; i++) {
-            String line = lines[i].trim();
-            if (line.length() > 0 && !suggestions.contains(line)) {
-                suggestions.add(line);
-            }
-        }
-        return suggestions;
+    /** @return the parsed HuggingFace search suggestions for the Install panel dropdown, in order. */
+    public java.util.List<HuggingFaceSearchSuggestion> getHuggingFaceSearchSuggestions() {
+        return HuggingFaceSearchSuggestion.parseList(huggingFaceSearchSuggestions);
     }
 
     public String getHuggingFaceToken() {

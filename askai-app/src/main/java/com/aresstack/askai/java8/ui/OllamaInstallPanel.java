@@ -2,6 +2,7 @@ package com.aresstack.askai.java8.ui;
 
 import com.aresstack.askai.java8.config.AppConfiguration;
 import com.aresstack.askai.java8.config.AppConfigurationRepository;
+import com.aresstack.askai.java8.config.HuggingFaceSearchSuggestion;
 import com.aresstack.askai.java8.hf.HuggingFaceFile;
 import com.aresstack.askai.java8.hf.HuggingFaceModel;
 import com.aresstack.askai.java8.service.AskAiService;
@@ -42,7 +43,7 @@ public final class OllamaInstallPanel extends JPanel {
 
     private final AppConfigurationRepository configurationRepository;
     private final AskAiService askAiService;
-    private final JComboBox<String> searchCombo;
+    private final JComboBox<HuggingFaceSearchSuggestion> searchCombo;
     private final JButton searchButton;
     private final DefaultListModel<HuggingFaceModel> resultsModel;
     private final JList<HuggingFaceModel> resultsList;
@@ -61,8 +62,9 @@ public final class OllamaInstallPanel extends JPanel {
     public OllamaInstallPanel(AppConfigurationRepository configurationRepository, AskAiService askAiService) {
         this.configurationRepository = configurationRepository;
         this.askAiService = askAiService;
-        this.searchCombo = new JComboBox<String>();
+        this.searchCombo = new JComboBox<HuggingFaceSearchSuggestion>();
         this.searchCombo.setEditable(true);
+        this.searchCombo.setRenderer(new SearchSuggestionRenderer());
         this.searchButton = new JButton("Search Hugging Face");
         this.resultsModel = new DefaultListModel<HuggingFaceModel>();
         this.resultsList = new JList<HuggingFaceModel>(resultsModel);
@@ -204,7 +206,8 @@ public final class OllamaInstallPanel extends JPanel {
     private void reloadSearchSuggestions() {
         Object typed = searchCombo.getEditor().getItem();
         searchCombo.removeAllItems();
-        for (String suggestion : configurationRepository.load().getHuggingFaceSearchSuggestions()) {
+        for (HuggingFaceSearchSuggestion suggestion
+                : configurationRepository.load().getHuggingFaceSearchSuggestions()) {
             searchCombo.addItem(suggestion);
         }
         searchCombo.setSelectedItem(typed == null ? "" : typed);
@@ -213,9 +216,13 @@ public final class OllamaInstallPanel extends JPanel {
     /** Opens a small editor for the dropdown suggestions (one per line) and persists the list. */
     private void editSearchSuggestions() {
         AppConfiguration current = configurationRepository.load();
-        JTextArea editor = new JTextArea(current.getHuggingFaceSearchSuggestionsRaw(), 14, 34);
-        int choice = JOptionPane.showConfirmDialog(this, new JScrollPane(editor),
-                "Search suggestions (one per line)", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        JTextArea editor = new JTextArea(current.getHuggingFaceSearchSuggestionsRaw(), 14, 40);
+        JPanel content = new JPanel(new BorderLayout(4, 4));
+        content.add(new JLabel("One suggestion per line: <search term> | <input>,<input>"
+                + "  —  inputs: text, audio, vision"), BorderLayout.NORTH);
+        content.add(new JScrollPane(editor), BorderLayout.CENTER);
+        int choice = JOptionPane.showConfirmDialog(this, content,
+                "Search suggestions", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
         if (choice != JOptionPane.OK_OPTION) {
             return;
         }
@@ -223,6 +230,23 @@ public final class OllamaInstallPanel extends JPanel {
         reloadSearchSuggestions();
         append("Search suggestions updated ("
                 + configurationRepository.load().getHuggingFaceSearchSuggestions().size() + " entries).");
+    }
+
+    /** Renders each suggestion with a fixed icon column (text / audio / vision) before the term. */
+    private static final class SearchSuggestionRenderer extends javax.swing.DefaultListCellRenderer {
+        @Override
+        public java.awt.Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                                                               boolean isSelected, boolean cellHasFocus) {
+            JLabel label = (JLabel) super.getListCellRendererComponent(
+                    list, value, index, isSelected, cellHasFocus);
+            if (value instanceof HuggingFaceSearchSuggestion) {
+                HuggingFaceSearchSuggestion suggestion = (HuggingFaceSearchSuggestion) value;
+                label.setText(suggestion.getTerm());
+                label.setIcon(ModalityIcons.forModalities(suggestion.getModalities()));
+                label.setIconTextGap(8);
+            }
+            return label;
+        }
     }
 
     private void searchModels() {
