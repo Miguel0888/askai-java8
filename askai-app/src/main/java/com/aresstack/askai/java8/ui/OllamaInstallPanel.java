@@ -3,6 +3,7 @@ package com.aresstack.askai.java8.ui;
 import com.aresstack.askai.java8.config.AppConfiguration;
 import com.aresstack.askai.java8.config.AppConfigurationRepository;
 import com.aresstack.askai.java8.config.HuggingFaceSearchSuggestion;
+import com.aresstack.askai.java8.hf.GgufFile;
 import com.aresstack.askai.java8.hf.HuggingFaceFile;
 import com.aresstack.askai.java8.hf.HuggingFaceModel;
 import com.aresstack.askai.java8.service.AskAiService;
@@ -394,24 +395,125 @@ public final class OllamaInstallPanel extends JPanel {
 
     /**
      * Shows a popup listing every already-downloaded GGUF file (not just the last one), so a model
-     * downloaded earlier but not yet installed remotely can be installed too.
+     * downloaded earlier but not yet installed remotely can be installed too. Broken/incomplete
+     * files are flagged; each row has a right-aligned delete button, and right-click opens a
+     * context menu for deleting the download including any leftover partial data.
      */
-    private void showDownloadedFilesMenu(JButton anchor) {
+    private void showDownloadedFilesMenu(final JButton anchor) {
         List<File> files = findDownloadedGgufFiles();
-        JPopupMenu menu = new JPopupMenu();
+        final JPopupMenu menu = new JPopupMenu();
         if (files.isEmpty()) {
             JMenuItem empty = new JMenuItem("No downloaded GGUF files found");
             empty.setEnabled(false);
             menu.add(empty);
         } else {
             for (int i = 0; i < files.size(); i++) {
-                final File file = files.get(i);
-                JMenuItem item = new JMenuItem(downloadedFileLabel(file));
-                item.addActionListener(event -> chooseAndInstall(file));
-                menu.add(item);
+                menu.add(buildDownloadRow(menu, anchor, files.get(i)));
             }
         }
         menu.show(anchor, 0, anchor.getHeight());
+    }
+
+    /** One popup row: install on click, a right-aligned ✕ button, and a right-click context menu. */
+    private JComponent buildDownloadRow(final JPopupMenu menu, final JButton anchor, final File file) {
+        boolean valid = isValidGguf(file);
+
+        final JButton installButton = new JButton(
+                downloadedFileLabel(file) + (valid ? "" : "   [invalid/incomplete]"));
+        installButton.setHorizontalAlignment(javax.swing.SwingConstants.LEFT);
+        installButton.setBorderPainted(false);
+        installButton.setContentAreaFilled(false);
+        installButton.setFocusPainted(false);
+        installButton.setToolTipText(valid
+                ? "Install this downloaded model"
+                : "This file failed GGUF validation (truncated or corrupt) — delete it and re-download");
+        if (!valid) {
+            installButton.setForeground(new java.awt.Color(0xB0, 0x2E, 0x2E));
+        }
+        installButton.addActionListener(event -> {
+            menu.setVisible(false);
+            chooseAndInstall(file);
+        });
+
+        JButton deleteButton = new JButton("✕");
+        deleteButton.setMargin(new Insets(0, 6, 0, 6));
+        deleteButton.setFocusPainted(false);
+        deleteButton.setToolTipText("Delete this download (including partial data)");
+        deleteButton.addActionListener(event -> deleteDownloadedFile(menu, anchor, file));
+
+        final JPopupMenu contextMenu = new JPopupMenu();
+        JMenuItem deleteItem = new JMenuItem("Delete download (incl. data)");
+        deleteItem.addActionListener(event -> deleteDownloadedFile(menu, anchor, file));
+        contextMenu.add(deleteItem);
+        installButton.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mousePressed(java.awt.event.MouseEvent event) {
+                maybeShowContext(event);
+            }
+
+            @Override
+            public void mouseReleased(java.awt.event.MouseEvent event) {
+                maybeShowContext(event);
+            }
+
+            private void maybeShowContext(java.awt.event.MouseEvent event) {
+                if (event.isPopupTrigger()) {
+                    contextMenu.show(event.getComponent(), event.getX(), event.getY());
+                }
+            }
+        });
+
+        JPanel row = new JPanel(new BorderLayout(8, 0));
+        row.setOpaque(false);
+        row.add(installButton, BorderLayout.CENTER);
+        row.add(deleteButton, BorderLayout.EAST);
+        return row;
+    }
+
+    /** @return whether the file passes the cheap GGUF header/tensor-bounds validation. */
+    private boolean isValidGguf(File file) {
+        try {
+            GgufFile.validate(file);
+            return true;
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    /**
+     * Deletes a downloaded model file after confirmation, including its {@code .part} leftover and
+     * the model directory when that becomes empty, then reopens the refreshed popup.
+     */
+    private void deleteDownloadedFile(JPopupMenu menu, JButton anchor, File file) {
+        menu.setVisible(false);
+        long megabytes = file.length() / (1024L * 1024L);
+        int choice = JOptionPane.showConfirmDialog(this,
+                "Delete " + file.getName() + " (" + megabytes + " MB)?\n"
+                        + "This also removes leftover partial download data (.part).",
+                "Delete download", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+        if (choice != JOptionPane.YES_OPTION) {
+            showDownloadedFilesMenu(anchor);
+            return;
+        }
+        boolean deleted = !file.isFile() || file.delete();
+        File partFile = new File(file.getParentFile(), file.getName() + ".part");
+        if (partFile.isFile() && partFile.delete()) {
+            append("Deleted partial data: " + partFile.getName());
+        }
+        File parent = file.getParentFile();
+        if (parent != null && parent.isDirectory() && parent.delete()) {
+            append("Removed empty model directory: " + parent.getName());
+        }
+        if (deleted) {
+            append("Deleted download: " + file.getAbsolutePath());
+            if (file.equals(lastDownloadedFile)) {
+                lastDownloadedFile = null;
+            }
+        } else {
+            append("ERROR: Could not delete " + file.getAbsolutePath()
+                    + " (file may be in use by another process).");
+        }
+        showDownloadedFilesMenu(anchor);
     }
 
     private void chooseAndInstall(File file) {
