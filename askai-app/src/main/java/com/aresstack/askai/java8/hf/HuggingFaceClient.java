@@ -96,7 +96,8 @@ public final class HuggingFaceClient {
                 endpoints.add(probe(TEST_URLS[u], profiles.get(p)));
             }
         }
-        return new HuggingFaceConnectionTestResult(resolvedProxy, trust, buildNotes(), endpoints);
+        return new HuggingFaceConnectionTestResult(resolvedProxy, trust, buildNotes(), endpoints,
+                httpClientConfiguration.isPreferIpv6());
     }
 
     /** A named set of request headers to probe with. */
@@ -139,6 +140,9 @@ public final class HuggingFaceClient {
         notes.add("Configured User-Agent (search/download): " + httpClientConfiguration.getUserAgent());
         notes.add("Header profiles probed here: askai-java8 (honest default), browser-like (diagnostic)");
         notes.add("Browser-like headers are for DIAGNOSIS only; real operations keep the honest identity.");
+        notes.add("Prefer IPv6: " + httpClientConfiguration.isPreferIpv6()
+                + (httpClientConfiguration.isPreferIpv6()
+                ? " (a restart is needed for changes; broken IPv6 egress causes connect timeouts)" : ""));
         HttpClientConfiguration.ProxyAuthMode mode = httpClientConfiguration.getProxyAuthMode();
         if (mode == HttpClientConfiguration.ProxyAuthMode.BASIC) {
             String user = httpClientConfiguration.getProxyAuthUsername();
