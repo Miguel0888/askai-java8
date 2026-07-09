@@ -232,20 +232,39 @@ public final class OllamaInstallPanel extends JPanel {
                 + configurationRepository.load().getHuggingFaceSearchSuggestions().size() + " entries).");
     }
 
-    /** Renders each suggestion with a fixed icon column (text / audio / vision) before the term. */
-    private static final class SearchSuggestionRenderer extends javax.swing.DefaultListCellRenderer {
+    /**
+     * Renders each suggestion with the term on the left and the fixed modality icon column
+     * (text / audio / vision) right-aligned at the dropdown's right edge.
+     */
+    private static final class SearchSuggestionRenderer extends JPanel
+            implements javax.swing.ListCellRenderer<Object> {
+
+        private final JLabel termLabel = new JLabel();
+        private final JLabel iconLabel = new JLabel();
+
+        SearchSuggestionRenderer() {
+            super(new BorderLayout(12, 0));
+            setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
+            setOpaque(true);
+            add(termLabel, BorderLayout.CENTER);
+            add(iconLabel, BorderLayout.EAST);
+        }
+
         @Override
         public java.awt.Component getListCellRendererComponent(JList<?> list, Object value, int index,
                                                                boolean isSelected, boolean cellHasFocus) {
-            JLabel label = (JLabel) super.getListCellRendererComponent(
-                    list, value, index, isSelected, cellHasFocus);
             if (value instanceof HuggingFaceSearchSuggestion) {
                 HuggingFaceSearchSuggestion suggestion = (HuggingFaceSearchSuggestion) value;
-                label.setText(suggestion.getTerm());
-                label.setIcon(ModalityIcons.forModalities(suggestion.getModalities()));
-                label.setIconTextGap(8);
+                termLabel.setText(suggestion.getTerm());
+                iconLabel.setIcon(ModalityIcons.forModalities(suggestion.getModalities()));
+            } else {
+                termLabel.setText(value == null ? "" : String.valueOf(value));
+                iconLabel.setIcon(null);
             }
-            return label;
+            setBackground(isSelected ? list.getSelectionBackground() : list.getBackground());
+            termLabel.setForeground(isSelected ? list.getSelectionForeground() : list.getForeground());
+            termLabel.setFont(list.getFont());
+            return this;
         }
     }
 
