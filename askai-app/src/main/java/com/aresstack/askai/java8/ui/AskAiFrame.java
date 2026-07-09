@@ -7,6 +7,8 @@ import com.aresstack.askai.java8.service.DefaultOllamaService;
 import com.aresstack.askai.java8.service.FeatureActionService;
 import com.aresstack.askai.java8.service.OllamaFeatureActionService;
 import com.aresstack.askai.java8.service.OllamaService;
+import com.aresstack.askai.java8.stt.DefaultSpeechToTextService;
+import com.aresstack.askai.java8.stt.SpeechToTextService;
 
 import javax.swing.Box;
 import javax.swing.JFrame;
@@ -43,6 +45,7 @@ public final class AskAiFrame extends JFrame {
     private final AskAiService askAiService;
     private final OllamaService ollamaService;
     private final FeatureActionService featureActionService;
+    private final SpeechToTextService speechToTextService;
     private final JLabel connectionStatusLabel;
     private final CardLayout contentLayout;
     private final JPanel contentPanel;
@@ -55,6 +58,7 @@ public final class AskAiFrame extends JFrame {
         this.model = new AskAiModel(configurationRepository);
         this.ollamaService = new DefaultOllamaService(model);
         this.featureActionService = new OllamaFeatureActionService(model);
+        this.speechToTextService = new DefaultSpeechToTextService(configurationRepository);
         this.connectionStatusLabel = new JLabel();
         this.contentLayout = new CardLayout();
         this.contentPanel = new JPanel(contentLayout);
@@ -129,7 +133,7 @@ public final class AskAiFrame extends JFrame {
     }
 
     private JPanel createContentPanel() {
-        contentPanel.add(new OllamaChatPanel(model, ollamaService), CHAT_VIEW);
+        contentPanel.add(new OllamaChatPanel(model, ollamaService, speechToTextService), CHAT_VIEW);
         contentPanel.add(modelsPanel, MODELS_VIEW);
         contentPanel.add(new OllamaActionsPanel(featureActionService, ollamaService), ACTIONS_VIEW);
         // Java 8 port: the HuggingFace GGUF search/download/install panel replaces the original

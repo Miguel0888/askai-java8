@@ -3,9 +3,13 @@ package com.aresstack.askai.java8.ui;
 import com.aresstack.askai.java8.AskAiModel;
 import com.aresstack.askai.java8.service.OllamaService;
 import com.aresstack.askai.java8.settings.AskAiPaths;
+import com.aresstack.askai.java8.stt.SpeechToTextConfiguration;
 
 import javax.swing.BorderFactory;
+import javax.swing.BoxLayout;
 import javax.swing.JButton;
+import javax.swing.JCheckBox;
+import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
@@ -13,6 +17,7 @@ import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
 import java.awt.BorderLayout;
+import java.awt.Component;
 import java.awt.FlowLayout;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
@@ -30,6 +35,13 @@ public final class OllamaConfigPanel extends JPanel {
     private final JTextField modelRootField;
     private final JTextField quantizationField;
     private final JTextField keepAliveField;
+    private final JCheckBox sttEnabledBox;
+    private final JComboBox<String> sttBackendCombo;
+    private final JTextField sttModelField;
+    private final JTextField sttLanguageField;
+    private final JTextField sttPromptField;
+    private final JTextField sttMaxFileSizeField;
+    private final JTextField sttTimeoutField;
     private final JTextArea logArea;
 
     public OllamaConfigPanel(AskAiModel model, OllamaService ollamaService) {
@@ -39,6 +51,15 @@ public final class OllamaConfigPanel extends JPanel {
         this.modelRootField = new JTextField(model.getModelRoot().toString(), 42);
         this.quantizationField = new JTextField(model.getDefaultQuantization(), 20);
         this.keepAliveField = new JTextField(model.getDefaultKeepAlive(), 20);
+        SpeechToTextConfiguration stt = model.getSpeechToTextConfiguration();
+        this.sttEnabledBox = new JCheckBox("Enabled", stt.isEnabled());
+        this.sttBackendCombo = new JComboBox<String>(new String[]{SpeechToTextConfiguration.Backend.OLLAMA.name()});
+        this.sttBackendCombo.setSelectedItem(stt.getBackend().name());
+        this.sttModelField = new JTextField(stt.getModelName(), 30);
+        this.sttLanguageField = new JTextField(stt.getLanguage(), 8);
+        this.sttPromptField = new JTextField(stt.getPrompt(), 42);
+        this.sttMaxFileSizeField = new JTextField(String.valueOf(stt.getMaxFileSizeMb()), 8);
+        this.sttTimeoutField = new JTextField(String.valueOf(stt.getTimeoutSeconds()), 8);
         this.logArea = new JTextArea(16, 70);
         buildUserInterface();
         append("Config loaded.");
@@ -61,6 +82,25 @@ public final class OllamaConfigPanel extends JPanel {
         addRow(form, constraints, 2, "Create quantization", quantizationField);
         addRow(form, constraints, 3, "Chat keep_alive", keepAliveField);
 
+        JPanel sttForm = new JPanel(new GridBagLayout());
+        sttForm.setBorder(BorderFactory.createTitledBorder("Speech-to-Text"));
+        GridBagConstraints sttConstraints = new GridBagConstraints();
+        sttConstraints.insets = new Insets(4, 4, 4, 4);
+        sttConstraints.anchor = GridBagConstraints.WEST;
+        sttConstraints.fill = GridBagConstraints.HORIZONTAL;
+        addRow(sttForm, sttConstraints, 0, "Speech-to-Text", sttEnabledBox);
+        addRow(sttForm, sttConstraints, 1, "Backend", sttBackendCombo);
+        addRow(sttForm, sttConstraints, 2, "STT model (empty = chat model)", sttModelField);
+        addRow(sttForm, sttConstraints, 3, "Default language (auto/de/en/...)", sttLanguageField);
+        addRow(sttForm, sttConstraints, 4, "Context prompt (optional)", sttPromptField);
+        addRow(sttForm, sttConstraints, 5, "Max file size (MB)", sttMaxFileSizeField);
+        addRow(sttForm, sttConstraints, 6, "Timeout (seconds)", sttTimeoutField);
+
+        JPanel forms = new JPanel();
+        forms.setLayout(new BoxLayout(forms, BoxLayout.Y_AXIS));
+        forms.add(form);
+        forms.add(sttForm);
+
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT));
         JButton saveButton = new JButton("Save");
         saveButton.addActionListener(event -> save());
@@ -70,7 +110,7 @@ public final class OllamaConfigPanel extends JPanel {
         buttons.add(testButton);
 
         JPanel top = new JPanel(new BorderLayout(8, 8));
-        top.add(form, BorderLayout.CENTER);
+        top.add(forms, BorderLayout.CENTER);
         top.add(buttons, BorderLayout.SOUTH);
         add(top, BorderLayout.NORTH);
 
@@ -78,7 +118,7 @@ public final class OllamaConfigPanel extends JPanel {
         add(new JScrollPane(logArea), BorderLayout.CENTER);
     }
 
-    private void addRow(JPanel form, GridBagConstraints constraints, int row, String label, JTextField field) {
+    private void addRow(JPanel form, GridBagConstraints constraints, int row, String label, Component field) {
         constraints.gridx = 0;
         constraints.gridy = row;
         constraints.weightx = 0.0d;
@@ -93,8 +133,28 @@ public final class OllamaConfigPanel extends JPanel {
         model.setModelRoot(Paths.get(modelRootField.getText().trim()));
         model.setDefaultQuantization(quantizationField.getText());
         model.setDefaultKeepAlive(keepAliveField.getText());
+        model.setSpeechToTextConfiguration(new SpeechToTextConfiguration(
+                sttEnabledBox.isSelected(),
+                SpeechToTextConfiguration.parseBackend(String.valueOf(sttBackendCombo.getSelectedItem())),
+                sttModelField.getText(),
+                sttLanguageField.getText(),
+                sttPromptField.getText(),
+                parsePositiveInt(sttMaxFileSizeField.getText(), SpeechToTextConfiguration.DEFAULT_MAX_FILE_SIZE_MB),
+                parsePositiveInt(sttTimeoutField.getText(), SpeechToTextConfiguration.DEFAULT_TIMEOUT_SECONDS)));
         model.saveSettings();
         append("Saved settings. Ollama: " + model.getOllamaBaseUrl());
+        append("Speech-to-Text: " + (sttEnabledBox.isSelected() ? "enabled" : "disabled")
+                + (sttModelField.getText().trim().length() > 0
+                ? ", model " + sttModelField.getText().trim() : ", using the chat model"));
+    }
+
+    private static int parsePositiveInt(String value, int fallback) {
+        try {
+            int parsed = Integer.parseInt(value.trim());
+            return parsed > 0 ? parsed : fallback;
+        } catch (NumberFormatException ex) {
+            return fallback;
+        }
     }
 
     private void testConnection() {

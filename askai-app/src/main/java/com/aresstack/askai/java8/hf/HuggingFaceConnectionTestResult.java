@@ -113,13 +113,15 @@ public final class HuggingFaceConnectionTestResult {
     private final SystemTrustSslSocketFactory.Result trust;
     private final List<String> notes;
     private final List<Endpoint> endpoints;
+    private final boolean preferIpv6;
 
     HuggingFaceConnectionTestResult(String resolvedProxy, SystemTrustSslSocketFactory.Result trust,
-                                    List<String> notes, List<Endpoint> endpoints) {
+                                    List<String> notes, List<Endpoint> endpoints, boolean preferIpv6) {
         this.resolvedProxy = resolvedProxy;
         this.trust = trust;
         this.notes = notes == null ? Collections.<String>emptyList() : notes;
         this.endpoints = endpoints;
+        this.preferIpv6 = preferIpv6;
     }
 
     /** @return {@code true} when any probe received HuggingFace JSON with a 2xx status. */
@@ -161,6 +163,19 @@ public final class HuggingFaceConnectionTestResult {
         Endpoint browser = find("/api/", "browser-like");
         if (honest == null || browser == null) {
             return "";
+        }
+        // No HTTP response on either profile means the connection itself failed (timeout, refused,
+        // DNS). That is a connectivity problem, not a proxy/policy block — do not claim "blocked".
+        if (!honest.handshakeSucceeded && !browser.handshakeSucceeded && !isCertificateFailure()) {
+            String detail = honest.errorSummary == null ? "" : " (" + honest.errorSummary + ")";
+            String hint = preferIpv6
+                    ? " Note: \"Prefer IPv6\" is enabled — on a network that advertises IPv6 without real"
+                    + " IPv6 internet access, Java times out while browsers silently fall back to IPv4."
+                    + " Disable Prefer IPv6 in the Network panel and restart the app."
+                    : " Check DNS, firewall, and the IPv4 default route (e.g. a LAN cable capturing the"
+                    + " route while the internet is on WLAN).";
+            return "No HTTP response was received" + detail
+                    + ". This is a network/connectivity problem, not a proxy block." + hint;
         }
         String policy = honest.policyId != null ? honest.policyId : browser.policyId;
         String policyNote = policy != null ? " (block-page policy id: " + policy + ")" : "";

@@ -3,6 +3,7 @@ package com.aresstack.askai.java8.config;
 import com.aresstack.askai.java8.net.CertificateTrustConfiguration;
 import com.aresstack.askai.java8.net.HttpClientConfiguration;
 import com.aresstack.askai.java8.net.ProxyConfiguration;
+import com.aresstack.askai.java8.stt.SpeechToTextConfiguration;
 
 import java.io.File;
 
@@ -16,6 +17,28 @@ public final class AppConfiguration {
     private final String defaultQuantization;
     private final String huggingFaceToken;
     private final File modelDownloadDirectory;
+    private final SpeechToTextConfiguration speechToTextConfiguration;
+    private final String huggingFaceSearchSuggestions;
+
+    /**
+     * Default HuggingFace search suggestions for the Install panel dropdown, curated for a 16 GB
+     * VRAM card. Mix of chat models (gpt-oss-20b fits in MXFP4; the rest comfortably at Q4/Q5) and
+     * audio-capable models for the speech-to-text feature (gemma-3n, voxtral, qwen3-asr, ultravox —
+     * plain llama/gemma/gpt-oss cannot take audio input). Format per line:
+     * {@code <term> | <modality>,<modality>} — see {@link HuggingFaceSearchSuggestion}.
+     */
+    public static final String DEFAULT_HF_SEARCH_SUGGESTIONS =
+            "gpt-oss-20b | text\n"
+                    + "llama-3.1-8b-instruct | text\n"
+                    + "gemma-3-12b-it | text,vision\n"
+                    + "qwen2.5-14b-instruct | text\n"
+                    + "qwen2.5-coder-14b | text\n"
+                    + "phi-4 | text\n"
+                    + "mistral-nemo | text\n"
+                    + "gemma-3n-e4b | text,audio,vision\n"
+                    + "voxtral-mini-3b | text,audio\n"
+                    + "qwen3-asr | audio\n"
+                    + "ultravox | text,audio";
 
     public AppConfiguration(String ollamaBaseUrl, String keepAlive) {
         this(ollamaBaseUrl, keepAlive, ProxyConfiguration.defaults(),
@@ -47,6 +70,17 @@ public final class AppConfiguration {
                             CertificateTrustConfiguration certificateTrustConfiguration,
                             HttpClientConfiguration httpClientConfiguration, String defaultQuantization,
                             String huggingFaceToken, File modelDownloadDirectory) {
+        this(ollamaBaseUrl, keepAlive, proxyConfiguration, certificateTrustConfiguration,
+                httpClientConfiguration, defaultQuantization, huggingFaceToken, modelDownloadDirectory,
+                SpeechToTextConfiguration.defaults(), DEFAULT_HF_SEARCH_SUGGESTIONS);
+    }
+
+    private AppConfiguration(String ollamaBaseUrl, String keepAlive, ProxyConfiguration proxyConfiguration,
+                             CertificateTrustConfiguration certificateTrustConfiguration,
+                             HttpClientConfiguration httpClientConfiguration, String defaultQuantization,
+                             String huggingFaceToken, File modelDownloadDirectory,
+                             SpeechToTextConfiguration speechToTextConfiguration,
+                             String huggingFaceSearchSuggestions) {
         this.ollamaBaseUrl = normalizeBaseUrl(ollamaBaseUrl);
         this.keepAlive = keepAlive == null || keepAlive.trim().length() == 0 ? "5m" : keepAlive.trim();
         this.proxyConfiguration = proxyConfiguration == null ? ProxyConfiguration.defaults() : proxyConfiguration;
@@ -58,6 +92,31 @@ public final class AppConfiguration {
                 ? "Q4_K_M" : defaultQuantization.trim();
         this.huggingFaceToken = huggingFaceToken == null ? "" : huggingFaceToken.trim();
         this.modelDownloadDirectory = modelDownloadDirectory == null ? defaultDownloadDirectory() : modelDownloadDirectory;
+        this.speechToTextConfiguration = speechToTextConfiguration == null
+                ? SpeechToTextConfiguration.defaults() : speechToTextConfiguration;
+        this.huggingFaceSearchSuggestions = huggingFaceSearchSuggestions == null
+                || huggingFaceSearchSuggestions.trim().length() == 0
+                ? DEFAULT_HF_SEARCH_SUGGESTIONS : huggingFaceSearchSuggestions;
+    }
+
+    /**
+     * @return a copy of this configuration with the given speech-to-text settings. Save sites that
+     *         rebuild an {@code AppConfiguration} use this to carry the STT settings over.
+     */
+    public AppConfiguration withSpeechToTextConfiguration(SpeechToTextConfiguration configuration) {
+        return new AppConfiguration(ollamaBaseUrl, keepAlive, proxyConfiguration,
+                certificateTrustConfiguration, httpClientConfiguration, defaultQuantization,
+                huggingFaceToken, modelDownloadDirectory, configuration, huggingFaceSearchSuggestions);
+    }
+
+    /**
+     * @return a copy of this configuration with the given newline-separated HuggingFace search
+     *         suggestions (the Install panel dropdown entries).
+     */
+    public AppConfiguration withHuggingFaceSearchSuggestions(String suggestions) {
+        return new AppConfiguration(ollamaBaseUrl, keepAlive, proxyConfiguration,
+                certificateTrustConfiguration, httpClientConfiguration, defaultQuantization,
+                huggingFaceToken, modelDownloadDirectory, speechToTextConfiguration, suggestions);
     }
 
     public static AppConfiguration defaults() {
@@ -86,6 +145,20 @@ public final class AppConfiguration {
 
     public String getDefaultQuantization() {
         return defaultQuantization;
+    }
+
+    public SpeechToTextConfiguration getSpeechToTextConfiguration() {
+        return speechToTextConfiguration;
+    }
+
+    /** @return the raw newline-separated suggestion list, as persisted. */
+    public String getHuggingFaceSearchSuggestionsRaw() {
+        return huggingFaceSearchSuggestions;
+    }
+
+    /** @return the parsed HuggingFace search suggestions for the Install panel dropdown, in order. */
+    public java.util.List<HuggingFaceSearchSuggestion> getHuggingFaceSearchSuggestions() {
+        return HuggingFaceSearchSuggestion.parseList(huggingFaceSearchSuggestions);
     }
 
     public String getHuggingFaceToken() {

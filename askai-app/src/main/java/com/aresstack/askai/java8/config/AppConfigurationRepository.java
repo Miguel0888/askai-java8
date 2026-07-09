@@ -3,6 +3,7 @@ package com.aresstack.askai.java8.config;
 import com.aresstack.askai.java8.net.CertificateTrustConfiguration;
 import com.aresstack.askai.java8.net.HttpClientConfiguration;
 import com.aresstack.askai.java8.net.ProxyConfiguration;
+import com.aresstack.askai.java8.stt.SpeechToTextConfiguration;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -23,6 +24,7 @@ public final class AppConfigurationRepository {
     private static final String PROXY_PORT = "proxy.port";
     private static final String HF_TOKEN = "huggingface.token";
     private static final String DOWNLOAD_DIRECTORY = "huggingface.downloadDirectory";
+    private static final String HF_SEARCH_SUGGESTIONS = "huggingface.searchSuggestions";
     private static final String TRUST_JVM_DEFAULT = "trust.jvmDefault";
     private static final String TRUST_WINDOWS_ROOT = "trust.windowsRoot";
     private static final String TRUST_WINDOWS_CA_STORES = "trust.windowsCaStores";
@@ -31,6 +33,13 @@ public final class AppConfigurationRepository {
     private static final String PROXY_AUTH_MODE = "proxyauth.mode";
     private static final String PROXY_AUTH_USERNAME = "proxyauth.username";
     private static final String PROXY_AUTH_PASSWORD = "proxyauth.password";
+    private static final String STT_ENABLED = "stt.enabled";
+    private static final String STT_BACKEND = "stt.backend";
+    private static final String STT_MODEL = "stt.model";
+    private static final String STT_LANGUAGE = "stt.language";
+    private static final String STT_PROMPT = "stt.prompt";
+    private static final String STT_MAX_FILE_SIZE_MB = "stt.maxFileSizeMb";
+    private static final String STT_TIMEOUT_SECONDS = "stt.timeoutSeconds";
 
     private final File configurationFile;
 
@@ -51,7 +60,19 @@ public final class AppConfigurationRepository {
             ProxyConfiguration defaultProxy = defaults.getProxyConfiguration();
             CertificateTrustConfiguration defaultTrust = defaults.getCertificateTrustConfiguration();
             HttpClientConfiguration defaultHttp = defaults.getHttpClientConfiguration();
+            SpeechToTextConfiguration defaultStt = defaults.getSpeechToTextConfiguration();
             String mode = properties.getProperty(PROXY_MODE, defaultProxy.getModeName());
+            SpeechToTextConfiguration stt = new SpeechToTextConfiguration(
+                    parseBoolean(properties.getProperty(STT_ENABLED), defaultStt.isEnabled()),
+                    SpeechToTextConfiguration.parseBackend(
+                            properties.getProperty(STT_BACKEND, defaultStt.getBackend().name())),
+                    properties.getProperty(STT_MODEL, defaultStt.getModelName()),
+                    properties.getProperty(STT_LANGUAGE, defaultStt.getLanguage()),
+                    properties.getProperty(STT_PROMPT, defaultStt.getPrompt()),
+                    parseInt(properties.getProperty(STT_MAX_FILE_SIZE_MB,
+                            String.valueOf(defaultStt.getMaxFileSizeMb()))),
+                    parseInt(properties.getProperty(STT_TIMEOUT_SECONDS,
+                            String.valueOf(defaultStt.getTimeoutSeconds()))));
             return new AppConfiguration(
                     properties.getProperty(OLLAMA_BASE_URL, defaults.getOllamaBaseUrl()),
                     properties.getProperty(KEEP_ALIVE, defaults.getKeepAlive()),
@@ -75,7 +96,10 @@ public final class AppConfigurationRepository {
                             parseBoolean(properties.getProperty(HTTP_PREFER_IPV6), defaultHttp.isPreferIpv6())),
                     properties.getProperty(OLLAMA_QUANTIZATION, defaults.getDefaultQuantization()),
                     properties.getProperty(HF_TOKEN, ""),
-                    new File(properties.getProperty(DOWNLOAD_DIRECTORY, defaults.getModelDownloadDirectory().getAbsolutePath())));
+                    new File(properties.getProperty(DOWNLOAD_DIRECTORY, defaults.getModelDownloadDirectory().getAbsolutePath())))
+                    .withSpeechToTextConfiguration(stt)
+                    .withHuggingFaceSearchSuggestions(properties.getProperty(
+                            HF_SEARCH_SUGGESTIONS, AppConfiguration.DEFAULT_HF_SEARCH_SUGGESTIONS));
         } catch (IOException ex) {
             return AppConfiguration.defaults();
         } finally {
@@ -109,8 +133,17 @@ public final class AppConfigurationRepository {
         properties.setProperty(PROXY_AUTH_MODE, http.getProxyAuthMode().name());
         properties.setProperty(PROXY_AUTH_USERNAME, http.getProxyAuthUsername());
         properties.setProperty(PROXY_AUTH_PASSWORD, http.getProxyAuthPassword());
+        SpeechToTextConfiguration stt = configuration.getSpeechToTextConfiguration();
+        properties.setProperty(STT_ENABLED, String.valueOf(stt.isEnabled()));
+        properties.setProperty(STT_BACKEND, stt.getBackend().name());
+        properties.setProperty(STT_MODEL, stt.getModelName());
+        properties.setProperty(STT_LANGUAGE, stt.getLanguage());
+        properties.setProperty(STT_PROMPT, stt.getPrompt());
+        properties.setProperty(STT_MAX_FILE_SIZE_MB, String.valueOf(stt.getMaxFileSizeMb()));
+        properties.setProperty(STT_TIMEOUT_SECONDS, String.valueOf(stt.getTimeoutSeconds()));
         properties.setProperty(HF_TOKEN, configuration.getHuggingFaceToken());
         properties.setProperty(DOWNLOAD_DIRECTORY, configuration.getModelDownloadDirectory().getAbsolutePath());
+        properties.setProperty(HF_SEARCH_SUGGESTIONS, configuration.getHuggingFaceSearchSuggestionsRaw());
         FileOutputStream outputStream = null;
         try {
             outputStream = new FileOutputStream(configurationFile);

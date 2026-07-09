@@ -2,6 +2,8 @@ package com.aresstack.askai.java8.ui;
 
 import com.aresstack.askai.java8.config.AppConfiguration;
 import com.aresstack.askai.java8.config.AppConfigurationRepository;
+import com.aresstack.askai.java8.config.HuggingFaceSearchSuggestion;
+import com.aresstack.askai.java8.hf.GgufFile;
 import com.aresstack.askai.java8.hf.HuggingFaceFile;
 import com.aresstack.askai.java8.hf.HuggingFaceModel;
 import com.aresstack.askai.java8.service.AskAiService;
@@ -14,6 +16,7 @@ import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JList;
 import javax.swing.JMenuItem;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JProgressBar;
@@ -41,7 +44,7 @@ public final class OllamaInstallPanel extends JPanel {
 
     private final AppConfigurationRepository configurationRepository;
     private final AskAiService askAiService;
-    private final JTextField searchField;
+    private final JComboBox<HuggingFaceSearchSuggestion> searchCombo;
     private final JButton searchButton;
     private final DefaultListModel<HuggingFaceModel> resultsModel;
     private final JList<HuggingFaceModel> resultsList;
@@ -60,7 +63,9 @@ public final class OllamaInstallPanel extends JPanel {
     public OllamaInstallPanel(AppConfigurationRepository configurationRepository, AskAiService askAiService) {
         this.configurationRepository = configurationRepository;
         this.askAiService = askAiService;
-        this.searchField = new JTextField(28);
+        this.searchCombo = new JComboBox<HuggingFaceSearchSuggestion>();
+        this.searchCombo.setEditable(true);
+        this.searchCombo.setRenderer(new SearchSuggestionRenderer());
         this.searchButton = new JButton("Search Hugging Face");
         this.resultsModel = new DefaultListModel<HuggingFaceModel>();
         this.resultsList = new JList<HuggingFaceModel>(resultsModel);
@@ -90,10 +95,17 @@ public final class OllamaInstallPanel extends JPanel {
     private JComponent buildTop() {
         JPanel searchBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
         searchBar.add(new JLabel("Search"));
-        searchBar.add(searchField);
+        searchCombo.setPreferredSize(new java.awt.Dimension(320, searchCombo.getPreferredSize().height));
+        reloadSearchSuggestions();
+        searchBar.add(searchCombo);
         searchBar.add(searchButton);
+        JButton editSuggestionsButton = new JButton("Edit list...");
+        editSuggestionsButton.setToolTipText("Edit the model suggestions shown in the dropdown");
+        editSuggestionsButton.addActionListener(event -> editSearchSuggestions());
+        searchBar.add(editSuggestionsButton);
         searchButton.addActionListener(event -> searchModels());
-        searchField.addActionListener(event -> searchModels());
+        // Enter in the editable combo editor triggers the search, matching the old text field.
+        searchCombo.getEditor().addActionListener(event -> searchModels());
 
         resultsList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         resultsList.setVisibleRowCount(5);
@@ -191,8 +203,74 @@ public final class OllamaInstallPanel extends JPanel {
         form.add(field, constraints);
     }
 
+    /** Fills the dropdown with the configured suggestions, keeping any text the user typed. */
+    private void reloadSearchSuggestions() {
+        Object typed = searchCombo.getEditor().getItem();
+        searchCombo.removeAllItems();
+        for (HuggingFaceSearchSuggestion suggestion
+                : configurationRepository.load().getHuggingFaceSearchSuggestions()) {
+            searchCombo.addItem(suggestion);
+        }
+        searchCombo.setSelectedItem(typed == null ? "" : typed);
+    }
+
+    /** Opens a small editor for the dropdown suggestions (one per line) and persists the list. */
+    private void editSearchSuggestions() {
+        AppConfiguration current = configurationRepository.load();
+        JTextArea editor = new JTextArea(current.getHuggingFaceSearchSuggestionsRaw(), 14, 40);
+        JPanel content = new JPanel(new BorderLayout(4, 4));
+        content.add(new JLabel("One suggestion per line: <search term> | <input>,<input>"
+                + "  —  inputs: text, audio, vision"), BorderLayout.NORTH);
+        content.add(new JScrollPane(editor), BorderLayout.CENTER);
+        int choice = JOptionPane.showConfirmDialog(this, content,
+                "Search suggestions", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        if (choice != JOptionPane.OK_OPTION) {
+            return;
+        }
+        configurationRepository.save(current.withHuggingFaceSearchSuggestions(editor.getText()));
+        reloadSearchSuggestions();
+        append("Search suggestions updated ("
+                + configurationRepository.load().getHuggingFaceSearchSuggestions().size() + " entries).");
+    }
+
+    /**
+     * Renders each suggestion with the term on the left and the fixed modality icon column
+     * (text / audio / vision) right-aligned at the dropdown's right edge.
+     */
+    private static final class SearchSuggestionRenderer extends JPanel
+            implements javax.swing.ListCellRenderer<Object> {
+
+        private final JLabel termLabel = new JLabel();
+        private final JLabel iconLabel = new JLabel();
+
+        SearchSuggestionRenderer() {
+            super(new BorderLayout(12, 0));
+            setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
+            setOpaque(true);
+            add(termLabel, BorderLayout.CENTER);
+            add(iconLabel, BorderLayout.EAST);
+        }
+
+        @Override
+        public java.awt.Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                                                               boolean isSelected, boolean cellHasFocus) {
+            if (value instanceof HuggingFaceSearchSuggestion) {
+                HuggingFaceSearchSuggestion suggestion = (HuggingFaceSearchSuggestion) value;
+                termLabel.setText(suggestion.getTerm());
+                iconLabel.setIcon(ModalityIcons.forModalities(suggestion.getModalities()));
+            } else {
+                termLabel.setText(value == null ? "" : String.valueOf(value));
+                iconLabel.setIcon(null);
+            }
+            setBackground(isSelected ? list.getSelectionBackground() : list.getBackground());
+            termLabel.setForeground(isSelected ? list.getSelectionForeground() : list.getForeground());
+            termLabel.setFont(list.getFont());
+            return this;
+        }
+    }
+
     private void searchModels() {
-        final String query = searchField.getText().trim();
+        final String query = String.valueOf(searchCombo.getEditor().getItem()).trim();
         if (query.length() == 0) {
             append("Enter a search term, e.g. qwen2.5 coder 0.5b.");
             return;
@@ -317,24 +395,125 @@ public final class OllamaInstallPanel extends JPanel {
 
     /**
      * Shows a popup listing every already-downloaded GGUF file (not just the last one), so a model
-     * downloaded earlier but not yet installed remotely can be installed too.
+     * downloaded earlier but not yet installed remotely can be installed too. Broken/incomplete
+     * files are flagged; each row has a right-aligned delete button, and right-click opens a
+     * context menu for deleting the download including any leftover partial data.
      */
-    private void showDownloadedFilesMenu(JButton anchor) {
+    private void showDownloadedFilesMenu(final JButton anchor) {
         List<File> files = findDownloadedGgufFiles();
-        JPopupMenu menu = new JPopupMenu();
+        final JPopupMenu menu = new JPopupMenu();
         if (files.isEmpty()) {
             JMenuItem empty = new JMenuItem("No downloaded GGUF files found");
             empty.setEnabled(false);
             menu.add(empty);
         } else {
             for (int i = 0; i < files.size(); i++) {
-                final File file = files.get(i);
-                JMenuItem item = new JMenuItem(downloadedFileLabel(file));
-                item.addActionListener(event -> chooseAndInstall(file));
-                menu.add(item);
+                menu.add(buildDownloadRow(menu, anchor, files.get(i)));
             }
         }
         menu.show(anchor, 0, anchor.getHeight());
+    }
+
+    /** One popup row: install on click, a right-aligned ✕ button, and a right-click context menu. */
+    private JComponent buildDownloadRow(final JPopupMenu menu, final JButton anchor, final File file) {
+        boolean valid = isValidGguf(file);
+
+        final JButton installButton = new JButton(
+                downloadedFileLabel(file) + (valid ? "" : "   [invalid/incomplete]"));
+        installButton.setHorizontalAlignment(javax.swing.SwingConstants.LEFT);
+        installButton.setBorderPainted(false);
+        installButton.setContentAreaFilled(false);
+        installButton.setFocusPainted(false);
+        installButton.setToolTipText(valid
+                ? "Install this downloaded model"
+                : "This file failed GGUF validation (truncated or corrupt) — delete it and re-download");
+        if (!valid) {
+            installButton.setForeground(new java.awt.Color(0xB0, 0x2E, 0x2E));
+        }
+        installButton.addActionListener(event -> {
+            menu.setVisible(false);
+            chooseAndInstall(file);
+        });
+
+        JButton deleteButton = new JButton("✕");
+        deleteButton.setMargin(new Insets(0, 6, 0, 6));
+        deleteButton.setFocusPainted(false);
+        deleteButton.setToolTipText("Delete this download (including partial data)");
+        deleteButton.addActionListener(event -> deleteDownloadedFile(menu, anchor, file));
+
+        final JPopupMenu contextMenu = new JPopupMenu();
+        JMenuItem deleteItem = new JMenuItem("Delete download (incl. data)");
+        deleteItem.addActionListener(event -> deleteDownloadedFile(menu, anchor, file));
+        contextMenu.add(deleteItem);
+        installButton.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mousePressed(java.awt.event.MouseEvent event) {
+                maybeShowContext(event);
+            }
+
+            @Override
+            public void mouseReleased(java.awt.event.MouseEvent event) {
+                maybeShowContext(event);
+            }
+
+            private void maybeShowContext(java.awt.event.MouseEvent event) {
+                if (event.isPopupTrigger()) {
+                    contextMenu.show(event.getComponent(), event.getX(), event.getY());
+                }
+            }
+        });
+
+        JPanel row = new JPanel(new BorderLayout(8, 0));
+        row.setOpaque(false);
+        row.add(installButton, BorderLayout.CENTER);
+        row.add(deleteButton, BorderLayout.EAST);
+        return row;
+    }
+
+    /** @return whether the file passes the cheap GGUF header/tensor-bounds validation. */
+    private boolean isValidGguf(File file) {
+        try {
+            GgufFile.validate(file);
+            return true;
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    /**
+     * Deletes a downloaded model file after confirmation, including its {@code .part} leftover and
+     * the model directory when that becomes empty, then reopens the refreshed popup.
+     */
+    private void deleteDownloadedFile(JPopupMenu menu, JButton anchor, File file) {
+        menu.setVisible(false);
+        long megabytes = file.length() / (1024L * 1024L);
+        int choice = JOptionPane.showConfirmDialog(this,
+                "Delete " + file.getName() + " (" + megabytes + " MB)?\n"
+                        + "This also removes leftover partial download data (.part).",
+                "Delete download", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+        if (choice != JOptionPane.YES_OPTION) {
+            showDownloadedFilesMenu(anchor);
+            return;
+        }
+        boolean deleted = !file.isFile() || file.delete();
+        File partFile = new File(file.getParentFile(), file.getName() + ".part");
+        if (partFile.isFile() && partFile.delete()) {
+            append("Deleted partial data: " + partFile.getName());
+        }
+        File parent = file.getParentFile();
+        if (parent != null && parent.isDirectory() && parent.delete()) {
+            append("Removed empty model directory: " + parent.getName());
+        }
+        if (deleted) {
+            append("Deleted download: " + file.getAbsolutePath());
+            if (file.equals(lastDownloadedFile)) {
+                lastDownloadedFile = null;
+            }
+        } else {
+            append("ERROR: Could not delete " + file.getAbsolutePath()
+                    + " (file may be in use by another process).");
+        }
+        showDownloadedFilesMenu(anchor);
     }
 
     private void chooseAndInstall(File file) {
@@ -441,7 +620,9 @@ public final class OllamaInstallPanel extends JPanel {
                 current.getHttpClientConfiguration(),
                 current.getDefaultQuantization(),
                 tokenField.getText(),
-                current.getModelDownloadDirectory()));
+                current.getModelDownloadDirectory())
+                .withSpeechToTextConfiguration(current.getSpeechToTextConfiguration())
+                .withHuggingFaceSearchSuggestions(current.getHuggingFaceSearchSuggestionsRaw()));
     }
 
     private String suggestInstallName(String repoId) {

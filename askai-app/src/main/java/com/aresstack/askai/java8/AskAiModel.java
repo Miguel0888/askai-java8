@@ -2,6 +2,7 @@ package com.aresstack.askai.java8;
 
 import com.aresstack.askai.java8.config.AppConfiguration;
 import com.aresstack.askai.java8.config.AppConfigurationRepository;
+import com.aresstack.askai.java8.stt.SpeechToTextConfiguration;
 
 import java.io.File;
 import java.nio.file.Path;
@@ -19,6 +20,7 @@ public final class AskAiModel {
     private File modelRoot;
     private String defaultQuantization;
     private String defaultKeepAlive;
+    private SpeechToTextConfiguration speechToTextConfiguration;
 
     public AskAiModel(AppConfigurationRepository configurationRepository) {
         this.configurationRepository = configurationRepository;
@@ -27,6 +29,7 @@ public final class AskAiModel {
         this.modelRoot = configuration.getModelDownloadDirectory();
         this.defaultQuantization = configuration.getDefaultQuantization();
         this.defaultKeepAlive = configuration.getKeepAlive();
+        this.speechToTextConfiguration = configuration.getSpeechToTextConfiguration();
     }
 
     public String getOllamaBaseUrl() {
@@ -61,6 +64,15 @@ public final class AskAiModel {
         this.defaultKeepAlive = defaultKeepAlive;
     }
 
+    public SpeechToTextConfiguration getSpeechToTextConfiguration() {
+        return speechToTextConfiguration;
+    }
+
+    public void setSpeechToTextConfiguration(SpeechToTextConfiguration speechToTextConfiguration) {
+        this.speechToTextConfiguration = speechToTextConfiguration == null
+                ? SpeechToTextConfiguration.defaults() : speechToTextConfiguration;
+    }
+
     /**
      * Persists the buffered values, preserving every other setting (proxy, TLS trust, HTTP client,
      * HuggingFace token) exactly as currently stored.
@@ -75,7 +87,9 @@ public final class AskAiModel {
                 current.getHttpClientConfiguration(),
                 defaultQuantization,
                 current.getHuggingFaceToken(),
-                modelRoot));
+                modelRoot)
+                .withSpeechToTextConfiguration(speechToTextConfiguration)
+                .withHuggingFaceSearchSuggestions(current.getHuggingFaceSearchSuggestionsRaw()));
         this.ollamaBaseUrl = configurationRepository.load().getOllamaBaseUrl();
     }
 }
