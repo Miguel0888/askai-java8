@@ -88,7 +88,8 @@ public final class AskAiModel {
                 defaultQuantization,
                 current.getHuggingFaceToken(),
                 modelRoot)
-                .withSpeechToTextConfiguration(speechToTextConfiguration));
+                .withSpeechToTextConfiguration(speechToTextConfiguration)
+                .withHuggingFaceSearchSuggestions(current.getHuggingFaceSearchSuggestionsRaw()));
         this.ollamaBaseUrl = configurationRepository.load().getOllamaBaseUrl();
     }
 }

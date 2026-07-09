@@ -24,6 +24,7 @@ public final class AppConfigurationRepository {
     private static final String PROXY_PORT = "proxy.port";
     private static final String HF_TOKEN = "huggingface.token";
     private static final String DOWNLOAD_DIRECTORY = "huggingface.downloadDirectory";
+    private static final String HF_SEARCH_SUGGESTIONS = "huggingface.searchSuggestions";
     private static final String TRUST_JVM_DEFAULT = "trust.jvmDefault";
     private static final String TRUST_WINDOWS_ROOT = "trust.windowsRoot";
     private static final String TRUST_WINDOWS_CA_STORES = "trust.windowsCaStores";
@@ -96,7 +97,9 @@ public final class AppConfigurationRepository {
                     properties.getProperty(OLLAMA_QUANTIZATION, defaults.getDefaultQuantization()),
                     properties.getProperty(HF_TOKEN, ""),
                     new File(properties.getProperty(DOWNLOAD_DIRECTORY, defaults.getModelDownloadDirectory().getAbsolutePath())))
-                    .withSpeechToTextConfiguration(stt);
+                    .withSpeechToTextConfiguration(stt)
+                    .withHuggingFaceSearchSuggestions(properties.getProperty(
+                            HF_SEARCH_SUGGESTIONS, AppConfiguration.DEFAULT_HF_SEARCH_SUGGESTIONS));
         } catch (IOException ex) {
             return AppConfiguration.defaults();
         } finally {
@@ -140,6 +143,7 @@ public final class AppConfigurationRepository {
         properties.setProperty(STT_TIMEOUT_SECONDS, String.valueOf(stt.getTimeoutSeconds()));
         properties.setProperty(HF_TOKEN, configuration.getHuggingFaceToken());
         properties.setProperty(DOWNLOAD_DIRECTORY, configuration.getModelDownloadDirectory().getAbsolutePath());
+        properties.setProperty(HF_SEARCH_SUGGESTIONS, configuration.getHuggingFaceSearchSuggestionsRaw());
         FileOutputStream outputStream = null;
         try {
             outputStream = new FileOutputStream(configurationFile);

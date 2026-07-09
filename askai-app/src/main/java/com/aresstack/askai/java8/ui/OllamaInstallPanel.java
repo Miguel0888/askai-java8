@@ -14,6 +14,7 @@ import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JList;
 import javax.swing.JMenuItem;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JProgressBar;
@@ -41,7 +42,7 @@ public final class OllamaInstallPanel extends JPanel {
 
     private final AppConfigurationRepository configurationRepository;
     private final AskAiService askAiService;
-    private final JTextField searchField;
+    private final JComboBox<String> searchCombo;
     private final JButton searchButton;
     private final DefaultListModel<HuggingFaceModel> resultsModel;
     private final JList<HuggingFaceModel> resultsList;
@@ -60,7 +61,8 @@ public final class OllamaInstallPanel extends JPanel {
     public OllamaInstallPanel(AppConfigurationRepository configurationRepository, AskAiService askAiService) {
         this.configurationRepository = configurationRepository;
         this.askAiService = askAiService;
-        this.searchField = new JTextField(28);
+        this.searchCombo = new JComboBox<String>();
+        this.searchCombo.setEditable(true);
         this.searchButton = new JButton("Search Hugging Face");
         this.resultsModel = new DefaultListModel<HuggingFaceModel>();
         this.resultsList = new JList<HuggingFaceModel>(resultsModel);
@@ -90,10 +92,17 @@ public final class OllamaInstallPanel extends JPanel {
     private JComponent buildTop() {
         JPanel searchBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
         searchBar.add(new JLabel("Search"));
-        searchBar.add(searchField);
+        searchCombo.setPreferredSize(new java.awt.Dimension(320, searchCombo.getPreferredSize().height));
+        reloadSearchSuggestions();
+        searchBar.add(searchCombo);
         searchBar.add(searchButton);
+        JButton editSuggestionsButton = new JButton("Edit list...");
+        editSuggestionsButton.setToolTipText("Edit the model suggestions shown in the dropdown");
+        editSuggestionsButton.addActionListener(event -> editSearchSuggestions());
+        searchBar.add(editSuggestionsButton);
         searchButton.addActionListener(event -> searchModels());
-        searchField.addActionListener(event -> searchModels());
+        // Enter in the editable combo editor triggers the search, matching the old text field.
+        searchCombo.getEditor().addActionListener(event -> searchModels());
 
         resultsList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         resultsList.setVisibleRowCount(5);
@@ -191,8 +200,33 @@ public final class OllamaInstallPanel extends JPanel {
         form.add(field, constraints);
     }
 
+    /** Fills the dropdown with the configured suggestions, keeping any text the user typed. */
+    private void reloadSearchSuggestions() {
+        Object typed = searchCombo.getEditor().getItem();
+        searchCombo.removeAllItems();
+        for (String suggestion : configurationRepository.load().getHuggingFaceSearchSuggestions()) {
+            searchCombo.addItem(suggestion);
+        }
+        searchCombo.setSelectedItem(typed == null ? "" : typed);
+    }
+
+    /** Opens a small editor for the dropdown suggestions (one per line) and persists the list. */
+    private void editSearchSuggestions() {
+        AppConfiguration current = configurationRepository.load();
+        JTextArea editor = new JTextArea(current.getHuggingFaceSearchSuggestionsRaw(), 14, 34);
+        int choice = JOptionPane.showConfirmDialog(this, new JScrollPane(editor),
+                "Search suggestions (one per line)", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        if (choice != JOptionPane.OK_OPTION) {
+            return;
+        }
+        configurationRepository.save(current.withHuggingFaceSearchSuggestions(editor.getText()));
+        reloadSearchSuggestions();
+        append("Search suggestions updated ("
+                + configurationRepository.load().getHuggingFaceSearchSuggestions().size() + " entries).");
+    }
+
     private void searchModels() {
-        final String query = searchField.getText().trim();
+        final String query = String.valueOf(searchCombo.getEditor().getItem()).trim();
         if (query.length() == 0) {
             append("Enter a search term, e.g. qwen2.5 coder 0.5b.");
             return;
@@ -442,7 +476,8 @@ public final class OllamaInstallPanel extends JPanel {
                 current.getDefaultQuantization(),
                 tokenField.getText(),
                 current.getModelDownloadDirectory())
-                .withSpeechToTextConfiguration(current.getSpeechToTextConfiguration()));
+                .withSpeechToTextConfiguration(current.getSpeechToTextConfiguration())
+                .withHuggingFaceSearchSuggestions(current.getHuggingFaceSearchSuggestionsRaw()));
     }
 
     private String suggestInstallName(String repoId) {
