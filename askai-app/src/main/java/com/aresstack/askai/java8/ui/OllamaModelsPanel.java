@@ -13,31 +13,37 @@ import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
-import javax.swing.JTabbedPane;
 import javax.swing.SwingUtilities;
 import java.awt.BorderLayout;
+import java.awt.CardLayout;
 import java.awt.FlowLayout;
 import java.util.List;
 
 /**
- * Shows installed and currently loaded Ollama models as rich object cards.
+ * Shows installed and currently loaded Ollama models as rich object cards. Installed and running
+ * are two separate views selected from the "Models" menu (no in-panel tabs).
  */
 public final class OllamaModelsPanel extends JPanel {
 
+    private static final String INSTALLED_CARD = "installed";
+    private static final String RUNNING_CARD = "running";
+
     private final AskAiModel model;
     private final OllamaService ollamaService;
-    private final JTabbedPane tabs;
+    private final CardLayout cardLayout;
+    private final JPanel cards;
     private final JPanel installedCardsPanel;
     private final JPanel runningCardsPanel;
     private final JLabel installedStatusLabel;
     private final JLabel runningStatusLabel;
     private final JLabel informationLabel;
-    private boolean refreshedOnce;
+    private boolean serverInformationLoaded;
 
     public OllamaModelsPanel(AskAiModel model, OllamaService ollamaService) {
         this.model = model;
         this.ollamaService = ollamaService;
-        this.tabs = new JTabbedPane();
+        this.cardLayout = new CardLayout();
+        this.cards = new JPanel(cardLayout);
         this.installedCardsPanel = createCardsPanel();
         this.runningCardsPanel = createCardsPanel();
         this.installedStatusLabel = new JLabel("Installed models are not loaded yet.");
@@ -46,40 +52,50 @@ public final class OllamaModelsPanel extends JPanel {
         buildUserInterface();
     }
 
-    public void onShown() {
-        if (!refreshedOnce) {
-            refreshedOnce = true;
-            refreshInstalledModels();
+    /** Show the installed-models view and refresh it (the "Models > Installed" entry). */
+    public void showInstalled() {
+        cardLayout.show(cards, INSTALLED_CARD);
+        ensureServerInformation();
+        refreshInstalledModels();
+    }
+
+    /** Show the running-models view and refresh it (the "Models > Running Models" entry). */
+    public void showRunning() {
+        cardLayout.show(cards, RUNNING_CARD);
+        ensureServerInformation();
+        refreshRunningModels();
+    }
+
+    private void ensureServerInformation() {
+        if (!serverInformationLoaded) {
+            serverInformationLoaded = true;
             refreshServerInformation();
-            return;
         }
-        refreshSelectedTab();
     }
 
     private void buildUserInterface() {
         setLayout(new BorderLayout(8, 8));
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        tabs.addTab("Installed Models", createInstalledModelsTab());
-        tabs.addTab("Running Models", createRunningModelsTab());
-        tabs.addChangeListener(event -> refreshSelectedTab());
-        add(tabs, BorderLayout.CENTER);
+        cards.add(createInstalledModelsCard(), INSTALLED_CARD);
+        cards.add(createRunningModelsCard(), RUNNING_CARD);
+        add(cards, BorderLayout.CENTER);
         informationLabel.setBorder(BorderFactory.createEmptyBorder(4, 4, 0, 4));
         add(informationLabel, BorderLayout.SOUTH);
     }
 
-    private JPanel createInstalledModelsTab() {
+    private JPanel createInstalledModelsCard() {
         JPanel panel = new JPanel(new BorderLayout(8, 8));
         panel.add(createInstalledToolbar(), BorderLayout.NORTH);
         panel.add(new JScrollPane(installedCardsPanel), BorderLayout.CENTER);
-        showInstalledPlaceholder("Open Models or click Refresh to load installed models.");
+        showInstalledPlaceholder("Open Models > Installed or click Refresh to load installed models.");
         return panel;
     }
 
-    private JPanel createRunningModelsTab() {
+    private JPanel createRunningModelsCard() {
         JPanel panel = new JPanel(new BorderLayout(8, 8));
         panel.add(createRunningToolbar(), BorderLayout.NORTH);
         panel.add(new JScrollPane(runningCardsPanel), BorderLayout.CENTER);
-        showRunningPlaceholder("Switch to this tab to load running models.");
+        showRunningPlaceholder("Open Models > Running Models or click Refresh to load running models.");
         return panel;
     }
 
@@ -106,14 +122,6 @@ public final class OllamaModelsPanel extends JPanel {
         panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
         panel.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
         return panel;
-    }
-
-    private void refreshSelectedTab() {
-        if (tabs.getSelectedIndex() == 0) {
-            refreshInstalledModels();
-        } else if (tabs.getSelectedIndex() == 1) {
-            refreshRunningModels();
-        }
     }
 
     private void refreshInstalledModels() {
@@ -260,9 +268,6 @@ public final class OllamaModelsPanel extends JPanel {
                     public void run() {
                         installedStatusLabel.setText(message);
                         refreshInstalledModels();
-                        if (tabs.getSelectedIndex() == 1) {
-                            refreshRunningModels();
-                        }
                     }
                 });
             }

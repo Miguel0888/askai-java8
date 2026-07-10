@@ -90,7 +90,7 @@ public final class AskAiFrame extends JFrame {
     private JMenuBar createMenuBar() {
         JMenuBar menuBar = new JMenuBar();
         menuBar.add(createTopLevelMenu("Chat", CHAT_VIEW));
-        menuBar.add(createTopLevelMenu("Models", MODELS_VIEW));
+        menuBar.add(createModelsMenu());
         menuBar.add(createTopLevelMenu("Actions", ACTIONS_VIEW));
         menuBar.add(createConfigurationMenu());
         menuBar.add(createHelpMenu());
@@ -112,9 +112,20 @@ public final class AskAiFrame extends JFrame {
         return menu;
     }
 
+    private JMenu createModelsMenu() {
+        JMenu modelsMenu = new JMenu("Models");
+        JMenuItem installedItem = new JMenuItem("Installed");
+        installedItem.addActionListener(event -> showModels(true));
+        JMenuItem runningItem = new JMenuItem("Running Models");
+        runningItem.addActionListener(event -> showModels(false));
+        modelsMenu.add(installedItem);
+        modelsMenu.add(runningItem);
+        modelsMenu.add(createScreenItem("Install", INSTALL_VIEW));
+        return modelsMenu;
+    }
+
     private JMenu createConfigurationMenu() {
         JMenu configurationMenu = new JMenu("Configuration");
-        configurationMenu.add(createScreenItem("Install", INSTALL_VIEW));
         configurationMenu.add(createScreenItem("Connections", CONNECTIONS_VIEW));
         configurationMenu.add(createScreenItem("Network", NETWORK_VIEW));
         return configurationMenu;
@@ -148,10 +159,19 @@ public final class AskAiFrame extends JFrame {
 
     private void showScreen(String screenName) {
         contentLayout.show(contentPanel, screenName);
-        if (MODELS_VIEW.equals(screenName)) {
-            modelsPanel.onShown();
-        }
         refreshConnectionStatus(screenName);
+    }
+
+    /** Show the Models view and select the Installed or Running Models sub-view. */
+    private void showModels(boolean installed) {
+        contentLayout.show(contentPanel, MODELS_VIEW);
+        if (installed) {
+            modelsPanel.showInstalled();
+        } else {
+            modelsPanel.showRunning();
+        }
+        connectionStatusLabel.setText("Ollama - " + model.getOllamaBaseUrl() + " - Models - "
+                + (installed ? "Installed" : "Running"));
     }
 
     private void refreshConnectionStatus(String screenName) {
