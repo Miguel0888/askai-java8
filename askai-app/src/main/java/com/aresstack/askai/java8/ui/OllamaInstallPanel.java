@@ -124,6 +124,7 @@ public final class OllamaInstallPanel extends JPanel {
         });
         filesList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         filesList.setVisibleRowCount(5);
+        filesList.setCellRenderer(new GgufFileRenderer());
 
         JPanel listsPanel = new JPanel(new GridBagLayout());
         GridBagConstraints constraints = new GridBagConstraints();
@@ -360,6 +361,7 @@ public final class OllamaInstallPanel extends JPanel {
                         }
                         append("Found " + files.size() + " GGUF file(s).");
                         updateRepoCapability(repoId, files);
+                        preselectRecommendedModel(files);
                     }
                 });
             }
@@ -394,8 +396,9 @@ public final class OllamaInstallPanel extends JPanel {
             return;
         }
         String kind = classifyEncoder(repoId + " " + mmproj.getFileName());
-        setRepoCapability("<html>This repository is <b>multimodal (" + kind + ")</b> — encoder present: "
-                + mmproj.getFileName() + ". You will be offered to install it with the model.</html>");
+        setRepoCapability("<html>This repository is <b>multimodal (" + kind + ")</b>. Just press "
+                + "<b>Download and install</b> — a model quant is preselected and the encoder ("
+                + mmproj.getFileName() + ") is included automatically.</html>");
     }
 
     /** Guess whether an encoder is for audio or vision from the model/encoder name. */
@@ -428,23 +431,14 @@ public final class OllamaInstallPanel extends JPanel {
         }
         saveTokenToConfiguration();
 
-        // Multimodal repos ship the audio/vision encoder as a separate *mmproj* GGUF. Offer to
-        // fetch it along with the model so the install can be complete.
-        HuggingFaceFile companion = null;
-        if (!isMmprojName(selected.getFileName())) {
-            HuggingFaceFile repoMmproj = findMmprojInFileList();
-            if (repoMmproj != null) {
-                int answer = JOptionPane.showConfirmDialog(this,
-                        "This repository also contains a multimodal encoder:\n" + repoMmproj.getFileName()
-                                + "\n\nDownload it too? (Required for audio/vision input.)",
-                        "Download multimodal encoder (mmproj)?",
-                        JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
-                if (answer == JOptionPane.YES_OPTION) {
-                    companion = repoMmproj;
-                }
-            }
+        // Multimodal repos ship the audio/vision encoder as a separate *mmproj* GGUF. Include it
+        // automatically so the install is complete in one step — no extra prompt.
+        final HuggingFaceFile companionFile =
+                isMmprojName(selected.getFileName()) ? null : findMmprojInFileList();
+        if (companionFile != null) {
+            append("Multimodal repo: the encoder " + companionFile.getFileName()
+                    + " will be downloaded and installed with the model.");
         }
-        final HuggingFaceFile companionFile = companion;
 
         append("Downloading " + selected.getFileName() + " ...");
         showProgress(0, "Downloading");
@@ -532,6 +526,36 @@ public final class OllamaInstallPanel extends JPanel {
         });
     }
 
+    private static final String[] PREFERRED_QUANTS = {"q4_k_m", "q4_0", "q5_k_m", "q8_0"};
+
+    /**
+     * Auto-select a sensible model quant (never the encoder), so the user can just press
+     * "Download and install". Prefer a balanced quant; fall back to the first non-encoder file.
+     */
+    private void preselectRecommendedModel(List<HuggingFaceFile> files) {
+        int fallback = -1;
+        for (int q = 0; q < PREFERRED_QUANTS.length; q++) {
+            for (int i = 0; i < files.size(); i++) {
+                String name = files.get(i).getFileName().toLowerCase();
+                if (isMmprojName(name)) {
+                    continue;
+                }
+                if (fallback < 0) {
+                    fallback = i;
+                }
+                if (name.contains(PREFERRED_QUANTS[q])) {
+                    filesList.setSelectedIndex(i);
+                    filesList.ensureIndexIsVisible(i);
+                    return;
+                }
+            }
+        }
+        if (fallback >= 0) {
+            filesList.setSelectedIndex(fallback);
+            filesList.ensureIndexIsVisible(fallback);
+        }
+    }
+
     /** @return the first *mmproj* GGUF in the currently listed repository files, or null. */
     private HuggingFaceFile findMmprojInFileList() {
         for (int i = 0; i < filesModel.getSize(); i++) {
@@ -545,6 +569,27 @@ public final class OllamaInstallPanel extends JPanel {
 
     private static boolean isMmprojName(String fileName) {
         return fileName != null && fileName.toLowerCase().contains("mmproj");
+    }
+
+    /** Renders GGUF files with a size, and marks the encoder so it is not mistaken for a model. */
+    private static final class GgufFileRenderer extends javax.swing.DefaultListCellRenderer {
+        @Override
+        public java.awt.Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                                                               boolean isSelected, boolean cellHasFocus) {
+            JLabel label = (JLabel) super.getListCellRendererComponent(
+                    list, value, index, isSelected, cellHasFocus);
+            if (value instanceof HuggingFaceFile) {
+                HuggingFaceFile file = (HuggingFaceFile) value;
+                long mb = file.getSize() / (1024L * 1024L);
+                String size = mb > 0 ? "  (" + mb + " MB)" : "";
+                if (isMmprojName(file.getFileName())) {
+                    label.setText(file.getFileName() + size + "  — encoder, installed automatically");
+                } else {
+                    label.setText(file.getFileName() + size);
+                }
+            }
+            return label;
+        }
     }
 
     /** @return a *mmproj* GGUF lying next to the model file, or null. */
@@ -759,20 +804,13 @@ public final class OllamaInstallPanel extends JPanel {
             return;
         }
         // Multimodal models need their separate *mmproj* encoder GGUF installed alongside the
-        // language model — otherwise Ollama rejects audio/vision input. Offer any encoder found
-        // next to the model file.
+        // language model — otherwise Ollama rejects audio/vision input. Include any encoder found
+        // next to the model file automatically.
         final List<File> companions = new ArrayList<File>();
         File mmproj = findLocalMmproj(lastDownloadedFile);
         if (mmproj != null) {
-            int answer = JOptionPane.showConfirmDialog(this,
-                    "Found a multimodal encoder next to the model:\n" + mmproj.getName()
-                            + "\n\nInstall it together with the model? (Required for audio/vision input.)",
-                    "Install multimodal encoder (mmproj)?",
-                    JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
-            if (answer == JOptionPane.YES_OPTION) {
-                companions.add(mmproj);
-                append("Including encoder: " + mmproj.getName());
-            }
+            companions.add(mmproj);
+            append("Including audio/vision encoder: " + mmproj.getName());
         }
         append("Installing " + lastDownloadedFile.getAbsolutePath() + " as " + modelName + ".");
         showProgress(0, "Installing");
