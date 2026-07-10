@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -126,18 +127,29 @@ public final class DefaultAskAiService implements AskAiService {
         });
     }
 
-    public void installGgufFile(final String modelName, final File ggufFile, final ActionListener listener) {
-        executorService.submit(new Runnable() {
+    public InstallTask installGgufFile(final String modelName, final File ggufFile, final InstallListener listener) {
+        AppConfiguration configuration = configurationRepository.load();
+        final RemoteGgufInstaller installer = new RemoteGgufInstaller(configuration.getOllamaBaseUrl());
+        final Future<?> future = executorService.submit(new Runnable() {
             public void run() {
                 try {
-                    AppConfiguration configuration = configurationRepository.load();
-                    new RemoteGgufInstaller(configuration.getOllamaBaseUrl()).install(modelName, ggufFile);
+                    installer.install(modelName, ggufFile, new RemoteGgufInstaller.ProgressListener() {
+                        public void onProgress(String phase, long completed, long total) {
+                            listener.onProgress(phase, completed, total);
+                        }
+                    });
                     listener.onComplete("Installed " + modelName + " on remote Ollama.");
                 } catch (Exception ex) {
                     listener.onError(ex);
                 }
             }
         });
+        return new InstallTask() {
+            public void cancel() {
+                installer.cancel();
+                future.cancel(true);
+            }
+        };
     }
 
     public void shutdown() {

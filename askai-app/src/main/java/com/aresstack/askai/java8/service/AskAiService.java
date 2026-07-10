@@ -22,9 +22,14 @@ public interface AskAiService {
 
     void downloadHuggingFaceFile(HuggingFaceFile file, DownloadListener listener);
 
-    void installGgufFile(String modelName, File ggufFile, ActionListener listener);
+    InstallTask installGgufFile(String modelName, File ggufFile, InstallListener listener);
 
     void shutdown();
+
+    /** Handle to a running install; {@link #cancel()} aborts the upload/create. */
+    interface InstallTask {
+        void cancel();
+    }
 
     interface ModelListListener {
         void onModels(List<Model> models);
@@ -69,6 +74,21 @@ public interface AskAiService {
     }
 
     interface ActionListener {
+        void onComplete(String message);
+
+        void onError(Exception ex);
+    }
+
+    interface InstallListener {
+        /**
+         * Report install progress.
+         *
+         * @param phase     human-readable phase, e.g. "Hashing", "Uploading", or an Ollama status
+         * @param completed bytes done in this phase, or 0 when not measurable
+         * @param total     total bytes for this phase, or 0 for an indeterminate step
+         */
+        void onProgress(String phase, long completed, long total);
+
         void onComplete(String message);
 
         void onError(Exception ex);

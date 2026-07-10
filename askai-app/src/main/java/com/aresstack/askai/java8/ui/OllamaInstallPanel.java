@@ -57,8 +57,10 @@ public final class OllamaInstallPanel extends JPanel {
     private final JTextField quantizationField;
     private final JComboBox<String> profileCombo;
     private final JProgressBar progressBar;
+    private final JButton cancelInstallButton;
     private final JTextArea logArea;
     private File lastDownloadedFile;
+    private AskAiService.InstallTask installTask;
 
     public OllamaInstallPanel(AppConfigurationRepository configurationRepository, AskAiService askAiService) {
         this.configurationRepository = configurationRepository;
@@ -78,6 +80,8 @@ public final class OllamaInstallPanel extends JPanel {
         this.quantizationField = new JTextField("Q4_K_M", 10);
         this.profileCombo = new JComboBox<String>(new String[]{PROFILE_AUTO, PROFILE_QWEN, PROFILE_DEFAULT});
         this.progressBar = new JProgressBar(0, 100);
+        this.cancelInstallButton = new JButton(new CancelIcon(11));
+        buildCancelButton();
         this.logArea = new JTextArea(12, 80);
         buildUserInterface();
     }
@@ -88,7 +92,10 @@ public final class OllamaInstallPanel extends JPanel {
         add(buildTop(), BorderLayout.NORTH);
         add(buildCenter(), BorderLayout.CENTER);
         progressBar.setStringPainted(true);
-        add(progressBar, BorderLayout.SOUTH);
+        JPanel progressRow = new JPanel(new BorderLayout(6, 0));
+        progressRow.add(progressBar, BorderLayout.CENTER);
+        progressRow.add(cancelInstallButton, BorderLayout.EAST);
+        add(progressRow, BorderLayout.SOUTH);
         loadTokenFromConfiguration();
     }
 
@@ -584,11 +591,22 @@ public final class OllamaInstallPanel extends JPanel {
         }
         append("Installing " + lastDownloadedFile.getAbsolutePath() + " as " + modelName + ".");
         showProgress(0, "Installing");
-        askAiService.installGgufFile(modelName, lastDownloadedFile, new AskAiService.ActionListener() {
+        setInstallInProgress(true);
+        installTask = askAiService.installGgufFile(modelName, lastDownloadedFile, new AskAiService.InstallListener() {
+            public void onProgress(final String phase, final long completed, final long total) {
+                onUi(new Runnable() {
+                    public void run() {
+                        updateInstallProgress(phase, completed, total);
+                    }
+                });
+            }
+
             public void onComplete(final String message) {
                 onUi(new Runnable() {
                     public void run() {
+                        setInstallInProgress(false);
                         append(message);
+                        progressBar.setIndeterminate(false);
                         showProgress(100, "Installed");
                     }
                 });
@@ -597,12 +615,110 @@ public final class OllamaInstallPanel extends JPanel {
             public void onError(final Exception ex) {
                 onUi(new Runnable() {
                     public void run() {
-                        append("ERROR: " + ex.getMessage());
-                        showProgress(0, "Install failed");
+                        setInstallInProgress(false);
+                        progressBar.setIndeterminate(false);
+                        String message = ex.getMessage() == null ? ex.toString() : ex.getMessage();
+                        boolean cancelled = ex instanceof java.io.InterruptedIOException
+                                || message.toLowerCase().contains("cancel");
+                        append((cancelled ? "Install cancelled." : "ERROR: " + message));
+                        showProgress(0, cancelled ? "Install cancelled" : "Install failed");
                     }
                 });
             }
         });
+    }
+
+    /** Cancel a running install; the service aborts the upload/create. */
+    private void cancelInstall() {
+        AskAiService.InstallTask task = installTask;
+        if (task != null) {
+            append("Cancelling install ...");
+            task.cancel();
+        }
+    }
+
+    private void setInstallInProgress(boolean inProgress) {
+        cancelInstallButton.setEnabled(inProgress);
+        if (!inProgress) {
+            installTask = null;
+        }
+    }
+
+    /** Render one install progress update: a percentage bar for byte phases, indeterminate otherwise. */
+    private void updateInstallProgress(String phase, long completed, long total) {
+        if (total > 0) {
+            int percent = (int) Math.max(0, Math.min(100, completed * 100L / total));
+            progressBar.setIndeterminate(false);
+            progressBar.setValue(percent);
+            progressBar.setString(phase + " " + percent + "% (" + humanBytes(completed)
+                    + " / " + humanBytes(total) + ")");
+        } else {
+            progressBar.setIndeterminate(true);
+            progressBar.setString(phase);
+        }
+    }
+
+    private void buildCancelButton() {
+        cancelInstallButton.setToolTipText("Cancel installation");
+        cancelInstallButton.setFocusPainted(false);
+        cancelInstallButton.setMargin(new Insets(0, 0, 0, 0));
+        int size = progressBar.getPreferredSize().height;
+        cancelInstallButton.setPreferredSize(new java.awt.Dimension(size, size));
+        cancelInstallButton.setEnabled(false);
+        cancelInstallButton.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent event) {
+                cancelInstall();
+            }
+        });
+    }
+
+    private static String humanBytes(long bytes) {
+        if (bytes < 1024L) {
+            return bytes + " B";
+        }
+        double kb = bytes / 1024.0d;
+        if (kb < 1024.0d) {
+            return String.format("%.0f KB", kb);
+        }
+        double mb = kb / 1024.0d;
+        if (mb < 1024.0d) {
+            return String.format("%.1f MB", mb);
+        }
+        return String.format("%.2f GB", mb / 1024.0d);
+    }
+
+    /** A small square close/cancel icon (an X) painted with Java2D — no image asset needed. */
+    private static final class CancelIcon implements javax.swing.Icon {
+        private final int size;
+
+        CancelIcon(int size) {
+            this.size = size;
+        }
+
+        public int getIconWidth() {
+            return size;
+        }
+
+        public int getIconHeight() {
+            return size;
+        }
+
+        public void paintIcon(java.awt.Component component, java.awt.Graphics graphics, int x, int y) {
+            java.awt.Graphics2D g = (java.awt.Graphics2D) graphics.create();
+            try {
+                g.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING,
+                        java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+                g.setColor(component.isEnabled() ? new java.awt.Color(0xC0, 0x2E, 0x2E)
+                        : new java.awt.Color(0x9E, 0x9E, 0x9E));
+                g.setStroke(new java.awt.BasicStroke(2f, java.awt.BasicStroke.CAP_ROUND,
+                        java.awt.BasicStroke.JOIN_ROUND));
+                int pad = 2;
+                g.drawLine(x + pad, y + pad, x + size - pad, y + size - pad);
+                g.drawLine(x + size - pad, y + pad, x + pad, y + size - pad);
+            } finally {
+                g.dispose();
+            }
+        }
     }
 
     private void loadTokenFromConfiguration() {
