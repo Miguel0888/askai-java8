@@ -294,6 +294,7 @@ public final class OllamaChatPanel extends JPanel {
                             modelCombo.setSelectedItem(previous);
                         }
                         refillAudioModelCombo(names);
+                        filterAudioModelsByCapability(names);
                         if (names.isEmpty()) {
                             setStatus("No models installed. Open Install to add one.");
                         } else {
@@ -471,6 +472,55 @@ public final class OllamaChatPanel extends JPanel {
             }
         } finally {
             updatingAudioModelCombo = false;
+        }
+    }
+
+    /**
+     * Query /api/show for every model and narrow the audio dropdown to the ones that actually
+     * report the "audio" capability. When none does (or the Ollama version does not report
+     * capabilities), the full list stays so the user can still choose freely.
+     */
+    private void filterAudioModelsByCapability(final List<String> names) {
+        final List<String> audioCapable = new ArrayList<String>();
+        final int[] remaining = {names.size()};
+        if (names.isEmpty()) {
+            return;
+        }
+        for (final String name : names) {
+            ollamaService.getModelInfo(name, new OllamaService.ModelInfoListener() {
+                @Override
+                public void onModelInfo(final com.aresstack.askai.java8.client.OllamaModelInfoView info) {
+                    onUi(new Runnable() {
+                        @Override
+                        public void run() {
+                            for (String capability : info.getCapabilities()) {
+                                if ("audio".equalsIgnoreCase(capability)) {
+                                    audioCapable.add(name);
+                                    break;
+                                }
+                            }
+                            onCapabilityQueryDone();
+                        }
+                    });
+                }
+
+                @Override
+                public void onError(Exception ex) {
+                    onUi(new Runnable() {
+                        @Override
+                        public void run() {
+                            onCapabilityQueryDone();
+                        }
+                    });
+                }
+
+                private void onCapabilityQueryDone() {
+                    remaining[0]--;
+                    if (remaining[0] == 0 && !audioCapable.isEmpty()) {
+                        refillAudioModelCombo(audioCapable);
+                    }
+                }
+            });
         }
     }
 

@@ -101,7 +101,7 @@ public final class AskAiOllamaClient {
                     "",
                     info.getParameters(),
                     info.getModelFile(),
-                    new ArrayList<String>());
+                    info.getCapabilities());
         } catch (OllamaException ex) {
             throw wrap("model info for " + modelName, ex);
         }

@@ -24,6 +24,13 @@ public interface AskAiService {
 
     InstallTask installGgufFile(String modelName, File ggufFile, InstallListener listener);
 
+    /**
+     * Install a GGUF model together with companion files (e.g. the *mmproj* audio/vision encoder)
+     * in a single create, so multimodal models arrive complete.
+     */
+    InstallTask installGgufFileWithCompanions(String modelName, File ggufFile,
+                                              List<File> companionFiles, InstallListener listener);
+
     void shutdown();
 
     /** Handle to a running install; {@link #cancel()} aborts the upload/create. */

@@ -62,7 +62,7 @@ public final class AskAiFrame extends JFrame {
         this.connectionStatusLabel = new JLabel();
         this.contentLayout = new CardLayout();
         this.contentPanel = new JPanel(contentLayout);
-        this.modelsPanel = new OllamaModelsPanel(model, ollamaService);
+        this.modelsPanel = new OllamaModelsPanel(model, ollamaService, askAiService, configurationRepository);
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
         addWindowListener(new WindowAdapter() {
             public void windowClosed(WindowEvent event) {

@@ -51,32 +51,54 @@ public final class RemoteGgufInstaller {
     }
 
     public void install(String modelName, File file, ProgressListener listener) throws Exception {
+        install(modelName, file, java.util.Collections.<File>emptyList(), listener);
+    }
+
+    /**
+     * Install the model GGUF plus optional companion files (e.g. the *mmproj* audio/vision encoder
+     * a multimodal model needs). Every file is validated, hashed and uploaded (skipping blobs the
+     * server already has), then referenced together in one {@code /api/create} call.
+     */
+    public void install(String modelName, File file, java.util.List<File> extraFiles,
+                        ProgressListener listener) throws Exception {
         if (modelName == null || modelName.trim().length() == 0) {
             throw new IllegalArgumentException("Model name is required.");
         }
         if (file == null || !file.isFile()) {
             throw new IllegalArgumentException("GGUF file does not exist.");
         }
-        // Reject a truncated/corrupt GGUF up front, so the failure is clear here instead of surfacing
-        // as an opaque HTTP 500 from Ollama's import ("tensor offset+size exceeds file size").
-        report(listener, "Validating GGUF", 0, 0);
-        GgufFile.validate(file);
-
-        String checksum = sha256(file, listener);
-        String digest = "sha256:" + checksum;
-
-        if (blobExists(digest)) {
-            report(listener, "Blob already on server", file.length(), file.length());
-        } else {
-            uploadBlob("/api/blobs/" + digest, file, listener);
+        java.util.List<File> allFiles = new java.util.ArrayList<File>();
+        allFiles.add(file);
+        if (extraFiles != null) {
+            for (int i = 0; i < extraFiles.size(); i++) {
+                File extra = extraFiles.get(i);
+                if (extra == null || !extra.isFile()) {
+                    throw new IllegalArgumentException("Companion file does not exist: " + extra);
+                }
+                allFiles.add(extra);
+            }
         }
 
         Map<String, String> files = new LinkedHashMap<String, String>();
-        files.put(file.getName(), digest);
+        for (int i = 0; i < allFiles.size(); i++) {
+            File current = allFiles.get(i);
+            String label = allFiles.size() > 1 ? " (" + current.getName() + ")" : "";
+            // Reject a truncated/corrupt GGUF up front, so the failure is clear here instead of
+            // surfacing as an opaque HTTP 500 from Ollama's import.
+            report(listener, "Validating GGUF" + label, 0, 0);
+            GgufFile.validate(current);
+            String digest = "sha256:" + sha256(current, listener);
+            if (blobExists(digest)) {
+                report(listener, "Blob already on server" + label, current.length(), current.length());
+            } else {
+                uploadBlob("/api/blobs/" + digest, current, listener);
+            }
+            files.put(current.getName(), digest);
+        }
+
         Map<String, Object> body = new LinkedHashMap<String, Object>();
         body.put("model", modelName.trim());
         body.put("files", files);
-        body.put("modelfile", "FROM " + file.getName());
         body.put("stream", Boolean.TRUE);
         createModel("/api/create", OllamaJson.toJson(body), listener);
     }

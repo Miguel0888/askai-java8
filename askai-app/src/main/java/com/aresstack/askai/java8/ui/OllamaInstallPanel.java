@@ -360,6 +360,25 @@ public final class OllamaInstallPanel extends JPanel {
             return;
         }
         saveTokenToConfiguration();
+
+        // Multimodal repos ship the audio/vision encoder as a separate *mmproj* GGUF. Offer to
+        // fetch it along with the model so the install can be complete.
+        HuggingFaceFile companion = null;
+        if (!isMmprojName(selected.getFileName())) {
+            HuggingFaceFile repoMmproj = findMmprojInFileList();
+            if (repoMmproj != null) {
+                int answer = JOptionPane.showConfirmDialog(this,
+                        "This repository also contains a multimodal encoder:\n" + repoMmproj.getFileName()
+                                + "\n\nDownload it too? (Required for audio/vision input.)",
+                        "Download multimodal encoder (mmproj)?",
+                        JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
+                if (answer == JOptionPane.YES_OPTION) {
+                    companion = repoMmproj;
+                }
+            }
+        }
+        final HuggingFaceFile companionFile = companion;
+
         append("Downloading " + selected.getFileName() + " ...");
         showProgress(0, "Downloading");
         askAiService.downloadHuggingFaceFile(selected, new AskAiService.DownloadListener() {
@@ -381,9 +400,13 @@ public final class OllamaInstallPanel extends JPanel {
                     public void run() {
                         lastDownloadedFile = file;
                         append("Download complete: " + file.getAbsolutePath());
-                        showProgress(100, "Files downloaded");
-                        if (installAfterDownload) {
-                            installDownloadedFile();
+                        if (companionFile != null) {
+                            downloadCompanion(companionFile, installAfterDownload);
+                        } else {
+                            showProgress(100, "Files downloaded");
+                            if (installAfterDownload) {
+                                installDownloadedFile();
+                            }
                         }
                     }
                 });
@@ -398,6 +421,85 @@ public final class OllamaInstallPanel extends JPanel {
                 });
             }
         });
+    }
+
+    /** Download the encoder after the model; keeps {@code lastDownloadedFile} on the model file. */
+    private void downloadCompanion(HuggingFaceFile companion, final boolean installAfterDownload) {
+        append("Downloading encoder " + companion.getFileName() + " ...");
+        askAiService.downloadHuggingFaceFile(companion, new AskAiService.DownloadListener() {
+            public void onProgress(final long completed, final long total) {
+                onUi(new Runnable() {
+                    public void run() {
+                        if (total > 0L) {
+                            int percent = (int) (completed * 100L / total);
+                            showProgress(percent, "Downloading encoder " + percent + "%");
+                        }
+                    }
+                });
+            }
+
+            public void onComplete(final File file) {
+                onUi(new Runnable() {
+                    public void run() {
+                        append("Encoder downloaded: " + file.getAbsolutePath());
+                        showProgress(100, "Files downloaded");
+                        if (installAfterDownload) {
+                            installDownloadedFile();
+                        }
+                    }
+                });
+            }
+
+            public void onError(final Exception ex) {
+                onUi(new Runnable() {
+                    public void run() {
+                        append("ERROR: encoder download failed: " + ex.getMessage()
+                                + " — the model will work for text, but not for audio/vision.");
+                        showProgress(0, "Encoder download failed");
+                        if (installAfterDownload) {
+                            installDownloadedFile();
+                        }
+                    }
+                });
+            }
+        });
+    }
+
+    /** @return the first *mmproj* GGUF in the currently listed repository files, or null. */
+    private HuggingFaceFile findMmprojInFileList() {
+        for (int i = 0; i < filesModel.getSize(); i++) {
+            HuggingFaceFile file = filesModel.getElementAt(i);
+            if (isMmprojName(file.getFileName())) {
+                return file;
+            }
+        }
+        return null;
+    }
+
+    private static boolean isMmprojName(String fileName) {
+        return fileName != null && fileName.toLowerCase().contains("mmproj");
+    }
+
+    /** @return a *mmproj* GGUF lying next to the model file, or null. */
+    private File findLocalMmproj(File modelFile) {
+        if (isMmprojName(modelFile.getName())) {
+            return null;
+        }
+        File parent = modelFile.getParentFile();
+        if (parent == null || !parent.isDirectory()) {
+            return null;
+        }
+        File[] siblings = parent.listFiles();
+        if (siblings == null) {
+            return null;
+        }
+        for (int i = 0; i < siblings.length; i++) {
+            String name = siblings[i].getName().toLowerCase();
+            if (siblings[i].isFile() && name.contains("mmproj") && name.endsWith(".gguf")) {
+                return siblings[i];
+            }
+        }
+        return null;
     }
 
     /**
@@ -589,10 +691,27 @@ public final class OllamaInstallPanel extends JPanel {
             append("ERROR: No downloaded GGUF file available.");
             return;
         }
+        // Multimodal models need their separate *mmproj* encoder GGUF installed alongside the
+        // language model — otherwise Ollama rejects audio/vision input. Offer any encoder found
+        // next to the model file.
+        final List<File> companions = new ArrayList<File>();
+        File mmproj = findLocalMmproj(lastDownloadedFile);
+        if (mmproj != null) {
+            int answer = JOptionPane.showConfirmDialog(this,
+                    "Found a multimodal encoder next to the model:\n" + mmproj.getName()
+                            + "\n\nInstall it together with the model? (Required for audio/vision input.)",
+                    "Install multimodal encoder (mmproj)?",
+                    JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
+            if (answer == JOptionPane.YES_OPTION) {
+                companions.add(mmproj);
+                append("Including encoder: " + mmproj.getName());
+            }
+        }
         append("Installing " + lastDownloadedFile.getAbsolutePath() + " as " + modelName + ".");
         showProgress(0, "Installing");
         setInstallInProgress(true);
-        installTask = askAiService.installGgufFile(modelName, lastDownloadedFile, new AskAiService.InstallListener() {
+        installTask = askAiService.installGgufFileWithCompanions(modelName, lastDownloadedFile, companions,
+                new AskAiService.InstallListener() {
             public void onProgress(final String phase, final long completed, final long total) {
                 onUi(new Runnable() {
                     public void run() {

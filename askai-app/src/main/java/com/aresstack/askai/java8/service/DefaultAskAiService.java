@@ -128,16 +128,23 @@ public final class DefaultAskAiService implements AskAiService {
     }
 
     public InstallTask installGgufFile(final String modelName, final File ggufFile, final InstallListener listener) {
+        return installGgufFileWithCompanions(modelName, ggufFile, java.util.Collections.<File>emptyList(), listener);
+    }
+
+    public InstallTask installGgufFileWithCompanions(final String modelName, final File ggufFile,
+                                                     final List<File> companionFiles,
+                                                     final InstallListener listener) {
         AppConfiguration configuration = configurationRepository.load();
         final RemoteGgufInstaller installer = new RemoteGgufInstaller(configuration.getOllamaBaseUrl());
         final Future<?> future = executorService.submit(new Runnable() {
             public void run() {
                 try {
-                    installer.install(modelName, ggufFile, new RemoteGgufInstaller.ProgressListener() {
-                        public void onProgress(String phase, long completed, long total) {
-                            listener.onProgress(phase, completed, total);
-                        }
-                    });
+                    installer.install(modelName, ggufFile, companionFiles,
+                            new RemoteGgufInstaller.ProgressListener() {
+                                public void onProgress(String phase, long completed, long total) {
+                                    listener.onProgress(phase, completed, total);
+                                }
+                            });
                     listener.onComplete("Installed " + modelName + " on remote Ollama.");
                 } catch (Exception ex) {
                     listener.onError(ex);

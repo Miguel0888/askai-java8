@@ -85,7 +85,23 @@ public final class Ollama {
                 string(map, "modelfile"),
                 string(map, "parameters"),
                 string(map, "template"),
-                details(map.get("details")));
+                details(map.get("details")),
+                stringList(map.get("capabilities")));
+    }
+
+    /** Map a JSON array of strings to a List; anything else yields an empty list. */
+    private static List<String> stringList(Object value) {
+        List<String> result = new ArrayList<String>();
+        if (value instanceof List) {
+            List values = (List) value;
+            for (int i = 0; i < values.size(); i++) {
+                Object entry = values.get(i);
+                if (entry != null) {
+                    result.add(String.valueOf(entry));
+                }
+            }
+        }
+        return result;
     }
 
     public void deleteModel(String modelName) throws OllamaException {
