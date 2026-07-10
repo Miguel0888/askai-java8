@@ -120,7 +120,7 @@ public final class AskAiFrame extends JFrame {
         runningItem.addActionListener(event -> showModels(false));
         modelsMenu.add(installedItem);
         modelsMenu.add(runningItem);
-        modelsMenu.add(createScreenItem("Install", INSTALL_VIEW));
+        modelsMenu.add(createScreenItem("Setup", INSTALL_VIEW));
         return modelsMenu;
     }
 
@@ -189,7 +189,7 @@ public final class AskAiFrame extends JFrame {
             return "Actions";
         }
         if (INSTALL_VIEW.equals(screenName)) {
-            return "Install";
+            return "Setup";
         }
         if (CONNECTIONS_VIEW.equals(screenName)) {
             return "Connections";

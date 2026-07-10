@@ -58,6 +58,7 @@ public final class OllamaInstallPanel extends JPanel {
     private final JComboBox<String> profileCombo;
     private final JProgressBar progressBar;
     private final JButton cancelInstallButton;
+    private final JLabel repoCapabilityLabel = new JLabel(" ");
     private final JTextArea logArea;
     private File lastDownloadedFile;
     private AskAiService.InstallTask installTask;
@@ -188,6 +189,13 @@ public final class OllamaInstallPanel extends JPanel {
         buttonConstraints.gridwidth = 2;
         buttonConstraints.anchor = GridBagConstraints.WEST;
         form.add(buttons, buttonConstraints);
+
+        GridBagConstraints capabilityConstraints = new GridBagConstraints();
+        capabilityConstraints.gridx = 0;
+        capabilityConstraints.gridy = 7;
+        capabilityConstraints.gridwidth = 2;
+        capabilityConstraints.anchor = GridBagConstraints.WEST;
+        form.add(repoCapabilityLabel, capabilityConstraints);
         return form;
     }
 
@@ -232,6 +240,11 @@ public final class OllamaInstallPanel extends JPanel {
                 + " (mmproj); otherwise the model is text-only when installed from HuggingFace.</html>"),
                 BorderLayout.NORTH);
         content.add(new JScrollPane(editor), BorderLayout.CENTER);
+        JButton restoreDefaults = new JButton("Restore defaults");
+        restoreDefaults.addActionListener(event -> editor.setText(AppConfiguration.DEFAULT_HF_SEARCH_SUGGESTIONS));
+        JPanel southRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        southRow.add(restoreDefaults);
+        content.add(southRow, BorderLayout.SOUTH);
         int choice = JOptionPane.showConfirmDialog(this, content,
                 "Search suggestions", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
         if (choice != JOptionPane.OK_OPTION) {
@@ -297,6 +310,7 @@ public final class OllamaInstallPanel extends JPanel {
                         searchButton.setEnabled(true);
                         resultsModel.clear();
                         filesModel.clear();
+                        setRepoCapability(" ");
                         for (HuggingFaceModel model : models) {
                             resultsModel.addElement(model);
                         }
@@ -334,6 +348,7 @@ public final class OllamaInstallPanel extends JPanel {
             return;
         }
         saveTokenToConfiguration();
+        setRepoCapability("Checking repository capabilities ...");
         append("Loading GGUF files for " + repoId + " ...");
         askAiService.listHuggingFaceFiles(repoId, new AskAiService.HuggingFaceFileListener() {
             public void onFiles(final List<HuggingFaceFile> files) {
@@ -344,6 +359,7 @@ public final class OllamaInstallPanel extends JPanel {
                             filesModel.addElement(file);
                         }
                         append("Found " + files.size() + " GGUF file(s).");
+                        updateRepoCapability(repoId, files);
                     }
                 });
             }
@@ -351,11 +367,57 @@ public final class OllamaInstallPanel extends JPanel {
             public void onError(final Exception ex) {
                 onUi(new Runnable() {
                     public void run() {
+                        setRepoCapability(" ");
                         append("Could not load files: " + ex.getMessage());
                     }
                 });
             }
         });
+    }
+
+    /**
+     * Report the repository's real capability from the ground truth: whether it ships a *mmproj*
+     * encoder. Text-only repos say so plainly; multimodal repos name the encoder and classify it as
+     * audio or vision from the model/encoder name (falling back to "audio/vision" when unclear).
+     */
+    private void updateRepoCapability(String repoId, List<HuggingFaceFile> files) {
+        HuggingFaceFile mmproj = null;
+        for (int i = 0; i < files.size(); i++) {
+            if (isMmprojName(files.get(i).getFileName())) {
+                mmproj = files.get(i);
+                break;
+            }
+        }
+        if (mmproj == null) {
+            setRepoCapability("<html>This repository is <b>text only</b> — no multimodal encoder "
+                    + "(mmproj). Audio/vision needs a repo that ships one, or 'ollama pull'.</html>");
+            return;
+        }
+        String kind = classifyEncoder(repoId + " " + mmproj.getFileName());
+        setRepoCapability("<html>This repository is <b>multimodal (" + kind + ")</b> — encoder present: "
+                + mmproj.getFileName() + ". You will be offered to install it with the model.</html>");
+    }
+
+    /** Guess whether an encoder is for audio or vision from the model/encoder name. */
+    private static String classifyEncoder(String haystack) {
+        String lower = haystack.toLowerCase();
+        boolean audio = lower.contains("audio") || lower.contains("voxtral") || lower.contains("ultravox")
+                || lower.contains("asr") || lower.contains("omni") || lower.contains("whisper")
+                || lower.contains("qwen2-audio");
+        boolean vision = lower.contains("vision") || lower.contains("-vl") || lower.contains("llava")
+                || lower.contains("minicpm-v") || lower.contains("moondream") || lower.contains("gemma-3")
+                || lower.contains("image");
+        if (audio && !vision) {
+            return "audio";
+        }
+        if (vision && !audio) {
+            return "vision";
+        }
+        return "audio/vision";
+    }
+
+    private void setRepoCapability(String text) {
+        repoCapabilityLabel.setText(text);
     }
 
     private void downloadSelected(final boolean installAfterDownload) {

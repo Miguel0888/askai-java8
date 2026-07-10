@@ -45,6 +45,36 @@ public final class AppConfiguration {
                     + "voxtral-mini-3b | text,audio\n"
                     + "ultravox | text,audio";
 
+    // Earlier default suggestion lists that shipped inaccurate audio tags (e.g. gemma-3n as audio).
+    // A persisted list identical to one of these was never customized, so upgrade it to the current
+    // default instead of freezing the old, misleading tags.
+    private static final String[] LEGACY_HF_SEARCH_SUGGESTIONS = {
+            "gpt-oss-20b\nllama-3.1-8b-instruct\ngemma-3-12b-it\nqwen2.5-14b-instruct\n"
+                    + "qwen2.5-coder-14b\nphi-4\nmistral-nemo\ngemma-3n-e4b\nvoxtral-mini-3b\n"
+                    + "qwen3-asr\nultravox",
+            "gpt-oss-20b | text\nllama-3.1-8b-instruct | text\ngemma-3-12b-it | text,vision\n"
+                    + "qwen2.5-14b-instruct | text\nqwen2.5-coder-14b | text\nphi-4 | text\n"
+                    + "mistral-nemo | text\ngemma-3n-e4b | text,audio,vision\nvoxtral-mini-3b | text,audio\n"
+                    + "qwen3-asr | audio\nultravox | text,audio"
+    };
+
+    /**
+     * @return the current default when {@code raw} equals a superseded default list (silent
+     *         migration of the inaccurate audio/vision tags), otherwise {@code raw} unchanged.
+     */
+    public static String migrateSearchSuggestions(String raw) {
+        if (raw == null) {
+            return DEFAULT_HF_SEARCH_SUGGESTIONS;
+        }
+        String trimmed = raw.trim();
+        for (int i = 0; i < LEGACY_HF_SEARCH_SUGGESTIONS.length; i++) {
+            if (trimmed.equals(LEGACY_HF_SEARCH_SUGGESTIONS[i].trim())) {
+                return DEFAULT_HF_SEARCH_SUGGESTIONS;
+            }
+        }
+        return raw;
+    }
+
     public AppConfiguration(String ollamaBaseUrl, String keepAlive) {
         this(ollamaBaseUrl, keepAlive, ProxyConfiguration.defaults(),
                 CertificateTrustConfiguration.defaults(), "", defaultDownloadDirectory());

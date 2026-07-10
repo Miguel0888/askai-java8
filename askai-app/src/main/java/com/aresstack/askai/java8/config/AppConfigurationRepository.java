@@ -98,8 +98,9 @@ public final class AppConfigurationRepository {
                     properties.getProperty(HF_TOKEN, ""),
                     new File(properties.getProperty(DOWNLOAD_DIRECTORY, defaults.getModelDownloadDirectory().getAbsolutePath())))
                     .withSpeechToTextConfiguration(stt)
-                    .withHuggingFaceSearchSuggestions(properties.getProperty(
-                            HF_SEARCH_SUGGESTIONS, AppConfiguration.DEFAULT_HF_SEARCH_SUGGESTIONS));
+                    .withHuggingFaceSearchSuggestions(AppConfiguration.migrateSearchSuggestions(
+                            properties.getProperty(HF_SEARCH_SUGGESTIONS,
+                                    AppConfiguration.DEFAULT_HF_SEARCH_SUGGESTIONS)));
         } catch (IOException ex) {
             return AppConfiguration.defaults();
         } finally {
