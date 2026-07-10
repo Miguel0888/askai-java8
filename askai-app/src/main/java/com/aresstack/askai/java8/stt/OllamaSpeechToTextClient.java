@@ -67,7 +67,7 @@ final class OllamaSpeechToTextClient {
             connection = open(contentLength, boundary);
             activeConnection = connection;
             writeBody(connection, preamble, audioFile, epilogue);
-            return readTranscription(connection);
+            return readTranscription(connection, request.getModelName());
         } catch (SpeechToTextException ex) {
             throw ex;
         } catch (SocketTimeoutException ex) {
@@ -158,7 +158,8 @@ final class OllamaSpeechToTextClient {
         }
     }
 
-    private String readTranscription(HttpURLConnection connection) throws IOException, SpeechToTextException {
+    private String readTranscription(HttpURLConnection connection, String modelName)
+            throws IOException, SpeechToTextException {
         int status = connection.getResponseCode();
         String body = readText(status >= 200 && status < 300
                 ? connection.getInputStream() : connection.getErrorStream());
@@ -168,7 +169,7 @@ final class OllamaSpeechToTextClient {
                     + "Update Ollama to a version with audio transcription support.", null);
         }
         if (status < 200 || status >= 300) {
-            throw failure(describeHttpError(status, body), null);
+            throw failure(describeHttpError(status, body, modelName), null);
         }
 
         Object parsed;
@@ -194,10 +195,23 @@ final class OllamaSpeechToTextClient {
     }
 
     /** Maps HTTP errors to user-readable messages, surfacing the server's own error text when present. */
-    private String describeHttpError(int status, String body) {
+    private String describeHttpError(int status, String body, String modelName) {
         String serverMessage = extractErrorMessage(body);
+        String lower = serverMessage.toLowerCase();
+        // The most common audio failure: the model is loaded without its audio encoder (mmproj).
+        if (lower.contains("mmproj") || lower.contains("audio input is not supported")
+                || lower.contains("does not support") && lower.contains("audio")) {
+            String name = modelName == null || modelName.trim().length() == 0
+                    ? "the selected model" : "\"" + modelName.trim() + "\"";
+            return "This model cannot accept audio: " + name + " has no audio encoder (mmproj). "
+                    + "A single GGUF is only the language model — multimodal models need a separate "
+                    + "*mmproj* GGUF. Either import the matching mmproj file alongside the model, or pull "
+                    + "an already-assembled multimodal model that bundles the encoder, e.g. run "
+                    + "\"ollama pull gemma3n:e4b\" on the Ollama host, then select gemma3n:e4b as the audio "
+                    + "model. (Ollama said: " + serverMessage + ")";
+        }
         String hint = status == 400 || status == 422 || status == 500
-                ? " The selected model may not support audio input — configure an audio-capable STT model."
+                ? " The selected model may not support audio input — pick an audio-capable model."
                 : "";
         return "Transcription failed with HTTP " + status
                 + (serverMessage.length() > 0 ? ": " + serverMessage : "") + hint;

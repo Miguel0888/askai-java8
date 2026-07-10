@@ -492,7 +492,12 @@ public final class OllamaChatPanel extends JPanel {
 
     private String selectedAudioModel() {
         Object item = audioModelCombo.getEditor().getItem();
-        return item == null ? "" : String.valueOf(item).trim();
+        String value = item == null ? "" : String.valueOf(item).trim();
+        if (value.length() == 0) {
+            Object selected = audioModelCombo.getSelectedItem();
+            value = selected == null ? "" : String.valueOf(selected).trim();
+        }
+        return value;
     }
 
     /** The record button toggles: idle -> recording -> transcribe; while transcribing it cancels. */
