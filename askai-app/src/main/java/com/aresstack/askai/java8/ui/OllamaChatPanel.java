@@ -453,23 +453,34 @@ public final class OllamaChatPanel extends JPanel {
         }
     }
 
-    /** Refill the audio-model dropdown without triggering the persistence listener. */
+    /**
+     * Refill the audio-model dropdown without triggering the persistence listener. Keeps the current
+     * selection when it is present in the new list; otherwise (e.g. after narrowing to the
+     * audio-capable models) switches to the first entry so a non-audio model is not left selected.
+     */
     private void refillAudioModelCombo(List<String> names) {
         updatingAudioModelCombo = true;
         try {
             Object previous = audioModelCombo.getEditor().getItem();
+            String previousStr = previous == null ? "" : String.valueOf(previous).trim();
             String configured = model.getSpeechToTextConfiguration().getModelName();
             audioModelCombo.removeAllItems();
             for (String name : names) {
                 audioModelCombo.addItem(name);
             }
-            if (previous != null && String.valueOf(previous).trim().length() > 0) {
-                audioModelCombo.setSelectedItem(previous);
-            } else if (configured.length() > 0) {
-                audioModelCombo.setSelectedItem(configured);
+            String desired;
+            if (names.contains(previousStr)) {
+                desired = previousStr;
+            } else if (names.contains(configured)) {
+                desired = configured;
+            } else if (!names.isEmpty()) {
+                // The current selection is not in this list (e.g. it is not audio-capable): pick a
+                // valid one instead of silently keeping the wrong model.
+                desired = names.get(0);
             } else {
-                audioModelCombo.setSelectedItem("");
+                desired = previousStr;
             }
+            audioModelCombo.setSelectedItem(desired);
         } finally {
             updatingAudioModelCombo = false;
         }
@@ -518,6 +529,10 @@ public final class OllamaChatPanel extends JPanel {
                     remaining[0]--;
                     if (remaining[0] == 0 && !audioCapable.isEmpty()) {
                         refillAudioModelCombo(audioCapable);
+                        // Persist the (possibly auto-corrected) audio model so record uses it.
+                        persistAudioModelSelection();
+                        setStatus(audioCapable.size() + " audio-capable model(s) available: "
+                                + selectedAudioModel());
                     }
                 }
             });
