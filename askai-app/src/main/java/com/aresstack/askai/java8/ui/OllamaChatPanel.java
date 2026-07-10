@@ -121,9 +121,6 @@ public final class OllamaChatPanel extends JPanel {
         toolbar.add(new JLabel("Model"));
         modelCombo.setPreferredSize(new Dimension(260, modelCombo.getPreferredSize().height));
         toolbar.add(modelCombo);
-        JButton refreshButton = new JButton("Refresh");
-        refreshButton.addActionListener(event -> refreshModels());
-        toolbar.add(refreshButton);
         JButton newChatButton = new JButton("New chat");
         newChatButton.addActionListener(event -> newChat());
         toolbar.add(newChatButton);
@@ -134,6 +131,21 @@ public final class OllamaChatPanel extends JPanel {
         toolbar.add(audioModelCombo);
         audioModelCombo.addActionListener(event -> persistAudioModelSelection());
 
+        // Square, icon-only refresh button, pinned to the far right of the toolbar row.
+        int refreshSize = modelCombo.getPreferredSize().height;
+        JButton refreshButton = new JButton(new RefreshIcon(refreshSize - 6));
+        refreshButton.setToolTipText("Refresh models");
+        refreshButton.setFocusPainted(false);
+        refreshButton.setMargin(new java.awt.Insets(0, 0, 0, 0));
+        refreshButton.setPreferredSize(new Dimension(refreshSize, refreshSize));
+        refreshButton.addActionListener(event -> refreshModels());
+        JPanel rightControls = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 4));
+        rightControls.add(refreshButton);
+
+        JPanel toolbarRow = new JPanel(new BorderLayout());
+        toolbarRow.add(toolbar, BorderLayout.CENTER);
+        toolbarRow.add(rightControls, BorderLayout.EAST);
+
         JPanel system = new JPanel(new BorderLayout(6, 2));
         system.setBorder(BorderFactory.createTitledBorder("System prompt"));
         systemPromptArea.setLineWrap(true);
@@ -141,9 +153,65 @@ public final class OllamaChatPanel extends JPanel {
         system.add(new JScrollPane(systemPromptArea), BorderLayout.CENTER);
 
         JPanel header = new JPanel(new BorderLayout(4, 4));
-        header.add(toolbar, BorderLayout.NORTH);
+        header.add(toolbarRow, BorderLayout.NORTH);
         header.add(system, BorderLayout.CENTER);
         return header;
+    }
+
+    /** A refresh glyph: two circular arrows chasing each other, painted with Java2D (no asset). */
+    private static final class RefreshIcon implements javax.swing.Icon {
+        private final int size;
+
+        RefreshIcon(int size) {
+            this.size = size;
+        }
+
+        public int getIconWidth() {
+            return size;
+        }
+
+        public int getIconHeight() {
+            return size;
+        }
+
+        public void paintIcon(java.awt.Component component, java.awt.Graphics graphics, int x, int y) {
+            java.awt.Graphics2D g = (java.awt.Graphics2D) graphics.create();
+            try {
+                g.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING,
+                        java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+                g.setColor(component.isEnabled() ? new Color(0x42, 0x60, 0x77) : new Color(0x9E, 0x9E, 0x9E));
+                float stroke = Math.max(1.6f, size / 9f);
+                g.setStroke(new java.awt.BasicStroke(stroke, java.awt.BasicStroke.CAP_ROUND,
+                        java.awt.BasicStroke.JOIN_ROUND));
+                double pad = stroke + 1;
+                double diameter = size - 2 * pad;
+                double cx = x + size / 2.0;
+                double cy = y + size / 2.0;
+                double radius = diameter / 2.0;
+                // Two arcs leaving a gap on each side; an arrowhead sits at the leading edge of each gap.
+                g.draw(new java.awt.geom.Arc2D.Double(x + pad, y + pad, diameter, diameter, 30, 140, java.awt.geom.Arc2D.OPEN));
+                g.draw(new java.awt.geom.Arc2D.Double(x + pad, y + pad, diameter, diameter, 210, 140, java.awt.geom.Arc2D.OPEN));
+                drawArrowHead(g, cx, cy, radius, 170);
+                drawArrowHead(g, cx, cy, radius, 350);
+            } finally {
+                g.dispose();
+            }
+        }
+
+        /** Draw an arrowhead at the given angle on the circle, pointing in the counterclockwise travel direction. */
+        private void drawArrowHead(java.awt.Graphics2D g, double cx, double cy, double radius, double angleDeg) {
+            double a = Math.toRadians(angleDeg);
+            double tipX = cx + radius * Math.cos(a);
+            double tipY = cy - radius * Math.sin(a);
+            double travel = a + Math.PI / 2.0; // tangent direction for counterclockwise motion
+            double length = Math.max(3.0, radius * 0.75);
+            for (int side = -1; side <= 1; side += 2) {
+                double barb = travel + side * Math.toRadians(150);
+                double bx = tipX + length * Math.cos(barb);
+                double by = tipY - length * Math.sin(barb);
+                g.draw(new java.awt.geom.Line2D.Double(tipX, tipY, bx, by));
+            }
+        }
     }
 
     private JComponent buildComposer() {
