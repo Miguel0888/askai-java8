@@ -614,14 +614,14 @@ public final class HuggingFaceClient {
                 resumeFrom = 0L;
             }
             try {
-                long total = downloadOnce(url, partFile, resumeFrom, expectedSize, listener);
+                DownloadPass pass = downloadOnce(url, partFile, resumeFrom, expectedSize, listener);
                 long actual = partFile.length();
-                long expected = expectedSize > 0 ? expectedSize : total;
+                long expected = expectedSize > 0 ? expectedSize : pass.total;
                 if (expected > 0 && actual != expected) {
                     last = new IOException("Incomplete download: got " + actual + " of " + expected + " bytes");
                     continue; // resume on the next attempt
                 }
-                verifySha256(file, partFile);
+                verifySha256(file, pass.sha256Hex);
                 if (targetFile.isFile() && !targetFile.delete()) {
                     throw new IOException("Could not replace existing file: " + targetFile.getAbsolutePath());
                 }
@@ -643,15 +643,25 @@ public final class HuggingFaceClient {
                 + ". The partial file was kept for a later resume.", last);
     }
 
+    /** The result of one download pass: the expected total size and the SHA-256 of the file so far. */
+    private static final class DownloadPass {
+        final long total;
+        final String sha256Hex;
+
+        DownloadPass(long total, String sha256Hex) {
+            this.total = total;
+            this.sha256Hex = sha256Hex;
+        }
+    }
+
     /**
      * Performs a single download pass into {@code partFile}, resuming from {@code resumeFrom} via a
-     * {@code Range} request when possible.
-     *
-     * @return the total expected file size derived from the response (Content-Range/Content-Length), or
-     *         0 when the server did not report it.
+     * {@code Range} request when possible. The SHA-256 is computed incrementally while writing (and,
+     * on resume, over the bytes already on disk), so no separate re-read of the whole file is needed
+     * afterwards — this avoids a long silent pause at 100% on large files.
      */
-    private long downloadOnce(String url, File partFile, long resumeFrom, long expectedSize,
-                              DownloadProgressListener listener) throws IOException {
+    private DownloadPass downloadOnce(String url, File partFile, long resumeFrom, long expectedSize,
+                                      DownloadProgressListener listener) throws IOException {
         HttpURLConnection connection = open(url);
         if (resumeFrom > 0) {
             connection.setRequestProperty("Range", "bytes=" + resumeFrom + "-");
@@ -671,7 +681,7 @@ public final class HuggingFaceClient {
             } else if (status == 416) {
                 // Requested range beyond the file: it is already fully downloaded when sizes match.
                 if (expectedSize > 0 && partFile.length() == expectedSize) {
-                    return expectedSize;
+                    return new DownloadPass(expectedSize, sha256Hex(partFile));
                 }
                 deleteQuietly(partFile);
                 throw new IOException("Server rejected the resume range (HTTP 416); restarting.");
@@ -679,6 +689,11 @@ public final class HuggingFaceClient {
                 String body = readBodyExcerpt(connection.getErrorStream());
                 throw new IOException("HuggingFace download failed with HTTP " + status
                         + (body.length() > 0 ? ": " + body : ""));
+            }
+
+            MessageDigest digest = newSha256();
+            if (append) {
+                digestExistingBytes(partFile, resumeFrom, digest);
             }
 
             long total = totalFromResponse(connection, baseCompleted, expectedSize);
@@ -689,18 +704,59 @@ public final class HuggingFaceClient {
             int read;
             while ((read = inputStream.read(buffer)) >= 0) {
                 outputStream.write(buffer, 0, read);
+                digest.update(buffer, 0, read);
                 completed += read;
                 if (listener != null) {
                     listener.onProgress(completed, total);
                 }
             }
             outputStream.flush();
-            return total;
+            return new DownloadPass(total, toHex(digest.digest()));
         } finally {
             closeQuietly(inputStream);
             closeQuietly(outputStream);
             connection.disconnect();
         }
+    }
+
+    private static MessageDigest newSha256() throws IOException {
+        try {
+            return MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException ex) {
+            throw new IOException("SHA-256 not available: " + ex.getMessage(), ex);
+        }
+    }
+
+    /** Feed the first {@code count} bytes already on disk into the digest (resume case only). */
+    private static void digestExistingBytes(File partFile, long count, MessageDigest digest) throws IOException {
+        FileInputStream inputStream = new FileInputStream(partFile);
+        try {
+            byte[] buffer = new byte[1024 * 1024];
+            long remaining = count;
+            int read;
+            while (remaining > 0 && (read = inputStream.read(buffer, 0,
+                    (int) Math.min(buffer.length, remaining))) >= 0) {
+                digest.update(buffer, 0, read);
+                remaining -= read;
+            }
+        } finally {
+            try {
+                inputStream.close();
+            } catch (IOException ignored) {
+            }
+        }
+    }
+
+    private static String toHex(byte[] bytes) {
+        StringBuilder builder = new StringBuilder(bytes.length * 2);
+        for (int i = 0; i < bytes.length; i++) {
+            String hex = Integer.toHexString(bytes[i] & 0xff);
+            if (hex.length() == 1) {
+                builder.append('0');
+            }
+            builder.append(hex);
+        }
+        return builder.toString();
     }
 
     /** Derives the full expected size from Content-Range (preferred), else Content-Length, else the HF size. */
@@ -723,24 +779,20 @@ public final class HuggingFaceClient {
         return expectedSize;
     }
 
-    private void verifySha256(HuggingFaceFile file, File partFile) throws IOException {
+    /** Compare the already-computed SHA-256 with the one HuggingFace advertised (no file re-read). */
+    private void verifySha256(HuggingFaceFile file, String actualSha256Hex) throws IOException {
         String expected = file.getSha256();
         if (expected == null || expected.length() == 0) {
             return; // HuggingFace did not provide a checksum; the size check already passed.
         }
-        String actual = sha256Hex(partFile);
-        if (!expected.equalsIgnoreCase(actual)) {
-            throw new Sha256MismatchException("Checksum mismatch: expected " + expected + " but got " + actual);
+        if (!expected.equalsIgnoreCase(actualSha256Hex)) {
+            throw new Sha256MismatchException("Checksum mismatch: expected " + expected
+                    + " but got " + actualSha256Hex);
         }
     }
 
     private static String sha256Hex(File file) throws IOException {
-        MessageDigest digest;
-        try {
-            digest = MessageDigest.getInstance("SHA-256");
-        } catch (NoSuchAlgorithmException ex) {
-            throw new IOException("SHA-256 not available: " + ex.getMessage(), ex);
-        }
+        MessageDigest digest = newSha256();
         FileInputStream inputStream = null;
         try {
             inputStream = new FileInputStream(file);
@@ -757,16 +809,7 @@ public final class HuggingFaceClient {
                 }
             }
         }
-        byte[] bytes = digest.digest();
-        StringBuilder builder = new StringBuilder(bytes.length * 2);
-        for (int i = 0; i < bytes.length; i++) {
-            String hex = Integer.toHexString(bytes[i] & 0xff);
-            if (hex.length() == 1) {
-                builder.append('0');
-            }
-            builder.append(hex);
-        }
-        return builder.toString();
+        return toHex(digest.digest());
     }
 
     private void deleteQuietly(File file) {
