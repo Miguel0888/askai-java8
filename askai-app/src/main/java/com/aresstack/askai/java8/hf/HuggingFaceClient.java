@@ -581,6 +581,8 @@ public final class HuggingFaceClient {
     }
 
     private static final int MAX_DOWNLOAD_ATTEMPTS = 5;
+    /** Per-read timeout for downloads: long enough for slow links, short enough to not hang for an hour. */
+    private static final int DOWNLOAD_READ_TIMEOUT_MILLIS = 60000;
 
     /**
      * Downloads a GGUF file with resume + retry, and only returns once the file is verifiably complete.
@@ -663,6 +665,12 @@ public final class HuggingFaceClient {
     private DownloadPass downloadOnce(String url, File partFile, long resumeFrom, long expectedSize,
                                       DownloadProgressListener listener) throws IOException {
         HttpURLConnection connection = open(url);
+        // A file download, not JSON: ask for the raw bytes so Content-Length is the real size, and
+        // cap the per-read wait low enough that a stalled connection (flaky Wi-Fi/hotspot) fails
+        // fast and the loop resumes via Range instead of blocking near 100% for the long default.
+        connection.setRequestProperty("Accept", "*/*");
+        connection.setRequestProperty("Accept-Encoding", "identity");
+        connection.setReadTimeout(DOWNLOAD_READ_TIMEOUT_MILLIS);
         if (resumeFrom > 0) {
             connection.setRequestProperty("Range", "bytes=" + resumeFrom + "-");
         }
