@@ -226,8 +226,11 @@ public final class OllamaInstallPanel extends JPanel {
         AppConfiguration current = configurationRepository.load();
         JTextArea editor = new JTextArea(current.getHuggingFaceSearchSuggestionsRaw(), 14, 40);
         JPanel content = new JPanel(new BorderLayout(4, 4));
-        content.add(new JLabel("One suggestion per line: <search term> | <input>,<input>"
-                + "  —  inputs: text, audio, vision"), BorderLayout.NORTH);
+        content.add(new JLabel("<html>One suggestion per line: <b>&lt;search term&gt; | &lt;input&gt;,&lt;input&gt;</b>"
+                + " &mdash; inputs: text, audio, vision.<br>"
+                + "Tag audio/vision only when a GGUF repo for that search ships the model's encoder"
+                + " (mmproj); otherwise the model is text-only when installed from HuggingFace.</html>"),
+                BorderLayout.NORTH);
         content.add(new JScrollPane(editor), BorderLayout.CENTER);
         int choice = JOptionPane.showConfirmDialog(this, content,
                 "Search suggestions", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
@@ -254,6 +257,8 @@ public final class OllamaInstallPanel extends JPanel {
             super(new BorderLayout(12, 0));
             setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
             setOpaque(true);
+            iconLabel.setToolTipText("Model modalities (text / audio / vision). Audio/vision also needs "
+                    + "the model's encoder (mmproj); the installer fetches it from the repo when present.");
             add(termLabel, BorderLayout.CENTER);
             add(iconLabel, BorderLayout.EAST);
         }

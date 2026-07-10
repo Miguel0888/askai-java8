@@ -22,10 +22,16 @@ public final class AppConfiguration {
 
     /**
      * Default HuggingFace search suggestions for the Install panel dropdown, curated for a 16 GB
-     * VRAM card. Mix of chat models (gpt-oss-20b fits in MXFP4; the rest comfortably at Q4/Q5) and
-     * audio-capable models for the speech-to-text feature (gemma-3n, voxtral, qwen3-asr, ultravox —
-     * plain llama/gemma/gpt-oss cannot take audio input). Format per line:
-     * {@code <term> | <modality>,<modality>} — see {@link HuggingFaceSearchSuggestion}.
+     * VRAM card. Format per line: {@code <term> | <modality>,<modality>} — see
+     * {@link HuggingFaceSearchSuggestion}.
+     *
+     * <p>An audio/vision tag here means a mainstream GGUF repository for that search actually ships
+     * the model's encoder (mmproj), so installing it from HuggingFace yields a working multimodal
+     * model. The audio entries are verified to include an mmproj: {@code voxtral-mini-3b}
+     * (ggml-org/Voxtral-Mini-3B-2507-GGUF) and {@code ultravox}
+     * (ggml-org/ultravox-v0_5-llama-3_1-8b-GGUF). Note: gemma-3n's common GGUF repos are
+     * language-only (no mmproj), so it is tagged text here; its audio/vision works via
+     * {@code ollama pull gemma3n:e4b}, not the single-file HuggingFace import.</p>
      */
     public static final String DEFAULT_HF_SEARCH_SUGGESTIONS =
             "gpt-oss-20b | text\n"
@@ -35,9 +41,8 @@ public final class AppConfiguration {
                     + "qwen2.5-coder-14b | text\n"
                     + "phi-4 | text\n"
                     + "mistral-nemo | text\n"
-                    + "gemma-3n-e4b | text,audio,vision\n"
+                    + "gemma-3n-e4b | text\n"
                     + "voxtral-mini-3b | text,audio\n"
-                    + "qwen3-asr | audio\n"
                     + "ultravox | text,audio";
 
     public AppConfiguration(String ollamaBaseUrl, String keepAlive) {
