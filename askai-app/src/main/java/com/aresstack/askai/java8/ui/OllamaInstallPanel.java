@@ -95,8 +95,11 @@ public final class OllamaInstallPanel extends JPanel {
     private final JButton downloadButton = new JButton("Download");
     private final JButton fullInstallButton = new JButton("Download and install");
     private final JLabel activeFiltersLabel = new JLabel(" ");
-    // The verified support decision for the currently selected repo (null until analyzed).
+    // The verified support decision + analysis + model for the currently selected repo (null until
+    // analyzed / selected) — kept so the detail dialog can show them without re-fetching.
     private SupportDecision currentDecision;
+    private RepositoryAnalysis currentAnalysis;
+    private HuggingFaceModel currentModel;
     // Central, shared filter selection (all facet groups + base-only + sort). The library chips,
     // the base-only checkbox, the sort combo and the Filters dialog all read and write this one
     // object, so they never disagree; loaded from and saved to configuration.
@@ -154,6 +157,10 @@ public final class OllamaInstallPanel extends JPanel {
         buildCancelButton();
         this.logArea = new JTextArea(12, 80);
         buildUserInterface();
+        // Restore the last-used search text (optional persistence, spec §21).
+        if (filterState.getSearchText().length() > 0) {
+            searchCombo.getEditor().setItem(filterState.getSearchText());
+        }
         refreshCatalogsInBackground();
     }
 
@@ -334,6 +341,14 @@ public final class OllamaInstallPanel extends JPanel {
                 onResultSelected(resultsList);
             }
         });
+        // Double-click a result to open its detail view (works for greyed/unsupported hits too).
+        resultsList.addMouseListener(new java.awt.event.MouseAdapter() {
+            public void mouseClicked(java.awt.event.MouseEvent event) {
+                if (event.getClickCount() == 2) {
+                    openDetailDialog();
+                }
+            }
+        });
         JScrollPane resultsScroll = new JScrollPane(resultsList);
         resultsScroll.setBorder(BorderFactory.createTitledBorder("Hugging Face models"));
         // Infinite-scroll: trigger "load more" when scrolled near the bottom, in addition to the
@@ -448,10 +463,13 @@ public final class OllamaInstallPanel extends JPanel {
 
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
         JButton filesButton = new JButton("Load GGUF files");
+        JButton detailsButton = new JButton("Details");
+        detailsButton.setToolTipText("Show the repository details (files, architecture, formats, compatibility)");
         JButton importLastButton = new JButton("Install downloaded file");
         final JButton importMenuButton = new JButton("▾");
         importMenuButton.setToolTipText("Install another already-downloaded model");
         filesButton.addActionListener(event -> loadFiles());
+        detailsButton.addActionListener(event -> openDetailDialog());
         downloadButton.addActionListener(event -> downloadSelected(false));
         fullInstallButton.addActionListener(event -> downloadSelected(true));
         importLastButton.addActionListener(event -> installDownloadedFile());
@@ -461,6 +479,7 @@ public final class OllamaInstallPanel extends JPanel {
         installSplit.add(importLastButton);
         installSplit.add(importMenuButton);
         buttons.add(filesButton);
+        buttons.add(detailsButton);
         buttons.add(downloadButton);
         buttons.add(fullInstallButton);
         buttons.add(installSplit);
@@ -696,6 +715,7 @@ public final class OllamaInstallPanel extends JPanel {
      * base-only) and persists the current filter selection so it survives restarts.
      */
     private ModelSearchCriteria buildCriteria(String query) {
+        filterState.setSearchText(query);
         persistFilterState();
         return filterState.toCriteria(query);
     }
@@ -711,6 +731,8 @@ public final class OllamaInstallPanel extends JPanel {
         if (selected == null) {
             return;
         }
+        currentModel = selected;
+        currentAnalysis = null;
         repoField.setText(selected.getId());
         installAsField.setText(suggestInstallName(selected.getId()));
         profileCombo.setSelectedItem(PROFILE_AUTO);
@@ -793,6 +815,7 @@ public final class OllamaInstallPanel extends JPanel {
                         // Only gate for the repo that is still selected.
                         if (repoId.equals(repoField.getText().trim())) {
                             currentDecision = decision;
+                            currentAnalysis = analysis;
                             setInstallActionsEnabled(decision.isExecutable(), decision.getReason());
                         }
                     }
@@ -811,6 +834,49 @@ public final class OllamaInstallPanel extends JPanel {
                 });
             }
         });
+    }
+
+    /**
+     * Opens the repository detail view for the current selection (or the typed repo id). Works for
+     * greyed/unsupported hits — the dialog re-runs the analysis and shows the same authoritative
+     * verdict, files, formats, architecture and rejection reason.
+     */
+    private void openDetailDialog() {
+        final String repoId = repoField.getText().trim();
+        if (repoId.length() == 0) {
+            append("Select a result or type a repository id first.");
+            return;
+        }
+        HuggingFaceModel forModel = currentModel != null && currentModel.getId().equals(repoId)
+                ? currentModel : new HuggingFaceModel(repoId, "", 0L, 0L);
+        boolean sameModel = forModel == currentModel;
+        SupportDecision initialDecision = sameModel ? currentDecision : null;
+        RepositoryAnalysis initialAnalysis = sameModel ? currentAnalysis : null;
+
+        java.awt.Window owner = SwingUtilities.getWindowAncestor(this);
+        java.awt.Frame frame = owner instanceof java.awt.Frame ? (java.awt.Frame) owner : null;
+        RepositoryDetailDialog.Analyzer analyzer = new RepositoryDetailDialog.Analyzer() {
+            public void analyze(String modelId, final RepositoryDetailDialog.AnalysisCallback callback) {
+                askAiService.analyzeRepository(modelId, new AskAiService.RepositoryAnalysisListener() {
+                    public void onDecision(final SupportDecision decision, final RepositoryAnalysis analysis) {
+                        onUi(new Runnable() {
+                            public void run() {
+                                callback.onResult(decision, analysis);
+                            }
+                        });
+                    }
+
+                    public void onError(final Exception ex) {
+                        onUi(new Runnable() {
+                            public void run() {
+                                callback.onError(ex.getMessage());
+                            }
+                        });
+                    }
+                });
+            }
+        };
+        new RepositoryDetailDialog(frame, forModel, initialDecision, initialAnalysis, analyzer).setVisible(true);
     }
 
     /** Enables/disables the download+install actions and shows the reason in the import-status label. */

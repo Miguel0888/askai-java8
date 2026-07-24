@@ -33,6 +33,7 @@ public final class SearchFilterState {
     private boolean baseOnly;
     private SortOrder sortOrder = SortOrder.TRENDING;
     private int pageSize = 30;
+    private String searchText = "";
 
     /** @return a state with the first-run defaults (spec §21): only the GGUF library, sort Trending. */
     public static SearchFilterState defaults() {
@@ -125,6 +126,15 @@ public final class SearchFilterState {
         this.pageSize = value > 0 ? value : 30;
     }
 
+    /** @return the last-used search text (optional persistence, spec §21), or "". */
+    public String getSearchText() {
+        return searchText;
+    }
+
+    public void setSearchText(String value) {
+        this.searchText = value == null ? "" : value;
+    }
+
     /** @return the total number of active facet selections across all groups (for a summary badge). */
     public int totalActiveFacets() {
         return tasks.size() + libraries.size() + languages.size() + licenses.size()
@@ -163,7 +173,8 @@ public final class SearchFilterState {
         builder.append("gated=").append(gated).append('\n');
         builder.append("baseOnly=").append(baseOnly).append('\n');
         builder.append("sort=").append(sortOrder.name()).append('\n');
-        builder.append("pageSize=").append(pageSize);
+        builder.append("pageSize=").append(pageSize).append('\n');
+        builder.append("search=").append(searchText);
         return builder.toString();
     }
 
@@ -202,6 +213,8 @@ public final class SearchFilterState {
                 state.sortOrder = parseSort(value);
             } else if ("pageSize".equals(key)) {
                 state.setPageSize(parseInt(value));
+            } else if ("search".equals(key)) {
+                state.searchText = value;
             }
         }
         return state;
