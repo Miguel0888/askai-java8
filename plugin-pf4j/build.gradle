@@ -1,0 +1,6 @@
+dependencies {
+    implementation project(':plugin-api')
+    implementation project(':application')
+    implementation "org.pf4j:pf4j:${rootProject.ext.pf4jVersion}"
+    implementation "com.google.inject:guice:${rootProject.ext.guiceVersion}"
+}
