@@ -3,6 +3,7 @@ package com.aresstack.askai.java8.ui;
 import com.aresstack.askai.java8.AskAiModel;
 import com.aresstack.askai.java8.client.OllamaChatTurn;
 import com.aresstack.askai.java8.service.OllamaService;
+import com.aresstack.askai.java8.stt.AudioCapability;
 import com.aresstack.askai.java8.stt.DefaultSpeechToTextService;
 import com.aresstack.askai.java8.stt.SpeechToTextConfiguration;
 import com.aresstack.askai.java8.stt.SpeechToTextService;
@@ -230,6 +231,9 @@ public final class OllamaChatPanel extends JPanel {
         stopButton.addActionListener(event -> stopChat());
         recordButton.addActionListener(event -> onRecordAction());
         audioFileButton.addActionListener(event -> onAudioFileAction());
+        // Disabled until an audio-capable STT model is confirmed present via /api/show.
+        recordButton.setEnabled(false);
+        audioFileButton.setEnabled(false);
         audioFileButton.setMargin(new java.awt.Insets(2, 4, 2, 4));
         // Record toggle plus a small arrow for picking existing audio files, ChatGPT-style.
         JPanel audioRow = new JPanel(new BorderLayout(2, 0));
@@ -293,7 +297,8 @@ public final class OllamaChatPanel extends JPanel {
                         if (previous != null) {
                             modelCombo.setSelectedItem(previous);
                         }
-                        refillAudioModelCombo(names);
+                        // The audio dropdown is filled ONLY with models that report the "audio"
+                        // capability via /api/show — never the full model list.
                         filterAudioModelsByCapability(names);
                         if (names.isEmpty()) {
                             setStatus("No models installed. Open Install to add one.");
@@ -453,16 +458,19 @@ public final class OllamaChatPanel extends JPanel {
         }
     }
 
+    private static final String NO_AUDIO_MODEL_MESSAGE = "Kein audiofähiges STT-Modell installiert";
+
     /**
-     * Refill the audio-model dropdown without triggering the persistence listener. Keeps the current
-     * selection when it is present in the new list; otherwise (e.g. after narrowing to the
-     * audio-capable models) switches to the first entry so a non-audio model is not left selected.
+     * Fill the audio-model dropdown with exactly the given audio-capable model names (never the full
+     * model list) and update the Record / audio-file controls. Selects the configured model when it
+     * is still audio-capable, else the first; clears the editor when the list is empty. Does not
+     * trigger the persistence listener.
      */
-    private void refillAudioModelCombo(List<String> names) {
+    private void setAudioModels(List<String> names) {
         updatingAudioModelCombo = true;
         try {
-            Object previous = audioModelCombo.getEditor().getItem();
-            String previousStr = previous == null ? "" : String.valueOf(previous).trim();
+            String previousStr = String.valueOf(audioModelCombo.getEditor().getItem() == null
+                    ? "" : audioModelCombo.getEditor().getItem()).trim();
             String configured = model.getSpeechToTextConfiguration().getModelName();
             audioModelCombo.removeAllItems();
             for (String name : names) {
@@ -474,29 +482,51 @@ public final class OllamaChatPanel extends JPanel {
             } else if (names.contains(configured)) {
                 desired = configured;
             } else if (!names.isEmpty()) {
-                // The current selection is not in this list (e.g. it is not audio-capable): pick a
-                // valid one instead of silently keeping the wrong model.
                 desired = names.get(0);
             } else {
-                desired = previousStr;
+                desired = "";
             }
             audioModelCombo.setSelectedItem(desired);
+            audioModelCombo.getEditor().setItem(desired);
         } finally {
             updatingAudioModelCombo = false;
+        }
+        updateAudioControlsState();
+    }
+
+    /** Enables Record + audio-file selection only when an audio-capable STT model is available. */
+    private void updateAudioControlsState() {
+        boolean hasAudioModel = audioModelCombo.getItemCount() > 0;
+        if (!hasAudioModel) {
+            recordButton.setEnabled(false);
+            audioFileButton.setEnabled(false);
+            recordButton.setToolTipText(NO_AUDIO_MODEL_MESSAGE);
+            audioFileButton.setToolTipText(NO_AUDIO_MODEL_MESSAGE);
+            return;
+        }
+        recordButton.setToolTipText("Record from the microphone; click again to stop and transcribe "
+                + "into the message field");
+        audioFileButton.setToolTipText("Transcribe existing audio file(s) instead of recording");
+        boolean idle = recordingSession == null && transcriptionTask == null && pendingAudioFiles.isEmpty();
+        if (idle) {
+            recordButton.setEnabled(true);
+            audioFileButton.setEnabled(true);
         }
     }
 
     /**
-     * Query /api/show for every model and narrow the audio dropdown to the ones that actually
-     * report the "audio" capability. When none does (or the Ollama version does not report
-     * capabilities), the full list stays so the user can still choose freely.
+     * Query {@code /api/show} for every model and fill the audio dropdown with ONLY the ones that
+     * report the exact "audio" capability. No fallback to the full list and no fallback to the chat
+     * model: when none is audio-capable the dropdown stays empty and Record / audio-file are disabled
+     * with a "no audio STT model installed" note.
      */
     private void filterAudioModelsByCapability(final List<String> names) {
-        final List<String> audioCapable = new ArrayList<String>();
-        final int[] remaining = {names.size()};
+        setAudioModels(java.util.Collections.<String>emptyList());
         if (names.isEmpty()) {
             return;
         }
+        final List<String> audioCapable = new ArrayList<String>();
+        final int[] remaining = {names.size()};
         for (final String name : names) {
             ollamaService.getModelInfo(name, new OllamaService.ModelInfoListener() {
                 @Override
@@ -504,11 +534,8 @@ public final class OllamaChatPanel extends JPanel {
                     onUi(new Runnable() {
                         @Override
                         public void run() {
-                            for (String capability : info.getCapabilities()) {
-                                if ("audio".equalsIgnoreCase(capability)) {
-                                    audioCapable.add(name);
-                                    break;
-                                }
+                            if (AudioCapability.isAudioCapable(info.getCapabilities())) {
+                                audioCapable.add(name);
                             }
                             onCapabilityQueryDone();
                         }
@@ -527,12 +554,15 @@ public final class OllamaChatPanel extends JPanel {
 
                 private void onCapabilityQueryDone() {
                     remaining[0]--;
-                    if (remaining[0] == 0 && !audioCapable.isEmpty()) {
-                        refillAudioModelCombo(audioCapable);
-                        // Persist the (possibly auto-corrected) audio model so record uses it.
-                        persistAudioModelSelection();
-                        setStatus(audioCapable.size() + " audio-capable model(s) available: "
-                                + selectedAudioModel());
+                    if (remaining[0] == 0) {
+                        setAudioModels(audioCapable);
+                        if (audioCapable.isEmpty()) {
+                            setStatus(NO_AUDIO_MODEL_MESSAGE + ".");
+                        } else {
+                            persistAudioModelSelection();
+                            setStatus(audioCapable.size() + " audio-capable model(s) available: "
+                                    + selectedAudioModel());
+                        }
                     }
                 }
             });
@@ -713,14 +743,50 @@ public final class OllamaChatPanel extends JPanel {
         }
         final File audioFile = pendingAudioFiles.remove(0);
         final int index = audioFileTotal - pendingAudioFiles.size();
-
-        String sttModel = selectedAudioModel();
-        final boolean usedChatModelFallback = sttModel.length() == 0;
-        if (usedChatModelFallback) {
-            Object selected = modelCombo.getSelectedItem();
-            sttModel = selected == null ? "" : String.valueOf(selected);
+        final String sttModel = selectedAudioModel();
+        if (sttModel.length() == 0) {
+            transcript.appendInfo("Kein audiofähiges STT-Modell ausgewählt — Abbruch, keine Audiodatei "
+                    + "wird gesendet.");
+            abortBatch(audioFile);
+            return;
         }
+        // Re-verify capability right before upload: if /api/show does not report "audio", abort
+        // locally instead of sending the WAV to a non-audio model (e.g. a vision/coding model).
+        setStatus("Prüfe Audio-Fähigkeit von " + sttModel + " ...");
+        ollamaService.getModelInfo(sttModel, new OllamaService.ModelInfoListener() {
+            @Override
+            public void onModelInfo(final com.aresstack.askai.java8.client.OllamaModelInfoView info) {
+                onUi(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (AudioCapability.isAudioCapable(info.getCapabilities())) {
+                            doTranscribe(audioFile, sttModel, index);
+                        } else {
+                            transcript.appendInfo(sttModel + " meldet keine 'audio'-Capability — Abbruch, "
+                                    + "die Audiodatei wird nicht gesendet. Wähle ein audiofähiges STT-Modell.");
+                            abortBatch(audioFile);
+                        }
+                    }
+                });
+            }
 
+            @Override
+            public void onError(final Exception ex) {
+                onUi(new Runnable() {
+                    @Override
+                    public void run() {
+                        transcript.appendInfo("Konnte die Audio-Fähigkeit von " + sttModel + " nicht prüfen ("
+                                + (ex.getMessage() == null ? ex.toString() : ex.getMessage())
+                                + ") — Abbruch, keine Audiodatei wird gesendet.");
+                        abortBatch(audioFile);
+                    }
+                });
+            }
+        });
+    }
+
+    /** Sends one verified-audio-capable file to the STT service. */
+    private void doTranscribe(final File audioFile, String sttModel, int index) {
         setStatus(audioFileTotal > 1
                 ? "Transcribing (" + index + "/" + audioFileTotal + "): " + audioFile.getName() + " ..."
                 : "Transcribing audio ...");
@@ -750,11 +816,6 @@ public final class OllamaChatPanel extends JPanel {
                         cleanUpTranscribedFile(audioFile);
                         if (!transcriptionCancelled) {
                             String message = ex.getMessage() == null ? ex.toString() : ex.getMessage();
-                            if (usedChatModelFallback) {
-                                message += " (No dedicated audio model is selected, so the chat model was"
-                                        + " used — it may not support audio input. Pick an audio-capable"
-                                        + " model in the \"Audio model\" dropdown.)";
-                            }
                             transcript.appendInfo("Transcription failed for "
                                     + audioFile.getName() + ": " + message);
                         }
@@ -765,13 +826,22 @@ public final class OllamaChatPanel extends JPanel {
         });
     }
 
+    /** Aborts the whole batch (the chosen model won't work for any file) and cleans up temp files. */
+    private void abortBatch(File currentFile) {
+        transcriptionCancelled = true;
+        transcriptionTask = null;
+        cleanUpTranscribedFile(currentFile);
+        pendingAudioFiles.clear();
+        finishTranscriptions();
+    }
+
     private void finishTranscriptions() {
         boolean cancelled = transcriptionCancelled;
         pendingAudioFiles.clear();
         transcriptionCancelled = false;
         recordButton.setText("Record");
-        recordButton.setEnabled(true);
-        audioFileButton.setEnabled(true);
+        // Re-enable only when an audio-capable model is still available.
+        updateAudioControlsState();
         setStatus(cancelled
                 ? "Transcription cancelled."
                 : "Transcription ready. Review the text and press Send.");
