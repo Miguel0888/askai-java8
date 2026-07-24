@@ -118,6 +118,16 @@ public final class OllamaConfigPanel extends JPanel {
         add(new JScrollPane(logArea), BorderLayout.CENTER);
     }
 
+    /** Puts the keyboard focus on the Base URL field and selects its text, ready to overwrite. */
+    public void focusBaseUrl() {
+        SwingUtilities.invokeLater(new Runnable() {
+            public void run() {
+                baseUrlField.requestFocusInWindow();
+                baseUrlField.selectAll();
+            }
+        });
+    }
+
     private void addRow(JPanel form, GridBagConstraints constraints, int row, String label, Component field) {
         constraints.gridx = 0;
         constraints.gridy = row;

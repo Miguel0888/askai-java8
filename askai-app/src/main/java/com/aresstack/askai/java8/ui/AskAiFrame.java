@@ -19,6 +19,8 @@ import javax.swing.JMenuItem;
 import javax.swing.JPanel;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
+import java.awt.Color;
+import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -50,6 +52,7 @@ public final class AskAiFrame extends JFrame {
     private final CardLayout contentLayout;
     private final JPanel contentPanel;
     private final OllamaModelsPanel modelsPanel;
+    private OllamaConfigPanel configPanel;
 
     public AskAiFrame(AppConfigurationRepository configurationRepository, final AskAiService askAiService) {
         super("AskAI");
@@ -95,9 +98,52 @@ public final class AskAiFrame extends JFrame {
         menuBar.add(createConfigurationMenu());
         menuBar.add(createHelpMenu());
         menuBar.add(Box.createHorizontalGlue());
-        menuBar.add(connectionStatusLabel);
-        refreshConnectionStatus(CHAT_VIEW);
+        menuBar.add(buildConnectionLink());
         return menuBar;
+    }
+
+    /**
+     * The top-right connection indicator: just the Ollama base URL, styled as a link — hand cursor,
+     * underlined on hover — that opens the Connections settings with the Base URL field focused and
+     * selected, ready to overwrite.
+     */
+    private JLabel buildConnectionLink() {
+        connectionStatusLabel.setForeground(new Color(0x0D, 0x47, 0xA1));
+        connectionStatusLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        connectionStatusLabel.setToolTipText("Open Connections settings (edit the Ollama Base URL)");
+        connectionStatusLabel.setBorder(javax.swing.BorderFactory.createEmptyBorder(0, 8, 0, 10));
+        connectionStatusLabel.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent event) {
+                openConnectionSettings();
+            }
+
+            @Override
+            public void mouseEntered(MouseEvent event) {
+                updateConnectionLabel(true);
+            }
+
+            @Override
+            public void mouseExited(MouseEvent event) {
+                updateConnectionLabel(false);
+            }
+        });
+        updateConnectionLabel(false);
+        return connectionStatusLabel;
+    }
+
+    /** Shows the Connections view and puts the cursor in its Base URL field, selected for overwrite. */
+    private void openConnectionSettings() {
+        showScreen(CONNECTIONS_VIEW);
+        if (configPanel != null) {
+            configPanel.focusBaseUrl();
+        }
+    }
+
+    /** Renders the label as the bare base URL, underlined while hovered. */
+    private void updateConnectionLabel(boolean hovered) {
+        String url = model.getOllamaBaseUrl();
+        connectionStatusLabel.setText(hovered ? "<html><u>" + url + "</u></html>" : url);
     }
 
     private JMenu createTopLevelMenu(String title, String screenName) {
@@ -150,7 +196,8 @@ public final class AskAiFrame extends JFrame {
         // Java 8 port: model search with two sources in tabs — HuggingFace (search/analyze/import)
         // and the Ollama Library (scrape ollama.com, pull a tag on the remote server).
         contentPanel.add(new ModelSearchPanel(configurationRepository, askAiService), INSTALL_VIEW);
-        contentPanel.add(new OllamaConfigPanel(model, ollamaService), CONNECTIONS_VIEW);
+        this.configPanel = new OllamaConfigPanel(model, ollamaService);
+        contentPanel.add(configPanel, CONNECTIONS_VIEW);
         // Java 8 port: the extended proxy panel (WScript discovery, TLS trust, HTTP client, IPv6).
         contentPanel.add(new ProxyPanel(configurationRepository), NETWORK_VIEW);
         contentPanel.add(new OllamaAboutPanel(), ABOUT_VIEW);
@@ -159,7 +206,7 @@ public final class AskAiFrame extends JFrame {
 
     private void showScreen(String screenName) {
         contentLayout.show(contentPanel, screenName);
-        refreshConnectionStatus(screenName);
+        updateConnectionLabel(false);
     }
 
     /** Show the Models view and select the Installed or Running Models sub-view. */
@@ -170,36 +217,6 @@ public final class AskAiFrame extends JFrame {
         } else {
             modelsPanel.showRunning();
         }
-        connectionStatusLabel.setText("Ollama - " + model.getOllamaBaseUrl() + " - Models - "
-                + (installed ? "Installed" : "Running"));
-    }
-
-    private void refreshConnectionStatus(String screenName) {
-        connectionStatusLabel.setText("Ollama - " + model.getOllamaBaseUrl() + " - " + resolveScreenTitle(screenName));
-    }
-
-    private String resolveScreenTitle(String screenName) {
-        if (CHAT_VIEW.equals(screenName)) {
-            return "Chat";
-        }
-        if (MODELS_VIEW.equals(screenName)) {
-            return "Models";
-        }
-        if (ACTIONS_VIEW.equals(screenName)) {
-            return "Actions";
-        }
-        if (INSTALL_VIEW.equals(screenName)) {
-            return "Setup";
-        }
-        if (CONNECTIONS_VIEW.equals(screenName)) {
-            return "Connections";
-        }
-        if (NETWORK_VIEW.equals(screenName)) {
-            return "Network";
-        }
-        if (ABOUT_VIEW.equals(screenName)) {
-            return "About";
-        }
-        return "AskAI";
+        updateConnectionLabel(false);
     }
 }
