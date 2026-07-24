@@ -293,11 +293,18 @@ public final class OllamaLibraryPanel extends JPanel {
         public Component getListCellRendererComponent(JList<? extends OllamaLibraryModel> list,
                 OllamaLibraryModel model, int index, boolean isSelected, boolean cellHasFocus) {
             Font base = list.getFont();
-            nameLabel.setFont(base.deriveFont(Font.BOLD));
-            String caps = String.join(", ", model.getCapabilities());
-            String params = String.join(", ", model.getParameterSizes());
-            String badges = (caps.length() > 0 ? "  [" + caps + "]" : "") + (params.length() > 0 ? "  " + params : "");
-            nameLabel.setText(model.getBaseName() + badges);
+            nameLabel.setFont(base);
+            // Name in bold + capability badges (blue) and parameter-size badges (grey), clearly set
+            // off rather than hidden in brackets.
+            StringBuilder html = new StringBuilder("<html><b>").append(escape(model.getBaseName())).append("</b>");
+            for (String capability : model.getCapabilities()) {
+                html.append(badge(capability, "#E8EEFC", "#2B54B8"));
+            }
+            for (String param : model.getParameterSizes()) {
+                html.append(badge(param, "#EDEDED", "#555555"));
+            }
+            html.append("</html>");
+            nameLabel.setText(html.toString());
             String desc = model.getDescription();
             descLabel.setText(desc.length() > 90 ? desc.substring(0, 88) + "…" : desc);
             descLabel.setFont(base.deriveFont(base.getSize2D() - 1f));
@@ -310,6 +317,15 @@ public final class OllamaLibraryPanel extends JPanel {
             descLabel.setForeground(isSelected ? fg : new Color(0x50, 0x50, 0x50));
             statsLabel.setForeground(isSelected ? fg : new Color(0x80, 0x80, 0x80));
             return this;
+        }
+
+        private static String badge(String text, String background, String foreground) {
+            return "&nbsp;<span style='background:" + background + ";color:" + foreground + "'>&nbsp;"
+                    + escape(text) + "&nbsp;</span>";
+        }
+
+        private static String escape(String text) {
+            return text == null ? "" : text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
         }
     }
 
@@ -331,11 +347,14 @@ public final class OllamaLibraryPanel extends JPanel {
                 OllamaModelVariant variant, int index, boolean isSelected, boolean cellHasFocus) {
             Font base = list.getFont();
             tagLabel.setFont(base.deriveFont(Font.BOLD));
-            tagLabel.setText(variant.getTag() + (variant.isCloud() ? "   (cloud)" : ""));
+            tagLabel.setText(variant.getTag()
+                    + (variant.isLatest() ? "   · latest" : "")
+                    + (variant.isCloud() ? "   · cloud" : ""));
             StringBuilder detail = new StringBuilder();
-            append(detail, variant.getSize());
+            // Cloud tags have no local size — show "Cloud" in that slot instead of a blank.
+            append(detail, variant.isCloud() && variant.getSize().length() == 0 ? "Cloud" : variant.getSize());
             append(detail, variant.getContextWindow());
-            append(detail, variant.getInputTypes());
+            append(detail, variant.getInputTypesText());
             append(detail, variant.getUpdatedText());
             detailLabel.setText(detail.toString());
             detailLabel.setFont(base.deriveFont(base.getSize2D() - 1f));

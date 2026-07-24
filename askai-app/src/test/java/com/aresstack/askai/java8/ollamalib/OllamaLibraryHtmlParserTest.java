@@ -6,6 +6,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.List;
 
 import static org.junit.Assert.assertEquals;
@@ -68,24 +69,43 @@ public class OllamaLibraryHtmlParserTest {
         assertFalse(devstral.getCapabilities().contains("updated"));
     }
 
-    @Test
-    public void parsesModelVariants() throws IOException {
-        List<OllamaModelVariant> variants =
-                parser.parseModelVariants("devstral-small-2", fixture("library-devstral-small-2.html"));
-        assertFalse("expected variants", variants.isEmpty());
+    private void assertDevstralVariants(List<OllamaModelVariant> variants) {
+        // No duplicate variants even though ollama.com ships a mobile + a desktop row per tag.
+        assertEquals("expected exactly 3 unique variants", 3, variants.size());
 
         assertNotNull(variant(variants, "devstral-small-2:latest"));
         OllamaModelVariant b24 = variant(variants, "devstral-small-2:24b");
         assertNotNull("24b variant missing", b24);
         assertEquals("24b", b24.getShortTag());
-        assertTrue("size present: " + b24.getSize(), b24.getSize().toLowerCase().endsWith("gb"));
-        assertTrue("context present: " + b24.getContextWindow(),
-                b24.getContextWindow().toLowerCase().contains("context"));
+        assertEquals("15GB", b24.getSize());
+        assertEquals("384K context window", b24.getContextWindow());
+        assertEquals(Arrays.asList("Text", "Image"), b24.getInputTypes());
+        assertEquals("Text, Image", b24.getInputTypesText());
         assertFalse("24b is not cloud", b24.isCloud());
+        assertTrue("latest badge only on 24b", b24.isLatest());
+        assertFalse("latest badge not on :latest tag itself", variant(variants, "devstral-small-2:latest").isLatest());
 
         OllamaModelVariant cloud = variant(variants, "devstral-small-2:24b-cloud");
         assertNotNull("cloud variant missing", cloud);
         assertTrue("cloud flagged", cloud.isCloud());
+        assertEquals("cloud has no local size", "", cloud.getSize());
+        assertEquals("256K context window", cloud.getContextWindow());
+        assertEquals(Arrays.asList("Text", "Image"), cloud.getInputTypes());
+        assertFalse("cloud is not latest", cloud.isLatest());
+    }
+
+    @Test
+    public void parsesModelVariantsFromServedHtml() throws IOException {
+        // The server-rendered page (no input.command) — parsed via the anchor fallback.
+        assertDevstralVariants(parser.parseModelVariants("devstral-small-2",
+                fixture("library-devstral-small-2.html")));
+    }
+
+    @Test
+    public void parsesModelVariantsFromInputCommandHtml() throws IOException {
+        // The browser-DOM variant that carries the canonical <input class="command"> pull names.
+        assertDevstralVariants(parser.parseModelVariants("devstral-small-2",
+                fixture("library-devstral-small-2-tags.html")));
     }
 
     @Test

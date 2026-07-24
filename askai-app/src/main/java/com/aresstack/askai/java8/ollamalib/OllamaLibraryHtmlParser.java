@@ -5,8 +5,10 @@ import jodd.jerry.JerryFunction;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -93,11 +95,21 @@ public final class OllamaLibraryHtmlParser {
         return lower.equals("pulls") || lower.equals("tags") || lower.equals("updated");
     }
 
-    /** Parses a {@code /library/<baseName>} page into its installable tag variants. */
+    /**
+     * Parses a {@code /library/<baseName>} page into its installable tag variants.
+     *
+     * <p>The canonical pull name is taken from the hidden {@code <input class="command" value="…">}
+     * when present (the value ollama.com's copy button uses); otherwise it falls back to the
+     * {@code /library/<name>:<tag>} anchors, since the server-rendered HTML does not always include
+     * the input. Size / context / input types / updated / latest come from the same variant's detail
+     * row (the mobile row carries them all in one "·"-separated line). ollama.com ships each variant
+     * as both a mobile and a desktop row, so tags are de-duplicated.</p>
+     */
     public List<OllamaModelVariant> parseModelVariants(final String baseName, String html) throws IOException {
-        final List<OllamaModelVariant> variants = new ArrayList<OllamaModelVariant>();
-        final List<String> seen = new ArrayList<String>();
         Jerry doc = Jerry.of(html == null ? "" : html);
+
+        // Detail rows (mobile <a>): the ones whose text carries the "·"-separated detail line.
+        final Map<String, VariantDetail> details = new LinkedHashMap<String, VariantDetail>();
         doc.find("a[href^=\"" + LIBRARY_PREFIX + baseName + ":\"]").each(new JerryFunction() {
             public Boolean onNode(Jerry node, int index) {
                 String href = node.attr("href");
@@ -105,14 +117,42 @@ public final class OllamaLibraryHtmlParser {
                     return true;
                 }
                 String tag = href.substring(LIBRARY_PREFIX.length());
-                if (seen.contains(tag)) {
-                    return true;
+                String text = normalize(node.text());
+                if (text.indexOf('·') < 0) {
+                    return true; // desktop inner anchor (no detail line) — skip; the mobile row has it
                 }
-                seen.add(tag);
-                variants.add(buildVariant(tag, node));
+                if (!details.containsKey(tag)) {
+                    details.put(tag, buildDetail(node, text));
+                }
                 return true;
             }
         });
+
+        // Canonical, de-duplicated tag order: prefer input.command values, else the detail rows.
+        final List<String> tags = new ArrayList<String>();
+        doc.find("input.command").each(new JerryFunction() {
+            public Boolean onNode(Jerry node, int index) {
+                String value = node.attr("value");
+                if (value != null && value.startsWith(baseName + ":") && !tags.contains(value)) {
+                    tags.add(value);
+                }
+                return true;
+            }
+        });
+        if (tags.isEmpty()) {
+            tags.addAll(details.keySet());
+        }
+
+        List<OllamaModelVariant> variants = new ArrayList<OllamaModelVariant>();
+        for (int i = 0; i < tags.size(); i++) {
+            String tag = tags.get(i);
+            VariantDetail detail = details.get(tag);
+            if (detail == null) {
+                detail = new VariantDetail("", "", new ArrayList<String>(), "", false);
+            }
+            variants.add(new OllamaModelVariant(tag, detail.size, detail.context, detail.inputs,
+                    detail.updated, detail.latest));
+        }
         if (variants.isEmpty() && html != null && html.length() > 200) {
             throw new IOException("Ollama-Modellseite hat sich geändert (keine Varianten im HTML gefunden) — "
                     + "der Scraper muss angepasst werden.");
@@ -120,19 +160,47 @@ public final class OllamaLibraryHtmlParser {
         return variants;
     }
 
-    private OllamaModelVariant buildVariant(String tag, Jerry node) {
-        // The anchor's visible text ends with the detail line
-        // "… 15GB · 384K context window · Text, Image · 7 months ago"; split on the "·" separators.
-        String full = normalize(node.text());
-        String[] parts = full.split("\\u00b7");
+    /** Parses one variant's detail row: "… 15GB · 384K context window · Text, Image · 7 months ago". */
+    private VariantDetail buildDetail(Jerry node, String text) {
+        String[] parts = text.split("\\u00b7");
         // The token before the first "·" is the on-disk size — but cloud tags have no local size, so
         // only accept it when it actually looks like one (e.g. "15GB"), else leave it blank.
-        String sizeToken = parts.length >= 2 ? lastToken(parts[0]) : "";
+        String sizeToken = parts.length >= 1 ? lastToken(parts[0]) : "";
         String size = SIZE.matcher(sizeToken).matches() ? sizeToken : "";
         String context = parts.length > 1 ? parts[1].trim() : "";
-        String inputs = parts.length > 2 ? parts[2].trim() : "";
+        List<String> inputs = splitInputs(parts.length > 2 ? parts[2].trim() : "");
         String updated = parts.length > 3 ? parts[3].trim() : "";
-        return new OllamaModelVariant(tag, size, context, inputs, updated);
+        boolean latest = hasLatestBadge(node);
+        return new VariantDetail(size, context, inputs, updated, latest);
+    }
+
+    /** @return true when the row carries a standalone "latest" badge (not the tag name itself). */
+    private static boolean hasLatestBadge(Jerry node) {
+        final boolean[] found = {false};
+        node.find("span").each(new JerryFunction() {
+            public Boolean onNode(Jerry span, int index) {
+                if ("latest".equalsIgnoreCase(span.text().trim())) {
+                    found[0] = true;
+                }
+                return true;
+            }
+        });
+        return found[0];
+    }
+
+    private static List<String> splitInputs(String value) {
+        List<String> inputs = new ArrayList<String>();
+        if (value == null || value.length() == 0) {
+            return inputs;
+        }
+        String[] parts = value.split(",");
+        for (int i = 0; i < parts.length; i++) {
+            String input = parts[i].trim();
+            if (input.length() > 0) {
+                inputs.add(input);
+            }
+        }
+        return inputs;
     }
 
     /** @return the last whitespace-separated token of a string, e.g. "…24b latest 15GB" → "15GB". */
@@ -140,6 +208,22 @@ public final class OllamaLibraryHtmlParser {
         String trimmed = text.trim();
         int space = trimmed.lastIndexOf(' ');
         return space >= 0 ? trimmed.substring(space + 1) : trimmed;
+    }
+
+    private static final class VariantDetail {
+        private final String size;
+        private final String context;
+        private final List<String> inputs;
+        private final String updated;
+        private final boolean latest;
+
+        private VariantDetail(String size, String context, List<String> inputs, String updated, boolean latest) {
+            this.size = size;
+            this.context = context;
+            this.inputs = inputs;
+            this.updated = updated;
+            this.latest = latest;
+        }
     }
 
     private static String firstGroup(Pattern pattern, String text) {
