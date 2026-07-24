@@ -91,6 +91,10 @@ public final class FilterDialog extends JDialog {
         setLayout(new BorderLayout(0, 0));
         add(buildHeader(), BorderLayout.NORTH);
         tabs = new JTabbedPane();
+        // Re-sync tab checkboxes from the shared state on tab switch. Registered ONCE here — never in
+        // rebuildTabs, which used to strip every ChangeListener (including BasicTabbedPaneUI's own
+        // selection handler), leaving the tab header not repainting on click until the next rebuild.
+        tabs.addChangeListener(event -> syncAll());
         rebuildTabs();
         add(tabs, BorderLayout.CENTER);
         add(buildFooter(), BorderLayout.SOUTH);
@@ -154,11 +158,6 @@ public final class FilterDialog extends JDialog {
         tabs.addTab("Languages", buildCatalogTab(Group.LANGUAGES, catalogs.getLanguages(), false));
         tabs.addTab("Licenses", buildCatalogTab(Group.LICENSES, catalogs.getLicenses(), false));
         tabs.addTab("Other", buildCatalogTab(Group.OTHER, catalogs.getOther(), true));
-        // Re-sync tab checkboxes from the shared state on tab switch.
-        for (javax.swing.event.ChangeListener listener : tabs.getChangeListeners()) {
-            tabs.removeChangeListener(listener);
-        }
-        tabs.addChangeListener(event -> syncAll());
         if (selected >= 0 && selected < tabs.getTabCount()) {
             tabs.setSelectedIndex(selected);
         }
