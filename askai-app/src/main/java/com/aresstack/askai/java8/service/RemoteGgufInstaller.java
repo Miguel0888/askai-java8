@@ -88,11 +88,7 @@ public final class RemoteGgufInstaller {
             report(listener, "Validating GGUF" + label, 0, 0);
             GgufFile.validate(current);
             String digest = "sha256:" + sha256(current, listener);
-            if (blobExists(digest)) {
-                report(listener, "Blob already on server" + label, current.length(), current.length());
-            } else {
-                uploadBlob("/api/blobs/" + digest, current, listener);
-            }
+            uploadBlobWithRetry(digest, current, label, listener);
             files.put(current.getName(), digest);
         }
 
@@ -101,6 +97,44 @@ public final class RemoteGgufInstaller {
         body.put("files", files);
         body.put("stream", Boolean.TRUE);
         createModel("/api/create", OllamaJson.toJson(body), listener);
+    }
+
+    /** How often a blob upload is attempted before giving up (network drops mid-upload happen). */
+    private static final int MAX_UPLOAD_ATTEMPTS = 3;
+
+    /**
+     * Upload the blob unless Ollama already has it, retrying on connection failures. The blob API
+     * is atomic (no partial resume), but a retry re-checks via HEAD first — when only the response
+     * was lost, the blob may in fact have arrived completely and the re-upload can be skipped.
+     */
+    private void uploadBlobWithRetry(String digest, File file, String label, ProgressListener listener)
+            throws IOException {
+        IOException last = null;
+        for (int attempt = 1; attempt <= MAX_UPLOAD_ATTEMPTS; attempt++) {
+            checkCancelled();
+            try {
+                if (blobExists(digest)) {
+                    report(listener, "Blob already on server" + label, file.length(), file.length());
+                    return;
+                }
+                if (attempt > 1) {
+                    report(listener, "Upload attempt " + attempt + "/" + MAX_UPLOAD_ATTEMPTS
+                            + label + " (restarting from 0%)", 0, 0);
+                }
+                uploadBlob("/api/blobs/" + digest, file, listener);
+                return;
+            } catch (InterruptedIOException ex) {
+                throw ex; // user cancellation: stop immediately
+            } catch (IOException ex) {
+                last = ex;
+                report(listener, "Upload failed" + label + ": " + ex.getMessage(), 0, 0);
+            }
+        }
+        throw new IOException("Uploading to Ollama failed after " + MAX_UPLOAD_ATTEMPTS + " attempts: "
+                + (last == null ? "unknown error" : last.getMessage())
+                + " — the connection to " + baseUrl + " dropped mid-upload (unstable network or an"
+                + " Ollama restart). The blob API cannot resume partial uploads, so each attempt"
+                + " restarts from 0%.", last);
     }
 
     /** HEAD the blob: return true when Ollama already has it (200), false on 404. */
