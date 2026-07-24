@@ -276,11 +276,12 @@ public final class OllamaLibraryPanel extends JPanel {
 
     private static final class ModelRenderer extends JPanel implements ListCellRenderer<OllamaLibraryModel> {
         private final JLabel nameLabel = new JLabel();
+        private final JLabel iconLabel = new JLabel();
         private final JLabel descLabel = new JLabel();
         private final JLabel statsLabel = new JLabel();
 
         ModelRenderer() {
-            super(new BorderLayout(0, 1));
+            super(new BorderLayout(8, 1));
             setBorder(BorderFactory.createCompoundBorder(
                     BorderFactory.createMatteBorder(0, 0, 1, 0, new Color(0xE3, 0xE6, 0xEB)),
                     BorderFactory.createEmptyBorder(5, 8, 5, 8)));
@@ -288,23 +289,25 @@ public final class OllamaLibraryPanel extends JPanel {
             add(nameLabel, BorderLayout.NORTH);
             add(descLabel, BorderLayout.CENTER);
             add(statsLabel, BorderLayout.SOUTH);
+            // Capability icons, right-aligned, matching the HuggingFace results list.
+            iconLabel.setToolTipText("Model capabilities (vision, tools, thinking, embedding, cloud, ...)");
+            add(iconLabel, BorderLayout.EAST);
         }
 
         public Component getListCellRendererComponent(JList<? extends OllamaLibraryModel> list,
                 OllamaLibraryModel model, int index, boolean isSelected, boolean cellHasFocus) {
             Font base = list.getFont();
             nameLabel.setFont(base);
-            // Name in bold + capability badges (blue) and parameter-size badges (grey), clearly set
-            // off rather than hidden in brackets.
+            // Name in bold + parameter-size badges (grey). Capabilities are shown as the shared icon
+            // strip on the right (same visual language as the HuggingFace search).
             StringBuilder html = new StringBuilder("<html><b>").append(escape(model.getBaseName())).append("</b>");
-            for (String capability : model.getCapabilities()) {
-                html.append(badge(capability, "#E8EEFC", "#2B54B8"));
-            }
             for (String param : model.getParameterSizes()) {
                 html.append(badge(param, "#EDEDED", "#555555"));
             }
             html.append("</html>");
             nameLabel.setText(html.toString());
+            iconLabel.setIcon(CapabilityIcons.forCapabilities(
+                    ModelCapability.fromOllamaTags(model.getCapabilities())));
             String desc = model.getDescription();
             descLabel.setText(desc.length() > 90 ? desc.substring(0, 88) + "…" : desc);
             descLabel.setFont(base.deriveFont(base.getSize2D() - 1f));

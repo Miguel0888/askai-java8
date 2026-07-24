@@ -104,7 +104,7 @@ final class OllamaModelCard extends JPanel {
         capabilities = toModalities(capabilityTags);
         capabilitiesKnown = true;
         capabilityIconLabel.setIcon(capabilities.isEmpty()
-                ? null : ModalityIcons.forModalities(capabilities));
+                ? null : CapabilityIcons.forCapabilities(ModelCapability.fromModalities(capabilities)));
         audioAddOnButton.setEnabled(true);
         visionAddOnButton.setEnabled(true);
         revalidate();

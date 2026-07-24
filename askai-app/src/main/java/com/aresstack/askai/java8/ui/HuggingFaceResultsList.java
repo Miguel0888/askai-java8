@@ -129,7 +129,7 @@ public final class HuggingFaceResultsList extends JList<HuggingFaceModel> {
             ownerLabel.setFont(base);
             nameLabel.setText(model.getRepoName());
             nameLabel.setFont(base.deriveFont(Font.BOLD));
-            iconLabel.setIcon(ModalityIcons.forModalities(HuggingFaceModelClassifier.modalitiesOf(model)));
+            iconLabel.setIcon(CapabilityIcons.forCapabilities(HuggingFaceModelClassifier.modalitiesOf(model)));
 
             statsLabel.setText("↓ " + formatCount(model.getDownloads())
                     + "   ♥ " + formatCount(model.getLikes())

@@ -1,6 +1,5 @@
 package com.aresstack.askai.java8.ui;
 
-import com.aresstack.askai.java8.config.HuggingFaceSearchSuggestion.Modality;
 import com.aresstack.askai.java8.hf.HuggingFaceModel;
 
 import java.util.Arrays;
@@ -114,21 +113,21 @@ public final class HuggingFaceModelClassifier {
         return false;
     }
 
-    /** Map the HuggingFace pipeline tag onto the modality icon set. */
-    public static Set<Modality> modalitiesOf(HuggingFaceModel model) {
+    /** Map the HuggingFace pipeline tag onto the shared model-capability set (for the icon strip). */
+    public static Set<ModelCapability> modalitiesOf(HuggingFaceModel model) {
         String pipeline = model.getPipelineTag().toLowerCase(Locale.ROOT);
         if ("image-text-to-text".equals(pipeline)) {
-            return EnumSet.of(Modality.TEXT, Modality.VISION);
+            return EnumSet.of(ModelCapability.TEXT, ModelCapability.VISION);
         }
         if ("audio-text-to-text".equals(pipeline)) {
-            return EnumSet.of(Modality.TEXT, Modality.AUDIO);
+            return EnumSet.of(ModelCapability.TEXT, ModelCapability.AUDIO);
         }
         if ("automatic-speech-recognition".equals(pipeline) || "audio-to-audio".equals(pipeline)) {
-            return EnumSet.of(Modality.AUDIO);
+            return EnumSet.of(ModelCapability.AUDIO);
         }
         if ("any-to-any".equals(pipeline)) {
-            return EnumSet.of(Modality.TEXT, Modality.AUDIO, Modality.VISION);
+            return EnumSet.of(ModelCapability.TEXT, ModelCapability.AUDIO, ModelCapability.VISION);
         }
-        return EnumSet.of(Modality.TEXT);
+        return EnumSet.of(ModelCapability.TEXT);
     }
 }

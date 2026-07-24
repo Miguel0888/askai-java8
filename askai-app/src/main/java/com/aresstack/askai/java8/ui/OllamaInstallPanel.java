@@ -592,7 +592,8 @@ public final class OllamaInstallPanel extends JPanel {
             if (value instanceof HuggingFaceSearchSuggestion) {
                 HuggingFaceSearchSuggestion suggestion = (HuggingFaceSearchSuggestion) value;
                 termLabel.setText(suggestion.getTerm());
-                iconLabel.setIcon(ModalityIcons.forModalities(suggestion.getModalities()));
+                iconLabel.setIcon(CapabilityIcons.forCapabilities(
+                        ModelCapability.fromModalities(suggestion.getModalities())));
             } else {
                 termLabel.setText(value == null ? "" : String.valueOf(value));
                 iconLabel.setIcon(null);

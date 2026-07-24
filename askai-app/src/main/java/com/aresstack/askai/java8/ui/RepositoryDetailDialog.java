@@ -1,6 +1,5 @@
 package com.aresstack.askai.java8.ui;
 
-import com.aresstack.askai.java8.config.HuggingFaceSearchSuggestion.Modality;
 import com.aresstack.askai.java8.hf.HuggingFaceModel;
 import com.aresstack.askai.java8.hf.convert.RepositoryAnalysis;
 import com.aresstack.askai.java8.hf.convert.SupportDecision;
@@ -141,11 +140,11 @@ public final class RepositoryDetailDialog extends JDialog {
             panel.add(row("library_name", model.getLibraryName()));
         }
         panel.add(row("Herkunft", HuggingFaceModelClassifier.provenanceOf(model).name()));
-        Set<Modality> modalities = HuggingFaceModelClassifier.modalitiesOf(model);
+        Set<ModelCapability> modalities = HuggingFaceModelClassifier.modalitiesOf(model);
         JPanel modRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         modRow.setAlignmentX(Component.LEFT_ALIGNMENT);
         JLabel modLabel = new JLabel(fixedLabel("Modalitäten") + describeModalities(modalities));
-        modRow.add(new JLabel(ModalityIcons.forModalities(modalities)));
+        modRow.add(new JLabel(CapabilityIcons.forCapabilities(modalities)));
         modRow.add(modLabel);
         panel.add(modRow);
         return panel;
@@ -256,9 +255,9 @@ public final class RepositoryDetailDialog extends JDialog {
         return "abgeleitet";
     }
 
-    private static String describeModalities(Set<Modality> modalities) {
+    private static String describeModalities(Set<ModelCapability> modalities) {
         StringBuilder builder = new StringBuilder();
-        for (Modality modality : modalities) {
+        for (ModelCapability modality : modalities) {
             if (builder.length() > 0) {
                 builder.append(", ");
             }
