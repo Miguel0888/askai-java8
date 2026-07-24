@@ -1,7 +1,7 @@
 package com.aresstack.askai.java8.ui;
 
-import com.aresstack.askai.java8.config.HuggingFaceSearchSuggestion.Modality;
 import com.aresstack.askai.java8.hf.HuggingFaceModel;
+import com.aresstack.askai.java8.ui.HuggingFaceModelClassifier.Provenance;
 
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListModel;
@@ -15,33 +15,15 @@ import java.awt.Color;
 import java.awt.Component;
 import java.awt.FlowLayout;
 import java.awt.Font;
-import java.util.Arrays;
-import java.util.EnumSet;
-import java.util.HashSet;
 import java.util.Locale;
-import java.util.Set;
 
 /**
  * A richer results list for HuggingFace model search: two lines per entry with the owner
  * highlighted by provenance, download/like counts, the base-model origin for community quants,
- * and the modality icons derived from the repo's pipeline tag.
- *
- * <p>Provenance is derived from real API data, not guesses: the {@code base_model:quantized:} tag
- * names the original model, so a repo whose owner equals that base owner (or a well-known vendor
- * org) is marked OFFICIAL (green); well-known quantizer orgs are marked KNOWN (blue); everything
- * else is community (gray) with a "quant of &lt;owner&gt;" note.</p>
+ * and the modality icons derived from the repo's pipeline tag. Provenance and variant detection
+ * live in {@link HuggingFaceModelClassifier}; this class only renders them.
  */
 public final class HuggingFaceResultsList extends JList<HuggingFaceModel> {
-
-    /** Vendor organizations that publish original models. */
-    private static final Set<String> VENDOR_OWNERS = new HashSet<String>(Arrays.asList(
-            "google", "meta-llama", "mistralai", "qwen", "microsoft", "openai", "deepseek-ai",
-            "ibm-granite", "nvidia", "apple", "cohereforai", "stabilityai", "tiiuae", "bigcode",
-            "allenai", "hugging-quants"));
-
-    /** Well-known quantizer/community orgs whose GGUF conversions are widely used. */
-    private static final Set<String> KNOWN_QUANTIZERS = new HashSet<String>(Arrays.asList(
-            "ggml-org", "bartowski", "unsloth", "lmstudio-community", "mradermacher", "thebloke"));
 
     private static final Color OFFICIAL_COLOR = new Color(0x1B, 0x5E, 0x20);
     private static final Color KNOWN_COLOR = new Color(0x0D, 0x47, 0xA1);
@@ -52,44 +34,6 @@ public final class HuggingFaceResultsList extends JList<HuggingFaceModel> {
         setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         setCellRenderer(new ResultRenderer());
         setVisibleRowCount(8);
-    }
-
-    /** Provenance classes an entry can fall into. */
-    private enum Provenance {
-        OFFICIAL, KNOWN_QUANTIZER, COMMUNITY
-    }
-
-    private static Provenance provenanceOf(HuggingFaceModel model) {
-        String owner = model.getOwner().toLowerCase(Locale.ROOT);
-        String baseOwner = model.getBaseModelOwner().toLowerCase(Locale.ROOT);
-        if (owner.length() > 0 && owner.equals(baseOwner)) {
-            return Provenance.OFFICIAL;
-        }
-        if (VENDOR_OWNERS.contains(owner)) {
-            return Provenance.OFFICIAL;
-        }
-        if (KNOWN_QUANTIZERS.contains(owner)) {
-            return Provenance.KNOWN_QUANTIZER;
-        }
-        return Provenance.COMMUNITY;
-    }
-
-    /** Map the HF pipeline tag onto the modality icon set. */
-    private static Set<Modality> modalitiesOf(HuggingFaceModel model) {
-        String pipeline = model.getPipelineTag().toLowerCase(Locale.ROOT);
-        if ("image-text-to-text".equals(pipeline)) {
-            return EnumSet.of(Modality.TEXT, Modality.VISION);
-        }
-        if ("audio-text-to-text".equals(pipeline)) {
-            return EnumSet.of(Modality.TEXT, Modality.AUDIO);
-        }
-        if ("automatic-speech-recognition".equals(pipeline) || "audio-to-audio".equals(pipeline)) {
-            return EnumSet.of(Modality.AUDIO);
-        }
-        if ("any-to-any".equals(pipeline)) {
-            return EnumSet.of(Modality.TEXT, Modality.AUDIO, Modality.VISION);
-        }
-        return EnumSet.of(Modality.TEXT);
     }
 
     private static String formatCount(long value) {
@@ -145,14 +89,14 @@ public final class HuggingFaceResultsList extends JList<HuggingFaceModel> {
         public Component getListCellRendererComponent(JList<? extends HuggingFaceModel> list,
                                                       HuggingFaceModel model, int index,
                                                       boolean isSelected, boolean cellHasFocus) {
-            Provenance provenance = provenanceOf(model);
+            Provenance provenance = HuggingFaceModelClassifier.provenanceOf(model);
             Font base = list.getFont();
 
             ownerLabel.setText(model.getOwner() + " / ");
             ownerLabel.setFont(base);
             nameLabel.setText(model.getRepoName());
             nameLabel.setFont(base.deriveFont(Font.BOLD));
-            iconLabel.setIcon(ModalityIcons.forModalities(modalitiesOf(model)));
+            iconLabel.setIcon(ModalityIcons.forModalities(HuggingFaceModelClassifier.modalitiesOf(model)));
 
             statsLabel.setText("↓ " + formatCount(model.getDownloads())
                     + "   ♥ " + formatCount(model.getLikes()));

@@ -48,6 +48,8 @@ public final class OllamaInstallPanel extends JPanel {
     private final JButton searchButton;
     private final DefaultListModel<HuggingFaceModel> resultsModel;
     private final JList<HuggingFaceModel> resultsList;
+    private final DefaultListModel<HuggingFaceModel> variantsModel;
+    private final JList<HuggingFaceModel> variantsList;
     private final DefaultListModel<HuggingFaceFile> filesModel;
     private final JList<HuggingFaceFile> filesList;
     private final JTextField repoField;
@@ -72,6 +74,8 @@ public final class OllamaInstallPanel extends JPanel {
         this.searchButton = new JButton("Search Hugging Face");
         this.resultsModel = new DefaultListModel<HuggingFaceModel>();
         this.resultsList = new HuggingFaceResultsList(resultsModel);
+        this.variantsModel = new DefaultListModel<HuggingFaceModel>();
+        this.variantsList = new HuggingFaceResultsList(variantsModel);
         this.filesModel = new DefaultListModel<HuggingFaceFile>();
         this.filesList = new JList<HuggingFaceFile>(filesModel);
         this.repoField = new JTextField(30);
@@ -92,11 +96,17 @@ public final class OllamaInstallPanel extends JPanel {
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         add(buildSearchBar(), BorderLayout.NORTH);
 
-        // Resizable layout: drag the divider between the result lists and the form/log area, and
-        // between the two lists — the results are no longer squeezed into a fixed strip.
+        // Resizable three-column layout, all dividers draggable: original models on the left,
+        // community finetunes/merges in the middle "Variants" list, GGUF files on the right.
+        javax.swing.JSplitPane variantsFilesSplit = new javax.swing.JSplitPane(
+                javax.swing.JSplitPane.HORIZONTAL_SPLIT, buildVariantsArea(), buildFilesArea());
+        variantsFilesSplit.setResizeWeight(0.5d);
+        variantsFilesSplit.setContinuousLayout(true);
+        variantsFilesSplit.setBorder(null);
+
         javax.swing.JSplitPane listsSplit = new javax.swing.JSplitPane(
-                javax.swing.JSplitPane.HORIZONTAL_SPLIT, buildResultsArea(), buildFilesArea());
-        listsSplit.setResizeWeight(0.62d);
+                javax.swing.JSplitPane.HORIZONTAL_SPLIT, buildResultsArea(), variantsFilesSplit);
+        listsSplit.setResizeWeight(0.4d);
         listsSplit.setContinuousLayout(true);
         listsSplit.setBorder(null);
 
@@ -137,14 +147,34 @@ public final class OllamaInstallPanel extends JPanel {
     }
 
     private JComponent buildResultsArea() {
+        // The two model lists share one selection: picking in one clears the other so the form
+        // always reflects a single chosen repo.
         resultsList.addListSelectionListener(event -> {
             if (!event.getValueIsAdjusting()) {
-                onResultSelected();
+                if (resultsList.getSelectedValue() != null) {
+                    variantsList.clearSelection();
+                }
+                onResultSelected(resultsList);
             }
         });
         JScrollPane resultsScroll = new JScrollPane(resultsList);
-        resultsScroll.setBorder(BorderFactory.createTitledBorder("Hugging Face models"));
+        resultsScroll.setBorder(BorderFactory.createTitledBorder("Original models"));
         return resultsScroll;
+    }
+
+    private JComponent buildVariantsArea() {
+        variantsList.addListSelectionListener(event -> {
+            if (!event.getValueIsAdjusting()) {
+                if (variantsList.getSelectedValue() != null) {
+                    resultsList.clearSelection();
+                }
+                onResultSelected(variantsList);
+            }
+        });
+        JScrollPane variantsScroll = new JScrollPane(variantsList);
+        variantsScroll.setBorder(BorderFactory.createTitledBorder("Variants (finetunes / merges)"));
+        variantsScroll.setToolTipText("Community finetunes, merges and abliterations derived from an original model");
+        return variantsScroll;
     }
 
     private JComponent buildFilesArea() {
@@ -318,12 +348,30 @@ public final class OllamaInstallPanel extends JPanel {
                     public void run() {
                         searchButton.setEnabled(true);
                         resultsModel.clear();
+                        variantsModel.clear();
                         filesModel.clear();
                         setRepoCapability(" ");
+                        // Split originals from community finetunes/merges, then order each list
+                        // OFFICIAL-first so identical provenance groups stand together.
+                        List<HuggingFaceModel> originals = new java.util.ArrayList<HuggingFaceModel>();
+                        List<HuggingFaceModel> variants = new java.util.ArrayList<HuggingFaceModel>();
                         for (HuggingFaceModel model : models) {
+                            if (HuggingFaceModelClassifier.isVariant(model)) {
+                                variants.add(model);
+                            } else {
+                                originals.add(model);
+                            }
+                        }
+                        java.util.Collections.sort(originals, HuggingFaceModelClassifier.DISPLAY_ORDER);
+                        java.util.Collections.sort(variants, HuggingFaceModelClassifier.DISPLAY_ORDER);
+                        for (HuggingFaceModel model : originals) {
                             resultsModel.addElement(model);
                         }
-                        append("Found " + models.size() + " model(s). Select one to install.");
+                        for (HuggingFaceModel model : variants) {
+                            variantsModel.addElement(model);
+                        }
+                        append("Found " + models.size() + " model(s): " + originals.size()
+                                + " original, " + variants.size() + " variant(s). Select one to install.");
                     }
                 });
             }
@@ -339,8 +387,8 @@ public final class OllamaInstallPanel extends JPanel {
         });
     }
 
-    private void onResultSelected() {
-        HuggingFaceModel selected = resultsList.getSelectedValue();
+    private void onResultSelected(JList<HuggingFaceModel> source) {
+        HuggingFaceModel selected = source.getSelectedValue();
         if (selected == null) {
             return;
         }
