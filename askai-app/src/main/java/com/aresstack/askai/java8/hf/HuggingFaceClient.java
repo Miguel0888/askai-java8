@@ -677,6 +677,41 @@ public final class HuggingFaceClient {
         return files;
     }
 
+    /**
+     * Lists every file path in the repository (not just GGUF), for format detection. Unlike
+     * {@link #listFiles} this keeps all files (config.json, safetensors, tokenizer, etc.) so the
+     * import classifier can see the real repository structure (spec §18), not only the tags.
+     */
+    public List<String> listAllFiles(String modelId) throws IOException {
+        String url = "https://huggingface.co/api/models/" + encodePath(modelId) + "/tree/main?recursive=true";
+        Object parsed = OllamaJson.parse(getText(url));
+        List values = parsed instanceof List ? (List) parsed : new ArrayList();
+        List<String> paths = new ArrayList<String>();
+        for (int i = 0; i < values.size(); i++) {
+            Object value = values.get(i);
+            if (value instanceof Map) {
+                Map map = (Map) value;
+                String type = string(map, "type");
+                String path = string(map, "path");
+                if ((type.length() == 0 || "file".equals(type)) && path.length() > 0) {
+                    paths.add(path);
+                }
+            }
+        }
+        return paths;
+    }
+
+    /**
+     * Fetches a repository file's text content (e.g. {@code config.json}) from
+     * {@code /<id>/resolve/main/<path>}. HuggingFace answers with a relative redirect to a cache URL;
+     * {@link #getText} uses {@code HttpURLConnection}, which follows same-protocol redirects
+     * automatically. Throws on a non-2xx final status (e.g. 401 for a gated repo without a token).
+     */
+    public String fetchFileText(String modelId, String path) throws IOException {
+        String url = "https://huggingface.co/" + encodePath(modelId) + "/resolve/main/" + encodePath(path);
+        return getText(url);
+    }
+
     private static final int MAX_DOWNLOAD_ATTEMPTS = 5;
     /** Per-read timeout for downloads: long enough for slow links, short enough to not hang for an hour. */
     private static final int DOWNLOAD_READ_TIMEOUT_MILLIS = 60000;

@@ -12,6 +12,9 @@ import com.aresstack.askai.java8.hf.SearchFilterState;
 import com.aresstack.askai.java8.hf.SortOrder;
 import com.aresstack.askai.java8.hf.catalog.CatalogLoader;
 import com.aresstack.askai.java8.hf.catalog.FilterCatalogs;
+import com.aresstack.askai.java8.hf.convert.ConverterService;
+import com.aresstack.askai.java8.hf.convert.RepositoryAnalysis;
+import com.aresstack.askai.java8.hf.convert.SupportDecision;
 import com.aresstack.askai.java8.service.AskAiService;
 
 import javax.swing.BorderFactory;
@@ -35,6 +38,7 @@ import javax.swing.JToggleButton;
 import javax.swing.ListSelectionModel;
 import javax.swing.SwingUtilities;
 import java.awt.BorderLayout;
+import java.awt.Color;
 import java.awt.FlowLayout;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
@@ -56,7 +60,7 @@ public final class OllamaInstallPanel extends JPanel {
     private final JComboBox<HuggingFaceSearchSuggestion> searchCombo;
     private final JButton searchButton;
     private final DefaultListModel<HuggingFaceModel> resultsModel;
-    private final JList<HuggingFaceModel> resultsList;
+    private final HuggingFaceResultsList resultsList;
     private final DefaultListModel<HuggingFaceFile> filesModel;
     private final JList<HuggingFaceFile> filesList;
     private final JTextField repoField;
@@ -68,6 +72,7 @@ public final class OllamaInstallPanel extends JPanel {
     private final JProgressBar progressBar;
     private final JButton cancelInstallButton;
     private final JLabel repoCapabilityLabel = new JLabel(" ");
+    private final JLabel importStatusLabel = new JLabel(" ");
     private final JTextArea logArea;
     private final JToggleButton originalsToggle = new JToggleButton("Originals", true);
     private final JToggleButton variantsToggle = new JToggleButton("Variants");
@@ -86,12 +91,24 @@ public final class OllamaInstallPanel extends JPanel {
     private final JToggleButton[] libraryToggles = buildLibraryToggles();
     private final JCheckBox baseOnlyCheckbox = new JCheckBox("Base only");
     private final JButton loadMoreButton = new JButton("Load more");
+    // Install actions that must be gated by the ConverterService support decision.
+    private final JButton downloadButton = new JButton("Download");
+    private final JButton fullInstallButton = new JButton("Download and install");
     private final JLabel activeFiltersLabel = new JLabel(" ");
+    // The verified support decision for the currently selected repo (null until analyzed).
+    private SupportDecision currentDecision;
     // Central, shared filter selection (all facet groups + base-only + sort). The library chips,
     // the base-only checkbox, the sort combo and the Filters dialog all read and write this one
     // object, so they never disagree; loaded from and saved to configuration.
     private final SearchFilterState filterState;
     private final FilterCatalogs filterCatalogs = CatalogLoader.load();
+    // Network-free provisional classifier for the initial list render; the authoritative,
+    // file+config-based decision comes from AskAiService.analyzeRepository.
+    private final ConverterService converterService = new ConverterService();
+    // How many top hits the throttled background pass deep-analyzes after a search.
+    private static final int BACKGROUND_ANALYSIS_LIMIT = 8;
+    // Bumped on every new search so a slow background/selection analysis from a prior search is ignored.
+    private int analysisGeneration;
     // The full result set accumulated across "load more" pages, re-classified into
     // originals/variants on every page so the toggle above stays consistent as more load in.
     private final List<HuggingFaceModel> accumulatedModels = new ArrayList<HuggingFaceModel>();
@@ -390,8 +407,6 @@ public final class OllamaInstallPanel extends JPanel {
 
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
         JButton filesButton = new JButton("Load GGUF files");
-        JButton downloadButton = new JButton("Download");
-        JButton fullInstallButton = new JButton("Download and install");
         JButton importLastButton = new JButton("Install downloaded file");
         final JButton importMenuButton = new JButton("▾");
         importMenuButton.setToolTipText("Install another already-downloaded model");
@@ -422,6 +437,15 @@ public final class OllamaInstallPanel extends JPanel {
         capabilityConstraints.gridwidth = 2;
         capabilityConstraints.anchor = GridBagConstraints.WEST;
         form.add(repoCapabilityLabel, capabilityConstraints);
+
+        GridBagConstraints importStatusConstraints = new GridBagConstraints();
+        importStatusConstraints.gridx = 0;
+        importStatusConstraints.gridy = 8;
+        importStatusConstraints.gridwidth = 2;
+        importStatusConstraints.anchor = GridBagConstraints.WEST;
+        importStatusLabel.setToolTipText("Import support decided by the ConverterService from the "
+                + "repository files and config.json");
+        form.add(importStatusLabel, importStatusConstraints);
         return form;
     }
 
@@ -533,6 +557,8 @@ public final class OllamaInstallPanel extends JPanel {
         accumulatedModels.clear();
         lastOriginalModels = Collections.emptyList();
         lastVariantModels = Collections.emptyList();
+        resultsList.clearStatuses();
+        analysisGeneration++;
         originalsToggle.setSelected(true);
         applyResultsFilter(ResultsFilterMode.ORIGINALS);
         searchButton.setEnabled(false);
@@ -548,6 +574,8 @@ public final class OllamaInstallPanel extends JPanel {
                         accumulatedModels.addAll(result.getModels());
                         loadMoreButton.setEnabled(result.isLoadMoreSupported());
                         reclassifyAccumulated();
+                        seedProvisionalStatuses();
+                        scheduleBackgroundAnalysis();
                         append("Found " + result.getModels().size() + " model(s)"
                                 + (result.getNote() != null ? " — " + result.getNote() : "")
                                 + ". Select one to install.");
@@ -582,6 +610,7 @@ public final class OllamaInstallPanel extends JPanel {
                         accumulatedModels.addAll(result.getModels());
                         loadMoreButton.setEnabled(result.isLoadMoreSupported());
                         reclassifyAccumulated();
+                        seedProvisionalStatuses();
                         append("Loaded " + result.getModels().size() + " more model(s)"
                                 + (result.getNote() != null ? " — " + result.getNote() : "") + ".");
                     }
@@ -644,7 +673,114 @@ public final class OllamaInstallPanel extends JPanel {
         repoField.setText(selected.getId());
         installAsField.setText(suggestInstallName(selected.getId()));
         profileCombo.setSelectedItem(PROFILE_AUTO);
+        analyzeSelectedRepository(selected.getId());
         loadFiles();
+    }
+
+    /** Seeds a fast, network-free provisional support status for any hit not yet classified. */
+    private void seedProvisionalStatuses() {
+        for (HuggingFaceModel model : accumulatedModels) {
+            if (resultsList.getStatus(model.getId()) == null) {
+                resultsList.setStatus(model.getId(), converterService.provisionalClassify(model));
+            }
+        }
+    }
+
+    /**
+     * Deep-analyzes the top hits sequentially (concurrency 1, capped) in the background so the list's
+     * greying converges to the authoritative, file+config-based verdict without firing dozens of
+     * requests at once on a flaky connection. Stale passes (from a previous search) are ignored via
+     * the generation counter.
+     */
+    private void scheduleBackgroundAnalysis() {
+        analyzeNextInBackground(0, analysisGeneration);
+    }
+
+    private void analyzeNextInBackground(final int index, final int generation) {
+        if (generation != analysisGeneration || index >= Math.min(BACKGROUND_ANALYSIS_LIMIT, lastOriginalModels.size())) {
+            return;
+        }
+        final HuggingFaceModel model = lastOriginalModels.get(index);
+        SupportDecision existing = resultsList.getStatus(model.getId());
+        if (existing != null && existing.isVerified()) {
+            analyzeNextInBackground(index + 1, generation);
+            return;
+        }
+        askAiService.analyzeRepository(model.getId(), new AskAiService.RepositoryAnalysisListener() {
+            public void onDecision(final SupportDecision decision, final RepositoryAnalysis analysis) {
+                onUi(new Runnable() {
+                    public void run() {
+                        if (generation == analysisGeneration) {
+                            resultsList.setStatus(model.getId(), decision);
+                            analyzeNextInBackground(index + 1, generation);
+                        }
+                    }
+                });
+            }
+
+            public void onError(final Exception ex) {
+                onUi(new Runnable() {
+                    public void run() {
+                        // Leave the provisional status; keep the chain going.
+                        if (generation == analysisGeneration) {
+                            analyzeNextInBackground(index + 1, generation);
+                        }
+                    }
+                });
+            }
+        });
+    }
+
+    /**
+     * Runs the authoritative analysis for the selected repository and gates the install actions on
+     * its verdict, with a concrete reason. Runs {@code loadFiles()} regardless, so an unsupported
+     * (greyed) hit stays accessible — its files and rejection reason are still viewable.
+     */
+    private void analyzeSelectedRepository(final String repoId) {
+        currentDecision = null;
+        final int generation = analysisGeneration;
+        SupportDecision existing = resultsList.getStatus(repoId);
+        if (existing == null || !existing.isVerified()) {
+            resultsList.setStatus(repoId, SupportDecision.checking());
+        }
+        setInstallActionsEnabled(false, "Kompatibilität wird geprüft …");
+        askAiService.analyzeRepository(repoId, new AskAiService.RepositoryAnalysisListener() {
+            public void onDecision(final SupportDecision decision, final RepositoryAnalysis analysis) {
+                onUi(new Runnable() {
+                    public void run() {
+                        resultsList.setStatus(repoId, decision);
+                        // Only gate for the repo that is still selected.
+                        if (repoId.equals(repoField.getText().trim())) {
+                            currentDecision = decision;
+                            setInstallActionsEnabled(decision.isExecutable(), decision.getReason());
+                        }
+                    }
+                });
+            }
+
+            public void onError(final Exception ex) {
+                onUi(new Runnable() {
+                    public void run() {
+                        if (repoId.equals(repoField.getText().trim())) {
+                            // Analysis failed: don't hard-block install, but say so honestly.
+                            currentDecision = null;
+                            setInstallActionsEnabled(true, "Kompatibilität nicht prüfbar: " + ex.getMessage());
+                        }
+                    }
+                });
+            }
+        });
+    }
+
+    /** Enables/disables the download+install actions and shows the reason in the import-status label. */
+    private void setInstallActionsEnabled(boolean enabled, String reason) {
+        downloadButton.setEnabled(enabled);
+        fullInstallButton.setEnabled(enabled);
+        String text = reason == null ? "" : reason.trim();
+        importStatusLabel.setText(text.length() == 0 ? " "
+                : (enabled ? "✓ " : "✕ ") + text);
+        importStatusLabel.setForeground(text.length() == 0 ? importStatusLabel.getForeground()
+                : (enabled ? new Color(0x2E, 0x7D, 0x32) : new Color(0xB0, 0x50, 0x50)));
     }
 
     private void loadFiles() {

@@ -8,6 +8,11 @@ import com.aresstack.askai.java8.hf.HuggingFaceFile;
 import com.aresstack.askai.java8.hf.HuggingFaceSearchResult;
 import com.aresstack.askai.java8.hf.HuggingFaceSearchUseCase;
 import com.aresstack.askai.java8.hf.ModelSearchCriteria;
+import com.aresstack.askai.java8.hf.convert.ConverterService;
+import com.aresstack.askai.java8.hf.convert.OllamaEnvironment;
+import com.aresstack.askai.java8.hf.convert.RepositoryAnalysis;
+import com.aresstack.askai.java8.hf.convert.RepositoryAnalyzer;
+import com.aresstack.askai.java8.hf.convert.SupportDecision;
 import io.github.ollama4j.Ollama;
 import io.github.ollama4j.models.ChatCompletion;
 import io.github.ollama4j.models.ChatMessage;
@@ -28,6 +33,7 @@ public final class DefaultAskAiService implements AskAiService {
 
     private final AppConfigurationRepository configurationRepository;
     private final ExecutorService executorService;
+    private final ConverterService converterService = new ConverterService();
 
     public DefaultAskAiService(AppConfigurationRepository configurationRepository) {
         this.configurationRepository = configurationRepository;
@@ -123,6 +129,30 @@ public final class DefaultAskAiService implements AskAiService {
                 }
             }
         });
+    }
+
+    public void analyzeRepository(final String modelId, final RepositoryAnalysisListener listener) {
+        executorService.submit(new Runnable() {
+            public void run() {
+                try {
+                    RepositoryAnalysis analysis = new RepositoryAnalyzer(huggingFaceClient()).analyze(modelId);
+                    OllamaEnvironment environment = new OllamaEnvironment(safeOllamaVersion());
+                    SupportDecision decision = converterService.classify(analysis, environment);
+                    listener.onDecision(decision, analysis);
+                } catch (Exception ex) {
+                    listener.onError(ex);
+                }
+            }
+        });
+    }
+
+    /** @return the Ollama server version, or "" when the server is unreachable (best-effort). */
+    private String safeOllamaVersion() {
+        try {
+            return client().getVersion();
+        } catch (Exception ex) {
+            return "";
+        }
     }
 
     public void downloadHuggingFaceFile(final HuggingFaceFile file, final DownloadListener listener) {

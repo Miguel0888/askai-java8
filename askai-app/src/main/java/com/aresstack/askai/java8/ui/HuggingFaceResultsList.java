@@ -1,6 +1,7 @@
 package com.aresstack.askai.java8.ui;
 
 import com.aresstack.askai.java8.hf.HuggingFaceModel;
+import com.aresstack.askai.java8.hf.convert.SupportDecision;
 import com.aresstack.askai.java8.ui.HuggingFaceModelClassifier.Provenance;
 
 import javax.swing.BorderFactory;
@@ -15,25 +16,53 @@ import java.awt.Color;
 import java.awt.Component;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.util.HashMap;
 import java.util.Locale;
+import java.util.Map;
 
 /**
  * A richer results list for HuggingFace model search: two lines per entry with the owner
  * highlighted by provenance, download/like counts, the base-model origin for community quants,
  * and the modality icons derived from the repo's pipeline tag. Provenance and variant detection
  * live in {@link HuggingFaceModelClassifier}; this class only renders them.
+ *
+ * <p>Each row can carry an import-{@link SupportDecision} (by model id): unsupported hits are greyed
+ * with a short status line, "checking" hits show a pending note, supported-but-not-yet-executable
+ * hits (Safetensors) show their note without greying. Statuses are set as they resolve; unknown ids
+ * render normally.</p>
  */
 public final class HuggingFaceResultsList extends JList<HuggingFaceModel> {
 
     private static final Color OFFICIAL_COLOR = new Color(0x1B, 0x5E, 0x20);
     private static final Color KNOWN_COLOR = new Color(0x0D, 0x47, 0xA1);
     private static final Color COMMUNITY_COLOR = new Color(0x61, 0x61, 0x61);
+    private static final Color MUTED_COLOR = new Color(0xA8, 0xA8, 0xA8);
+
+    private final Map<String, SupportDecision> statusById = new HashMap<String, SupportDecision>();
 
     public HuggingFaceResultsList(DefaultListModel<HuggingFaceModel> model) {
         super(model);
         setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         setCellRenderer(new ResultRenderer());
         setVisibleRowCount(8);
+    }
+
+    /** Sets (or replaces) a row's import-support decision and repaints. */
+    public void setStatus(String modelId, SupportDecision decision) {
+        if (modelId != null && decision != null) {
+            statusById.put(modelId, decision);
+            repaint();
+        }
+    }
+
+    public SupportDecision getStatus(String modelId) {
+        return modelId == null ? null : statusById.get(modelId);
+    }
+
+    /** Forgets all statuses (call on a fresh search). */
+    public void clearStatuses() {
+        statusById.clear();
+        repaint();
     }
 
     private static String formatCount(long value) {
@@ -46,14 +75,15 @@ public final class HuggingFaceResultsList extends JList<HuggingFaceModel> {
         return String.valueOf(value);
     }
 
-    /** Two-line card: owner/name + icons on top, stats and provenance below. */
-    private static final class ResultRenderer extends JPanel implements ListCellRenderer<HuggingFaceModel> {
+    /** Two-line card: owner/name + icons on top, stats and provenance below, plus an import-status line. */
+    private final class ResultRenderer extends JPanel implements ListCellRenderer<HuggingFaceModel> {
 
         private final JLabel ownerLabel = new JLabel();
         private final JLabel nameLabel = new JLabel();
         private final JLabel iconLabel = new JLabel();
         private final JLabel statsLabel = new JLabel();
         private final JLabel badgeLabel = new JLabel();
+        private final JLabel statusLabel = new JLabel();
 
         ResultRenderer() {
             super(new BorderLayout(10, 0));
@@ -72,10 +102,11 @@ public final class HuggingFaceResultsList extends JList<HuggingFaceModel> {
             secondLine.add(statsLabel);
             secondLine.add(badgeLabel);
 
-            JPanel lines = new JPanel(new BorderLayout(0, 2));
+            JPanel lines = new JPanel(new BorderLayout(0, 1));
             lines.setOpaque(false);
             lines.add(firstLine, BorderLayout.NORTH);
-            lines.add(secondLine, BorderLayout.SOUTH);
+            lines.add(secondLine, BorderLayout.CENTER);
+            lines.add(statusLabel, BorderLayout.SOUTH);
 
             add(lines, BorderLayout.CENTER);
             add(iconLabel, BorderLayout.EAST);
@@ -91,6 +122,8 @@ public final class HuggingFaceResultsList extends JList<HuggingFaceModel> {
                                                       boolean isSelected, boolean cellHasFocus) {
             Provenance provenance = HuggingFaceModelClassifier.provenanceOf(model);
             Font base = list.getFont();
+            SupportDecision decision = statusById.get(model.getId());
+            boolean greyed = decision != null && decision.getSupport() == SupportDecision.Support.UNSUPPORTED;
 
             ownerLabel.setText(model.getOwner() + " / ");
             ownerLabel.setFont(base);
@@ -104,14 +137,48 @@ public final class HuggingFaceResultsList extends JList<HuggingFaceModel> {
             statsLabel.setFont(base.deriveFont(base.getSize2D() - 1f));
 
             configureBadge(provenance, model, base);
+            configureStatus(decision, base);
 
-            Color foreground = isSelected ? list.getSelectionForeground() : list.getForeground();
-            Color ownerColor = isSelected ? list.getSelectionForeground() : ownerColorFor(provenance);
+            Color foreground = isSelected ? list.getSelectionForeground()
+                    : (greyed ? MUTED_COLOR : list.getForeground());
+            Color ownerColor = isSelected ? list.getSelectionForeground()
+                    : (greyed ? MUTED_COLOR : ownerColorFor(provenance));
             setBackground(isSelected ? list.getSelectionBackground() : list.getBackground());
             ownerLabel.setForeground(ownerColor);
             nameLabel.setForeground(foreground);
-            statsLabel.setForeground(isSelected ? list.getSelectionForeground() : new Color(0x75, 0x75, 0x75));
+            statsLabel.setForeground(isSelected ? list.getSelectionForeground()
+                    : (greyed ? MUTED_COLOR : new Color(0x75, 0x75, 0x75)));
             return this;
+        }
+
+        /** Shows a short import-status line, and a "verified" cue (no "~" prefix once checked). */
+        private void configureStatus(SupportDecision decision, Font base) {
+            if (decision == null) {
+                statusLabel.setText(" ");
+                return;
+            }
+            statusLabel.setFont(base.deriveFont(base.getSize2D() - 2f));
+            String prefix = decision.isVerified() ? "" : "~ ";
+            if (decision.isChecking()) {
+                statusLabel.setForeground(new Color(0x88, 0x88, 0x88));
+                statusLabel.setText("⧗ Kompatibilität wird geprüft …");
+            } else if (decision.getSupport() == SupportDecision.Support.UNSUPPORTED) {
+                statusLabel.setForeground(new Color(0xB0, 0x50, 0x50));
+                statusLabel.setText(prefix + "kein Importweg — " + shorten(decision.getReason()));
+            } else if (decision.isExecutable()) {
+                statusLabel.setForeground(new Color(0x2E, 0x7D, 0x32));
+                statusLabel.setText(prefix + "importierbar");
+            } else {
+                statusLabel.setForeground(new Color(0x8A, 0x6D, 0x00));
+                statusLabel.setText(prefix + "erkannt — Import folgt");
+            }
+        }
+
+        private String shorten(String text) {
+            if (text == null) {
+                return "";
+            }
+            return text.length() > 60 ? text.substring(0, 57) + "…" : text;
         }
 
         private void configureBadge(Provenance provenance, HuggingFaceModel model, Font base) {
@@ -139,7 +206,7 @@ public final class HuggingFaceResultsList extends JList<HuggingFaceModel> {
                     + (baseOwner.length() > 0 ? "; original model by " + baseOwner : ""));
         }
 
-        private static Color ownerColorFor(Provenance provenance) {
+        private Color ownerColorFor(Provenance provenance) {
             if (provenance == Provenance.OFFICIAL) {
                 return OFFICIAL_COLOR;
             }

@@ -3,6 +3,8 @@ package com.aresstack.askai.java8.service;
 import com.aresstack.askai.java8.hf.HuggingFaceFile;
 import com.aresstack.askai.java8.hf.HuggingFaceSearchResult;
 import com.aresstack.askai.java8.hf.ModelSearchCriteria;
+import com.aresstack.askai.java8.hf.convert.RepositoryAnalysis;
+import com.aresstack.askai.java8.hf.convert.SupportDecision;
 import io.github.ollama4j.models.Model;
 import io.github.ollama4j.models.PullProgress;
 
@@ -24,6 +26,12 @@ public interface AskAiService {
                                    HuggingFaceSearchListener listener);
 
     void listHuggingFaceFiles(String modelId, HuggingFaceFileListener listener);
+
+    /**
+     * Analyzes a repository's files + config.json and classifies its import support via the
+     * ConverterService (spec §17/§18), off the UI thread.
+     */
+    void analyzeRepository(String modelId, RepositoryAnalysisListener listener);
 
     void downloadHuggingFaceFile(HuggingFaceFile file, DownloadListener listener);
 
@@ -73,6 +81,12 @@ public interface AskAiService {
 
     interface HuggingFaceFileListener {
         void onFiles(List<HuggingFaceFile> files);
+
+        void onError(Exception ex);
+    }
+
+    interface RepositoryAnalysisListener {
+        void onDecision(SupportDecision decision, RepositoryAnalysis analysis);
 
         void onError(Exception ex);
     }
