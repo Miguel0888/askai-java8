@@ -9,6 +9,7 @@ import com.aresstack.askai.java8.hf.HuggingFaceModel;
 import com.aresstack.askai.java8.service.AskAiService;
 
 import javax.swing.BorderFactory;
+import javax.swing.ButtonGroup;
 import javax.swing.DefaultListModel;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
@@ -23,6 +24,7 @@ import javax.swing.JProgressBar;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
+import javax.swing.JToggleButton;
 import javax.swing.ListSelectionModel;
 import javax.swing.SwingUtilities;
 import java.awt.BorderLayout;
@@ -48,8 +50,6 @@ public final class OllamaInstallPanel extends JPanel {
     private final JButton searchButton;
     private final DefaultListModel<HuggingFaceModel> resultsModel;
     private final JList<HuggingFaceModel> resultsList;
-    private final DefaultListModel<HuggingFaceModel> variantsModel;
-    private final JList<HuggingFaceModel> variantsList;
     private final DefaultListModel<HuggingFaceFile> filesModel;
     private final JList<HuggingFaceFile> filesList;
     private final JTextField repoField;
@@ -62,8 +62,18 @@ public final class OllamaInstallPanel extends JPanel {
     private final JButton cancelInstallButton;
     private final JLabel repoCapabilityLabel = new JLabel(" ");
     private final JTextArea logArea;
+    private final JToggleButton originalsToggle = new JToggleButton("Originals", true);
+    private final JToggleButton variantsToggle = new JToggleButton("Variants");
+    private final JToggleButton allToggle = new JToggleButton("All");
+    private List<HuggingFaceModel> lastOriginalModels = Collections.emptyList();
+    private List<HuggingFaceModel> lastVariantModels = Collections.emptyList();
     private File lastDownloadedFile;
     private AskAiService.InstallTask installTask;
+
+    /** Which subset of the last search's results the left-hand list currently shows. */
+    private enum ResultsFilterMode {
+        ORIGINALS, VARIANTS, ALL
+    }
 
     public OllamaInstallPanel(AppConfigurationRepository configurationRepository, AskAiService askAiService) {
         this.configurationRepository = configurationRepository;
@@ -74,8 +84,6 @@ public final class OllamaInstallPanel extends JPanel {
         this.searchButton = new JButton("Search Hugging Face");
         this.resultsModel = new DefaultListModel<HuggingFaceModel>();
         this.resultsList = new HuggingFaceResultsList(resultsModel);
-        this.variantsModel = new DefaultListModel<HuggingFaceModel>();
-        this.variantsList = new HuggingFaceResultsList(variantsModel);
         this.filesModel = new DefaultListModel<HuggingFaceFile>();
         this.filesList = new JList<HuggingFaceFile>(filesModel);
         this.repoField = new JTextField(30);
@@ -96,17 +104,11 @@ public final class OllamaInstallPanel extends JPanel {
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         add(buildSearchBar(), BorderLayout.NORTH);
 
-        // Resizable three-column layout, all dividers draggable: original models on the left,
-        // community finetunes/merges in the middle "Variants" list, GGUF files on the right.
-        javax.swing.JSplitPane variantsFilesSplit = new javax.swing.JSplitPane(
-                javax.swing.JSplitPane.HORIZONTAL_SPLIT, buildVariantsArea(), buildFilesArea());
-        variantsFilesSplit.setResizeWeight(0.5d);
-        variantsFilesSplit.setContinuousLayout(true);
-        variantsFilesSplit.setBorder(null);
-
+        // Resizable two-column layout: models on the left (toggled between Originals / Variants /
+        // All), GGUF files on the right.
         javax.swing.JSplitPane listsSplit = new javax.swing.JSplitPane(
-                javax.swing.JSplitPane.HORIZONTAL_SPLIT, buildResultsArea(), variantsFilesSplit);
-        listsSplit.setResizeWeight(0.4d);
+                javax.swing.JSplitPane.HORIZONTAL_SPLIT, buildResultsArea(), buildFilesArea());
+        listsSplit.setResizeWeight(0.6d);
         listsSplit.setContinuousLayout(true);
         listsSplit.setBorder(null);
 
@@ -147,34 +149,63 @@ public final class OllamaInstallPanel extends JPanel {
     }
 
     private JComponent buildResultsArea() {
-        // The two model lists share one selection: picking in one clears the other so the form
-        // always reflects a single chosen repo.
         resultsList.addListSelectionListener(event -> {
             if (!event.getValueIsAdjusting()) {
-                if (resultsList.getSelectedValue() != null) {
-                    variantsList.clearSelection();
-                }
                 onResultSelected(resultsList);
             }
         });
         JScrollPane resultsScroll = new JScrollPane(resultsList);
-        resultsScroll.setBorder(BorderFactory.createTitledBorder("Original models"));
-        return resultsScroll;
+        resultsScroll.setBorder(BorderFactory.createTitledBorder("Hugging Face models"));
+
+        JPanel container = new JPanel(new BorderLayout(0, 4));
+        container.add(buildResultsFilterToggle(), BorderLayout.NORTH);
+        container.add(resultsScroll, BorderLayout.CENTER);
+        return container;
     }
 
-    private JComponent buildVariantsArea() {
-        variantsList.addListSelectionListener(event -> {
-            if (!event.getValueIsAdjusting()) {
-                if (variantsList.getSelectedValue() != null) {
-                    resultsList.clearSelection();
-                }
-                onResultSelected(variantsList);
+    /** Radio-exclusive toggle switching the left list between originals, variants, and both. */
+    private JComponent buildResultsFilterToggle() {
+        ButtonGroup group = new ButtonGroup();
+        group.add(originalsToggle);
+        group.add(variantsToggle);
+        group.add(allToggle);
+        variantsToggle.setToolTipText("Community finetunes, merges and abliterations derived from an original model");
+        allToggle.setToolTipText("Originals followed by variants");
+        originalsToggle.addActionListener(event -> applyResultsFilter(ResultsFilterMode.ORIGINALS));
+        variantsToggle.addActionListener(event -> applyResultsFilter(ResultsFilterMode.VARIANTS));
+        allToggle.addActionListener(event -> applyResultsFilter(ResultsFilterMode.ALL));
+
+        JPanel toggleRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        toggleRow.add(new JLabel("Show:"));
+        toggleRow.add(originalsToggle);
+        toggleRow.add(variantsToggle);
+        toggleRow.add(allToggle);
+        return toggleRow;
+    }
+
+    /** Repopulate the results list from the cached, already classified/sorted search hits. */
+    private void applyResultsFilter(ResultsFilterMode mode) {
+        resultsModel.clear();
+        filesModel.clear();
+        setRepoCapability(" ");
+        if (mode == ResultsFilterMode.ORIGINALS) {
+            for (HuggingFaceModel model : lastOriginalModels) {
+                resultsModel.addElement(model);
             }
-        });
-        JScrollPane variantsScroll = new JScrollPane(variantsList);
-        variantsScroll.setBorder(BorderFactory.createTitledBorder("Variants (finetunes / merges)"));
-        variantsScroll.setToolTipText("Community finetunes, merges and abliterations derived from an original model");
-        return variantsScroll;
+        } else if (mode == ResultsFilterMode.VARIANTS) {
+            for (HuggingFaceModel model : lastVariantModels) {
+                resultsModel.addElement(model);
+            }
+        } else {
+            // "All": originals first, variants merged in after — each half is already sorted by
+            // DISPLAY_ORDER, so re-sorting the merge would defeat "originals first".
+            for (HuggingFaceModel model : lastOriginalModels) {
+                resultsModel.addElement(model);
+            }
+            for (HuggingFaceModel model : lastVariantModels) {
+                resultsModel.addElement(model);
+            }
+        }
     }
 
     private JComponent buildFilesArea() {
@@ -347,10 +378,6 @@ public final class OllamaInstallPanel extends JPanel {
                 onUi(new Runnable() {
                     public void run() {
                         searchButton.setEnabled(true);
-                        resultsModel.clear();
-                        variantsModel.clear();
-                        filesModel.clear();
-                        setRepoCapability(" ");
                         // Split originals from community finetunes/merges, then order each list
                         // OFFICIAL-first so identical provenance groups stand together.
                         List<HuggingFaceModel> originals = new java.util.ArrayList<HuggingFaceModel>();
@@ -364,12 +391,10 @@ public final class OllamaInstallPanel extends JPanel {
                         }
                         java.util.Collections.sort(originals, HuggingFaceModelClassifier.DISPLAY_ORDER);
                         java.util.Collections.sort(variants, HuggingFaceModelClassifier.DISPLAY_ORDER);
-                        for (HuggingFaceModel model : originals) {
-                            resultsModel.addElement(model);
-                        }
-                        for (HuggingFaceModel model : variants) {
-                            variantsModel.addElement(model);
-                        }
+                        lastOriginalModels = originals;
+                        lastVariantModels = variants;
+                        originalsToggle.setSelected(true);
+                        applyResultsFilter(ResultsFilterMode.ORIGINALS);
                         append("Found " + models.size() + " model(s): " + originals.size()
                                 + " original, " + variants.size() + " variant(s). Select one to install.");
                     }
