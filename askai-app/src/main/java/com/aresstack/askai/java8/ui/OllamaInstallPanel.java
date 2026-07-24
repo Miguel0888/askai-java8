@@ -71,7 +71,7 @@ public final class OllamaInstallPanel extends JPanel {
         this.searchCombo.setRenderer(new SearchSuggestionRenderer());
         this.searchButton = new JButton("Search Hugging Face");
         this.resultsModel = new DefaultListModel<HuggingFaceModel>();
-        this.resultsList = new JList<HuggingFaceModel>(resultsModel);
+        this.resultsList = new HuggingFaceResultsList(resultsModel);
         this.filesModel = new DefaultListModel<HuggingFaceFile>();
         this.filesList = new JList<HuggingFaceFile>(filesModel);
         this.repoField = new JTextField(30);
@@ -90,8 +90,27 @@ public final class OllamaInstallPanel extends JPanel {
     private void buildUserInterface() {
         setLayout(new BorderLayout(8, 8));
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        add(buildTop(), BorderLayout.NORTH);
-        add(buildCenter(), BorderLayout.CENTER);
+        add(buildSearchBar(), BorderLayout.NORTH);
+
+        // Resizable layout: drag the divider between the result lists and the form/log area, and
+        // between the two lists — the results are no longer squeezed into a fixed strip.
+        javax.swing.JSplitPane listsSplit = new javax.swing.JSplitPane(
+                javax.swing.JSplitPane.HORIZONTAL_SPLIT, buildResultsArea(), buildFilesArea());
+        listsSplit.setResizeWeight(0.62d);
+        listsSplit.setContinuousLayout(true);
+        listsSplit.setBorder(null);
+
+        JPanel bottom = new JPanel(new BorderLayout(6, 6));
+        bottom.add(buildForm(), BorderLayout.NORTH);
+        bottom.add(buildCenter(), BorderLayout.CENTER);
+
+        javax.swing.JSplitPane mainSplit = new javax.swing.JSplitPane(
+                javax.swing.JSplitPane.VERTICAL_SPLIT, listsSplit, bottom);
+        mainSplit.setResizeWeight(0.45d);
+        mainSplit.setContinuousLayout(true);
+        mainSplit.setBorder(null);
+        add(mainSplit, BorderLayout.CENTER);
+
         progressBar.setStringPainted(true);
         JPanel progressRow = new JPanel(new BorderLayout(6, 0));
         progressRow.add(progressBar, BorderLayout.CENTER);
@@ -100,7 +119,7 @@ public final class OllamaInstallPanel extends JPanel {
         loadTokenFromConfiguration();
     }
 
-    private JComponent buildTop() {
+    private JComponent buildSearchBar() {
         JPanel searchBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
         searchBar.add(new JLabel("Search"));
         searchCombo.setPreferredSize(new java.awt.Dimension(320, searchCombo.getPreferredSize().height));
@@ -114,38 +133,27 @@ public final class OllamaInstallPanel extends JPanel {
         searchButton.addActionListener(event -> searchModels());
         // Enter in the editable combo editor triggers the search, matching the old text field.
         searchCombo.getEditor().addActionListener(event -> searchModels());
+        return searchBar;
+    }
 
-        resultsList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        resultsList.setVisibleRowCount(5);
+    private JComponent buildResultsArea() {
         resultsList.addListSelectionListener(event -> {
             if (!event.getValueIsAdjusting()) {
                 onResultSelected();
             }
         });
-        filesList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        filesList.setVisibleRowCount(5);
-        filesList.setCellRenderer(new GgufFileRenderer());
-
-        JPanel listsPanel = new JPanel(new GridBagLayout());
-        GridBagConstraints constraints = new GridBagConstraints();
-        constraints.gridx = 0;
-        constraints.gridy = 0;
-        constraints.weightx = 0.5d;
-        constraints.weighty = 1.0d;
-        constraints.fill = GridBagConstraints.BOTH;
         JScrollPane resultsScroll = new JScrollPane(resultsList);
         resultsScroll.setBorder(BorderFactory.createTitledBorder("Hugging Face models"));
-        listsPanel.add(resultsScroll, constraints);
-        constraints.gridx = 1;
+        return resultsScroll;
+    }
+
+    private JComponent buildFilesArea() {
+        filesList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        filesList.setVisibleRowCount(8);
+        filesList.setCellRenderer(new GgufFileRenderer());
         JScrollPane filesScroll = new JScrollPane(filesList);
         filesScroll.setBorder(BorderFactory.createTitledBorder("GGUF files"));
-        listsPanel.add(filesScroll, constraints);
-
-        JPanel top = new JPanel(new BorderLayout(6, 6));
-        top.add(searchBar, BorderLayout.NORTH);
-        top.add(listsPanel, BorderLayout.CENTER);
-        top.add(buildForm(), BorderLayout.SOUTH);
-        return top;
+        return filesScroll;
     }
 
     private JComponent buildForm() {

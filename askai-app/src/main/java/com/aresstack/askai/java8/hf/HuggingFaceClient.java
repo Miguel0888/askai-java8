@@ -526,6 +526,21 @@ public final class HuggingFaceClient {
         return value == null ? "" : value;
     }
 
+    /** Map a JSON array of strings to a List; anything else yields an empty list. */
+    private static List<String> stringList(Object value) {
+        List<String> result = new ArrayList<String>();
+        if (value instanceof List) {
+            List values = (List) value;
+            for (int i = 0; i < values.size(); i++) {
+                Object entry = values.get(i);
+                if (entry != null) {
+                    result.add(String.valueOf(entry));
+                }
+            }
+        }
+        return result;
+    }
+
     public List<HuggingFaceModel> searchModels(String query, int limit) throws IOException {
         String url = "https://huggingface.co/api/models?search=" + encode(query) + "&filter=gguf&limit=" + limit;
         Object parsed = OllamaJson.parse(getText(url));
@@ -539,7 +554,8 @@ public final class HuggingFaceClient {
                         firstNonEmpty(string(map, "id"), string(map, "modelId")),
                         string(map, "pipeline_tag"),
                         number(map, "downloads"),
-                        number(map, "likes")));
+                        number(map, "likes"),
+                        stringList(map.get("tags"))));
             }
         }
         return models;
