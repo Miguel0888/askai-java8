@@ -559,13 +559,28 @@ public final class HuggingFaceClient {
         if (criteria.getSearchText().length() > 0) {
             url.append("search=").append(encode(criteria.getSearchText())).append('&');
         }
-        List<String> libraries = criteria.getLibraries();
-        for (int i = 0; i < libraries.size(); i++) {
-            url.append("filter=").append(encode(libraries.get(i))).append('&');
+        // Every facet value (library, task pipeline_tag, language code, license id, "other" tag,
+        // app tag) is a plain tag emitted as a repeated filter= — the server ANDs them. OR within a
+        // group and cross-group OR are handled one level up by splitting into separate requests
+        // (HuggingFaceSearchUseCase), so each criteria that reaches here is meant to be all-ANDed.
+        appendFilters(url, criteria.getLibraries());
+        appendFilters(url, criteria.getTasks());
+        appendFilters(url, criteria.getLanguages());
+        appendFilters(url, criteria.getLicenses());
+        appendFilters(url, criteria.getOther());
+        appendFilters(url, criteria.getApps());
+        if (criteria.isGated()) {
+            url.append("gated=true&");
         }
         url.append("sort=").append(encode(criteria.getSortOrder().getApiField())).append("&direction=-1");
         url.append("&limit=").append(criteria.getPageSize());
         return fetchSearchPage(url.toString());
+    }
+
+    private void appendFilters(StringBuilder url, List<String> values) {
+        for (int i = 0; i < values.size(); i++) {
+            url.append("filter=").append(encode(values.get(i))).append('&');
+        }
     }
 
     /**

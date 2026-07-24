@@ -19,6 +19,7 @@ public final class AppConfiguration {
     private final File modelDownloadDirectory;
     private final SpeechToTextConfiguration speechToTextConfiguration;
     private final String huggingFaceSearchSuggestions;
+    private final String huggingFaceSearchFilters;
 
     /**
      * Default HuggingFace search suggestions for the Install panel dropdown, curated for a 16 GB
@@ -107,7 +108,7 @@ public final class AppConfiguration {
                             String huggingFaceToken, File modelDownloadDirectory) {
         this(ollamaBaseUrl, keepAlive, proxyConfiguration, certificateTrustConfiguration,
                 httpClientConfiguration, defaultQuantization, huggingFaceToken, modelDownloadDirectory,
-                SpeechToTextConfiguration.defaults(), DEFAULT_HF_SEARCH_SUGGESTIONS);
+                SpeechToTextConfiguration.defaults(), DEFAULT_HF_SEARCH_SUGGESTIONS, "");
     }
 
     private AppConfiguration(String ollamaBaseUrl, String keepAlive, ProxyConfiguration proxyConfiguration,
@@ -115,7 +116,7 @@ public final class AppConfiguration {
                              HttpClientConfiguration httpClientConfiguration, String defaultQuantization,
                              String huggingFaceToken, File modelDownloadDirectory,
                              SpeechToTextConfiguration speechToTextConfiguration,
-                             String huggingFaceSearchSuggestions) {
+                             String huggingFaceSearchSuggestions, String huggingFaceSearchFilters) {
         this.ollamaBaseUrl = normalizeBaseUrl(ollamaBaseUrl);
         this.keepAlive = keepAlive == null || keepAlive.trim().length() == 0 ? "5m" : keepAlive.trim();
         this.proxyConfiguration = proxyConfiguration == null ? ProxyConfiguration.defaults() : proxyConfiguration;
@@ -132,6 +133,9 @@ public final class AppConfiguration {
         this.huggingFaceSearchSuggestions = huggingFaceSearchSuggestions == null
                 || huggingFaceSearchSuggestions.trim().length() == 0
                 ? DEFAULT_HF_SEARCH_SUGGESTIONS : huggingFaceSearchSuggestions;
+        // Empty means "use the first-run defaults" — SearchFilterState.deserialize("") yields them;
+        // stored opaquely here to keep the config package free of a dependency on the hf package.
+        this.huggingFaceSearchFilters = huggingFaceSearchFilters == null ? "" : huggingFaceSearchFilters;
     }
 
     /**
@@ -141,7 +145,8 @@ public final class AppConfiguration {
     public AppConfiguration withSpeechToTextConfiguration(SpeechToTextConfiguration configuration) {
         return new AppConfiguration(ollamaBaseUrl, keepAlive, proxyConfiguration,
                 certificateTrustConfiguration, httpClientConfiguration, defaultQuantization,
-                huggingFaceToken, modelDownloadDirectory, configuration, huggingFaceSearchSuggestions);
+                huggingFaceToken, modelDownloadDirectory, configuration, huggingFaceSearchSuggestions,
+                huggingFaceSearchFilters);
     }
 
     /**
@@ -151,7 +156,19 @@ public final class AppConfiguration {
     public AppConfiguration withHuggingFaceSearchSuggestions(String suggestions) {
         return new AppConfiguration(ollamaBaseUrl, keepAlive, proxyConfiguration,
                 certificateTrustConfiguration, httpClientConfiguration, defaultQuantization,
-                huggingFaceToken, modelDownloadDirectory, speechToTextConfiguration, suggestions);
+                huggingFaceToken, modelDownloadDirectory, speechToTextConfiguration, suggestions,
+                huggingFaceSearchFilters);
+    }
+
+    /**
+     * @return a copy of this configuration with the given serialized HuggingFace search-filter
+     *         selection (see {@code SearchFilterState}); empty means the first-run defaults.
+     */
+    public AppConfiguration withHuggingFaceSearchFilters(String filters) {
+        return new AppConfiguration(ollamaBaseUrl, keepAlive, proxyConfiguration,
+                certificateTrustConfiguration, httpClientConfiguration, defaultQuantization,
+                huggingFaceToken, modelDownloadDirectory, speechToTextConfiguration,
+                huggingFaceSearchSuggestions, filters);
     }
 
     public static AppConfiguration defaults() {
@@ -189,6 +206,11 @@ public final class AppConfiguration {
     /** @return the raw newline-separated suggestion list, as persisted. */
     public String getHuggingFaceSearchSuggestionsRaw() {
         return huggingFaceSearchSuggestions;
+    }
+
+    /** @return the serialized HuggingFace search-filter selection, or "" for first-run defaults. */
+    public String getHuggingFaceSearchFilters() {
+        return huggingFaceSearchFilters;
     }
 
     /** @return the parsed HuggingFace search suggestions for the Install panel dropdown, in order. */

@@ -1,0 +1,21 @@
+# HuggingFace "Other" catalog: tag | Display Name | Subgroup
+# Source: https://huggingface.co/api/models-tags-by-type ("other", verified). Structured into
+# meaningful subgroups rather than a flat tag list. Each tag is a plain filter value.
+# Independently updatable: replace this file.
+
+# --- Quantization ---
+4-bit|4-bit precision|Quantization
+8-bit|8-bit precision|Quantization
+
+# --- Model type ---
+moe|Mixture of Experts|Model type
+merge|Merge|Model type
+custom_code|Custom code|Model type
+
+# --- Inference ---
+text-generation-inference|Text Generation Inference|Inference
+text-embeddings-inference|Text Embeddings Inference|Inference
+
+# --- Metadata ---
+eval-results|Eval Results|Metadata
+co2_eq_emissions|Carbon Emissions|Metadata

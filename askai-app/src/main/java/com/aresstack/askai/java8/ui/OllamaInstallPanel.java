@@ -8,7 +8,10 @@ import com.aresstack.askai.java8.hf.HuggingFaceFile;
 import com.aresstack.askai.java8.hf.HuggingFaceModel;
 import com.aresstack.askai.java8.hf.HuggingFaceSearchResult;
 import com.aresstack.askai.java8.hf.ModelSearchCriteria;
+import com.aresstack.askai.java8.hf.SearchFilterState;
 import com.aresstack.askai.java8.hf.SortOrder;
+import com.aresstack.askai.java8.hf.catalog.CatalogLoader;
+import com.aresstack.askai.java8.hf.catalog.FilterCatalogs;
 import com.aresstack.askai.java8.service.AskAiService;
 
 import javax.swing.BorderFactory;
@@ -83,6 +86,12 @@ public final class OllamaInstallPanel extends JPanel {
     private final JToggleButton[] libraryToggles = buildLibraryToggles();
     private final JCheckBox baseOnlyCheckbox = new JCheckBox("Base only");
     private final JButton loadMoreButton = new JButton("Load more");
+    private final JLabel activeFiltersLabel = new JLabel(" ");
+    // Central, shared filter selection (all facet groups + base-only + sort). The library chips,
+    // the base-only checkbox, the sort combo and the Filters dialog all read and write this one
+    // object, so they never disagree; loaded from and saved to configuration.
+    private final SearchFilterState filterState;
+    private final FilterCatalogs filterCatalogs = CatalogLoader.load();
     // The full result set accumulated across "load more" pages, re-classified into
     // originals/variants on every page so the toggle above stays consistent as more load in.
     private final List<HuggingFaceModel> accumulatedModels = new ArrayList<HuggingFaceModel>();
@@ -105,6 +114,8 @@ public final class OllamaInstallPanel extends JPanel {
     public OllamaInstallPanel(AppConfigurationRepository configurationRepository, AskAiService askAiService) {
         this.configurationRepository = configurationRepository;
         this.askAiService = askAiService;
+        this.filterState = SearchFilterState.deserialize(
+                configurationRepository.load().getHuggingFaceSearchFilters());
         this.searchCombo = new JComboBox<HuggingFaceSearchSuggestion>();
         this.searchCombo.setEditable(true);
         this.searchCombo.setRenderer(new SearchSuggestionRenderer());
@@ -165,7 +176,13 @@ public final class OllamaInstallPanel extends JPanel {
         reloadSearchSuggestions();
         searchRow.add(searchCombo);
         searchRow.add(new JLabel("Sort"));
-        sortCombo.setSelectedItem(SortOrder.TRENDING);
+        sortCombo.setSelectedItem(filterState.getSortOrder());
+        sortCombo.addActionListener(event -> {
+            Object selected = sortCombo.getSelectedItem();
+            if (selected instanceof SortOrder) {
+                filterState.setSortOrder((SortOrder) selected);
+            }
+        });
         searchRow.add(sortCombo);
         searchRow.add(searchButton);
         JButton editSuggestionsButton = new JButton("Edit list...");
@@ -179,19 +196,78 @@ public final class OllamaInstallPanel extends JPanel {
         JPanel filterRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
         filterRow.add(new JLabel("Libraries:"));
         for (int i = 0; i < libraryToggles.length; i++) {
-            filterRow.add(libraryToggles[i]);
+            final int index = i;
+            final String tag = LIBRARY_TAGS[index];
+            libraryToggles[index].setSelected(filterState.isSelected(SearchFilterState.Group.LIBRARIES, tag));
+            libraryToggles[index].addActionListener(event -> {
+                filterState.setSelected(SearchFilterState.Group.LIBRARIES, tag, libraryToggles[index].isSelected());
+                refreshActiveFilters();
+            });
+            filterRow.add(libraryToggles[index]);
         }
+        baseOnlyCheckbox.setSelected(filterState.isBaseOnly());
         baseOnlyCheckbox.setToolTipText("<html>Approximation, not an exact Hugging Face server-side filter: "
                 + "hides any hit that carries a base_model relation tag (finetune, quantized, adapter, "
                 + "merge). Hugging Face's public search API only matches that tag exactly, not as a "
                 + "\"has any relation\" filter, so this fetches a few extra pages to backfill toward the "
                 + "requested count and reports it in the log if still short.</html>");
+        baseOnlyCheckbox.addActionListener(event -> filterState.setBaseOnly(baseOnlyCheckbox.isSelected()));
         filterRow.add(baseOnlyCheckbox);
+        JButton filtersButton = new JButton("Filters...");
+        filtersButton.setToolTipText("Open the full filter dialog (tasks, libraries, languages, licenses, other)");
+        filtersButton.addActionListener(event -> openFilterDialog());
+        filterRow.add(filtersButton);
+        filterRow.add(activeFiltersLabel);
+        refreshActiveFilters();
 
         JPanel container = new JPanel(new BorderLayout(0, 2));
         container.add(searchRow, BorderLayout.NORTH);
         container.add(filterRow, BorderLayout.SOUTH);
         return container;
+    }
+
+    /** Opens the shared-state filter dialog; on Apply, re-syncs the quick chips and runs a search. */
+    private void openFilterDialog() {
+        java.awt.Window owner = SwingUtilities.getWindowAncestor(this);
+        java.awt.Frame frame = owner instanceof java.awt.Frame ? (java.awt.Frame) owner : null;
+        FilterDialog dialog = new FilterDialog(frame, filterState, filterCatalogs);
+        dialog.setVisible(true);
+        if (dialog.isApplied()) {
+            syncFilterControlsFromState();
+            refreshActiveFilters();
+            searchModels();
+        }
+    }
+
+    /** Re-reads the library chips, base-only checkbox and sort combo from the shared filter state. */
+    private void syncFilterControlsFromState() {
+        for (int i = 0; i < libraryToggles.length; i++) {
+            libraryToggles[i].setSelected(filterState.isSelected(SearchFilterState.Group.LIBRARIES, LIBRARY_TAGS[i]));
+        }
+        baseOnlyCheckbox.setSelected(filterState.isBaseOnly());
+        sortCombo.setSelectedItem(filterState.getSortOrder());
+    }
+
+    /** Updates the compact active-filters summary shown next to the Filters button. */
+    private void refreshActiveFilters() {
+        int total = filterState.totalActiveFacets();
+        StringBuilder summary = new StringBuilder();
+        appendGroupCount(summary, "tasks", filterState.count(SearchFilterState.Group.TASKS));
+        appendGroupCount(summary, "libs", filterState.count(SearchFilterState.Group.LIBRARIES));
+        appendGroupCount(summary, "langs", filterState.count(SearchFilterState.Group.LANGUAGES));
+        appendGroupCount(summary, "licenses", filterState.count(SearchFilterState.Group.LICENSES));
+        appendGroupCount(summary, "other", filterState.count(SearchFilterState.Group.OTHER));
+        appendGroupCount(summary, "apps", filterState.count(SearchFilterState.Group.APPS));
+        activeFiltersLabel.setText(total == 0 ? "no filters" : "Active: " + summary);
+    }
+
+    private static void appendGroupCount(StringBuilder summary, String label, int count) {
+        if (count > 0) {
+            if (summary.length() > 0) {
+                summary.append(", ");
+            }
+            summary.append(label).append(' ').append(count);
+        }
     }
 
     private JComponent buildResultsArea() {
@@ -545,21 +621,19 @@ public final class OllamaInstallPanel extends JPanel {
         repopulateResultsList(currentFilterMode());
     }
 
-    /** Builds the search criteria from the current UI state (text, sort, library chips, base-only). */
+    /**
+     * Builds the search criteria from the shared filter state (text + every facet group + sort +
+     * base-only) and persists the current filter selection so it survives restarts.
+     */
     private ModelSearchCriteria buildCriteria(String query) {
-        List<String> libraries = new ArrayList<String>();
-        for (int i = 0; i < libraryToggles.length; i++) {
-            if (libraryToggles[i].isSelected()) {
-                libraries.add(LIBRARY_TAGS[i]);
-            }
-        }
-        SortOrder sortOrder = (SortOrder) sortCombo.getSelectedItem();
-        return ModelSearchCriteria.builder()
-                .searchText(query)
-                .libraries(libraries)
-                .baseOnly(baseOnlyCheckbox.isSelected())
-                .sortOrder(sortOrder == null ? SortOrder.TRENDING : sortOrder)
-                .build();
+        persistFilterState();
+        return filterState.toCriteria(query);
+    }
+
+    /** Saves the current filter selection into configuration (serialized, alongside the token etc.). */
+    private void persistFilterState() {
+        AppConfiguration current = configurationRepository.load();
+        configurationRepository.save(current.withHuggingFaceSearchFilters(filterState.serialize()));
     }
 
     private void onResultSelected(JList<HuggingFaceModel> source) {

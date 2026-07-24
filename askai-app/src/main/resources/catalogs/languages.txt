@@ -1,0 +1,50 @@
+# HuggingFace language catalog: code | Display Name
+# Source: https://huggingface.co/api/models-tags-by-type ("language"), HuggingFace frequency
+# order (most common first). The code is the technical filter value (a plain tag). The special
+# value "multilingual" is included. Independently updatable: replace this file.
+
+multilingual|Multilingual
+en|English
+zh|Chinese
+fr|French
+es|Spanish
+de|German
+ja|Japanese
+ko|Korean
+pt|Portuguese
+it|Italian
+ru|Russian
+ar|Arabic
+hi|Hindi
+th|Thai
+tr|Turkish
+vi|Vietnamese
+id|Indonesian
+pl|Polish
+nl|Dutch
+sv|Swedish
+uk|Ukrainian
+ro|Romanian
+fi|Finnish
+fa|Persian
+cs|Czech
+bn|Bengali
+da|Danish
+el|Greek
+he|Hebrew
+ms|Malay
+hu|Hungarian
+ta|Tamil
+ur|Urdu
+bg|Bulgarian
+te|Telugu
+ca|Catalan
+no|Norwegian
+sw|Swahili
+sk|Slovak
+sr|Serbian
+sl|Slovenian
+hr|Croatian
+lt|Lithuanian
+lv|Latvian
+et|Estonian

@@ -1,0 +1,63 @@
+# HuggingFace task catalog: pipeline_tag | Display Name | Category
+# Source: https://huggingface.co/api/tasks (all 47 pipeline_tag ids, verified).
+# Categories follow the HuggingFace task grouping. The pipeline_tag is the technical
+# filter value sent to the API. Independently updatable: replace this file.
+
+# --- Multimodal ---
+any-to-any|Any-to-Any|Multimodal
+audio-text-to-text|Audio-Text-to-Text|Multimodal
+image-text-to-text|Image-Text-to-Text|Multimodal
+image-text-to-image|Image-Text-to-Image|Multimodal
+image-text-to-video|Image-Text-to-Video|Multimodal
+video-text-to-text|Video-Text-to-Text|Multimodal
+visual-question-answering|Visual Question Answering|Multimodal
+document-question-answering|Document Question Answering|Multimodal
+visual-document-retrieval|Visual Document Retrieval|Multimodal
+
+# --- Computer Vision ---
+depth-estimation|Depth Estimation|Computer Vision
+image-classification|Image Classification|Computer Vision
+image-feature-extraction|Image Feature Extraction|Computer Vision
+image-segmentation|Image Segmentation|Computer Vision
+image-to-image|Image-to-Image|Computer Vision
+image-to-text|Image-to-Text|Computer Vision
+image-to-video|Image-to-Video|Computer Vision
+image-to-3d|Image-to-3D|Computer Vision
+keypoint-detection|Keypoint Detection|Computer Vision
+mask-generation|Mask Generation|Computer Vision
+object-detection|Object Detection|Computer Vision
+text-to-image|Text-to-Image|Computer Vision
+text-to-video|Text-to-Video|Computer Vision
+text-to-3d|Text-to-3D|Computer Vision
+unconditional-image-generation|Unconditional Image Generation|Computer Vision
+video-classification|Video Classification|Computer Vision
+video-to-video|Video-to-Video|Computer Vision
+zero-shot-image-classification|Zero-Shot Image Classification|Computer Vision
+zero-shot-object-detection|Zero-Shot Object Detection|Computer Vision
+
+# --- Natural Language Processing ---
+text-generation|Text Generation|Natural Language Processing
+text-classification|Text Classification|Natural Language Processing
+token-classification|Token Classification|Natural Language Processing
+question-answering|Question Answering|Natural Language Processing
+table-question-answering|Table Question Answering|Natural Language Processing
+translation|Translation|Natural Language Processing
+summarization|Summarization|Natural Language Processing
+fill-mask|Fill-Mask|Natural Language Processing
+sentence-similarity|Sentence Similarity|Natural Language Processing
+text-ranking|Text Ranking|Natural Language Processing
+feature-extraction|Feature Extraction|Natural Language Processing
+zero-shot-classification|Zero-Shot Classification|Natural Language Processing
+
+# --- Audio ---
+text-to-speech|Text-to-Speech|Audio
+automatic-speech-recognition|Automatic Speech Recognition|Audio
+audio-to-audio|Audio-to-Audio|Audio
+audio-classification|Audio Classification|Audio
+
+# --- Tabular ---
+tabular-classification|Tabular Classification|Tabular
+tabular-regression|Tabular Regression|Tabular
+
+# --- Reinforcement Learning ---
+reinforcement-learning|Reinforcement Learning|Reinforcement Learning

@@ -25,6 +25,7 @@ public final class AppConfigurationRepository {
     private static final String HF_TOKEN = "huggingface.token";
     private static final String DOWNLOAD_DIRECTORY = "huggingface.downloadDirectory";
     private static final String HF_SEARCH_SUGGESTIONS = "huggingface.searchSuggestions";
+    private static final String HF_SEARCH_FILTERS = "huggingface.searchFilters";
     private static final String TRUST_JVM_DEFAULT = "trust.jvmDefault";
     private static final String TRUST_WINDOWS_ROOT = "trust.windowsRoot";
     private static final String TRUST_WINDOWS_CA_STORES = "trust.windowsCaStores";
@@ -100,7 +101,8 @@ public final class AppConfigurationRepository {
                     .withSpeechToTextConfiguration(stt)
                     .withHuggingFaceSearchSuggestions(AppConfiguration.migrateSearchSuggestions(
                             properties.getProperty(HF_SEARCH_SUGGESTIONS,
-                                    AppConfiguration.DEFAULT_HF_SEARCH_SUGGESTIONS)));
+                                    AppConfiguration.DEFAULT_HF_SEARCH_SUGGESTIONS)))
+                    .withHuggingFaceSearchFilters(properties.getProperty(HF_SEARCH_FILTERS, ""));
         } catch (IOException ex) {
             return AppConfiguration.defaults();
         } finally {
@@ -145,6 +147,7 @@ public final class AppConfigurationRepository {
         properties.setProperty(HF_TOKEN, configuration.getHuggingFaceToken());
         properties.setProperty(DOWNLOAD_DIRECTORY, configuration.getModelDownloadDirectory().getAbsolutePath());
         properties.setProperty(HF_SEARCH_SUGGESTIONS, configuration.getHuggingFaceSearchSuggestionsRaw());
+        properties.setProperty(HF_SEARCH_FILTERS, configuration.getHuggingFaceSearchFilters());
         FileOutputStream outputStream = null;
         try {
             outputStream = new FileOutputStream(configurationFile);

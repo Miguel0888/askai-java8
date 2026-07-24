@@ -28,6 +28,7 @@ public final class ModelSearchCriteria {
     private final List<String> apps;
     private final List<String> inferenceProviders;
     private final boolean baseOnly;
+    private final boolean gated;
     private final boolean inference;
     private final SortOrder sortOrder;
     private final int pageSize;
@@ -44,6 +45,7 @@ public final class ModelSearchCriteria {
         this.apps = immutable(builder.apps);
         this.inferenceProviders = immutable(builder.inferenceProviders);
         this.baseOnly = builder.baseOnly;
+        this.gated = builder.gated;
         this.inference = builder.inference;
         this.sortOrder = builder.sortOrder == null ? SortOrder.TRENDING : builder.sortOrder;
         this.pageSize = builder.pageSize > 0 ? builder.pageSize : 30;
@@ -99,6 +101,11 @@ public final class ModelSearchCriteria {
         return baseOnly;
     }
 
+    /** @return whether to restrict to gated repositories (real HuggingFace {@code gated=true} param). */
+    public boolean isGated() {
+        return gated;
+    }
+
     public boolean isInference() {
         return inference;
     }
@@ -117,7 +124,12 @@ public final class ModelSearchCriteria {
      *         so a multi-library selection is realized as one request per library, merged by id).
      */
     public ModelSearchCriteria withSingleLibrary(String library) {
-        return new Builder(this).libraries(Collections.singletonList(library)).build();
+        return toBuilder().libraries(Collections.singletonList(library)).build();
+    }
+
+    /** @return a builder pre-filled from this criteria, for producing reduced per-request copies. */
+    public Builder toBuilder() {
+        return new Builder(this);
     }
 
     public static Builder builder() {
@@ -136,6 +148,7 @@ public final class ModelSearchCriteria {
         private List<String> apps = Collections.emptyList();
         private List<String> inferenceProviders = Collections.emptyList();
         private boolean baseOnly;
+        private boolean gated;
         private boolean inference;
         private SortOrder sortOrder = SortOrder.TRENDING;
         private int pageSize = 30;
@@ -155,6 +168,7 @@ public final class ModelSearchCriteria {
             this.apps = source.apps;
             this.inferenceProviders = source.inferenceProviders;
             this.baseOnly = source.baseOnly;
+            this.gated = source.gated;
             this.inference = source.inference;
             this.sortOrder = source.sortOrder;
             this.pageSize = source.pageSize;
@@ -212,6 +226,11 @@ public final class ModelSearchCriteria {
 
         public Builder baseOnly(boolean value) {
             this.baseOnly = value;
+            return this;
+        }
+
+        public Builder gated(boolean value) {
+            this.gated = value;
             return this;
         }
 
