@@ -1,0 +1,5 @@
+dependencies {
+    api project(':application')
+    api project(':domain')
+    api "org.pf4j:pf4j:${rootProject.ext.pf4jVersion}"
+}
