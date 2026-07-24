@@ -112,6 +112,10 @@ public final class AskAiFrame extends JFrame {
         connectionStatusLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         connectionStatusLabel.setToolTipText("Open Connections settings (edit the Ollama Base URL)");
         connectionStatusLabel.setBorder(javax.swing.BorderFactory.createEmptyBorder(0, 8, 0, 10));
+        // Keep it flush right after the menu-bar glue: an HTML label otherwise reports an unbounded
+        // maximum size, so the BoxLayout stretches it and the text ends up left-aligned next to the
+        // last menu. Right-align the text and cap the max size to the preferred size.
+        connectionStatusLabel.setHorizontalAlignment(javax.swing.SwingConstants.RIGHT);
         connectionStatusLabel.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent event) {
@@ -140,10 +144,16 @@ public final class AskAiFrame extends JFrame {
         }
     }
 
-    /** Renders the label as the bare base URL, underlined while hovered. */
+    /**
+     * Renders the label as the bare base URL, underlined while hovered. Both states use HTML so the
+     * label keeps the same width (a plain-vs-HTML switch changed the width and shifted it left).
+     */
     private void updateConnectionLabel(boolean hovered) {
         String url = model.getOllamaBaseUrl();
-        connectionStatusLabel.setText(hovered ? "<html><u>" + url + "</u></html>" : url);
+        connectionStatusLabel.setText(hovered ? "<html><u>" + url + "</u></html>" : "<html>" + url + "</html>");
+        // Bound the max size to the natural width so the menu-bar glue keeps it at the right edge
+        // instead of the BoxLayout stretching the (HTML) label across the free space.
+        connectionStatusLabel.setMaximumSize(connectionStatusLabel.getPreferredSize());
     }
 
     private JMenu createTopLevelMenu(String title, String screenName) {
