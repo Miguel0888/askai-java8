@@ -99,7 +99,8 @@ public final class HuggingFaceResultsList extends JList<HuggingFaceModel> {
             iconLabel.setIcon(ModalityIcons.forModalities(HuggingFaceModelClassifier.modalitiesOf(model)));
 
             statsLabel.setText("↓ " + formatCount(model.getDownloads())
-                    + "   ♥ " + formatCount(model.getLikes()));
+                    + "   ♥ " + formatCount(model.getLikes())
+                    + (model.getLibraryName().length() > 0 ? "   " + model.getLibraryName() : ""));
             statsLabel.setFont(base.deriveFont(base.getSize2D() - 1f));
 
             configureBadge(provenance, model, base);

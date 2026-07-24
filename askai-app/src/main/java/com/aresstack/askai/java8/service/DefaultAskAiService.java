@@ -5,6 +5,9 @@ import com.aresstack.askai.java8.config.AppConfigurationRepository;
 import com.aresstack.askai.java8.hf.DownloadProgressListener;
 import com.aresstack.askai.java8.hf.HuggingFaceClient;
 import com.aresstack.askai.java8.hf.HuggingFaceFile;
+import com.aresstack.askai.java8.hf.HuggingFaceSearchResult;
+import com.aresstack.askai.java8.hf.HuggingFaceSearchUseCase;
+import com.aresstack.askai.java8.hf.ModelSearchCriteria;
 import io.github.ollama4j.Ollama;
 import io.github.ollama4j.models.ChatCompletion;
 import io.github.ollama4j.models.ChatMessage;
@@ -85,11 +88,24 @@ public final class DefaultAskAiService implements AskAiService {
         });
     }
 
-    public void searchHuggingFaceModels(final String query, final HuggingFaceModelListener listener) {
+    public void searchHuggingFaceModels(final ModelSearchCriteria criteria, final HuggingFaceSearchListener listener) {
         executorService.submit(new Runnable() {
             public void run() {
                 try {
-                    listener.onModels(huggingFaceClient().searchModels(query, 30));
+                    listener.onResult(new HuggingFaceSearchUseCase(huggingFaceClient()).search(criteria));
+                } catch (Exception ex) {
+                    listener.onError(ex);
+                }
+            }
+        });
+    }
+
+    public void loadMoreHuggingFaceModels(final ModelSearchCriteria criteria, final HuggingFaceSearchResult previous,
+                                          final HuggingFaceSearchListener listener) {
+        executorService.submit(new Runnable() {
+            public void run() {
+                try {
+                    listener.onResult(new HuggingFaceSearchUseCase(huggingFaceClient()).loadMore(criteria, previous));
                 } catch (Exception ex) {
                     listener.onError(ex);
                 }

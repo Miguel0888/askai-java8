@@ -11,12 +11,18 @@ public final class HuggingFaceModel {
     private final long downloads;
     private final long likes;
     private final List<String> tags;
+    private final String libraryName;
 
     public HuggingFaceModel(String id, String pipelineTag, long downloads, long likes) {
         this(id, pipelineTag, downloads, likes, null);
     }
 
     public HuggingFaceModel(String id, String pipelineTag, long downloads, long likes, List<String> tags) {
+        this(id, pipelineTag, downloads, likes, tags, "");
+    }
+
+    public HuggingFaceModel(String id, String pipelineTag, long downloads, long likes, List<String> tags,
+                            String libraryName) {
         this.id = id == null ? "" : id;
         this.pipelineTag = pipelineTag == null ? "" : pipelineTag;
         this.downloads = downloads;
@@ -24,6 +30,7 @@ public final class HuggingFaceModel {
         this.tags = tags == null
                 ? Collections.<String>emptyList()
                 : Collections.unmodifiableList(new ArrayList<String>(tags));
+        this.libraryName = libraryName == null ? "" : libraryName;
     }
 
     public String getId() {
@@ -45,6 +52,28 @@ public final class HuggingFaceModel {
     /** The raw HuggingFace tags, e.g. "gguf", "base_model:quantized:google/gemma-3-12b-it". */
     public List<String> getTags() {
         return tags;
+    }
+
+    /** @return the HuggingFace {@code library_name} (e.g. "gguf", "transformers", "diffusers"), or "". */
+    public String getLibraryName() {
+        return libraryName;
+    }
+
+    /**
+     * @return true when any tag declares a {@code base_model:} relation (plain or qualified, e.g.
+     *         {@code base_model:finetune:...}, {@code base_model:quantized:...}, {@code
+     *         base_model:adapter:...}, {@code base_model:merge:...}) — i.e. this repo is derived from
+     *         another model rather than being the root. Used for the "Base only" best-effort filter,
+     *         since HuggingFace's public search API cannot filter this server-side (it only matches a
+     *         {@code base_model:<relation>:<id>} tag exactly, not as a prefix).
+     */
+    public boolean hasBaseModelRelation() {
+        for (int i = 0; i < tags.size(); i++) {
+            if (tags.get(i).startsWith("base_model:")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** @return the repository owner (the part of the id before the slash), or "". */

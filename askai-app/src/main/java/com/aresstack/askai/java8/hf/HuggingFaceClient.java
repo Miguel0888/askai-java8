@@ -541,9 +541,60 @@ public final class HuggingFaceClient {
         return result;
     }
 
-    public List<HuggingFaceModel> searchModels(String query, int limit) throws IOException {
-        String url = "https://huggingface.co/api/models?search=" + encode(query) + "&filter=gguf&limit=" + limit;
-        Object parsed = OllamaJson.parse(getText(url));
+    /**
+     * Runs one search request built from the given criteria. Sends {@code search=}, one repeated
+     * {@code filter=} per selected library (HuggingFace ANDs repeated {@code filter=} values — a
+     * multi-library selection is realized as separate single-library requests merged by the caller,
+     * see {@link com.aresstack.askai.java8.hf.HuggingFaceSearchUseCase}), {@code sort=}/{@code
+     * direction=-1} from the criteria's {@link SortOrder}, and {@code limit=} from the page size.
+     *
+     * <p>Language/license/task facets are deliberately not built here yet (Phase 1 only wires
+     * search text, libraries, sort, and page size) — verified against the real API: {@code language=}
+     * as a top-level query parameter is silently ignored by the server, the working mechanism is
+     * {@code filter=<language-code>} (languages are plain tags), so a later facet just adds more
+     * {@code filter=} values here rather than a different parameter style.</p>
+     */
+    public HuggingFaceSearchPage searchModels(ModelSearchCriteria criteria) throws IOException {
+        StringBuilder url = new StringBuilder("https://huggingface.co/api/models?");
+        if (criteria.getSearchText().length() > 0) {
+            url.append("search=").append(encode(criteria.getSearchText())).append('&');
+        }
+        List<String> libraries = criteria.getLibraries();
+        for (int i = 0; i < libraries.size(); i++) {
+            url.append("filter=").append(encode(libraries.get(i))).append('&');
+        }
+        url.append("sort=").append(encode(criteria.getSortOrder().getApiField())).append("&direction=-1");
+        url.append("&limit=").append(criteria.getPageSize());
+        return fetchSearchPage(url.toString());
+    }
+
+    /**
+     * Continues pagination from a previous page's {@link HuggingFaceSearchPage#getNextPageUrl()}.
+     * That URL already carries HuggingFace's opaque cursor plus every filter/sort parameter from the
+     * original request, so no criteria re-encoding happens here.
+     */
+    public HuggingFaceSearchPage loadMore(String nextPageUrl) throws IOException {
+        return fetchSearchPage(nextPageUrl);
+    }
+
+    private HuggingFaceSearchPage fetchSearchPage(String url) throws IOException {
+        HttpURLConnection connection = open(url);
+        String body;
+        String nextPageUrl;
+        InputStream inputStream = null;
+        try {
+            int status = connection.getResponseCode();
+            inputStream = status >= 200 && status < 300 ? connection.getInputStream() : connection.getErrorStream();
+            body = readText(inputStream);
+            if (status < 200 || status >= 300) {
+                throw new IOException("HuggingFace request failed with HTTP " + status + ": " + body);
+            }
+            nextPageUrl = parseNextLink(connection.getHeaderField("Link"));
+        } finally {
+            closeQuietly(inputStream);
+            connection.disconnect();
+        }
+        Object parsed = OllamaJson.parse(body);
         List values = parsed instanceof List ? (List) parsed : new ArrayList();
         List<HuggingFaceModel> models = new ArrayList<HuggingFaceModel>();
         for (int i = 0; i < values.size(); i++) {
@@ -555,10 +606,25 @@ public final class HuggingFaceClient {
                         string(map, "pipeline_tag"),
                         number(map, "downloads"),
                         number(map, "likes"),
-                        stringList(map.get("tags"))));
+                        stringList(map.get("tags")),
+                        string(map, "library_name")));
             }
         }
-        return models;
+        return new HuggingFaceSearchPage(models, nextPageUrl);
+    }
+
+    private static final Pattern LINK_NEXT_PATTERN = Pattern.compile("<([^>]+)>\\s*;\\s*rel=\"next\"");
+
+    /**
+     * @return the {@code rel="next"} URL from an RFC 5988 {@code Link} header value, or {@code null}
+     *         when the header is absent or has no next relation (i.e. this was the last page).
+     */
+    private static String parseNextLink(String linkHeaderValue) {
+        if (linkHeaderValue == null) {
+            return null;
+        }
+        Matcher matcher = LINK_NEXT_PATTERN.matcher(linkHeaderValue);
+        return matcher.find() ? matcher.group(1) : null;
     }
 
     public List<HuggingFaceFile> listFiles(String modelId) throws IOException {

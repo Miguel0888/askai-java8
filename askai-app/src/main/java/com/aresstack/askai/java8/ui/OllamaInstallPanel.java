@@ -6,12 +6,16 @@ import com.aresstack.askai.java8.config.HuggingFaceSearchSuggestion;
 import com.aresstack.askai.java8.hf.GgufFile;
 import com.aresstack.askai.java8.hf.HuggingFaceFile;
 import com.aresstack.askai.java8.hf.HuggingFaceModel;
+import com.aresstack.askai.java8.hf.HuggingFaceSearchResult;
+import com.aresstack.askai.java8.hf.ModelSearchCriteria;
+import com.aresstack.askai.java8.hf.SortOrder;
 import com.aresstack.askai.java8.service.AskAiService;
 
 import javax.swing.BorderFactory;
 import javax.swing.ButtonGroup;
 import javax.swing.DefaultListModel;
 import javax.swing.JButton;
+import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
@@ -70,9 +74,32 @@ public final class OllamaInstallPanel extends JPanel {
     private File lastDownloadedFile;
     private AskAiService.InstallTask installTask;
 
+    // Curated library quick-picks (a preview of the future Main-tab Libraries facet); values are
+    // the real HuggingFace tag/filter values, labels are what the chip shows.
+    private static final String[] LIBRARY_TAGS = {"gguf", "safetensors", "pytorch", "transformers", "onnx", "mlx"};
+    private static final String[] LIBRARY_LABELS = {"GGUF", "Safetensors", "PyTorch", "Transformers", "ONNX", "MLX"};
+
+    private final JComboBox<SortOrder> sortCombo = new JComboBox<SortOrder>(SortOrder.values());
+    private final JToggleButton[] libraryToggles = buildLibraryToggles();
+    private final JCheckBox baseOnlyCheckbox = new JCheckBox("Base only");
+    private final JButton loadMoreButton = new JButton("Load more");
+    // The full result set accumulated across "load more" pages, re-classified into
+    // originals/variants on every page so the toggle above stays consistent as more load in.
+    private final List<HuggingFaceModel> accumulatedModels = new ArrayList<HuggingFaceModel>();
+    private ModelSearchCriteria lastCriteria;
+    private HuggingFaceSearchResult lastSearchResult;
+
     /** Which subset of the last search's results the left-hand list currently shows. */
     private enum ResultsFilterMode {
         ORIGINALS, VARIANTS, ALL
+    }
+
+    private static JToggleButton[] buildLibraryToggles() {
+        JToggleButton[] toggles = new JToggleButton[LIBRARY_LABELS.length];
+        for (int i = 0; i < toggles.length; i++) {
+            toggles[i] = new JToggleButton(LIBRARY_LABELS[i], i == 0); // GGUF pre-selected, not hardcoded-forced
+        }
+        return toggles;
     }
 
     public OllamaInstallPanel(AppConfigurationRepository configurationRepository, AskAiService askAiService) {
@@ -132,20 +159,39 @@ public final class OllamaInstallPanel extends JPanel {
     }
 
     private JComponent buildSearchBar() {
-        JPanel searchBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
-        searchBar.add(new JLabel("Search"));
+        JPanel searchRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
+        searchRow.add(new JLabel("Search"));
         searchCombo.setPreferredSize(new java.awt.Dimension(320, searchCombo.getPreferredSize().height));
         reloadSearchSuggestions();
-        searchBar.add(searchCombo);
-        searchBar.add(searchButton);
+        searchRow.add(searchCombo);
+        searchRow.add(new JLabel("Sort"));
+        sortCombo.setSelectedItem(SortOrder.TRENDING);
+        searchRow.add(sortCombo);
+        searchRow.add(searchButton);
         JButton editSuggestionsButton = new JButton("Edit list...");
         editSuggestionsButton.setToolTipText("Edit the model suggestions shown in the dropdown");
         editSuggestionsButton.addActionListener(event -> editSearchSuggestions());
-        searchBar.add(editSuggestionsButton);
+        searchRow.add(editSuggestionsButton);
         searchButton.addActionListener(event -> searchModels());
         // Enter in the editable combo editor triggers the search, matching the old text field.
         searchCombo.getEditor().addActionListener(event -> searchModels());
-        return searchBar;
+
+        JPanel filterRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        filterRow.add(new JLabel("Libraries:"));
+        for (int i = 0; i < libraryToggles.length; i++) {
+            filterRow.add(libraryToggles[i]);
+        }
+        baseOnlyCheckbox.setToolTipText("<html>Approximation, not an exact Hugging Face server-side filter: "
+                + "hides any hit that carries a base_model relation tag (finetune, quantized, adapter, "
+                + "merge). Hugging Face's public search API only matches that tag exactly, not as a "
+                + "\"has any relation\" filter, so this fetches a few extra pages to backfill toward the "
+                + "requested count and reports it in the log if still short.</html>");
+        filterRow.add(baseOnlyCheckbox);
+
+        JPanel container = new JPanel(new BorderLayout(0, 2));
+        container.add(searchRow, BorderLayout.NORTH);
+        container.add(filterRow, BorderLayout.SOUTH);
+        return container;
     }
 
     private JComponent buildResultsArea() {
@@ -156,10 +202,22 @@ public final class OllamaInstallPanel extends JPanel {
         });
         JScrollPane resultsScroll = new JScrollPane(resultsList);
         resultsScroll.setBorder(BorderFactory.createTitledBorder("Hugging Face models"));
+        // Infinite-scroll: trigger "load more" when scrolled near the bottom, in addition to the
+        // explicit button below (the spec allows either).
+        resultsScroll.getVerticalScrollBar().addAdjustmentListener(event -> {
+            javax.swing.JScrollBar bar = resultsScroll.getVerticalScrollBar();
+            if (loadMoreButton.isEnabled() && bar.getValue() + bar.getVisibleAmount() >= bar.getMaximum() - 32) {
+                loadMoreResults();
+            }
+        });
+
+        loadMoreButton.setEnabled(false);
+        loadMoreButton.addActionListener(event -> loadMoreResults());
 
         JPanel container = new JPanel(new BorderLayout(0, 4));
         container.add(buildResultsFilterToggle(), BorderLayout.NORTH);
         container.add(resultsScroll, BorderLayout.CENTER);
+        container.add(loadMoreButton, BorderLayout.SOUTH);
         return container;
     }
 
@@ -183,11 +241,33 @@ public final class OllamaInstallPanel extends JPanel {
         return toggleRow;
     }
 
-    /** Repopulate the results list from the cached, already classified/sorted search hits. */
+    /**
+     * Switches which subset the results list shows and resets the file/capability selection — used
+     * only by the Originals/Variants/All toggle buttons, where switching subsets should drop
+     * whatever repo was selected. Loading more pages must NOT reset that selection (the user may be
+     * browsing a repo's files while paging for more choices), so it calls
+     * {@link #repopulateResultsList(ResultsFilterMode)} directly instead of this method.
+     */
     private void applyResultsFilter(ResultsFilterMode mode) {
-        resultsModel.clear();
         filesModel.clear();
         setRepoCapability(" ");
+        repopulateResultsList(mode);
+    }
+
+    /** @return which mode the Originals/Variants/All toggle is currently on. */
+    private ResultsFilterMode currentFilterMode() {
+        if (variantsToggle.isSelected()) {
+            return ResultsFilterMode.VARIANTS;
+        }
+        if (allToggle.isSelected()) {
+            return ResultsFilterMode.ALL;
+        }
+        return ResultsFilterMode.ORIGINALS;
+    }
+
+    /** Repopulate the results list from the cached, already classified/sorted search hits. */
+    private void repopulateResultsList(ResultsFilterMode mode) {
+        resultsModel.clear();
         if (mode == ResultsFilterMode.ORIGINALS) {
             for (HuggingFaceModel model : lastOriginalModels) {
                 resultsModel.addElement(model);
@@ -371,32 +451,30 @@ public final class OllamaInstallPanel extends JPanel {
             return;
         }
         saveTokenToConfiguration();
+        final ModelSearchCriteria criteria = buildCriteria(query);
+        lastCriteria = criteria;
+        lastSearchResult = null;
+        accumulatedModels.clear();
+        lastOriginalModels = Collections.emptyList();
+        lastVariantModels = Collections.emptyList();
+        originalsToggle.setSelected(true);
+        applyResultsFilter(ResultsFilterMode.ORIGINALS);
         searchButton.setEnabled(false);
-        append("Searching Hugging Face for \"" + query + "\" ...");
-        askAiService.searchHuggingFaceModels(query, new AskAiService.HuggingFaceModelListener() {
-            public void onModels(final List<HuggingFaceModel> models) {
+        loadMoreButton.setEnabled(false);
+        append("Searching Hugging Face for \"" + query + "\" (" + criteria.getSortOrder().getDisplayName()
+                + (criteria.isBaseOnly() ? ", base only" : "") + ") ...");
+        askAiService.searchHuggingFaceModels(criteria, new AskAiService.HuggingFaceSearchListener() {
+            public void onResult(final HuggingFaceSearchResult result) {
                 onUi(new Runnable() {
                     public void run() {
                         searchButton.setEnabled(true);
-                        // Split originals from community finetunes/merges, then order each list
-                        // OFFICIAL-first so identical provenance groups stand together.
-                        List<HuggingFaceModel> originals = new java.util.ArrayList<HuggingFaceModel>();
-                        List<HuggingFaceModel> variants = new java.util.ArrayList<HuggingFaceModel>();
-                        for (HuggingFaceModel model : models) {
-                            if (HuggingFaceModelClassifier.isVariant(model)) {
-                                variants.add(model);
-                            } else {
-                                originals.add(model);
-                            }
-                        }
-                        java.util.Collections.sort(originals, HuggingFaceModelClassifier.DISPLAY_ORDER);
-                        java.util.Collections.sort(variants, HuggingFaceModelClassifier.DISPLAY_ORDER);
-                        lastOriginalModels = originals;
-                        lastVariantModels = variants;
-                        originalsToggle.setSelected(true);
-                        applyResultsFilter(ResultsFilterMode.ORIGINALS);
-                        append("Found " + models.size() + " model(s): " + originals.size()
-                                + " original, " + variants.size() + " variant(s). Select one to install.");
+                        lastSearchResult = result;
+                        accumulatedModels.addAll(result.getModels());
+                        loadMoreButton.setEnabled(result.isLoadMoreSupported());
+                        reclassifyAccumulated();
+                        append("Found " + result.getModels().size() + " model(s)"
+                                + (result.getNote() != null ? " — " + result.getNote() : "")
+                                + ". Select one to install.");
                     }
                 });
             }
@@ -410,6 +488,78 @@ public final class OllamaInstallPanel extends JPanel {
                 });
             }
         });
+    }
+
+    /** Continues pagination from the last search's next-page cursor and appends to the results. */
+    private void loadMoreResults() {
+        if (lastCriteria == null || lastSearchResult == null || !lastSearchResult.isLoadMoreSupported()) {
+            return;
+        }
+        final ModelSearchCriteria criteria = lastCriteria;
+        loadMoreButton.setEnabled(false);
+        append("Loading more results ...");
+        askAiService.loadMoreHuggingFaceModels(criteria, lastSearchResult, new AskAiService.HuggingFaceSearchListener() {
+            public void onResult(final HuggingFaceSearchResult result) {
+                onUi(new Runnable() {
+                    public void run() {
+                        lastSearchResult = result;
+                        accumulatedModels.addAll(result.getModels());
+                        loadMoreButton.setEnabled(result.isLoadMoreSupported());
+                        reclassifyAccumulated();
+                        append("Loaded " + result.getModels().size() + " more model(s)"
+                                + (result.getNote() != null ? " — " + result.getNote() : "") + ".");
+                    }
+                });
+            }
+
+            public void onError(final Exception ex) {
+                onUi(new Runnable() {
+                    public void run() {
+                        loadMoreButton.setEnabled(true);
+                        append("Load more failed: " + ex.getMessage());
+                    }
+                });
+            }
+        });
+    }
+
+    /**
+     * Re-splits and re-sorts the full accumulated result set (every page loaded so far, not just the
+     * newest one) into originals/variants, so the Originals/Variants/All toggle stays complete and
+     * correctly ordered as more pages load in, then repaints the currently selected mode.
+     */
+    private void reclassifyAccumulated() {
+        List<HuggingFaceModel> originals = new ArrayList<HuggingFaceModel>();
+        List<HuggingFaceModel> variants = new ArrayList<HuggingFaceModel>();
+        for (HuggingFaceModel model : accumulatedModels) {
+            if (HuggingFaceModelClassifier.isVariant(model)) {
+                variants.add(model);
+            } else {
+                originals.add(model);
+            }
+        }
+        Collections.sort(originals, HuggingFaceModelClassifier.DISPLAY_ORDER);
+        Collections.sort(variants, HuggingFaceModelClassifier.DISPLAY_ORDER);
+        lastOriginalModels = originals;
+        lastVariantModels = variants;
+        repopulateResultsList(currentFilterMode());
+    }
+
+    /** Builds the search criteria from the current UI state (text, sort, library chips, base-only). */
+    private ModelSearchCriteria buildCriteria(String query) {
+        List<String> libraries = new ArrayList<String>();
+        for (int i = 0; i < libraryToggles.length; i++) {
+            if (libraryToggles[i].isSelected()) {
+                libraries.add(LIBRARY_TAGS[i]);
+            }
+        }
+        SortOrder sortOrder = (SortOrder) sortCombo.getSelectedItem();
+        return ModelSearchCriteria.builder()
+                .searchText(query)
+                .libraries(libraries)
+                .baseOnly(baseOnlyCheckbox.isSelected())
+                .sortOrder(sortOrder == null ? SortOrder.TRENDING : sortOrder)
+                .build();
     }
 
     private void onResultSelected(JList<HuggingFaceModel> source) {

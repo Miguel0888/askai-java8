@@ -1,7 +1,8 @@
 package com.aresstack.askai.java8.service;
 
 import com.aresstack.askai.java8.hf.HuggingFaceFile;
-import com.aresstack.askai.java8.hf.HuggingFaceModel;
+import com.aresstack.askai.java8.hf.HuggingFaceSearchResult;
+import com.aresstack.askai.java8.hf.ModelSearchCriteria;
 import io.github.ollama4j.models.Model;
 import io.github.ollama4j.models.PullProgress;
 
@@ -16,7 +17,11 @@ public interface AskAiService {
 
     void pullOllamaModel(String modelName, PullListener listener);
 
-    void searchHuggingFaceModels(String query, HuggingFaceModelListener listener);
+    void searchHuggingFaceModels(ModelSearchCriteria criteria, HuggingFaceSearchListener listener);
+
+    /** Continues pagination from a previous search/load-more result (see {@link HuggingFaceSearchResult}). */
+    void loadMoreHuggingFaceModels(ModelSearchCriteria criteria, HuggingFaceSearchResult previous,
+                                   HuggingFaceSearchListener listener);
 
     void listHuggingFaceFiles(String modelId, HuggingFaceFileListener listener);
 
@@ -60,8 +65,8 @@ public interface AskAiService {
         void onError(Exception ex);
     }
 
-    interface HuggingFaceModelListener {
-        void onModels(List<HuggingFaceModel> models);
+    interface HuggingFaceSearchListener {
+        void onResult(HuggingFaceSearchResult result);
 
         void onError(Exception ex);
     }
