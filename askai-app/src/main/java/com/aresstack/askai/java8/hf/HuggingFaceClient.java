@@ -712,6 +712,11 @@ public final class HuggingFaceClient {
         return getText(url);
     }
 
+    /** Public GET of an arbitrary text/JSON URL through the same proxy/TLS plumbing (catalog endpoints). */
+    public String fetchText(String url) throws IOException {
+        return getText(url);
+    }
+
     private static final int MAX_DOWNLOAD_ATTEMPTS = 5;
     /** Per-read timeout for downloads: long enough for slow links, short enough to not hang for an hour. */
     private static final int DOWNLOAD_READ_TIMEOUT_MILLIS = 60000;

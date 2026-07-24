@@ -2,6 +2,7 @@ package com.aresstack.askai.java8.ui;
 
 import com.aresstack.askai.java8.hf.SearchFilterState;
 import com.aresstack.askai.java8.hf.SearchFilterState.Group;
+import com.aresstack.askai.java8.hf.catalog.CatalogBundle;
 import com.aresstack.askai.java8.hf.catalog.CatalogEntry;
 import com.aresstack.askai.java8.hf.catalog.FilterCatalogs;
 
@@ -22,39 +23,62 @@ import javax.swing.event.DocumentListener;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
-import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.Frame;
-import java.awt.GridLayout;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
 /**
  * The faceted-search filter dialog: a Main quick-overview tab plus Tasks / Libraries / Languages /
- * Licenses / Other detail tabs, all reading and writing one shared {@link SearchFilterState}. Because
- * every checkbox binds to that single object, a selection in Main is reflected in the matching detail
- * tab and vice-versa; the dialog just re-syncs its checkboxes from the state whenever a tab is shown.
+ * Licenses / Other detail tabs, all reading and writing one shared {@link SearchFilterState} (a
+ * selection in Main is reflected in the matching detail tab and vice-versa).
  *
- * <p>Parameter range, Inference Providers and Hardware are shown as disabled "Coming Soon" sections:
- * the public HuggingFace API has no working server-side parameter filter (verified), and the others
- * are future AskAI features — none are faked.</p>
+ * <p>The catalogs come from live HuggingFace data (with cache/bundled fallbacks); a header shows the
+ * origin + per-group counts and a Refresh button re-fetches live. Values selected but absent from the
+ * current catalog are still shown (and kept selected) so refreshing never silently drops a choice.
+ * The Languages tab (thousands of entries) renders lazily by the filter text to stay responsive.</p>
  */
 public final class FilterDialog extends JDialog {
 
+    /** Above this size a flat detail tab renders lazily (by filter) instead of all checkboxes at once. */
+    private static final int LAZY_THRESHOLD = 400;
+    /** How many entries a lazy tab shows before the user narrows with the filter field. */
+    private static final int LAZY_INITIAL = 300;
+
+    /** Lets the dialog ask the host to re-fetch the catalogs live, without depending on the service. */
+    public interface CatalogRefresher {
+        void refresh(RefreshCallback callback);
+    }
+
+    public interface RefreshCallback {
+        void done(CatalogBundle bundle);
+
+        void failed(String message);
+    }
+
     private final SearchFilterState state;
-    private final FilterCatalogs catalogs;
+    private final CatalogRefresher refresher;
     private final List<Runnable> syncers = new ArrayList<Runnable>();
+
+    private FilterCatalogs catalogs;
+    private CatalogBundle bundle;
+    private JTabbedPane tabs;
+    private JLabel originLabel;
+    private JButton refreshButton;
     private boolean applied;
 
-    public FilterDialog(Frame owner, SearchFilterState state, FilterCatalogs catalogs) {
+    public FilterDialog(Frame owner, SearchFilterState state, CatalogBundle bundle, CatalogRefresher refresher) {
         super(owner, "Search filters", true);
         this.state = state;
-        this.catalogs = catalogs;
+        this.bundle = bundle;
+        this.catalogs = bundle.getCatalogs();
+        this.refresher = refresher;
         buildUserInterface();
-        setSize(560, 620);
+        setSize(580, 660);
         setLocationRelativeTo(owner);
     }
 
@@ -65,18 +89,79 @@ public final class FilterDialog extends JDialog {
 
     private void buildUserInterface() {
         setLayout(new BorderLayout(0, 0));
-        JTabbedPane tabs = new JTabbedPane();
+        add(buildHeader(), BorderLayout.NORTH);
+        tabs = new JTabbedPane();
+        rebuildTabs();
+        add(tabs, BorderLayout.CENTER);
+        add(buildFooter(), BorderLayout.SOUTH);
+    }
+
+    // ------------------------------------------------------------------ header (origin + refresh)
+
+    private JComponent buildHeader() {
+        originLabel = new JLabel();
+        updateOriginLabel();
+        refreshButton = new JButton("Refresh");
+        refreshButton.setToolTipText("Reload the filter catalogs live from HuggingFace");
+        refreshButton.addActionListener(event -> doRefresh());
+        if (refresher == null) {
+            refreshButton.setEnabled(false);
+        }
+        JPanel header = new JPanel(new BorderLayout(6, 0));
+        header.setBorder(BorderFactory.createEmptyBorder(6, 8, 4, 8));
+        header.add(originLabel, BorderLayout.CENTER);
+        header.add(refreshButton, BorderLayout.EAST);
+        return header;
+    }
+
+    private void updateOriginLabel() {
+        String message = bundle.getMessage();
+        originLabel.setText("<html>Quelle: <b>" + bundle.describe() + "</b>"
+                + (message.length() > 0 ? " <span style='color:#a06060'>(" + message + ")</span>" : "") + "</html>");
+    }
+
+    private void doRefresh() {
+        if (refresher == null) {
+            return;
+        }
+        refreshButton.setEnabled(false);
+        originLabel.setText("Aktualisiere Katalog …");
+        refresher.refresh(new RefreshCallback() {
+            public void done(CatalogBundle refreshed) {
+                bundle = refreshed;
+                catalogs = refreshed.getCatalogs();
+                rebuildTabs();
+                updateOriginLabel();
+                refreshButton.setEnabled(true);
+            }
+
+            public void failed(String errorMessage) {
+                originLabel.setText("<html>Aktualisierung fehlgeschlagen: <span style='color:#a06060'>"
+                        + errorMessage + "</span> — vorherige Daten bleiben.</html>");
+                refreshButton.setEnabled(true);
+            }
+        });
+    }
+
+    /** Rebuilds all tabs from the current {@link #catalogs} (used initially and after a refresh). */
+    private void rebuildTabs() {
+        syncers.clear();
+        int selected = tabs.getTabCount() > 0 ? tabs.getSelectedIndex() : 0;
+        tabs.removeAll();
         tabs.addTab("Main", buildMainTab());
         tabs.addTab("Tasks", buildCatalogTab(Group.TASKS, catalogs.getTasks(), true));
         tabs.addTab("Libraries", buildCatalogTab(Group.LIBRARIES, catalogs.getLibraries(), false));
         tabs.addTab("Languages", buildCatalogTab(Group.LANGUAGES, catalogs.getLanguages(), false));
         tabs.addTab("Licenses", buildCatalogTab(Group.LICENSES, catalogs.getLicenses(), false));
         tabs.addTab("Other", buildCatalogTab(Group.OTHER, catalogs.getOther(), true));
-        // Re-sync every tab's checkboxes from the shared state when the user switches tabs, so a
-        // Main-tab quick-pick and its detail-tab checkbox always agree.
+        // Re-sync tab checkboxes from the shared state on tab switch.
+        for (javax.swing.event.ChangeListener listener : tabs.getChangeListeners()) {
+            tabs.removeChangeListener(listener);
+        }
         tabs.addChangeListener(event -> syncAll());
-        add(tabs, BorderLayout.CENTER);
-        add(buildFooter(), BorderLayout.SOUTH);
+        if (selected >= 0 && selected < tabs.getTabCount()) {
+            tabs.setSelectedIndex(selected);
+        }
     }
 
     // ------------------------------------------------------------------ footer
@@ -85,7 +170,7 @@ public final class FilterDialog extends JDialog {
         JButton resetAll = new JButton("Reset all");
         resetAll.addActionListener(event -> {
             state.resetAll();
-            syncAll();
+            rebuildTabs();
         });
         JButton apply = new JButton("Apply");
         apply.addActionListener(event -> {
@@ -217,17 +302,55 @@ public final class FilterDialog extends JDialog {
     // ------------------------------------------------------------------ detail tabs
 
     /**
-     * A detail tab: a "Filter … by name" field, a scroll pane of checkboxes (grouped by category
-     * header when {@code grouped}), a live active-count label and a per-group Reset button. Every
-     * checkbox and the count re-sync from the shared state.
+     * A detail tab: a "Filter … by name" field, a scroll pane of checkboxes, a live count and a
+     * per-group Reset. Small grouped tabs (Tasks/Other) render all checkboxes under category headers;
+     * large flat tabs (Languages) render lazily by the filter to stay responsive. Any selected id not
+     * present in the current catalog is shown at the top as a checked "(nicht im aktuellen Katalog)"
+     * entry so a refresh never silently drops a choice.
      */
-    private JComponent buildCatalogTab(final Group group, List<CatalogEntry> entries, boolean grouped) {
+    private JComponent buildCatalogTab(final Group group, final List<CatalogEntry> entries, boolean grouped) {
         final JPanel list = new JPanel();
         list.setLayout(new BoxLayout(list, BoxLayout.Y_AXIS));
         list.setBorder(BorderFactory.createEmptyBorder(4, 6, 4, 6));
 
         final List<JCheckBox> boxes = new ArrayList<JCheckBox>();
+        final boolean lazy = !grouped && entries.size() > LAZY_THRESHOLD;
+        final JLabel countLabel = new JLabel();
+        final JLabel shownLabel = new JLabel();
+
+        // Selected ids that are not in the current catalog — rendered at the top so they stay visible.
+        final List<CatalogEntry> orphans = orphanEntries(group, entries);
+
+        Runnable updateCount = new Runnable() {
+            public void run() {
+                countLabel.setText(state.count(group) + " selected");
+            }
+        };
+
+        if (lazy) {
+            final JTextField searchField = new JTextField();
+            Runnable render = new Runnable() {
+                public void run() {
+                    renderLazy(list, boxes, group, orphans, entries, searchField.getText(), shownLabel, updateCount);
+                }
+            };
+            render.run();
+            searchField.getDocument().addDocumentListener(new DocumentListener() {
+                public void insertUpdate(DocumentEvent e) { render.run(); }
+                public void removeUpdate(DocumentEvent e) { render.run(); }
+                public void changedUpdate(DocumentEvent e) { render.run(); }
+            });
+            syncers.add(new Runnable() {
+                public void run() {
+                    render.run();
+                }
+            });
+            return assembleTab(group, list, searchField, countLabel, shownLabel, updateCount);
+        }
+
+        // Small tab: render everything (orphans first, then grouped/flat).
         final List<Component> categoryHeaders = new ArrayList<Component>();
+        addOrphanBoxes(list, boxes, group, orphans, updateCount);
         if (grouped) {
             Map<String, List<CatalogEntry>> byGroup = groupEntries(group, entries);
             for (Map.Entry<String, List<CatalogEntry>> bucket : byGroup.entrySet()) {
@@ -238,26 +361,19 @@ public final class FilterDialog extends JDialog {
                 list.add(header);
                 categoryHeaders.add(header);
                 for (CatalogEntry entry : bucket.getValue()) {
-                    JCheckBox box = catalogCheckbox(group, entry);
+                    JCheckBox box = catalogCheckbox(group, entry, updateCount);
                     boxes.add(box);
                     list.add(box);
                 }
             }
         } else {
             for (CatalogEntry entry : entries) {
-                JCheckBox box = catalogCheckbox(group, entry);
+                JCheckBox box = catalogCheckbox(group, entry, updateCount);
                 boxes.add(box);
                 list.add(box);
             }
         }
 
-        final JLabel countLabel = new JLabel();
-        Runnable updateCount = new Runnable() {
-            public void run() {
-                countLabel.setText(state.count(group) + " selected");
-            }
-        };
-        // Keep this tab's checkboxes and count in step with the shared state.
         syncers.add(new Runnable() {
             public void run() {
                 for (int i = 0; i < boxes.size(); i++) {
@@ -267,12 +383,9 @@ public final class FilterDialog extends JDialog {
                 countLabel.setText(state.count(group) + " selected");
             }
         });
-        for (int i = 0; i < boxes.size(); i++) {
-            attachCountUpdate(boxes.get(i), updateCount);
-        }
         updateCount.run();
 
-        JTextField searchField = new JTextField();
+        final JTextField searchField = new JTextField();
         searchField.getDocument().addDocumentListener(new DocumentListener() {
             public void insertUpdate(DocumentEvent e) { filter(); }
             public void removeUpdate(DocumentEvent e) { filter(); }
@@ -285,7 +398,6 @@ public final class FilterDialog extends JDialog {
                             || String.valueOf(box.getClientProperty("filterId")).toLowerCase(Locale.ROOT).contains(needle);
                     box.setVisible(match);
                 }
-                // Category headers are only meaningful when unfiltered; hide them while searching.
                 for (int i = 0; i < categoryHeaders.size(); i++) {
                     categoryHeaders.get(i).setVisible(needle.length() == 0);
                 }
@@ -293,11 +405,52 @@ public final class FilterDialog extends JDialog {
                 list.repaint();
             }
         });
+        return assembleTab(group, list, searchField, countLabel, shownLabel, updateCount);
+    }
 
+    /** Clears and repopulates a lazy tab's list for the current filter text. */
+    private void renderLazy(JPanel list, List<JCheckBox> boxes, Group group, List<CatalogEntry> orphans,
+                            List<CatalogEntry> entries, String filterText, JLabel shownLabel, Runnable updateCount) {
+        list.removeAll();
+        boxes.clear();
+        String needle = filterText.trim().toLowerCase(Locale.ROOT);
+        addOrphanBoxes(list, boxes, group, orphans, updateCount);
+
+        List<CatalogEntry> matches = new ArrayList<CatalogEntry>();
+        for (int i = 0; i < entries.size(); i++) {
+            CatalogEntry entry = entries.get(i);
+            boolean match = needle.length() == 0
+                    || entry.getDisplayName().toLowerCase(Locale.ROOT).contains(needle)
+                    || entry.getId().toLowerCase(Locale.ROOT).contains(needle);
+            if (match) {
+                matches.add(entry);
+            }
+        }
+        int cap = needle.length() == 0 ? LAZY_INITIAL : matches.size();
+        int shown = Math.min(cap, matches.size());
+        for (int i = 0; i < shown; i++) {
+            JCheckBox box = catalogCheckbox(group, matches.get(i), updateCount);
+            boxes.add(box);
+            list.add(box);
+        }
+        if (shown < matches.size()) {
+            JLabel more = new JLabel("… und " + (matches.size() - shown) + " weitere — zum Filtern tippen");
+            more.setForeground(new Color(0x80, 0x80, 0x80));
+            more.setAlignmentX(Component.LEFT_ALIGNMENT);
+            list.add(more);
+        }
+        shownLabel.setText(matches.size() + " / " + entries.size() + " Werte");
+        updateCount.run();
+        list.revalidate();
+        list.repaint();
+    }
+
+    private JComponent assembleTab(final Group group, JPanel list, JTextField searchField,
+                                   JLabel countLabel, JLabel shownLabel, final Runnable updateCount) {
         JButton reset = new JButton("Reset");
         reset.addActionListener(event -> {
             state.resetGroup(group);
-            syncAll();
+            rebuildTabs();
         });
 
         JPanel top = new JPanel(new BorderLayout(6, 0));
@@ -307,7 +460,10 @@ public final class FilterDialog extends JDialog {
 
         JPanel bottom = new JPanel(new BorderLayout());
         bottom.setBorder(BorderFactory.createEmptyBorder(4, 6, 6, 6));
-        bottom.add(countLabel, BorderLayout.WEST);
+        JPanel counts = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
+        counts.add(countLabel);
+        counts.add(shownLabel);
+        bottom.add(counts, BorderLayout.WEST);
         JPanel resetWrap = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
         resetWrap.add(reset);
         bottom.add(resetWrap, BorderLayout.EAST);
@@ -322,18 +478,42 @@ public final class FilterDialog extends JDialog {
         return tab;
     }
 
-    private JCheckBox catalogCheckbox(final Group group, CatalogEntry entry) {
+    /** @return selected ids in the group that are not present in the given catalog entries. */
+    private List<CatalogEntry> orphanEntries(Group group, List<CatalogEntry> entries) {
+        java.util.Set<String> known = new java.util.HashSet<String>();
+        for (int i = 0; i < entries.size(); i++) {
+            known.add(entries.get(i).getId());
+        }
+        List<CatalogEntry> orphans = new ArrayList<CatalogEntry>();
+        for (String id : state.values(group)) {
+            if (!known.contains(id)) {
+                orphans.add(new CatalogEntry(id, id + " (nicht im aktuellen Katalog)", ""));
+            }
+        }
+        return orphans;
+    }
+
+    private void addOrphanBoxes(JPanel list, List<JCheckBox> boxes, Group group, List<CatalogEntry> orphans,
+                                Runnable updateCount) {
+        for (int i = 0; i < orphans.size(); i++) {
+            JCheckBox box = catalogCheckbox(group, orphans.get(i), updateCount);
+            box.setForeground(new Color(0x8A, 0x6D, 0x00));
+            boxes.add(box);
+            list.add(box);
+        }
+    }
+
+    private JCheckBox catalogCheckbox(final Group group, CatalogEntry entry, final Runnable updateCount) {
         final String id = entry.getId();
         JCheckBox box = new JCheckBox(entry.getDisplayName(), state.isSelected(group, id));
         box.setAlignmentX(Component.LEFT_ALIGNMENT);
         box.putClientProperty("filterId", id);
         box.setToolTipText(id);
-        box.addActionListener(event -> state.setSelected(group, id, box.isSelected()));
+        box.addActionListener(event -> {
+            state.setSelected(group, id, box.isSelected());
+            updateCount.run();
+        });
         return box;
-    }
-
-    private void attachCountUpdate(JCheckBox box, final Runnable updateCount) {
-        box.addActionListener(event -> updateCount.run());
     }
 
     private Map<String, List<CatalogEntry>> groupEntries(Group group, List<CatalogEntry> entries) {
@@ -343,8 +523,7 @@ public final class FilterDialog extends JDialog {
         if (group == Group.OTHER) {
             return catalogs.getOtherBySubgroup();
         }
-        // Fallback: single unnamed bucket preserving order.
-        java.util.LinkedHashMap<String, List<CatalogEntry>> single = new java.util.LinkedHashMap<String, List<CatalogEntry>>();
+        LinkedHashMap<String, List<CatalogEntry>> single = new LinkedHashMap<String, List<CatalogEntry>>();
         single.put("", entries);
         return single;
     }

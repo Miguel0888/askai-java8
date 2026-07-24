@@ -1,39 +1,86 @@
-# HuggingFace license catalog: filter-id | Display Name
-# Source: https://huggingface.co/api/models-tags-by-type ("license", curated common subset).
-# The id column is the exact technical filter value sent to the API ("license:<name>").
-# Independently updatable: replace this file.
+# HuggingFace license catalog: license:id | Display — bundled OFFLINE FALLBACK snapshot generated from
+# https://huggingface.co/api/models-tags-by-type (complete, not curated). Primary source is live;
+# this file is only used when live and cache are both unavailable. Regenerate by re-fetching.
 
-license:apache-2.0|Apache-2.0
-license:mit|MIT
-license:openrail|OpenRAIL
-license:openrail++|OpenRAIL++
-license:creativeml-openrail-m|CreativeML OpenRAIL-M
-license:bigscience-openrail-m|BigScience OpenRAIL-M
-license:bigcode-openrail-m|BigCode OpenRAIL-M
-license:gemma|Gemma
-license:llama2|Llama 2
-license:llama3|Llama 3
-license:llama3.1|Llama 3.1
-license:llama3.2|Llama 3.2
-license:llama3.3|Llama 3.3
-license:llama4|Llama 4
-license:cc-by-4.0|CC BY 4.0
-license:cc-by-sa-4.0|CC BY-SA 4.0
-license:cc-by-nc-4.0|CC BY-NC 4.0
-license:cc-by-nc-sa-4.0|CC BY-NC-SA 4.0
-license:cc-by-nc-nd-4.0|CC BY-NC-ND 4.0
-license:cc0-1.0|CC0 1.0
-license:cc|CC
-license:bsd|BSD
-license:bsd-2-clause|BSD 2-Clause
-license:bsd-3-clause|BSD 3-Clause
-license:gpl|GPL
-license:gpl-2.0|GPL 2.0
-license:gpl-3.0|GPL 3.0
-license:agpl-3.0|AGPL 3.0
-license:lgpl-3.0|LGPL 3.0
-license:mpl-2.0|MPL 2.0
-license:artistic-2.0|Artistic 2.0
-license:unlicense|Unlicense
-license:wtfpl|WTFPL
-license:other|Other
+license:apache-2.0|apache-2.0
+license:mit|mit
+license:other|other
+license:openrail|openrail
+license:creativeml-openrail-m|creativeml-openrail-m
+license:cc-by-nc-4.0|cc-by-nc-4.0
+license:openrail++|openrail++
+license:gemma|gemma
+license:cc-by-4.0|cc-by-4.0
+license:llama2|llama2
+license:llama3|llama3
+license:llama3.1|llama3.1
+license:llama3.2|llama3.2
+license:cc-by-nc-sa-4.0|cc-by-nc-sa-4.0
+license:afl-3.0|afl-3.0
+license:cc-by-sa-4.0|cc-by-sa-4.0
+license:gpl-3.0|gpl-3.0
+license:bigscience-bloom-rail-1.0|bigscience-bloom-rail-1.0
+license:bigscience-openrail-m|bigscience-openrail-m
+license:artistic-2.0|artistic-2.0
+license:llama3.3|llama3.3
+license:bigcode-openrail-m|bigcode-openrail-m
+license:bsd-3-clause|bsd-3-clause
+license:cc|cc
+license:agpl-3.0|agpl-3.0
+license:cc-by-nc-nd-4.0|cc-by-nc-nd-4.0
+license:cc0-1.0|cc0-1.0
+license:wtfpl|wtfpl
+license:unlicense|unlicense
+license:bsl-1.0|bsl-1.0
+license:bsd-2-clause|bsd-2-clause
+license:bsd|bsd
+license:llama4|llama4
+license:gpl|gpl
+license:c-uda|c-uda
+license:cc-by-sa-3.0|cc-by-sa-3.0
+license:bsd-3-clause-clear|bsd-3-clause-clear
+license:cc-by-2.0|cc-by-2.0
+license:cc-by-nc-2.0|cc-by-nc-2.0
+license:cdla-permissive-2.0|cdla-permissive-2.0
+license:cc-by-nd-4.0|cc-by-nd-4.0
+license:cc-by-3.0|cc-by-3.0
+license:gpl-2.0|gpl-2.0
+license:cc-by-nc-3.0|cc-by-nc-3.0
+license:apple-amlr|apple-amlr
+license:cc-by-2.5|cc-by-2.5
+license:lgpl-3.0|lgpl-3.0
+license:mpl-2.0|mpl-2.0
+license:osl-3.0|osl-3.0
+license:cc-by-nc-nd-3.0|cc-by-nc-nd-3.0
+license:fair-noncommercial-research-license|fair-noncommercial-research-license
+license:cc-by-nc-sa-3.0|cc-by-nc-sa-3.0
+license:gfdl|gfdl
+license:ecl-2.0|ecl-2.0
+license:pddl|pddl
+license:cc-by-nc-sa-2.0|cc-by-nc-sa-2.0
+license:ms-pl|ms-pl
+license:odc-by|odc-by
+license:apple-ascl|apple-ascl
+license:openmdw-1.1|openmdw-1.1
+license:deepfloyd-if-license|deepfloyd-if-license
+license:etalab-2.0|etalab-2.0
+license:epl-2.0|epl-2.0
+license:grok2-community|grok2-community
+license:eupl-1.2|eupl-1.2
+license:cdla-sharing-1.0|cdla-sharing-1.0
+license:lgpl|lgpl
+license:cdla-permissive-1.0|cdla-permissive-1.0
+license:odbl|odbl
+license:eupl-1.1|eupl-1.1
+license:openmdw-1.0|openmdw-1.0
+license:lppl-1.3c|lppl-1.3c
+license:zlib|zlib
+license:lgpl-2.1|lgpl-2.1
+license:epl-1.0|epl-1.0
+license:isc|isc
+license:ncsa|ncsa
+license:intel-research|intel-research
+license:lgpl-lr|lgpl-lr
+license:h-research|h-research
+license:postgresql|postgresql
+license:ofl-1.1|ofl-1.1

@@ -8,6 +8,7 @@ import com.aresstack.askai.java8.hf.HuggingFaceFile;
 import com.aresstack.askai.java8.hf.HuggingFaceSearchResult;
 import com.aresstack.askai.java8.hf.HuggingFaceSearchUseCase;
 import com.aresstack.askai.java8.hf.ModelSearchCriteria;
+import com.aresstack.askai.java8.hf.catalog.CatalogRepository;
 import com.aresstack.askai.java8.hf.convert.ConverterService;
 import com.aresstack.askai.java8.hf.convert.OllamaEnvironment;
 import com.aresstack.askai.java8.hf.convert.RepositoryAnalysis;
@@ -34,6 +35,7 @@ public final class DefaultAskAiService implements AskAiService {
     private final AppConfigurationRepository configurationRepository;
     private final ExecutorService executorService;
     private final ConverterService converterService = new ConverterService();
+    private final CatalogRepository catalogRepository = new CatalogRepository();
 
     public DefaultAskAiService(AppConfigurationRepository configurationRepository) {
         this.configurationRepository = configurationRepository;
@@ -139,6 +141,18 @@ public final class DefaultAskAiService implements AskAiService {
                     OllamaEnvironment environment = new OllamaEnvironment(safeOllamaVersion());
                     SupportDecision decision = converterService.classify(analysis, environment);
                     listener.onDecision(decision, analysis);
+                } catch (Exception ex) {
+                    listener.onError(ex);
+                }
+            }
+        });
+    }
+
+    public void loadFilterCatalogs(final boolean forceLive, final FilterCatalogListener listener) {
+        executorService.submit(new Runnable() {
+            public void run() {
+                try {
+                    listener.onLoaded(catalogRepository.load(huggingFaceClient(), forceLive));
                 } catch (Exception ex) {
                     listener.onError(ex);
                 }

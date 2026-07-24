@@ -1,6 +1,6 @@
-# HuggingFace library/format catalog: tag | Display Name
-# Source: https://huggingface.co/api/models-tags-by-type ("library", 53 entries, verified).
-# The tag is the technical filter value. Independently updatable: replace this file.
+# HuggingFace library catalog: id | Display — bundled OFFLINE FALLBACK snapshot generated from
+# https://huggingface.co/api/models-tags-by-type (complete, not curated). Primary source is live;
+# this file is only used when live and cache are both unavailable. Regenerate by re-fetching.
 
 pytorch|PyTorch
 tf|TensorFlow
@@ -48,7 +48,10 @@ fairseq|Fairseq
 PaddleOCR|PaddleOCR
 stanza|Stanza
 pyannote-audio|pyannote.audio
+optimum_habana|Habana
 span-marker|SpanMarker
+optimum_graphcore|Graphcore
 paddlenlp|paddlenlp
 unity-sentis|unity-sentis
 dduf|DDUF
+univa|univa

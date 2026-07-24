@@ -3,6 +3,7 @@ package com.aresstack.askai.java8.service;
 import com.aresstack.askai.java8.hf.HuggingFaceFile;
 import com.aresstack.askai.java8.hf.HuggingFaceSearchResult;
 import com.aresstack.askai.java8.hf.ModelSearchCriteria;
+import com.aresstack.askai.java8.hf.catalog.CatalogBundle;
 import com.aresstack.askai.java8.hf.convert.RepositoryAnalysis;
 import com.aresstack.askai.java8.hf.convert.SupportDecision;
 import io.github.ollama4j.models.Model;
@@ -32,6 +33,12 @@ public interface AskAiService {
      * ConverterService (spec §17/§18), off the UI thread.
      */
     void analyzeRepository(String modelId, RepositoryAnalysisListener listener);
+
+    /**
+     * Loads the filter catalogs in the order live → cache → bundled fallback, off the UI thread, and
+     * returns a bundle carrying the catalogs, their origin and per-group counts.
+     */
+    void loadFilterCatalogs(boolean forceLive, FilterCatalogListener listener);
 
     void downloadHuggingFaceFile(HuggingFaceFile file, DownloadListener listener);
 
@@ -87,6 +94,12 @@ public interface AskAiService {
 
     interface RepositoryAnalysisListener {
         void onDecision(SupportDecision decision, RepositoryAnalysis analysis);
+
+        void onError(Exception ex);
+    }
+
+    interface FilterCatalogListener {
+        void onLoaded(CatalogBundle bundle);
 
         void onError(Exception ex);
     }

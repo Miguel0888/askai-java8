@@ -10,8 +10,8 @@ import com.aresstack.askai.java8.hf.HuggingFaceSearchResult;
 import com.aresstack.askai.java8.hf.ModelSearchCriteria;
 import com.aresstack.askai.java8.hf.SearchFilterState;
 import com.aresstack.askai.java8.hf.SortOrder;
-import com.aresstack.askai.java8.hf.catalog.CatalogLoader;
-import com.aresstack.askai.java8.hf.catalog.FilterCatalogs;
+import com.aresstack.askai.java8.hf.catalog.CatalogBundle;
+import com.aresstack.askai.java8.hf.catalog.CatalogRepository;
 import com.aresstack.askai.java8.hf.convert.ConverterService;
 import com.aresstack.askai.java8.hf.convert.RepositoryAnalysis;
 import com.aresstack.askai.java8.hf.convert.SupportDecision;
@@ -101,7 +101,9 @@ public final class OllamaInstallPanel extends JPanel {
     // the base-only checkbox, the sort combo and the Filters dialog all read and write this one
     // object, so they never disagree; loaded from and saved to configuration.
     private final SearchFilterState filterState;
-    private final FilterCatalogs filterCatalogs = CatalogLoader.load();
+    // Filter catalogs holder: seeded synchronously from cache/bundled (instant, no network), then a
+    // background live refresh swaps in fresh HuggingFace data. Read when the filter dialog opens.
+    private CatalogBundle catalogBundle = new CatalogRepository().loadOffline();
     // Network-free provisional classifier for the initial list render; the authoritative,
     // file+config-based decision comes from AskAiService.analyzeRepository.
     private final ConverterService converterService = new ConverterService();
@@ -152,6 +154,7 @@ public final class OllamaInstallPanel extends JPanel {
         buildCancelButton();
         this.logArea = new JTextArea(12, 80);
         buildUserInterface();
+        refreshCatalogsInBackground();
     }
 
     private void buildUserInterface() {
@@ -247,13 +250,51 @@ public final class OllamaInstallPanel extends JPanel {
     private void openFilterDialog() {
         java.awt.Window owner = SwingUtilities.getWindowAncestor(this);
         java.awt.Frame frame = owner instanceof java.awt.Frame ? (java.awt.Frame) owner : null;
-        FilterDialog dialog = new FilterDialog(frame, filterState, filterCatalogs);
+        FilterDialog dialog = new FilterDialog(frame, filterState, catalogBundle, new FilterDialog.CatalogRefresher() {
+            public void refresh(final FilterDialog.RefreshCallback callback) {
+                askAiService.loadFilterCatalogs(true, new AskAiService.FilterCatalogListener() {
+                    public void onLoaded(final CatalogBundle bundle) {
+                        onUi(new Runnable() {
+                            public void run() {
+                                catalogBundle = bundle;
+                                callback.done(bundle);
+                            }
+                        });
+                    }
+
+                    public void onError(final Exception ex) {
+                        onUi(new Runnable() {
+                            public void run() {
+                                callback.failed(ex.getMessage());
+                            }
+                        });
+                    }
+                });
+            }
+        });
         dialog.setVisible(true);
         if (dialog.isApplied()) {
             syncFilterControlsFromState();
             refreshActiveFilters();
             searchModels();
         }
+    }
+
+    /** Kicks a one-off background live refresh of the catalogs at startup, swapping the holder on success. */
+    private void refreshCatalogsInBackground() {
+        askAiService.loadFilterCatalogs(false, new AskAiService.FilterCatalogListener() {
+            public void onLoaded(final CatalogBundle bundle) {
+                onUi(new Runnable() {
+                    public void run() {
+                        catalogBundle = bundle;
+                    }
+                });
+            }
+
+            public void onError(Exception ex) {
+                // Keep the offline bundle; the dialog still works and shows Cache/Fallback origin.
+            }
+        });
     }
 
     /** Re-reads the library chips, base-only checkbox and sort combo from the shared filter state. */
