@@ -35,7 +35,11 @@ public final class AppConfiguration {
      * {@code ollama pull gemma3n:e4b}, not the single-file HuggingFace import.</p>
      */
     public static final String DEFAULT_HF_SEARCH_SUGGESTIONS =
-            "gpt-oss-20b | text\n"
+            "openai/gpt-oss-20b | text\n"
+                    + "LiquidAI/LFM2-24B-A2B | text\n"
+                    + "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct | text\n"
+                    + "unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF | text\n"
+                    + "unsloth/GLM-4.7-Flash-GGUF | text\n"
                     + "llama-3.1-8b-instruct | text\n"
                     + "gemma-3-12b-it | text,vision\n"
                     + "qwen2.5-14b-instruct | text\n"
@@ -56,7 +60,14 @@ public final class AppConfiguration {
             "gpt-oss-20b | text\nllama-3.1-8b-instruct | text\ngemma-3-12b-it | text,vision\n"
                     + "qwen2.5-14b-instruct | text\nqwen2.5-coder-14b | text\nphi-4 | text\n"
                     + "mistral-nemo | text\ngemma-3n-e4b | text,audio,vision\nvoxtral-mini-3b | text,audio\n"
-                    + "qwen3-asr | audio\nultravox | text,audio"
+                    + "qwen3-asr | audio\nultravox | text,audio",
+            // The default list shipped just before the 16 GB additions (openai/gpt-oss-20b,
+            // LiquidAI/LFM2-24B-A2B, DeepSeek-Coder-V2-Lite, Qwen3-Coder-30B-A3B, GLM-4.7-Flash).
+            // An unchanged persisted copy of it should upgrade to the new defaults.
+            "gpt-oss-20b | text\nllama-3.1-8b-instruct | text\ngemma-3-12b-it | text,vision\n"
+                    + "qwen2.5-14b-instruct | text\nqwen2.5-coder-14b | text\nphi-4 | text\n"
+                    + "mistral-nemo | text\ngemma-3n-e4b | text\nvoxtral-mini-3b | text,audio\n"
+                    + "ultravox | text,audio"
     };
 
     /**
