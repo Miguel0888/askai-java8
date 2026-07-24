@@ -1,0 +1,164 @@
+package com.aresstack.askai.java8.ollamalib;
+
+import jodd.jerry.Jerry;
+import jodd.jerry.JerryFunction;
+
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+/**
+ * Parses ollama.com's server-rendered search and library pages with Jerry/Lagarto. Selection is by
+ * stable, class-name-independent signals — the {@code /library/} href prefixes and the visible text
+ * — because ollama.com's Tailwind class names change often while the structure/hrefs do not.
+ *
+ * <p>When a non-trivial page yields no results the parser throws a clear "HTML changed" error rather
+ * than returning an empty list, so scraper drift is visible instead of looking like "no matches".</p>
+ */
+public final class OllamaLibraryHtmlParser {
+
+    private static final String LIBRARY_PREFIX = "/library/";
+    private static final Pattern PARAM_SIZE = Pattern.compile("(?i)^\\d+(?:\\.\\d+)?x?\\d*b$");
+    private static final Pattern CAPABILITY = Pattern.compile("^[a-z][a-z-]{2,15}$");
+    private static final Pattern PULLS = Pattern.compile("([\\d.,]+[KMB]?)\\s*Pulls");
+    private static final Pattern TAGS = Pattern.compile("([\\d.,]+[KMB]?)\\s*Tags");
+    private static final Pattern UPDATED = Pattern.compile("Updated\\s+(.+?)\\s*$");
+    private static final Pattern SIZE = Pattern.compile("(?i)^\\d+(?:\\.\\d+)?(?:gb|mb|kb|tb|b)$");
+
+    /** Parses a {@code /search?q=} page into its result models. */
+    public List<OllamaLibraryModel> parseSearchResults(String html) throws IOException {
+        final List<OllamaLibraryModel> models = new ArrayList<OllamaLibraryModel>();
+        Jerry doc = Jerry.of(html == null ? "" : html);
+        doc.find("a[href^=\"" + LIBRARY_PREFIX + "\"]").each(new JerryFunction() {
+            public Boolean onNode(Jerry node, int index) {
+                String href = node.attr("href");
+                if (href == null) {
+                    return true;
+                }
+                String base = href.substring(LIBRARY_PREFIX.length());
+                // Only real model results: no tag (":"), no sub-path, and a heading present.
+                if (base.length() == 0 || base.indexOf(':') >= 0 || base.indexOf('/') >= 0) {
+                    return true;
+                }
+                Jerry heading = node.find("h2");
+                if (heading.size() == 0) {
+                    return true;
+                }
+                models.add(buildSearchModel(base, node));
+                return true;
+            }
+        });
+        if (models.isEmpty() && html != null && html.length() > 200) {
+            throw new IOException("Ollama-Suchseite hat sich geändert (keine Treffer im HTML gefunden) — "
+                    + "der Scraper muss angepasst werden.");
+        }
+        return models;
+    }
+
+    private OllamaLibraryModel buildSearchModel(String base, Jerry node) {
+        String description = node.find("p").size() > 0 ? node.find("p").first().text().trim() : "";
+        List<String> capabilities = new ArrayList<String>();
+        List<String> parameterSizes = new ArrayList<String>();
+        classifyBadges(node, capabilities, parameterSizes);
+        String blockText = normalize(node.text());
+        return new OllamaLibraryModel(base, description, capabilities, parameterSizes,
+                firstGroup(PULLS, blockText), parseCount(firstGroup(TAGS, blockText)), firstGroup(UPDATED, blockText));
+    }
+
+    /** Splits the result's short badge spans into capabilities (words) and parameter sizes (…b). */
+    private void classifyBadges(Jerry node, final List<String> capabilities, final List<String> parameterSizes) {
+        node.find("span").each(new JerryFunction() {
+            public Boolean onNode(Jerry span, int index) {
+                String text = span.text().trim();
+                if (text.length() == 0) {
+                    return true;
+                }
+                String lower = text.toLowerCase(Locale.ROOT);
+                if (PARAM_SIZE.matcher(lower).matches()) {
+                    if (!parameterSizes.contains(text)) {
+                        parameterSizes.add(text);
+                    }
+                } else if (CAPABILITY.matcher(lower).matches() && !isStatLabel(lower) && !capabilities.contains(lower)) {
+                    capabilities.add(lower);
+                }
+                return true;
+            }
+        });
+    }
+
+    private static boolean isStatLabel(String lower) {
+        return lower.equals("pulls") || lower.equals("tags") || lower.equals("updated");
+    }
+
+    /** Parses a {@code /library/<baseName>} page into its installable tag variants. */
+    public List<OllamaModelVariant> parseModelVariants(final String baseName, String html) throws IOException {
+        final List<OllamaModelVariant> variants = new ArrayList<OllamaModelVariant>();
+        final List<String> seen = new ArrayList<String>();
+        Jerry doc = Jerry.of(html == null ? "" : html);
+        doc.find("a[href^=\"" + LIBRARY_PREFIX + baseName + ":\"]").each(new JerryFunction() {
+            public Boolean onNode(Jerry node, int index) {
+                String href = node.attr("href");
+                if (href == null) {
+                    return true;
+                }
+                String tag = href.substring(LIBRARY_PREFIX.length());
+                if (seen.contains(tag)) {
+                    return true;
+                }
+                seen.add(tag);
+                variants.add(buildVariant(tag, node));
+                return true;
+            }
+        });
+        if (variants.isEmpty() && html != null && html.length() > 200) {
+            throw new IOException("Ollama-Modellseite hat sich geändert (keine Varianten im HTML gefunden) — "
+                    + "der Scraper muss angepasst werden.");
+        }
+        return variants;
+    }
+
+    private OllamaModelVariant buildVariant(String tag, Jerry node) {
+        // The anchor's visible text ends with the detail line
+        // "… 15GB · 384K context window · Text, Image · 7 months ago"; split on the "·" separators.
+        String full = normalize(node.text());
+        String[] parts = full.split("\\u00b7");
+        // The token before the first "·" is the on-disk size — but cloud tags have no local size, so
+        // only accept it when it actually looks like one (e.g. "15GB"), else leave it blank.
+        String sizeToken = parts.length >= 2 ? lastToken(parts[0]) : "";
+        String size = SIZE.matcher(sizeToken).matches() ? sizeToken : "";
+        String context = parts.length > 1 ? parts[1].trim() : "";
+        String inputs = parts.length > 2 ? parts[2].trim() : "";
+        String updated = parts.length > 3 ? parts[3].trim() : "";
+        return new OllamaModelVariant(tag, size, context, inputs, updated);
+    }
+
+    /** @return the last whitespace-separated token of a string, e.g. "…24b latest 15GB" → "15GB". */
+    private static String lastToken(String text) {
+        String trimmed = text.trim();
+        int space = trimmed.lastIndexOf(' ');
+        return space >= 0 ? trimmed.substring(space + 1) : trimmed;
+    }
+
+    private static String firstGroup(Pattern pattern, String text) {
+        Matcher matcher = pattern.matcher(text);
+        return matcher.find() ? matcher.group(1).trim() : "";
+    }
+
+    private static int parseCount(String text) {
+        if (text == null || text.length() == 0) {
+            return 0;
+        }
+        try {
+            return Integer.parseInt(text.replace(",", "").replaceAll("[^0-9]", ""));
+        } catch (NumberFormatException ex) {
+            return 0;
+        }
+    }
+
+    private static String normalize(String text) {
+        return text == null ? "" : text.replace(' ', ' ').replaceAll("\\s+", " ").trim();
+    }
+}

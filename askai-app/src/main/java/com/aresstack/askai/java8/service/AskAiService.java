@@ -6,6 +6,8 @@ import com.aresstack.askai.java8.hf.ModelSearchCriteria;
 import com.aresstack.askai.java8.hf.catalog.CatalogBundle;
 import com.aresstack.askai.java8.hf.convert.RepositoryAnalysis;
 import com.aresstack.askai.java8.hf.convert.SupportDecision;
+import com.aresstack.askai.java8.ollamalib.OllamaLibraryModel;
+import com.aresstack.askai.java8.ollamalib.OllamaModelVariant;
 import io.github.ollama4j.models.Model;
 import io.github.ollama4j.models.PullProgress;
 
@@ -39,6 +41,12 @@ public interface AskAiService {
      * returns a bundle carrying the catalogs, their origin and per-group counts.
      */
     void loadFilterCatalogs(boolean forceLive, FilterCatalogListener listener);
+
+    /** Searches the Ollama library (ollama.com) via HTML scraping, off the UI thread. */
+    void searchOllamaLibrary(String query, OllamaLibraryListener listener);
+
+    /** Loads the installable tag variants of an Ollama library model, off the UI thread. */
+    void loadOllamaVariants(String baseName, OllamaVariantsListener listener);
 
     void downloadHuggingFaceFile(HuggingFaceFile file, DownloadListener listener);
 
@@ -100,6 +108,18 @@ public interface AskAiService {
 
     interface FilterCatalogListener {
         void onLoaded(CatalogBundle bundle);
+
+        void onError(Exception ex);
+    }
+
+    interface OllamaLibraryListener {
+        void onModels(List<OllamaLibraryModel> models);
+
+        void onError(Exception ex);
+    }
+
+    interface OllamaVariantsListener {
+        void onVariants(List<OllamaModelVariant> variants);
 
         void onError(Exception ex);
     }

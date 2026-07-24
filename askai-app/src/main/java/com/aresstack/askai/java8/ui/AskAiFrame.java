@@ -147,9 +147,9 @@ public final class AskAiFrame extends JFrame {
         contentPanel.add(new OllamaChatPanel(model, ollamaService, speechToTextService), CHAT_VIEW);
         contentPanel.add(modelsPanel, MODELS_VIEW);
         contentPanel.add(new OllamaActionsPanel(featureActionService, ollamaService), ACTIONS_VIEW);
-        // Java 8 port: the HuggingFace GGUF search/download/install panel replaces the original
-        // huggingface4j-based download/import view.
-        contentPanel.add(new OllamaInstallPanel(configurationRepository, askAiService), INSTALL_VIEW);
+        // Java 8 port: model search with two sources in tabs — HuggingFace (search/analyze/import)
+        // and the Ollama Library (scrape ollama.com, pull a tag on the remote server).
+        contentPanel.add(new ModelSearchPanel(configurationRepository, askAiService), INSTALL_VIEW);
         contentPanel.add(new OllamaConfigPanel(model, ollamaService), CONNECTIONS_VIEW);
         // Java 8 port: the extended proxy panel (WScript discovery, TLS trust, HTTP client, IPv6).
         contentPanel.add(new ProxyPanel(configurationRepository), NETWORK_VIEW);

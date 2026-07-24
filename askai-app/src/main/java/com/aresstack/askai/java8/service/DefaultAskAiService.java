@@ -14,6 +14,7 @@ import com.aresstack.askai.java8.hf.convert.OllamaEnvironment;
 import com.aresstack.askai.java8.hf.convert.RepositoryAnalysis;
 import com.aresstack.askai.java8.hf.convert.RepositoryAnalyzer;
 import com.aresstack.askai.java8.hf.convert.SupportDecision;
+import com.aresstack.askai.java8.ollamalib.OllamaLibraryClient;
 import io.github.ollama4j.Ollama;
 import io.github.ollama4j.models.ChatCompletion;
 import io.github.ollama4j.models.ChatMessage;
@@ -36,6 +37,8 @@ public final class DefaultAskAiService implements AskAiService {
     private final ExecutorService executorService;
     private final ConverterService converterService = new ConverterService();
     private final CatalogRepository catalogRepository = new CatalogRepository();
+    // Single cached instance so its short-TTL page cache survives across calls.
+    private volatile OllamaLibraryClient ollamaLibraryClient;
 
     public DefaultAskAiService(AppConfigurationRepository configurationRepository) {
         this.configurationRepository = configurationRepository;
@@ -146,6 +149,47 @@ public final class DefaultAskAiService implements AskAiService {
                 }
             }
         });
+    }
+
+    public void searchOllamaLibrary(final String query, final OllamaLibraryListener listener) {
+        executorService.submit(new Runnable() {
+            public void run() {
+                try {
+                    listener.onModels(ollamaLibraryClient().search(query));
+                } catch (Exception ex) {
+                    listener.onError(ex);
+                }
+            }
+        });
+    }
+
+    public void loadOllamaVariants(final String baseName, final OllamaVariantsListener listener) {
+        executorService.submit(new Runnable() {
+            public void run() {
+                try {
+                    listener.onVariants(ollamaLibraryClient().loadVariants(baseName));
+                } catch (Exception ex) {
+                    listener.onError(ex);
+                }
+            }
+        });
+    }
+
+    private OllamaLibraryClient ollamaLibraryClient() {
+        OllamaLibraryClient local = ollamaLibraryClient;
+        if (local == null) {
+            synchronized (this) {
+                if (ollamaLibraryClient == null) {
+                    AppConfiguration configuration = configurationRepository.load();
+                    ollamaLibraryClient = new OllamaLibraryClient(
+                            configuration.getProxyConfiguration(),
+                            configuration.getCertificateTrustConfiguration(),
+                            configuration.getHttpClientConfiguration());
+                }
+                local = ollamaLibraryClient;
+            }
+        }
+        return local;
     }
 
     public void loadFilterCatalogs(final boolean forceLive, final FilterCatalogListener listener) {
