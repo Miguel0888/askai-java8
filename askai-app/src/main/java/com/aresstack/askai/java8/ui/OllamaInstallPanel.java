@@ -440,17 +440,21 @@ public final class OllamaInstallPanel extends JPanel {
                     + " will be downloaded and installed with the model.");
         }
 
-        append("Downloading " + selected.getFileName() + " ...");
-        showProgress(0, "Downloading");
+        final String modelFileName = selected.getFileName();
+        append("Downloading " + modelFileName + " ...");
+        // Always name the file in the bar and reset to 0 so consecutive downloads (model, then
+        // encoder) are visibly separate phases instead of looking stuck at 100%.
+        showProgress(0, "Downloading " + modelFileName);
         askAiService.downloadHuggingFaceFile(selected, new AskAiService.DownloadListener() {
             public void onProgress(final long completed, final long total) {
                 onUi(new Runnable() {
                     public void run() {
                         if (total > 0L) {
                             int percent = (int) (completed * 100L / total);
-                            showProgress(percent, "Downloading " + percent + "%");
+                            showProgress(percent, "Downloading " + modelFileName + "  " + percent + "%");
                         } else {
-                            progressBar.setString("Downloading " + completed + " bytes");
+                            progressBar.setString("Downloading " + modelFileName + "  "
+                                    + (completed / (1024L * 1024L)) + " MB");
                         }
                     }
                 });
@@ -486,14 +490,20 @@ public final class OllamaInstallPanel extends JPanel {
 
     /** Download the encoder after the model; keeps {@code lastDownloadedFile} on the model file. */
     private void downloadCompanion(HuggingFaceFile companion, final boolean installAfterDownload) {
-        append("Downloading encoder " + companion.getFileName() + " ...");
+        final String encoderFileName = companion.getFileName();
+        append("Downloading encoder " + encoderFileName + " ...");
+        // Reset the bar for this second download phase — otherwise it lingers at the model's 100%.
+        showProgress(0, "Downloading encoder " + encoderFileName);
         askAiService.downloadHuggingFaceFile(companion, new AskAiService.DownloadListener() {
             public void onProgress(final long completed, final long total) {
                 onUi(new Runnable() {
                     public void run() {
                         if (total > 0L) {
                             int percent = (int) (completed * 100L / total);
-                            showProgress(percent, "Downloading encoder " + percent + "%");
+                            showProgress(percent, "Downloading encoder " + encoderFileName + "  " + percent + "%");
+                        } else {
+                            progressBar.setString("Downloading encoder " + encoderFileName + "  "
+                                    + (completed / (1024L * 1024L)) + " MB");
                         }
                     }
                 });
