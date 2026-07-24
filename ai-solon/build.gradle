@@ -1,0 +1,6 @@
+dependencies {
+    implementation project(':application')
+    implementation project(':domain')
+    implementation "org.noear:solon-ai:${rootProject.ext.solonAiVersion}"
+    compileOnly 'javax.inject:javax.inject:1'
+}

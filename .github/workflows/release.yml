@@ -54,7 +54,7 @@ jobs:
           echo "TAG=v${VERSION}" >> "${GITHUB_ENV}"
 
       - name: Build Java 8 fat jar
-        run: gradle --no-daemon clean :askai-app:fatJar -PreleaseVersion="${VERSION}"
+        run: bash ./gradlew --no-daemon clean :app:fatJar -PreleaseVersion="${VERSION}"
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
@@ -104,7 +104,7 @@ jobs:
           gradle-version: '7.6.4'
 
       - name: Build snapshot fat jar
-        run: gradle --no-daemon clean :askai-app:fatJar -PreleaseVersion=snapshot
+        run: bash ./gradlew --no-daemon clean :app:fatJar -PreleaseVersion=snapshot
 
       - name: Overwrite rolling snapshot release
         env:

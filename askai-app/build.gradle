@@ -1,8 +1,20 @@
 apply plugin: 'application'
 
 dependencies {
+    implementation project(':application')
+    implementation project(':domain')
+    implementation project(':services')
+    implementation project(':ai-solon')
+    implementation project(':plugin-api')
+    implementation project(':plugin-pf4j')
+
+    // Keep these direct dependencies while the existing implementation classes are
+    // migrated package by package from :app into the layered modules.
     implementation project(':ollama4j-java8')
     implementation 'com.aresstack:win-proxy-java:0.1.0-beta.4'
+
+    implementation "com.formdev:flatlaf:${rootProject.ext.flatLafVersion}"
+    implementation "com.google.inject:guice:${rootProject.ext.guiceVersion}"
 }
 
 mainClassName = 'com.aresstack.askai.java8.AskAiJava8App'
@@ -70,7 +82,7 @@ task mergeServiceFiles {
 
 task fatJar(type: Jar) {
     group = 'build'
-    description = 'Build a Java 8 runnable jar containing AskAI, ollama4j-java8, and runtime dependencies.'
+    description = 'Build a Java 8 runnable jar containing AskAI, layered modules, and runtime dependencies.'
     archiveBaseName = 'askai-java8'
     archiveClassifier = ''
     archiveVersion = project.version.toString()
