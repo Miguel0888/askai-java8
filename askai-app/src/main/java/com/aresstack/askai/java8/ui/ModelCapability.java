@@ -102,7 +102,8 @@ public enum ModelCapability {
         if (value.equals("audio")) {
             return AUDIO;
         }
-        if (value.equals("text")) {
+        // Ollama reports the text/generation capability as "completion"; "text" is the HF spelling.
+        if (value.equals("completion") || value.equals("text")) {
             return TEXT;
         }
         return null;

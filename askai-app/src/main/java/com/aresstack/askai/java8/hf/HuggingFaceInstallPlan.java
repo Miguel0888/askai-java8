@@ -91,25 +91,35 @@ public final class HuggingFaceInstallPlan {
         }
     }
 
-    /** @return the plan persisted next to {@code modelFile}, or {@code null} when none/unreadable. */
-    public static HuggingFaceInstallPlan readSidecar(File modelFile) {
+    /** @return true when an install sidecar exists next to {@code modelFile}. */
+    public static boolean hasSidecar(File modelFile) {
+        return sidecarFor(modelFile).isFile();
+    }
+
+    /**
+     * @return the plan persisted next to {@code modelFile}, or {@code null} when no sidecar exists.
+     * @throws IOException when a sidecar exists but cannot be read/parsed — the caller must surface a
+     *         clear error (or an explicit manual import), never silently treat it as an empty plan.
+     */
+    public static HuggingFaceInstallPlan readSidecar(File modelFile) throws IOException {
         File sidecar = sidecarFor(modelFile);
         if (!sidecar.isFile()) {
-            return null;
+            return null; // no sidecar → a plain manual GGUF import
         }
+        Object parsed;
         try {
             byte[] bytes = java.nio.file.Files.readAllBytes(sidecar.toPath());
-            Object parsed = OllamaJson.parse(new String(bytes, StandardCharsets.UTF_8));
-            if (!(parsed instanceof Map)) {
-                return null;
-            }
-            Map map = (Map) parsed;
-            return new HuggingFaceInstallPlan(string(map, "repositoryId"), string(map, "revision"),
-                    string(map, "targetModelName"), stringList(map.get("declaredCapabilities")),
-                    stringList(map.get("requiredOllamaCapabilities")));
+            parsed = OllamaJson.parse(new String(bytes, StandardCharsets.UTF_8));
         } catch (Exception ex) {
-            return null;
+            throw new IOException("Invalid install sidecar " + sidecar.getName() + ": " + ex.getMessage(), ex);
         }
+        if (!(parsed instanceof Map)) {
+            throw new IOException("Invalid install sidecar " + sidecar.getName() + ": not a JSON object.");
+        }
+        Map map = (Map) parsed;
+        return new HuggingFaceInstallPlan(string(map, "repositoryId"), string(map, "revision"),
+                string(map, "targetModelName"), stringList(map.get("declaredCapabilities")),
+                stringList(map.get("requiredOllamaCapabilities")));
     }
 
     private String toJson() {

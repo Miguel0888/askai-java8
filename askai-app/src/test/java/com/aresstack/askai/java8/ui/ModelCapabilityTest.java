@@ -33,6 +33,21 @@ public class ModelCapabilityTest {
     }
 
     @Test
+    public void completionAndTextBothMapToText() {
+        assertEquals(ModelCapability.TEXT, ModelCapability.fromOllamaTag("completion"));
+        assertEquals(ModelCapability.TEXT, ModelCapability.fromOllamaTag("text"));
+        assertEquals(ModelCapability.AUDIO, ModelCapability.fromOllamaTag("audio"));
+    }
+
+    @Test
+    public void duplicatesAreRemovedFromRequiredTags() {
+        List<String> tags = ModelCapability.requiredOllamaTags(
+                EnumSet.of(ModelCapability.TEXT, ModelCapability.AUDIO));
+        // A set has no duplicates, and the mapping keeps a single tag per capability in enum order.
+        assertEquals(Arrays.asList("completion", "audio"), tags);
+    }
+
+    @Test
     public void perCapabilityTags() {
         assertEquals("completion", ModelCapability.TEXT.getOllamaCapabilityTag());
         assertEquals("audio", ModelCapability.AUDIO.getOllamaCapabilityTag());

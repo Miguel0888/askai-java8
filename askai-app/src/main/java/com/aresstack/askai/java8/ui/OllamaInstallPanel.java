@@ -1504,9 +1504,16 @@ public final class OllamaInstallPanel extends JPanel {
      *         persisted as a sidecar). Empty for a plain manual GGUF import with no declared capabilities.
      */
     private List<String> resolveRequiredCapabilities(File modelFile, String modelName) {
-        HuggingFaceInstallPlan sidecar = HuggingFaceInstallPlan.readSidecar(modelFile);
-        if (sidecar != null) {
-            return sidecar.getRequiredOllamaCapabilities();
+        try {
+            HuggingFaceInstallPlan sidecar = HuggingFaceInstallPlan.readSidecar(modelFile);
+            if (sidecar != null) {
+                return sidecar.getRequiredOllamaCapabilities();
+            }
+        } catch (java.io.IOException ex) {
+            // A present-but-invalid sidecar must not be silently treated as an empty plan.
+            append("WARNING: " + ex.getMessage()
+                    + " — installing as a manual GGUF import without declared capabilities.");
+            return Collections.emptyList();
         }
         if (currentModel == null) {
             return Collections.emptyList();
@@ -1523,28 +1530,30 @@ public final class OllamaInstallPanel extends JPanel {
         return required;
     }
 
-    /** Reports the /api/show verification: VERIFIED, INSTALLED_BUT_INCOMPLETE or an unverifiable note. */
+    /** Reports the post-create /api/show verification: VERIFIED / MISSING_REQUIRED / UNKNOWN / FAILED. */
     private void reportVerification(VerificationResult result, List<String> required) {
         if (result.getStatus() == VerificationStatus.FAILED) {
-            append("Note: could not verify capabilities via /api/show: " + result.getErrorMessage());
+            append("Model was created, but post-install verification through /api/show failed: "
+                    + result.getErrorMessage());
             return;
         }
         if (result.getStatus() == VerificationStatus.UNKNOWN) {
-            append("Note: Ollama reported no capabilities (older server?)."
-                    + (required.isEmpty() ? "" : " Cannot confirm the declared capabilities " + join(required) + "."));
+            append("Model was created, but the Ollama server did not return a usable capabilities field.");
             return;
         }
         if (required.isEmpty()) {
-            append("Verified capabilities (from /api/show): " + result.describeReported() + ".");
+            append("Model installed and verified. Capabilities reported by Ollama: "
+                    + result.describeReported() + ".");
             return;
         }
         if (result.getMissingRequired().isEmpty()) {
-            append("VERIFIED: Hugging Face capabilities reproduced (/api/show: " + result.describeReported() + ").");
+            append("Model installed and verified. Capabilities reported by Ollama: "
+                    + result.describeReported() + ".");
         } else {
-            append("INSTALLED_BUT_INCOMPLETE: /api/show did not report " + join(result.getMissingRequired())
-                    + " declared by Hugging Face (reported: " + result.describeReported() + "). The model is "
-                    + "installed, but this capability was not reproduced — the repository may not ship the "
-                    + "required encoder/template, or the base model does not support it.");
+            append("Model was created, but Ollama did not return all installed capabilities.\n"
+                    + "  Expected: " + join(required) + "\n"
+                    + "  Reported by /api/show: " + result.describeReported() + "\n"
+                    + "  Missing: " + join(result.getMissingRequired()));
         }
     }
 

@@ -50,17 +50,34 @@ public final class RemoteGgufInstaller {
         }
     }
 
+    /** The capability tags Ollama understands on {@code /api/create.info.capabilities}. */
+    private static final java.util.Set<String> OLLAMA_CAPABILITY_TAGS =
+            new java.util.LinkedHashSet<String>(java.util.Arrays.asList(
+                    "completion", "vision", "audio", "tools", "thinking", "embedding"));
+
     public void install(String modelName, File file, ProgressListener listener) throws Exception {
-        install(modelName, file, java.util.Collections.<File>emptyList(), listener);
+        install(modelName, file, java.util.Collections.<File>emptyList(),
+                java.util.Collections.<String>emptyList(), listener);
+    }
+
+    /** Manual GGUF import (no declared capabilities): no {@code info.capabilities} is sent. */
+    public void install(String modelName, File file, java.util.List<File> extraFiles,
+                        ProgressListener listener) throws Exception {
+        install(modelName, file, extraFiles, java.util.Collections.<String>emptyList(), listener);
     }
 
     /**
      * Install the model GGUF plus optional companion files (e.g. the *mmproj* audio/vision encoder
      * a multimodal model needs). Every file is validated, hashed and uploaded (skipping blobs the
      * server already has), then referenced together in one {@code /api/create} call.
+     *
+     * <p>For a Hugging Face import the declared capabilities are passed as canonical Ollama tags and
+     * sent as {@code info.capabilities} so Ollama records them and {@code /api/show} returns them. The
+     * list is normalized (only real Ollama tags, de-duplicated, stable order); an empty list omits the
+     * {@code info} field entirely (manual import).</p>
      */
     public void install(String modelName, File file, java.util.List<File> extraFiles,
-                        ProgressListener listener) throws Exception {
+                        java.util.Collection<String> capabilities, ProgressListener listener) throws Exception {
         if (modelName == null || modelName.trim().length() == 0) {
             throw new IllegalArgumentException("Model name is required.");
         }
@@ -95,8 +112,39 @@ public final class RemoteGgufInstaller {
         Map<String, Object> body = new LinkedHashMap<String, Object>();
         body.put("model", modelName.trim());
         body.put("files", files);
+        // Send the declared capabilities so Ollama records them (only for a HF import; a manual import
+        // passes an empty list and omits info entirely — capabilities are never guessed from the name).
+        java.util.List<String> capabilityTags = normalizeCapabilities(capabilities);
+        if (!capabilityTags.isEmpty()) {
+            Map<String, Object> info = new LinkedHashMap<String, Object>();
+            info.put("capabilities", new java.util.ArrayList<String>(capabilityTags));
+            body.put("info", info);
+        }
         body.put("stream", Boolean.TRUE);
         createModel("/api/create", OllamaJson.toJson(body), listener);
+    }
+
+    /**
+     * @return the given capabilities reduced to real Ollama tags only ({@code completion}, {@code
+     *         vision}, {@code audio}, {@code tools}, {@code thinking}, {@code embedding}),
+     *         lower-cased, de-duplicated and in first-seen order. Enum names / unknown values are
+     *         dropped, so no {@code "TEXT"}/{@code "AUDIO"} ever reaches Ollama.
+     */
+    public static java.util.List<String> normalizeCapabilities(java.util.Collection<String> capabilities) {
+        java.util.List<String> result = new java.util.ArrayList<String>();
+        if (capabilities == null) {
+            return result;
+        }
+        for (String capability : capabilities) {
+            if (capability == null) {
+                continue;
+            }
+            String tag = capability.trim().toLowerCase(java.util.Locale.ROOT);
+            if (OLLAMA_CAPABILITY_TAGS.contains(tag) && !result.contains(tag)) {
+                result.add(tag);
+            }
+        }
+        return result;
     }
 
     /** How often a blob upload is attempted before giving up (network drops mid-upload happen). */

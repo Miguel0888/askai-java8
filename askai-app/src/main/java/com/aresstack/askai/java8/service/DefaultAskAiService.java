@@ -251,17 +251,21 @@ public final class DefaultAskAiService implements AskAiService {
                                                      final InstallListener listener) {
         AppConfiguration configuration = configurationRepository.load();
         final RemoteGgufInstaller installer = new RemoteGgufInstaller(configuration.getOllamaBaseUrl());
+        // One normalized capability list is used for BOTH steps: sent to Ollama in /api/create and
+        // checked against /api/show — the declared HF capabilities are the install contract, not just a
+        // post-hoc comparison.
+        final List<String> capabilities = RemoteGgufInstaller.normalizeCapabilities(requiredCapabilities);
         final Future<?> future = executorService.submit(new Runnable() {
             public void run() {
                 try {
-                    installer.install(modelName, ggufFile, companionFiles,
+                    installer.install(modelName, ggufFile, companionFiles, capabilities,
                             new RemoteGgufInstaller.ProgressListener() {
                                 public void onProgress(String phase, long completed, long total) {
                                     listener.onProgress(phase, completed, total);
                                 }
                             });
                     // Verify against /api/show before declaring the install complete.
-                    listener.onVerified(verifyInstalled(modelName, requiredCapabilities));
+                    listener.onVerified(verifyInstalled(modelName, capabilities));
                     listener.onComplete("Installed " + modelName + " on remote Ollama.");
                 } catch (Exception ex) {
                     listener.onError(ex);
