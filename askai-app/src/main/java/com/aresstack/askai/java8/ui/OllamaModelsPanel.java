@@ -55,6 +55,8 @@ public final class OllamaModelsPanel extends JPanel {
     private final CardLayout cardLayout;
     private final JPanel cards;
     private final JPanel installedCardsPanel;
+    private final JPanel helperCardsPanel;
+    private CollapsiblePanel helperSection;
     private final JPanel runningCardsPanel;
     private final JLabel installedStatusLabel;
     private final JLabel runningStatusLabel;
@@ -72,6 +74,7 @@ public final class OllamaModelsPanel extends JPanel {
         this.cardLayout = new CardLayout();
         this.cards = new JPanel(cardLayout);
         this.installedCardsPanel = createCardsPanel();
+        this.helperCardsPanel = createCardsPanel();
         this.runningCardsPanel = createCardsPanel();
         this.installedStatusLabel = new JLabel("Installed models are not loaded yet.");
         this.runningStatusLabel = new JLabel("Running models are not loaded yet.");
@@ -122,7 +125,16 @@ public final class OllamaModelsPanel extends JPanel {
     private JPanel createInstalledModelsCard() {
         JPanel panel = new JPanel(new BorderLayout(8, 8));
         panel.add(createInstalledToolbar(), BorderLayout.NORTH);
-        panel.add(new JScrollPane(installedCardsPanel), BorderLayout.CENTER);
+        // Chat models first, then a collapsible "Other / helper models" section (embedding-only /
+        // encoder-like models per /api/show), so they can be reviewed and deleted without cluttering the
+        // main list. mmproj encoders are baked into their model and never appear separately.
+        JPanel content = new JPanel();
+        content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
+        content.add(installedCardsPanel);
+        this.helperSection = new CollapsiblePanel("Other / helper models", helperCardsPanel, false);
+        helperSection.setVisible(false);
+        content.add(helperSection);
+        panel.add(new JScrollPane(content), BorderLayout.CENTER);
         showInstalledPlaceholder("Open Models > Installed or click Refresh to load installed models.");
         return panel;
     }
@@ -245,6 +257,10 @@ public final class OllamaModelsPanel extends JPanel {
 
     private void showInstalledModels(List<OllamaModelInfo> models) {
         installedCardsPanel.removeAll();
+        helperCardsPanel.removeAll();
+        if (helperSection != null) {
+            helperSection.setVisible(false);
+        }
         if (models.isEmpty()) {
             addPlaceholder(installedCardsPanel, "No installed models returned by Ollama.");
         } else {
@@ -272,16 +288,37 @@ public final class OllamaModelsPanel extends JPanel {
                         confirmAndDelete(modelInfo.getDisplayName());
                     }
                 });
-                installedCardsPanel.add(card);
-                installedCardsPanel.add(Box.createVerticalStrut(6));
-                loadCapabilities(modelInfo.getDisplayName(), card);
+                // One movable row per card, so a card can be relocated to the helper section once its
+                // /api/show capabilities reveal it is not a chat model.
+                JPanel row = new JPanel(new BorderLayout());
+                row.setOpaque(false);
+                row.setBorder(BorderFactory.createEmptyBorder(0, 0, 6, 0));
+                row.add(card, BorderLayout.CENTER);
+                installedCardsPanel.add(row);
+                loadCapabilities(modelInfo.getDisplayName(), card, row);
             }
         }
         refreshCards(installedCardsPanel);
     }
 
+    /** @return true when /api/show reports capabilities but not text/completion (an embedding/encoder-like helper). */
+    private static boolean isHelperModel(java.util.Set<ModelCapability> capabilities) {
+        return !capabilities.isEmpty() && !capabilities.contains(ModelCapability.TEXT);
+    }
+
+    /** Moves a card's row into the collapsible "Other / helper models" section. */
+    private void moveToHelperSection(JPanel row) {
+        installedCardsPanel.remove(row);
+        helperCardsPanel.add(row);
+        if (helperSection != null) {
+            helperSection.setVisible(true);
+        }
+        refreshCards(installedCardsPanel);
+        refreshCards(helperCardsPanel);
+    }
+
     /** Query /api/show for the model's capability tags and render them on the card. */
-    private void loadCapabilities(String modelName, final OllamaModelCard card) {
+    private void loadCapabilities(String modelName, final OllamaModelCard card, final JPanel row) {
         ollamaService.getModelInfo(modelName, new OllamaService.ModelInfoListener() {
             @Override
             public void onModelInfo(final OllamaModelInfoView info) {
@@ -289,6 +326,9 @@ public final class OllamaModelsPanel extends JPanel {
                     @Override
                     public void run() {
                         card.setCapabilities(info.getCapabilities());
+                        if (isHelperModel(card.shownCapabilities())) {
+                            moveToHelperSection(row);
+                        }
                     }
                 });
             }
@@ -298,7 +338,7 @@ public final class OllamaModelsPanel extends JPanel {
                 onUi(new Runnable() {
                     @Override
                     public void run() {
-                        // Older Ollama without capabilities: enable the buttons without icons.
+                        // Older Ollama without capabilities: keep it as a normal card (no icons).
                         card.setCapabilities(new ArrayList<String>());
                     }
                 });
