@@ -1306,11 +1306,13 @@ public final class OllamaInstallPanel extends JPanel {
         }
     }
 
-    /** @return a *mmproj* GGUF lying next to the model file, or null. */
+    /**
+     * @return an encoder (projector) GGUF lying next to the model file, or null. A sibling is treated as a
+     *         projector only when its GGUF header proves it (a vision/audio encoder), never by its file
+     *         name — a plain model named "mmproj" is not mistaken for an encoder, and a projector with no
+     *         "mmproj" in its name is still found.
+     */
     private File findLocalMmproj(File modelFile) {
-        if (isMmprojName(modelFile.getName())) {
-            return null;
-        }
         File parent = modelFile.getParentFile();
         if (parent == null || !parent.isDirectory()) {
             return null;
@@ -1320,12 +1322,35 @@ public final class OllamaInstallPanel extends JPanel {
             return null;
         }
         for (int i = 0; i < siblings.length; i++) {
-            String name = siblings[i].getName().toLowerCase();
-            if (siblings[i].isFile() && name.contains("mmproj") && name.endsWith(".gguf")) {
-                return siblings[i];
+            File sibling = siblings[i];
+            if (!sibling.isFile() || sibling.equals(modelFile)
+                    || !sibling.getName().toLowerCase().endsWith(".gguf")) {
+                continue;
+            }
+            try {
+                if (com.aresstack.askai.java8.hf.GgufFile.inspect(sibling).isProjector()) {
+                    return sibling;
+                }
+            } catch (java.io.IOException ignored) {
+                // Not a readable GGUF header → not a usable encoder.
             }
         }
         return null;
+    }
+
+    /** @return a one-line description of a projector GGUF's content for the install log, or "" if unreadable. */
+    private static String describeProjector(File encoder) {
+        try {
+            com.aresstack.askai.java8.hf.GgufFile.GgufInfo info =
+                    com.aresstack.askai.java8.hf.GgufFile.inspect(encoder);
+            long mb = encoder.length() / (1024L * 1024L);
+            return encoder.getName() + " (" + mb + " MB) — kind=" + info.projectorKind()
+                    + ", vision=" + (info.hasVisionEncoder() ? "yes" : "no")
+                    + ", audio=" + (info.hasAudioEncoder() ? "yes" : "no")
+                    + ", architecture=" + (info.architecture().length() > 0 ? info.architecture() : "?");
+        } catch (java.io.IOException ex) {
+            return "";
+        }
     }
 
     /**
@@ -1527,7 +1552,8 @@ public final class OllamaInstallPanel extends JPanel {
         File mmproj = findLocalMmproj(lastDownloadedFile);
         if (mmproj != null) {
             companions.add(mmproj);
-            append("Including audio/vision encoder: " + mmproj.getName());
+            String described = describeProjector(mmproj);
+            append("Including encoder: " + (described.length() > 0 ? described : mmproj.getName()));
         }
         // Resolve the install plan on the EDT (sidecar precedence + any prompts). The heavier metadata
         // enrichment (config.json / HF model-info) then runs off the EDT inside the service.
