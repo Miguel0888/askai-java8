@@ -71,6 +71,32 @@ public final class OllamaCreateMetadata {
         return capabilities;
     }
 
+    /**
+     * @return a copy of this metadata with its capability list replaced (every other field unchanged). Used
+     *         to intersect the declared capabilities with what the installed runtime can actually honour.
+     */
+    public OllamaCreateMetadata withCapabilities(List<String> newCapabilities) {
+        Builder builder = new Builder()
+                .capabilities(newCapabilities)
+                .modelFamily(modelFamily)
+                .baseName(baseName)
+                .quantizationLevel(quantizationLevel)
+                .parameterSize(parameterSize)
+                .contextLength(contextLength)
+                .embeddingLength(embeddingLength)
+                .license(license)
+                .template(template)
+                .renderer(renderer)
+                .parser(parser)
+                .requires(requires)
+                .system(system)
+                .messages(messages);
+        if (!parameters.isEmpty()) {
+            builder.parameters(parameters);
+        }
+        return builder.build();
+    }
+
     public MetadataValue<String> modelFamily() {
         return modelFamily;
     }

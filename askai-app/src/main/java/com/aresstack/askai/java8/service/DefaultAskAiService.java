@@ -284,7 +284,7 @@ public final class DefaultAskAiService implements AskAiService {
                 // Runs on the install executor (never the EDT): loads config.json / generation_config.json
                 // / HF model-info for the frozen repo+revision and maps the trusted values to /api/create.
                 listener.onProgress("Preparing metadata", 0, 0);
-                return buildPlanMetadata(hf, plan, ggufFile);
+                return buildPlanMetadata(hf, plan, ggufFile, companionFiles);
             }
         }, listener);
     }
@@ -292,7 +292,12 @@ public final class DefaultAskAiService implements AskAiService {
     /** Best-effort enrichment; degrades to the plan's capabilities + registry family when HF is unreachable. */
     private com.aresstack.askai.java8.hf.meta.OllamaCreateMetadata buildPlanMetadata(
             com.aresstack.askai.java8.hf.HuggingFaceClient hf,
-            com.aresstack.askai.java8.hf.HuggingFaceInstallPlan plan, File ggufFile) {
+            com.aresstack.askai.java8.hf.HuggingFaceInstallPlan plan, File ggufFile, List<File> companionFiles) {
+        // The capability set sent to /api/create must be intersected with what these exact files can honour:
+        // vision/audio only when a GGUF here actually carries that encoder (proven from GGUF content). A
+        // cancelled or absent projector then drops vision/audio automatically.
+        com.aresstack.askai.java8.hf.RuntimeCapabilities runtime =
+                com.aresstack.askai.java8.hf.RuntimeCapabilities.fromFiles(ggufFile, companionFiles);
         try {
             com.aresstack.askai.java8.hf.meta.HuggingFaceMetadataLoader.Result result =
                     new com.aresstack.askai.java8.hf.meta.HuggingFaceMetadataLoader(
@@ -304,10 +309,10 @@ public final class DefaultAskAiService implements AskAiService {
             } catch (Exception ignored) {
                 // provenance is optional; a write failure must not block the install
             }
-            return result.metadata();
+            return result.metadata().withCapabilities(runtime.intersect(result.metadata().capabilities()));
         } catch (RuntimeException ex) {
             return com.aresstack.askai.java8.hf.meta.OllamaCreateMetadata.ofCapabilities(
-                    RemoteGgufInstaller.normalizeCapabilities(plan.getRequiredOllamaCapabilities()));
+                    runtime.intersect(RemoteGgufInstaller.normalizeCapabilities(plan.getRequiredOllamaCapabilities())));
         }
     }
 
