@@ -76,6 +76,14 @@ public final class AudioPipelineCanvas extends JPanel {
         return selectedIndex;
     }
 
+    /** @return the horizontal center of the selected block in canvas coordinates, or -1 when none. */
+    public int selectedBlockCenterX() {
+        if (selectedIndex < 0 || selectedIndex >= blocks.size()) {
+            return -1;
+        }
+        return blockX(selectedIndex) + BLOCK_WIDTH / 2;
+    }
+
     @Override
     protected void paintComponent(Graphics graphics) {
         super.paintComponent(graphics);

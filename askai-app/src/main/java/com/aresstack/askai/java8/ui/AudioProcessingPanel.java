@@ -34,6 +34,8 @@ public final class AudioProcessingPanel extends JPanel {
     private final JLabel statusLabel = new JLabel(" ");
     private final AudioPipelineCanvas canvas = new AudioPipelineCanvas();
     private final AudioBlockInspectorPanel inspector = new AudioBlockInspectorPanel();
+    private final AudioInspectorCard inspectorCard = new AudioInspectorCard(inspector);
+    private JScrollPane canvasScroll;
 
     private AudioProcessingProfile selectedProfile;
     private List<AudioBlockDefinition> workingBlocks = new ArrayList<AudioBlockDefinition>();
@@ -84,13 +86,27 @@ public final class AudioProcessingPanel extends JPanel {
 
     private JPanel buildEditor() {
         JPanel editor = new JPanel(new BorderLayout(8, 8));
-        JScrollPane canvasScroll = new JScrollPane(canvas);
+        canvasScroll = new JScrollPane(canvas,
+                JScrollPane.VERTICAL_SCROLLBAR_NEVER, JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
         canvasScroll.setBorder(BorderFactory.createTitledBorder("Processing pipeline · drag blocks to reorder"));
-        canvasScroll.setPreferredSize(new Dimension(760, 280));
-        inspector.setPreferredSize(new Dimension(300, 320));
+        canvasScroll.setPreferredSize(new Dimension(760, 210));
+        // The inspector drops out of the selected block as an animated card BELOW the wide pipeline, so its
+        // settings spread across the width instead of a tall right-hand column.
+        canvasScroll.getViewport().addChangeListener(event -> updateInspectorCaret());
         editor.add(canvasScroll, BorderLayout.CENTER);
-        editor.add(inspector, BorderLayout.EAST);
+        editor.add(inspectorCard, BorderLayout.SOUTH);
         return editor;
+    }
+
+    /** Points the card's caret at the selected block, following horizontal scrolling of the pipeline. */
+    private void updateInspectorCaret() {
+        int center = canvas.selectedBlockCenterX();
+        if (center < 0 || canvasScroll == null) {
+            inspectorCard.setCaretX(-1);
+            return;
+        }
+        int viewX = canvasScroll.getViewport().getViewPosition().x;
+        inspectorCard.setCaretX(center - viewX);
     }
 
     private void wireActions() {
@@ -253,6 +269,13 @@ public final class AudioProcessingPanel extends JPanel {
         AudioBlockDefinition block = index >= 0 && index < workingBlocks.size()
                 ? workingBlocks.get(index) : null;
         inspector.setBlock(block);
+        // Roll the settings card down under the selected block, or up again when nothing is selected.
+        if (block != null) {
+            updateInspectorCaret();
+            inspectorCard.setExpanded(true);
+        } else {
+            inspectorCard.setExpanded(false);
+        }
     }
 
     private void reloadProfiles(String selectedId) {
