@@ -34,7 +34,7 @@ import java.util.Map;
 
 /**
  * The faceted-search filter dialog: a Main quick-overview tab plus Tasks / Libraries / Languages /
- * Licenses / Other detail tabs, all reading and writing one shared {@link SearchFilterState} (a
+ * Licenses / Other / Apps detail tabs, all reading and writing one shared {@link SearchFilterState} (a
  * selection in Main is reflected in the matching detail tab and vice-versa).
  *
  * <p>The catalogs come from live HuggingFace data (with cache/bundled fallbacks); a header shows the
@@ -158,6 +158,7 @@ public final class FilterDialog extends JDialog {
         tabs.addTab("Languages", buildCatalogTab(Group.LANGUAGES, catalogs.getLanguages(), false));
         tabs.addTab("Licenses", buildCatalogTab(Group.LICENSES, catalogs.getLicenses(), false));
         tabs.addTab("Other", buildCatalogTab(Group.OTHER, catalogs.getOther(), true));
+        tabs.addTab("Apps", buildCatalogTab(Group.APPS, catalogs.getApps(), false));
         if (selected >= 0 && selected < tabs.getTabCount()) {
             tabs.setSelectedIndex(selected);
         }
@@ -210,11 +211,12 @@ public final class FilterDialog extends JDialog {
 
         content.add(sectionLabel("Apps (HuggingFace compatibility hint, not proof of local install)"));
         content.add(quickPickRow(Group.APPS, new String[]{
-                "ollama", "llama.cpp", "vllm", "lm-studio", "mlx", "jan"}));
+                "ollama", "llama.cpp", "vllm", "lmstudio", "mlx-lm", "jan"}));
         content.add(Box.createVerticalStrut(8));
 
         content.add(sectionLabel("Repository"));
         content.add(gatedRow());
+        content.add(inferenceRow());
         content.add(Box.createVerticalStrut(8));
 
         content.add(comingSoonSection("Parameters",
@@ -265,6 +267,22 @@ public final class FilterDialog extends JDialog {
             }
         });
         row.add(gated);
+        return row;
+    }
+
+    private JComponent inferenceRow() {
+        JPanel row = new JPanel(new WrapLayout(FlowLayout.LEFT, 4, 2));
+        row.setAlignmentX(Component.LEFT_ALIGNMENT);
+        final JCheckBox inference = new JCheckBox("Warm inference only", state.isInference());
+        inference.setToolTipText("Only models served by at least one warm inference provider "
+                + "(HuggingFace inference=warm)");
+        inference.addActionListener(event -> state.setInference(inference.isSelected()));
+        syncers.add(new Runnable() {
+            public void run() {
+                inference.setSelected(state.isInference());
+            }
+        });
+        row.add(inference);
         return row;
     }
 
@@ -544,21 +562,9 @@ public final class FilterDialog extends JDialog {
             case LANGUAGES: return catalogs.getLanguages();
             case LICENSES: return catalogs.getLicenses();
             case OTHER: return catalogs.getOther();
-            case APPS: return appCatalog();
+            case APPS: return catalogs.getApps();
             default: return new ArrayList<CatalogEntry>();
         }
-    }
-
-    /** Apps aren't in the resource catalogs (they are a small curated Main-tab set); labels here. */
-    private static List<CatalogEntry> appCatalog() {
-        List<CatalogEntry> apps = new ArrayList<CatalogEntry>();
-        apps.add(new CatalogEntry("ollama", "Ollama", ""));
-        apps.add(new CatalogEntry("llama.cpp", "llama.cpp", ""));
-        apps.add(new CatalogEntry("vllm", "vLLM", ""));
-        apps.add(new CatalogEntry("lm-studio", "LM Studio", ""));
-        apps.add(new CatalogEntry("mlx", "MLX LM", ""));
-        apps.add(new CatalogEntry("jan", "Jan", ""));
-        return apps;
     }
 
     private void syncAll() {

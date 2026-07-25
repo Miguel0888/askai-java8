@@ -36,7 +36,8 @@ public final class CatalogLoader {
                             read("/catalogs/libraries.txt"),
                             read("/catalogs/languages.txt"),
                             read("/catalogs/licenses.txt"),
-                            read("/catalogs/other.txt"));
+                            read("/catalogs/other.txt"),
+                            read("/catalogs/apps.txt"));
                 }
                 local = cached;
             }

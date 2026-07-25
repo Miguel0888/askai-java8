@@ -31,6 +31,7 @@ public final class SearchFilterState {
     private final Set<String> apps = new LinkedHashSet<String>();
     private boolean gated;
     private boolean baseOnly;
+    private boolean inference;
     private SortOrder sortOrder = SortOrder.TRENDING;
     private int pageSize = 30;
     private String searchText = "";
@@ -90,6 +91,7 @@ public final class SearchFilterState {
         apps.clear();
         gated = false;
         baseOnly = false;
+        inference = false;
         sortOrder = SortOrder.TRENDING;
         pageSize = 30;
     }
@@ -100,6 +102,15 @@ public final class SearchFilterState {
 
     public void setGated(boolean value) {
         this.gated = value;
+    }
+
+    /** @return whether to restrict to models with a warm inference provider (HF {@code inference=warm}). */
+    public boolean isInference() {
+        return inference;
+    }
+
+    public void setInference(boolean value) {
+        this.inference = value;
     }
 
     public boolean isBaseOnly() {
@@ -153,6 +164,7 @@ public final class SearchFilterState {
                 .apps(new ArrayList<String>(apps))
                 .gated(gated)
                 .baseOnly(baseOnly)
+                .inference(inference)
                 .sortOrder(sortOrder)
                 .pageSize(pageSize)
                 .build();
@@ -160,7 +172,7 @@ public final class SearchFilterState {
 
     /**
      * Serializes to a single newline-delimited string for persistence, e.g.
-     * {@code tasks=a,b\nlibraries=gguf\nsort=TRENDING\nbaseOnly=false\ngated=false\npageSize=30}.
+     * {@code tasks=a,b\nlibraries=gguf\nsort=TRENDING\nbaseOnly=false\ngated=false\ninference=false\npageSize=30}.
      */
     public String serialize() {
         StringBuilder builder = new StringBuilder();
@@ -172,6 +184,7 @@ public final class SearchFilterState {
         builder.append("apps=").append(join(apps)).append('\n');
         builder.append("gated=").append(gated).append('\n');
         builder.append("baseOnly=").append(baseOnly).append('\n');
+        builder.append("inference=").append(inference).append('\n');
         builder.append("sort=").append(sortOrder.name()).append('\n');
         builder.append("pageSize=").append(pageSize).append('\n');
         builder.append("search=").append(searchText);
@@ -209,6 +222,8 @@ public final class SearchFilterState {
                 state.gated = Boolean.parseBoolean(value);
             } else if ("baseOnly".equals(key)) {
                 state.baseOnly = Boolean.parseBoolean(value);
+            } else if ("inference".equals(key)) {
+                state.inference = Boolean.parseBoolean(value);
             } else if ("sort".equals(key)) {
                 state.sortOrder = parseSort(value);
             } else if ("pageSize".equals(key)) {

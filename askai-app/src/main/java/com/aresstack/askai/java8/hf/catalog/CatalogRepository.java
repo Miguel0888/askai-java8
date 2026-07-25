@@ -2,6 +2,8 @@ package com.aresstack.askai.java8.hf.catalog;
 
 import com.aresstack.askai.java8.hf.HuggingFaceClient;
 
+import java.util.List;
+
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -22,6 +24,8 @@ import java.nio.charset.StandardCharsets;
 public final class CatalogRepository {
 
     private static final String MODELS_TAGS_URL = "https://huggingface.co/api/models-tags-by-type";
+    /** The Apps facet is not in the tags API; its list is embedded in this server-rendered page. */
+    private static final String MODELS_PAGE_URL = "https://huggingface.co/models";
 
     private final File cacheFile;
 
@@ -40,6 +44,10 @@ public final class CatalogRepository {
      * @return the best available catalogs with their origin
      */
     public CatalogBundle load(HuggingFaceClient client, boolean forceLive) {
+        // Apps live on a separate source (the /models page); resolve them independently so a
+        // scrape failure downgrades only the Apps group, not the tag-based catalogs, and vice-versa.
+        List<CatalogEntry> apps = client != null ? loadAppsLive(client) : loadAppsOffline();
+
         String liveError = "";
         if (client != null) {
             try {
@@ -47,7 +55,7 @@ public final class CatalogRepository {
                 FilterCatalogs catalogs = LiveCatalogParser.parse(json);
                 if (!catalogs.getTasks().isEmpty() && !catalogs.getLibraries().isEmpty()) {
                     writeCache(json);
-                    return new CatalogBundle(catalogs, CatalogOrigin.LIVE, "");
+                    return new CatalogBundle(catalogs.withApps(apps), CatalogOrigin.LIVE, "");
                 }
                 liveError = "Live-Daten leer";
             } catch (Exception ex) {
@@ -63,7 +71,7 @@ public final class CatalogRepository {
             try {
                 FilterCatalogs catalogs = LiveCatalogParser.parse(cached);
                 if (!catalogs.getTasks().isEmpty()) {
-                    return new CatalogBundle(catalogs, CatalogOrigin.CACHE,
+                    return new CatalogBundle(catalogs.withApps(apps), CatalogOrigin.CACHE,
                             "Live nicht erreichbar (" + liveError + ") — zwischengespeicherte Daten.");
                 }
             } catch (Exception ignored) {
@@ -72,35 +80,82 @@ public final class CatalogRepository {
         }
 
         // No usable cache -> bundled offline snapshot.
-        return new CatalogBundle(CatalogLoader.load(), CatalogOrigin.FALLBACK,
+        return new CatalogBundle(CatalogLoader.load().withApps(apps), CatalogOrigin.FALLBACK,
                 "Live und Cache nicht verfügbar (" + liveError + ") — gebündelte Daten.");
     }
 
     /** @return the newest offline-available bundle without any network attempt (cache, else bundled). */
     public CatalogBundle loadOffline() {
+        List<CatalogEntry> apps = loadAppsOffline();
         String cached = readCache();
         if (cached != null) {
             try {
                 FilterCatalogs catalogs = LiveCatalogParser.parse(cached);
                 if (!catalogs.getTasks().isEmpty()) {
-                    return new CatalogBundle(catalogs, CatalogOrigin.CACHE, "zwischengespeicherte Daten");
+                    return new CatalogBundle(catalogs.withApps(apps), CatalogOrigin.CACHE, "zwischengespeicherte Daten");
                 }
             } catch (Exception ignored) {
                 // fall through
             }
         }
-        return new CatalogBundle(CatalogLoader.load(), CatalogOrigin.FALLBACK, "gebündelte Daten");
+        return new CatalogBundle(CatalogLoader.load().withApps(apps), CatalogOrigin.FALLBACK, "gebündelte Daten");
+    }
+
+    /**
+     * Resolves the Apps facet, live first: scrape the {@code /models} page, and on success cache the
+     * extracted list. An empty scrape or any error downgrades to the last cached apps, then the bundled
+     * snapshot — the app list changes rarely, so a stale fallback is fine.
+     */
+    private List<CatalogEntry> loadAppsLive(HuggingFaceClient client) {
+        try {
+            List<CatalogEntry> apps = LiveAppCatalogParser.fromModelsPage(client.fetchText(MODELS_PAGE_URL));
+            if (!apps.isEmpty()) {
+                writeAppsCache(LiveAppCatalogParser.toJsonArray(apps));
+                return apps;
+            }
+        } catch (Exception ignored) {
+            // fall through to cache / bundled
+        }
+        return loadAppsOffline();
+    }
+
+    /** @return the cached apps if present and non-empty, else the bundled apps.txt snapshot. */
+    private List<CatalogEntry> loadAppsOffline() {
+        String cached = readText(appsCacheFile());
+        if (cached != null) {
+            List<CatalogEntry> apps = LiveAppCatalogParser.fromJsonArray(cached);
+            if (!apps.isEmpty()) {
+                return apps;
+            }
+        }
+        return CatalogLoader.load().getApps();
+    }
+
+    private File appsCacheFile() {
+        return new File(cacheFile.getParentFile(), "apps.json");
+    }
+
+    private void writeAppsCache(String json) {
+        writeFile(appsCacheFile(), json);
     }
 
     private void writeCache(String json) {
-        File directory = cacheFile.getParentFile();
+        writeFile(cacheFile, json);
+    }
+
+    private String readCache() {
+        return readText(cacheFile);
+    }
+
+    private static void writeFile(File file, String content) {
+        File directory = file.getParentFile();
         if (directory != null && !directory.isDirectory() && !directory.mkdirs()) {
             return;
         }
         OutputStream out = null;
         try {
-            out = new FileOutputStream(cacheFile);
-            out.write(json.getBytes(StandardCharsets.UTF_8));
+            out = new FileOutputStream(file);
+            out.write(content.getBytes(StandardCharsets.UTF_8));
         } catch (IOException ignored) {
             // A failed cache write is non-fatal; the live data is still returned.
         } finally {
@@ -108,13 +163,13 @@ public final class CatalogRepository {
         }
     }
 
-    private String readCache() {
-        if (!cacheFile.isFile()) {
+    private static String readText(File file) {
+        if (file == null || !file.isFile()) {
             return null;
         }
         InputStream in = null;
         try {
-            in = new FileInputStream(cacheFile);
+            in = new FileInputStream(file);
             byte[] buffer = new byte[8192];
             StringBuilder builder = new StringBuilder();
             int read;

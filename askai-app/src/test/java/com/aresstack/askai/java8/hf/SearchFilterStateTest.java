@@ -20,6 +20,7 @@ public class SearchFilterStateTest {
         s.setSelected(Group.APPS, "ollama", true);
         s.setGated(true);
         s.setBaseOnly(true);
+        s.setInference(true);
         s.setSortOrder(SortOrder.MOST_LIKES);
         s.setPageSize(42);
         s.setSearchText("qwen2.5 coder");
@@ -33,6 +34,7 @@ public class SearchFilterStateTest {
         assertTrue(back.isSelected(Group.LIBRARIES, "gguf"));
         assertTrue(back.isGated());
         assertTrue(back.isBaseOnly());
+        assertTrue(back.isInference());
         assertEquals(SortOrder.MOST_LIKES, back.getSortOrder());
         assertEquals(42, back.getPageSize());
         assertEquals("qwen2.5 coder", back.getSearchText());
@@ -63,11 +65,13 @@ public class SearchFilterStateTest {
 
         s.setSortOrder(SortOrder.MOST_DOWNLOADS);
         s.setGated(true);
+        s.setInference(true);
         s.resetAll();
         assertEquals(1, s.count(Group.LIBRARIES));
         assertTrue(s.isSelected(Group.LIBRARIES, "gguf"));
         assertEquals(0, s.count(Group.LICENSES));
         assertFalse(s.isGated());
+        assertFalse(s.isInference());
         assertEquals(SortOrder.TRENDING, s.getSortOrder());
     }
 

@@ -7,9 +7,13 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * The loaded filter catalogs (tasks, libraries, languages, licenses, other), in catalog order.
+ * The loaded filter catalogs (tasks, libraries, languages, licenses, other, apps), in catalog order.
  * Immutable; built once by {@link CatalogLoader}. Tasks and "other" also expose a grouped view
  * (by category / subgroup) preserving first-seen order, for the tabbed filter UI.
+ *
+ * <p>Apps come from a different HuggingFace source than the other groups ({@code models-tags-by-type}
+ * has no apps section — the app list is embedded in the {@code /models} page), so they are supplied
+ * separately and combined via {@link #withApps(List)} rather than through the same parser.</p>
  */
 public final class FilterCatalogs {
 
@@ -18,14 +22,27 @@ public final class FilterCatalogs {
     private final List<CatalogEntry> languages;
     private final List<CatalogEntry> licenses;
     private final List<CatalogEntry> other;
+    private final List<CatalogEntry> apps;
 
+    /** Builds catalogs without apps (apps are combined later via {@link #withApps(List)}). */
     public FilterCatalogs(List<CatalogEntry> tasks, List<CatalogEntry> libraries, List<CatalogEntry> languages,
                           List<CatalogEntry> licenses, List<CatalogEntry> other) {
+        this(tasks, libraries, languages, licenses, other, null);
+    }
+
+    public FilterCatalogs(List<CatalogEntry> tasks, List<CatalogEntry> libraries, List<CatalogEntry> languages,
+                          List<CatalogEntry> licenses, List<CatalogEntry> other, List<CatalogEntry> apps) {
         this.tasks = immutable(tasks);
         this.libraries = immutable(libraries);
         this.languages = immutable(languages);
         this.licenses = immutable(licenses);
         this.other = immutable(other);
+        this.apps = immutable(apps);
+    }
+
+    /** @return a copy of these catalogs with the apps list replaced (the tag-based groups unchanged). */
+    public FilterCatalogs withApps(List<CatalogEntry> newApps) {
+        return new FilterCatalogs(tasks, libraries, languages, licenses, other, newApps);
     }
 
     private static List<CatalogEntry> immutable(List<CatalogEntry> values) {
@@ -52,6 +69,11 @@ public final class FilterCatalogs {
 
     public List<CatalogEntry> getOther() {
         return other;
+    }
+
+    /** @return the local-app compatibility catalog (Ollama, llama.cpp, vLLM, …), or empty. */
+    public List<CatalogEntry> getApps() {
+        return apps;
     }
 
     /** @return the task entries grouped by category, in first-seen category order. */

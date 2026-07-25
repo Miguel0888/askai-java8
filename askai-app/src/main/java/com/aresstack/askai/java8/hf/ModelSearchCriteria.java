@@ -9,11 +9,12 @@ import java.util.List;
  * components build one of these and hand it to the search use case; they never build a HuggingFace
  * URL themselves.
  *
- * <p>All fields exist from the start even though only a subset is wired to a UI control today
- * ({@code searchText}, {@code libraries}, {@code baseOnly}, {@code sortOrder}, {@code pageSize}) —
- * the remaining facets (tasks, languages, licenses, other, parameter range, apps, inference
- * providers, the plain "inference available" switch) are reserved for the full filter dialog, so
- * adding that dialog later extends this class's usage instead of reshaping it.</p>
+ * <p>Most fields are wired to a UI control and the search URL: {@code searchText}, {@code libraries},
+ * {@code tasks}, {@code languages}, {@code licenses}, {@code other}, {@code apps} (sent as
+ * {@code apps=}), {@code gated}, the plain {@code inference} "warm inference" switch (sent as
+ * {@code inference=warm}), {@code baseOnly}, {@code sortOrder} and {@code pageSize}. The remaining
+ * facets ({@code minParameters}/{@code maxParameters} range, {@code inferenceProviders}) are reserved
+ * for later (no working server-side API yet), so adding them extends this class instead of reshaping it.</p>
  */
 public final class ModelSearchCriteria {
 

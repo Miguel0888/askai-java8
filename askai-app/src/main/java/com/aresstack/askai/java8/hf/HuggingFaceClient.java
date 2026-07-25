@@ -29,7 +29,7 @@ import java.util.regex.Pattern;
 
 import javax.net.ssl.HttpsURLConnection;
 
-public final class HuggingFaceClient {
+public final class HuggingFaceClient implements HuggingFaceSearchGateway {
 
     // Probed in order; the last one (the JSON API) decides overall success. The bare site is probed
     // first so an HTML/policy page there can be compared against the API's JSON response.
@@ -541,45 +541,54 @@ public final class HuggingFaceClient {
         return result;
     }
 
-    /**
-     * Runs one search request built from the given criteria. Sends {@code search=}, one repeated
-     * {@code filter=} per selected library (HuggingFace ANDs repeated {@code filter=} values — a
-     * multi-library selection is realized as separate single-library requests merged by the caller,
-     * see {@link com.aresstack.askai.java8.hf.HuggingFaceSearchUseCase}), {@code sort=}/{@code
-     * direction=-1} from the criteria's {@link SortOrder}, and {@code limit=} from the page size.
-     *
-     * <p>Language/license/task facets are deliberately not built here yet (Phase 1 only wires
-     * search text, libraries, sort, and page size) — verified against the real API: {@code language=}
-     * as a top-level query parameter is silently ignored by the server, the working mechanism is
-     * {@code filter=<language-code>} (languages are plain tags), so a later facet just adds more
-     * {@code filter=} values here rather than a different parameter style.</p>
-     */
+    /** Runs one all-ANDed search request built from the criteria (see {@link #buildSearchUrl}). */
     public HuggingFaceSearchPage searchModels(ModelSearchCriteria criteria) throws IOException {
+        return fetchSearchPage(buildSearchUrl(criteria));
+    }
+
+    /**
+     * Builds the {@code /api/models} request URL for one all-ANDed criteria. Extracted (and static)
+     * so the exact query encoding — {@code filter=} tags vs. the {@code apps=} / {@code inference=warm}
+     * / {@code gated=true} facets — is unit-testable without live HTTP.
+     *
+     * <p>Library, task pipeline_tag, language code, license id and "other" tag are plain tags emitted
+     * as repeated {@code filter=} (the server ANDs them). Apps are the exception: HuggingFace filters
+     * app compatibility through a dedicated {@code apps=<id>} parameter, not a tag, so a model like a
+     * GGUF that Ollama can run is matched even though it carries no literal "ollama" tag. OR within a
+     * group and cross-group OR are handled one level up by splitting into separate requests
+     * ({@link HuggingFaceSearchUseCase}), so each criteria reaching here is meant to be all-ANDed.</p>
+     */
+    static String buildSearchUrl(ModelSearchCriteria criteria) {
         StringBuilder url = new StringBuilder("https://huggingface.co/api/models?");
         if (criteria.getSearchText().length() > 0) {
             url.append("search=").append(encode(criteria.getSearchText())).append('&');
         }
-        // Every facet value (library, task pipeline_tag, language code, license id, "other" tag,
-        // app tag) is a plain tag emitted as a repeated filter= — the server ANDs them. OR within a
-        // group and cross-group OR are handled one level up by splitting into separate requests
-        // (HuggingFaceSearchUseCase), so each criteria that reaches here is meant to be all-ANDed.
         appendFilters(url, criteria.getLibraries());
         appendFilters(url, criteria.getTasks());
         appendFilters(url, criteria.getLanguages());
         appendFilters(url, criteria.getLicenses());
         appendFilters(url, criteria.getOther());
-        appendFilters(url, criteria.getApps());
+        appendParams(url, "apps", criteria.getApps());
         if (criteria.isGated()) {
             url.append("gated=true&");
         }
+        if (criteria.isInference()) {
+            // Verified: inference=warm keeps only models with at least one warm inference provider
+            // (equivalent to inference_provider=all); the general "Inference" switch of the HF website.
+            url.append("inference=warm&");
+        }
         url.append("sort=").append(encode(criteria.getSortOrder().getApiField())).append("&direction=-1");
         url.append("&limit=").append(criteria.getPageSize());
-        return fetchSearchPage(url.toString());
+        return url.toString();
     }
 
-    private void appendFilters(StringBuilder url, List<String> values) {
+    private static void appendFilters(StringBuilder url, List<String> values) {
+        appendParams(url, "filter", values);
+    }
+
+    private static void appendParams(StringBuilder url, String key, List<String> values) {
         for (int i = 0; i < values.size(); i++) {
-            url.append("filter=").append(encode(values.get(i))).append('&');
+            url.append(key).append('=').append(encode(values.get(i))).append('&');
         }
     }
 
@@ -1102,7 +1111,7 @@ public final class HuggingFaceClient {
                 ? message : throwable.getClass().getName();
     }
 
-    private String encode(String value) {
+    private static String encode(String value) {
         try {
             return URLEncoder.encode(value == null ? "" : value, "UTF-8");
         } catch (UnsupportedEncodingException ex) {

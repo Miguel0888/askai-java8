@@ -32,7 +32,7 @@ public final class CatalogBundle {
         return message;
     }
 
-    /** @return per-group loaded counts, in display order (Tasks, Libraries, Languages, Licenses, Other). */
+    /** @return per-group loaded counts, in display order (Tasks, Libraries, Languages, Licenses, Other, Apps). */
     public Map<String, Integer> getCounts() {
         Map<String, Integer> counts = new LinkedHashMap<String, Integer>();
         counts.put("Tasks", catalogs.getTasks().size());
@@ -40,6 +40,7 @@ public final class CatalogBundle {
         counts.put("Languages", catalogs.getLanguages().size());
         counts.put("Licenses", catalogs.getLicenses().size());
         counts.put("Other", catalogs.getOther().size());
+        counts.put("Apps", catalogs.getApps().size());
         return counts;
     }
 

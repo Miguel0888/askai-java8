@@ -4,20 +4,27 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Orchestrates a HuggingFace model search: cross-group OR expansion (the server only ANDs repeated
- * {@code filter=} values) and the Base-only best-effort backfill loop. {@link HuggingFaceClient}
- * only speaks HTTP; this class owns the "how many requests, in what order" decisions so the client
- * stays a pure API-communication class.
+ * {@code filter=} values) and the Base-only best-effort backfill loop. The {@link
+ * HuggingFaceSearchGateway} only speaks HTTP; this class owns the "how many requests, in what order"
+ * decisions so the gateway stays a pure API-communication class.
  *
  * <p>Filter semantics (spec §14): different groups (libraries, tasks, languages, licenses, other,
  * apps) are ANDed; multiple values within one group are ORed. HuggingFace ANDs every repeated
  * {@code filter=}, so an OR is realized by issuing one request per combination and merging by repo
  * id. When more than one group has multiple values that is the cartesian product of the groups —
  * bounded by {@link #MAX_MERGE_REQUESTS} so a broad selection can't fan out without limit.</p>
+ *
+ * <p>A merged (OR) search paginates too: each underlying request keeps its own {@code rel="next"}
+ * cursor, carried in the result's {@link MergedPagination}. "Load more" advances every still-open
+ * stream one page and merges the new hits, de-duplicated against everything returned so far — so
+ * filters and pagination work together, not one or the other.</p>
  */
 public final class HuggingFaceSearchUseCase {
 
@@ -31,34 +38,33 @@ public final class HuggingFaceSearchUseCase {
     /** Upper bound on the number of merged requests a multi-value-group selection may fan out to. */
     private static final int MAX_MERGE_REQUESTS = 12;
 
-    private static final String MERGED_NOTE =
-            "Mehrere Werte in einer Filtergruppe zeigen aktuell nur die erste Seite je Kombination "
-                    + "(zusammengeführt) — \"Load more\" folgt später.";
+    private final HuggingFaceSearchGateway gateway;
 
-    private final HuggingFaceClient client;
-
-    public HuggingFaceSearchUseCase(HuggingFaceClient client) {
-        this.client = client;
+    public HuggingFaceSearchUseCase(HuggingFaceSearchGateway gateway) {
+        this.gateway = gateway;
     }
 
     /** Runs a fresh search (first page), discarding any prior pagination state. */
     public HuggingFaceSearchResult search(ModelSearchCriteria criteria) throws IOException {
         List<ModelSearchCriteria> requests = expandToRequests(criteria);
         if (requests.size() == 1) {
-            HuggingFaceSearchPage page = client.searchModels(requests.get(0));
+            HuggingFaceSearchPage page = gateway.searchModels(requests.get(0));
             return applyBaseOnly(criteria, page, null);
         }
         return searchMerged(criteria, requests);
     }
 
-    /** Continues from a previous result's next-page URL; a no-op result when that isn't supported. */
+    /** Continues from a previous result's pagination state; a no-op result when nothing more remains. */
     public HuggingFaceSearchResult loadMore(ModelSearchCriteria criteria, HuggingFaceSearchResult previous)
             throws IOException {
+        if (previous.getMerged() != null) {
+            return loadMoreMerged(criteria, previous.getMerged());
+        }
         if (!previous.isLoadMoreSupported() || previous.getNextPageUrl() == null) {
             return new HuggingFaceSearchResult(Collections.<HuggingFaceModel>emptyList(),
                     null, false, "Keine weiteren Treffer.");
         }
-        HuggingFaceSearchPage page = client.loadMore(previous.getNextPageUrl());
+        HuggingFaceSearchPage page = gateway.loadMore(previous.getNextPageUrl());
         return applyBaseOnly(criteria, page, null);
     }
 
@@ -135,28 +141,73 @@ public final class HuggingFaceSearchUseCase {
     }
 
     /**
-     * Issues every request and merges de-duplicated by repo id. Phase-2 limitation: only the first
-     * page of each request is fetched — coherently paginating several independently-cursored streams
-     * as one "load more" is deferred, so this is flagged with a note rather than silently truncated.
+     * First page of a merged search: fetch page one of every request and merge, de-duplicated by
+     * repo id. Each request's {@code rel="next"} cursor is retained in the {@link MergedPagination}
+     * so {@link #loadMoreMerged} can page the streams forward together.
      */
     private HuggingFaceSearchResult searchMerged(ModelSearchCriteria criteria, List<ModelSearchCriteria> requests)
             throws IOException {
-        Map<String, HuggingFaceModel> merged = new LinkedHashMap<String, HuggingFaceModel>();
+        List<HuggingFaceSearchPage> pages = new ArrayList<HuggingFaceSearchPage>();
         for (int i = 0; i < requests.size(); i++) {
-            HuggingFaceSearchPage page = client.searchModels(requests.get(i));
+            pages.add(gateway.searchModels(requests.get(i)));
+        }
+        String note = requests.size() + " OR-Kombinationen zusammengeführt.";
+        return mergePages(criteria, pages, Collections.<String>emptySet(), note);
+    }
+
+    /**
+     * Next page of a merged search: for every sub-stream that still has a cursor, fetch its next page;
+     * merge the new hits, dropping any repo id already returned in an earlier page. Streams whose
+     * cursor is {@code null} are exhausted and skipped. "Load more" stays available until every stream
+     * is exhausted.
+     */
+    private HuggingFaceSearchResult loadMoreMerged(ModelSearchCriteria criteria, MergedPagination previous)
+            throws IOException {
+        List<String> cursors = previous.getCursors();
+        List<HuggingFaceSearchPage> pages = new ArrayList<HuggingFaceSearchPage>();
+        for (int i = 0; i < cursors.size(); i++) {
+            String cursor = cursors.get(i);
+            pages.add(cursor == null ? null : gateway.loadMore(cursor));
+        }
+        HuggingFaceSearchResult result = mergePages(criteria, pages, previous.getSeenIds(), null);
+        if (result.getModels().isEmpty() && !result.isLoadMoreSupported()) {
+            return new HuggingFaceSearchResult(Collections.<HuggingFaceModel>emptyList(), null, false,
+                    "Keine weiteren Treffer.", result.getMerged());
+        }
+        return result;
+    }
+
+    /**
+     * Merges one round of pages (one per sub-stream, {@code null} for a stream not fetched this round)
+     * into a single de-duplicated result. New models are those whose id was not already returned
+     * ({@code priorSeen}); Base-only, when on, then drops hits carrying a {@code base_model:} relation.
+     * The updated cursor list and the grown seen-id set are carried forward on the result.
+     */
+    private HuggingFaceSearchResult mergePages(ModelSearchCriteria criteria, List<HuggingFaceSearchPage> pages,
+                                               Set<String> priorSeen, String note) {
+        Map<String, HuggingFaceModel> fresh = new LinkedHashMap<String, HuggingFaceModel>();
+        Set<String> seen = new LinkedHashSet<String>(priorSeen);
+        List<String> cursors = new ArrayList<String>();
+        for (int i = 0; i < pages.size(); i++) {
+            HuggingFaceSearchPage page = pages.get(i);
+            cursors.add(page == null ? null : page.getNextPageUrl());
+            if (page == null) {
+                continue;
+            }
             List<HuggingFaceModel> models = page.getModels();
             for (int j = 0; j < models.size(); j++) {
                 HuggingFaceModel model = models.get(j);
-                if (!merged.containsKey(model.getId())) {
-                    merged.put(model.getId(), model);
+                if (seen.add(model.getId())) {
+                    fresh.put(model.getId(), model);
                 }
             }
         }
-        List<HuggingFaceModel> models = new ArrayList<HuggingFaceModel>(merged.values());
+        List<HuggingFaceModel> models = new ArrayList<HuggingFaceModel>(fresh.values());
         if (criteria.isBaseOnly()) {
             models = filterBaseOnly(models);
         }
-        return new HuggingFaceSearchResult(models, null, false, MERGED_NOTE);
+        MergedPagination merged = new MergedPagination(cursors, seen);
+        return new HuggingFaceSearchResult(models, null, merged.hasMore(), note, merged);
     }
 
     /**
@@ -176,7 +227,7 @@ public final class HuggingFaceSearchUseCase {
         int desired = criteria.getPageSize();
         int extraPages = 0;
         while (filtered.size() < desired && nextUrl != null && extraPages < MAX_BASE_ONLY_EXTRA_PAGES) {
-            HuggingFaceSearchPage extra = client.loadMore(nextUrl);
+            HuggingFaceSearchPage extra = gateway.loadMore(nextUrl);
             filtered.addAll(filterBaseOnly(extra.getModels()));
             nextUrl = extra.getNextPageUrl();
             extraPages++;
