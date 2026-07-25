@@ -2,7 +2,7 @@ package com.aresstack.askai.java8.ui;
 
 import com.aresstack.audio.profile.AudioBlockDefinition;
 
-import javax.swing.JComponent;
+import javax.swing.JPanel;
 import javax.swing.UIManager;
 import java.awt.BasicStroke;
 import java.awt.Color;
@@ -17,8 +17,15 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-/** Render and reorder a linear DSP pipeline as interactive Java2D blocks. */
-public final class AudioPipelineCanvas extends JComponent {
+/**
+ * Render and reorder a linear DSP pipeline as interactive Java2D blocks.
+ *
+ * <p>Extends {@link JPanel} (not a bare {@code JComponent}) so its UI delegate clears the full opaque
+ * background on every {@link #paintComponent(Graphics)} via {@code super.paintComponent(...)}. A bare
+ * opaque {@code JComponent} does not reliably erase its area, which left stale double-buffer pixels
+ * (ghosting of the menu/toolbar/blocks) visible on a selection-triggered repaint, especially maximized.</p>
+ */
+public final class AudioPipelineCanvas extends JPanel {
 
     private static final int BLOCK_WIDTH = 168;
     private static final int BLOCK_HEIGHT = 92;
