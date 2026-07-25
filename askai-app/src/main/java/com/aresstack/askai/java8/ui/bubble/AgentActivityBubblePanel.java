@@ -243,10 +243,10 @@ public final class AgentActivityBubblePanel extends JPanel {
     }
 
     private EmptyBorder createContentBorder() {
-        // Reserve the connector margin on the participant's own side (a left bubble keeps its free strip
-        // on the left), so the rising thought-trail lives there instead of over the cloud.
-        int left = CONTENT_PADDING + (side.pointsRight() ? CONNECTOR_SPACE : 0);
-        int right = CONTENT_PADDING + (side.pointsLeft() ? CONNECTOR_SPACE : 0);
+        // Reserve the connector margin on the transcript-centre side of the cloud (a left bubble keeps its
+        // free strip on the right), so the rising thought-trail lives in that strip beside the cloud.
+        int left = CONTENT_PADDING + (side.pointsLeft() ? CONNECTOR_SPACE : 0);
+        int right = CONTENT_PADDING + (side.pointsRight() ? CONNECTOR_SPACE : 0);
         return new EmptyBorder(CONTENT_PADDING, left, CONTENT_PADDING, right);
     }
 
@@ -360,20 +360,22 @@ public final class AgentActivityBubblePanel extends JPanel {
     private void paintConnectorBubbles(Graphics2D graphics) {
         long elapsed = System.currentTimeMillis() - animationStartedAt;
         double cycle = (elapsed % 1200L) / 1200.0d;
-        // Like a comic thought bubble, the trail lives in the free margin on the participant's own side
-        // and rises toward them — not over the cloud, not toward the transcript centre. For a left-side
-        // (assistant) bubble the dots sit in the left strip and drift up and to the left, back toward the
-        // bot; a right-side bubble mirrors this.
-        int bodyEdge = side.pointsRight() ? CONNECTOR_SPACE : getWidth() - CONNECTOR_SPACE;
-        int direction = side.pointsRight() ? -1 : 1;
-        int baseY = Math.max(30, getHeight() - 24);
+        // The trail lives entirely inside the free connector strip beside the cloud (never over it). For a
+        // left-side (assistant) bubble that strip is on the right: the dots start at its outer bottom
+        // corner and rise toward the cloud edge — i.e. up and to the left. A right-side bubble mirrors it.
+        int cloudEdge = side.pointsRight() ? getWidth() - CONNECTOR_SPACE : CONNECTOR_SPACE;
+        int outward = side.pointsRight() ? 1 : -1;
+        int baseY = Math.max(30, getHeight() - 22);
 
         for (int index = 0; index < 4; index++) {
             double progress = (cycle + (index * 0.24d)) % 1.0d;
             double eased = easeOut(progress);
-            double radius = 3.0d + (5.5d * eased);
-            double x = bodyEdge + direction * (7.0d + (44.0d * eased));
-            double y = baseY - (22.0d * eased) + Math.sin(progress * Math.PI) * 2.0d;
+            double radius = 3.0d + (5.0d * eased);
+            // Offset shrinks as the dot rises: large near the outer edge at the bottom, small near the
+            // cloud edge at the top — a diagonal up-and-inward (up-left for a left bubble).
+            double offset = 8.0d + (40.0d * (1.0d - eased));
+            double x = cloudEdge + outward * offset;
+            double y = baseY - (26.0d * eased) + Math.sin(progress * Math.PI) * 2.0d;
             float alpha = (float) (0.38d + (0.62d * (1.0d - progress)));
 
             graphics.setComposite(AlphaComposite.SrcOver.derive(alpha));
@@ -411,7 +413,7 @@ public final class AgentActivityBubblePanel extends JPanel {
     }
 
     private Area createCloudShape(double scale) {
-        int bodyX = side.pointsRight() ? CONNECTOR_SPACE : 0;
+        int bodyX = side.pointsLeft() ? CONNECTOR_SPACE : 0;
         int bodyWidth = Math.max(1, getWidth() - CONNECTOR_SPACE);
         int bodyHeight = Math.max(1, getHeight());
         double centerX = bodyX + (bodyWidth / 2.0d);
@@ -441,7 +443,7 @@ public final class AgentActivityBubblePanel extends JPanel {
 
     private void paintCenteredMultilineText(Graphics2D graphics, String text, int rise) {
         FontMetrics metrics = graphics.getFontMetrics();
-        int bodyX = side.pointsRight() ? CONNECTOR_SPACE : 0;
+        int bodyX = side.pointsLeft() ? CONNECTOR_SPACE : 0;
         int bodyWidth = getWidth() - CONNECTOR_SPACE;
         int maximumLineWidth = Math.max(80, bodyWidth - 24);
         List<String> lines = wrapText(text, metrics, maximumLineWidth);
@@ -532,7 +534,7 @@ public final class AgentActivityBubblePanel extends JPanel {
     }
 
     private int getBodyCenterX() {
-        int bodyX = side.pointsRight() ? CONNECTOR_SPACE : 0;
+        int bodyX = side.pointsLeft() ? CONNECTOR_SPACE : 0;
         int bodyWidth = getWidth() - CONNECTOR_SPACE;
         return bodyX + (bodyWidth / 2);
     }
