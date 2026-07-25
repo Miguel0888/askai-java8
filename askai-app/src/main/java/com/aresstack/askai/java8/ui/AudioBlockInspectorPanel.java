@@ -3,6 +3,7 @@ package com.aresstack.askai.java8.ui;
 import com.aresstack.audio.profile.AudioBlockDefinition;
 import com.aresstack.audio.profile.AudioBlockType;
 
+import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
@@ -13,21 +14,24 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JSpinner;
 import javax.swing.SpinnerNumberModel;
-import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.Dimension;
-import java.awt.FlowLayout;
+import java.awt.Font;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
  * Edit the selected block with type-specific controls and emit one immutable replacement.
  *
- * <p>Laid out for a WIDE, short card below the pipeline: the function/enabled/apply controls sit on one
- * header row, and the type-specific parameters flow left-to-right as small labelled groups (wrapping only
- * when the card is too narrow), instead of a tall right-hand column.</p>
+ * <p>Laid out for a NARROW, block-width card below the pipeline: the function is the card's title — a
+ * borderless dropdown showing the block name (e.g. "Channel mixer") — followed by the enabled toggle and
+ * the type-specific parameters stacked vertically. The hosting card scrolls when the stack is taller than
+ * the card, so there is no attempt to spread controls across the full editor width.</p>
  */
 public final class AudioBlockInspectorPanel extends JPanel {
+
+    /** Content width the stacked controls target (block-width card minus its horizontal padding). */
+    private static final int CONTENT_WIDTH = 132;
 
     public interface Listener {
         void blockChanged(AudioBlockDefinition block);
@@ -35,7 +39,7 @@ public final class AudioBlockInspectorPanel extends JPanel {
 
     private final JComboBox<AudioBlockType> functionCombo = new JComboBox<AudioBlockType>(AudioBlockType.values());
     private final JCheckBox enabledCheck = new JCheckBox("Enabled");
-    private final JPanel parametersPanel = new JPanel(new WrapLayout(FlowLayout.LEFT, 16, 6));
+    private final JPanel parametersPanel = new JPanel();
     private final Map<String, JComponent> parameterEditors = new LinkedHashMap<String, JComponent>();
     private final JButton applyButton = new JButton("Apply block");
 
@@ -44,11 +48,25 @@ public final class AudioBlockInspectorPanel extends JPanel {
     private boolean updating;
 
     public AudioBlockInspectorPanel() {
-        setLayout(new BorderLayout(6, 6));
         setOpaque(false);
+        setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
+
+        styleFunctionTitle();
+        enabledCheck.setOpaque(false);
+        enabledCheck.setAlignmentX(Component.LEFT_ALIGNMENT);
         parametersPanel.setOpaque(false);
-        add(buildHeader(), BorderLayout.NORTH);
-        add(parametersPanel, BorderLayout.CENTER);
+        parametersPanel.setLayout(new BoxLayout(parametersPanel, BoxLayout.Y_AXIS));
+        parametersPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        applyButton.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        add(functionCombo);
+        add(Box.createVerticalStrut(4));
+        add(enabledCheck);
+        add(Box.createVerticalStrut(6));
+        add(parametersPanel);
+        add(Box.createVerticalStrut(8));
+        add(applyButton);
+
         functionCombo.addActionListener(event -> functionChanged());
         applyButton.addActionListener(event -> applyChanges());
         showEmptyState();
@@ -75,18 +93,15 @@ public final class AudioBlockInspectorPanel extends JPanel {
         }
     }
 
-    private JPanel buildHeader() {
-        JPanel header = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 2));
-        header.setOpaque(false);
-        header.add(new JLabel("Selected block"));
-        header.add(new JLabel("·"));
-        header.add(new JLabel("Function"));
-        functionCombo.setPreferredSize(new Dimension(190, functionCombo.getPreferredSize().height));
-        header.add(functionCombo);
-        header.add(enabledCheck);
-        header.add(Box.createHorizontalStrut(12));
-        header.add(applyButton);
-        return header;
+    /** Render the function selector as the card title: bold, borderless, just the name plus a dropdown arrow. */
+    private void styleFunctionTitle() {
+        functionCombo.setOpaque(false);
+        functionCombo.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
+        Font base = functionCombo.getFont();
+        functionCombo.setFont(base.deriveFont(Font.BOLD, base.getSize2D() + 1f));
+        functionCombo.setAlignmentX(Component.LEFT_ALIGNMENT);
+        functionCombo.setMaximumSize(new Dimension(Integer.MAX_VALUE, functionCombo.getPreferredSize().height));
+        functionCombo.setToolTipText("Change this block's function");
     }
 
     private void functionChanged() {
@@ -164,7 +179,7 @@ public final class AudioBlockInspectorPanel extends JPanel {
                 addInteger("ceiling", "Ceiling", selected, 30000, 1, 32767);
                 break;
             case DC_OFFSET_REMOVAL:
-                addDescription("This block adapts automatically and has no exposed parameter.");
+                addDescription("This block adapts automatically and has no settings.");
                 break;
             default:
                 break;
@@ -207,28 +222,34 @@ public final class AudioBlockInspectorPanel extends JPanel {
 
     private void addBoolean(String key, String label, AudioBlockDefinition selected, boolean fallback) {
         JCheckBox checkBox = new JCheckBox();
+        checkBox.setOpaque(false);
         checkBox.setSelected(selected.getBooleanParameter(key, fallback));
         addEditor(key, label, checkBox);
     }
 
     private void addDescription(String text) {
-        JLabel label = new JLabel("<html>" + text + "</html>");
-        label.setPreferredSize(new Dimension(320, label.getPreferredSize().height));
+        JLabel label = new JLabel("<html><body style='width:" + CONTENT_WIDTH + "px'>" + text + "</body></html>");
+        label.setAlignmentX(Component.LEFT_ALIGNMENT);
         parametersPanel.add(label);
     }
 
-    /** Add one parameter as a small vertical group (caption over editor) that flows across the width. */
+    /** Add one parameter as a small vertical group (caption over full-width editor). */
     private void addEditor(String key, String label, JComponent editor) {
         parameterEditors.put(key, editor);
-        Dimension pref = editor.getPreferredSize();
-        editor.setPreferredSize(new Dimension(Math.max(150, pref.width), pref.height));
 
         JPanel group = new JPanel();
         group.setOpaque(false);
         group.setLayout(new BoxLayout(group, BoxLayout.Y_AXIS));
+        group.setAlignmentX(Component.LEFT_ALIGNMENT);
+        group.setBorder(BorderFactory.createEmptyBorder(0, 0, 6, 0));
+
         JLabel caption = new JLabel(label);
         caption.setAlignmentX(Component.LEFT_ALIGNMENT);
         editor.setAlignmentX(Component.LEFT_ALIGNMENT);
+        int editorHeight = editor.getPreferredSize().height;
+        editor.setPreferredSize(new Dimension(CONTENT_WIDTH, editorHeight));
+        editor.setMaximumSize(new Dimension(CONTENT_WIDTH, editorHeight));
+
         group.add(caption);
         group.add(Box.createVerticalStrut(2));
         group.add(editor);
@@ -238,7 +259,7 @@ public final class AudioBlockInspectorPanel extends JPanel {
     private void showEmptyState() {
         parametersPanel.removeAll();
         parameterEditors.clear();
-        parametersPanel.add(new JLabel("Select a block in the pipeline."));
+        addDescription("Select a block in the pipeline.");
         setControlsEnabled(false);
         parametersPanel.revalidate();
         parametersPanel.repaint();

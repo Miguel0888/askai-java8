@@ -27,7 +27,7 @@ import java.util.List;
  */
 public final class AudioPipelineCanvas extends JPanel {
 
-    private static final int BLOCK_WIDTH = 168;
+    static final int BLOCK_WIDTH = 168;
     private static final int BLOCK_HEIGHT = 92;
     private static final int BLOCK_GAP = 54;
     private static final int MARGIN = 28;

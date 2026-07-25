@@ -1,10 +1,13 @@
 package com.aresstack.askai.java8.ui;
 
+import javax.swing.BorderFactory;
 import javax.swing.JComponent;
 import javax.swing.JPanel;
+import javax.swing.JScrollPane;
 import javax.swing.Timer;
 import javax.swing.UIManager;
 import java.awt.Color;
+import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
@@ -13,41 +16,59 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 
 /**
- * Wrap the block inspector in a rounded card that rolls down when a block is selected and rolls up when
- * the selection clears. A small caret at the top points to the selected block's horizontal position, so
- * the card reads as dropping out of that block. The content keeps its full height while the card height
- * animates, so the reveal clips top-down rather than squashing the controls.
+ * Wrap the block inspector in a rounded, block-width card that rolls down when a block is selected and
+ * rolls up when the selection clears. A caret at the top points to the block, so the card reads as
+ * dropping out of it. The settings are stacked vertically in a scroll pane, so a narrow block-width card
+ * simply scrolls instead of trying to fill the whole editor width.
  *
- * <p>All state changes happen on the EDT (Swing {@link Timer}); no expensive work runs here.</p>
+ * <p>During the animation the content keeps its full height and the card clips it, so the reveal grows
+ * top-down rather than squashing the controls. All state changes run on the EDT.</p>
  */
 final class AudioInspectorCard extends JPanel {
 
     private static final int CARET_HEIGHT = 9;
     private static final int CARET_HALF_WIDTH = 9;
-    private static final int PAD_X = 12;
-    private static final int PAD_TOP = 10;
-    private static final int PAD_BOTTOM = 12;
+    private static final int PAD_X = 10;
+    private static final int PAD_TOP = 8;
+    private static final int PAD_BOTTOM = 10;
     private static final int ARC = 14;
+    private static final int MAX_HEIGHT = 260;
     private static final double STEP = 0.16d;
 
-    private final JComponent content;
+    private final int cardWidth;
+    private final JScrollPane scroll;
     private final Timer timer;
     private double fraction;       // 0 = fully collapsed, 1 = fully expanded
     private boolean expanding;
     private int caretX = -1;       // caret tip x in card coordinates, or -1 to hide it
 
-    AudioInspectorCard(JComponent content) {
-        this.content = content;
+    AudioInspectorCard(JComponent content, int cardWidth) {
+        this.cardWidth = cardWidth;
         setOpaque(false);
-        setLayout(null); // the content is positioned manually so the card can clip it while animating
+        setLayout(null); // the scroll pane is positioned manually so the card can clip it while animating
         content.setOpaque(false);
-        content.setVisible(false);
-        add(content);
+        scroll = new JScrollPane(content,
+                JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        scroll.setBorder(BorderFactory.createEmptyBorder());
+        scroll.setOpaque(false);
+        scroll.getViewport().setOpaque(false);
+        scroll.setVisible(false);
+        scroll.getVerticalScrollBar().setUnitIncrement(16);
+        add(scroll);
         timer = new Timer(15, new ActionListener() {
             public void actionPerformed(ActionEvent event) {
                 tick();
             }
         });
+    }
+
+    int cardWidth() {
+        return cardWidth;
+    }
+
+    /** @return whether the settings content is currently shown (revealing or open). */
+    boolean isContentShown() {
+        return scroll.isVisible();
     }
 
     /** Points the caret at {@code x} (card coordinates); pass a negative value to hide it. */
@@ -63,7 +84,7 @@ final class AudioInspectorCard extends JPanel {
         }
         expanding = expanded;
         if (expanded) {
-            content.setVisible(true);
+            scroll.setVisible(true);
         }
         if (!timer.isRunning()) {
             timer.start();
@@ -78,7 +99,7 @@ final class AudioInspectorCard extends JPanel {
         } else if (fraction <= 0.0d) {
             fraction = 0.0d;
             timer.stop();
-            content.setVisible(false);
+            scroll.setVisible(false);
         }
         revalidate();
         if (getParent() != null) {
@@ -87,26 +108,32 @@ final class AudioInspectorCard extends JPanel {
         repaint();
     }
 
-    private int contentHeight(int innerWidth) {
-        // Lay the content out at the target width first, so a wrapping parameter row reports the real
-        // height it needs at that width before we measure it.
-        content.setSize(innerWidth, 1);
-        content.doLayout();
-        return content.getPreferredSize().height;
+    /** @return the interior (viewport) height the content wants at the card width, capped to MAX_HEIGHT. */
+    private int interiorHeight() {
+        int inner = Math.max(0, cardWidth - 2 * PAD_X);
+        Component view = scroll.getViewport().getView();
+        if (view == null) {
+            return 0;
+        }
+        // Lay the content out at the interior width first, so stacked/wrapped controls report a real height.
+        view.setSize(inner, 1);
+        view.doLayout();
+        int cap = MAX_HEIGHT - CARET_HEIGHT - PAD_TOP - PAD_BOTTOM;
+        return Math.min(view.getPreferredSize().height, cap);
     }
 
     @Override
     public Dimension getPreferredSize() {
-        int width = getWidth() > 0 ? getWidth() : 760;
-        int inner = Math.max(0, width - 2 * PAD_X);
-        int full = CARET_HEIGHT + PAD_TOP + contentHeight(inner) + PAD_BOTTOM;
-        return new Dimension(width, (int) Math.round(full * fraction));
+        int full = CARET_HEIGHT + PAD_TOP + interiorHeight() + PAD_BOTTOM;
+        return new Dimension(cardWidth, (int) Math.round(full * fraction));
     }
 
     @Override
     public void doLayout() {
-        int inner = Math.max(0, getWidth() - 2 * PAD_X);
-        content.setBounds(PAD_X, CARET_HEIGHT + PAD_TOP, inner, contentHeight(inner));
+        int inner = Math.max(0, cardWidth - 2 * PAD_X);
+        // Give the scroll pane its FULL interior height; the shorter (animating) card clips it, so the
+        // reveal grows top-down and a too-tall content simply shows the scroll bar once fully open.
+        scroll.setBounds(PAD_X, CARET_HEIGHT + PAD_TOP, inner, interiorHeight());
     }
 
     @Override
@@ -129,7 +156,6 @@ final class AudioInspectorCard extends JPanel {
             g.setColor(border);
             g.drawRoundRect(0, top, width - 1, height - 1, ARC, ARC);
 
-            // The caret that ties the card to the selected block.
             if (caretX >= 0) {
                 int tipX = Math.max(CARET_HALF_WIDTH + 1, Math.min(width - CARET_HALF_WIDTH - 1, caretX));
                 int[] xs = {tipX - CARET_HALF_WIDTH, tipX, tipX + CARET_HALF_WIDTH};

@@ -8,25 +8,29 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-/** The inspector card starts rolled up and only reveals its content once a block is selected. */
+/** The block-width inspector card starts rolled up and reveals its content once a block is selected. */
 public class AudioInspectorCardTest {
 
     @Test
     public void startsCollapsedWithNoHeightAndHiddenContent() {
-        JLabel content = new JLabel("inspector");
-        AudioInspectorCard card = new AudioInspectorCard(content);
+        AudioInspectorCard card = new AudioInspectorCard(new JLabel("inspector"), 168);
         // Collapsed: it must not occupy any vertical space and its content must be hidden.
         assertEquals(0, card.getPreferredSize().height);
-        assertFalse(content.isVisible());
+        assertFalse(card.isContentShown());
+    }
+
+    @Test
+    public void keepsTheRequestedBlockWidth() {
+        AudioInspectorCard card = new AudioInspectorCard(new JLabel("inspector"), 168);
+        assertEquals(168, card.cardWidth());
+        assertEquals(168, card.getPreferredSize().width);
     }
 
     @Test
     public void expandingRevealsTheContentImmediately() {
-        JLabel content = new JLabel("inspector");
-        AudioInspectorCard card = new AudioInspectorCard(content);
+        AudioInspectorCard card = new AudioInspectorCard(new JLabel("inspector"), 168);
         card.setExpanded(true);
-        // The roll-down animation drives the height over time, but the content is shown right away so it
-        // becomes visible as the card opens.
-        assertTrue(content.isVisible());
+        // The roll-down animation drives the height over time, but the content is shown right away.
+        assertTrue(card.isContentShown());
     }
 }
