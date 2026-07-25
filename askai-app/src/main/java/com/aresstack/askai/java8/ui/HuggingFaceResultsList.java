@@ -9,16 +9,21 @@ import javax.swing.DefaultListModel;
 import javax.swing.JLabel;
 import javax.swing.JList;
 import javax.swing.JPanel;
+import javax.swing.Icon;
 import javax.swing.ListCellRenderer;
 import javax.swing.ListSelectionModel;
+import javax.swing.ToolTipManager;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.Rectangle;
+import java.awt.event.MouseEvent;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * A richer results list for HuggingFace model search: two lines per entry with the owner
@@ -40,11 +45,47 @@ public final class HuggingFaceResultsList extends JList<HuggingFaceModel> {
 
     private final Map<String, SupportDecision> statusById = new HashMap<String, SupportDecision>();
 
+    /** Right inset of a row (matches the renderer's empty border), so the icon strip's left edge is known. */
+    private static final int ROW_RIGHT_INSET = 8;
+
     public HuggingFaceResultsList(DefaultListModel<HuggingFaceModel> model) {
         super(model);
         setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         setCellRenderer(new ResultRenderer());
         setVisibleRowCount(8);
+        // Renderer components can't own tooltips reliably; the list resolves them per mouse position.
+        ToolTipManager.sharedInstance().registerComponent(this);
+    }
+
+    /**
+     * Per-icon-slot tooltips for the capability strip: figure out the hovered row, whether the mouse is
+     * over the right-aligned icon strip, and which capability slot it is — then return that capability's
+     * central description. Hovering the strip but between slots shows all of the row's capabilities.
+     */
+    @Override
+    public String getToolTipText(MouseEvent event) {
+        int index = locationToIndex(event.getPoint());
+        if (index < 0 || index >= getModel().getSize()) {
+            return null;
+        }
+        Rectangle cell = getCellBounds(index, index);
+        if (cell == null || !cell.contains(event.getPoint())) {
+            return null;
+        }
+        HuggingFaceModel model = getModel().getElementAt(index);
+        Set<ModelCapability> capabilities = HuggingFaceModelClassifier.modalitiesOf(model);
+        Icon icon = CapabilityIcons.forCapabilities(capabilities);
+        int iconWidth = icon.getIconWidth();
+        if (iconWidth <= 0) {
+            return null;
+        }
+        int iconLeft = cell.x + cell.width - ROW_RIGHT_INSET - iconWidth;
+        int offsetX = event.getX() - iconLeft;
+        if (offsetX < 0 || offsetX >= iconWidth) {
+            return null; // not over the icon strip
+        }
+        ModelCapability capability = CapabilityIcons.capabilityAt(capabilities, offsetX);
+        return capability != null ? capability.tooltipLine() : ModelCapability.tooltipHtml(capabilities);
     }
 
     /** Sets (or replaces) a row's import-support decision and repaints. */
@@ -113,7 +154,7 @@ public final class HuggingFaceResultsList extends JList<HuggingFaceModel> {
 
             badgeLabel.setOpaque(true);
             badgeLabel.setBorder(BorderFactory.createEmptyBorder(1, 6, 1, 6));
-            iconLabel.setToolTipText("Model input modalities from the HuggingFace pipeline tag");
+            // Icon tooltips are resolved per mouse position by the enclosing list (getToolTipText).
         }
 
         @Override

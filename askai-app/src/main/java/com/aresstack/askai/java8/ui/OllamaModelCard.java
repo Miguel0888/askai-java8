@@ -116,8 +116,10 @@ final class OllamaModelCard extends JPanel {
     void setCapabilities(List<String> capabilityTags) {
         capabilities = toModalities(capabilityTags);
         capabilitiesKnown = true;
-        capabilityIconLabel.setIcon(capabilities.isEmpty()
-                ? null : CapabilityIcons.forCapabilities(ModelCapability.fromModalities(capabilities)));
+        Set<ModelCapability> shown = ModelCapability.fromModalities(capabilities);
+        capabilityIconLabel.setIcon(shown.isEmpty() ? null : CapabilityIcons.forCapabilities(shown));
+        capabilityIconLabel.setToolTipText(shown.isEmpty()
+                ? "Model input capabilities (from /api/show)" : ModelCapability.tooltipHtml(shown));
         audioAddOnButton.setEnabled(true);
         visionAddOnButton.setEnabled(true);
         revalidate();

@@ -35,13 +35,34 @@ final class CapabilityIcons {
 
     /** @return an icon strip for the given capabilities (one slot each, in enum order). */
     static Icon forCapabilities(Set<ModelCapability> capabilities) {
+        return new CompositeIcon(ordered(capabilities));
+    }
+
+    private static List<ModelCapability> ordered(Set<ModelCapability> capabilities) {
         List<ModelCapability> ordered = new ArrayList<ModelCapability>();
         for (ModelCapability capability : ModelCapability.values()) {
             if (capabilities != null && capabilities.contains(capability)) {
                 ordered.add(capability);
             }
         }
-        return new CompositeIcon(ordered);
+        return ordered;
+    }
+
+    /**
+     * @param offsetX the x offset within the icon strip returned by {@link #forCapabilities(Set)}
+     * @return the capability whose slot contains {@code offsetX}, or {@code null} in a gap / out of range
+     */
+    static ModelCapability capabilityAt(Set<ModelCapability> capabilities, int offsetX) {
+        if (offsetX < 0) {
+            return null;
+        }
+        List<ModelCapability> ordered = ordered(capabilities);
+        int slot = offsetX / (SLOT_SIZE + GAP);
+        if (slot < 0 || slot >= ordered.size()) {
+            return null;
+        }
+        int within = offsetX - slot * (SLOT_SIZE + GAP);
+        return within < SLOT_SIZE ? ordered.get(slot) : null;
     }
 
     private static final class CompositeIcon implements Icon {
