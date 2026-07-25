@@ -67,6 +67,27 @@ public final class ChatComposerPanelTest {
         });
     }
 
+    @Test
+    public void exposesAModeSelectorNextToTheModel() throws Exception {
+        SwingUtilities.invokeAndWait(new Runnable() {
+            public void run() {
+                ActionCounter actions = new ActionCounter();
+                ChatComposerPanel composer = new ChatComposerPanel(actions);
+
+                JButton mode = findButton(composer, "Choose the interaction mode");
+                assertEquals("Yapping", mode.getText());
+
+                mode.doClick();
+                assertEquals(1, actions.count("mode"));
+
+                composer.setModeName("Questing");
+                assertEquals("Questing", mode.getText());
+                composer.setModeName("");
+                assertEquals("Yapping", mode.getText());
+            }
+        });
+    }
+
     private static JButton findButton(Container root, String accessibleName) {
         for (Component component : root.getComponents()) {
             if (component instanceof JButton) {
@@ -108,6 +129,10 @@ public final class ChatComposerPanelTest {
 
         public void selectModel() {
             increment("model");
+        }
+
+        public void selectMode() {
+            increment("mode");
         }
 
         public void openSettings() {

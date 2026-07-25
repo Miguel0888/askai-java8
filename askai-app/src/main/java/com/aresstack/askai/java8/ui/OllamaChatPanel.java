@@ -54,6 +54,7 @@ import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
@@ -87,6 +88,10 @@ public final class OllamaChatPanel extends JPanel {
     private final JTextArea systemPromptArea;
     private final ChatTranscript transcript;
     private final ChatComposerPanel composer;
+    // The interaction mode shown on the composer's mode selector: "Yapping" (casual chat, default) or the
+    // name of the selected agent when in "Questing" mode. selectedAgent is null while yapping.
+    private String chatMode = "Yapping";
+    private String selectedAgent;
 
     // Dictation controls.
     private final JComboBox<String> audioModelCombo = new JComboBox<String>();
@@ -144,6 +149,10 @@ public final class OllamaChatPanel extends JPanel {
         this.composer = new ChatComposerPanel(new ChatComposerPanel.Actions() {
             public void selectModel() {
                 openModelPopup();
+            }
+
+            public void selectMode() {
+                openModePopup();
             }
 
             public void openSettings() {
@@ -490,6 +499,59 @@ public final class OllamaChatPanel extends JPanel {
         menu.add(refresh);
         JComponent anchor = composer.getModelButton();
         menu.show(anchor, 0, anchor.getHeight());
+    }
+
+    /** The default, casual chat mode label (a gamified name for "just talking"). */
+    private static final String YAPPING_MODE = "Yapping";
+
+    /**
+     * The in-composer mode selector: "Yapping" is the default casual chat; "Questing" is the agent mode
+     * and carries a submenu of installed agents (none yet). Selecting an agent switches into that mode.
+     */
+    private void openModePopup() {
+        javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
+
+        javax.swing.JRadioButtonMenuItem yapping =
+                new javax.swing.JRadioButtonMenuItem(YAPPING_MODE, YAPPING_MODE.equals(chatMode));
+        yapping.addActionListener(event -> selectYappingMode());
+        menu.add(yapping);
+
+        // "Questing" is a submenu (the arrow) listing the installed agents to run.
+        javax.swing.JMenu questing = new javax.swing.JMenu("Questing");
+        List<String> agents = installedAgentNames();
+        if (agents.isEmpty()) {
+            javax.swing.JMenuItem none = new javax.swing.JMenuItem("No agents installed");
+            none.setEnabled(false);
+            questing.add(none);
+        } else {
+            for (final String agent : agents) {
+                javax.swing.JRadioButtonMenuItem item =
+                        new javax.swing.JRadioButtonMenuItem(agent, agent.equals(selectedAgent));
+                item.addActionListener(event -> selectAgentMode(agent));
+                questing.add(item);
+            }
+        }
+        menu.add(questing);
+
+        JComponent anchor = composer.getModeButton();
+        menu.show(anchor, 0, anchor.getHeight());
+    }
+
+    /** @return the names of installed agents; empty until agent support ships. */
+    private List<String> installedAgentNames() {
+        return Collections.emptyList();
+    }
+
+    private void selectYappingMode() {
+        chatMode = YAPPING_MODE;
+        selectedAgent = null;
+        composer.setModeName(YAPPING_MODE);
+    }
+
+    private void selectAgentMode(String agent) {
+        chatMode = agent;
+        selectedAgent = agent;
+        composer.setModeName(agent);
     }
 
     private void showEmptyState() {

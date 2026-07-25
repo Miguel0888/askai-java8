@@ -67,6 +67,8 @@ public final class ChatComposerPanel extends JPanel {
     public interface Actions {
         void selectModel();
 
+        void selectMode();
+
         void openSettings();
 
         void send();
@@ -123,6 +125,7 @@ public final class ChatComposerPanel extends JPanel {
     private final JLabel chatStatusLabel;
     private final JLabel dictationStatusLabel;
     private final JButton modelButton;
+    private final JButton modeButton;
     private final JButton settingsButton;
     private final JButton recordButton;
     private final JButton audioFileButton;
@@ -149,6 +152,7 @@ public final class ChatComposerPanel extends JPanel {
         this.dictationStatusLabel = createStatusLabel();
         this.statusPanel = createStatusPanel();
         this.modelButton = createModelButton();
+        this.modeButton = createModeButton();
         this.settingsButton = createIconButton(new GearIcon(), "Chat settings");
         this.recordButton = createIconButton(new MicrophoneIcon(), "Record or stop dictation");
         this.audioFileButton = createIconButton(new AudioFileIcon(), "Transcribe audio file");
@@ -186,6 +190,7 @@ public final class ChatComposerPanel extends JPanel {
         JPanel west = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         west.setOpaque(false);
         west.add(modelButton);
+        west.add(modeButton);
         west.add(buildLeftActions());
         footer.add(west, BorderLayout.WEST);
         footer.add(statusPanel, BorderLayout.CENTER);
@@ -270,6 +275,13 @@ public final class ChatComposerPanel extends JPanel {
         return button;
     }
 
+    private JButton createModeButton() {
+        ComposerButton button = new ComposerButton(new ChevronDownIcon(), "Yapping", false);
+        button.setHorizontalTextPosition(SwingConstants.LEFT); // mode first, chevron after
+        configureButton(button, "Choose the interaction mode");
+        return button;
+    }
+
     private JButton createIconButton(Icon icon, String tooltip) {
         ComposerButton button = new ComposerButton(icon, null, false);
         configureButton(button, tooltip);
@@ -305,6 +317,11 @@ public final class ChatComposerPanel extends JPanel {
         modelButton.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent event) {
                 actions.selectModel();
+            }
+        });
+        modeButton.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent event) {
+                actions.selectMode();
             }
         });
         settingsButton.addActionListener(new ActionListener() {
@@ -434,6 +451,18 @@ public final class ChatComposerPanel extends JPanel {
     /** Return the model selector button, so the panel can anchor its model popup to it. */
     public JComponent getModelButton() {
         return modelButton;
+    }
+
+    /** Set the label shown on the in-composer mode selector (e.g. "Yapping" or an agent name). */
+    public void setModeName(String name) {
+        modeButton.setText(name == null || name.trim().length() == 0 ? "Yapping" : name.trim());
+        revalidate();
+        repaint();
+    }
+
+    /** Return the mode selector button, so the panel can anchor its mode popup to it. */
+    public JComponent getModeButton() {
+        return modeButton;
     }
 
     /** Return the untrimmed message text. */
