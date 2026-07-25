@@ -98,6 +98,12 @@ public final class OllamaChatPanel extends JPanel {
     private boolean modelSupportsThinking;
     // The model whose thinking capability is currently being probed, to ignore stale /api/show callbacks.
     private String reasoningProbeModel;
+    // Per-turn streaming state for the thinking → answer flow.
+    private final ThinkingSummaryProvider thinkingSummaryProvider = new DefaultThinkingSummaryProvider();
+    private final StringBuilder streamingThinking = new StringBuilder();
+    private com.aresstack.askai.java8.ui.bubble.BubbleTranscriptPanel.ThinkingHandle activeThinking;
+    private boolean assistantBubbleStarted;
+    private String streamingModelName = "";
 
     // Dictation controls.
     private final JComboBox<String> audioModelCombo = new JComboBox<String>();
@@ -313,48 +319,6 @@ public final class OllamaChatPanel extends JPanel {
         add(buildToolbar(), BorderLayout.NORTH);
         add(transcript.getComponent(), BorderLayout.CENTER);
         add(buildComposer(), BorderLayout.SOUTH);
-        registerDemoShortcuts();
-    }
-
-    /**
-     * Ctrl+Shift+T plays a self-contained agent-activity ("thought bubble") demo in the transcript, so the
-     * animation can be checked in the running client without Ollama, streaming or a real agent. Temporary
-     * developer aid; remove once agent events drive the bubbles for real.
-     */
-    private void registerDemoShortcuts() {
-        javax.swing.KeyStroke stroke = javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_T,
-                java.awt.event.InputEvent.CTRL_DOWN_MASK | java.awt.event.InputEvent.SHIFT_DOWN_MASK);
-        getInputMap(WHEN_IN_FOCUSED_WINDOW).put(stroke, "demoThoughtBubble");
-        getActionMap().put("demoThoughtBubble", new javax.swing.AbstractAction() {
-            public void actionPerformed(java.awt.event.ActionEvent event) {
-                runDemoThoughtBubble();
-            }
-        });
-    }
-
-    /** Scripted activity-summary sequence: understand → plan → check tools → burst with a summary. */
-    private void runDemoThoughtBubble() {
-        final String[][] steps = {
-                {"Understanding request", "Reviewing what you asked for."},
-                {"Planning next step", "Deciding which action to take first."},
-                {"Checking available tools", "Matching the task to installed capabilities."},
-        };
-        final com.aresstack.askai.java8.ui.bubble.AgentActivityBubblePanel activity =
-                transcript.startAgentActivity(steps[0][0], steps[0][1]);
-        final int[] index = {0};
-        javax.swing.Timer timer = new javax.swing.Timer(1200, null);
-        timer.addActionListener(new java.awt.event.ActionListener() {
-            public void actionPerformed(java.awt.event.ActionEvent event) {
-                index[0]++;
-                if (index[0] < steps.length) {
-                    transcript.updateAgentActivity(activity, steps[index[0]][0], steps[index[0]][1]);
-                } else {
-                    ((javax.swing.Timer) event.getSource()).stop();
-                    transcript.completeAgentActivity(activity, "Plan ready");
-                }
-            }
-        });
-        timer.start();
     }
 
     private JComponent buildToolbar() {
@@ -705,8 +669,13 @@ public final class OllamaChatPanel extends JPanel {
         transcript.appendUser(userPrompt);
         history.add(OllamaChatTurn.user(userPrompt));
 
-        transcript.startAssistant(modelName);
+        // Do not open an assistant bubble yet: thinking (if any) opens a green thinking bubble first, and
+        // the answer bubble only appears when real content arrives.
         streamingAssistant.setLength(0);
+        streamingThinking.setLength(0);
+        activeThinking = null;
+        assistantBubbleStarted = false;
+        streamingModelName = modelName;
         startElapsedTimer();
         setBusy(true);
 
@@ -716,11 +685,18 @@ public final class OllamaChatPanel extends JPanel {
         OllamaService.ChatRequest request = new OllamaService.ChatRequest(
                 modelName, keepAliveField.getText(), buildConversation(), thinking);
         chatTask = ollamaService.streamChat(request, new OllamaService.ChatListener() {
+            public void onThinkingDelta(final String delta) {
+                onUi(new Runnable() {
+                    public void run() {
+                        handleThinkingDelta(delta);
+                    }
+                });
+            }
+
             public void onContent(final String content) {
                 onUi(new Runnable() {
                     public void run() {
-                        streamingAssistant.append(content);
-                        transcript.appendAssistantDelta(content);
+                        handleContentDelta(content);
                     }
                 });
             }
@@ -744,34 +720,75 @@ public final class OllamaChatPanel extends JPanel {
             public void onError(final Exception ex) {
                 onUi(new Runnable() {
                     public void run() {
-                        stopElapsedTimer();
-                        setBusy(false);
-                        chatTask = null;
-                        transcript.appendAssistantDelta("[error: " + ex.getMessage() + "]");
-                        transcript.finishAssistant();
-                        setStatus("Chat failed.");
+                        handleStreamError(ex);
                     }
                 });
             }
         });
     }
 
+    /** First non-empty thinking delta opens the green thinking bubble; further deltas stream into it. */
+    private void handleThinkingDelta(String delta) {
+        if (delta == null || delta.isEmpty()) {
+            return;
+        }
+        if (activeThinking == null) {
+            activeThinking = transcript.startAssistantThinking(streamingModelName);
+        }
+        streamingThinking.append(delta);
+        transcript.appendAssistantThinkingDelta(activeThinking, delta);
+    }
+
+    /** First real content ends thinking (burst + rising summary), then streams into the answer bubble. */
+    private void handleContentDelta(String content) {
+        if (content == null || content.isEmpty()) {
+            return;
+        }
+        endThinkingIfActive();
+        if (!assistantBubbleStarted) {
+            transcript.startAssistant(streamingModelName);
+            assistantBubbleStarted = true;
+        }
+        streamingAssistant.append(content);
+        transcript.appendAssistantDelta(content);
+    }
+
+    private void endThinkingIfActive() {
+        if (activeThinking != null) {
+            transcript.completeAssistantThinking(activeThinking,
+                    thinkingSummaryProvider.createSummary(streamingThinking.toString()));
+            activeThinking = null;
+        }
+    }
+
     private void finishTurn(OllamaService.ChatResult result) {
         stopElapsedTimer();
         setBusy(false);
         chatTask = null;
+        // Thinking that never produced an answer: close it neutrally, do not leave an empty answer bubble.
+        endThinkingIfActive();
+
         String assistantText = streamingAssistant.toString();
-        if (assistantText.trim().isEmpty() && !result.getFallbackText().isEmpty()) {
+        if (!assistantBubbleStarted && assistantText.trim().isEmpty() && !result.getFallbackText().isEmpty()) {
+            // The answer arrived only as a fallback (no streamed deltas): open and fill a bubble now.
             assistantText = result.getFallbackText();
+            transcript.startAssistant(streamingModelName);
+            assistantBubbleStarted = true;
             transcript.appendAssistantDelta(assistantText);
         }
-        transcript.finishAssistant();
-        history.add(OllamaChatTurn.assistant(assistantText));
-        if (result.hasMetrics()) {
-            setStatus(String.format("Ready · %d tokens · %.1f tok/s",
-                    result.getEvalCount(), result.tokensPerSecond()));
+
+        if (assistantBubbleStarted) {
+            transcript.finishAssistant();
+            history.add(OllamaChatTurn.assistant(assistantText));
+            if (result.hasMetrics()) {
+                setStatus(String.format("Ready · %d tokens · %.1f tok/s",
+                        result.getEvalCount(), result.tokensPerSecond()));
+            } else {
+                setStatus("Ready.");
+            }
         } else {
-            setStatus("Ready.");
+            // Thinking-only turn: no answer, no empty bubble — a neutral status instead.
+            setStatus("Thinking finished — no answer returned.");
         }
     }
 
@@ -791,13 +808,34 @@ public final class OllamaChatPanel extends JPanel {
             chatTask = null;
             stopElapsedTimer();
             setBusy(false);
-            transcript.appendAssistantDelta(" [stopped]");
-            transcript.finishAssistant();
-            if (!streamingAssistant.toString().trim().isEmpty()) {
-                history.add(OllamaChatTurn.assistant(streamingAssistant.toString()));
+            if (activeThinking != null) {
+                transcript.cancelAssistantThinking(activeThinking, "Stopped");
+                activeThinking = null;
+            }
+            if (assistantBubbleStarted) {
+                transcript.appendAssistantDelta(" [stopped]");
+                transcript.finishAssistant();
+                if (!streamingAssistant.toString().trim().isEmpty()) {
+                    history.add(OllamaChatTurn.assistant(streamingAssistant.toString()));
+                }
             }
             setStatus("Stopped.");
         }
+    }
+
+    private void handleStreamError(Exception ex) {
+        stopElapsedTimer();
+        setBusy(false);
+        chatTask = null;
+        if (activeThinking != null) {
+            transcript.cancelAssistantThinking(activeThinking, "Failed");
+            activeThinking = null;
+        }
+        if (assistantBubbleStarted) {
+            transcript.appendAssistantDelta("[error: " + ex.getMessage() + "]");
+            transcript.finishAssistant();
+        }
+        setStatus("Chat failed.");
     }
 
     // ------------------------------------------------------------------ audio-model dropdown

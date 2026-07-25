@@ -82,6 +82,24 @@ final class ChatTranscript {
         panel.completeAgentActivity(activity, summary);
     }
 
+    // ------------------------------------------------------------------ assistant thinking
+
+    BubbleTranscriptPanel.ThinkingHandle startAssistantThinking(String modelName) {
+        return panel.startAssistantThinking(modelName);
+    }
+
+    void appendAssistantThinkingDelta(BubbleTranscriptPanel.ThinkingHandle handle, String delta) {
+        panel.appendAssistantThinkingDelta(handle, delta);
+    }
+
+    void completeAssistantThinking(BubbleTranscriptPanel.ThinkingHandle handle, String summary) {
+        panel.completeAssistantThinking(handle, summary);
+    }
+
+    void cancelAssistantThinking(BubbleTranscriptPanel.ThinkingHandle handle, String summary) {
+        panel.cancelAssistantThinking(handle, summary);
+    }
+
     void failAgentActivity(AgentActivityBubblePanel activity, String summary) {
         panel.failAgentActivity(activity, summary);
     }
