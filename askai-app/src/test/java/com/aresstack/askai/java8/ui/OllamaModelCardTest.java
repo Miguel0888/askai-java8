@@ -1,0 +1,84 @@
+package com.aresstack.askai.java8.ui;
+
+import com.aresstack.askai.java8.client.OllamaModelDetails;
+import com.aresstack.askai.java8.client.OllamaModelInfo;
+import com.aresstack.askai.java8.config.HuggingFaceSearchSuggestion.Modality;
+import org.junit.Test;
+
+import javax.swing.SwingUtilities;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+
+/** The installed-model card shows every /api/show capability, not just input modalities. */
+public class OllamaModelCardTest {
+
+    private OllamaModelCard cardWithCapabilities(final List<String> tags) throws Exception {
+        final AtomicReference<OllamaModelCard> ref = new AtomicReference<OllamaModelCard>();
+        SwingUtilities.invokeAndWait(new Runnable() {
+            public void run() {
+                OllamaModelInfo model = new OllamaModelInfo("m", "m", "", 0L, "", OllamaModelDetails.empty());
+                OllamaModelCard card = OllamaModelCard.installed(model,
+                        new OllamaModelCard.AddOnHandler() {
+                            public void installAddOn(OllamaModelInfo m, Modality modality, boolean already) {
+                            }
+                        }, null, new Runnable() {
+                            public void run() {
+                            }
+                        });
+                card.setCapabilities(tags);
+                ref.set(card);
+            }
+        });
+        return ref.get();
+    }
+
+    @Test
+    public void completionToolsThinkingAreAllShown() throws Exception {
+        Set<ModelCapability> shown = cardWithCapabilities(
+                Arrays.asList("completion", "tools", "thinking")).shownCapabilities();
+        assertTrue(shown.contains(ModelCapability.TEXT));
+        assertTrue(shown.contains(ModelCapability.TOOLS));
+        assertTrue(shown.contains(ModelCapability.THINKING));
+    }
+
+    @Test
+    public void embeddingIsShown() throws Exception {
+        assertTrue(cardWithCapabilities(Collections.singletonList("embedding"))
+                .shownCapabilities().contains(ModelCapability.EMBEDDING));
+    }
+
+    @Test
+    public void inputModalitiesStillShown() throws Exception {
+        Set<ModelCapability> shown = cardWithCapabilities(
+                Arrays.asList("completion", "vision", "audio")).shownCapabilities();
+        assertTrue(shown.contains(ModelCapability.TEXT));
+        assertTrue(shown.contains(ModelCapability.VISION));
+        assertTrue(shown.contains(ModelCapability.AUDIO));
+    }
+
+    @Test
+    public void toolsAndThinkingDoNotAffectAudioVisionAddOnState() throws Exception {
+        OllamaModelCard card = cardWithCapabilities(Arrays.asList("completion", "tools", "thinking"));
+        assertFalse(card.isAddOnAlreadyInstalled(Modality.AUDIO));
+        assertFalse(card.isAddOnAlreadyInstalled(Modality.VISION));
+
+        OllamaModelCard audioVision = cardWithCapabilities(Arrays.asList("completion", "audio", "vision"));
+        assertTrue(audioVision.isAddOnAlreadyInstalled(Modality.AUDIO));
+        assertTrue(audioVision.isAddOnAlreadyInstalled(Modality.VISION));
+    }
+
+    @Test
+    public void unknownTagsAreIgnored() throws Exception {
+        Set<ModelCapability> shown = cardWithCapabilities(
+                Arrays.asList("completion", "totally-unknown", "")).shownCapabilities();
+        assertEquals(1, shown.size());
+        assertTrue(shown.contains(ModelCapability.TEXT));
+    }
+}

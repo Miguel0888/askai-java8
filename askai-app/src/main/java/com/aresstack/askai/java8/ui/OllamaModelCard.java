@@ -33,7 +33,8 @@ final class OllamaModelCard extends JPanel {
     private final JLabel capabilityIconLabel = new JLabel();
     private final JButton audioAddOnButton = new JButton("+ Audio");
     private final JButton visionAddOnButton = new JButton("+ Vision");
-    private Set<Modality> capabilities = EnumSet.noneOf(Modality.class);
+    // The full set of capabilities /api/show reported (completion, tools, thinking, vision, audio, ...).
+    private Set<ModelCapability> capabilities = EnumSet.noneOf(ModelCapability.class);
     private boolean capabilitiesKnown;
 
     private OllamaModelCard(String title, String line1, String line2, boolean running,
@@ -59,7 +60,7 @@ final class OllamaModelCard extends JPanel {
 
         JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         right.setOpaque(false);
-        capabilityIconLabel.setToolTipText("Model input capabilities (text / audio / vision)");
+        capabilityIconLabel.setToolTipText("Model capabilities (from /api/show)");
         right.add(capabilityIconLabel);
         if (deleteAction != null) {
             // Primary action first and highlighted: open this model in the chat with one click.
@@ -105,7 +106,22 @@ final class OllamaModelCard extends JPanel {
         // Disabled until the capabilities have been queried, so "already installed?" is answerable.
         button.setEnabled(false);
         button.addActionListener(event ->
-                handler.installAddOn(installedModel, modality, capabilities.contains(modality)));
+                handler.installAddOn(installedModel, modality, capabilities.contains(toCapability(modality))));
+    }
+
+    /** The add-on buttons only ever ask about audio/vision installation. */
+    private static ModelCapability toCapability(Modality modality) {
+        return modality == Modality.AUDIO ? ModelCapability.AUDIO : ModelCapability.VISION;
+    }
+
+    /** @return the capabilities currently shown on the card (test hook). */
+    Set<ModelCapability> shownCapabilities() {
+        return capabilities;
+    }
+
+    /** @return whether the add-on for {@code modality} would be treated as already installed (test hook). */
+    boolean isAddOnAlreadyInstalled(Modality modality) {
+        return capabilities.contains(toCapability(modality));
     }
 
     /**
@@ -114,35 +130,17 @@ final class OllamaModelCard extends JPanel {
      * buttons still enable (the user may know better), but no icons are claimed.
      */
     void setCapabilities(List<String> capabilityTags) {
-        capabilities = toModalities(capabilityTags);
+        // Show every capability /api/show reports (TEXT, TOOLS, THINKING, VISION, AUDIO, EMBEDDING, ...),
+        // not just the input modalities — the previous modality-only filter dropped tools/thinking.
+        capabilities = ModelCapability.fromOllamaTags(capabilityTags);
         capabilitiesKnown = true;
-        Set<ModelCapability> shown = ModelCapability.fromModalities(capabilities);
-        capabilityIconLabel.setIcon(shown.isEmpty() ? null : CapabilityIcons.forCapabilities(shown));
-        capabilityIconLabel.setToolTipText(shown.isEmpty()
-                ? "Model input capabilities (from /api/show)" : ModelCapability.tooltipHtml(shown));
+        capabilityIconLabel.setIcon(capabilities.isEmpty() ? null : CapabilityIcons.forCapabilities(capabilities));
+        capabilityIconLabel.setToolTipText(capabilities.isEmpty()
+                ? "Model capabilities (from /api/show)" : ModelCapability.tooltipHtml(capabilities));
         audioAddOnButton.setEnabled(true);
         visionAddOnButton.setEnabled(true);
         revalidate();
         repaint();
-    }
-
-    /** Map Ollama capability tags onto the modality icon set. */
-    private static Set<Modality> toModalities(List<String> tags) {
-        Set<Modality> modalities = EnumSet.noneOf(Modality.class);
-        if (tags == null) {
-            return modalities;
-        }
-        for (int i = 0; i < tags.size(); i++) {
-            String tag = tags.get(i) == null ? "" : tags.get(i).toLowerCase();
-            if ("completion".equals(tag)) {
-                modalities.add(Modality.TEXT);
-            } else if ("vision".equals(tag)) {
-                modalities.add(Modality.VISION);
-            } else if ("audio".equals(tag)) {
-                modalities.add(Modality.AUDIO);
-            }
-        }
-        return modalities;
     }
 
     static OllamaModelCard installed(OllamaModelInfo model, AddOnHandler addOnHandler,
