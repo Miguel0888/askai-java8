@@ -68,6 +68,29 @@ public class HuggingFaceInstallPlanTest {
     }
 
     @Test
+    public void resolvedRevisionShaRoundTripsAndPinsRevision() throws Exception {
+        File gguf = File.createTempFile("askai-sha-", ".gguf");
+        gguf.deleteOnExit();
+        HuggingFaceInstallPlan plan = new HuggingFaceInstallPlan("owner/model", "main", "deadbeef123",
+                "m:q4", Arrays.asList("TEXT"), Arrays.asList("completion"), "qwen3");
+        assertEquals("deadbeef123", plan.getResolvedRevisionSha());
+        assertEquals("deadbeef123", plan.getPinnedRevision()); // pinned to the SHA, not the branch
+        plan.writeSidecar(gguf);
+        sidecarOf(gguf).deleteOnExit();
+
+        HuggingFaceInstallPlan loaded = HuggingFaceInstallPlan.readSidecar(gguf);
+        assertEquals("deadbeef123", loaded.getResolvedRevisionSha());
+        assertEquals("main", loaded.getRevision());
+    }
+
+    @Test
+    public void withoutShaThePinnedRevisionIsTheRequestedRevision() {
+        HuggingFaceInstallPlan plan = new HuggingFaceInstallPlan("o/m", "main", "m",
+                Arrays.asList("TEXT"), Arrays.asList("completion"), "");
+        assertEquals("main", plan.getPinnedRevision());
+    }
+
+    @Test
     public void missingSidecarIsNull() throws Exception {
         File gguf = File.createTempFile("askai-nometa-", ".gguf");
         gguf.deleteOnExit();

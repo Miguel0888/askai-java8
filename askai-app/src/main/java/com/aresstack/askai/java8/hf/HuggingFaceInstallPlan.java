@@ -34,10 +34,11 @@ public final class HuggingFaceInstallPlan {
     private static final String SIDECAR_SUFFIX = ".askai-install.json";
 
     /** The sidecar shape this build writes. Absent in the wild means the original (v1) shape. */
-    private static final int SCHEMA_VERSION = 2;
+    private static final int SCHEMA_VERSION = 3;
 
     private final String repositoryId;
-    private final String revision;
+    private final String revision;                         // the requested revision (branch/tag), e.g. "main"
+    private final String resolvedRevisionSha;              // the pinned commit SHA the file was taken from
     private final String targetModelName;
     private final List<String> declaredCapabilities;      // ModelCapability names, e.g. ["TEXT","AUDIO"]
     private final List<String> requiredOllamaCapabilities; // canonical tags, e.g. ["completion","audio"]
@@ -51,8 +52,15 @@ public final class HuggingFaceInstallPlan {
     public HuggingFaceInstallPlan(String repositoryId, String revision, String targetModelName,
                                   List<String> declaredCapabilities, List<String> requiredOllamaCapabilities,
                                   String modelType) {
+        this(repositoryId, revision, "", targetModelName, declaredCapabilities, requiredOllamaCapabilities, modelType);
+    }
+
+    public HuggingFaceInstallPlan(String repositoryId, String revision, String resolvedRevisionSha,
+                                  String targetModelName, List<String> declaredCapabilities,
+                                  List<String> requiredOllamaCapabilities, String modelType) {
         this.repositoryId = repositoryId == null ? "" : repositoryId;
         this.revision = revision == null || revision.trim().isEmpty() ? "main" : revision.trim();
+        this.resolvedRevisionSha = resolvedRevisionSha == null ? "" : resolvedRevisionSha.trim();
         this.targetModelName = targetModelName == null ? "" : targetModelName;
         this.declaredCapabilities = immutable(declaredCapabilities);
         this.requiredOllamaCapabilities = immutable(requiredOllamaCapabilities);
@@ -90,9 +98,28 @@ public final class HuggingFaceInstallPlan {
         return modelType;
     }
 
+    /** @return the pinned commit SHA the file was taken from, or "" when not resolved. */
+    public String getResolvedRevisionSha() {
+        return resolvedRevisionSha;
+    }
+
+    /**
+     * @return the revision to pin all downloads and metadata fetches to: the resolved commit SHA when
+     *         known, else the requested revision. Ensures the file and its metadata come from one commit.
+     */
+    public String getPinnedRevision() {
+        return resolvedRevisionSha.isEmpty() ? revision : resolvedRevisionSha;
+    }
+
     /** @return a copy of this plan re-targeted to a different install name. */
     public HuggingFaceInstallPlan withTargetModelName(String newTargetModelName) {
-        return new HuggingFaceInstallPlan(repositoryId, revision, newTargetModelName,
+        return new HuggingFaceInstallPlan(repositoryId, revision, resolvedRevisionSha, newTargetModelName,
+                declaredCapabilities, requiredOllamaCapabilities, modelType);
+    }
+
+    /** @return a copy of this plan pinned to the given resolved commit SHA. */
+    public HuggingFaceInstallPlan withResolvedRevisionSha(String sha) {
+        return new HuggingFaceInstallPlan(repositoryId, revision, sha, targetModelName,
                 declaredCapabilities, requiredOllamaCapabilities, modelType);
     }
 
@@ -119,7 +146,9 @@ public final class HuggingFaceInstallPlan {
             byte[] bytes = OllamaJson.toJson(toMap()).getBytes(StandardCharsets.UTF_8);
             Files.write(temp.toPath(), bytes);
             try {
-                Files.move(temp.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE);
+                // A fresh plan must overwrite a stale sidecar, atomically where the platform allows it.
+                Files.move(temp.toPath(), target.toPath(),
+                        StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
             } catch (AtomicMoveNotSupportedException notAtomic) {
                 Files.move(temp.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING);
             }
@@ -166,12 +195,14 @@ public final class HuggingFaceInstallPlan {
         // repositoryId is the mandatory marker of a real HF plan: this also rejects an empty "{}".
         String repositoryId = requireNonEmptyString(sidecar, map, "repositoryId");
         String revision = optionalString(sidecar, map, "revision");
+        String resolvedRevisionSha = optionalString(sidecar, map, "resolvedRevisionSha"); // absent < v3 → ""
         String targetModelName = optionalString(sidecar, map, "targetModelName");
         String modelType = optionalString(sidecar, map, "modelType"); // absent in v1 → ""
         List<String> declared = optionalStringList(sidecar, map, "declaredCapabilities");
         List<String> required = optionalStringList(sidecar, map, "requiredOllamaCapabilities");
 
-        return new HuggingFaceInstallPlan(repositoryId, revision, targetModelName, declared, required, modelType);
+        return new HuggingFaceInstallPlan(repositoryId, revision, resolvedRevisionSha, targetModelName,
+                declared, required, modelType);
     }
 
     private Map<String, Object> toMap() {
@@ -179,6 +210,7 @@ public final class HuggingFaceInstallPlan {
         map.put("schemaVersion", SCHEMA_VERSION);
         map.put("repositoryId", repositoryId);
         map.put("revision", revision);
+        map.put("resolvedRevisionSha", resolvedRevisionSha);
         map.put("targetModelName", targetModelName);
         map.put("modelType", modelType);
         map.put("declaredCapabilities", new ArrayList<String>(declaredCapabilities));

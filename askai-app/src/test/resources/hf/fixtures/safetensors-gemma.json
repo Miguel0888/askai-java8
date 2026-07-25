@@ -1,0 +1,8 @@
+{
+  "id": "google/gemma-2-2b",
+  "sha": "ccc3334445556667778889990001112223334445",
+  "tags": ["text-generation", "safetensors"],
+  "cardData": {"license": "gemma"},
+  "config": {"model_type": "gemma2", "text_config": {"max_position_embeddings": 8192, "hidden_size": 2304}},
+  "safetensors": {"total": 2610000000}
+}

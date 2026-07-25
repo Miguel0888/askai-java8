@@ -93,16 +93,68 @@ public class HuggingFaceMetadataLoaderTest {
         assertNull(HuggingFaceMetadataLoader.formatParameterSize(0L));
     }
 
-    /** In-memory gateway: config/generation files by name, one model-info map. */
+    @Test
+    public void ggufMetadataOutranksRepositoryConfig() {
+        FakeGateway gw = new FakeGateway();
+        gw.files.put("config.json", "{\"model_type\":\"qwen3\",\"max_position_embeddings\":8192,\"hidden_size\":4096}");
+        Map<String, Object> gguf = new LinkedHashMap<String, Object>();
+        gguf.put("context_length", 32768); // the selected GGUF's real context beats config.json
+        Map<String, Object> info = new LinkedHashMap<String, Object>();
+        info.put("gguf", gguf);
+        gw.modelInfo = info;
+
+        Map<String, Object> map = new HuggingFaceMetadataLoader(gw).load(plan("qwen3"), "m.gguf").toInfoMap();
+        assertEquals(32768, map.get("context_length"));
+    }
+
+    @Test
+    public void infoConfigIsUsedWhenConfigJsonIsMissing() {
+        FakeGateway gw = new FakeGateway(); // no config.json file
+        Map<String, Object> config = new LinkedHashMap<String, Object>();
+        config.put("hidden_size", 2048);
+        Map<String, Object> info = new LinkedHashMap<String, Object>();
+        info.put("config", config);
+        gw.modelInfo = info;
+
+        Map<String, Object> map = new HuggingFaceMetadataLoader(gw).load(plan(""), "m.gguf").toInfoMap();
+        assertEquals(2048, map.get("embedding_length"));
+    }
+
+    @Test
+    public void topLevelBaseModelsMapsToBaseName() {
+        FakeGateway gw = new FakeGateway();
+        Map<String, Object> info = new LinkedHashMap<String, Object>();
+        info.put("baseModels", java.util.Collections.singletonList("Qwen/Qwen3-8B"));
+        gw.modelInfo = info;
+
+        Map<String, Object> map = new HuggingFaceMetadataLoader(gw).load(plan(""), "m.gguf").toInfoMap();
+        assertEquals("Qwen/Qwen3-8B", map.get("base_name"));
+    }
+
+    @Test
+    public void allFetchesArePinnedToTheResolvedSha() {
+        FakeGateway gw = new FakeGateway();
+        HuggingFaceInstallPlan pinned = new HuggingFaceInstallPlan("owner/model", "main", "abc123sha",
+                "m:q4", Arrays.asList("TEXT"), Arrays.asList("completion"), "");
+        new HuggingFaceMetadataLoader(gw).load(pinned, "m.gguf");
+        assertEquals("abc123sha", gw.lastFileRevision);
+        assertEquals("abc123sha", gw.lastInfoRevision);
+    }
+
+    /** In-memory gateway: config/generation files by name, one model-info map; records the revision used. */
     private static final class FakeGateway implements HuggingFaceMetadataGateway {
         final Map<String, String> files = new LinkedHashMap<String, String>();
         Map<String, Object> modelInfo = new LinkedHashMap<String, Object>();
+        String lastFileRevision;
+        String lastInfoRevision;
 
         public String fetchFile(String repositoryId, String revision, String path) {
+            lastFileRevision = revision;
             return files.get(path);
         }
 
         public Map<String, Object> fetchModelInfo(String repositoryId, String revision) {
+            lastInfoRevision = revision;
             return modelInfo;
         }
     }

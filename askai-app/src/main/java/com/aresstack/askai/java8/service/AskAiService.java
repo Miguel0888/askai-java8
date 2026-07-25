@@ -160,6 +160,13 @@ public interface AskAiService {
     }
 
     interface DownloadListener {
+        /**
+         * The commit SHA the download was pinned to, delivered before the bytes stream. Default no-op so
+         * existing callers stay source-compatible.
+         */
+        default void onResolvedRevision(String sha) {
+        }
+
         void onProgress(long completed, long total);
 
         void onComplete(File file);

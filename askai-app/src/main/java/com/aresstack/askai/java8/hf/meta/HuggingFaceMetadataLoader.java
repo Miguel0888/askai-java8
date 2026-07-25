@@ -35,10 +35,12 @@ public final class HuggingFaceMetadataLoader {
 
     public OllamaCreateMetadata load(HuggingFaceInstallPlan plan, String fileName) {
         String repo = plan.getRepositoryId();
-        String revision = plan.getRevision();
+        // Pin every download and metadata fetch to the same commit, so the file and its metadata match.
+        String revision = plan.getPinnedRevision();
 
         Field<String> family = new Field<String>();
-        family.offer(OllamaModelFamilyRegistry.familyValue(plan.getModelType()));
+        // The registry is a transformation; the plan's model_type came from config.json → keep that source.
+        family.offer(OllamaModelFamilyRegistry.familyValue(plan.getModelType(), MetadataSource.CONFIG_JSON));
 
         Field<String> quant = new Field<String>();
         quant.offer(GgufQuantization.fromFileNameValue(fileName)); // FILE_NAME / MEDIUM (provenance only)
@@ -50,10 +52,16 @@ public final class HuggingFaceMetadataLoader {
         Field<List<String>> license = new Field<List<String>>();
         Map<String, MetadataValue<Object>> parameters = new LinkedHashMap<String, MetadataValue<Object>>();
 
-        // --- structured repository files -------------------------------------------------------
+        // --- HF model-info API (sha, baseModels, cardData, config, gguf, safetensors, tags) ----
+        Map<String, Object> info = gateway.fetchModelInfo(repo, revision);
+
+        // --- structured repository files (config.json direct, else info.config as a fallback) --
         Map<String, Object> config = parseJson(gateway.fetchFile(repo, revision, "config.json"));
+        if (config == null && info != null) {
+            config = asMap(info.get("config"));
+        }
         if (config != null) {
-            family.offer(OllamaModelFamilyRegistry.familyValue(string(config, "model_type")));
+            family.offer(OllamaModelFamilyRegistry.familyValue(string(config, "model_type"), MetadataSource.CONFIG_JSON));
             Integer ctx = firstInt(config, "max_position_embeddings", nested(config, "text_config"), "max_position_embeddings");
             contextLength.offer(positiveInt(ctx, MetadataSource.CONFIG_JSON));
             Integer hidden = firstInt(config, "hidden_size", nested(config, "text_config"), "hidden_size");
@@ -65,21 +73,25 @@ public final class HuggingFaceMetadataLoader {
             parameters.putAll(mapGenerationParameters(generation));
         }
 
-        // --- HF model-info API (sha, tags, cardData, gguf, safetensors) ------------------------
-        Map<String, Object> info = gateway.fetchModelInfo(repo, revision);
         if (info != null) {
             Map<String, Object> gguf = asMap(info.get("gguf"));
             if (gguf != null) {
-                quant.offer(quantValue(string(gguf, "quantization"), MetadataSource.GGUF_METADATA));
-                quant.offer(quantValue(string(gguf, "quantization_level"), MetadataSource.GGUF_METADATA));
-                contextLength.offer(positiveInt(intOf(gguf.get("context_length")), MetadataSource.GGUF_METADATA));
-                embeddingLength.offer(positiveInt(intOf(gguf.get("embedding_length")), MetadataSource.GGUF_METADATA));
-                parameterSize.offer(paramSizeValue(longOf(gguf.get("total")), MetadataSource.GGUF_METADATA));
+                // The gguf block is loosely typed across the HF API — accept several known key spellings.
+                quant.offer(quantValue(firstString(gguf, "quantization", "quantization_level", "quant"),
+                        MetadataSource.GGUF_METADATA));
+                contextLength.offer(positiveInt(firstIntKey(gguf, "context_length", "n_ctx"),
+                        MetadataSource.GGUF_METADATA));
+                embeddingLength.offer(positiveInt(firstIntKey(gguf, "embedding_length", "n_embd"),
+                        MetadataSource.GGUF_METADATA));
+                parameterSize.offer(paramSizeValue(firstLongKey(gguf, "total", "parameters", "n_params"),
+                        MetadataSource.GGUF_METADATA));
             }
             Map<String, Object> safetensors = asMap(info.get("safetensors"));
             if (safetensors != null) {
                 parameterSize.offer(paramSizeValue(longOf(safetensors.get("total")), MetadataSource.HF_MODEL_API));
             }
+            // Top-level baseModels is the authoritative HF-API base-model list (highest HF priority).
+            baseName.offer(stringValue(baseModelOf(info.get("baseModels")), MetadataSource.HF_MODEL_API));
             Map<String, Object> card = asMap(info.get("cardData"));
             if (card != null) {
                 baseName.offer(stringValue(baseModelOf(card.get("base_model")), MetadataSource.HF_CARD_DATA));
@@ -260,6 +272,37 @@ public final class HuggingFaceMetadataLoader {
         }
         Object value = map.get(key);
         return value == null ? "" : String.valueOf(value);
+    }
+
+    /** The HF {@code gguf} block is loosely typed; try several known key spellings, in order. */
+    private static String firstString(Map<String, Object> map, String... keys) {
+        for (int i = 0; i < keys.length; i++) {
+            String value = string(map, keys[i]);
+            if (value.length() > 0) {
+                return value;
+            }
+        }
+        return "";
+    }
+
+    private static Integer firstIntKey(Map<String, Object> map, String... keys) {
+        for (int i = 0; i < keys.length; i++) {
+            Integer value = intOf(map.get(keys[i]));
+            if (value != null) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private static Long firstLongKey(Map<String, Object> map, String... keys) {
+        for (int i = 0; i < keys.length; i++) {
+            Long value = longOf(map.get(keys[i]));
+            if (value != null) {
+                return value;
+            }
+        }
+        return null;
     }
 
     private static Integer firstInt(Map<String, Object> primary, String primaryKey,

@@ -734,10 +734,18 @@ public final class HuggingFaceClient implements HuggingFaceSearchGateway {
      *
      * @return the parsed object, or an empty map when the response is not a JSON object.
      */
+    /** The model-info fields AskAI needs, requested explicitly so they are populated in the response. */
+    private static final String[] MODEL_INFO_EXPAND = {
+            "sha", "baseModels", "cardData", "config", "gguf", "safetensors", "tags", "transformersInfo"};
+
     public Map<String, Object> fetchModelInfo(String modelId, String revision) throws IOException {
         String rev = revision == null || revision.trim().isEmpty() ? "main" : revision.trim();
-        String url = "https://huggingface.co/api/models/" + encodePath(modelId) + "/revision/" + encodePath(rev);
-        Object parsed = OllamaJson.parse(getText(url));
+        StringBuilder url = new StringBuilder("https://huggingface.co/api/models/")
+                .append(encodePath(modelId)).append("/revision/").append(encodePath(rev));
+        for (int i = 0; i < MODEL_INFO_EXPAND.length; i++) {
+            url.append(i == 0 ? '?' : '&').append("expand[]=").append(encode(MODEL_INFO_EXPAND[i]));
+        }
+        Object parsed = OllamaJson.parse(getText(url.toString()));
         if (parsed instanceof Map) {
             @SuppressWarnings("unchecked")
             Map<String, Object> map = (Map<String, Object>) parsed;
@@ -749,6 +757,18 @@ public final class HuggingFaceClient implements HuggingFaceSearchGateway {
     /** Public GET of an arbitrary text/JSON URL through the same proxy/TLS plumbing (catalog endpoints). */
     public String fetchText(String url) throws IOException {
         return getText(url);
+    }
+
+    /**
+     * Resolves a branch/tag to its current commit SHA, so downloads and metadata can be pinned to one
+     * immutable commit (the repo's {@code main} may move between download and install).
+     *
+     * @return the resolved commit SHA, or {@code revision} itself when the API does not report one.
+     */
+    public String resolveRevisionSha(String modelId, String revision) throws IOException {
+        String rev = revision == null || revision.trim().isEmpty() ? "main" : revision.trim();
+        String sha = string(fetchModelInfo(modelId, rev), "sha");
+        return sha.length() > 0 ? sha : rev;
     }
 
     private static final int MAX_DOWNLOAD_ATTEMPTS = 5;
@@ -766,6 +786,12 @@ public final class HuggingFaceClient implements HuggingFaceSearchGateway {
      * {@code .part} file is kept so a later attempt can resume.</p>
      */
     public File download(HuggingFaceFile file, File targetDirectory, DownloadProgressListener listener) throws IOException {
+        return download(file, targetDirectory, "main", listener);
+    }
+
+    /** Like {@link #download(HuggingFaceFile, File, DownloadProgressListener)} but pinned to a revision/SHA. */
+    public File download(HuggingFaceFile file, File targetDirectory, String revision,
+                         DownloadProgressListener listener) throws IOException {
         if (!targetDirectory.isDirectory() && !targetDirectory.mkdirs()) {
             throw new IOException("Could not create download directory: " + targetDirectory.getAbsolutePath());
         }
@@ -773,9 +799,11 @@ public final class HuggingFaceClient implements HuggingFaceSearchGateway {
         if (!modelDirectory.isDirectory() && !modelDirectory.mkdirs()) {
             throw new IOException("Could not create model directory: " + modelDirectory.getAbsolutePath());
         }
+        String rev = revision == null || revision.trim().isEmpty() ? "main" : revision.trim();
         File targetFile = new File(modelDirectory, file.getFileName());
         File partFile = new File(modelDirectory, file.getFileName() + ".part");
-        String url = "https://huggingface.co/" + encodePath(file.getModelId()) + "/resolve/main/" + encodePath(file.getPath());
+        String url = "https://huggingface.co/" + encodePath(file.getModelId()) + "/resolve/"
+                + encodePath(rev) + "/" + encodePath(file.getPath());
         long expectedSize = file.getSize();
 
         IOException last = null;

@@ -1,0 +1,14 @@
+{
+  "id": "ggml-org/gemma-4-e2b-GGUF",
+  "sha": "ddd4445556667778889990001112223334445556",
+  "tags": ["gguf", "gemma4"],
+  "library_name": "gguf",
+  "cardData": {"license": "gemma"},
+  "config": {"model_type": "gemma4"},
+  "gguf": {
+    "quant": "Q8_0",
+    "n_ctx": 8192,
+    "n_embd": 2048,
+    "n_params": 2000000000
+  }
+}

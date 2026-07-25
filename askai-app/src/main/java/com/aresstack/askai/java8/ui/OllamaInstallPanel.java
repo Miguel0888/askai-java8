@@ -1069,7 +1069,9 @@ public final class OllamaInstallPanel extends JPanel {
         // Freeze the install contract now, from the currently selected model — not later in the
         // install callback. During a long download the user may pick another search result; the file
         // being installed must keep the metadata of the model it was actually downloaded for.
-        final HuggingFaceInstallPlan frozenPlan = freezeInstallPlan();
+        // Held in a 1-element array so the resolved commit SHA (delivered before the bytes) can pin the
+        // plan before it is persisted/installed.
+        final HuggingFaceInstallPlan[] frozenPlanRef = { freezeInstallPlan() };
 
         final String modelFileName = selected.getFileName();
         append("Downloading " + modelFileName + " ...");
@@ -1077,6 +1079,17 @@ public final class OllamaInstallPanel extends JPanel {
         // encoder) are visibly separate phases instead of looking stuck at 100%.
         showProgress(0, "Downloading " + modelFileName);
         askAiService.downloadHuggingFaceFile(selected, new AskAiService.DownloadListener() {
+            public void onResolvedRevision(final String sha) {
+                onUi(new Runnable() {
+                    public void run() {
+                        if (frozenPlanRef[0] != null && sha != null && sha.length() > 0) {
+                            frozenPlanRef[0] = frozenPlanRef[0].withResolvedRevisionSha(sha);
+                            append("Pinned to commit " + (sha.length() > 10 ? sha.substring(0, 10) : sha) + ".");
+                        }
+                    }
+                });
+            }
+
             public void onProgress(final long completed, final long total) {
                 onUi(new Runnable() {
                     public void run() {
@@ -1096,15 +1109,15 @@ public final class OllamaInstallPanel extends JPanel {
                     public void run() {
                         lastDownloadedFile = file;
                         append("Download complete: " + file.getAbsolutePath());
-                        // Persist the frozen contract now — even for a download-only, so a later install
-                        // from "Downloaded files" still carries the Hugging Face metadata.
-                        persistDownloadSidecar(file, frozenPlan);
+                        // Persist the frozen (now SHA-pinned) contract — even for a download-only, so a
+                        // later install from "Downloaded files" still carries the Hugging Face metadata.
+                        persistDownloadSidecar(file, frozenPlanRef[0]);
                         if (companionFile != null) {
-                            downloadCompanion(companionFile, installAfterDownload, frozenPlan);
+                            downloadCompanion(companionFile, installAfterDownload, frozenPlanRef[0]);
                         } else {
                             showProgress(100, "Files downloaded");
                             if (installAfterDownload) {
-                                installDownloadedFile(frozenPlan);
+                                installDownloadedFile(frozenPlanRef[0]);
                             }
                         }
                     }
@@ -1640,36 +1653,45 @@ public final class OllamaInstallPanel extends JPanel {
         try {
             frozenPlan.withTargetModelName(installAsField.getText().trim()).writeSidecar(modelFile);
         } catch (java.io.IOException ex) {
-            append("WARNING: could not save Hugging Face metadata next to the download: " + ex.getMessage());
+            // Make the loss visible: without a sidecar a later install would silently become a manual
+            // import. The install dialog then offers an explicit metadata recovery.
+            append("Downloaded, but Hugging Face installation metadata could not be saved: " + ex.getMessage());
+            showProgress(100, "Downloaded — metadata NOT saved");
         }
     }
 
     /**
      * Persists {@code plan} next to {@code modelFile}, atomically. On a write failure the user must decide
-     * explicitly rather than silently installing without metadata.
+     * explicitly: retry the metadata recovery, continue as a manual import, or cancel.
      *
      * @return {@code TRUE} when written; {@code FALSE} to continue as a manual import; {@code null} to
      *         cancel the install.
      */
     private Boolean persistSidecarOrPrompt(HuggingFaceInstallPlan plan, File modelFile) {
-        try {
-            plan.writeSidecar(modelFile);
-            return Boolean.TRUE;
-        } catch (java.io.IOException ex) {
-            append("ERROR: could not save Hugging Face install metadata: " + ex.getMessage());
-            Object[] options = {"Cancel", "Import as manual GGUF without Hugging Face metadata"};
-            int choice = javax.swing.JOptionPane.showOptionDialog(this,
-                    "The Hugging Face installation metadata could not be saved next to the model:\n"
-                            + ex.getMessage()
-                            + "\n\nInstall this file as a plain GGUF without Hugging Face metadata?",
-                    "Could not save install metadata", javax.swing.JOptionPane.DEFAULT_OPTION,
-                    javax.swing.JOptionPane.WARNING_MESSAGE, null, options, options[0]);
-            if (choice == 1) {
-                append("Continuing as a manual GGUF import without declared capabilities.");
-                return Boolean.FALSE;
+        while (true) {
+            try {
+                plan.writeSidecar(modelFile);
+                return Boolean.TRUE;
+            } catch (java.io.IOException ex) {
+                append("ERROR: could not save Hugging Face install metadata: " + ex.getMessage());
+                Object[] options = {"Retry metadata recovery", "Import as manual GGUF", "Cancel"};
+                int choice = javax.swing.JOptionPane.showOptionDialog(this,
+                        "The Hugging Face installation metadata could not be saved next to the model:\n"
+                                + ex.getMessage()
+                                + "\n\nRetry saving it, install this file as a plain GGUF without metadata, "
+                                + "or cancel?",
+                        "Could not save install metadata", javax.swing.JOptionPane.DEFAULT_OPTION,
+                        javax.swing.JOptionPane.WARNING_MESSAGE, null, options, options[0]);
+                if (choice == 0) {
+                    continue; // retry the write
+                }
+                if (choice == 1) {
+                    append("Continuing as a manual GGUF import without declared capabilities.");
+                    return Boolean.FALSE;
+                }
+                append("Install cancelled: could not save install metadata.");
+                return null;
             }
-            append("Install cancelled: could not save install metadata.");
-            return null;
         }
     }
 

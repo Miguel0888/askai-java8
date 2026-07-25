@@ -29,10 +29,16 @@ public final class OllamaModelFamilyRegistry {
         return MODEL_TYPE_TO_FAMILY.get(modelType.trim().toLowerCase(Locale.ROOT));
     }
 
-    /** @return a HIGH-confidence family value from a known model_type, or {@code null} when unknown. */
-    public static MetadataValue<String> familyValue(String modelType) {
+    /**
+     * Maps a {@code model_type} to a HIGH-confidence family value. The registry is a transformation, so
+     * the value keeps the {@code source} of the input {@code model_type} (e.g. {@link MetadataSource#CONFIG_JSON}
+     * when it came from config.json), not a synthetic "registry" source.
+     *
+     * @return the family value, or {@code null} when the type is unknown/blank.
+     */
+    public static MetadataValue<String> familyValue(String modelType, MetadataSource source) {
         String family = familyFor(modelType);
-        return family == null ? null : MetadataValue.high(family, MetadataSource.REGISTRY);
+        return family == null ? null : MetadataValue.high(family, source);
     }
 
     private static Map<String, String> buildMap() {

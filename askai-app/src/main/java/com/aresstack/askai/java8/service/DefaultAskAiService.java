@@ -220,8 +220,14 @@ public final class DefaultAskAiService implements AskAiService {
         executorService.submit(new Runnable() {
             public void run() {
                 try {
-                    File downloaded = huggingFaceClient().download(file,
-                            configurationRepository.load().getModelDownloadDirectory(), new DownloadProgressListener() {
+                    com.aresstack.askai.java8.hf.HuggingFaceClient client = huggingFaceClient();
+                    // Pin to an immutable commit first, so the file and its later metadata match even if
+                    // the branch moves between download and install.
+                    String sha = client.resolveRevisionSha(file.getModelId(), "main");
+                    listener.onResolvedRevision(sha);
+                    File downloaded = client.download(file,
+                            configurationRepository.load().getModelDownloadDirectory(), sha,
+                            new DownloadProgressListener() {
                                 public void onProgress(long completed, long total) {
                                     listener.onProgress(completed, total);
                                 }

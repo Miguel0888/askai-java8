@@ -28,12 +28,14 @@ public class ModelMetadataDetectorsTest {
     }
 
     @Test
-    public void familyValueIsHighConfidenceFromRegistry() {
-        MetadataValue<String> value = OllamaModelFamilyRegistry.familyValue("gemma2");
+    public void familyValueKeepsTheInputSourceNotRegistry() {
+        // The registry is a transformation, so the mapped family keeps its input's source (config.json),
+        // not a synthetic "registry" source — otherwise it could not outrank a lower source.
+        MetadataValue<String> value = OllamaModelFamilyRegistry.familyValue("gemma2", MetadataSource.CONFIG_JSON);
         assertEquals("gemma2", value.value());
         assertEquals(Confidence.HIGH, value.confidence());
-        assertEquals(MetadataSource.REGISTRY, value.source());
-        assertNull(OllamaModelFamilyRegistry.familyValue("nope"));
+        assertEquals(MetadataSource.CONFIG_JSON, value.source());
+        assertNull(OllamaModelFamilyRegistry.familyValue("nope", MetadataSource.CONFIG_JSON));
     }
 
     @Test

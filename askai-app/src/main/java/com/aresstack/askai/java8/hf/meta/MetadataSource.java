@@ -8,7 +8,13 @@ package com.aresstack.askai.java8.hf.meta;
  */
 public enum MetadataSource {
 
-    /** A structured repository file such as {@code config.json} or {@code generation_config.json}. */
+    /**
+     * Metadata of the actually-selected GGUF (its embedded metadata). For the concrete installed file this
+     * is the most authoritative source and outranks the repository's config.
+     */
+    GGUF_METADATA,
+
+    /** A structured repository file such as {@code config.json}. */
     CONFIG_JSON,
 
     /** {@code generation_config.json} specifically (sampling defaults). */
@@ -17,16 +23,16 @@ public enum MetadataSource {
     /** {@code tokenizer_config.json} (chat template, special tokens). */
     TOKENIZER_CONFIG,
 
-    /** Metadata embedded in the GGUF itself. */
-    GGUF_METADATA,
-
     /** A structured field of the Hugging Face model-info API. */
     HF_MODEL_API,
 
     /** The model card's front-matter ({@code cardData}). */
     HF_CARD_DATA,
 
-    /** A curated, tested mapping maintained inside AskAI (e.g. the model-family registry). */
+    /**
+     * A curated, tested mapping maintained inside AskAI (e.g. the model-family registry). This is a
+     * transformation, not a data source — a mapped value should keep its <em>input's</em> source.
+     */
     REGISTRY,
 
     /** A repository tag (e.g. {@code base_model:...}, {@code license:...}). */
