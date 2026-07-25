@@ -143,12 +143,22 @@ public final class Ollama {
 
     public ChatCompletion streamChat(String modelName, List<ChatMessage> messages, String keepAlive,
                                      final ChatTokenListener listener) throws OllamaException {
+        return streamChat(modelName, messages, keepAlive, null, listener);
+    }
+
+    public ChatCompletion streamChat(String modelName, List<ChatMessage> messages, String keepAlive,
+                                     String think, final ChatTokenListener listener) throws OllamaException {
         Map body = new LinkedHashMap();
         body.put("model", modelName);
         body.put("messages", toMessageMaps(messages));
         body.put("stream", Boolean.TRUE);
         if (keepAlive != null && keepAlive.trim().length() > 0) {
             body.put("keep_alive", keepAlive.trim());
+        }
+        // Ollama accepts think as a level ("low"/"medium"/"high") for models that support reasoning
+        // effort; omitting it leaves thinking off. Only thinking-capable models are offered a level.
+        if (think != null && think.trim().length() > 0) {
+            body.put("think", think.trim());
         }
         final ChatCompletion[] completion = new ChatCompletion[] { new ChatCompletion("", 0L, 0L) };
         httpClient.postLines("/api/chat", OllamaJson.toJson(body), new OllamaLineListener() {

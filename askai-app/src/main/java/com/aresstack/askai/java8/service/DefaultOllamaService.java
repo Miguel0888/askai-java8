@@ -202,6 +202,7 @@ public final class DefaultOllamaService implements OllamaService {
             public void run() {
                 try {
                     client().streamChat(request.getModelName(), request.getMessages(), request.getKeepAlive(),
+                            request.getThink(),
                             new OllamaChatStreamListener() {
                                 @Override
                                 public void onContent(String content) {

@@ -69,6 +69,8 @@ public final class ChatComposerPanel extends JPanel {
 
         void selectMode();
 
+        void selectReasoning();
+
         void openSettings();
 
         void send();
@@ -126,6 +128,7 @@ public final class ChatComposerPanel extends JPanel {
     private final JLabel dictationStatusLabel;
     private final JButton modelButton;
     private final JButton modeButton;
+    private final JButton reasoningButton;
     private final JButton settingsButton;
     private final JButton recordButton;
     private final JButton audioFileButton;
@@ -153,6 +156,7 @@ public final class ChatComposerPanel extends JPanel {
         this.statusPanel = createStatusPanel();
         this.modelButton = createModelButton();
         this.modeButton = createModeButton();
+        this.reasoningButton = createReasoningButton();
         this.settingsButton = createIconButton(new GearIcon(), "Chat settings");
         this.recordButton = createIconButton(new MicrophoneIcon(), "Record or stop dictation");
         this.audioFileButton = createIconButton(new AudioFileIcon(), "Transcribe audio file");
@@ -191,6 +195,7 @@ public final class ChatComposerPanel extends JPanel {
         west.setOpaque(false);
         west.add(modelButton);
         west.add(modeButton);
+        west.add(reasoningButton);
         west.add(buildLeftActions());
         footer.add(west, BorderLayout.WEST);
         footer.add(statusPanel, BorderLayout.CENTER);
@@ -282,6 +287,14 @@ public final class ChatComposerPanel extends JPanel {
         return button;
     }
 
+    private JButton createReasoningButton() {
+        ComposerButton button = new ComposerButton(new ChevronDownIcon(), "Think: Off", false);
+        button.setHorizontalTextPosition(SwingConstants.LEFT); // effort first, chevron after
+        configureButton(button, "Thinking effort (only for models that support it)");
+        button.setEnabled(false); // enabled once a thinking-capable model is selected
+        return button;
+    }
+
     private JButton createIconButton(Icon icon, String tooltip) {
         ComposerButton button = new ComposerButton(icon, null, false);
         configureButton(button, tooltip);
@@ -322,6 +335,11 @@ public final class ChatComposerPanel extends JPanel {
         modeButton.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent event) {
                 actions.selectMode();
+            }
+        });
+        reasoningButton.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent event) {
+                actions.selectReasoning();
             }
         });
         settingsButton.addActionListener(new ActionListener() {
@@ -463,6 +481,23 @@ public final class ChatComposerPanel extends JPanel {
     /** Return the mode selector button, so the panel can anchor its mode popup to it. */
     public JComponent getModeButton() {
         return modeButton;
+    }
+
+    /** Set the label shown on the reasoning-effort selector (e.g. "Think: High"). */
+    public void setReasoningName(String name) {
+        reasoningButton.setText(name == null || name.trim().length() == 0 ? "Think: Off" : name.trim());
+        revalidate();
+        repaint();
+    }
+
+    /** Enable/grey the reasoning-effort selector — enabled only when the model supports thinking. */
+    public void setReasoningEnabled(boolean enabled) {
+        reasoningButton.setEnabled(enabled);
+    }
+
+    /** Return the reasoning-effort selector button, so the panel can anchor its popup to it. */
+    public JComponent getReasoningButton() {
+        return reasoningButton;
     }
 
     /** Return the untrimmed message text. */

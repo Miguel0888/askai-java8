@@ -157,12 +157,18 @@ public final class AskAiOllamaClient {
 
     public OllamaChatCompletion streamChat(String modelName, List<OllamaChatTurn> conversation, String keepAlive,
                                            final OllamaChatStreamListener listener) throws OllamaRequestException {
+        return streamChat(modelName, conversation, keepAlive, null, listener);
+    }
+
+    public OllamaChatCompletion streamChat(String modelName, List<OllamaChatTurn> conversation, String keepAlive,
+                                           String think, final OllamaChatStreamListener listener)
+            throws OllamaRequestException {
         try {
             List<ChatMessage> messages = new ArrayList<ChatMessage>();
             for (OllamaChatTurn turn : conversation) {
                 messages.add(toChatMessage(turn));
             }
-            ChatCompletion completion = ollama.streamChat(modelName, messages, keepAlive, new ChatTokenListener() {
+            ChatCompletion completion = ollama.streamChat(modelName, messages, keepAlive, think, new ChatTokenListener() {
                 public void onToken(String token) {
                     if (listener != null) {
                         listener.onContent(token);

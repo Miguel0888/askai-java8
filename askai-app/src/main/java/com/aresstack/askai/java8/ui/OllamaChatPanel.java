@@ -92,6 +92,11 @@ public final class OllamaChatPanel extends JPanel {
     // name of the selected agent when in "Questing" mode. selectedAgent is null while yapping.
     private String chatMode = "Yapping";
     private String selectedAgent;
+    // Thinking effort ("off"/"low"/"medium"/"high"), only sent when the selected model supports thinking.
+    private String reasoningEffort = "off";
+    private boolean modelSupportsThinking;
+    // The model whose thinking capability is currently being probed, to ignore stale /api/show callbacks.
+    private String reasoningProbeModel;
 
     // Dictation controls.
     private final JComboBox<String> audioModelCombo = new JComboBox<String>();
@@ -153,6 +158,10 @@ public final class OllamaChatPanel extends JPanel {
 
             public void selectMode() {
                 openModePopup();
+            }
+
+            public void selectReasoning() {
+                openReasoningPopup();
             }
 
             public void openSettings() {
@@ -468,6 +477,7 @@ public final class OllamaChatPanel extends JPanel {
                         refreshAudioModels(names);
                         // The in-composer selector shows the current model; keep the status line quiet.
                         composer.setModelName((String) modelCombo.getSelectedItem());
+                        refreshReasoningForModel((String) modelCombo.getSelectedItem());
                         setStatus(names.isEmpty() ? "No models installed. Open Install to add one." : " ");
                     }
                 });
@@ -511,6 +521,7 @@ public final class OllamaChatPanel extends JPanel {
         }
         modelCombo.setSelectedItem(modelName);
         composer.setModelName(modelName);
+        refreshReasoningForModel(modelName);
         transcript.appendInfo("Now chatting with " + modelName + ".");
         setStatus("Model set to " + modelName + ".");
     }
@@ -531,6 +542,7 @@ public final class OllamaChatPanel extends JPanel {
                 item.addActionListener(event -> {
                     modelCombo.setSelectedItem(name);
                     composer.setModelName(name);
+                    refreshReasoningForModel(name);
                 });
                 menu.add(item);
             }
@@ -596,6 +608,76 @@ public final class OllamaChatPanel extends JPanel {
         composer.setModeName(agent);
     }
 
+    // ------------------------------------------------------------------ reasoning effort
+
+    /** The thinking-effort levels offered when the selected model supports thinking. */
+    private static final String[] REASONING_LEVELS = {"off", "low", "medium", "high"};
+
+    /** The effort selector: Off / Low / Medium / High. Only reachable when the model supports thinking. */
+    private void openReasoningPopup() {
+        javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
+        for (final String level : REASONING_LEVELS) {
+            javax.swing.JRadioButtonMenuItem item =
+                    new javax.swing.JRadioButtonMenuItem(reasoningLabel(level), level.equals(reasoningEffort));
+            item.addActionListener(event -> selectReasoningEffort(level));
+            menu.add(item);
+        }
+        JComponent anchor = composer.getReasoningButton();
+        menu.show(anchor, 0, anchor.getHeight());
+    }
+
+    private void selectReasoningEffort(String level) {
+        reasoningEffort = level;
+        composer.setReasoningName(reasoningLabel(level));
+    }
+
+    private static String reasoningLabel(String level) {
+        return "Think: " + Character.toUpperCase(level.charAt(0)) + level.substring(1);
+    }
+
+    /**
+     * Probes the given model's {@code /api/show} capabilities and enables the reasoning selector only when
+     * the model supports thinking. Stale callbacks (the user switched models meanwhile) are ignored.
+     */
+    private void refreshReasoningForModel(final String modelName) {
+        reasoningProbeModel = modelName;
+        if (modelName == null || modelName.trim().isEmpty()) {
+            applyThinkingSupport(modelName, false);
+            return;
+        }
+        ollamaService.getModelInfo(modelName, new OllamaService.ModelInfoListener() {
+            public void onModelInfo(final com.aresstack.askai.java8.client.OllamaModelInfoView info) {
+                onUi(new Runnable() {
+                    public void run() {
+                        boolean supported = ModelCapability.fromOllamaTags(info.getCapabilities())
+                                .contains(ModelCapability.THINKING);
+                        applyThinkingSupport(modelName, supported);
+                    }
+                });
+            }
+
+            public void onError(final Exception ex) {
+                onUi(new Runnable() {
+                    public void run() {
+                        applyThinkingSupport(modelName, false); // unknown → keep it greyed out
+                    }
+                });
+            }
+        });
+    }
+
+    private void applyThinkingSupport(String modelName, boolean supported) {
+        if (modelName != null && !modelName.equals(reasoningProbeModel)) {
+            return; // a newer selection is in flight; ignore this result
+        }
+        modelSupportsThinking = supported;
+        composer.setReasoningEnabled(supported);
+        if (!supported) {
+            reasoningEffort = "off";
+            composer.setReasoningName(reasoningLabel("off"));
+        }
+    }
+
     private void showEmptyState() {
         transcript.appendInfo("New conversation. Type a message below and press Enter.");
     }
@@ -627,8 +709,10 @@ public final class OllamaChatPanel extends JPanel {
         startElapsedTimer();
         setBusy(true);
 
+        // Only send a thinking effort when the model supports it and a level other than "off" is chosen.
+        String think = modelSupportsThinking && !"off".equals(reasoningEffort) ? reasoningEffort : null;
         OllamaService.ChatRequest request = new OllamaService.ChatRequest(
-                modelName, keepAliveField.getText(), buildConversation());
+                modelName, keepAliveField.getText(), buildConversation(), think);
         chatTask = ollamaService.streamChat(request, new OllamaService.ChatListener() {
             public void onContent(final String content) {
                 onUi(new Runnable() {

@@ -88,6 +88,28 @@ public final class ChatComposerPanelTest {
         });
     }
 
+    @Test
+    public void reasoningSelectorIsGreyedUntilThinkingIsSupported() throws Exception {
+        SwingUtilities.invokeAndWait(new Runnable() {
+            public void run() {
+                ActionCounter actions = new ActionCounter();
+                ChatComposerPanel composer = new ChatComposerPanel(actions);
+
+                JButton reasoning = findButton(composer, "Thinking effort (only for models that support it)");
+                assertEquals("Think: Off", reasoning.getText());
+                assertFalse("greyed out until a thinking-capable model is selected", reasoning.isEnabled());
+
+                composer.setReasoningEnabled(true);
+                assertTrue(reasoning.isEnabled());
+                reasoning.doClick();
+                assertEquals(1, actions.count("reasoning"));
+
+                composer.setReasoningName("Think: High");
+                assertEquals("Think: High", reasoning.getText());
+            }
+        });
+    }
+
     private static JButton findButton(Container root, String accessibleName) {
         for (Component component : root.getComponents()) {
             if (component instanceof JButton) {
@@ -133,6 +155,10 @@ public final class ChatComposerPanelTest {
 
         public void selectMode() {
             increment("mode");
+        }
+
+        public void selectReasoning() {
+            increment("reasoning");
         }
 
         public void openSettings() {

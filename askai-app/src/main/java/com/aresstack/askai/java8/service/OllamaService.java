@@ -93,11 +93,21 @@ public interface OllamaService {
         private final String modelName;
         private final String keepAlive;
         private final List<OllamaChatTurn> messages;
+        private final String think;
 
         public ChatRequest(String modelName, String keepAlive, List<OllamaChatTurn> messages) {
+            this(modelName, keepAlive, messages, null);
+        }
+
+        /**
+         * @param think the thinking effort to request ("low"/"medium"/"high"), or {@code null} to leave
+         *              thinking off (the {@code think} field is then omitted from {@code /api/chat}).
+         */
+        public ChatRequest(String modelName, String keepAlive, List<OllamaChatTurn> messages, String think) {
             this.modelName = modelName;
             this.keepAlive = keepAlive;
             this.messages = messages;
+            this.think = think;
         }
 
         public String getModelName() {
@@ -110,6 +120,11 @@ public interface OllamaService {
 
         public List<OllamaChatTurn> getMessages() {
             return messages;
+        }
+
+        /** @return the requested thinking effort, or {@code null} when thinking should stay off. */
+        public String getThink() {
+            return think;
         }
     }
 
