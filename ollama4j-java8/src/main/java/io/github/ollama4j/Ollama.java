@@ -7,7 +7,9 @@ import io.github.ollama4j.http.OllamaLineListener;
 import io.github.ollama4j.json.OllamaJson;
 import io.github.ollama4j.models.ChatCompletion;
 import io.github.ollama4j.models.ChatMessage;
+import io.github.ollama4j.models.ChatStreamListener;
 import io.github.ollama4j.models.ChatTokenListener;
+import io.github.ollama4j.models.ToolCall;
 import io.github.ollama4j.models.EmbeddingResult;
 import io.github.ollama4j.models.Model;
 import io.github.ollama4j.models.ModelDetails;
@@ -143,11 +145,94 @@ public final class Ollama {
 
     public ChatCompletion streamChat(String modelName, List<ChatMessage> messages, String keepAlive,
                                      final ChatTokenListener listener) throws OllamaException {
-        return streamChat(modelName, messages, keepAlive, null, listener);
+        return streamChat(modelName, messages, keepAlive, (Object) null, tokenAdapter(listener));
     }
 
     public ChatCompletion streamChat(String modelName, List<ChatMessage> messages, String keepAlive,
                                      String think, final ChatTokenListener listener) throws OllamaException {
+        return streamChat(modelName, messages, keepAlive, (Object) think, tokenAdapter(listener));
+    }
+
+    public ChatCompletion streamChat(String modelName, List<ChatMessage> messages, String keepAlive,
+                                     ChatStreamListener listener) throws OllamaException {
+        return streamChat(modelName, messages, keepAlive, (Object) null, listener);
+    }
+
+    /**
+     * Streams {@code /api/chat}, keeping reasoning ({@code message.thinking}), the answer
+     * ({@code message.content}) and tool calls ({@code message.tool_calls}) strictly separate. The three
+     * are accumulated independently and delivered both as live deltas and, aggregated, in the final
+     * {@link ChatCompletion}.
+     *
+     * @param think {@code null} to omit the field, a {@link Boolean} for {@code true}/{@code false}, or a
+     *              level string ({@code "low"}/{@code "medium"}/{@code "high"}/{@code "max"}).
+     */
+    public ChatCompletion streamChat(String modelName, List<ChatMessage> messages, String keepAlive,
+                                     Object think, final ChatStreamListener listener) throws OllamaException {
+        return streamChat(modelName, messages, keepAlive, think, null, listener);
+    }
+
+    /**
+     * Same as the {@code (think, listener)} variant, but also sends {@code tools} definitions so the model
+     * can request tool calls. Each tool is a raw definition map (as Ollama expects under {@code tools}).
+     */
+    public ChatCompletion streamChat(String modelName, List<ChatMessage> messages, String keepAlive,
+                                     Object think, List<Map<String, Object>> tools,
+                                     final ChatStreamListener listener) throws OllamaException {
+        Map body = buildChatBody(modelName, messages, keepAlive, think, tools);
+        final StringBuilder thinking = new StringBuilder();
+        final StringBuilder content = new StringBuilder();
+        final List<ToolCall> toolCalls = new ArrayList<ToolCall>();
+        final ChatCompletion[] completion = new ChatCompletion[] { null };
+        httpClient.postLines("/api/chat", OllamaJson.toJson(body), new OllamaLineListener() {
+            public void onLine(String line) {
+                Object parsed = OllamaJson.parse(line);
+                if (!(parsed instanceof Map)) {
+                    return;
+                }
+                Map map = (Map) parsed;
+                Map message = map.get("message") instanceof Map ? (Map) map.get("message") : null;
+                if (message != null) {
+                    String thinkingDelta = string(message, "thinking");
+                    if (thinkingDelta.length() > 0) {
+                        thinking.append(thinkingDelta);
+                        if (listener != null) {
+                            listener.onThinkingDelta(thinkingDelta);
+                        }
+                    }
+                    String contentDelta = string(message, "content");
+                    if (contentDelta.length() > 0) {
+                        content.append(contentDelta);
+                        if (listener != null) {
+                            listener.onContentDelta(contentDelta);
+                        }
+                    }
+                    List<ToolCall> calls = parseToolCalls(message.get("tool_calls"));
+                    if (!calls.isEmpty()) {
+                        toolCalls.addAll(calls);
+                        if (listener != null) {
+                            listener.onToolCalls(calls);
+                        }
+                    }
+                }
+                if (Boolean.TRUE.equals(map.get("done"))) {
+                    completion[0] = new ChatCompletion(thinking.toString(), content.toString(),
+                            new ArrayList<ToolCall>(toolCalls), number(map, "eval_count"),
+                            number(map, "eval_duration"));
+                }
+            }
+        });
+        ChatCompletion result = completion[0] != null ? completion[0]
+                : new ChatCompletion(thinking.toString(), content.toString(),
+                        new ArrayList<ToolCall>(toolCalls), 0L, 0L);
+        if (listener != null) {
+            listener.onComplete(result);
+        }
+        return result;
+    }
+
+    private Map buildChatBody(String modelName, List<ChatMessage> messages, String keepAlive, Object think,
+                             List<Map<String, Object>> tools) {
         Map body = new LinkedHashMap();
         body.put("model", modelName);
         body.put("messages", toMessageMaps(messages));
@@ -155,28 +240,67 @@ public final class Ollama {
         if (keepAlive != null && keepAlive.trim().length() > 0) {
             body.put("keep_alive", keepAlive.trim());
         }
-        // Ollama accepts think as a level ("low"/"medium"/"high") for models that support reasoning
-        // effort; omitting it leaves thinking off. Only thinking-capable models are offered a level.
-        if (think != null && think.trim().length() > 0) {
-            body.put("think", think.trim());
+        // Ollama accepts think as a boolean, or a level ("low"/"medium"/"high"/"max") for models with
+        // reasoning effort; null omits the field entirely (thinking stays off).
+        if (think instanceof Boolean) {
+            body.put("think", think);
+        } else if (think instanceof String && ((String) think).trim().length() > 0) {
+            body.put("think", ((String) think).trim());
         }
-        final ChatCompletion[] completion = new ChatCompletion[] { new ChatCompletion("", 0L, 0L) };
-        httpClient.postLines("/api/chat", OllamaJson.toJson(body), new OllamaLineListener() {
-            public void onLine(String line) {
-                Map map = (Map) OllamaJson.parse(line);
-                Map message = map.get("message") instanceof Map ? (Map) map.get("message") : null;
-                if (message != null) {
-                    String content = string(message, "content");
-                    if (content.length() > 0 && listener != null) {
-                        listener.onToken(content);
-                    }
-                }
-                if (Boolean.TRUE.equals(map.get("done"))) {
-                    completion[0] = new ChatCompletion("", number(map, "eval_count"), number(map, "eval_duration"));
+        if (tools != null && !tools.isEmpty()) {
+            body.put("tools", new ArrayList<Object>(tools));
+        }
+        return body;
+    }
+
+    private static ChatStreamListener tokenAdapter(final ChatTokenListener listener) {
+        return new ChatStreamListener() {
+            public void onThinkingDelta(String delta) {
+            }
+
+            public void onContentDelta(String delta) {
+                if (listener != null) {
+                    listener.onToken(delta);
                 }
             }
-        });
-        return completion[0];
+
+            public void onToolCalls(List<ToolCall> toolCalls) {
+            }
+
+            public void onComplete(ChatCompletion completion) {
+            }
+        };
+    }
+
+    private List<ToolCall> parseToolCalls(Object value) {
+        List<ToolCall> calls = new ArrayList<ToolCall>();
+        if (!(value instanceof List)) {
+            return calls;
+        }
+        List items = (List) value;
+        for (int i = 0; i < items.size(); i++) {
+            Object item = items.get(i);
+            if (!(item instanceof Map)) {
+                continue;
+            }
+            Map call = (Map) item;
+            Object function = call.get("function");
+            String name;
+            Object arguments;
+            if (function instanceof Map) {
+                Map functionMap = (Map) function;
+                name = string(functionMap, "name");
+                arguments = functionMap.get("arguments");
+            } else {
+                name = string(call, "name");
+                arguments = call.get("arguments");
+            }
+            if (name.length() > 0) {
+                Map argumentMap = arguments instanceof Map ? (Map) arguments : null;
+                calls.add(new ToolCall(name, argumentMap));
+            }
+        }
+        return calls;
     }
 
     public void pullModel(String modelName, final PullProgressListener listener) throws OllamaException {
@@ -221,7 +345,32 @@ public final class Ollama {
             Map map = new LinkedHashMap();
             map.put("role", message.getRole());
             map.put("content", message.getContent());
+            // Send back the full turn unchanged, so Ollama keeps thinking/tool_calls/tool results in
+            // context for the next request (required for streaming tool loops).
+            if (message.getThinking().length() > 0) {
+                map.put("thinking", message.getThinking());
+            }
+            if (message.getToolName().length() > 0) {
+                map.put("tool_name", message.getToolName());
+            }
+            if (!message.getToolCalls().isEmpty()) {
+                map.put("tool_calls", toolCallMaps(message.getToolCalls()));
+            }
             result.add(map);
+        }
+        return result;
+    }
+
+    private List toolCallMaps(List<ToolCall> toolCalls) {
+        List result = new ArrayList();
+        for (int i = 0; i < toolCalls.size(); i++) {
+            ToolCall call = toolCalls.get(i);
+            Map function = new LinkedHashMap();
+            function.put("name", call.getName());
+            function.put("arguments", call.getArguments());
+            Map wrapper = new LinkedHashMap();
+            wrapper.put("function", function);
+            result.add(wrapper);
         }
         return result;
     }
