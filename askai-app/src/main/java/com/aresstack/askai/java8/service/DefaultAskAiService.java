@@ -1,5 +1,6 @@
 package com.aresstack.askai.java8.service;
 
+import com.aresstack.askai.java8.client.AskAiOllamaClient;
 import com.aresstack.askai.java8.config.AppConfiguration;
 import com.aresstack.askai.java8.config.AppConfigurationRepository;
 import com.aresstack.askai.java8.hf.DownloadProgressListener;
@@ -91,6 +92,8 @@ public final class DefaultAskAiService implements AskAiService {
                             listener.onProgress(progress);
                         }
                     });
+                    // Accept only what the installed Ollama actually reports via /api/show.
+                    listener.onVerified(verifyInstalled(modelName, java.util.Collections.<String>emptyList()));
                     listener.onComplete("Installed " + modelName + " on remote Ollama.");
                 } catch (Exception ex) {
                     listener.onError(ex);
@@ -238,6 +241,14 @@ public final class DefaultAskAiService implements AskAiService {
     public InstallTask installGgufFileWithCompanions(final String modelName, final File ggufFile,
                                                      final List<File> companionFiles,
                                                      final InstallListener listener) {
+        return installGgufFileWithCompanions(modelName, ggufFile, companionFiles,
+                java.util.Collections.<String>emptyList(), listener);
+    }
+
+    public InstallTask installGgufFileWithCompanions(final String modelName, final File ggufFile,
+                                                     final List<File> companionFiles,
+                                                     final List<String> requiredCapabilities,
+                                                     final InstallListener listener) {
         AppConfiguration configuration = configurationRepository.load();
         final RemoteGgufInstaller installer = new RemoteGgufInstaller(configuration.getOllamaBaseUrl());
         final Future<?> future = executorService.submit(new Runnable() {
@@ -249,6 +260,8 @@ public final class DefaultAskAiService implements AskAiService {
                                     listener.onProgress(phase, completed, total);
                                 }
                             });
+                    // Verify against /api/show before declaring the install complete.
+                    listener.onVerified(verifyInstalled(modelName, requiredCapabilities));
                     listener.onComplete("Installed " + modelName + " on remote Ollama.");
                 } catch (Exception ex) {
                     listener.onError(ex);
@@ -261,6 +274,26 @@ public final class DefaultAskAiService implements AskAiService {
                 future.cancel(true);
             }
         };
+    }
+
+    /**
+     * Post-install verification: query {@code /api/show} for the exact installed name via the existing
+     * {@link AskAiOllamaClient#getModelInfo} path and report what Ollama actually detected. Never
+     * throws — a failed probe becomes a {@link VerificationStatus#FAILED} result so a successful
+     * install is not turned into an install error.
+     */
+    private VerificationResult verifyInstalled(String modelName, List<String> requiredCapabilities) {
+        try {
+            AppConfiguration configuration = configurationRepository.load();
+            AskAiOllamaClient verificationClient = new AskAiOllamaClient(configuration.getOllamaBaseUrl());
+            return new InstalledModelVerificationService(verificationClient::getModelInfo)
+                    .verify(modelName, requiredCapabilities);
+        } catch (Exception ex) {
+            String message = ex.getMessage() == null ? ex.toString() : ex.getMessage();
+            return new VerificationResult(modelName, java.util.Collections.<String>emptyList(),
+                    java.util.Collections.<String>emptyList(), requiredCapabilities,
+                    VerificationStatus.FAILED, message);
+        }
     }
 
     public void shutdown() {

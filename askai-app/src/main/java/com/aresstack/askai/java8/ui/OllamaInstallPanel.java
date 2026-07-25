@@ -16,6 +16,8 @@ import com.aresstack.askai.java8.hf.convert.ConverterService;
 import com.aresstack.askai.java8.hf.convert.RepositoryAnalysis;
 import com.aresstack.askai.java8.hf.convert.SupportDecision;
 import com.aresstack.askai.java8.service.AskAiService;
+import com.aresstack.askai.java8.service.VerificationResult;
+import com.aresstack.askai.java8.service.VerificationStatus;
 
 import javax.swing.BorderFactory;
 import javax.swing.ButtonGroup;
@@ -1449,6 +1451,23 @@ public final class OllamaInstallPanel extends JPanel {
                 onUi(new Runnable() {
                     public void run() {
                         updateInstallProgress(phase, completed, total);
+                    }
+                });
+            }
+
+            public void onVerified(final VerificationResult result) {
+                onUi(new Runnable() {
+                    public void run() {
+                        // Only /api/show describes the installed model; the search-side modality hints
+                        // are never copied onto it.
+                        if (result.getStatus() == VerificationStatus.UNKNOWN) {
+                            append("Note: Ollama reported no capabilities for " + result.getModelName()
+                                    + " (older server?). Audio/vision stay off until /api/show confirms them.");
+                        } else if (result.getStatus() == VerificationStatus.FAILED) {
+                            append("Note: could not verify capabilities via /api/show: " + result.getErrorMessage());
+                        } else {
+                            append("Verified capabilities (from /api/show): " + result.describeReported() + ".");
+                        }
                     }
                 });
             }

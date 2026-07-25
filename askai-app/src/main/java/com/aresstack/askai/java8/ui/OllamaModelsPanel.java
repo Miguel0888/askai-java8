@@ -9,6 +9,7 @@ import com.aresstack.askai.java8.config.HuggingFaceSearchSuggestion.Modality;
 import com.aresstack.askai.java8.hf.HuggingFaceFile;
 import com.aresstack.askai.java8.service.AskAiService;
 import com.aresstack.askai.java8.service.OllamaService;
+import com.aresstack.askai.java8.service.VerificationResult;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -462,11 +463,15 @@ public final class OllamaModelsPanel extends JPanel {
     }
 
     /** Re-create the model on the server from its GGUF plus the encoder, streaming progress. */
-    private void doAddOnInstall(String modelName, File modelFile, File encoderFile, String modalityName) {
+    private void doAddOnInstall(final String modelName, File modelFile, File encoderFile, final String modalityName) {
         installedStatusLabel.setText("Installing " + modalityName + " add-on for " + modelName + " ...");
         List<File> companions = new ArrayList<File>();
         companions.add(encoderFile);
+        // Targeted provisioning: the install only counts if /api/show confirms this exact capability.
+        final String requiredCapability = modalityName.toLowerCase(java.util.Locale.ROOT);
+        final VerificationResult[] verification = new VerificationResult[1];
         addOnInstallTask = askAiService.installGgufFileWithCompanions(modelName, modelFile, companions,
+                java.util.Collections.singletonList(requiredCapability),
                 new AskAiService.InstallListener() {
                     @Override
                     public void onProgress(final String phase, final long completed, final long total) {
@@ -481,12 +486,31 @@ public final class OllamaModelsPanel extends JPanel {
                     }
 
                     @Override
+                    public void onVerified(VerificationResult result) {
+                        verification[0] = result;
+                    }
+
+                    @Override
                     public void onComplete(final String message) {
                         onUi(new Runnable() {
                             @Override
                             public void run() {
                                 addOnInstallTask = null;
-                                installedStatusLabel.setText(modalityName + " installed for " + modelName + ".");
+                                VerificationResult result = verification[0];
+                                if (result != null && result.isRequiredSatisfied()) {
+                                    installedStatusLabel.setText(modalityName + " confirmed for " + modelName
+                                            + " (/api/show: " + result.describeReported() + ").");
+                                } else {
+                                    // Installed, but Ollama did not report the required capability: this is a
+                                    // hard failure for a targeted provisioning — the model is not enabled as
+                                    // an audio/vision model (the capability gating relies on /api/show).
+                                    String reported = result == null ? "unknown" : result.describeReported();
+                                    installedStatusLabel.setText(modalityName + " NOT confirmed for " + modelName
+                                            + " — /api/show reports: " + reported
+                                            + ". The model stays installed but is not enabled as "
+                                            + modalityName.toLowerCase(java.util.Locale.ROOT) + ".");
+                                }
+                                // Icons come straight from /api/show on refresh (no cached capabilities).
                                 refreshInstalledModels();
                             }
                         });

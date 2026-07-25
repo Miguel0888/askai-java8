@@ -59,6 +59,16 @@ public interface AskAiService {
     InstallTask installGgufFileWithCompanions(String modelName, File ggufFile,
                                               List<File> companionFiles, InstallListener listener);
 
+    /**
+     * Like {@link #installGgufFileWithCompanions(String, File, List, InstallListener)} but declares the
+     * capabilities the install must yield (e.g. {@code ["audio"]} / {@code ["vision"]} for a targeted
+     * encoder provisioning). After a successful {@code /api/create} the model is verified via
+     * {@code /api/show}; {@link InstallListener#onVerified(VerificationResult)} reports whether those
+     * required capabilities were actually confirmed by Ollama.
+     */
+    InstallTask installGgufFileWithCompanions(String modelName, File ggufFile, List<File> companionFiles,
+                                              List<String> requiredCapabilities, InstallListener listener);
+
     void shutdown();
 
     /** Handle to a running install; {@link #cancel()} aborts the upload/create. */
@@ -82,6 +92,13 @@ public interface AskAiService {
 
     interface PullListener {
         void onProgress(PullProgress progress);
+
+        /**
+         * The verified {@code /api/show} result for the just-installed model, delivered right before
+         * {@link #onComplete(String)}. Default no-op so existing callers stay source-compatible.
+         */
+        default void onVerified(VerificationResult result) {
+        }
 
         void onComplete(String message);
 
@@ -147,6 +164,13 @@ public interface AskAiService {
          * @param total     total bytes for this phase, or 0 for an indeterminate step
          */
         void onProgress(String phase, long completed, long total);
+
+        /**
+         * The verified {@code /api/show} result for the just-installed model, delivered right before
+         * {@link #onComplete(String)}. Default no-op so existing callers stay source-compatible.
+         */
+        default void onVerified(VerificationResult result) {
+        }
 
         void onComplete(String message);
 
