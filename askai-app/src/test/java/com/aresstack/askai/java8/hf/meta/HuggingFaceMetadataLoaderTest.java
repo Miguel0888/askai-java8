@@ -48,6 +48,26 @@ public class HuggingFaceMetadataLoaderTest {
     }
 
     @Test
+    public void mapsTypicalPAndStopStrings() {
+        FakeGateway gw = new FakeGateway();
+        gw.files.put("generation_config.json",
+                "{\"typical_p\":0.95,\"stop_strings\":[\"<|eot|>\",\"</s>\"],\"eos_token_id\":2}");
+        Map<String, Object> parameters = new HuggingFaceMetadataLoader(gw).load(plan(""), "m.gguf").parameters();
+        assertEquals(0.95, parameters.get("typical_p"));
+        assertEquals(Arrays.asList("<|eot|>", "</s>"), parameters.get("stop"));
+        // A numeric eos_token_id is never turned into a stop or parameter.
+        assertFalse(parameters.containsKey("eos_token_id"));
+    }
+
+    @Test
+    public void stopStringsAlsoAcceptsASingleString() {
+        FakeGateway gw = new FakeGateway();
+        gw.files.put("generation_config.json", "{\"stop_strings\":\"<|end|>\"}");
+        Map<String, Object> parameters = new HuggingFaceMetadataLoader(gw).load(plan(""), "m.gguf").parameters();
+        assertEquals(Collections.singletonList("<|end|>"), parameters.get("stop"));
+    }
+
+    @Test
     public void ggufMetadataConfirmsQuantizationAndParameterSize() {
         FakeGateway gw = new FakeGateway();
         Map<String, Object> gguf = new LinkedHashMap<String, Object>();

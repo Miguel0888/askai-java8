@@ -266,7 +266,32 @@ public final class HuggingFaceMetadataLoader {
         offerDouble(result, generation, "repetition_penalty", "repeat_penalty", 0.0d, 10.0d);
         offerInt(result, generation, "max_new_tokens", "num_predict", 1, Integer.MAX_VALUE);
         offerInt(result, generation, "seed", "seed", Integer.MIN_VALUE, Integer.MAX_VALUE);
+        offerDouble(result, generation, "typical_p", "typical_p", 0.0d, 1.0d);
+        offerStops(result, generation.get("stop_strings"));
         return result;
+    }
+
+    /**
+     * Maps HF {@code stop_strings} (a string or a list of strings) to Ollama's {@code stop}. Only textual
+     * stop sequences are taken — numeric token ids are never sent as stops.
+     */
+    private static void offerStops(Map<String, MetadataValue<Object>> out, Object stopStrings) {
+        List<String> stops = new ArrayList<String>();
+        if (stopStrings instanceof String) {
+            String single = ((String) stopStrings).trim();
+            if (single.length() > 0) {
+                stops.add(single);
+            }
+        } else if (stopStrings instanceof List) {
+            for (Object element : (List<?>) stopStrings) {
+                if (element instanceof String && ((String) element).trim().length() > 0) {
+                    stops.add(((String) element).trim());
+                }
+            }
+        }
+        if (!stops.isEmpty()) {
+            out.put("stop", MetadataValue.<Object>high(stops, MetadataSource.GENERATION_CONFIG));
+        }
     }
 
     private static void offerDouble(Map<String, MetadataValue<Object>> out, Map<String, Object> source,
