@@ -202,11 +202,21 @@ public final class DefaultOllamaService implements OllamaService {
             public void run() {
                 try {
                     client().streamChat(request.getModelName(), request.getMessages(), request.getKeepAlive(),
-                            request.getThink(),
+                            request.getThinking().toWireValue(),
                             new OllamaChatStreamListener() {
+                                @Override
+                                public void onThinkingDelta(String delta) {
+                                    listener.onThinkingDelta(delta);
+                                }
+
                                 @Override
                                 public void onContent(String content) {
                                     listener.onContent(content);
+                                }
+
+                                @Override
+                                public void onToolCalls(java.util.List<com.aresstack.askai.java8.client.OllamaToolCall> toolCalls) {
+                                    listener.onToolCalls(toolCalls);
                                 }
 
                                 @Override
@@ -238,7 +248,8 @@ public final class DefaultOllamaService implements OllamaService {
         if (completion == null) {
             return new ChatResult("", 0L, 0L);
         }
-        return new ChatResult(completion.getContent(), completion.getEvalCount(), completion.getEvalDurationNanos());
+        return new ChatResult(completion.getThinking(), completion.getContent(), completion.getToolCalls(),
+                completion.getEvalCount(), completion.getEvalDurationNanos());
     }
 
     private static final class FutureTaskAdapter implements Task {

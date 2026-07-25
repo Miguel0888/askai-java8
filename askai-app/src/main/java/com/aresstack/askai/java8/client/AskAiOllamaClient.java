@@ -4,8 +4,9 @@ import io.github.ollama4j.Ollama;
 import io.github.ollama4j.exceptions.OllamaException;
 import io.github.ollama4j.models.ChatCompletion;
 import io.github.ollama4j.models.ChatMessage;
-import io.github.ollama4j.models.ChatTokenListener;
+import io.github.ollama4j.models.ChatStreamListener;
 import io.github.ollama4j.models.EmbeddingResult;
+import io.github.ollama4j.models.ToolCall;
 import io.github.ollama4j.models.Model;
 import io.github.ollama4j.models.ModelDetails;
 import io.github.ollama4j.models.ModelInfo;
@@ -160,38 +161,76 @@ public final class AskAiOllamaClient {
         return streamChat(modelName, conversation, keepAlive, null, listener);
     }
 
+    /**
+     * @param think the wire value for the {@code think} field: {@code null} (omit), a {@link Boolean}, or
+     *              a level string ({@code "low"}/{@code "medium"}/{@code "high"}/{@code "max"}).
+     */
     public OllamaChatCompletion streamChat(String modelName, List<OllamaChatTurn> conversation, String keepAlive,
-                                           String think, final OllamaChatStreamListener listener)
+                                           Object think, final OllamaChatStreamListener listener)
             throws OllamaRequestException {
         try {
             List<ChatMessage> messages = new ArrayList<ChatMessage>();
             for (OllamaChatTurn turn : conversation) {
                 messages.add(toChatMessage(turn));
             }
-            ChatCompletion completion = ollama.streamChat(modelName, messages, keepAlive, think, new ChatTokenListener() {
-                public void onToken(String token) {
+            final OllamaChatCompletion[] mapped = new OllamaChatCompletion[] { OllamaChatCompletion.empty() };
+            ollama.streamChat(modelName, messages, keepAlive, think, new ChatStreamListener() {
+                public void onThinkingDelta(String delta) {
                     if (listener != null) {
-                        listener.onContent(token);
+                        listener.onThinkingDelta(delta);
+                    }
+                }
+
+                public void onContentDelta(String delta) {
+                    if (listener != null) {
+                        listener.onContent(delta);
+                    }
+                }
+
+                public void onToolCalls(List<ToolCall> toolCalls) {
+                    if (listener != null) {
+                        listener.onToolCalls(toOllamaToolCalls(toolCalls));
+                    }
+                }
+
+                public void onComplete(ChatCompletion completion) {
+                    mapped[0] = new OllamaChatCompletion(completion.getThinking(), completion.getContent(),
+                            toOllamaToolCalls(completion.getToolCalls()),
+                            completion.getEvalCount(), completion.getEvalDurationNanos());
+                    if (listener != null) {
+                        listener.onComplete(mapped[0]);
                     }
                 }
             });
-            OllamaChatCompletion mapped = new OllamaChatCompletion(
-                    completion.getContent(), completion.getEvalCount(), completion.getEvalDurationNanos());
-            if (listener != null) {
-                listener.onComplete(mapped);
-            }
-            return mapped;
+            return mapped[0];
         } catch (OllamaException ex) {
             throw wrap("chat with " + modelName, ex);
         }
+    }
+
+    private static List<OllamaToolCall> toOllamaToolCalls(List<ToolCall> toolCalls) {
+        List<OllamaToolCall> result = new ArrayList<OllamaToolCall>();
+        if (toolCalls != null) {
+            for (ToolCall call : toolCalls) {
+                result.add(new OllamaToolCall(call.getName(), call.getArguments()));
+            }
+        }
+        return result;
     }
 
     private static ChatMessage toChatMessage(OllamaChatTurn turn) {
         if (turn.isSystem()) {
             return ChatMessage.system(turn.getContent());
         }
+        if (turn.isTool()) {
+            return ChatMessage.tool(turn.getToolName(), turn.getContent());
+        }
         if (turn.isAssistant()) {
-            return ChatMessage.assistant(turn.getContent());
+            List<ToolCall> calls = new ArrayList<ToolCall>();
+            for (OllamaToolCall call : turn.getToolCalls()) {
+                calls.add(new ToolCall(call.getName(), call.getArguments()));
+            }
+            return ChatMessage.assistant(turn.getThinking(), turn.getContent(), calls);
         }
         return ChatMessage.user(turn.getContent());
     }

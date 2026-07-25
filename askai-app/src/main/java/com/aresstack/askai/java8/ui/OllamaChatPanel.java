@@ -3,6 +3,7 @@ package com.aresstack.askai.java8.ui;
 import com.aresstack.askai.java8.AskAiModel;
 import com.aresstack.askai.java8.client.OllamaChatTurn;
 import com.aresstack.askai.java8.service.OllamaService;
+import com.aresstack.askai.java8.service.ThinkingOption;
 import com.aresstack.askai.java8.speech.AudioModelResolver;
 import com.aresstack.askai.java8.speech.ComposerInserter;
 import com.aresstack.askai.java8.speech.DefaultRecordingNormalizer;
@@ -709,10 +710,11 @@ public final class OllamaChatPanel extends JPanel {
         startElapsedTimer();
         setBusy(true);
 
-        // Only send a thinking effort when the model supports it and a level other than "off" is chosen.
-        String think = modelSupportsThinking && !"off".equals(reasoningEffort) ? reasoningEffort : null;
+        // Only request thinking when the model supports it and a level other than "off" is chosen.
+        ThinkingOption thinking = modelSupportsThinking && !"off".equals(reasoningEffort)
+                ? ThinkingOption.ofLevel(reasoningEffort) : ThinkingOption.defaultOption();
         OllamaService.ChatRequest request = new OllamaService.ChatRequest(
-                modelName, keepAliveField.getText(), buildConversation(), think);
+                modelName, keepAliveField.getText(), buildConversation(), thinking);
         chatTask = ollamaService.streamChat(request, new OllamaService.ChatListener() {
             public void onContent(final String content) {
                 onUi(new Runnable() {

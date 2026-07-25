@@ -40,6 +40,16 @@ public class ModelCapabilityTest {
     }
 
     @Test
+    public void thinkingAndToolsAreDetectedByExactTag() {
+        assertEquals(ModelCapability.THINKING, ModelCapability.fromOllamaTag("thinking"));
+        assertEquals(ModelCapability.TOOLS, ModelCapability.fromOllamaTag("tools"));
+        java.util.Set<ModelCapability> caps = ModelCapability.fromOllamaTags(
+                Arrays.asList("completion", "thinking", "tools"));
+        assertTrue(caps.contains(ModelCapability.THINKING));
+        assertTrue(caps.contains(ModelCapability.TOOLS));
+    }
+
+    @Test
     public void duplicatesAreRemovedFromRequiredTags() {
         List<String> tags = ModelCapability.requiredOllamaTags(
                 EnumSet.of(ModelCapability.TEXT, ModelCapability.AUDIO));
