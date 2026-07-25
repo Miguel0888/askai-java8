@@ -57,13 +57,25 @@ public final class RemoteGgufInstaller {
 
     public void install(String modelName, File file, ProgressListener listener) throws Exception {
         install(modelName, file, java.util.Collections.<File>emptyList(),
-                java.util.Collections.<String>emptyList(), listener);
+                com.aresstack.askai.java8.hf.meta.OllamaCreateMetadata.empty(), listener);
     }
 
-    /** Manual GGUF import (no declared capabilities): no {@code info.capabilities} is sent. */
+    /** Manual GGUF import (no declared capabilities): no {@code info} is sent. */
     public void install(String modelName, File file, java.util.List<File> extraFiles,
                         ProgressListener listener) throws Exception {
-        install(modelName, file, extraFiles, java.util.Collections.<String>emptyList(), listener);
+        install(modelName, file, extraFiles,
+                com.aresstack.askai.java8.hf.meta.OllamaCreateMetadata.empty(), listener);
+    }
+
+    /**
+     * Hugging Face import declaring capabilities only. The list is normalized (real Ollama tags,
+     * de-duplicated, stable order); an empty list omits {@code info} entirely (manual import).
+     */
+    public void install(String modelName, File file, java.util.List<File> extraFiles,
+                        java.util.Collection<String> capabilities, ProgressListener listener) throws Exception {
+        install(modelName, file, extraFiles,
+                com.aresstack.askai.java8.hf.meta.OllamaCreateMetadata.ofCapabilities(
+                        normalizeCapabilities(capabilities)), listener);
     }
 
     /**
@@ -71,18 +83,22 @@ public final class RemoteGgufInstaller {
      * a multimodal model needs). Every file is validated, hashed and uploaded (skipping blobs the
      * server already has), then referenced together in one {@code /api/create} call.
      *
-     * <p>For a Hugging Face import the declared capabilities are passed as canonical Ollama tags and
-     * sent as {@code info.capabilities} so Ollama records them and {@code /api/show} returns them. The
-     * list is normalized (only real Ollama tags, de-duplicated, stable order); an empty list omits the
-     * {@code info} field entirely (manual import).</p>
+     * <p>{@code metadata} carries the trusted values AskAI wants Ollama to record: capabilities plus,
+     * when known, {@code info} fields (family, quantization, sizes, ...), {@code license} and
+     * {@code parameters}. Only sufficiently trusted, non-empty values are sent, so an uncertain guess
+     * never overwrites Ollama's own GGUF-derived detection. Empty metadata omits {@code info} entirely.</p>
      */
     public void install(String modelName, File file, java.util.List<File> extraFiles,
-                        java.util.Collection<String> capabilities, ProgressListener listener) throws Exception {
+                        com.aresstack.askai.java8.hf.meta.OllamaCreateMetadata metadata,
+                        ProgressListener listener) throws Exception {
         if (modelName == null || modelName.trim().length() == 0) {
             throw new IllegalArgumentException("Model name is required.");
         }
         if (file == null || !file.isFile()) {
             throw new IllegalArgumentException("GGUF file does not exist.");
+        }
+        if (metadata == null) {
+            metadata = com.aresstack.askai.java8.hf.meta.OllamaCreateMetadata.empty();
         }
         java.util.List<File> allFiles = new java.util.ArrayList<File>();
         allFiles.add(file);
@@ -112,13 +128,18 @@ public final class RemoteGgufInstaller {
         Map<String, Object> body = new LinkedHashMap<String, Object>();
         body.put("model", modelName.trim());
         body.put("files", files);
-        // Send the declared capabilities so Ollama records them (only for a HF import; a manual import
-        // passes an empty list and omits info entirely — capabilities are never guessed from the name).
-        java.util.List<String> capabilityTags = normalizeCapabilities(capabilities);
-        if (!capabilityTags.isEmpty()) {
-            Map<String, Object> info = new LinkedHashMap<String, Object>();
-            info.put("capabilities", new java.util.ArrayList<String>(capabilityTags));
+        // Only trusted, non-empty values reach the wire; capabilities are never guessed from the name.
+        Map<String, Object> info = metadata.toInfoMap();
+        if (!info.isEmpty()) {
             body.put("info", info);
+        }
+        java.util.List<String> licenses = metadata.licenses();
+        if (!licenses.isEmpty()) {
+            body.put("license", licenses.size() == 1 ? licenses.get(0)
+                    : new java.util.ArrayList<String>(licenses));
+        }
+        if (!metadata.parameters().isEmpty()) {
+            body.put("parameters", new LinkedHashMap<String, Object>(metadata.parameters()));
         }
         body.put("stream", Boolean.TRUE);
         createModel("/api/create", OllamaJson.toJson(body), listener);

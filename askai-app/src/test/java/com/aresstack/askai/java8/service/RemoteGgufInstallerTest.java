@@ -141,6 +141,32 @@ public class RemoteGgufInstallerTest {
                 RemoteGgufInstaller.normalizeCapabilities(Arrays.asList("TEXT", "nonsense", null)));
     }
 
+    // ------------------------------------------------------------------ structured metadata
+
+    @Test
+    public void metadataInfoFieldsReachTheWire() throws Exception {
+        com.aresstack.askai.java8.hf.meta.OllamaCreateMetadata metadata =
+                new com.aresstack.askai.java8.hf.meta.OllamaCreateMetadata.Builder()
+                        .capabilities(Arrays.asList("completion", "tools"))
+                        .modelFamily(com.aresstack.askai.java8.hf.meta.MetadataValue.high(
+                                "qwen3", com.aresstack.askai.java8.hf.meta.MetadataSource.CONFIG_JSON))
+                        .quantizationLevel(com.aresstack.askai.java8.hf.meta.MetadataValue.high(
+                                "Q4_K_M", com.aresstack.askai.java8.hf.meta.MetadataSource.FILE_NAME))
+                        .build();
+        installer().install("m", gguf, Collections.<File>emptyList(), metadata, null);
+        Map<String, Object> info = (Map<String, Object>) createRequest().get("info");
+        assertEquals(Arrays.asList("completion", "tools"), info.get("capabilities"));
+        assertEquals("qwen3", info.get("model_family"));
+        assertEquals("Q4_K_M", info.get("quantization_level"));
+    }
+
+    @Test
+    public void emptyMetadataOmitsInfo() throws Exception {
+        installer().install("m", gguf, Collections.<File>emptyList(),
+                com.aresstack.askai.java8.hf.meta.OllamaCreateMetadata.empty(), null);
+        assertNull(createRequest().get("info"));
+    }
+
     // ------------------------------------------------------------------ streamed create errors
 
     @Test
