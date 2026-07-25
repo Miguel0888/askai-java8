@@ -44,6 +44,22 @@ public class OllamaCreateMetadataTest {
     }
 
     @Test
+    public void topLevelB3FieldsAreExposedButNotUnderInfo() {
+        OllamaCreateMetadata metadata = new OllamaCreateMetadata.Builder()
+                .renderer(MetadataValue.high("gemma4", MetadataSource.REGISTRY))
+                .parser(MetadataValue.high("gemma4", MetadataSource.REGISTRY))
+                .requires(MetadataValue.of("0.5.0", MetadataSource.REGISTRY, Confidence.LOW))
+                .build();
+        assertEquals("gemma4", metadata.renderer());
+        assertEquals("gemma4", metadata.parser());
+        // Low-confidence requires is not trusted → omitted.
+        assertEquals("", metadata.requires());
+        // Top-level fields must never leak into the info block.
+        assertFalse(metadata.toInfoMap().containsKey("renderer"));
+        assertFalse(metadata.toInfoMap().containsKey("parser"));
+    }
+
+    @Test
     public void lowAndMediumValuesAreNotEmitted() {
         OllamaCreateMetadata metadata = new OllamaCreateMetadata.Builder()
                 .modelFamily(MetadataValue.of("guess", MetadataSource.FILE_NAME, Confidence.LOW))

@@ -141,8 +141,36 @@ public final class RemoteGgufInstaller {
         if (!metadata.parameters().isEmpty()) {
             body.put("parameters", new LinkedHashMap<String, Object>(metadata.parameters()));
         }
+        // Top-level B3 fields — only ever populated with tested/safe values (see OllamaCreateProfile /
+        // OllamaCreateMetadata); empty values are omitted so Ollama keeps its own detection.
+        putIfNotEmpty(body, "template", metadata.template());
+        putIfNotEmpty(body, "renderer", metadata.renderer());
+        putIfNotEmpty(body, "parser", metadata.parser());
+        putIfNotEmpty(body, "requires", metadata.requires());
+        putIfNotEmpty(body, "system", metadata.system());
+        if (!metadata.messages().isEmpty()) {
+            body.put("messages", toMessageMaps(metadata.messages()));
+        }
         body.put("stream", Boolean.TRUE);
         createModel("/api/create", OllamaJson.toJson(body), listener);
+    }
+
+    private static void putIfNotEmpty(Map<String, Object> body, String key, String value) {
+        if (value != null && value.trim().length() > 0) {
+            body.put(key, value);
+        }
+    }
+
+    private static java.util.List<Object> toMessageMaps(
+            java.util.List<com.aresstack.askai.java8.hf.meta.OllamaCreateMessage> messages) {
+        java.util.List<Object> result = new java.util.ArrayList<Object>();
+        for (com.aresstack.askai.java8.hf.meta.OllamaCreateMessage message : messages) {
+            Map<String, Object> map = new LinkedHashMap<String, Object>();
+            map.put("role", message.getRole());
+            map.put("content", message.getContent());
+            result.add(map);
+        }
+        return result;
     }
 
     /**

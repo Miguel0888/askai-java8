@@ -116,7 +116,29 @@ public final class HuggingFaceMetadataLoader {
         if (!parameters.isEmpty()) {
             builder.parameters(parameters);
         }
+        // B3: a tested per-family create profile may set renderer/parser/requires. template/system/messages
+        // are intentionally not derived (GGUF template wins; HF Jinja needs a separate tested converter).
+        applyCreateProfile(builder, family.best());
         return builder.build();
+    }
+
+    private static void applyCreateProfile(OllamaCreateMetadata.Builder builder, MetadataValue<String> family) {
+        if (family == null || family.value() == null) {
+            return;
+        }
+        OllamaCreateProfile profile = OllamaCreateProfileRegistry.profileFor(family.value());
+        if (profile == null) {
+            return;
+        }
+        if (profile.renderer().length() > 0) {
+            builder.renderer(MetadataValue.high(profile.renderer(), MetadataSource.REGISTRY));
+        }
+        if (profile.parser().length() > 0) {
+            builder.parser(MetadataValue.high(profile.parser(), MetadataSource.REGISTRY));
+        }
+        if (profile.requires().length() > 0) {
+            builder.requires(MetadataValue.high(profile.requires(), MetadataSource.REGISTRY));
+        }
     }
 
     // ------------------------------------------------------------------ generation parameters

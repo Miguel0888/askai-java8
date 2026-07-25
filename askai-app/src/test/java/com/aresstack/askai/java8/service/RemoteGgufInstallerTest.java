@@ -167,6 +167,24 @@ public class RemoteGgufInstallerTest {
         assertNull(createRequest().get("info"));
     }
 
+    @Test
+    public void topLevelB3FieldsAreSentAtTopLevelNotUnderInfo() throws Exception {
+        com.aresstack.askai.java8.hf.meta.OllamaCreateMetadata metadata =
+                new com.aresstack.askai.java8.hf.meta.OllamaCreateMetadata.Builder()
+                        .capabilities(Arrays.asList("completion"))
+                        .renderer(com.aresstack.askai.java8.hf.meta.MetadataValue.high(
+                                "gemma4", com.aresstack.askai.java8.hf.meta.MetadataSource.REGISTRY))
+                        .parser(com.aresstack.askai.java8.hf.meta.MetadataValue.high(
+                                "gemma4", com.aresstack.askai.java8.hf.meta.MetadataSource.REGISTRY))
+                        .build();
+        installer().install("m", gguf, Collections.<File>emptyList(), metadata, null);
+        Map<String, Object> body = createRequest();
+        assertEquals("gemma4", body.get("renderer"));
+        assertEquals("gemma4", body.get("parser"));
+        Map<String, Object> info = (Map<String, Object>) body.get("info");
+        assertFalse(info.containsKey("renderer"));
+    }
+
     // ------------------------------------------------------------------ streamed create errors
 
     @Test

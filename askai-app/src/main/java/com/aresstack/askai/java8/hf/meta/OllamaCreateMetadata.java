@@ -29,6 +29,13 @@ public final class OllamaCreateMetadata {
     private final MetadataValue<Integer> embeddingLength;
     private final MetadataValue<List<String>> license;
     private final Map<String, MetadataValue<Object>> parameters;
+    // Top-level B3 fields (never under info). Only tested/safe values are ever set.
+    private final MetadataValue<String> template;
+    private final MetadataValue<String> renderer;
+    private final MetadataValue<String> parser;
+    private final MetadataValue<String> requires;
+    private final MetadataValue<String> system;
+    private final MetadataValue<List<OllamaCreateMessage>> messages;
 
     private OllamaCreateMetadata(Builder builder) {
         this.capabilities = immutable(builder.capabilities);
@@ -42,6 +49,12 @@ public final class OllamaCreateMetadata {
         this.parameters = builder.parameters == null
                 ? Collections.<String, MetadataValue<Object>>emptyMap()
                 : Collections.unmodifiableMap(new LinkedHashMap<String, MetadataValue<Object>>(builder.parameters));
+        this.template = builder.template;
+        this.renderer = builder.renderer;
+        this.parser = builder.parser;
+        this.requires = builder.requires;
+        this.system = builder.system;
+        this.messages = builder.messages;
     }
 
     /** @return metadata carrying only the given (already normalized) capability tags. */
@@ -110,9 +123,51 @@ public final class OllamaCreateMetadata {
         return trusted;
     }
 
+    /** @return the trusted top-level {@code template}, or "" to omit it. */
+    public String template() {
+        return trustedText(template);
+    }
+
+    /** @return the trusted top-level {@code renderer}, or "" to omit it. */
+    public String renderer() {
+        return trustedText(renderer);
+    }
+
+    /** @return the trusted top-level {@code parser}, or "" to omit it. */
+    public String parser() {
+        return trustedText(parser);
+    }
+
+    /** @return the trusted top-level {@code requires}, or "" to omit it. */
+    public String requires() {
+        return trustedText(requires);
+    }
+
+    /** @return the trusted top-level {@code system} prompt, or "" to omit it. */
+    public String system() {
+        return trustedText(system);
+    }
+
+    /** @return the trusted top-level {@code messages}, or empty to omit them. */
+    public List<OllamaCreateMessage> messages() {
+        if (messages == null || !messages.isTrusted(false) || messages.value() == null) {
+            return Collections.emptyList();
+        }
+        return Collections.unmodifiableList(new ArrayList<OllamaCreateMessage>(messages.value()));
+    }
+
     /** @return true when nothing at all would be written — a plain manual import. */
     public boolean isEmpty() {
-        return toInfoMap().isEmpty() && licenses().isEmpty() && parameters().isEmpty();
+        return toInfoMap().isEmpty() && licenses().isEmpty() && parameters().isEmpty()
+                && template().isEmpty() && renderer().isEmpty() && parser().isEmpty()
+                && requires().isEmpty() && system().isEmpty() && messages().isEmpty();
+    }
+
+    private static String trustedText(MetadataValue<String> value) {
+        if (value == null || !value.isTrusted(false) || value.value() == null) {
+            return "";
+        }
+        return value.value().trim();
     }
 
     private static void putTrustedText(Map<String, Object> info, String key, MetadataValue<String> value) {
@@ -145,6 +200,12 @@ public final class OllamaCreateMetadata {
         private MetadataValue<Integer> embeddingLength;
         private MetadataValue<List<String>> license;
         private Map<String, MetadataValue<Object>> parameters;
+        private MetadataValue<String> template;
+        private MetadataValue<String> renderer;
+        private MetadataValue<String> parser;
+        private MetadataValue<String> requires;
+        private MetadataValue<String> system;
+        private MetadataValue<List<OllamaCreateMessage>> messages;
 
         public Builder capabilities(List<String> capabilities) {
             this.capabilities = capabilities;
@@ -188,6 +249,36 @@ public final class OllamaCreateMetadata {
 
         public Builder parameters(Map<String, MetadataValue<Object>> parameters) {
             this.parameters = parameters;
+            return this;
+        }
+
+        public Builder template(MetadataValue<String> value) {
+            this.template = value;
+            return this;
+        }
+
+        public Builder renderer(MetadataValue<String> value) {
+            this.renderer = value;
+            return this;
+        }
+
+        public Builder parser(MetadataValue<String> value) {
+            this.parser = value;
+            return this;
+        }
+
+        public Builder requires(MetadataValue<String> value) {
+            this.requires = value;
+            return this;
+        }
+
+        public Builder system(MetadataValue<String> value) {
+            this.system = value;
+            return this;
+        }
+
+        public Builder messages(MetadataValue<List<OllamaCreateMessage>> value) {
+            this.messages = value;
             return this;
         }
 
