@@ -127,8 +127,9 @@ public final class OllamaLibraryPanel extends JPanel {
         logArea.setLineWrap(true);
         logArea.setWrapStyleWord(true);
         JScrollPane scroll = new JScrollPane(logArea);
-        scroll.setBorder(BorderFactory.createTitledBorder("Log"));
-        return scroll;
+        scroll.setPreferredSize(new java.awt.Dimension(scroll.getPreferredSize().width, 160));
+        // Technical pull output collapsed by default (progress bar above stays visible).
+        return new CollapsiblePanel("Technical details", scroll, false);
     }
 
     // ------------------------------------------------------------------ actions

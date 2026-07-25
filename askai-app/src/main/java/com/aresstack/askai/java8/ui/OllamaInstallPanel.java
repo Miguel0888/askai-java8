@@ -29,6 +29,7 @@ import javax.swing.JList;
 import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.JPasswordField;
 import javax.swing.JPopupMenu;
 import javax.swing.JProgressBar;
 import javax.swing.JScrollPane;
@@ -37,6 +38,8 @@ import javax.swing.JTextField;
 import javax.swing.JToggleButton;
 import javax.swing.ListSelectionModel;
 import javax.swing.SwingUtilities;
+import javax.swing.event.ListSelectionEvent;
+import javax.swing.event.ListSelectionListener;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.FlowLayout;
@@ -51,10 +54,6 @@ import java.util.List;
 
 public final class OllamaInstallPanel extends JPanel {
 
-    private static final String PROFILE_AUTO = "Auto (recommended)";
-    private static final String PROFILE_QWEN = "Qwen ChatML";
-    private static final String PROFILE_DEFAULT = "Default";
-
     private final AppConfigurationRepository configurationRepository;
     private final AskAiService askAiService;
     private final JComboBox<HuggingFaceSearchSuggestion> searchCombo;
@@ -64,15 +63,20 @@ public final class OllamaInstallPanel extends JPanel {
     private final DefaultListModel<HuggingFaceFile> filesModel;
     private final JList<HuggingFaceFile> filesList;
     private final JTextField repoField;
-    private final JTextField revisionField;
-    private final JTextField tokenField;
+    private final JPasswordField tokenField;
+    private final JToggleButton tokenShowToggle = new JToggleButton("Show");
+    private final JButton tokenClearButton = new JButton("Clear");
+    private final JLabel tokenStatusLabel = new JLabel();
     private final JTextField installAsField;
-    private final JTextField quantizationField;
-    private final JComboBox<String> profileCombo;
+    // Read-only: the quantization derived from the selected GGUF file name (no manual entry).
+    private final JLabel quantizationLabel = new JLabel("—");
     private final JProgressBar progressBar;
     private final JButton cancelInstallButton;
     private final JLabel repoCapabilityLabel = new JLabel(" ");
     private final JLabel importStatusLabel = new JLabel(" ");
+    // Always-visible one-line summary of the latest step/result/error; the full history lives in the
+    // collapsed "Technical details" log so the panel isn't dominated by technical output.
+    private final JLabel statusLine = new JLabel(" ");
     private final JTextArea logArea;
     private final JToggleButton originalsToggle = new JToggleButton("Originals", true);
     private final JToggleButton variantsToggle = new JToggleButton("Variants");
@@ -147,11 +151,8 @@ public final class OllamaInstallPanel extends JPanel {
         this.filesModel = new DefaultListModel<HuggingFaceFile>();
         this.filesList = new JList<HuggingFaceFile>(filesModel);
         this.repoField = new JTextField(30);
-        this.revisionField = new JTextField("main", 10);
-        this.tokenField = new JTextField(24);
+        this.tokenField = new JPasswordField(24);
         this.installAsField = new JTextField(24);
-        this.quantizationField = new JTextField("Q4_K_M", 10);
-        this.profileCombo = new JComboBox<String>(new String[]{PROFILE_AUTO, PROFILE_QWEN, PROFILE_DEFAULT});
         this.progressBar = new JProgressBar(0, 100);
         this.cancelInstallButton = new JButton(new CancelIcon(11));
         buildCancelButton();
@@ -441,6 +442,13 @@ public final class OllamaInstallPanel extends JPanel {
         filesList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         filesList.setVisibleRowCount(8);
         filesList.setCellRenderer(new GgufFileRenderer());
+        filesList.addListSelectionListener(new ListSelectionListener() {
+            public void valueChanged(ListSelectionEvent event) {
+                if (!event.getValueIsAdjusting()) {
+                    updateQuantizationLabel();
+                }
+            }
+        });
         JScrollPane filesScroll = new JScrollPane(filesList);
         filesScroll.setBorder(BorderFactory.createTitledBorder("GGUF files"));
         return filesScroll;
@@ -455,11 +463,10 @@ public final class OllamaInstallPanel extends JPanel {
         constraints.anchor = GridBagConstraints.WEST;
 
         addRow(form, constraints, 0, "Repository", repoField);
-        addRow(form, constraints, 1, "Revision / branch", revisionField);
-        addRow(form, constraints, 2, "HF token (gated, optional)", tokenField);
-        addRow(form, constraints, 3, "Install as", installAsField);
-        addRow(form, constraints, 4, "Ollama profile", profileCombo);
-        addRow(form, constraints, 5, "Quantization", quantizationField);
+        addRow(form, constraints, 1, "HF token (gated, optional)", buildTokenControls());
+        addRow(form, constraints, 2, "Install as", installAsField);
+        quantizationLabel.setToolTipText("Derived from the selected GGUF file name; not manually configurable");
+        addRow(form, constraints, 3, "Quantization", quantizationLabel);
 
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
         JButton filesButton = new JButton("Load GGUF files");
@@ -486,21 +493,21 @@ public final class OllamaInstallPanel extends JPanel {
 
         GridBagConstraints buttonConstraints = new GridBagConstraints();
         buttonConstraints.gridx = 0;
-        buttonConstraints.gridy = 6;
+        buttonConstraints.gridy = 4;
         buttonConstraints.gridwidth = 2;
         buttonConstraints.anchor = GridBagConstraints.WEST;
         form.add(buttons, buttonConstraints);
 
         GridBagConstraints capabilityConstraints = new GridBagConstraints();
         capabilityConstraints.gridx = 0;
-        capabilityConstraints.gridy = 7;
+        capabilityConstraints.gridy = 5;
         capabilityConstraints.gridwidth = 2;
         capabilityConstraints.anchor = GridBagConstraints.WEST;
         form.add(repoCapabilityLabel, capabilityConstraints);
 
         GridBagConstraints importStatusConstraints = new GridBagConstraints();
         importStatusConstraints.gridx = 0;
-        importStatusConstraints.gridy = 8;
+        importStatusConstraints.gridy = 6;
         importStatusConstraints.gridwidth = 2;
         importStatusConstraints.anchor = GridBagConstraints.WEST;
         importStatusLabel.setToolTipText("Import support decided by the ConverterService from the "
@@ -509,13 +516,76 @@ public final class OllamaInstallPanel extends JPanel {
         return form;
     }
 
+    /** Builds the masked HF-token row: password field + Show toggle + Clear + a "token set" hint. */
+    private JComponent buildTokenControls() {
+        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        final char defaultEcho = tokenField.getEchoChar();
+        tokenShowToggle.setToolTipText("Show or hide the token");
+        tokenShowToggle.addActionListener(event ->
+                tokenField.setEchoChar(tokenShowToggle.isSelected() ? (char) 0 : defaultEcho));
+        tokenClearButton.setToolTipText("Remove the stored Hugging Face token");
+        tokenClearButton.setForeground(new Color(0xC6, 0x28, 0x28));
+        tokenClearButton.addActionListener(event -> {
+            tokenField.setText("");
+            saveTokenToConfiguration();
+            updateTokenStatus();
+        });
+        tokenStatusLabel.setForeground(new Color(0x75, 0x75, 0x75));
+        tokenField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            public void insertUpdate(javax.swing.event.DocumentEvent e) { updateTokenStatus(); }
+            public void removeUpdate(javax.swing.event.DocumentEvent e) { updateTokenStatus(); }
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { updateTokenStatus(); }
+        });
+        row.add(tokenField);
+        row.add(tokenShowToggle);
+        row.add(tokenClearButton);
+        row.add(tokenStatusLabel);
+        return row;
+    }
+
+    /** Reflects whether a token is present without ever revealing it. */
+    private void updateTokenStatus() {
+        boolean present = tokenField.getPassword().length > 0;
+        tokenStatusLabel.setText(present ? "Token set" : "No token");
+    }
+
     private JComponent buildCenter() {
         logArea.setEditable(false);
         logArea.setLineWrap(true);
         logArea.setWrapStyleWord(true);
         JScrollPane scroll = new JScrollPane(logArea);
-        scroll.setBorder(BorderFactory.createTitledBorder("Log"));
-        return scroll;
+        scroll.setPreferredSize(new java.awt.Dimension(scroll.getPreferredSize().width, 180));
+        // Technical output stays out of the way by default: the concise status line stays visible,
+        // the full log lives in a collapsed "Technical details" section.
+        JPanel center = new JPanel(new BorderLayout(0, 4));
+        statusLine.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
+        center.add(statusLine, BorderLayout.NORTH);
+        center.add(new CollapsiblePanel("Technical details", scroll, false), BorderLayout.CENTER);
+        return center;
+    }
+
+    /**
+     * @return the quantization label (e.g. "Q4_K_M") parsed from a GGUF file name, or "" when the
+     *         name carries no recognizable quant token. Upper-cased for display.
+     */
+    static String quantFromFileName(String fileName) {
+        if (fileName == null) {
+            return "";
+        }
+        String lower = fileName.toLowerCase();
+        for (int i = 0; i < PREFERRED_QUANTS.length; i++) {
+            if (lower.contains(PREFERRED_QUANTS[i])) {
+                return PREFERRED_QUANTS[i].toUpperCase();
+            }
+        }
+        return "";
+    }
+
+    /** Updates the read-only quantization label from the currently selected GGUF file. */
+    private void updateQuantizationLabel() {
+        HuggingFaceFile selected = filesList.getSelectedValue();
+        String quant = selected == null ? "" : quantFromFileName(selected.getFileName());
+        quantizationLabel.setText(quant.isEmpty() ? "—" : quant);
     }
 
     private void addRow(JPanel form, GridBagConstraints constraints, int row, String label, java.awt.Component field) {
@@ -736,7 +806,6 @@ public final class OllamaInstallPanel extends JPanel {
         currentAnalysis = null;
         repoField.setText(selected.getId());
         installAsField.setText(suggestInstallName(selected.getId()));
-        profileCombo.setSelectedItem(PROFILE_AUTO);
         analyzeSelectedRepository(selected.getId());
         loadFiles();
     }
@@ -1507,6 +1576,7 @@ public final class OllamaInstallPanel extends JPanel {
     private void loadTokenFromConfiguration() {
         AppConfiguration configuration = configurationRepository.load();
         tokenField.setText(configuration.getHuggingFaceToken());
+        updateTokenStatus();
     }
 
     private void saveTokenToConfiguration() {
@@ -1518,7 +1588,7 @@ public final class OllamaInstallPanel extends JPanel {
                 current.getCertificateTrustConfiguration(),
                 current.getHttpClientConfiguration(),
                 current.getDefaultQuantization(),
-                tokenField.getText(),
+                new String(tokenField.getPassword()),
                 current.getModelDownloadDirectory())
                 .withSpeechToTextConfiguration(current.getSpeechToTextConfiguration())
                 .withHuggingFaceSearchSuggestions(current.getHuggingFaceSearchSuggestionsRaw()));
@@ -1536,6 +1606,9 @@ public final class OllamaInstallPanel extends JPanel {
     private void append(String message) {
         logArea.append(message + "\n");
         logArea.setCaretPosition(logArea.getDocument().getLength());
+        // Mirror the newest line into the always-visible status summary (single line).
+        int newline = message.indexOf('\n');
+        statusLine.setText(newline < 0 ? message : message.substring(0, newline));
     }
 
     private void showProgress(int percent, String text) {

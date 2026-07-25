@@ -35,9 +35,9 @@ public final class OllamaFeatureActionService implements FeatureActionService {
             new FeatureAction("generate", "Generate", "One-shot completion. Needs a model name and a prompt."),
             new FeatureAction("embed", "Embeddings", "Compute an embedding vector. Needs a model name and text."),
             new FeatureAction("create-model", "Create model", "Create from local files / Modelfile (use the Install tab)."),
-            new FeatureAction("vision-prompt", "Vision prompt", "Send an image and a prompt to a multimodal model."),
-            new FeatureAction("tool-calling", "Tool calling", "Expose typed Java tools to compatible local models."),
-            new FeatureAction("mcp-tools", "MCP tools", "Connect future MCP tool sets to local model actions.")
+            new FeatureAction("vision-prompt", "Vision prompt", "Send an image and a prompt to a multimodal model.", false),
+            new FeatureAction("tool-calling", "Tool calling", "Expose typed Java tools to compatible local models.", false),
+            new FeatureAction("mcp-tools", "MCP tools", "Connect future MCP tool sets to local model actions.", false)
     ));
 
     public OllamaFeatureActionService(AskAiModel model) {

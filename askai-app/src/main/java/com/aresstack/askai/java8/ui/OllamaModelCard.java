@@ -12,6 +12,7 @@ import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
+import java.awt.Font;
 import java.awt.GridLayout;
 import java.util.EnumSet;
 import java.util.List;
@@ -37,7 +38,7 @@ final class OllamaModelCard extends JPanel {
 
     private OllamaModelCard(String title, String line1, String line2, boolean running,
                             final OllamaModelInfo installedModel, final AddOnHandler addOnHandler,
-                            Runnable deleteAction) {
+                            final Runnable useInChatAction, Runnable deleteAction) {
         setLayout(new BorderLayout(12, 0));
         setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(new Color(210, 215, 224)),
@@ -61,6 +62,15 @@ final class OllamaModelCard extends JPanel {
         capabilityIconLabel.setToolTipText("Model input capabilities (text / audio / vision)");
         right.add(capabilityIconLabel);
         if (deleteAction != null) {
+            // Primary action first and highlighted: open this model in the chat with one click.
+            if (useInChatAction != null) {
+                JButton useInChat = new JButton("Use in chat");
+                useInChat.setToolTipText("Open the Chat and select this model (keeps the current conversation)");
+                useInChat.setFont(useInChat.getFont().deriveFont(Font.BOLD));
+                useInChat.setForeground(new Color(0x0D, 0x47, 0xA1));
+                useInChat.addActionListener(event -> useInChatAction.run());
+                right.add(useInChat);
+            }
             if (addOnHandler != null && installedModel != null) {
                 configureAddOnButton(audioAddOnButton, Modality.AUDIO,
                         "Install the audio encoder (mmproj) so this model accepts audio input",
@@ -71,7 +81,10 @@ final class OllamaModelCard extends JPanel {
                 right.add(audioAddOnButton);
                 right.add(visionAddOnButton);
             }
+            // Destructive action last and clearly marked.
             JButton deleteButton = new JButton("Delete");
+            deleteButton.setToolTipText("Delete this model from the Ollama server");
+            deleteButton.setForeground(new Color(0xC6, 0x28, 0x28));
             deleteButton.addActionListener(event -> deleteAction.run());
             right.add(deleteButton);
         } else {
@@ -130,11 +143,13 @@ final class OllamaModelCard extends JPanel {
         return modalities;
     }
 
-    static OllamaModelCard installed(OllamaModelInfo model, AddOnHandler addOnHandler, Runnable deleteAction) {
+    static OllamaModelCard installed(OllamaModelInfo model, AddOnHandler addOnHandler,
+                                     Runnable useInChatAction, Runnable deleteAction) {
         String details = join(model.getDetails().getFamily(), model.getDetails().getParameterSize(),
                 model.getDetails().getQuantizationLevel(), model.getDetails().getFormat());
         String meta = join(formatBytes(model.getSize()), shortDate(model.getModifiedAt()), shortDigest(model.getDigest()));
-        return new OllamaModelCard(model.getDisplayName(), details, meta, false, model, addOnHandler, deleteAction);
+        return new OllamaModelCard(model.getDisplayName(), details, meta, false, model, addOnHandler,
+                useInChatAction, deleteAction);
     }
 
     static OllamaModelCard running(OllamaRunningModelInfo model) {
@@ -142,7 +157,7 @@ final class OllamaModelCard extends JPanel {
                 model.getDetails().getQuantizationLevel(), model.getDetails().getFormat());
         String meta = join("RAM " + formatBytes(model.getSize()), "VRAM " + formatBytes(model.getSizeVram()),
                 "expires " + shortDate(model.getExpiresAt()));
-        return new OllamaModelCard(model.getDisplayName(), details, meta, true, null, null, null);
+        return new OllamaModelCard(model.getDisplayName(), details, meta, true, null, null, null, null);
     }
 
     private static String join(String... parts) {

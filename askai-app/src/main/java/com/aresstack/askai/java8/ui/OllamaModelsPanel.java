@@ -34,6 +34,11 @@ import java.util.List;
  */
 public final class OllamaModelsPanel extends JPanel {
 
+    /** Opens a model in the chat view (wired by the frame that owns both panels). */
+    public interface UseInChatHandler {
+        void useInChat(String modelName);
+    }
+
     private static final String INSTALLED_CARD = "installed";
     private static final String RUNNING_CARD = "running";
 
@@ -50,6 +55,7 @@ public final class OllamaModelsPanel extends JPanel {
     private final JLabel informationLabel;
     private boolean serverInformationLoaded;
     private AskAiService.InstallTask addOnInstallTask;
+    private UseInChatHandler useInChatHandler;
 
     public OllamaModelsPanel(AskAiModel model, OllamaService ollamaService,
                              AskAiService askAiService, AppConfigurationRepository configurationRepository) {
@@ -65,6 +71,11 @@ public final class OllamaModelsPanel extends JPanel {
         this.runningStatusLabel = new JLabel("Running models are not loaded yet.");
         this.informationLabel = new JLabel("Ollama server information is not loaded yet.");
         buildUserInterface();
+    }
+
+    /** Wires the "Use in chat" primary action shown on each installed model card. */
+    public void setUseInChatHandler(UseInChatHandler handler) {
+        this.useInChatHandler = handler;
     }
 
     /** Show the installed-models view and refresh it (the "Models > Installed" entry). */
@@ -234,7 +245,15 @@ public final class OllamaModelsPanel extends JPanel {
                 }
             };
             for (final OllamaModelInfo modelInfo : models) {
-                OllamaModelCard card = OllamaModelCard.installed(modelInfo, addOnHandler, new Runnable() {
+                Runnable useInChat = new Runnable() {
+                    @Override
+                    public void run() {
+                        if (useInChatHandler != null) {
+                            useInChatHandler.useInChat(modelInfo.getDisplayName());
+                        }
+                    }
+                };
+                OllamaModelCard card = OllamaModelCard.installed(modelInfo, addOnHandler, useInChat, new Runnable() {
                     @Override
                     public void run() {
                         confirmAndDelete(modelInfo.getDisplayName());

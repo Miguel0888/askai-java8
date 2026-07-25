@@ -63,6 +63,8 @@ public final class OllamaChatPanel extends JPanel {
     private final JButton stopButton;
     private final JButton recordButton;
     private final JButton audioFileButton;
+    // Abandon a recording (or an in-flight transcription) without inserting any text.
+    private final JButton discardButton = new JButton("Discard");
 
     private final List<OllamaChatTurn> history = new ArrayList<OllamaChatTurn>();
     private final StringBuilder streamingAssistant = new StringBuilder();
@@ -118,6 +120,8 @@ public final class OllamaChatPanel extends JPanel {
     }
 
     private JComponent buildToolbar() {
+        // The always-visible header stays lean: model selector + New chat (connection status lives in
+        // the menu bar). Technical parameters move into a collapsed "Chat settings" section below.
         JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
         toolbar.add(new JLabel("Model"));
         modelCombo.setPreferredSize(new Dimension(260, modelCombo.getPreferredSize().height));
@@ -125,12 +129,6 @@ public final class OllamaChatPanel extends JPanel {
         JButton newChatButton = new JButton("New chat");
         newChatButton.addActionListener(event -> newChat());
         toolbar.add(newChatButton);
-        toolbar.add(new JLabel("keep_alive"));
-        toolbar.add(keepAliveField);
-        toolbar.add(new JLabel("Audio model"));
-        audioModelCombo.setPreferredSize(new Dimension(220, audioModelCombo.getPreferredSize().height));
-        toolbar.add(audioModelCombo);
-        audioModelCombo.addActionListener(event -> persistAudioModelSelection());
 
         // Square, icon-only refresh button, pinned to the far right of the toolbar row.
         int refreshSize = modelCombo.getPreferredSize().height;
@@ -147,16 +145,32 @@ public final class OllamaChatPanel extends JPanel {
         toolbarRow.add(toolbar, BorderLayout.CENTER);
         toolbarRow.add(rightControls, BorderLayout.EAST);
 
+        JPanel header = new JPanel(new BorderLayout(4, 4));
+        header.add(toolbarRow, BorderLayout.NORTH);
+        header.add(new CollapsiblePanel("Chat settings", buildChatSettings(), false), BorderLayout.CENTER);
+        return header;
+    }
+
+    /** The collapsed advanced section: system prompt, keep-alive and the audio (STT) model. */
+    private JComponent buildChatSettings() {
+        JPanel params = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
+        params.add(new JLabel("keep_alive"));
+        params.add(keepAliveField);
+        params.add(new JLabel("Audio model"));
+        audioModelCombo.setPreferredSize(new Dimension(220, audioModelCombo.getPreferredSize().height));
+        params.add(audioModelCombo);
+        audioModelCombo.addActionListener(event -> persistAudioModelSelection());
+
         JPanel system = new JPanel(new BorderLayout(6, 2));
         system.setBorder(BorderFactory.createTitledBorder("System prompt"));
         systemPromptArea.setLineWrap(true);
         systemPromptArea.setWrapStyleWord(true);
         system.add(new JScrollPane(systemPromptArea), BorderLayout.CENTER);
 
-        JPanel header = new JPanel(new BorderLayout(4, 4));
-        header.add(toolbarRow, BorderLayout.NORTH);
-        header.add(system, BorderLayout.CENTER);
-        return header;
+        JPanel settings = new JPanel(new BorderLayout(4, 4));
+        settings.add(params, BorderLayout.NORTH);
+        settings.add(system, BorderLayout.CENTER);
+        return settings;
     }
 
     /** A refresh glyph: two circular arrows chasing each other, painted with Java2D (no asset). */
@@ -231,9 +245,14 @@ public final class OllamaChatPanel extends JPanel {
         stopButton.addActionListener(event -> stopChat());
         recordButton.addActionListener(event -> onRecordAction());
         audioFileButton.addActionListener(event -> onAudioFileAction());
+        discardButton.addActionListener(event -> onDiscardAction());
+        discardButton.setToolTipText("Discard the current recording / transcription without inserting text");
+        discardButton.setForeground(new Color(0xC6, 0x28, 0x28));
+        discardButton.setAlignmentX(CENTER_ALIGNMENT);
         // Disabled until an audio-capable STT model is confirmed present via /api/show.
         recordButton.setEnabled(false);
         audioFileButton.setEnabled(false);
+        discardButton.setEnabled(false);
         audioFileButton.setMargin(new java.awt.Insets(2, 4, 2, 4));
         // Record toggle plus a small arrow for picking existing audio files, ChatGPT-style.
         JPanel audioRow = new JPanel(new BorderLayout(2, 0));
@@ -242,11 +261,19 @@ public final class OllamaChatPanel extends JPanel {
         audioRow.add(audioFileButton, BorderLayout.EAST);
         audioRow.setAlignmentX(CENTER_ALIGNMENT);
         audioRow.setMaximumSize(new Dimension(Integer.MAX_VALUE, recordButton.getPreferredSize().height + 4));
+        // Audio input is still being stabilised — mark it experimental so it doesn't read as final.
+        JLabel experimental = new JLabel("Audio · Experimental");
+        experimental.setForeground(new Color(0x90, 0x90, 0x90));
+        experimental.setAlignmentX(CENTER_ALIGNMENT);
+        experimental.setFont(experimental.getFont().deriveFont(experimental.getFont().getSize2D() - 1f));
         buttons.add(sendButton);
         buttons.add(Box.createVerticalStrut(4));
         buttons.add(stopButton);
         buttons.add(Box.createVerticalStrut(4));
+        buttons.add(experimental);
         buttons.add(audioRow);
+        buttons.add(Box.createVerticalStrut(4));
+        buttons.add(discardButton);
 
         JPanel composer = new JPanel(new BorderLayout(8, 4));
         composer.add(new JScrollPane(inputArea), BorderLayout.CENTER);
@@ -330,6 +357,30 @@ public final class OllamaChatPanel extends JPanel {
         transcript.clear();
         showEmptyState();
         setStatus("Started a new chat.");
+    }
+
+    /**
+     * Selects {@code modelName} as the active chat model (adding it to the dropdown if the list has
+     * not been refreshed yet) and gives visible feedback, without touching the current conversation.
+     * Invoked by the "Use in chat" action on an installed model card.
+     */
+    public void useModel(String modelName) {
+        if (modelName == null || modelName.trim().length() == 0) {
+            return;
+        }
+        boolean present = false;
+        for (int i = 0; i < modelCombo.getItemCount(); i++) {
+            if (modelName.equals(modelCombo.getItemAt(i))) {
+                present = true;
+                break;
+            }
+        }
+        if (!present) {
+            modelCombo.addItem(modelName);
+        }
+        modelCombo.setSelectedItem(modelName);
+        transcript.appendInfo("Now chatting with " + modelName + ".");
+        setStatus("Model set to " + modelName + ".");
     }
 
     private void showEmptyState() {
@@ -458,7 +509,7 @@ public final class OllamaChatPanel extends JPanel {
         }
     }
 
-    private static final String NO_AUDIO_MODEL_MESSAGE = "Kein audiofähiges STT-Modell installiert";
+    private static final String NO_AUDIO_MODEL_MESSAGE = "No audio-capable STT model installed";
 
     /**
      * Fill the audio-model dropdown with exactly the given audio-capable model names (never the full
@@ -512,6 +563,8 @@ public final class OllamaChatPanel extends JPanel {
             recordButton.setEnabled(true);
             audioFileButton.setEnabled(true);
         }
+        // Discard is only meaningful while a recording or transcription is in flight.
+        discardButton.setEnabled(!idle);
     }
 
     /**
@@ -608,6 +661,50 @@ public final class OllamaChatPanel extends JPanel {
         startRecording();
     }
 
+    /** Discard button: abandon the recording (no transcription) or cancel an in-flight transcription. */
+    private void onDiscardAction() {
+        if (recordingSession != null) {
+            discardRecording();
+        } else if (transcriptionTask != null || !pendingAudioFiles.isEmpty()) {
+            cancelTranscription();
+        }
+    }
+
+    /** Stops the microphone and drops the captured audio without transcribing it. */
+    private void discardRecording() {
+        final SpeechRecordingSession session = recordingSession;
+        final File tempFile = recordingTempFile;
+        if (session == null) {
+            return;
+        }
+        recordingSession = null;
+        recordingTempFile = null;
+        stopRecordingTimer();
+        recordButton.setText("Record");
+        recordButton.setEnabled(false);
+        discardButton.setEnabled(false);
+        setStatus("Discarding recording ...");
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    session.stop();
+                } catch (Exception ignored) {
+                    // Discarding anyway; nothing to report.
+                }
+                onUi(new Runnable() {
+                    @Override
+                    public void run() {
+                        deleteQuietly(tempFile);
+                        recordButton.setEnabled(true);
+                        updateAudioControlsState();
+                        setStatus("Recording discarded.");
+                    }
+                });
+            }
+        }, "askai-record-discard").start();
+    }
+
     private void startRecording() {
         final PcmAudioFormat format = PcmAudioFormat.speechDefault();
         final File tempFile;
@@ -639,6 +736,7 @@ public final class OllamaChatPanel extends JPanel {
                             recordButton.setText("Stop");
                             recordButton.setEnabled(true);
                             audioFileButton.setEnabled(false);
+                            discardButton.setEnabled(true);
                             startRecordingTimer();
                         }
                     });
@@ -665,7 +763,7 @@ public final class OllamaChatPanel extends JPanel {
         stopRecordingTimer();
         recordButton.setText("Record");
         recordButton.setEnabled(false);
-        setStatus("Finishing recording ...");
+        setStatus("Processing recording ...");
         new Thread(new Runnable() {
             @Override
             public void run() {
@@ -731,8 +829,11 @@ public final class OllamaChatPanel extends JPanel {
         labelTranscriptions = files.size() > 1;
         deleteAudioAfterTranscription = deleteAfter;
         transcriptionCancelled = false;
-        recordButton.setText("Cancel");
+        // During transcription the record button is inert; use the dedicated Discard button to cancel.
+        recordButton.setText("Record");
+        recordButton.setEnabled(false);
         audioFileButton.setEnabled(false);
+        discardButton.setEnabled(true);
         transcribeNext();
     }
 
@@ -745,14 +846,14 @@ public final class OllamaChatPanel extends JPanel {
         final int index = audioFileTotal - pendingAudioFiles.size();
         final String sttModel = selectedAudioModel();
         if (sttModel.length() == 0) {
-            transcript.appendInfo("Kein audiofähiges STT-Modell ausgewählt — Abbruch, keine Audiodatei "
-                    + "wird gesendet.");
+            transcript.appendInfo("No audio-capable STT model selected — aborting, no audio file "
+                    + "will be sent.");
             abortBatch(audioFile);
             return;
         }
         // Re-verify capability right before upload: if /api/show does not report "audio", abort
         // locally instead of sending the WAV to a non-audio model (e.g. a vision/coding model).
-        setStatus("Prüfe Audio-Fähigkeit von " + sttModel + " ...");
+        setStatus("Checking audio capability of " + sttModel + " ...");
         ollamaService.getModelInfo(sttModel, new OllamaService.ModelInfoListener() {
             @Override
             public void onModelInfo(final com.aresstack.askai.java8.client.OllamaModelInfoView info) {
@@ -762,8 +863,8 @@ public final class OllamaChatPanel extends JPanel {
                         if (AudioCapability.isAudioCapable(info.getCapabilities())) {
                             doTranscribe(audioFile, sttModel, index);
                         } else {
-                            transcript.appendInfo(sttModel + " meldet keine 'audio'-Capability — Abbruch, "
-                                    + "die Audiodatei wird nicht gesendet. Wähle ein audiofähiges STT-Modell.");
+                            transcript.appendInfo(sttModel + " reports no 'audio' capability — aborting, "
+                                    + "the audio file will not be sent. Pick an audio-capable STT model.");
                             abortBatch(audioFile);
                         }
                     }
@@ -775,9 +876,9 @@ public final class OllamaChatPanel extends JPanel {
                 onUi(new Runnable() {
                     @Override
                     public void run() {
-                        transcript.appendInfo("Konnte die Audio-Fähigkeit von " + sttModel + " nicht prüfen ("
+                        transcript.appendInfo("Could not check the audio capability of " + sttModel + " ("
                                 + (ex.getMessage() == null ? ex.toString() : ex.getMessage())
-                                + ") — Abbruch, keine Audiodatei wird gesendet.");
+                                + ") — aborting, no audio file will be sent.");
                         abortBatch(audioFile);
                     }
                 });
@@ -788,8 +889,8 @@ public final class OllamaChatPanel extends JPanel {
     /** Sends one verified-audio-capable file to the STT service. */
     private void doTranscribe(final File audioFile, String sttModel, int index) {
         setStatus(audioFileTotal > 1
-                ? "Transcribing (" + index + "/" + audioFileTotal + "): " + audioFile.getName() + " ..."
-                : "Transcribing audio ...");
+                ? "Transcribing (" + index + "/" + audioFileTotal + ") with " + sttModel + ": " + audioFile.getName() + " ..."
+                : "Transcribing audio with " + sttModel + " ...");
         SpeechToTextService.TranscriptionRequest request = new SpeechToTextService.TranscriptionRequest(
                 audioFile, sttModel, "", "");
         transcriptionTask = speechToTextService.transcribe(request, new SpeechToTextService.TranscriptionListener() {
@@ -816,6 +917,7 @@ public final class OllamaChatPanel extends JPanel {
                         cleanUpTranscribedFile(audioFile);
                         if (!transcriptionCancelled) {
                             String message = ex.getMessage() == null ? ex.toString() : ex.getMessage();
+                            setStatus("Transcription failed.");
                             transcript.appendInfo("Transcription failed for "
                                     + audioFile.getName() + ": " + message);
                         }
@@ -874,10 +976,16 @@ public final class OllamaChatPanel extends JPanel {
         final long startedAtMillis = System.currentTimeMillis();
         recordingTimer = new Timer(500, event -> {
             long seconds = (System.currentTimeMillis() - startedAtMillis) / 1000L;
-            setStatus("Recording ... " + seconds + "s — click Stop to transcribe.");
+            setStatus("● Recording — " + formatDuration(seconds) + "  (Stop to transcribe · Discard to cancel)");
         });
         recordingTimer.start();
-        setStatus("Recording ... speak now.");
+        setStatus("● Recording — 0:00  (speak now)");
+    }
+
+    /** m:ss elapsed-time formatting for the recording status. */
+    private static String formatDuration(long seconds) {
+        long safe = Math.max(0, seconds);
+        return (safe / 60) + ":" + String.format("%02d", safe % 60);
     }
 
     private void stopRecordingTimer() {

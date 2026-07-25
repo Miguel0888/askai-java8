@@ -12,15 +12,12 @@ import com.aresstack.askai.java8.stt.SpeechToTextService;
 
 import javax.swing.Box;
 import javax.swing.JFrame;
-import javax.swing.JLabel;
 import javax.swing.JMenu;
 import javax.swing.JMenuBar;
 import javax.swing.JMenuItem;
 import javax.swing.JPanel;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
-import java.awt.Color;
-import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -48,11 +45,12 @@ public final class AskAiFrame extends JFrame {
     private final OllamaService ollamaService;
     private final FeatureActionService featureActionService;
     private final SpeechToTextService speechToTextService;
-    private final JLabel connectionStatusLabel;
+    private final ConnectionStatusView connectionStatusView;
     private final CardLayout contentLayout;
     private final JPanel contentPanel;
     private final OllamaModelsPanel modelsPanel;
     private OllamaConfigPanel configPanel;
+    private OllamaChatPanel chatPanel;
 
     public AskAiFrame(AppConfigurationRepository configurationRepository, final AskAiService askAiService) {
         super("AskAI");
@@ -62,7 +60,11 @@ public final class AskAiFrame extends JFrame {
         this.ollamaService = new DefaultOllamaService(model);
         this.featureActionService = new OllamaFeatureActionService(model);
         this.speechToTextService = new DefaultSpeechToTextService(configurationRepository);
-        this.connectionStatusLabel = new JLabel();
+        this.connectionStatusView = new ConnectionStatusView(new Runnable() {
+            public void run() {
+                openConnectionSettings();
+            }
+        });
         this.contentLayout = new CardLayout();
         this.contentPanel = new JPanel(contentLayout);
         this.modelsPanel = new OllamaModelsPanel(model, ollamaService, askAiService, configurationRepository);
@@ -98,42 +100,8 @@ public final class AskAiFrame extends JFrame {
         menuBar.add(createConfigurationMenu());
         menuBar.add(createHelpMenu());
         menuBar.add(Box.createHorizontalGlue());
-        menuBar.add(buildConnectionLink());
+        menuBar.add(connectionStatusView);
         return menuBar;
-    }
-
-    /**
-     * The top-right connection indicator: just the Ollama base URL, styled as a link — hand cursor,
-     * underlined on hover — that opens the Connections settings with the Base URL field focused and
-     * selected, ready to overwrite.
-     */
-    private JLabel buildConnectionLink() {
-        connectionStatusLabel.setForeground(new Color(0x0D, 0x47, 0xA1));
-        connectionStatusLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        connectionStatusLabel.setToolTipText("Open Connections settings (edit the Ollama Base URL)");
-        connectionStatusLabel.setBorder(javax.swing.BorderFactory.createEmptyBorder(0, 8, 0, 10));
-        // Keep it flush right after the menu-bar glue: an HTML label otherwise reports an unbounded
-        // maximum size, so the BoxLayout stretches it and the text ends up left-aligned next to the
-        // last menu. Right-align the text and cap the max size to the preferred size.
-        connectionStatusLabel.setHorizontalAlignment(javax.swing.SwingConstants.RIGHT);
-        connectionStatusLabel.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseClicked(MouseEvent event) {
-                openConnectionSettings();
-            }
-
-            @Override
-            public void mouseEntered(MouseEvent event) {
-                updateConnectionLabel(true);
-            }
-
-            @Override
-            public void mouseExited(MouseEvent event) {
-                updateConnectionLabel(false);
-            }
-        });
-        updateConnectionLabel(false);
-        return connectionStatusLabel;
     }
 
     /** Shows the Connections view and puts the cursor in its Base URL field, selected for overwrite. */
@@ -145,15 +113,42 @@ public final class AskAiFrame extends JFrame {
     }
 
     /**
-     * Renders the label as the bare base URL, underlined while hovered. Both states use HTML so the
-     * label keeps the same width (a plain-vs-HTML switch changed the width and shifted it left).
+     * Refreshes the top-right connection indicator: shows "Connecting…" then pings the server off the
+     * EDT, mapping a version response to "Connected" and an error to "Not reachable" (URL and detail
+     * kept in the tooltip). Cheap enough to run on view switches.
      */
-    private void updateConnectionLabel(boolean hovered) {
-        String url = model.getOllamaBaseUrl();
-        connectionStatusLabel.setText(hovered ? "<html><u>" + url + "</u></html>" : "<html>" + url + "</html>");
-        // Bound the max size to the natural width so the menu-bar glue keeps it at the right edge
-        // instead of the BoxLayout stretching the (HTML) label across the free space.
-        connectionStatusLabel.setMaximumSize(connectionStatusLabel.getPreferredSize());
+    private void refreshConnectionStatus() {
+        final String url = model.getOllamaBaseUrl();
+        connectionStatusView.setStatus(ConnectionStatus.CONNECTING, url, "");
+        ollamaService.getServerVersion(new OllamaService.ServerVersionListener() {
+            @Override
+            public void onServerVersion(final String version) {
+                onUi(new Runnable() {
+                    public void run() {
+                        connectionStatusView.setStatus(ConnectionStatus.forVersion(version), url,
+                                version == null || version.isEmpty() ? "" : "version " + version);
+                    }
+                });
+            }
+
+            @Override
+            public void onError(final Exception ex) {
+                onUi(new Runnable() {
+                    public void run() {
+                        connectionStatusView.setStatus(ConnectionStatus.NOT_REACHABLE, url,
+                                ex.getMessage() == null ? ex.toString() : ex.getMessage());
+                    }
+                });
+            }
+        });
+    }
+
+    private static void onUi(Runnable runnable) {
+        if (javax.swing.SwingUtilities.isEventDispatchThread()) {
+            runnable.run();
+        } else {
+            javax.swing.SwingUtilities.invokeLater(runnable);
+        }
     }
 
     private JMenu createTopLevelMenu(String title, String screenName) {
@@ -176,7 +171,7 @@ public final class AskAiFrame extends JFrame {
         runningItem.addActionListener(event -> showModels(false));
         modelsMenu.add(installedItem);
         modelsMenu.add(runningItem);
-        modelsMenu.add(createScreenItem("Setup", INSTALL_VIEW));
+        modelsMenu.add(createScreenItem("Install models", INSTALL_VIEW));
         return modelsMenu;
     }
 
@@ -200,7 +195,14 @@ public final class AskAiFrame extends JFrame {
     }
 
     private JPanel createContentPanel() {
-        contentPanel.add(new OllamaChatPanel(model, ollamaService, speechToTextService), CHAT_VIEW);
+        this.chatPanel = new OllamaChatPanel(model, ollamaService, speechToTextService);
+        contentPanel.add(chatPanel, CHAT_VIEW);
+        // One-click "Use in chat" from an installed model card: switch to Chat and select the model.
+        modelsPanel.setUseInChatHandler(new OllamaModelsPanel.UseInChatHandler() {
+            public void useInChat(String modelName) {
+                useModelInChat(modelName);
+            }
+        });
         contentPanel.add(modelsPanel, MODELS_VIEW);
         contentPanel.add(new OllamaActionsPanel(featureActionService, ollamaService), ACTIONS_VIEW);
         // Java 8 port: model search with two sources in tabs — HuggingFace (search/analyze/import)
@@ -214,9 +216,17 @@ public final class AskAiFrame extends JFrame {
         return contentPanel;
     }
 
+    /** Switches to the Chat view and selects the given model there, keeping the conversation intact. */
+    private void useModelInChat(String modelName) {
+        showScreen(CHAT_VIEW);
+        if (chatPanel != null) {
+            chatPanel.useModel(modelName);
+        }
+    }
+
     private void showScreen(String screenName) {
         contentLayout.show(contentPanel, screenName);
-        updateConnectionLabel(false);
+        refreshConnectionStatus();
     }
 
     /** Show the Models view and select the Installed or Running Models sub-view. */
@@ -227,6 +237,6 @@ public final class AskAiFrame extends JFrame {
         } else {
             modelsPanel.showRunning();
         }
-        updateConnectionLabel(false);
+        refreshConnectionStatus();
     }
 }
