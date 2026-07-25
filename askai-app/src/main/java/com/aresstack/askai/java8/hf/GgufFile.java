@@ -118,6 +118,200 @@ public final class GgufFile {
         }
     }
 
+    /**
+     * Reads the GGUF header metadata (never the tensor data) and returns the subset of general/projector
+     * keys that let the caller decide, from the file's <em>content</em>, whether it is a multimodal
+     * projector and what modalities it carries — instead of guessing from an {@code mmproj} file name.
+     *
+     * @throws IOException when the file is not a readable GGUF header (bad magic or truncated).
+     */
+    public static GgufInfo inspect(File file) throws IOException {
+        if (file == null || !file.isFile()) {
+            throw new IOException("GGUF file does not exist.");
+        }
+        CountingInputStream in = new CountingInputStream(
+                new BufferedInputStream(new FileInputStream(file), 1 << 16));
+        try {
+            byte[] magic = new byte[4];
+            readFully(in, magic);
+            if (!(magic[0] == 'G' && magic[1] == 'G' && magic[2] == 'U' && magic[3] == 'F')) {
+                throw new IOException("Not a GGUF file (bad magic bytes).");
+            }
+            long version = readU32(in);
+            long kvCount;
+            if (version == 1L) {
+                readU32(in); // tensorCount (unused here)
+                kvCount = readU32(in);
+            } else {
+                readU64(in); // tensorCount (unused here)
+                kvCount = readU64(in);
+            }
+            checkCount(kvCount, "metadata");
+
+            Map<String, Object> meta = new HashMap<String, Object>();
+            for (long i = 0; i < kvCount; i++) {
+                String key = readString(in);
+                long valueType = readU32(in);
+                Object value = readInspectValue(in, valueType);
+                if (value != null) {
+                    meta.put(key.toLowerCase(java.util.Locale.ROOT), value);
+                }
+            }
+            return new GgufInfo(meta);
+        } catch (EOFException ex) {
+            throw new IOException("GGUF header is truncated (unexpected end of file).", ex);
+        } finally {
+            closeQuietly(in);
+        }
+    }
+
+    /** Reads a metadata value, keeping strings/integers (as {@link Object}); arrays and floats are skipped. */
+    private static Object readInspectValue(CountingInputStream in, long valueType) throws IOException {
+        switch ((int) valueType) {
+            case 0:  // UINT8
+            case 1:  // INT8
+            case 7:  // BOOL
+                return Long.valueOf(readU8(in));
+            case 2:  // UINT16
+            case 3:  // INT16
+                return Long.valueOf(readLe(in, 2));
+            case 4:  // UINT32
+            case 5:  // INT32
+                return Long.valueOf(readLe(in, 4));
+            case 6:  // FLOAT32
+                skipFully(in, 4);
+                return null;
+            case 8:  // STRING
+                return readString(in);
+            case 9:  // ARRAY
+                readArray(in);
+                return null;
+            case 10: // UINT64
+            case 11: // INT64
+                return Long.valueOf(readU64(in));
+            case 12: // FLOAT64
+                skipFully(in, 8);
+                return null;
+            default:
+                throw new IOException("Corrupt GGUF header: unknown metadata value type " + valueType + ".");
+        }
+    }
+
+    /**
+     * A read-only view of the GGUF header keys that identify a multimodal projector and its modalities.
+     * Projector-ness is proven from content: the architecture ({@code clip}/{@code mtmd}), a
+     * {@code general.type}/{@code general.kind} that names a projector, a {@code *.projector_type} key, or
+     * a vision/audio encoder flag ({@code *.has_vision_encoder} / {@code *.has_audio_encoder}).
+     */
+    public static final class GgufInfo {
+        private final String architecture;
+        private final String generalType;
+        private final String name;
+        private final String basename;
+        private final String projectorType;
+        private final boolean hasVisionEncoder;
+        private final boolean hasAudioEncoder;
+
+        GgufInfo(Map<String, Object> meta) {
+            this.architecture = str(meta, "general.architecture");
+            String type = str(meta, "general.type");
+            this.generalType = type.length() > 0 ? type : str(meta, "general.kind");
+            this.name = str(meta, "general.name");
+            this.basename = str(meta, "general.basename");
+            this.projectorType = firstBySuffix(meta, ".projector_type", "clip.projector_type");
+            this.hasVisionEncoder = anyBoolBySuffix(meta, "has_vision_encoder");
+            this.hasAudioEncoder = anyBoolBySuffix(meta, "has_audio_encoder");
+        }
+
+        public String architecture() {
+            return architecture;
+        }
+
+        public String generalType() {
+            return generalType;
+        }
+
+        public String name() {
+            return name;
+        }
+
+        public String basename() {
+            return basename;
+        }
+
+        public String projectorType() {
+            return projectorType;
+        }
+
+        public boolean hasVisionEncoder() {
+            return hasVisionEncoder;
+        }
+
+        public boolean hasAudioEncoder() {
+            return hasAudioEncoder;
+        }
+
+        /** @return true when the header proves this file is a multimodal projector (mmproj), by content. */
+        public boolean isProjector() {
+            String arch = architecture.toLowerCase(java.util.Locale.ROOT);
+            String type = generalType.toLowerCase(java.util.Locale.ROOT);
+            return hasVisionEncoder || hasAudioEncoder
+                    || projectorType.length() > 0
+                    || arch.equals("clip") || arch.equals("mtmd")
+                    || type.contains("proj") || type.contains("mmproj") || type.contains("clip");
+        }
+
+        /** @return a short human label for the projector kind, e.g. {@code "vision+audio"} or the projector type. */
+        public String projectorKind() {
+            if (hasVisionEncoder && hasAudioEncoder) {
+                return "vision+audio";
+            }
+            if (hasVisionEncoder) {
+                return "vision";
+            }
+            if (hasAudioEncoder) {
+                return "audio";
+            }
+            return projectorType.length() > 0 ? projectorType : "projector";
+        }
+
+        private static String str(Map<String, Object> meta, String key) {
+            Object value = meta.get(key);
+            return value == null ? "" : String.valueOf(value).trim();
+        }
+
+        private static String firstBySuffix(Map<String, Object> meta, String suffix, String preferred) {
+            String prefer = str(meta, preferred);
+            if (prefer.length() > 0) {
+                return prefer;
+            }
+            for (Map.Entry<String, Object> entry : meta.entrySet()) {
+                if (entry.getKey().endsWith(suffix) && entry.getValue() instanceof String) {
+                    String value = ((String) entry.getValue()).trim();
+                    if (value.length() > 0) {
+                        return value;
+                    }
+                }
+            }
+            return "";
+        }
+
+        private static boolean anyBoolBySuffix(Map<String, Object> meta, String suffix) {
+            for (Map.Entry<String, Object> entry : meta.entrySet()) {
+                if (entry.getKey().endsWith(suffix)) {
+                    Object value = entry.getValue();
+                    if (value instanceof Number && ((Number) value).longValue() != 0L) {
+                        return true;
+                    }
+                    if (value instanceof String && "true".equalsIgnoreCase(((String) value).trim())) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+    }
+
     private static void checkCount(long count, String what) throws IOException {
         if (count < 0L || count > MAX_COUNT) {
             throw new IOException("Corrupt GGUF header: implausible " + what + " count (" + count + ").");
