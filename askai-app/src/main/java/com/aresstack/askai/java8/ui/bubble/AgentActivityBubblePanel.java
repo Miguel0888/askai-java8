@@ -335,16 +335,19 @@ public final class AgentActivityBubblePanel extends JPanel {
     private void paintConnectorBubbles(Graphics2D graphics) {
         long elapsed = System.currentTimeMillis() - animationStartedAt;
         double cycle = (elapsed % 1200L) / 1200.0d;
+        // Like a comic thought bubble, the trail rises toward the participant it belongs to — not toward
+        // the transcript centre. For a left-side (assistant) bubble the dots start at the bottom-right and
+        // drift up and to the left, back toward the bot; a right-side bubble mirrors this.
         int bodyEdge = side.pointsRight() ? getWidth() - CONNECTOR_SPACE : CONNECTOR_SPACE;
-        int direction = side.pointsRight() ? 1 : -1;
-        int baseY = Math.max(30, getHeight() - 27);
+        int direction = side.pointsRight() ? -1 : 1;
+        int baseY = Math.max(30, getHeight() - 24);
 
         for (int index = 0; index < 4; index++) {
             double progress = (cycle + (index * 0.24d)) % 1.0d;
             double eased = easeOut(progress);
             double radius = 3.0d + (5.5d * eased);
-            double x = bodyEdge + direction * (7.0d + (40.0d * eased));
-            double y = baseY - (18.0d * eased) + Math.sin(progress * Math.PI) * 2.0d;
+            double x = bodyEdge + direction * (7.0d + (44.0d * eased));
+            double y = baseY - (22.0d * eased) + Math.sin(progress * Math.PI) * 2.0d;
             float alpha = (float) (0.38d + (0.62d * (1.0d - progress)));
 
             graphics.setComposite(AlphaComposite.SrcOver.derive(alpha));
