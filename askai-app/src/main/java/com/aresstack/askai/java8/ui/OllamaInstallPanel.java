@@ -5,6 +5,7 @@ import com.aresstack.askai.java8.config.AppConfigurationRepository;
 import com.aresstack.askai.java8.config.HuggingFaceSearchSuggestion;
 import com.aresstack.askai.java8.hf.GgufFile;
 import com.aresstack.askai.java8.hf.HuggingFaceFile;
+import com.aresstack.askai.java8.hf.DownloadMetadataRecoveryIndex;
 import com.aresstack.askai.java8.hf.HuggingFaceInstallPlan;
 import com.aresstack.askai.java8.hf.HuggingFaceModel;
 import com.aresstack.askai.java8.hf.HuggingFaceSearchResult;
@@ -93,6 +94,11 @@ public final class OllamaInstallPanel extends JPanel {
     // different search result during a long download can never mix another model's metadata into this
     // installation. Null for a plain download or a re-install from disk (which reads the sidecar).
     private HuggingFaceInstallPlan pendingInstallPlan;
+    // Persistent record of downloads whose sidecar could not be written, so a later install (after a
+    // restart, with no sidecar) is not silently degraded to a manual import.
+    private final DownloadMetadataRecoveryIndex recoveryIndex = new DownloadMetadataRecoveryIndex(
+            new File(new File(System.getProperty("user.home", "."), ".askai-java8"),
+                    "download-metadata-recovery.json"));
 
     // Curated library quick-picks (a preview of the future Main-tab Libraries facet); values are
     // the real HuggingFace tag/filter values, labels are what the chip shows.
@@ -1111,7 +1117,7 @@ public final class OllamaInstallPanel extends JPanel {
                         append("Download complete: " + file.getAbsolutePath());
                         // Persist the frozen (now SHA-pinned) contract — even for a download-only, so a
                         // later install from "Downloaded files" still carries the Hugging Face metadata.
-                        persistDownloadSidecar(file, frozenPlanRef[0]);
+                        persistDownloadSidecar(file, frozenPlanRef[0], selected.getSha256());
                         if (companionFile != null) {
                             downloadCompanion(companionFile, installAfterDownload, frozenPlanRef[0]);
                         } else {
@@ -1375,6 +1381,7 @@ public final class OllamaInstallPanel extends JPanel {
             return;
         }
         boolean deleted = !file.isFile() || file.delete();
+        forgetRecovery(file); // the file is gone, so drop any recovery entry that referenced it
         File partFile = new File(file.getParentFile(), file.getName() + ".part");
         if (partFile.isFile() && partFile.delete()) {
             append("Deleted partial data: " + partFile.getName());
@@ -1635,10 +1642,49 @@ public final class OllamaInstallPanel extends JPanel {
             List<String> decision = confirmManualImportForInvalidSidecar(ex);
             return decision == null ? PlanResolution.CANCEL : PlanResolution.MANUAL;
         }
-        if (sidecar == null) {
-            return PlanResolution.MANUAL; // no contract → manual import
+        if (sidecar != null) {
+            return PlanResolution.of(sidecar);
         }
-        return PlanResolution.of(sidecar);
+        // No sidecar: before treating this as a manual import, check the recovery index — the metadata may
+        // have failed to save at download time (a lost contract must not silently become a manual import).
+        return resolveFromRecovery(modelFile, modelName);
+    }
+
+    /**
+     * No sidecar exists next to {@code modelFile}. If the recovery index remembers a failed metadata write
+     * for it, offer to recover; otherwise it is a genuine manual GGUF import.
+     */
+    private PlanResolution resolveFromRecovery(File modelFile, String modelName) {
+        DownloadMetadataRecoveryIndex.Entry entry = recoveryIndex.find(modelFile);
+        if (entry == null) {
+            return PlanResolution.MANUAL; // genuinely a plain manual GGUF import
+        }
+        append("This file was downloaded from Hugging Face, but its installation metadata was never saved.");
+        Object[] options = {"Retry metadata recovery", "Import as manual GGUF", "Cancel"};
+        int choice = javax.swing.JOptionPane.showOptionDialog(this,
+                "The Hugging Face installation metadata for this download was never saved.\n"
+                        + "Repository: " + entry.toPlan().getRepositoryId()
+                        + "\n\nRecover it now, install as a plain GGUF without metadata, or cancel?",
+                "Recover install metadata", javax.swing.JOptionPane.DEFAULT_OPTION,
+                javax.swing.JOptionPane.WARNING_MESSAGE, null, options, options[0]);
+        if (choice == 1) {
+            append("Continuing as a manual GGUF import without declared capabilities.");
+            return PlanResolution.MANUAL;
+        }
+        if (choice != 0) {
+            append("Install cancelled.");
+            return PlanResolution.CANCEL;
+        }
+        // Retry: re-write the sidecar from the recovered plan; on success the recovery entry is dropped.
+        HuggingFaceInstallPlan recovered = entry.toPlan().withTargetModelName(modelName);
+        Boolean written = persistSidecarOrPrompt(recovered, modelFile);
+        if (written == null) {
+            return PlanResolution.CANCEL;
+        }
+        if (!written.booleanValue()) {
+            return PlanResolution.MANUAL;
+        }
+        return PlanResolution.of(recovered);
     }
 
     /**
@@ -1646,17 +1692,33 @@ public final class OllamaInstallPanel extends JPanel {
      * (no immediate install) still leaves the Hugging Face metadata next to the GGUF. The authoritative
      * write happens again at install time via {@link #persistSidecarOrPrompt}.
      */
-    private void persistDownloadSidecar(File modelFile, HuggingFaceInstallPlan frozenPlan) {
+    private void persistDownloadSidecar(File modelFile, HuggingFaceInstallPlan frozenPlan, String sha256) {
         if (frozenPlan == null) {
             return; // a plain download with no selected Hugging Face model
         }
+        HuggingFaceInstallPlan plan = frozenPlan.withTargetModelName(installAsField.getText().trim());
         try {
-            frozenPlan.withTargetModelName(installAsField.getText().trim()).writeSidecar(modelFile);
+            plan.writeSidecar(modelFile);
+            forgetRecovery(modelFile); // a valid sidecar exists now; drop any stale recovery entry
         } catch (java.io.IOException ex) {
-            // Make the loss visible: without a sidecar a later install would silently become a manual
-            // import. The install dialog then offers an explicit metadata recovery.
+            // The loss must survive a restart: remember it in the recovery index so a later install with no
+            // sidecar is not silently degraded to a manual import.
             append("Downloaded, but Hugging Face installation metadata could not be saved: " + ex.getMessage());
             showProgress(100, "Downloaded — metadata NOT saved");
+            try {
+                recoveryIndex.record(modelFile, sha256, plan);
+                append("A recovery entry was saved; the later install will offer to recover the metadata.");
+            } catch (java.io.IOException recoveryError) {
+                append("WARNING: could not save a recovery entry either: " + recoveryError.getMessage());
+            }
+        }
+    }
+
+    private void forgetRecovery(File modelFile) {
+        try {
+            recoveryIndex.remove(modelFile);
+        } catch (java.io.IOException ignored) {
+            // best-effort cleanup
         }
     }
 
@@ -1671,6 +1733,7 @@ public final class OllamaInstallPanel extends JPanel {
         while (true) {
             try {
                 plan.writeSidecar(modelFile);
+                forgetRecovery(modelFile); // the contract is safely persisted now
                 return Boolean.TRUE;
             } catch (java.io.IOException ex) {
                 append("ERROR: could not save Hugging Face install metadata: " + ex.getMessage());
