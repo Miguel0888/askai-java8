@@ -249,16 +249,25 @@ public final class DefaultAskAiService implements AskAiService {
                                                      final List<File> companionFiles,
                                                      final List<String> requiredCapabilities,
                                                      final InstallListener listener) {
+        return installGgufFileWithCompanions(modelName, ggufFile, companionFiles,
+                com.aresstack.askai.java8.hf.meta.OllamaCreateMetadata.ofCapabilities(
+                        RemoteGgufInstaller.normalizeCapabilities(requiredCapabilities)),
+                listener);
+    }
+
+    public InstallTask installGgufFileWithCompanions(final String modelName, final File ggufFile,
+                                                     final List<File> companionFiles,
+                                                     final com.aresstack.askai.java8.hf.meta.OllamaCreateMetadata metadata,
+                                                     final InstallListener listener) {
         AppConfiguration configuration = configurationRepository.load();
         final RemoteGgufInstaller installer = new RemoteGgufInstaller(configuration.getOllamaBaseUrl());
-        // One normalized capability list is used for BOTH steps: sent to Ollama in /api/create and
-        // checked against /api/show — the declared HF capabilities are the install contract, not just a
-        // post-hoc comparison.
-        final List<String> capabilities = RemoteGgufInstaller.normalizeCapabilities(requiredCapabilities);
+        // The metadata's capability list is the install contract, used for BOTH steps: sent to Ollama in
+        // /api/create and checked against /api/show — not just a post-hoc comparison.
+        final List<String> capabilities = metadata.capabilities();
         final Future<?> future = executorService.submit(new Runnable() {
             public void run() {
                 try {
-                    installer.install(modelName, ggufFile, companionFiles, capabilities,
+                    installer.install(modelName, ggufFile, companionFiles, metadata,
                             new RemoteGgufInstaller.ProgressListener() {
                                 public void onProgress(String phase, long completed, long total) {
                                     listener.onProgress(phase, completed, total);

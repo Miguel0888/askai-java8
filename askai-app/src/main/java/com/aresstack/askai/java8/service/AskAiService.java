@@ -69,6 +69,15 @@ public interface AskAiService {
     InstallTask installGgufFileWithCompanions(String modelName, File ggufFile, List<File> companionFiles,
                                               List<String> requiredCapabilities, InstallListener listener);
 
+    /**
+     * Like the capability-list variant, but carries the full typed install metadata (capabilities plus
+     * any trusted {@code info} fields, license and parameters) that Ollama should record on
+     * {@code /api/create}. Verification uses the metadata's capability list.
+     */
+    InstallTask installGgufFileWithCompanions(String modelName, File ggufFile, List<File> companionFiles,
+                                              com.aresstack.askai.java8.hf.meta.OllamaCreateMetadata metadata,
+                                              InstallListener listener);
+
     void shutdown();
 
     /** Handle to a running install; {@link #cancel()} aborts the upload/create. */

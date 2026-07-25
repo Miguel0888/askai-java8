@@ -8,6 +8,10 @@ import com.aresstack.askai.java8.hf.HuggingFaceFile;
 import com.aresstack.askai.java8.hf.HuggingFaceInstallPlan;
 import com.aresstack.askai.java8.hf.HuggingFaceModel;
 import com.aresstack.askai.java8.hf.HuggingFaceSearchResult;
+import com.aresstack.askai.java8.hf.meta.GgufQuantization;
+import com.aresstack.askai.java8.hf.meta.MetadataValue;
+import com.aresstack.askai.java8.hf.meta.OllamaCreateMetadata;
+import com.aresstack.askai.java8.hf.meta.OllamaModelFamilyRegistry;
 import com.aresstack.askai.java8.hf.ModelSearchCriteria;
 import com.aresstack.askai.java8.hf.SearchFilterState;
 import com.aresstack.askai.java8.hf.SortOrder;
@@ -17,6 +21,7 @@ import com.aresstack.askai.java8.hf.convert.ConverterService;
 import com.aresstack.askai.java8.hf.convert.RepositoryAnalysis;
 import com.aresstack.askai.java8.hf.convert.SupportDecision;
 import com.aresstack.askai.java8.service.AskAiService;
+import com.aresstack.askai.java8.service.RemoteGgufInstaller;
 import com.aresstack.askai.java8.service.VerificationResult;
 import com.aresstack.askai.java8.service.VerificationStatus;
 
@@ -1456,14 +1461,16 @@ public final class OllamaInstallPanel extends JPanel {
             append("Including audio/vision encoder: " + mmproj.getName());
         }
         // The capabilities Hugging Face declared for this model are the installation contract: map them
-        // to canonical Ollama tags and require /api/show to confirm them after create.
-        final List<String> requiredCapabilities =
-                resolveRequiredCapabilities(lastDownloadedFile, modelName, frozenPlan);
-        if (requiredCapabilities == null) {
+        // to canonical Ollama tags and require /api/show to confirm them after create. The metadata also
+        // carries the safe info fields (family, quantization) to record on /api/create.
+        final OllamaCreateMetadata metadata =
+                resolveInstallMetadata(lastDownloadedFile, modelName, frozenPlan);
+        if (metadata == null) {
             // The user cancelled at an invalid-metadata prompt: do not install.
             showProgress(0, "Install cancelled");
             return;
         }
+        final List<String> requiredCapabilities = metadata.capabilities();
         if (!requiredCapabilities.isEmpty()) {
             append("Hugging Face declares: " + join(requiredCapabilities)
                     + " — will verify against /api/show after install.");
@@ -1472,7 +1479,7 @@ public final class OllamaInstallPanel extends JPanel {
         showProgress(0, "Installing");
         setInstallInProgress(true);
         installTask = askAiService.installGgufFileWithCompanions(modelName, lastDownloadedFile, companions,
-                requiredCapabilities, new AskAiService.InstallListener() {
+                metadata, new AskAiService.InstallListener() {
             public void onProgress(final String phase, final long completed, final long total) {
                 onUi(new Runnable() {
                     public void run() {
@@ -1543,41 +1550,66 @@ public final class OllamaInstallPanel extends JPanel {
         for (ModelCapability capability : declared) {
             declaredNames.add(capability.name());
         }
+        // Freeze the config.json model_type too (from the verified analysis, if any) so the family can be
+        // derived at install time even if the user re-selects another model during the download.
+        String modelType = currentAnalysis == null ? "" : currentAnalysis.getModelType();
         return new HuggingFaceInstallPlan(currentModel.getId(), "main", installAsField.getText().trim(),
-                declaredNames, ModelCapability.requiredOllamaTags(declared));
+                declaredNames, ModelCapability.requiredOllamaTags(declared), modelType);
     }
 
     /**
-     * @return the canonical Ollama capability tags the install must reproduce: from the persisted sidecar
-     *         if present, else from the plan frozen when the download started (which is then persisted as
-     *         a sidecar). Empty for a plain manual GGUF import; {@code null} when the user cancels after an
-     *         invalid sidecar (the install must then not proceed).
+     * @return the typed install metadata (capabilities plus any trusted info fields) the install must
+     *         reproduce: from the persisted sidecar if present, else from the plan frozen when the
+     *         download started (which is then persisted as a sidecar). Empty metadata for a plain manual
+     *         GGUF import; {@code null} when the user cancels after an invalid sidecar (do not install).
      */
-    private List<String> resolveRequiredCapabilities(File modelFile, String modelName,
-                                                     HuggingFaceInstallPlan frozenPlan) {
+    private OllamaCreateMetadata resolveInstallMetadata(File modelFile, String modelName,
+                                                        HuggingFaceInstallPlan frozenPlan) {
+        HuggingFaceInstallPlan plan;
         try {
-            HuggingFaceInstallPlan sidecar = HuggingFaceInstallPlan.readSidecar(modelFile);
-            if (sidecar != null) {
-                return sidecar.getRequiredOllamaCapabilities();
-            }
+            plan = HuggingFaceInstallPlan.readSidecar(modelFile); // null when no sidecar exists
         } catch (java.io.IOException ex) {
             // A present-but-invalid sidecar must be an explicit user decision, not a silent downgrade.
-            return confirmManualImportForInvalidSidecar(ex);
+            List<String> decision = confirmManualImportForInvalidSidecar(ex);
+            return decision == null ? null : OllamaCreateMetadata.empty();
         }
-        if (frozenPlan == null) {
-            return Collections.emptyList();
+        if (plan == null) {
+            if (frozenPlan == null) {
+                return OllamaCreateMetadata.empty(); // manual import from disk, no contract
+            }
+            // Re-target the frozen contract to the actual install name, then persist it so a later
+            // install from "Downloaded files" keeps repo + capabilities + model_type.
+            plan = new HuggingFaceInstallPlan(frozenPlan.getRepositoryId(), frozenPlan.getRevision(),
+                    modelName, frozenPlan.getDeclaredCapabilities(),
+                    frozenPlan.getRequiredOllamaCapabilities(), frozenPlan.getModelType());
+            try {
+                plan.writeSidecar(modelFile);
+            } catch (java.io.IOException ex) {
+                append("WARNING: could not persist install metadata next to the model: " + ex.getMessage());
+            }
         }
-        // Re-target the frozen contract to the actual install name, then persist it so a later install
-        // from "Downloaded files" keeps repo + capabilities.
-        HuggingFaceInstallPlan plan = new HuggingFaceInstallPlan(frozenPlan.getRepositoryId(),
-                frozenPlan.getRevision(), modelName, frozenPlan.getDeclaredCapabilities(),
-                frozenPlan.getRequiredOllamaCapabilities());
-        try {
-            plan.writeSidecar(modelFile);
-        } catch (java.io.IOException ex) {
-            append("WARNING: could not persist install metadata next to the model: " + ex.getMessage());
+        return buildInstallMetadata(plan, modelFile);
+    }
+
+    /**
+     * Builds the typed {@code /api/create} metadata from a resolved plan and the file: capabilities from
+     * the contract, plus the safe, high-confidence fields derivable in-process — the family from a curated
+     * registry (config.json model_type) and the quantization from the file name.
+     */
+    private OllamaCreateMetadata buildInstallMetadata(HuggingFaceInstallPlan plan, File modelFile) {
+        OllamaCreateMetadata.Builder builder = new OllamaCreateMetadata.Builder()
+                .capabilities(RemoteGgufInstaller.normalizeCapabilities(plan.getRequiredOllamaCapabilities()));
+        MetadataValue<String> family = OllamaModelFamilyRegistry.familyValue(plan.getModelType());
+        if (family != null) {
+            builder.modelFamily(family);
+            append("Detected model family: " + family.value() + ".");
         }
-        return plan.getRequiredOllamaCapabilities();
+        MetadataValue<String> quant = GgufQuantization.fromFileNameValue(modelFile.getName());
+        if (quant != null) {
+            builder.quantizationLevel(quant);
+            append("Detected quantization: " + quant.value() + ".");
+        }
+        return builder.build();
     }
 
     /**

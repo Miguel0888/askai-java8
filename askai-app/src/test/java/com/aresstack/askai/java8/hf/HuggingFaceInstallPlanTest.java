@@ -35,6 +35,39 @@ public class HuggingFaceInstallPlanTest {
     }
 
     @Test
+    public void sidecarCarriesModelTypeForFamilyDerivation() throws Exception {
+        File gguf = File.createTempFile("askai-typed-", ".gguf");
+        gguf.deleteOnExit();
+
+        HuggingFaceInstallPlan plan = new HuggingFaceInstallPlan(
+                "owner/model-GGUF", "main", "model:q4_k_m",
+                Arrays.asList("TEXT"), Arrays.asList("completion"), "qwen3");
+        plan.writeSidecar(gguf);
+
+        HuggingFaceInstallPlan loaded = HuggingFaceInstallPlan.readSidecar(gguf);
+        assertEquals("qwen3", loaded.getModelType());
+        new File(gguf.getParentFile(), gguf.getName() + ".askai-install.json").deleteOnExit();
+    }
+
+    @Test
+    public void legacyV1SidecarWithoutModelTypeReadsAsEmpty() throws Exception {
+        File gguf = File.createTempFile("askai-v1-", ".gguf");
+        gguf.deleteOnExit();
+        File sidecar = new File(gguf.getParentFile(), gguf.getName() + ".askai-install.json");
+        sidecar.deleteOnExit();
+        FileOutputStream out = new FileOutputStream(sidecar);
+        out.write(("{\"repositoryId\":\"o/m\",\"revision\":\"main\",\"targetModelName\":\"m\","
+                + "\"declaredCapabilities\":[\"TEXT\"],\"requiredOllamaCapabilities\":[\"completion\"]}")
+                .getBytes("UTF-8"));
+        out.close();
+
+        HuggingFaceInstallPlan loaded = HuggingFaceInstallPlan.readSidecar(gguf);
+        assertEquals("o/m", loaded.getRepositoryId());
+        assertEquals("", loaded.getModelType());
+        assertEquals(Arrays.asList("completion"), loaded.getRequiredOllamaCapabilities());
+    }
+
+    @Test
     public void missingSidecarIsNull() throws Exception {
         File gguf = File.createTempFile("askai-nometa-", ".gguf");
         gguf.deleteOnExit();
