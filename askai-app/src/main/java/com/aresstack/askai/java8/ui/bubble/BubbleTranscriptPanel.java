@@ -39,7 +39,7 @@ import java.util.Map;
  */
 public final class BubbleTranscriptPanel extends JPanel {
 
-    private final BubblePalette palette;
+    private BubblePalette palette;
     private final JPanel messageList;
     private final JScrollPane scrollPane;
     private final SummaryOverlay overlay;
@@ -64,6 +64,23 @@ public final class BubbleTranscriptPanel extends JPanel {
 
     public JScrollPane getScrollPane() {
         return scrollPane;
+    }
+
+    /**
+     * Swaps the color palette. The transcript/background colors update immediately; new bubbles use the new
+     * user/assistant colors. Existing bubbles keep the colors they were drawn with (a chat restart or the
+     * next messages pick up the change), which keeps the swap cheap and avoids re-styling live bubbles.
+     */
+    public void applyPalette(BubblePalette newPalette) {
+        requireEventDispatchThread();
+        if (newPalette == null) {
+            return;
+        }
+        this.palette = newPalette;
+        setBackground(newPalette.getTranscriptBackground());
+        messageList.setBackground(newPalette.getTranscriptBackground());
+        scrollPane.getViewport().setBackground(newPalette.getTranscriptBackground());
+        refreshTranscript();
     }
 
     public void clear() {

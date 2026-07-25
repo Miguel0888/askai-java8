@@ -44,6 +44,11 @@ public final class AppConfigurationRepository {
     private static final String STT_MIC_DEVICE_ID = "stt.microphoneDeviceId";
     private static final String STT_AUDIO_MODEL_AUTOMATIC = "stt.audioModelAutomatic";
     private static final String STT_LAST_AUDIO_MODEL = "stt.lastAudioModel";
+    private static final String CHAT_COLOR_TRANSCRIPT_BG = "chat.color.transcriptBackground";
+    private static final String CHAT_COLOR_USER_BG = "chat.color.userBackground";
+    private static final String CHAT_COLOR_USER_FG = "chat.color.userForeground";
+    private static final String CHAT_COLOR_ASSISTANT_BG = "chat.color.assistantBackground";
+    private static final String CHAT_COLOR_ASSISTANT_FG = "chat.color.assistantForeground";
 
     private final File configurationFile;
 
@@ -81,6 +86,18 @@ public final class AppConfigurationRepository {
                     parseBoolean(properties.getProperty(STT_AUDIO_MODEL_AUTOMATIC),
                             defaultStt.isAudioModelAutomatic()),
                     properties.getProperty(STT_LAST_AUDIO_MODEL, defaultStt.getLastAudioModel()));
+            ChatColorSettings defaultColors = defaults.getChatColors();
+            ChatColorSettings chatColors = new ChatColorSettings(
+                    ChatColorSettings.parseHex(properties.getProperty(CHAT_COLOR_TRANSCRIPT_BG),
+                            defaultColors.getTranscriptBackground()),
+                    ChatColorSettings.parseHex(properties.getProperty(CHAT_COLOR_USER_BG),
+                            defaultColors.getUserBackground()),
+                    ChatColorSettings.parseHex(properties.getProperty(CHAT_COLOR_USER_FG),
+                            defaultColors.getUserForeground()),
+                    ChatColorSettings.parseHex(properties.getProperty(CHAT_COLOR_ASSISTANT_BG),
+                            defaultColors.getAssistantBackground()),
+                    ChatColorSettings.parseHex(properties.getProperty(CHAT_COLOR_ASSISTANT_FG),
+                            defaultColors.getAssistantForeground()));
             return new AppConfiguration(
                     properties.getProperty(OLLAMA_BASE_URL, defaults.getOllamaBaseUrl()),
                     properties.getProperty(KEEP_ALIVE, defaults.getKeepAlive()),
@@ -109,7 +126,8 @@ public final class AppConfigurationRepository {
                     .withHuggingFaceSearchSuggestions(AppConfiguration.migrateSearchSuggestions(
                             properties.getProperty(HF_SEARCH_SUGGESTIONS,
                                     AppConfiguration.DEFAULT_HF_SEARCH_SUGGESTIONS)))
-                    .withHuggingFaceSearchFilters(properties.getProperty(HF_SEARCH_FILTERS, ""));
+                    .withHuggingFaceSearchFilters(properties.getProperty(HF_SEARCH_FILTERS, ""))
+                    .withChatColors(chatColors);
         } catch (IOException ex) {
             return AppConfiguration.defaults();
         } finally {
@@ -158,6 +176,12 @@ public final class AppConfigurationRepository {
         properties.setProperty(DOWNLOAD_DIRECTORY, configuration.getModelDownloadDirectory().getAbsolutePath());
         properties.setProperty(HF_SEARCH_SUGGESTIONS, configuration.getHuggingFaceSearchSuggestionsRaw());
         properties.setProperty(HF_SEARCH_FILTERS, configuration.getHuggingFaceSearchFilters());
+        ChatColorSettings colors = configuration.getChatColors();
+        properties.setProperty(CHAT_COLOR_TRANSCRIPT_BG, ChatColorSettings.toHex(colors.getTranscriptBackground()));
+        properties.setProperty(CHAT_COLOR_USER_BG, ChatColorSettings.toHex(colors.getUserBackground()));
+        properties.setProperty(CHAT_COLOR_USER_FG, ChatColorSettings.toHex(colors.getUserForeground()));
+        properties.setProperty(CHAT_COLOR_ASSISTANT_BG, ChatColorSettings.toHex(colors.getAssistantBackground()));
+        properties.setProperty(CHAT_COLOR_ASSISTANT_FG, ChatColorSettings.toHex(colors.getAssistantForeground()));
         FileOutputStream outputStream = null;
         try {
             outputStream = new FileOutputStream(configurationFile);

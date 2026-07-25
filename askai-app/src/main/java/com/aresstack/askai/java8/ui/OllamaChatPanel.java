@@ -34,7 +34,9 @@ import com.aresstack.audio.infrastructure.AvailableAudioDevices;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
+import javax.swing.Icon;
 import javax.swing.JButton;
+import javax.swing.JColorChooser;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
 import javax.swing.JFileChooser;
@@ -48,8 +50,10 @@ import javax.swing.Timer;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.BorderLayout;
 import java.awt.Color;
+import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
+import java.awt.Graphics;
 import java.awt.Window;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
@@ -62,6 +66,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /**
@@ -158,6 +163,7 @@ public final class OllamaChatPanel extends JPanel {
         this.keepAliveField = new JTextField(model.getDefaultKeepAlive(), 6);
         this.systemPromptArea = new JTextArea("You are a concise local assistant.", 2, 40);
         this.transcript = new ChatTranscript();
+        this.transcript.applyColors(model.getChatColors());
         this.composer = new ChatComposerPanel(new ChatComposerPanel.Actions() {
             public void selectModel() {
                 openModelPopup();
@@ -395,10 +401,86 @@ public final class OllamaChatPanel extends JPanel {
         settings.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         settings.add(top, BorderLayout.NORTH);
         settings.add(system, BorderLayout.CENTER);
+        settings.add(buildColorSettings(), BorderLayout.SOUTH);
         return settings;
     }
 
+    /** Color pickers for the chat bubble colors — persisted and applied to the transcript immediately. */
+    private JComponent buildColorSettings() {
+        JPanel colors = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 4));
+        colors.setBorder(BorderFactory.createTitledBorder("Colors"));
+        colors.add(colorButton("Background",
+                () -> model.getChatColors().getTranscriptBackground(),
+                c -> model.setChatColors(model.getChatColors().withTranscriptBackground(c))));
+        colors.add(colorButton("Your bubble",
+                () -> model.getChatColors().getUserBackground(),
+                c -> model.setChatColors(model.getChatColors().withUserBackground(c))));
+        colors.add(colorButton("Your text",
+                () -> model.getChatColors().getUserForeground(),
+                c -> model.setChatColors(model.getChatColors().withUserForeground(c))));
+        colors.add(colorButton("Reply bubble",
+                () -> model.getChatColors().getAssistantBackground(),
+                c -> model.setChatColors(model.getChatColors().withAssistantBackground(c))));
+        colors.add(colorButton("Reply text",
+                () -> model.getChatColors().getAssistantForeground(),
+                c -> model.setChatColors(model.getChatColors().withAssistantForeground(c))));
+        JButton reset = new JButton("Reset");
+        reset.setToolTipText("Restore the default chat colors");
+        reset.addActionListener(event -> {
+            model.setChatColors(com.aresstack.askai.java8.config.ChatColorSettings.defaults());
+            model.saveSettings();
+            transcript.applyColors(model.getChatColors());
+            for (Runnable refresh : colorSwatchRefreshers) {
+                refresh.run();
+            }
+        });
+        colors.add(reset);
+        return colors;
+    }
+
+    /** A labelled button with a swatch of its current color; picking a new one persists + applies it live. */
+    private JButton colorButton(final String label, final Supplier<Color> current, final Consumer<Color> apply) {
+        final JButton button = new JButton(label, swatchIcon(current.get()));
+        button.addActionListener(event -> {
+            Color chosen = JColorChooser.showDialog(OllamaChatPanel.this, "Choose color: " + label, current.get());
+            if (chosen != null) {
+                apply.accept(chosen);
+                model.saveSettings();
+                transcript.applyColors(model.getChatColors());
+                button.setIcon(swatchIcon(chosen));
+            }
+        });
+        colorSwatchRefreshers.add(new Runnable() {
+            public void run() {
+                button.setIcon(swatchIcon(current.get()));
+            }
+        });
+        return button;
+    }
+
+    /** @return a small square icon filled with {@code color} and a subtle border, for the color buttons. */
+    private static Icon swatchIcon(final Color color) {
+        return new Icon() {
+            public void paintIcon(Component c, Graphics g, int x, int y) {
+                g.setColor(color);
+                g.fillRect(x, y, 14, 14);
+                g.setColor(Color.GRAY);
+                g.drawRect(x, y, 14, 14);
+            }
+
+            public int getIconWidth() {
+                return 15;
+            }
+
+            public int getIconHeight() {
+                return 15;
+            }
+        };
+    }
+
     private javax.swing.JDialog settingsDialog;
+    /** One per color button: re-reads its current color into its swatch (used by "Reset"). */
+    private final List<Runnable> colorSwatchRefreshers = new ArrayList<Runnable>();
 
     /** Opens the (modeless) Chat settings dialog behind the composer's gear icon. */
     private void openSettingsDialog() {

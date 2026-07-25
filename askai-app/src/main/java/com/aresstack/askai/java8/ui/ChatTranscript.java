@@ -1,5 +1,6 @@
 package com.aresstack.askai.java8.ui;
 
+import com.aresstack.askai.java8.config.ChatColorSettings;
 import com.aresstack.askai.java8.ui.bubble.BubblePalette;
 import com.aresstack.askai.java8.ui.bubble.BubbleTranscriptPanel;
 
@@ -26,6 +27,30 @@ final class ChatTranscript {
 
     JComponent getComponent() {
         return panel;
+    }
+
+    /** Applies the user-chosen chat colors, keeping the default activity/failure/info colors. */
+    void applyColors(ChatColorSettings colors) {
+        panel.applyPalette(paletteFrom(colors));
+    }
+
+    /** Maps the adjustable chat colors onto a full bubble palette (activity/failure/info stay default). */
+    static BubblePalette paletteFrom(ChatColorSettings colors) {
+        BubblePalette defaults = BubblePalette.windowsPhoneInspired();
+        if (colors == null) {
+            return defaults;
+        }
+        return new BubblePalette(
+                colors.getTranscriptBackground(),
+                colors.getUserBackground(),
+                colors.getUserForeground(),
+                colors.getAssistantBackground(),
+                colors.getAssistantForeground(),
+                defaults.getActivityBackground(),
+                defaults.getActivityForeground(),
+                defaults.getActivityAccent(),
+                defaults.getFailureAccent(),
+                defaults.getInfoForeground());
     }
 
     void clear() {

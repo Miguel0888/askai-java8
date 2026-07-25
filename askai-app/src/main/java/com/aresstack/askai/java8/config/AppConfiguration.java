@@ -20,6 +20,7 @@ public final class AppConfiguration {
     private final SpeechToTextConfiguration speechToTextConfiguration;
     private final String huggingFaceSearchSuggestions;
     private final String huggingFaceSearchFilters;
+    private final ChatColorSettings chatColors;
 
     /**
      * Default HuggingFace search suggestions for the Install panel dropdown, curated for a 16 GB
@@ -128,7 +129,8 @@ public final class AppConfiguration {
                             String huggingFaceToken, File modelDownloadDirectory) {
         this(ollamaBaseUrl, keepAlive, proxyConfiguration, certificateTrustConfiguration,
                 httpClientConfiguration, defaultQuantization, huggingFaceToken, modelDownloadDirectory,
-                SpeechToTextConfiguration.defaults(), DEFAULT_HF_SEARCH_SUGGESTIONS, "");
+                SpeechToTextConfiguration.defaults(), DEFAULT_HF_SEARCH_SUGGESTIONS, "",
+                ChatColorSettings.defaults());
     }
 
     private AppConfiguration(String ollamaBaseUrl, String keepAlive, ProxyConfiguration proxyConfiguration,
@@ -136,7 +138,8 @@ public final class AppConfiguration {
                              HttpClientConfiguration httpClientConfiguration, String defaultQuantization,
                              String huggingFaceToken, File modelDownloadDirectory,
                              SpeechToTextConfiguration speechToTextConfiguration,
-                             String huggingFaceSearchSuggestions, String huggingFaceSearchFilters) {
+                             String huggingFaceSearchSuggestions, String huggingFaceSearchFilters,
+                             ChatColorSettings chatColors) {
         this.ollamaBaseUrl = normalizeBaseUrl(ollamaBaseUrl);
         this.keepAlive = keepAlive == null || keepAlive.trim().length() == 0 ? "5m" : keepAlive.trim();
         this.proxyConfiguration = proxyConfiguration == null ? ProxyConfiguration.defaults() : proxyConfiguration;
@@ -156,6 +159,7 @@ public final class AppConfiguration {
         // Empty means "use the first-run defaults" — SearchFilterState.deserialize("") yields them;
         // stored opaquely here to keep the config package free of a dependency on the hf package.
         this.huggingFaceSearchFilters = huggingFaceSearchFilters == null ? "" : huggingFaceSearchFilters;
+        this.chatColors = chatColors == null ? ChatColorSettings.defaults() : chatColors;
     }
 
     /**
@@ -166,7 +170,7 @@ public final class AppConfiguration {
         return new AppConfiguration(ollamaBaseUrl, keepAlive, proxyConfiguration,
                 certificateTrustConfiguration, httpClientConfiguration, defaultQuantization,
                 huggingFaceToken, modelDownloadDirectory, configuration, huggingFaceSearchSuggestions,
-                huggingFaceSearchFilters);
+                huggingFaceSearchFilters, chatColors);
     }
 
     /**
@@ -177,7 +181,7 @@ public final class AppConfiguration {
         return new AppConfiguration(ollamaBaseUrl, keepAlive, proxyConfiguration,
                 certificateTrustConfiguration, httpClientConfiguration, defaultQuantization,
                 huggingFaceToken, modelDownloadDirectory, speechToTextConfiguration, suggestions,
-                huggingFaceSearchFilters);
+                huggingFaceSearchFilters, chatColors);
     }
 
     /**
@@ -188,7 +192,15 @@ public final class AppConfiguration {
         return new AppConfiguration(ollamaBaseUrl, keepAlive, proxyConfiguration,
                 certificateTrustConfiguration, httpClientConfiguration, defaultQuantization,
                 huggingFaceToken, modelDownloadDirectory, speechToTextConfiguration,
-                huggingFaceSearchSuggestions, filters);
+                huggingFaceSearchSuggestions, filters, chatColors);
+    }
+
+    /** @return a copy of this configuration with the given chat bubble colors. */
+    public AppConfiguration withChatColors(ChatColorSettings colors) {
+        return new AppConfiguration(ollamaBaseUrl, keepAlive, proxyConfiguration,
+                certificateTrustConfiguration, httpClientConfiguration, defaultQuantization,
+                huggingFaceToken, modelDownloadDirectory, speechToTextConfiguration,
+                huggingFaceSearchSuggestions, huggingFaceSearchFilters, colors);
     }
 
     public static AppConfiguration defaults() {
@@ -221,6 +233,10 @@ public final class AppConfiguration {
 
     public SpeechToTextConfiguration getSpeechToTextConfiguration() {
         return speechToTextConfiguration;
+    }
+
+    public ChatColorSettings getChatColors() {
+        return chatColors;
     }
 
     /** @return the raw newline-separated suggestion list, as persisted. */
