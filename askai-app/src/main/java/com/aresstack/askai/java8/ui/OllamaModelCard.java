@@ -25,7 +25,8 @@ final class OllamaModelCard extends JPanel {
     private boolean capabilitiesKnown;
 
     private OllamaModelCard(String title, String line1, String line2, boolean running,
-                            final OllamaModelInfo installedModel, final Runnable findAddOnsAction,
+                            final OllamaModelInfo installedModel, final Runnable searchAddOnsAction,
+                            final Runnable localAddOnAction,
                             final Runnable useInChatAction, Runnable deleteAction) {
         setLayout(new BorderLayout(12, 0));
         setBorder(BorderFactory.createCompoundBorder(
@@ -59,14 +60,24 @@ final class OllamaModelCard extends JPanel {
                 useInChat.addActionListener(event -> useInChatAction.run());
                 right.add(useInChat);
             }
-            if (findAddOnsAction != null) {
+            if (searchAddOnsAction != null || localAddOnAction != null) {
                 // AskAI stores no model state, so it cannot know whether a text model is secretly a
-                // multimodal model missing its encoder. Instead of guessing, route to the Hugging Face
-                // search by name so the user can find and install the right helper/mmproj model(s).
-                JButton addOns = new JButton("Add-ons on Hugging Face");
-                addOns.setToolTipText("Search Hugging Face for this model to add an audio/vision encoder "
-                        + "(mmproj) or another helper model");
-                addOns.addActionListener(event -> findAddOnsAction.run());
+                // multimodal model missing its encoder. Offer two ways to add an encoder (mmproj): search
+                // Hugging Face, or pick a projector GGUF already on disk. Both take the same attach path.
+                final JButton addOns = new JButton("Add-ons…");
+                addOns.setToolTipText("Add an audio/vision encoder (mmproj) to this model");
+                final javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
+                if (searchAddOnsAction != null) {
+                    javax.swing.JMenuItem search = new javax.swing.JMenuItem("Search on Hugging Face");
+                    search.addActionListener(event -> searchAddOnsAction.run());
+                    menu.add(search);
+                }
+                if (localAddOnAction != null) {
+                    javax.swing.JMenuItem local = new javax.swing.JMenuItem("Select local projector file…");
+                    local.addActionListener(event -> localAddOnAction.run());
+                    menu.add(local);
+                }
+                addOns.addActionListener(event -> menu.show(addOns, 0, addOns.getHeight()));
                 right.add(addOns);
             }
             // Destructive action last and clearly marked.
@@ -107,13 +118,13 @@ final class OllamaModelCard extends JPanel {
         repaint();
     }
 
-    static OllamaModelCard installed(OllamaModelInfo model, Runnable findAddOnsAction,
-                                     Runnable useInChatAction, Runnable deleteAction) {
+    static OllamaModelCard installed(OllamaModelInfo model, Runnable searchAddOnsAction,
+                                     Runnable localAddOnAction, Runnable useInChatAction, Runnable deleteAction) {
         String details = join(model.getDetails().getFamily(), model.getDetails().getParameterSize(),
                 model.getDetails().getQuantizationLevel(), model.getDetails().getFormat());
         String meta = join(formatBytes(model.getSize()), shortDate(model.getModifiedAt()), shortDigest(model.getDigest()));
-        return new OllamaModelCard(model.getDisplayName(), details, meta, false, model, findAddOnsAction,
-                useInChatAction, deleteAction);
+        return new OllamaModelCard(model.getDisplayName(), details, meta, false, model, searchAddOnsAction,
+                localAddOnAction, useInChatAction, deleteAction);
     }
 
     static OllamaModelCard running(OllamaRunningModelInfo model) {
@@ -121,7 +132,7 @@ final class OllamaModelCard extends JPanel {
                 model.getDetails().getQuantizationLevel(), model.getDetails().getFormat());
         String meta = join("RAM " + formatBytes(model.getSize()), "VRAM " + formatBytes(model.getSizeVram()),
                 "expires " + shortDate(model.getExpiresAt()));
-        return new OllamaModelCard(model.getDisplayName(), details, meta, true, null, null, null, null);
+        return new OllamaModelCard(model.getDisplayName(), details, meta, true, null, null, null, null, null);
     }
 
     private static String join(String... parts) {

@@ -40,9 +40,13 @@ public final class OllamaModelsPanel extends JPanel {
         void useInChat(String modelName);
     }
 
-    /** Routes to the Hugging Face search prefilled with a model name (wired by the owning frame). */
+    /** Routes the two add-on entry points for a model (wired by the owning frame). */
     public interface FindAddOnsHandler {
+        /** Enter add-on mode and search Hugging Face for an encoder to attach to {@code modelName}. */
         void findAddOns(String modelName);
+
+        /** Enter add-on mode and pick a local projector GGUF to attach to {@code modelName}. */
+        void selectLocalAddOn(String modelName);
     }
 
     private static final String INSTALLED_CARD = "installed";
@@ -257,8 +261,8 @@ public final class OllamaModelsPanel extends JPanel {
                         }
                     }
                 };
-                // Stateless: route to HF search by name instead of guessing/installing an encoder locally.
-                Runnable findAddOns = new Runnable() {
+                // Stateless: route to HF search or a local projector file — never guess/store encoder state.
+                Runnable searchAddOns = new Runnable() {
                     @Override
                     public void run() {
                         if (findAddOnsHandler != null) {
@@ -266,7 +270,16 @@ public final class OllamaModelsPanel extends JPanel {
                         }
                     }
                 };
-                OllamaModelCard card = OllamaModelCard.installed(modelInfo, findAddOns, useInChat, new Runnable() {
+                Runnable localAddOn = new Runnable() {
+                    @Override
+                    public void run() {
+                        if (findAddOnsHandler != null) {
+                            findAddOnsHandler.selectLocalAddOn(modelInfo.getDisplayName());
+                        }
+                    }
+                };
+                OllamaModelCard card = OllamaModelCard.installed(modelInfo, searchAddOns, localAddOn, useInChat,
+                        new Runnable() {
                     @Override
                     public void run() {
                         confirmAndDelete(modelInfo.getDisplayName());

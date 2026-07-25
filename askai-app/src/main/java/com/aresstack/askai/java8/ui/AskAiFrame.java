@@ -51,6 +51,7 @@ public final class AskAiFrame extends JFrame {
     private final OllamaModelsPanel modelsPanel;
     private OllamaConfigPanel configPanel;
     private OllamaChatPanel chatPanel;
+    private ModelSearchPanel installSearchPanel;
 
     public AskAiFrame(AppConfigurationRepository configurationRepository, final AskAiService askAiService) {
         super("AskAI");
@@ -224,7 +225,19 @@ public final class AskAiFrame extends JFrame {
                 showScreen(INSTALL_VIEW);
                 modelSearchPanel.openHuggingFaceAddOnSearch(modelName, modelName);
             }
+
+            public void selectLocalAddOn(String modelName) {
+                showScreen(INSTALL_VIEW);
+                modelSearchPanel.openLocalProjectorAddOn(modelName);
+            }
         });
+        // After a verified encoder attach, re-read Installed Models from /api/show (no local state kept).
+        modelSearchPanel.setAddOnAttachedListener(new Runnable() {
+            public void run() {
+                modelsPanel.showInstalled();
+            }
+        });
+        this.installSearchPanel = modelSearchPanel;
         this.configPanel = new OllamaConfigPanel(model, ollamaService);
         contentPanel.add(configPanel, CONNECTIONS_VIEW);
         // Java 8 port: the extended proxy panel (WScript discovery, TLS trust, HTTP client, IPv6).
@@ -242,6 +255,11 @@ public final class AskAiFrame extends JFrame {
     }
 
     private void showScreen(String screenName) {
+        // Leaving the Setup/HF view must drop any transient add-on target so a later normal install can
+        // never be silently attached to the old model.
+        if (!INSTALL_VIEW.equals(screenName) && installSearchPanel != null) {
+            installSearchPanel.leaveAddOnMode();
+        }
         contentLayout.show(contentPanel, screenName);
         refreshConnectionStatus();
         // Re-check speech-to-text readiness when returning to the chat (server/model may have changed).
@@ -252,6 +270,9 @@ public final class AskAiFrame extends JFrame {
 
     /** Show the Models view and select the Installed or Running Models sub-view. */
     private void showModels(boolean installed) {
+        if (installSearchPanel != null) {
+            installSearchPanel.leaveAddOnMode(); // leaving Setup drops any transient add-on target
+        }
         contentLayout.show(contentPanel, MODELS_VIEW);
         if (installed) {
             modelsPanel.showInstalled();

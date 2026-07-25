@@ -29,6 +29,7 @@ import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
+import javax.swing.JFileChooser;
 import javax.swing.JLabel;
 import javax.swing.JList;
 import javax.swing.JMenuItem;
@@ -99,6 +100,8 @@ public final class OllamaInstallPanel extends JPanel {
     // so a cancelled or superseded operation can never finish attaching to the old target.
     private int addOnGeneration;
     private boolean addOnAttachRunning;
+    // Fired after a verified encoder attach, so the owner can reload Installed Models from /api/show.
+    private Runnable addOnAttachedListener;
     private AskAiService.InstallTask installTask;
     // The install contract frozen at the moment "Download and install" starts, so that re-selecting a
     // different search result during a long download can never mix another model's metadata into this
@@ -712,21 +715,67 @@ public final class OllamaInstallPanel extends JPanel {
      * model is created and no capabilities are declared. Transient UI state only; nothing is persisted.
      */
     public void openHuggingFaceAddOnSearch(String existingModelName, String query) {
+        enterAddOnMode(existingModelName);
+        if (!isAddOnMode()) {
+            return;
+        }
+        // The programmatic search below must NOT go through the manual-search path (which clears the mode).
+        searchFor(query);
+    }
+
+    /**
+     * Enters add-on mode and opens a local file chooser to pick a projector GGUF from disk. The chosen file
+     * takes exactly the same path as the Hugging Face flow: inspect → attach (from/adapters) → verify.
+     */
+    public void openLocalProjectorAddOn(String existingModelName) {
+        enterAddOnMode(existingModelName);
+        if (!isAddOnMode()) {
+            return;
+        }
+        final String target = addOnTargetModel;
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Select a projector (mmproj) GGUF to attach to \"" + target + "\"");
+        chooser.setAcceptAllFileFilterUsed(false);
+        chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("GGUF files (*.gguf)", "gguf"));
+        if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) {
+            append("No file chosen — left add-on mode.");
+            clearAddOnMode();
+            return;
+        }
+        File chosen = chooser.getSelectedFile();
+        // A fresh operation id for this local attach, so cancel / a new op invalidates its callbacks too.
+        final int gen = ++addOnGeneration;
+        attachDownloadedEncoder(target, chosen, gen);
+    }
+
+    /** Sets the add-on target model and shows the banner + switches the controls into attach-only mode. */
+    private void enterAddOnMode(String existingModelName) {
         this.addOnTargetModel = existingModelName == null ? null : existingModelName.trim();
-        if (this.addOnTargetModel != null && this.addOnTargetModel.length() > 0) {
+        if (isAddOnMode()) {
             append("Add-on mode: choose a multimodal encoder (mmproj) to attach to \""
                     + this.addOnTargetModel + "\". It will be added to the existing model, not installed as "
                     + "a new one.");
             if (addOnBannerLabel != null) {
-                addOnBannerLabel.setText("Add-on mode: an encoder chosen here is attached to \""
-                        + this.addOnTargetModel + "\" (Download and attach), not installed as a new model.");
+                addOnBannerLabel.setText("Add-on mode: attaching an encoder to \"" + this.addOnTargetModel
+                        + "\" (Download and attach) — not installing a new model.");
             }
             if (addOnBanner != null) {
                 addOnBanner.setVisible(true);
             }
         }
-        // The programmatic search below must NOT go through the manual-search path (which clears the mode).
-        searchFor(query);
+        updateAddOnModeControls();
+    }
+
+    /** Wires a callback fired after a verified encoder attach (the owner reloads Installed Models). */
+    public void setAddOnAttachedListener(Runnable listener) {
+        this.addOnAttachedListener = listener;
+    }
+
+    /** Public entry so the owning frame can drop the transient target when leaving the Setup/HF view. */
+    public void leaveAddOnMode() {
+        if (isAddOnMode() || addOnAttachRunning) {
+            clearAddOnMode();
+        }
     }
 
     /** Leaves add-on mode (back to normal install) on any terminal path, and hides the banner. */
@@ -740,6 +789,24 @@ public final class OllamaInstallPanel extends JPanel {
         this.addOnTargetModel = null;
         if (addOnBanner != null) {
             addOnBanner.setVisible(false);
+        }
+        updateAddOnModeControls();
+    }
+
+    /**
+     * In add-on mode there is exactly ONE unambiguous action: hide the plain Download, relabel the primary
+     * button "Download and attach", and disable the install-name field (a normal model install is impossible
+     * here). Outside add-on mode everything returns to the normal install controls.
+     */
+    private void updateAddOnModeControls() {
+        boolean addOn = isAddOnMode();
+        downloadButton.setVisible(!addOn);
+        fullInstallButton.setText(addOn ? "Download and attach" : "Download and install");
+        fullInstallButton.setToolTipText(addOn
+                ? "Download the chosen encoder and attach it to the existing model"
+                : null);
+        if (installAsField != null) {
+            installAsField.setEnabled(!addOn);
         }
     }
 
@@ -1118,45 +1185,25 @@ public final class OllamaInstallPanel extends JPanel {
     }
 
     /**
-     * Report the repository's real capability from the ground truth: whether it ships a *mmproj*
-     * encoder. Text-only repos say so plainly; multimodal repos name the encoder and classify it as
-     * audio or vision from the model/encoder name (falling back to "audio/vision" when unclear).
+     * Reports only what can be known from the file listing BEFORE download: whether the repo ships one or
+     * more encoder <em>candidates</em> (files named like an mmproj). The real type — vision/audio and the
+     * architecture — is proven from the GGUF metadata after download, never guessed from names here.
      */
     private void updateRepoCapability(String repoId, List<HuggingFaceFile> files) {
-        HuggingFaceFile mmproj = null;
+        int candidates = 0;
         for (int i = 0; i < files.size(); i++) {
             if (isMmprojName(files.get(i).getFileName())) {
-                mmproj = files.get(i);
-                break;
+                candidates++;
             }
         }
-        if (mmproj == null) {
-            setRepoCapability("<html>This repository is <b>text only</b> — no multimodal encoder "
-                    + "(mmproj). Audio/vision needs a repo that ships one, or 'ollama pull'.</html>");
+        if (candidates == 0) {
+            setRepoCapability("<html>No encoder candidate found in this repository. If it is multimodal, its "
+                    + "encoder (mmproj) may live in another repo, or use <tt>ollama pull</tt>.</html>");
             return;
         }
-        String kind = classifyEncoder(repoId + " " + mmproj.getFileName());
-        setRepoCapability("<html>This repository is <b>multimodal (" + kind + ")</b>. Just press "
-                + "<b>Download and install</b> — a model quant is preselected and the encoder ("
-                + mmproj.getFileName() + ") is included automatically.</html>");
-    }
-
-    /** Guess whether an encoder is for audio or vision from the model/encoder name. */
-    private static String classifyEncoder(String haystack) {
-        String lower = haystack.toLowerCase();
-        boolean audio = lower.contains("audio") || lower.contains("voxtral") || lower.contains("ultravox")
-                || lower.contains("asr") || lower.contains("omni") || lower.contains("whisper")
-                || lower.contains("qwen2-audio");
-        boolean vision = lower.contains("vision") || lower.contains("-vl") || lower.contains("llava")
-                || lower.contains("minicpm-v") || lower.contains("moondream") || lower.contains("gemma-3")
-                || lower.contains("image");
-        if (audio && !vision) {
-            return "audio";
-        }
-        if (vision && !audio) {
-            return "vision";
-        }
-        return "audio/vision";
+        setRepoCapability("<html>This repository contains " + (candidates == 1 ? "an encoder candidate"
+                : candidates + " encoder candidates") + ". The selected file will be verified from its GGUF "
+                + "metadata after download.</html>");
     }
 
     private void setRepoCapability(String text) {
@@ -1430,6 +1477,10 @@ public final class OllamaInstallPanel extends JPanel {
                         progressBar.setIndeterminate(false);
                         showProgress(100, "Encoder attached");
                         clearAddOnMode();
+                        // Re-read the truth from /api/show into Installed Models (no local state kept).
+                        if (addOnAttachedListener != null) {
+                            addOnAttachedListener.run();
+                        }
                     }
                 });
             }
@@ -1554,7 +1605,7 @@ public final class OllamaInstallPanel extends JPanel {
                 long mb = file.getSize() / (1024L * 1024L);
                 String size = mb > 0 ? "  (" + mb + " MB)" : "";
                 if (isMmprojName(file.getFileName())) {
-                    label.setText(file.getFileName() + size + "  — encoder, installed automatically");
+                    label.setText(file.getFileName() + size + "  — encoder candidate (verified after download)");
                 } else {
                     label.setText(file.getFileName() + size);
                 }

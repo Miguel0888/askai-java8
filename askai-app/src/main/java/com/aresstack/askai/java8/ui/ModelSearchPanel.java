@@ -41,4 +41,20 @@ public final class ModelSearchPanel extends JPanel {
         tabs.setSelectedComponent(huggingFacePanel);
         huggingFacePanel.openHuggingFaceAddOnSearch(existingModelName, query);
     }
+
+    /** Selects the Hugging Face tab and enters add-on mode via a local projector-file chooser. */
+    public void openLocalProjectorAddOn(String existingModelName) {
+        tabs.setSelectedComponent(huggingFacePanel);
+        huggingFacePanel.openLocalProjectorAddOn(existingModelName);
+    }
+
+    /** Drops any transient add-on target (called when the owning frame leaves the Setup view). */
+    public void leaveAddOnMode() {
+        huggingFacePanel.leaveAddOnMode();
+    }
+
+    /** Wires the callback fired after a verified encoder attach (owner reloads Installed Models). */
+    public void setAddOnAttachedListener(Runnable listener) {
+        huggingFacePanel.setAddOnAttachedListener(listener);
+    }
 }

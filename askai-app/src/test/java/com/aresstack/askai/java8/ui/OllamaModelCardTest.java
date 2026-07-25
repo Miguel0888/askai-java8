@@ -24,7 +24,11 @@ public class OllamaModelCardTest {
                 OllamaModelInfo model = new OllamaModelInfo("m", "m", "", 0L, "", OllamaModelDetails.empty());
                 OllamaModelCard card = OllamaModelCard.installed(model,
                         new Runnable() {
-                            public void run() { // find add-ons
+                            public void run() { // search add-ons on Hugging Face
+                            }
+                        },
+                        new Runnable() {
+                            public void run() { // select local projector file
                             }
                         }, null, new Runnable() {
                             public void run() { // delete
