@@ -75,6 +75,63 @@ public class HuggingFaceInstallPlanTest {
     }
 
     @Test
+    public void emptyObjectIsRejected() throws Exception {
+        assertInvalidSidecar("{}");
+    }
+
+    @Test
+    public void missingRepositoryIdIsRejected() throws Exception {
+        assertInvalidSidecar("{\"schemaVersion\":2,\"revision\":\"main\"}");
+    }
+
+    @Test
+    public void unknownFutureSchemaVersionIsRejected() throws Exception {
+        assertInvalidSidecar("{\"schemaVersion\":999,\"repositoryId\":\"o/m\"}");
+    }
+
+    @Test
+    public void wrongFieldTypeIsRejected() throws Exception {
+        assertInvalidSidecar("{\"schemaVersion\":2,\"repositoryId\":\"o/m\","
+                + "\"requiredOllamaCapabilities\":\"completion\"}"); // must be an array
+    }
+
+    @Test
+    public void writeThenReadRoundTripsThroughOllamaJson() throws Exception {
+        File gguf = File.createTempFile("askai-rt-", ".gguf");
+        gguf.deleteOnExit();
+        new HuggingFaceInstallPlan("owner/model-GGUF", "abc123", "m:q4",
+                Arrays.asList("TEXT", "AUDIO"), Arrays.asList("completion", "audio"), "qwen3")
+                .writeSidecar(gguf);
+        sidecarOf(gguf).deleteOnExit();
+
+        HuggingFaceInstallPlan loaded = HuggingFaceInstallPlan.readSidecar(gguf);
+        assertEquals("owner/model-GGUF", loaded.getRepositoryId());
+        assertEquals("abc123", loaded.getRevision());
+        assertEquals("qwen3", loaded.getModelType());
+        assertEquals(Arrays.asList("completion", "audio"), loaded.getRequiredOllamaCapabilities());
+    }
+
+    private static void assertInvalidSidecar(String json) throws Exception {
+        File gguf = File.createTempFile("askai-bad-", ".gguf");
+        gguf.deleteOnExit();
+        File sidecar = sidecarOf(gguf);
+        sidecar.deleteOnExit();
+        FileOutputStream out = new FileOutputStream(sidecar);
+        out.write(json.getBytes("UTF-8"));
+        out.close();
+        try {
+            HuggingFaceInstallPlan.readSidecar(gguf);
+            fail("expected an IOException for invalid sidecar: " + json);
+        } catch (IOException expected) {
+            // strict validation must reject it rather than accept an empty/partial plan
+        }
+    }
+
+    private static File sidecarOf(File gguf) {
+        return new File(gguf.getParentFile(), gguf.getName() + ".askai-install.json");
+    }
+
+    @Test
     public void invalidSidecarThrowsInsteadOfSilentEmptyPlan() throws Exception {
         File gguf = File.createTempFile("askai-badmeta-", ".gguf");
         gguf.deleteOnExit();

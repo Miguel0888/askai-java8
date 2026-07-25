@@ -50,9 +50,15 @@ public final class GgufQuantization {
         return null;
     }
 
-    /** @return a HIGH-confidence quantization value from the file name, or {@code null} when unknown. */
+    /**
+     * @return a MEDIUM-confidence quantization value from the file name, or {@code null} when unknown. A
+     *         file name can be wrong or renamed, and {@code info.quantization_level} can override Ollama's
+     *         own GGUF detection — so a name-only value is kept for provenance and is not sent to Ollama
+     *         unless a structured source (GGUF/HF metadata) confirms it.
+     */
     public static MetadataValue<String> fromFileNameValue(String fileName) {
         String level = fromFileName(fileName);
-        return level == null ? null : MetadataValue.high(level, MetadataSource.FILE_NAME);
+        return level == null ? null
+                : MetadataValue.of(level, MetadataSource.FILE_NAME, Confidence.MEDIUM);
     }
 }

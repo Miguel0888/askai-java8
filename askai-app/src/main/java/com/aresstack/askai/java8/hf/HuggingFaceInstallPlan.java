@@ -3,30 +3,37 @@ package com.aresstack.askai.java8.hf;
 import io.github.ollama4j.json.OllamaJson;
 
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
  * The immutable "installation contract" derived from a selected Hugging Face model: which capabilities
  * the search declared and, canonically mapped, which {@code /api/show} capability tags Ollama must
- * therefore report for the import to count as complete. Swing-free so it can be carried through the
- * async download and re-loaded later.
+ * therefore report for the import to count as complete, plus the config.json {@code model_type} so the
+ * family can be derived. Swing-free so it can be carried through the async download and re-loaded later.
  *
  * <p>Persisted as a sidecar next to the downloaded GGUF ({@code <model>.askai-install.json}) so a later
  * install from "Downloaded files" still knows the repository and the declared capabilities. A GGUF
  * without a sidecar is treated as a plain manual import with no declared capabilities.</p>
+ *
+ * <p>The sidecar is versioned: an absent {@code schemaVersion} is read as the original v1 shape, the
+ * current {@code schemaVersion} is validated strictly (required fields and field types), and any unknown
+ * future version is rejected rather than silently mis-read. Writes are atomic (temp file + rename) so a
+ * crash mid-write cannot leave a half-written, "present but invalid" sidecar.</p>
  */
 public final class HuggingFaceInstallPlan {
 
     private static final String SIDECAR_SUFFIX = ".askai-install.json";
 
-    /** Bumped when the sidecar's serialized shape changes; readers stay backward compatible. */
+    /** The sidecar shape this build writes. Absent in the wild means the original (v1) shape. */
     private static final int SCHEMA_VERSION = 2;
 
     private final String repositoryId;
@@ -83,6 +90,12 @@ public final class HuggingFaceInstallPlan {
         return modelType;
     }
 
+    /** @return a copy of this plan re-targeted to a different install name. */
+    public HuggingFaceInstallPlan withTargetModelName(String newTargetModelName) {
+        return new HuggingFaceInstallPlan(repositoryId, revision, newTargetModelName,
+                declaredCapabilities, requiredOllamaCapabilities, modelType);
+    }
+
     // ------------------------------------------------------------------ sidecar
 
     private static File sidecarFor(File modelFile) {
@@ -90,18 +103,29 @@ public final class HuggingFaceInstallPlan {
     }
 
     /**
-     * Writes the plan next to {@code modelFile}. A write failure is surfaced, not swallowed: losing the
-     * install contract silently would let a later re-install fall back to a plain manual import without
-     * the declared capabilities.
+     * Writes the plan next to {@code modelFile} atomically: a temp file is written and then renamed over
+     * the target, so a crash mid-write cannot leave a half-written sidecar. A failure is surfaced, not
+     * swallowed — losing the contract silently would let a later re-install fall back to a plain manual
+     * import without the declared capabilities.
      */
     public void writeSidecar(File modelFile) throws IOException {
-        OutputStream out = null;
+        File target = sidecarFor(modelFile);
+        File directory = target.getParentFile();
+        if (directory != null && !directory.isDirectory() && !directory.mkdirs()) {
+            throw new IOException("Cannot create directory for install sidecar: " + directory);
+        }
+        File temp = File.createTempFile(modelFile.getName() + ".", ".askai-install.tmp", directory);
         try {
-            out = new FileOutputStream(sidecarFor(modelFile));
-            out.write(toJson().getBytes(StandardCharsets.UTF_8));
+            byte[] bytes = OllamaJson.toJson(toMap()).getBytes(StandardCharsets.UTF_8);
+            Files.write(temp.toPath(), bytes);
+            try {
+                Files.move(temp.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException notAtomic) {
+                Files.move(temp.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            }
         } finally {
-            if (out != null) {
-                out.close();
+            if (temp.exists() && !temp.delete()) {
+                temp.deleteOnExit();
             }
         }
     }
@@ -113,8 +137,9 @@ public final class HuggingFaceInstallPlan {
 
     /**
      * @return the plan persisted next to {@code modelFile}, or {@code null} when no sidecar exists.
-     * @throws IOException when a sidecar exists but cannot be read/parsed — the caller must surface a
-     *         clear error (or an explicit manual import), never silently treat it as an empty plan.
+     * @throws IOException when a sidecar exists but cannot be read, parsed or validated (bad JSON, empty
+     *         object, missing/typed-wrong required fields, or an unsupported schema version). The caller
+     *         must surface a clear error (or an explicit manual import), never treat it as an empty plan.
      */
     public static HuggingFaceInstallPlan readSidecar(File modelFile) throws IOException {
         File sidecar = sidecarFor(modelFile);
@@ -123,63 +148,102 @@ public final class HuggingFaceInstallPlan {
         }
         Object parsed;
         try {
-            byte[] bytes = java.nio.file.Files.readAllBytes(sidecar.toPath());
+            byte[] bytes = Files.readAllBytes(sidecar.toPath());
             parsed = OllamaJson.parse(new String(bytes, StandardCharsets.UTF_8));
         } catch (Exception ex) {
-            throw new IOException("Invalid install sidecar " + sidecar.getName() + ": " + ex.getMessage(), ex);
+            throw invalid(sidecar, ex.getMessage());
         }
         if (!(parsed instanceof Map)) {
-            throw new IOException("Invalid install sidecar " + sidecar.getName() + ": not a JSON object.");
+            throw invalid(sidecar, "not a JSON object");
         }
-        Map map = (Map) parsed;
-        // modelType is absent in v1 sidecars — string(...) yields "" there, which is the correct default.
-        return new HuggingFaceInstallPlan(string(map, "repositoryId"), string(map, "revision"),
-                string(map, "targetModelName"), stringList(map.get("declaredCapabilities")),
-                stringList(map.get("requiredOllamaCapabilities")), string(map, "modelType"));
+        Map<?, ?> map = (Map<?, ?>) parsed;
+
+        int version = readSchemaVersion(sidecar, map);
+        if (version > SCHEMA_VERSION) {
+            throw invalid(sidecar, "unsupported schemaVersion " + version + " (this build understands up to "
+                    + SCHEMA_VERSION + ")");
+        }
+        // repositoryId is the mandatory marker of a real HF plan: this also rejects an empty "{}".
+        String repositoryId = requireNonEmptyString(sidecar, map, "repositoryId");
+        String revision = optionalString(sidecar, map, "revision");
+        String targetModelName = optionalString(sidecar, map, "targetModelName");
+        String modelType = optionalString(sidecar, map, "modelType"); // absent in v1 → ""
+        List<String> declared = optionalStringList(sidecar, map, "declaredCapabilities");
+        List<String> required = optionalStringList(sidecar, map, "requiredOllamaCapabilities");
+
+        return new HuggingFaceInstallPlan(repositoryId, revision, targetModelName, declared, required, modelType);
     }
 
-    private String toJson() {
-        StringBuilder builder = new StringBuilder("{");
-        builder.append("\"schemaVersion\":").append(SCHEMA_VERSION).append(",");
-        builder.append("\"repositoryId\":\"").append(escape(repositoryId)).append("\",");
-        builder.append("\"revision\":\"").append(escape(revision)).append("\",");
-        builder.append("\"targetModelName\":\"").append(escape(targetModelName)).append("\",");
-        builder.append("\"modelType\":\"").append(escape(modelType)).append("\",");
-        builder.append("\"declaredCapabilities\":").append(jsonArray(declaredCapabilities)).append(",");
-        builder.append("\"requiredOllamaCapabilities\":").append(jsonArray(requiredOllamaCapabilities));
-        return builder.append('}').toString();
+    private Map<String, Object> toMap() {
+        Map<String, Object> map = new LinkedHashMap<String, Object>();
+        map.put("schemaVersion", SCHEMA_VERSION);
+        map.put("repositoryId", repositoryId);
+        map.put("revision", revision);
+        map.put("targetModelName", targetModelName);
+        map.put("modelType", modelType);
+        map.put("declaredCapabilities", new ArrayList<String>(declaredCapabilities));
+        map.put("requiredOllamaCapabilities", new ArrayList<String>(requiredOllamaCapabilities));
+        return map;
     }
 
-    private static String jsonArray(List<String> values) {
-        StringBuilder builder = new StringBuilder("[");
-        for (int i = 0; i < values.size(); i++) {
-            if (i > 0) {
-                builder.append(',');
+    // ------------------------------------------------------------------ validation helpers
+
+    private static int readSchemaVersion(File sidecar, Map<?, ?> map) throws IOException {
+        Object value = map.get("schemaVersion");
+        if (value == null) {
+            return 1; // legacy sidecar without a version field
+        }
+        if (value instanceof Number) {
+            return ((Number) value).intValue();
+        }
+        if (value instanceof String) {
+            try {
+                return Integer.parseInt(((String) value).trim());
+            } catch (NumberFormatException ex) {
+                throw invalid(sidecar, "schemaVersion is not a number");
             }
-            builder.append('"').append(escape(values.get(i))).append('"');
         }
-        return builder.append(']').toString();
+        throw invalid(sidecar, "schemaVersion is not a number");
     }
 
-    private static String escape(String value) {
-        return value.replace("\\", "\\\\").replace("\"", "\\\"");
+    private static String requireNonEmptyString(File sidecar, Map<?, ?> map, String key) throws IOException {
+        String value = optionalString(sidecar, map, key);
+        if (value.trim().isEmpty()) {
+            throw invalid(sidecar, "missing required field '" + key + "'");
+        }
+        return value;
     }
 
-    private static String string(Map map, String key) {
+    private static String optionalString(File sidecar, Map<?, ?> map, String key) throws IOException {
         Object value = map.get(key);
-        return value == null ? "" : String.valueOf(value);
+        if (value == null) {
+            return "";
+        }
+        if (!(value instanceof String)) {
+            throw invalid(sidecar, "field '" + key + "' must be a string");
+        }
+        return (String) value;
     }
 
-    @SuppressWarnings("unchecked")
-    private static List<String> stringList(Object value) {
+    private static List<String> optionalStringList(File sidecar, Map<?, ?> map, String key) throws IOException {
+        Object value = map.get(key);
+        if (value == null) {
+            return Collections.emptyList();
+        }
+        if (!(value instanceof List)) {
+            throw invalid(sidecar, "field '" + key + "' must be an array");
+        }
         List<String> result = new ArrayList<String>();
-        if (value instanceof List) {
-            for (Object element : (List<Object>) value) {
-                if (element != null) {
-                    result.add(String.valueOf(element));
-                }
+        for (Object element : (List<?>) value) {
+            if (!(element instanceof String)) {
+                throw invalid(sidecar, "field '" + key + "' must contain only strings");
             }
+            result.add((String) element);
         }
         return result;
+    }
+
+    private static IOException invalid(File sidecar, String detail) {
+        return new IOException("Invalid install sidecar " + sidecar.getName() + ": " + detail);
     }
 }

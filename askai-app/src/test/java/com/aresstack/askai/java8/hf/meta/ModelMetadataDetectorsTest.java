@@ -3,6 +3,7 @@ package com.aresstack.askai.java8.hf.meta;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 
 /** The safe, in-process detectors: family from a curated registry, quantization from the file name. */
@@ -54,10 +55,13 @@ public class ModelMetadataDetectorsTest {
     }
 
     @Test
-    public void quantizationValueIsHighConfidenceFromFileName() {
+    public void quantizationFromFileNameIsMediumSoItIsNotSentUnconfirmed() {
+        // A file name can be wrong/renamed and would override Ollama's own GGUF detection, so a name-only
+        // quantization is MEDIUM (provenance) and must not reach /api/create on its own.
         MetadataValue<String> value = GgufQuantization.fromFileNameValue("m-Q5_K_M.gguf");
         assertEquals("Q5_K_M", value.value());
-        assertEquals(Confidence.HIGH, value.confidence());
+        assertEquals(Confidence.MEDIUM, value.confidence());
         assertEquals(MetadataSource.FILE_NAME, value.source());
+        assertFalse("name-only quant must not be trusted for the wire", value.isTrusted(false));
     }
 }
