@@ -69,4 +69,42 @@ public class BubbleComponentsTest {
     public void rejectsTranscriptMutationOutsideEventDispatchThread() {
         new BubbleTranscriptPanel().appendUserMessage("Hello");
     }
+
+    @Test
+    public void thinkingUsesAssistantColoursAndActivityUsesAmber() {
+        BubblePalette palette = BubblePalette.windowsPhoneInspired();
+        assertEquals(palette.getAssistantBackground(), ThoughtBubbleTheme.assistant(palette).getBackground());
+        assertEquals(palette.getAssistantForeground(), ThoughtBubbleTheme.assistant(palette).getForeground());
+        assertEquals(palette.getActivityBackground(), ThoughtBubbleTheme.activity(palette).getBackground());
+        assertEquals(palette.getActivityAccent(), ThoughtBubbleTheme.activity(palette).getAccent());
+    }
+
+    @Test
+    public void assistantThinkingBubbleStreamsReasoningIntoItsOwnBody() throws Exception {
+        final AtomicReference<AssistantThinkingBubblePanel> ref =
+                new AtomicReference<AssistantThinkingBubblePanel>();
+        SwingUtilities.invokeAndWait(new Runnable() {
+            public void run() {
+                AssistantThinkingBubblePanel bubble = new AssistantThinkingBubblePanel(
+                        BubbleSide.LEFT, BubblePalette.windowsPhoneInspired(), "AskAI", "");
+                bubble.appendBodyText("Let me ");
+                bubble.appendBodyText("think.");
+                ref.set(bubble);
+            }
+        });
+        assertEquals("Let me think.", ref.get().getExplanation());
+        assertTrue(ref.get() instanceof AnimatedThoughtBubblePanel);
+    }
+
+    @Test
+    public void transcriptThinkingHandleStreamsWithoutError() throws Exception {
+        SwingUtilities.invokeAndWait(new Runnable() {
+            public void run() {
+                BubbleTranscriptPanel transcript = new BubbleTranscriptPanel();
+                BubbleTranscriptPanel.ThinkingHandle handle = transcript.startAssistantThinking("AskAI");
+                transcript.appendAssistantThinkingDelta(handle, "reasoning...");
+                transcript.clear(); // stops timers cleanly
+            }
+        });
+    }
 }

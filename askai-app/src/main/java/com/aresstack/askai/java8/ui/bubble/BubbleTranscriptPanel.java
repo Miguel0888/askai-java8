@@ -43,7 +43,7 @@ public final class BubbleTranscriptPanel extends JPanel {
     private final JPanel messageList;
     private final JScrollPane scrollPane;
     private final SummaryOverlay overlay;
-    private final Map<AgentActivityBubblePanel, BubbleMessageRow> activityRows;
+    private final Map<AnimatedThoughtBubblePanel, BubbleMessageRow> activityRows;
     private SpeechBubblePanel activeAssistantMessage;
 
     public BubbleTranscriptPanel() {
@@ -58,7 +58,7 @@ public final class BubbleTranscriptPanel extends JPanel {
         this.messageList = createMessageList();
         this.scrollPane = createScrollPane(messageList);
         this.overlay = new SummaryOverlay();
-        this.activityRows = new IdentityHashMap<AgentActivityBubblePanel, BubbleMessageRow>();
+        this.activityRows = new IdentityHashMap<AnimatedThoughtBubblePanel, BubbleMessageRow>();
         buildUi();
     }
 
@@ -135,21 +135,8 @@ public final class BubbleTranscriptPanel extends JPanel {
 
     public AgentActivityBubblePanel startAgentActivity(String title, String explanation) {
         requireEventDispatchThread();
-        final AgentActivityBubblePanel activity = new AgentActivityBubblePanel(
-                BubbleSide.LEFT,
-                palette,
-                title,
-                explanation);
-        // The finished summary rises on the transcript-wide overlay, so it can overlay every row and
-        // climb all the way to the top edge instead of being clipped to its own row.
-        activity.setSummaryFloatHandler(new AgentActivityBubblePanel.SummaryFloatHandler() {
-            public void floatSummary(AgentActivityBubblePanel source, String text, Color accent, Font font) {
-                Point anchor = SwingUtilities.convertPoint(source, source.getWidth() / 2, 0, overlay);
-                overlay.floatSummary(anchor.x, anchor.y, text, accent, font);
-            }
-        });
-        BubbleMessageRow row = addBubbleRow(activity, BubbleSide.LEFT);
-        activityRows.put(activity, row);
+        AgentActivityBubblePanel activity = new AgentActivityBubblePanel(BubbleSide.LEFT, palette, title, explanation);
+        addThoughtBubble(activity);
         return activity;
     }
 
@@ -178,6 +165,62 @@ public final class BubbleTranscriptPanel extends JPanel {
         requireEventDispatchThread();
         requireKnownActivity(activity);
         activity.cancel(summary, createActivityRemoval(activity));
+    }
+
+    // ------------------------------------------------------------------ assistant thinking
+
+    /** Opaque handle to one assistant-thinking bubble; the panel keeps the Swing component internally. */
+    public static final class ThinkingHandle {
+        private final AssistantThinkingBubblePanel bubble;
+
+        private ThinkingHandle(AssistantThinkingBubblePanel bubble) {
+            this.bubble = bubble;
+        }
+    }
+
+    /** Starts a green assistant-thinking bubble and begins its animation. */
+    public ThinkingHandle startAssistantThinking(String modelName) {
+        requireEventDispatchThread();
+        String header = modelName == null || modelName.trim().isEmpty() ? "Thinking" : modelName.trim();
+        AssistantThinkingBubblePanel bubble = new AssistantThinkingBubblePanel(BubbleSide.LEFT, palette, header, "");
+        addThoughtBubble(bubble);
+        return new ThinkingHandle(bubble);
+    }
+
+    /** Streams a reasoning delta into the thinking bubble. */
+    public void appendAssistantThinkingDelta(ThinkingHandle handle, String delta) {
+        requireEventDispatchThread();
+        requireKnownActivity(handle == null ? null : handle.bubble);
+        handle.bubble.appendBodyText(delta);
+        refreshTranscript();
+    }
+
+    /** Finishes thinking: the bubble bursts and the summary rises over the transcript, then the row is removed. */
+    public void completeAssistantThinking(ThinkingHandle handle, String summary) {
+        requireEventDispatchThread();
+        requireKnownActivity(handle == null ? null : handle.bubble);
+        handle.bubble.completeSuccessfully(summary, createActivityRemoval(handle.bubble));
+    }
+
+    public void cancelAssistantThinking(ThinkingHandle handle, String summary) {
+        requireEventDispatchThread();
+        requireKnownActivity(handle == null ? null : handle.bubble);
+        handle.bubble.cancel(summary, createActivityRemoval(handle.bubble));
+    }
+
+    /**
+     * Adds an animated thought bubble (activity or thinking) as a left row and wires its finished summary
+     * to rise on the transcript-wide overlay instead of being clipped to its own row.
+     */
+    private void addThoughtBubble(final AnimatedThoughtBubblePanel bubble) {
+        bubble.setSummaryFloatHandler(new AnimatedThoughtBubblePanel.SummaryFloatHandler() {
+            public void floatSummary(AnimatedThoughtBubblePanel source, String text, Color accent, Font font) {
+                Point anchor = SwingUtilities.convertPoint(source, source.getWidth() / 2, 0, overlay);
+                overlay.floatSummary(anchor.x, anchor.y, text, accent, font);
+            }
+        });
+        BubbleMessageRow row = addBubbleRow(bubble, BubbleSide.LEFT);
+        activityRows.put(bubble, row);
     }
 
     private void buildUi() {
@@ -234,7 +277,7 @@ public final class BubbleTranscriptPanel extends JPanel {
         return row;
     }
 
-    private Runnable createActivityRemoval(final AgentActivityBubblePanel activity) {
+    private Runnable createActivityRemoval(final AnimatedThoughtBubblePanel activity) {
         return new Runnable() {
             public void run() {
                 BubbleMessageRow row = activityRows.remove(activity);
@@ -267,12 +310,12 @@ public final class BubbleTranscriptPanel extends JPanel {
     }
 
     private void stopAllActivityAnimations() {
-        for (AgentActivityBubblePanel activity : activityRows.keySet()) {
+        for (AnimatedThoughtBubblePanel activity : activityRows.keySet()) {
             activity.stopAnimation();
         }
     }
 
-    private void requireKnownActivity(AgentActivityBubblePanel activity) {
+    private void requireKnownActivity(AnimatedThoughtBubblePanel activity) {
         if (activity == null || !activityRows.containsKey(activity)) {
             throw new IllegalArgumentException("activity is not part of this transcript");
         }

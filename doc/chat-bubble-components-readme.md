@@ -15,19 +15,16 @@ Dieses Paket enthält eigenständige Swing-Komponenten für eine spätere Integr
 
 ## Verbindliche Richtungsregel
 
-Die Sprechblasen zeigen mit dem Zipfel zur Mitte des Chatverlaufs:
+**Alle Sprechblasen-Zipfel und alle Gedankenblasen-Kreise zeigen zur Mitte des Chatfensters.**
 
 - Benutzerblase rechts: Zipfel zeigt nach links.
 - Assistentenblase links: Zipfel zeigt nach rechts.
+- Gedankenblase links (Assistenten-Thinking wie Agenten-Aktivität): Die aufsteigenden Kreise wandern
+  nach rechts, zur Mitte, und werden dabei größer.
+- Eine rechts angeordnete Gedankenblase spiegelt das (Kreise nach links, zur Mitte).
 
-Die Agenten-Aktivitätsblase folgt der Comic-Denkblasen-Logik und zeigt zu ihrem Teilnehmer zurück,
-nicht zur Mitte:
-
-- Agenten-Aktivitätsblase links (Bot): Die aufsteigenden Kreise starten unten rechts und wandern nach
-  oben links, zurück zum Bot.
-- Eine rechts angeordnete Agentenblase spiegelt das (unten links, nach oben rechts).
-
-Die Seiten-Regel der Sprechblasen ist zentral in `BubbleSide` abgebildet.
+Die Seiten-Regel ist zentral in `BubbleSide` abgebildet; die gemeinsame Zeichen-/Animationslogik in
+`AnimatedThoughtBubblePanel` (Farben über `ThoughtBubbleTheme`).
 
 ## Was die Agentenblase ausdrückt
 
