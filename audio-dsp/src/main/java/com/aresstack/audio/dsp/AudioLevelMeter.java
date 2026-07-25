@@ -13,6 +13,8 @@ public final class AudioLevelMeter implements Pcm16Processor {
     private volatile int peak;
     private volatile long clippedSampleCount;
     private volatile long totalSampleCount;
+    // Running sum of squares over every sample seen, for the overall RMS across the whole recording.
+    private volatile double overallSumOfSquares;
 
     @Override
     public void process(short[] samples, int sampleCount, PcmAudioFormat format) {
@@ -33,10 +35,17 @@ public final class AudioLevelMeter implements Pcm16Processor {
         peak = framePeak;
         clippedSampleCount = clipped;
         totalSampleCount += sampleCount;
+        overallSumOfSquares += sumOfSquares;
     }
 
     public double getLastFrameRms() {
         return lastFrameRms;
+    }
+
+    /** @return the RMS across every sample processed so far (0 when nothing was measured). */
+    public double getOverallRms() {
+        long total = totalSampleCount;
+        return total == 0 ? 0 : Math.sqrt(overallSumOfSquares / total);
     }
 
     public int getPeak() {
@@ -57,6 +66,7 @@ public final class AudioLevelMeter implements Pcm16Processor {
         peak = 0;
         clippedSampleCount = 0;
         totalSampleCount = 0;
+        overallSumOfSquares = 0;
     }
 
     public String describe() {
