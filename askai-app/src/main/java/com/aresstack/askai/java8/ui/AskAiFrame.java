@@ -1,6 +1,8 @@
 package com.aresstack.askai.java8.ui;
 
 import com.aresstack.askai.java8.AskAiModel;
+import com.aresstack.askai.java8.audio.AudioProfileRepository;
+import com.aresstack.askai.java8.audio.FileAudioProfileRepository;
 import com.aresstack.askai.java8.config.AppConfigurationRepository;
 import com.aresstack.askai.java8.service.AskAiService;
 import com.aresstack.askai.java8.service.DefaultOllamaService;
@@ -38,6 +40,7 @@ public final class AskAiFrame extends JFrame {
     private static final String CONNECTIONS_VIEW = "connections";
     private static final String NETWORK_VIEW = "network";
     private static final String ABOUT_VIEW = "about";
+    private static final String AUDIO_PROCESSING_VIEW = "audio-processing";
 
     private final AskAiModel model;
     private final AppConfigurationRepository configurationRepository;
@@ -49,8 +52,10 @@ public final class AskAiFrame extends JFrame {
     private final CardLayout contentLayout;
     private final JPanel contentPanel;
     private final OllamaModelsPanel modelsPanel;
+    private final AudioProfileRepository audioProfileRepository;
     private OllamaConfigPanel configPanel;
     private OllamaChatPanel chatPanel;
+    private AudioProcessingPanel audioProcessingPanel;
     private ModelSearchPanel installSearchPanel;
 
     public AskAiFrame(AppConfigurationRepository configurationRepository, final AskAiService askAiService) {
@@ -69,6 +74,7 @@ public final class AskAiFrame extends JFrame {
         this.contentLayout = new CardLayout();
         this.contentPanel = new JPanel(contentLayout);
         this.modelsPanel = new OllamaModelsPanel(model, ollamaService, askAiService, configurationRepository);
+        this.audioProfileRepository = new FileAudioProfileRepository();
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
         addWindowListener(new WindowAdapter() {
             public void windowClosed(WindowEvent event) {
@@ -183,6 +189,7 @@ public final class AskAiFrame extends JFrame {
         JMenu configurationMenu = new JMenu("Configuration");
         configurationMenu.add(createScreenItem("Connections", CONNECTIONS_VIEW));
         configurationMenu.add(createScreenItem("Network", NETWORK_VIEW));
+        configurationMenu.add(createScreenItem("Audio processing", AUDIO_PROCESSING_VIEW));
         return configurationMenu;
     }
 
@@ -199,10 +206,16 @@ public final class AskAiFrame extends JFrame {
     }
 
     private JPanel createContentPanel() {
-        this.chatPanel = new OllamaChatPanel(model, ollamaService, speechToTextService);
+        this.chatPanel = new OllamaChatPanel(model, ollamaService, speechToTextService, audioProfileRepository);
         chatPanel.setInstallAudioModelHandler(new OllamaChatPanel.InstallAudioModelHandler() {
             public void openInstall() {
                 showScreen(INSTALL_VIEW);
+            }
+        });
+        // "Edit profiles…" from the chat settings opens the Audio processing editor page.
+        chatPanel.setAudioProcessingSettingsHandler(new OllamaChatPanel.AudioProcessingSettingsHandler() {
+            public void openAudioProcessing() {
+                showScreen(AUDIO_PROCESSING_VIEW);
             }
         });
         contentPanel.add(chatPanel, CHAT_VIEW);
@@ -243,6 +256,9 @@ public final class AskAiFrame extends JFrame {
         // Java 8 port: the extended proxy panel (WScript discovery, TLS trust, HTTP client, IPv6).
         contentPanel.add(new ProxyPanel(configurationRepository), NETWORK_VIEW);
         contentPanel.add(new OllamaAboutPanel(), ABOUT_VIEW);
+        // Java2D pipeline editor for audio-processing profiles (shared repository instance).
+        this.audioProcessingPanel = new AudioProcessingPanel(audioProfileRepository);
+        contentPanel.add(audioProcessingPanel, AUDIO_PROCESSING_VIEW);
         return contentPanel;
     }
 

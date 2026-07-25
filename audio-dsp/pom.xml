@@ -11,9 +11,9 @@
 
     <name>audio-dsp</name>
     <description>
-        Java 8 microphone capture and classic PCM DSP pipeline (DC offset removal, high-pass,
-        soft noise gate, compressor, limiter) producing WAV/PCM for a remote speech-to-text
-        system. No local AI inference.
+        Java 8 microphone capture and profile-driven PCM DSP pipeline with configurable filters,
+        channel conversion, resampling, noise gate, compressor and limiter for remote speech-to-text.
+        No local AI inference.
     </description>
 
     <properties>
@@ -23,6 +23,11 @@
     </properties>
 
     <dependencies>
+        <dependency>
+            <groupId>uk.me.berndporr</groupId>
+            <artifactId>iirj</artifactId>
+            <version>1.7</version>
+        </dependency>
         <dependency>
             <groupId>junit</groupId>
             <artifactId>junit</artifactId>

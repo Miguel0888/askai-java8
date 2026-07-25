@@ -2,15 +2,35 @@ package com.aresstack.askai.java8.speech;
 
 import com.aresstack.audio.application.NormalizationResult;
 import com.aresstack.audio.application.SpeechAudioNormalizer;
+import com.aresstack.audio.profile.AudioProcessingProfile;
+import com.aresstack.audio.profile.AudioProcessingProfiles;
 
 import java.io.File;
+import java.util.function.Supplier;
 
-/** {@link RecordingNormalizer} backed by the audio-dsp {@link SpeechAudioNormalizer}. */
+/** Resolve the selected profile for every recording and run the audio-dsp normalizer. */
 public final class DefaultRecordingNormalizer implements RecordingNormalizer {
 
-    private final SpeechAudioNormalizer normalizer = new SpeechAudioNormalizer();
+    private final Supplier<AudioProcessingProfile> profileSupplier;
+
+    public DefaultRecordingNormalizer() {
+        this(new Supplier<AudioProcessingProfile>() {
+            public AudioProcessingProfile get() {
+                return AudioProcessingProfiles.defaultSpeech();
+            }
+        });
+    }
+
+    public DefaultRecordingNormalizer(Supplier<AudioProcessingProfile> profileSupplier) {
+        if (profileSupplier == null) {
+            throw new IllegalArgumentException("Profile supplier must not be null.");
+        }
+        this.profileSupplier = profileSupplier;
+    }
 
     public NormalizationResult normalize(File rawWav, File targetWav) throws Exception {
-        return normalizer.normalize(rawWav, targetWav);
+        AudioProcessingProfile profile = profileSupplier.get();
+        return new SpeechAudioNormalizer(profile == null
+                ? AudioProcessingProfiles.defaultSpeech() : profile).normalize(rawWav, targetWav);
     }
 }

@@ -1,32 +1,45 @@
 package com.aresstack.audio.application;
 
-import com.aresstack.audio.dsp.AudioLevelMeter;
-import com.aresstack.audio.dsp.AudioProcessingPipeline;
-import com.aresstack.audio.dsp.Pcm16Resampler;
-import com.aresstack.audio.dsp.PcmChannelConverter;
+import com.aresstack.audio.domain.AudioBuffer;
 import com.aresstack.audio.domain.PcmAudioFormat;
+import com.aresstack.audio.dsp.AudioLevelMeter;
+import com.aresstack.audio.dsp.AudioProfileProcessor;
 import com.aresstack.audio.infrastructure.WavFileAudioSink;
 import com.aresstack.audio.infrastructure.WavFileReader;
+import com.aresstack.audio.profile.AudioProcessingProfile;
+import com.aresstack.audio.profile.AudioProcessingProfiles;
 
 import java.io.File;
 import java.io.IOException;
 
-/**
- * Convert an arbitrary-format raw recording WAV into the canonical speech WAV expected by the
- * transcription endpoint: <b>16 kHz, mono, 16-bit signed little-endian PCM</b>.
- *
- * <p>Steps: read the raw WAV → down-mix to mono → resample to 16 kHz → run the standard speech DSP
- * chain at the canonical rate → write the target WAV. Level statistics for the quality check are
- * measured on the <em>raw</em> captured samples (before the DSP limiter, which would otherwise mask
- * clipping). The negotiated capture format and the canonical target format are kept distinct.</p>
- */
+/** Convert a raw recording WAV through the selected reusable audio-processing profile. */
 public final class SpeechAudioNormalizer {
 
     public static final PcmAudioFormat TARGET_FORMAT = new PcmAudioFormat(16000, 1, 16);
 
+    private final AudioProcessingProfile profile;
+    private final AudioProfileProcessor processor;
+
+    /** Use the immutable built-in speech profile. */
+    public SpeechAudioNormalizer() {
+        this(AudioProcessingProfiles.defaultSpeech());
+    }
+
+    public SpeechAudioNormalizer(AudioProcessingProfile profile) {
+        if (profile == null) {
+            throw new IllegalArgumentException("Profile must not be null.");
+        }
+        this.profile = profile;
+        this.processor = new AudioProfileProcessor();
+    }
+
+    public AudioProcessingProfile getProfile() {
+        return profile;
+    }
+
     /**
      * @param rawWav    the recorded WAV in the negotiated capture format
-     * @param targetWav where to write the canonical 16 kHz mono WAV
+     * @param targetWav where to write the profile output
      * @return the written file plus source/target formats, duration and raw-signal level stats
      */
     public NormalizationResult normalize(File rawWav, File targetWav) throws IOException {
@@ -34,7 +47,6 @@ public final class SpeechAudioNormalizer {
         PcmAudioFormat sourceFormat = raw.getFormat();
         short[] rawSamples = raw.getSamples();
 
-        // Quality statistics from the raw signal (true clipping/level, before any DSP).
         AudioLevelMeter rawMeter = new AudioLevelMeter();
         rawMeter.process(rawSamples, rawSamples.length, sourceFormat);
 
@@ -43,27 +55,17 @@ public final class SpeechAudioNormalizer {
         long durationMillis = sourceFormat.getSampleRateHz() > 0
                 ? frames * 1000L / sourceFormat.getSampleRateHz() : 0L;
 
-        short[] mono = PcmChannelConverter.downmixToMono(rawSamples, rawSamples.length, channels);
-        short[] resampled = Pcm16Resampler.resample(mono, sourceFormat.getSampleRateHz(),
-                TARGET_FORMAT.getSampleRateHz());
-
-        // Clean the canonical-rate signal with the standard speech chain (no meter needed here).
-        AudioProcessingPipeline dsp = RecordSpeechInputUseCase.buildSpeechPipeline(
-                SpeechCaptureConfiguration.speechDefaults(), null);
-        dsp.process(resampled, resampled.length, TARGET_FORMAT);
+        AudioBuffer processed = processor.process(new AudioBuffer(rawSamples, sourceFormat), profile);
 
         WavFileAudioSink sink = new WavFileAudioSink(targetWav);
-        sink.open(TARGET_FORMAT);
+        sink.open(processed.getFormat());
         try {
-            sink.write(resampled, resampled.length);
+            sink.write(processed.getSamples(), processed.getSamples().length);
         } finally {
             sink.close();
         }
 
-        // Clipping fraction is clippedSamples / totalSamples in the SAME domain: the level meter counts
-        // clipped samples across every (interleaved) sample, so the denominator must be the total sample
-        // count, not the frame count — otherwise stereo would report ~double the clipping.
-        return new NormalizationResult(targetWav, sourceFormat, TARGET_FORMAT, durationMillis,
+        return new NormalizationResult(targetWav, sourceFormat, processed.getFormat(), durationMillis,
                 rawMeter.getOverallRms(), rawMeter.getPeak(), rawMeter.getClippedSampleCount(),
                 rawMeter.getTotalSampleCount());
     }

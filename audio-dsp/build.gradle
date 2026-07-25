@@ -1,7 +1,8 @@
-// Audio capture + DSP module. Pure Java 8, no runtime dependencies; JUnit 4 for tests.
-// The module also ships a standalone Maven pom.xml with the identical layout.
+// Audio capture + DSP module. Keep Java 8 compatibility and use iirj for configurable IIR filters.
+// The module also ships a standalone Maven pom.xml with the identical dependency set.
 
 dependencies {
+    implementation 'uk.me.berndporr:iirj:1.7'
     testImplementation 'junit:junit:4.13.2'
 }
 

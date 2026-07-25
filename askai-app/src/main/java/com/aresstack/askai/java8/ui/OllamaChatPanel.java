@@ -1,6 +1,8 @@
 package com.aresstack.askai.java8.ui;
 
 import com.aresstack.askai.java8.AskAiModel;
+import com.aresstack.askai.java8.audio.AudioProfileRepository;
+import com.aresstack.askai.java8.audio.FileAudioProfileRepository;
 import com.aresstack.askai.java8.client.OllamaChatTurn;
 import com.aresstack.askai.java8.service.OllamaService;
 import com.aresstack.askai.java8.service.ThinkingOption;
@@ -31,6 +33,7 @@ import com.aresstack.askai.java8.stt.SpeechToTextService;
 import com.aresstack.audio.application.RecordingQualityAnalyzer;
 import com.aresstack.audio.dsp.AudioLevelMeter;
 import com.aresstack.audio.infrastructure.AvailableAudioDevices;
+import com.aresstack.audio.profile.AudioProcessingProfile;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -88,6 +91,7 @@ public final class OllamaChatPanel extends JPanel {
     private final AskAiModel model;
     private final OllamaService ollamaService;
     private final SpeechToTextService speechToTextService;
+    private final AudioProfileRepository audioProfileRepository;
 
     private final JComboBox<String> modelCombo;
     private final JTextField keepAliveField;
@@ -112,6 +116,7 @@ public final class OllamaChatPanel extends JPanel {
 
     // Dictation controls.
     private final JComboBox<String> audioModelCombo = new JComboBox<String>();
+    private final JComboBox<AudioProcessingProfile> audioProfileCombo = new JComboBox<AudioProcessingProfile>();
     private final JComboBox<String> micCombo = new JComboBox<String>();
     private final JButton micRefreshButton = new JButton("Refresh");
     private final JButton testMicButton = new JButton("Test microphone");
@@ -135,6 +140,7 @@ public final class OllamaChatPanel extends JPanel {
     private Timer levelTimer;
     private long recordingStartedAtMillis;
     private boolean updatingAudioModelCombo;
+    private boolean updatingAudioProfileCombo;
     private boolean updatingMicCombo;
     private boolean checkingReadiness;
 
@@ -152,13 +158,26 @@ public final class OllamaChatPanel extends JPanel {
         void openInstall();
     }
 
+    /** Callback to open the Audio processing profile editor from the chat settings (wired by the frame). */
+    public interface AudioProcessingSettingsHandler {
+        void openAudioProcessing();
+    }
+
     private InstallAudioModelHandler installAudioModelHandler;
+    private AudioProcessingSettingsHandler audioProcessingSettingsHandler;
 
     public OllamaChatPanel(AskAiModel model, OllamaService ollamaService,
                            SpeechToTextService speechToTextService) {
+        this(model, ollamaService, speechToTextService, new FileAudioProfileRepository());
+    }
+
+    public OllamaChatPanel(AskAiModel model, OllamaService ollamaService,
+                           SpeechToTextService speechToTextService,
+                           AudioProfileRepository audioProfileRepository) {
         this.model = model;
         this.ollamaService = ollamaService;
         this.speechToTextService = speechToTextService;
+        this.audioProfileRepository = audioProfileRepository;
         this.modelCombo = new JComboBox<String>();
         this.keepAliveField = new JTextField(model.getDefaultKeepAlive(), 6);
         this.systemPromptArea = new JTextArea("You are a concise local assistant.", 2, 40);
@@ -256,6 +275,10 @@ public final class OllamaChatPanel extends JPanel {
         this.installAudioModelHandler = handler;
     }
 
+    public void setAudioProcessingSettingsHandler(AudioProcessingSettingsHandler handler) {
+        this.audioProcessingSettingsHandler = handler;
+    }
+
     // ------------------------------------------------------------------ dictation wiring
 
     private AudioModelResolver audioModelResolver() {
@@ -284,7 +307,15 @@ public final class OllamaChatPanel extends JPanel {
             }
         };
         MicrophoneRecorder recorder = new JavaSoundMicrophoneRecorder();
-        RecordingNormalizer normalizer = new DefaultRecordingNormalizer();
+        // Resolve the selected transcription profile just before EACH recording, so saved profile edits
+        // take effect on the next capture without restarting or rebuilding the chat panel. An unknown or
+        // missing id falls back to the built-in default inside DefaultRecordingNormalizer.
+        RecordingNormalizer normalizer = new DefaultRecordingNormalizer(new Supplier<AudioProcessingProfile>() {
+            public AudioProcessingProfile get() {
+                return audioProfileRepository.findById(
+                        model.getSpeechToTextConfiguration().getAudioProcessingProfileId());
+            }
+        });
         AudioModelResolver resolver = audioModelResolver();
         SpeechTranscriber transcriber = new OllamaSpeechTranscriber(baseUrl, timeout);
         ServerProbe probe = new OllamaServerProbe(baseUrl);
@@ -377,6 +408,16 @@ public final class OllamaChatPanel extends JPanel {
         audioModelCombo.addActionListener(event -> persistAudioModelSelection());
         params.add(audioModelCombo);
 
+        JPanel profileRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
+        profileRow.add(new JLabel("Transcription profile"));
+        audioProfileCombo.setPreferredSize(new Dimension(240, audioProfileCombo.getPreferredSize().height));
+        audioProfileCombo.setToolTipText("Choose the audio-processing profile used for microphone transcription.");
+        audioProfileCombo.addActionListener(event -> persistAudioProfileSelection());
+        profileRow.add(audioProfileCombo);
+        JButton editProfilesButton = new JButton("Edit profiles…");
+        editProfilesButton.addActionListener(event -> openAudioProcessingSettings());
+        profileRow.add(editProfilesButton);
+
         JPanel micRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
         micRow.add(new JLabel("Microphone"));
         micCombo.setPreferredSize(new Dimension(240, micCombo.getPreferredSize().height));
@@ -393,9 +434,14 @@ public final class OllamaChatPanel extends JPanel {
         systemPromptArea.setWrapStyleWord(true);
         system.add(new JScrollPane(systemPromptArea), BorderLayout.CENTER);
 
-        JPanel top = new JPanel(new BorderLayout(4, 4));
-        top.add(params, BorderLayout.NORTH);
-        top.add(micRow, BorderLayout.CENTER);
+        JPanel top = new JPanel();
+        top.setLayout(new javax.swing.BoxLayout(top, javax.swing.BoxLayout.Y_AXIS));
+        params.setAlignmentX(Component.LEFT_ALIGNMENT);
+        profileRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        micRow.setAlignmentX(Component.LEFT_ALIGNMENT);
+        top.add(params);
+        top.add(profileRow);
+        top.add(micRow);
 
         JPanel settings = new JPanel(new BorderLayout(4, 4));
         settings.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
@@ -484,6 +530,7 @@ public final class OllamaChatPanel extends JPanel {
 
     /** Opens the (modeless) Chat settings dialog behind the composer's gear icon. */
     private void openSettingsDialog() {
+        refreshAudioProfiles(); // reload so profiles saved in the editor appear immediately
         if (settingsDialog == null) {
             java.awt.Window owner = SwingUtilities.getWindowAncestor(this);
             settingsDialog = new javax.swing.JDialog(
@@ -998,6 +1045,54 @@ public final class OllamaChatPanel extends JPanel {
                 : current.withAudioModelAutomatic(false).withModelName(choice);
         model.setSpeechToTextConfiguration(updated);
         model.saveSettings();
+    }
+
+    /** Reloads the transcription-profile combo from the repository and selects the persisted profile. */
+    private void refreshAudioProfiles() {
+        updatingAudioProfileCombo = true;
+        try {
+            String selectedId = model.getSpeechToTextConfiguration().getAudioProcessingProfileId();
+            audioProfileCombo.removeAllItems();
+            List<AudioProcessingProfile> profiles = audioProfileRepository.findAll();
+            AudioProcessingProfile selected = null;
+            for (int i = 0; i < profiles.size(); i++) {
+                AudioProcessingProfile profile = profiles.get(i);
+                audioProfileCombo.addItem(profile);
+                if (profile.getId().equals(selectedId)) {
+                    selected = profile;
+                }
+            }
+            if (selected == null && audioProfileCombo.getItemCount() > 0) {
+                selected = audioProfileCombo.getItemAt(0); // deleted/unknown id → fall back to the first
+            }
+            audioProfileCombo.setSelectedItem(selected);
+        } finally {
+            updatingAudioProfileCombo = false;
+        }
+    }
+
+    /** Persists the chosen transcription profile id; the next recording resolves it fresh. */
+    private void persistAudioProfileSelection() {
+        if (updatingAudioProfileCombo) {
+            return;
+        }
+        AudioProcessingProfile selected = (AudioProcessingProfile) audioProfileCombo.getSelectedItem();
+        if (selected == null) {
+            return;
+        }
+        SpeechToTextConfiguration current = model.getSpeechToTextConfiguration();
+        model.setSpeechToTextConfiguration(current.withAudioProcessingProfileId(selected.getId()));
+        model.saveSettings();
+    }
+
+    /** Closes the settings dialog and opens the Audio processing profile editor page. */
+    private void openAudioProcessingSettings() {
+        if (settingsDialog != null) {
+            settingsDialog.setVisible(false);
+        }
+        if (audioProcessingSettingsHandler != null) {
+            audioProcessingSettingsHandler.openAudioProcessing();
+        }
     }
 
     /** @return the requested model for the resolver: "Automatic" or a specific verified model. */
