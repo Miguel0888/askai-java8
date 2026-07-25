@@ -155,6 +155,43 @@ public final class RemoteGgufInstaller {
         createModel("/api/create", OllamaJson.toJson(body), listener);
     }
 
+    /**
+     * Attaches a multimodal encoder (projector) to an <em>already-installed</em> model, without creating a
+     * new one. The existing model stays the base via {@code from}, and the uploaded projector blob is
+     * referenced under {@code adapters}:
+     * {@code {"model":"m","from":"m","adapters":{"mmproj.gguf":"sha256:..."}}}.
+     *
+     * <p>No {@code info}/{@code capabilities} are sent — Ollama re-derives them from the attached encoder,
+     * and the caller reloads {@code /api/show} afterwards (consistent with the stateless model: AskAI keeps
+     * no per-model state). The file must prove itself a projector from its GGUF content before anything is
+     * uploaded, so a plain model can never be attached as an encoder.</p>
+     */
+    public void attachAdapter(String existingModel, File projector, ProgressListener listener) throws Exception {
+        if (existingModel == null || existingModel.trim().length() == 0) {
+            throw new IllegalArgumentException("Existing model name is required.");
+        }
+        if (projector == null || !projector.isFile()) {
+            throw new IllegalArgumentException("Projector GGUF file does not exist.");
+        }
+        report(listener, "Validating encoder (" + projector.getName() + ")", 0, 0);
+        GgufFile.validate(projector);
+        if (!GgufFile.inspect(projector).isProjector()) {
+            throw new IllegalArgumentException(
+                    "The chosen file is not a multimodal encoder (projector) GGUF, so it cannot be attached.");
+        }
+        String digest = "sha256:" + sha256(projector, listener);
+        uploadBlobWithRetry(digest, projector, " (" + projector.getName() + ")", listener);
+
+        Map<String, Object> adapters = new LinkedHashMap<String, Object>();
+        adapters.put(projector.getName(), digest);
+        Map<String, Object> body = new LinkedHashMap<String, Object>();
+        body.put("model", existingModel.trim());
+        body.put("from", existingModel.trim());
+        body.put("adapters", adapters);
+        body.put("stream", Boolean.TRUE);
+        createModel("/api/create", OllamaJson.toJson(body), listener);
+    }
+
     private static void putIfNotEmpty(Map<String, Object> body, String key, String value) {
         if (value != null && value.trim().length() > 0) {
             body.put(key, value);

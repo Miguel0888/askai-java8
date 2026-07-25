@@ -214,6 +214,36 @@ public class RemoteGgufInstallerTest {
         }
     }
 
+    // ------------------------------------------------------------------ add-on (from/adapters) attach
+
+    @Test
+    @SuppressWarnings("unchecked")
+    public void attachAdapterSendsFromAndAdaptersWithoutInfo() throws Exception {
+        File projector = writeProjectorGguf();
+        installer().attachAdapter("llava", projector, null);
+
+        Map<String, Object> body = createRequest();
+        assertEquals("llava", body.get("model"));
+        assertEquals("llava", body.get("from")); // the existing model stays the base
+        Map<String, Object> adapters = (Map<String, Object>) body.get("adapters");
+        assertTrue("adapters present", adapters != null && adapters.size() == 1);
+        Object digest = adapters.get(projector.getName());
+        assertTrue("adapter digest", digest instanceof String && ((String) digest).startsWith("sha256:"));
+        // An add-on must never send capabilities/info — Ollama re-derives them; the caller reloads /api/show.
+        assertNull(body.get("info"));
+        assertNull(body.get("capabilities"));
+    }
+
+    @Test
+    public void attachAdapterRejectsANonProjectorFile() throws Exception {
+        try {
+            installer().attachAdapter("llava", gguf, null); // a plain model GGUF, no encoder metadata
+            org.junit.Assert.fail("expected a rejection for a non-projector file");
+        } catch (IllegalArgumentException expected) {
+            assertTrue(expected.getMessage(), expected.getMessage().toLowerCase().contains("encoder"));
+        }
+    }
+
     @SuppressWarnings("unchecked")
     private List<String> capabilities() {
         Map<String, Object> info = (Map<String, Object>) createRequest().get("info");
@@ -231,6 +261,28 @@ public class RemoteGgufInstallerTest {
             writeLongLe(raf, 0L);        // tensor count (u64 for version != 1)
             writeLongLe(raf, 0L);        // metadata kv count
             raf.write(new byte[8]);      // pad so length >= alignUp(24, 32) = 32
+        } finally {
+            raf.close();
+        }
+        return file;
+    }
+
+    /** A valid GGUF v3 header (0 tensors) carrying one {@code clip.has_vision_encoder=true} flag → a projector. */
+    private static File writeProjectorGguf() throws Exception {
+        File file = File.createTempFile("askai-mmproj-", ".gguf");
+        file.deleteOnExit();
+        RandomAccessFile raf = new RandomAccessFile(file, "rw");
+        try {
+            raf.writeBytes("GGUF");
+            writeIntLe(raf, 3);          // version
+            writeLongLe(raf, 0L);        // tensor count
+            writeLongLe(raf, 1L);        // one metadata kv
+            byte[] key = "clip.has_vision_encoder".getBytes(StandardCharsets.UTF_8);
+            writeLongLe(raf, key.length);
+            raf.write(key);
+            writeIntLe(raf, 7);          // value type BOOL
+            raf.write(1);                // true
+            raf.write(new byte[32]);     // pad well past the aligned data start
         } finally {
             raf.close();
         }

@@ -32,4 +32,13 @@ public final class ModelSearchPanel extends JPanel {
         tabs.setSelectedComponent(huggingFacePanel);
         huggingFacePanel.searchFor(query);
     }
+
+    /**
+     * Selects the Hugging Face tab and enters add-on mode for {@code existingModelName}: the chosen encoder
+     * GGUF is attached to that already-installed model via {@code from}/{@code adapters}, not installed anew.
+     */
+    public void openHuggingFaceAddOnSearch(String existingModelName, String query) {
+        tabs.setSelectedComponent(huggingFacePanel);
+        huggingFacePanel.openHuggingFaceAddOnSearch(existingModelName, query);
+    }
 }

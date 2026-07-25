@@ -217,11 +217,12 @@ public final class AskAiFrame extends JFrame {
         // and the Ollama Library (scrape ollama.com, pull a tag on the remote server).
         final ModelSearchPanel modelSearchPanel = new ModelSearchPanel(configurationRepository, askAiService);
         contentPanel.add(modelSearchPanel, INSTALL_VIEW);
-        // "Add-ons on Hugging Face" from an installed model card: switch to Setup and search by name.
+        // "Add-ons on Hugging Face" from an installed model card: switch to Setup and enter add-on mode so
+        // the chosen encoder is attached to this model (from/adapters), not installed as a new model.
         modelsPanel.setFindAddOnsHandler(new OllamaModelsPanel.FindAddOnsHandler() {
             public void findAddOns(String modelName) {
                 showScreen(INSTALL_VIEW);
-                modelSearchPanel.openHuggingFaceSearch(modelName);
+                modelSearchPanel.openHuggingFaceAddOnSearch(modelName, modelName);
             }
         });
         this.configPanel = new OllamaConfigPanel(model, ollamaService);

@@ -91,6 +91,9 @@ public final class OllamaInstallPanel extends JPanel {
     private List<HuggingFaceModel> lastOriginalModels = Collections.emptyList();
     private List<HuggingFaceModel> lastVariantModels = Collections.emptyList();
     private File lastDownloadedFile;
+    // Non-null while the panel is searching for an ENCODER to add to an already-installed model (add-on
+    // mode). Transient UI state only — never persisted; a chosen encoder is attached via from/adapters.
+    private String addOnTargetModel;
     private AskAiService.InstallTask installTask;
     // The install contract frozen at the moment "Download and install" starts, so that re-selecting a
     // different search result during a long download can never mix another model's metadata into this
@@ -695,6 +698,26 @@ public final class OllamaInstallPanel extends JPanel {
         }
     }
 
+    /**
+     * Enters add-on mode for an already-installed model and searches Hugging Face for an encoder to attach.
+     * The chosen GGUF is validated as a projector and attached via {@code from}/{@code adapters} — no new
+     * model is created and no capabilities are declared. Transient UI state only; nothing is persisted.
+     */
+    public void openHuggingFaceAddOnSearch(String existingModelName, String query) {
+        this.addOnTargetModel = existingModelName == null ? null : existingModelName.trim();
+        if (this.addOnTargetModel != null && this.addOnTargetModel.length() > 0) {
+            append("Add-on mode: choose a multimodal encoder (mmproj) to attach to \""
+                    + this.addOnTargetModel + "\". It will be added to the existing model, not installed as "
+                    + "a new one.");
+        }
+        searchFor(query);
+    }
+
+    /** Leaves add-on mode (back to normal install). */
+    private void clearAddOnMode() {
+        this.addOnTargetModel = null;
+    }
+
     /** Prefills the search box with {@code query} and runs the search (used to route from a model card). */
     public void searchFor(String query) {
         if (query == null || query.trim().isEmpty()) {
@@ -1084,6 +1107,14 @@ public final class OllamaInstallPanel extends JPanel {
         }
         saveTokenToConfiguration();
 
+        // Add-on mode: the selected GGUF IS the encoder to attach to an existing model. No companion, no
+        // fresh create — download it, then attach via from/adapters.
+        final String addOnTarget = addOnTargetModel;
+        if (addOnTarget != null && addOnTarget.length() > 0) {
+            downloadAndAttachEncoder(selected, addOnTarget);
+            return;
+        }
+
         // Multimodal repos ship the audio/vision encoder as a separate *mmproj* GGUF. Include it
         // automatically so the install is complete in one step — no extra prompt.
         final HuggingFaceFile companionFile =
@@ -1205,6 +1236,121 @@ public final class OllamaInstallPanel extends JPanel {
                         if (installAfterDownload) {
                             installDownloadedFile(frozenPlan);
                         }
+                    }
+                });
+            }
+        });
+    }
+
+    /**
+     * Add-on flow: download the selected encoder GGUF and attach it to {@code existingModel} via
+     * {@code from}/{@code adapters}. The file is proven to be a projector (GGUF content) before attaching,
+     * and {@code /api/show} is re-read afterwards so the model card reflects the new capability.
+     */
+    private void downloadAndAttachEncoder(HuggingFaceFile encoder, final String existingModel) {
+        final String encoderName = encoder.getFileName();
+        append("Downloading encoder " + encoderName + " to attach to \"" + existingModel + "\" ...");
+        showProgress(0, "Downloading encoder " + encoderName);
+        askAiService.downloadHuggingFaceFile(encoder, new AskAiService.DownloadListener() {
+            public void onProgress(final long completed, final long total) {
+                onUi(new Runnable() {
+                    public void run() {
+                        if (total > 0L) {
+                            int percent = (int) (completed * 100L / total);
+                            showProgress(percent, "Downloading encoder " + encoderName + "  " + percent + "%");
+                        } else {
+                            progressBar.setString("Downloading encoder " + encoderName + "  "
+                                    + (completed / (1024L * 1024L)) + " MB");
+                        }
+                    }
+                });
+            }
+
+            public void onComplete(final File file) {
+                onUi(new Runnable() {
+                    public void run() {
+                        append("Encoder downloaded: " + file.getAbsolutePath());
+                        attachDownloadedEncoder(existingModel, file);
+                    }
+                });
+            }
+
+            public void onError(final Exception ex) {
+                onUi(new Runnable() {
+                    public void run() {
+                        append("ERROR: encoder download failed: " + ex.getMessage());
+                        showProgress(0, "Encoder download failed");
+                    }
+                });
+            }
+        });
+    }
+
+    /** Validate the downloaded file as a projector and attach it to the existing model, then re-verify. */
+    private void attachDownloadedEncoder(final String existingModel, File encoder) {
+        try {
+            if (!com.aresstack.askai.java8.hf.GgufFile.inspect(encoder).isProjector()) {
+                append("ERROR: " + encoder.getName() + " is not a multimodal encoder (projector) GGUF — "
+                        + "nothing was attached. Choose an mmproj file.");
+                showProgress(0, "Not an encoder");
+                return;
+            }
+        } catch (java.io.IOException ex) {
+            append("ERROR: could not read " + encoder.getName() + " as a GGUF: " + ex.getMessage());
+            showProgress(0, "Not a GGUF");
+            return;
+        }
+        append("Attaching " + describeProjector(encoder) + " to \"" + existingModel + "\" ...");
+        showProgress(0, "Attaching encoder");
+        setInstallInProgress(true);
+        installTask = askAiService.attachEncoder(existingModel, encoder, new AskAiService.InstallListener() {
+            public void onProgress(final String phase, final long completed, final long total) {
+                onUi(new Runnable() {
+                    public void run() {
+                        updateInstallProgress(phase, completed, total);
+                    }
+                });
+            }
+
+            public void onVerified(final VerificationResult result) {
+                onUi(new Runnable() {
+                    public void run() {
+                        reportVerification(result, Collections.<String>emptyList());
+                    }
+                });
+            }
+
+            public void onComplete(final String message) {
+                onUi(new Runnable() {
+                    public void run() {
+                        setInstallInProgress(false);
+                        append(message);
+                        progressBar.setIndeterminate(false);
+                        showProgress(100, "Encoder attached");
+                        clearAddOnMode();
+                    }
+                });
+            }
+
+            public void onIncomplete(final VerificationResult result) {
+                onUi(new Runnable() {
+                    public void run() {
+                        setInstallInProgress(false);
+                        progressBar.setIndeterminate(false);
+                        showProgress(0, "Attached but not verified");
+                        clearAddOnMode();
+                    }
+                });
+            }
+
+            public void onError(final Exception ex) {
+                onUi(new Runnable() {
+                    public void run() {
+                        setInstallInProgress(false);
+                        progressBar.setIndeterminate(false);
+                        String message = ex.getMessage() == null ? ex.toString() : ex.getMessage();
+                        append("ERROR: " + message);
+                        showProgress(0, "Attach failed");
                     }
                 });
             }

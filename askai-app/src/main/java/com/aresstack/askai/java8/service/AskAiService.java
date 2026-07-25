@@ -87,6 +87,14 @@ public interface AskAiService {
                                         com.aresstack.askai.java8.hf.HuggingFaceInstallPlan plan,
                                         InstallListener listener);
 
+    /**
+     * Attaches a multimodal encoder (projector) GGUF to an already-installed model as an add-on: the
+     * existing model stays the base ({@code from}) and the uploaded projector is referenced under
+     * {@code adapters}. No capabilities are sent — Ollama re-derives them and the model is re-verified via
+     * {@code /api/show}. Consistent with the stateless model, nothing is persisted locally.
+     */
+    InstallTask attachEncoder(String existingModelName, File projectorGguf, InstallListener listener);
+
     void shutdown();
 
     /** Handle to a running install; {@link #cancel()} aborts the upload/create. */

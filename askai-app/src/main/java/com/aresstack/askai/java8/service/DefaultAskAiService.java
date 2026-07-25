@@ -340,6 +340,41 @@ public final class DefaultAskAiService implements AskAiService {
         }
     }
 
+    public InstallTask attachEncoder(final String existingModelName, final File projectorGguf,
+                                     final InstallListener listener) {
+        AppConfiguration configuration = configurationRepository.load();
+        final RemoteGgufInstaller installer = new RemoteGgufInstaller(configuration.getOllamaBaseUrl());
+        final Future<?> future = executorService.submit(new Runnable() {
+            public void run() {
+                try {
+                    installer.attachAdapter(existingModelName, projectorGguf,
+                            new RemoteGgufInstaller.ProgressListener() {
+                                public void onProgress(String phase, long completed, long total) {
+                                    listener.onProgress(phase, completed, total);
+                                }
+                            });
+                    // Re-derive the truth from Ollama; no required capabilities are asserted for an add-on.
+                    VerificationResult verification =
+                            verifyInstalled(existingModelName, java.util.Collections.<String>emptyList());
+                    listener.onVerified(verification);
+                    if (verification.getStatus() == VerificationStatus.VERIFIED) {
+                        listener.onComplete("Attached encoder to " + existingModelName + " on remote Ollama.");
+                    } else {
+                        listener.onIncomplete(verification);
+                    }
+                } catch (Exception ex) {
+                    listener.onError(ex);
+                }
+            }
+        });
+        return new InstallTask() {
+            public void cancel() {
+                installer.cancel();
+                future.cancel(true);
+            }
+        };
+    }
+
     /**
      * Shared install pipeline: resolve the metadata (possibly with a network fetch) on the executor, send
      * it to Ollama on {@code /api/create}, then verify via {@code /api/show}. Only a VERIFIED result
