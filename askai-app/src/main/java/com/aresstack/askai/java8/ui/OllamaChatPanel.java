@@ -31,7 +31,6 @@ import com.aresstack.audio.application.RecordingQualityAnalyzer;
 import com.aresstack.audio.dsp.AudioLevelMeter;
 import com.aresstack.audio.infrastructure.AvailableAudioDevices;
 
-import javax.swing.AbstractAction;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.JButton;
@@ -40,11 +39,9 @@ import javax.swing.JComponent;
 import javax.swing.JFileChooser;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
-import javax.swing.JProgressBar;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
-import javax.swing.KeyStroke;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.filechooser.FileNameExtensionFilter;
@@ -53,7 +50,6 @@ import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Window;
-import java.awt.event.ActionEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.File;
@@ -89,25 +85,14 @@ public final class OllamaChatPanel extends JPanel {
     private final JComboBox<String> modelCombo;
     private final JTextField keepAliveField;
     private final JTextArea systemPromptArea;
-    private final JTextArea inputArea;
     private final ChatTranscript transcript;
-    private final JLabel statusLabel;
-    private final JButton sendButton;
-    private final JButton stopButton;
+    private final ChatComposerPanel composer;
 
     // Dictation controls.
     private final JComboBox<String> audioModelCombo = new JComboBox<String>();
     private final JComboBox<String> micCombo = new JComboBox<String>();
     private final JButton micRefreshButton = new JButton("Refresh");
     private final JButton testMicButton = new JButton("Test microphone");
-    private final JButton recordButton = new JButton("Record");
-    private final JButton discardButton = new JButton("Discard");
-    private final JButton retryButton = new JButton("Retry transcription");
-    private final JButton saveButton = new JButton("Save recording");
-    private final JButton installModelButton = new JButton("Install audio model");
-    private final JButton audioFileButton = new JButton("Transcribe file…");
-    private final JProgressBar levelBar = new JProgressBar(0, 100);
-    private final JLabel dictationStatus = new JLabel(" ");
     private final JTextArea techDetails = new JTextArea(6, 40);
 
     private final List<OllamaChatTurn> history = new ArrayList<OllamaChatTurn>();
@@ -129,6 +114,7 @@ public final class OllamaChatPanel extends JPanel {
     private long recordingStartedAtMillis;
     private boolean updatingAudioModelCombo;
     private boolean updatingMicCombo;
+    private boolean checkingReadiness;
 
     // Existing-file transcription (kept, but decoupled from the microphone path).
     private SpeechToTextService.Task fileTask;
@@ -154,11 +140,40 @@ public final class OllamaChatPanel extends JPanel {
         this.modelCombo = new JComboBox<String>();
         this.keepAliveField = new JTextField(model.getDefaultKeepAlive(), 6);
         this.systemPromptArea = new JTextArea("You are a concise local assistant.", 2, 40);
-        this.inputArea = new JTextArea(3, 40);
         this.transcript = new ChatTranscript();
-        this.statusLabel = new JLabel("Select a model and start chatting.");
-        this.sendButton = new JButton("Send");
-        this.stopButton = new JButton("Stop");
+        this.composer = new ChatComposerPanel(new ChatComposerPanel.Actions() {
+            public void send() {
+                sendChat();
+            }
+
+            public void stop() {
+                stopChat();
+            }
+
+            public void toggleRecording() {
+                onRecordButton();
+            }
+
+            public void discardDictation() {
+                onDiscardButton();
+            }
+
+            public void retryTranscription() {
+                retryDictation();
+            }
+
+            public void saveRecording() {
+                OllamaChatPanel.this.saveRecording();
+            }
+
+            public void installAudioModel() {
+                openInstallAudioModel();
+            }
+
+            public void transcribeAudioFile() {
+                onAudioFileAction();
+            }
+        });
 
         this.dictationExecutor = Executors.newCachedThreadPool(new DaemonThreadFactory());
         this.workDir = new File(System.getProperty("java.io.tmpdir"), "askai-speech");
@@ -347,105 +362,10 @@ public final class OllamaChatPanel extends JPanel {
     }
 
     private JComponent buildComposer() {
-        inputArea.setLineWrap(true);
-        inputArea.setWrapStyleWord(true);
-        inputArea.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(new Color(0xCFCFCF)),
-                BorderFactory.createEmptyBorder(6, 8, 6, 8)));
-        bindKeys();
-
-        JPanel buttons = new JPanel();
-        buttons.setLayout(new javax.swing.BoxLayout(buttons, javax.swing.BoxLayout.Y_AXIS));
-        sendButton.setAlignmentX(CENTER_ALIGNMENT);
-        stopButton.setAlignmentX(CENTER_ALIGNMENT);
-        sendButton.addActionListener(event -> sendChat());
-        stopButton.addActionListener(event -> stopChat());
-
-        recordButton.addActionListener(event -> onRecordButton());
-        recordButton.setAlignmentX(CENTER_ALIGNMENT);
-        discardButton.addActionListener(event -> onDiscardButton());
-        discardButton.setForeground(new Color(0xC6, 0x28, 0x28));
-        discardButton.setAlignmentX(CENTER_ALIGNMENT);
-        discardButton.setToolTipText("Discard the current recording / cancel transcription (Escape)");
-        audioFileButton.addActionListener(event -> onAudioFileAction());
-        audioFileButton.setAlignmentX(CENTER_ALIGNMENT);
-        audioFileButton.setToolTipText("Transcribe an existing audio file (separate from microphone dictation)");
-        retryButton.addActionListener(event -> dictation.retryTranscription());
-        retryButton.setAlignmentX(CENTER_ALIGNMENT);
-        saveButton.addActionListener(event -> saveRecording());
-        saveButton.setAlignmentX(CENTER_ALIGNMENT);
-        installModelButton.addActionListener(event -> openInstallAudioModel());
-        installModelButton.setAlignmentX(CENTER_ALIGNMENT);
-
-        JLabel experimental = new JLabel("Dictation · Experimental");
-        experimental.setForeground(new Color(0x90, 0x90, 0x90));
-        experimental.setAlignmentX(CENTER_ALIGNMENT);
-        experimental.setFont(experimental.getFont().deriveFont(experimental.getFont().getSize2D() - 1f));
-
-        levelBar.setPreferredSize(new Dimension(120, 10));
-        levelBar.setMaximumSize(new Dimension(Integer.MAX_VALUE, 10));
-        levelBar.setAlignmentX(CENTER_ALIGNMENT);
-
-        buttons.add(sendButton);
-        buttons.add(Box.createVerticalStrut(4));
-        buttons.add(stopButton);
-        buttons.add(Box.createVerticalStrut(8));
-        buttons.add(experimental);
-        buttons.add(recordButton);
-        buttons.add(levelBar);
-        buttons.add(Box.createVerticalStrut(4));
-        buttons.add(discardButton);
-        buttons.add(retryButton);
-        buttons.add(saveButton);
-        buttons.add(installModelButton);
-        buttons.add(audioFileButton);
-
-        JPanel composer = new JPanel(new BorderLayout(8, 4));
-        composer.add(new JScrollPane(inputArea), BorderLayout.CENTER);
-        composer.add(buttons, BorderLayout.EAST);
-
-        JPanel hint = new JPanel(new BorderLayout());
-        JLabel hintLabel = new JLabel("Enter to send · Shift+Enter newline · Ctrl+Shift+M dictate");
-        hintLabel.setForeground(new Color(0x9E9E9E));
-        JPanel statusRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
-        statusRow.add(statusLabel);
-        statusRow.add(dictationStatus);
-        hint.add(statusRow, BorderLayout.WEST);
-        hint.add(hintLabel, BorderLayout.EAST);
-
-        JPanel south = new JPanel(new BorderLayout(4, 4));
-        south.add(composer, BorderLayout.CENTER);
-        south.add(hint, BorderLayout.SOUTH);
-
+        composer.setChatStatus("Select a model and start chatting.");
+        composer.setDictationStatus(" ");
         refreshDictationControls();
-        return south;
-    }
-
-    private void bindKeys() {
-        inputArea.getInputMap().put(KeyStroke.getKeyStroke("ENTER"), "send-chat");
-        inputArea.getInputMap().put(KeyStroke.getKeyStroke("shift ENTER"), "insert-newline");
-        inputArea.getInputMap().put(KeyStroke.getKeyStroke("control shift M"), "toggle-dictation");
-        inputArea.getInputMap().put(KeyStroke.getKeyStroke("ESCAPE"), "cancel-dictation");
-        inputArea.getActionMap().put("send-chat", new AbstractAction() {
-            public void actionPerformed(ActionEvent event) {
-                sendChat();
-            }
-        });
-        inputArea.getActionMap().put("insert-newline", new AbstractAction() {
-            public void actionPerformed(ActionEvent event) {
-                inputArea.insert("\n", inputArea.getCaretPosition());
-            }
-        });
-        inputArea.getActionMap().put("toggle-dictation", new AbstractAction() {
-            public void actionPerformed(ActionEvent event) {
-                onRecordButton();
-            }
-        });
-        inputArea.getActionMap().put("cancel-dictation", new AbstractAction() {
-            public void actionPerformed(ActionEvent event) {
-                onDiscardButton();
-            }
-        });
+        return composer;
     }
 
     // ------------------------------------------------------------------ chat (unchanged behaviour)
@@ -520,7 +440,7 @@ public final class OllamaChatPanel extends JPanel {
     }
 
     private void sendChat() {
-        if (!sendButton.isEnabled()) {
+        if (!composer.isSendEnabled()) {
             return;
         }
         final String modelName = (String) modelCombo.getSelectedItem();
@@ -528,7 +448,7 @@ public final class OllamaChatPanel extends JPanel {
             setStatus("No model selected. Open Models or Install first.");
             return;
         }
-        final String userPrompt = inputArea.getText().trim();
+        final String userPrompt = composer.getMessage().trim();
         if (userPrompt.isEmpty()) {
             setStatus("Write a message before sending.");
             return;
@@ -537,7 +457,7 @@ public final class OllamaChatPanel extends JPanel {
         if (transcript.isEmpty() || history.isEmpty()) {
             transcript.clear();
         }
-        inputArea.setText("");
+        composer.clearMessage();
         transcript.appendUser(userPrompt);
         history.add(OllamaChatTurn.user(userPrompt));
 
@@ -794,6 +714,7 @@ public final class OllamaChatPanel extends JPanel {
                 onUi(new Runnable() {
                     public void run() {
                         micTestSession = opened;
+                        refreshDictationControls();
                         startMicTestTimer(opened.getMeter());
                     }
                 });
@@ -805,7 +726,7 @@ public final class OllamaChatPanel extends JPanel {
         final long endAt = System.currentTimeMillis() + 4000;
         micTestTimer = new Timer(100, event -> {
             int peak = meter.getPeak();
-            levelBar.setValue(scaleLevel(peak));
+            composer.setAudioLevel(scaleLevel(peak));
             boolean signal = meter.getOverallRms() > 30 || peak > 500;
             setDictationStatus(signal ? "Microphone test: signal detected." : "Microphone test: no signal.");
             if (System.currentTimeMillis() > endAt) {
@@ -823,8 +744,9 @@ public final class OllamaChatPanel extends JPanel {
         final MicrophoneRecorder.Session session = micTestSession;
         micTestSession = null;
         testMicButton.setText("Test microphone");
-        levelBar.setValue(0);
+        composer.setAudioLevel(0);
         setDictationStatus(message);
+        refreshDictationControls();
         if (session != null) {
             dictationExecutor.execute(new Runnable() {
                 public void run() {
@@ -876,7 +798,8 @@ public final class OllamaChatPanel extends JPanel {
             setDictationStatus("Busy — finish the chat / file transcription / mic test first.");
             return;
         }
-        recordButton.setEnabled(false);
+        checkingReadiness = true;
+        refreshDictationControls();
         setDictationStatus("Checking speech-to-text readiness …");
         final String requested = requestedAudioModel();
         dictationExecutor.execute(new Runnable() {
@@ -892,6 +815,7 @@ public final class OllamaChatPanel extends JPanel {
     }
 
     private void handleReadiness(ReadinessStatus status) {
+        checkingReadiness = false;
         if (status == ReadinessStatus.READY) {
             dictation.startRecording(selectedMicDeviceId());
             return;
@@ -924,15 +848,15 @@ public final class OllamaChatPanel extends JPanel {
     }
 
     private void onDictationState(DictationState state, String message) {
+        checkingReadiness = false;
         dictationState = state;
-        recordButton.setText(state == DictationState.RECORDING ? "Stop" : "Record");
         if (state == DictationState.RECORDING) {
             recordingStartedAtMillis = System.currentTimeMillis();
             startLevelTimer();
         } else {
             stopLevelTimer();
             if (state.isTerminal() || state == DictationState.IDLE) {
-                levelBar.setValue(0);
+                composer.setAudioLevel(0);
             }
         }
         setDictationStatus(message != null ? message : state.getDefaultStatusMessage());
@@ -942,11 +866,12 @@ public final class OllamaChatPanel extends JPanel {
     private void onDictationResult(DictationResult result) {
         // Insert at the caret, preserve existing text, never auto-send. The service delivers exactly
         // one terminal callback per operation, so this cannot double-insert.
+        JTextArea editor = composer.getEditor();
         ComposerInserter.Insertion insertion = ComposerInserter.insert(
-                inputArea.getText(), inputArea.getSelectionStart(), inputArea.getSelectionEnd(), result.getText());
-        inputArea.setText(insertion.getText());
-        inputArea.setCaretPosition(Math.min(insertion.getCaret(), inputArea.getText().length()));
-        inputArea.requestFocusInWindow();
+                editor.getText(), editor.getSelectionStart(), editor.getSelectionEnd(), result.getText());
+        editor.setText(insertion.getText());
+        editor.setCaretPosition(Math.min(insertion.getCaret(), editor.getText().length()));
+        composer.focusEditor();
         persistLastAudioModel(result.getModelUsed());
         showDiagnostics(result.getDiagnostics());
         setDictationStatus("Transcription ready. Review the text and press Send.");
@@ -1020,7 +945,7 @@ public final class OllamaChatPanel extends JPanel {
                 setDictationStatus("● Recording — " + formatDuration(seconds));
                 return;
             }
-            levelBar.setValue(scaleLevel(meter.getPeak()));
+            composer.setAudioLevel(scaleLevel(meter.getPeak()));
             boolean signal = meter.getOverallRms() > 30 || meter.getPeak() > 500;
             boolean clipping = meter.getClippedSampleCount() > 0;
             setDictationStatus("● Recording — " + formatDuration(seconds) + " · " + micLabel()
@@ -1047,6 +972,11 @@ public final class OllamaChatPanel extends JPanel {
     }
 
     // ------------------------------------------------------------------ recovery actions
+
+
+    private void retryDictation() {
+        dictation.retryTranscription();
+    }
 
     private void saveRecording() {
         File source = dictation.savedRecordingSource();
@@ -1076,23 +1006,32 @@ public final class OllamaChatPanel extends JPanel {
         }
     }
 
-    /** Enable/disable the dictation controls for the current state and available artifacts. */
+    /** Render the complete dictation action state in the integrated composer. */
     private void refreshDictationControls() {
         boolean sttEnabled = model.getSpeechToTextConfiguration().isEnabled();
         boolean idle = dictationState.canStartRecording();
+        boolean inFlight = isDictationInFlight();
+        boolean recording = dictationState == DictationState.RECORDING;
         boolean canRecord = sttEnabled && !chatBusy && !fileBusy && micTestSession == null
-                && (idle || dictationState == DictationState.RECORDING || isDictationInFlight());
-        recordButton.setEnabled(canRecord);
-        discardButton.setEnabled(dictationState == DictationState.RECORDING || isDictationInFlight());
+                && !checkingReadiness && (idle || recording || inFlight);
         boolean retryable = dictation.hasRetryableRecording() && idle;
         boolean savable = dictation.hasSavableRecording() && idle;
-        retryButton.setVisible(retryable);
-        saveButton.setVisible(savable);
-        // Offer "Install audio model" only when the last outcome was that none is available.
-        installModelButton.setVisible(idle && dictationState == DictationState.FAILED
-                && lastFailureNeedsModel);
-        audioFileButton.setEnabled(sttEnabled && !chatBusy && idle && !fileBusy);
-        testMicButton.setEnabled(!chatBusy && idle && !fileBusy);
+        boolean installVisible = idle && dictationState == DictationState.FAILED && lastFailureNeedsModel;
+        boolean audioFileEnabled = sttEnabled && !chatBusy && idle && !fileBusy;
+        boolean levelVisible = recording || micTestSession != null;
+
+        composer.setDictationView(new ChatComposerPanel.DictationView(
+                dictationState.getMicButtonLabel(),
+                canRecord,
+                recording,
+                inFlight || checkingReadiness,
+                recording || inFlight || micTestSession != null,
+                retryable,
+                savable,
+                installVisible,
+                audioFileEnabled,
+                levelVisible));
+        testMicButton.setEnabled(!chatBusy && idle && !fileBusy && !checkingReadiness);
     }
 
     private boolean lastFailureNeedsModel;
@@ -1132,11 +1071,12 @@ public final class OllamaChatPanel extends JPanel {
                     public void run() {
                         fileBusy = false;
                         fileTask = null;
-                        ComposerInserter.Insertion insertion = ComposerInserter.insert(inputArea.getText(),
-                                inputArea.getSelectionStart(), inputArea.getSelectionEnd(), text);
-                        inputArea.setText(insertion.getText());
-                        inputArea.setCaretPosition(Math.min(insertion.getCaret(), inputArea.getText().length()));
-                        inputArea.requestFocusInWindow();
+                        JTextArea editor = composer.getEditor();
+                        ComposerInserter.Insertion insertion = ComposerInserter.insert(editor.getText(),
+                                editor.getSelectionStart(), editor.getSelectionEnd(), text);
+                        editor.setText(insertion.getText());
+                        editor.setCaretPosition(Math.min(insertion.getCaret(), editor.getText().length()));
+                        composer.focusEditor();
                         setDictationStatus("Transcription ready. Review the text and press Send.");
                         refreshDictationControls();
                     }
@@ -1236,15 +1176,13 @@ public final class OllamaChatPanel extends JPanel {
         }
     }
 
-    /** Chat busy state. Dictation has its own controls, so a chat stream does not free the mic. */
+    /** Switch the integrated composer between the Send and Stop states. */
     private void setBusy(boolean busy) {
         chatBusy = busy;
-        sendButton.setEnabled(!busy);
-        stopButton.setEnabled(busy);
+        composer.setChatBusy(busy);
         modelCombo.setEnabled(!busy);
-        inputArea.setEnabled(!busy);
         if (!busy) {
-            inputArea.requestFocusInWindow();
+            composer.focusEditor();
             clearChatBusyDictationHint();
         }
         refreshDictationControls();
@@ -1252,20 +1190,20 @@ public final class OllamaChatPanel extends JPanel {
 
     /** Drop a stale "busy — finish the chat" hint once the chat has finished. */
     private void clearChatBusyDictationHint() {
-        if (dictationStatus.getText() != null && dictationStatus.getText().startsWith("Busy —")
+        if (composer.getDictationStatus() != null && composer.getDictationStatus().startsWith("Busy —")
                 && dictationState.canStartRecording()) {
             setDictationStatus("Ready for dictation.");
         }
     }
 
     private void setStatus(String status) {
-        statusLabel.setText(status);
+        composer.setChatStatus(status);
     }
 
     private void setDictationStatus(String status) {
         // Track whether the "Install audio model" action should be offered.
         lastFailureNeedsModel = status != null && status.contains("No audio-capable model");
-        dictationStatus.setText(status == null ? " " : status);
+        composer.setDictationStatus(status);
     }
 
     private static String messageOf(Throwable ex) {
