@@ -113,6 +113,9 @@ public final class OllamaChatPanel extends JPanel {
     private final List<OllamaChatTurn> history = new ArrayList<OllamaChatTurn>();
     private final StringBuilder streamingAssistant = new StringBuilder();
     private OllamaService.Task chatTask;
+    // The UI's chat-busy state, decoupled from the technical chatTask handle so the dictation controls
+    // re-enable reliably the moment a chat turn ends (regardless of when chatTask is nulled).
+    private boolean chatBusy;
     private Timer elapsedTimer;
     private long requestStartedAtMillis;
 
@@ -869,7 +872,7 @@ public final class OllamaChatPanel extends JPanel {
     }
 
     private void startDictationWithReadiness() {
-        if (chatTask != null || fileBusy || micTestSession != null) {
+        if (chatBusy || fileBusy || micTestSession != null) {
             setDictationStatus("Busy — finish the chat / file transcription / mic test first.");
             return;
         }
@@ -1077,7 +1080,7 @@ public final class OllamaChatPanel extends JPanel {
     private void refreshDictationControls() {
         boolean sttEnabled = model.getSpeechToTextConfiguration().isEnabled();
         boolean idle = dictationState.canStartRecording();
-        boolean canRecord = sttEnabled && chatTask == null && !fileBusy && micTestSession == null
+        boolean canRecord = sttEnabled && !chatBusy && !fileBusy && micTestSession == null
                 && (idle || dictationState == DictationState.RECORDING || isDictationInFlight());
         recordButton.setEnabled(canRecord);
         discardButton.setEnabled(dictationState == DictationState.RECORDING || isDictationInFlight());
@@ -1088,8 +1091,8 @@ public final class OllamaChatPanel extends JPanel {
         // Offer "Install audio model" only when the last outcome was that none is available.
         installModelButton.setVisible(idle && dictationState == DictationState.FAILED
                 && lastFailureNeedsModel);
-        audioFileButton.setEnabled(sttEnabled && chatTask == null && idle && !fileBusy);
-        testMicButton.setEnabled(chatTask == null && idle && !fileBusy);
+        audioFileButton.setEnabled(sttEnabled && !chatBusy && idle && !fileBusy);
+        testMicButton.setEnabled(!chatBusy && idle && !fileBusy);
     }
 
     private boolean lastFailureNeedsModel;
@@ -1235,14 +1238,24 @@ public final class OllamaChatPanel extends JPanel {
 
     /** Chat busy state. Dictation has its own controls, so a chat stream does not free the mic. */
     private void setBusy(boolean busy) {
+        chatBusy = busy;
         sendButton.setEnabled(!busy);
         stopButton.setEnabled(busy);
         modelCombo.setEnabled(!busy);
         inputArea.setEnabled(!busy);
         if (!busy) {
             inputArea.requestFocusInWindow();
+            clearChatBusyDictationHint();
         }
         refreshDictationControls();
+    }
+
+    /** Drop a stale "busy — finish the chat" hint once the chat has finished. */
+    private void clearChatBusyDictationHint() {
+        if (dictationStatus.getText() != null && dictationStatus.getText().startsWith("Busy —")
+                && dictationState.canStartRecording()) {
+            setDictationStatus("Ready for dictation.");
+        }
     }
 
     private void setStatus(String status) {
