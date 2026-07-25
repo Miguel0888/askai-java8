@@ -294,12 +294,44 @@ public final class DefaultAskAiService implements AskAiService {
             com.aresstack.askai.java8.hf.HuggingFaceClient hf,
             com.aresstack.askai.java8.hf.HuggingFaceInstallPlan plan, File ggufFile) {
         try {
-            return new com.aresstack.askai.java8.hf.meta.HuggingFaceMetadataLoader(
-                    new com.aresstack.askai.java8.hf.meta.HuggingFaceClientMetadataGateway(hf))
-                    .load(plan, ggufFile.getName());
+            com.aresstack.askai.java8.hf.meta.HuggingFaceMetadataLoader.Result result =
+                    new com.aresstack.askai.java8.hf.meta.HuggingFaceMetadataLoader(
+                            new com.aresstack.askai.java8.hf.meta.HuggingFaceClientMetadataGateway(hf))
+                            .loadWithProvenance(plan, ggufFile.getAbsolutePath(), sha256(ggufFile), ggufFile.length());
+            // Best-effort, diagnostic-only provenance sidecar (never used for the installed display).
+            try {
+                result.provenance().writeSidecar(ggufFile);
+            } catch (Exception ignored) {
+                // provenance is optional; a write failure must not block the install
+            }
+            return result.metadata();
         } catch (RuntimeException ex) {
             return com.aresstack.askai.java8.hf.meta.OllamaCreateMetadata.ofCapabilities(
                     RemoteGgufInstaller.normalizeCapabilities(plan.getRequiredOllamaCapabilities()));
+        }
+    }
+
+    /** SHA-256 of a file as lowercase hex, or "" on any error (provenance is best-effort). */
+    private static String sha256(File file) {
+        try {
+            java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+            java.io.FileInputStream in = new java.io.FileInputStream(file);
+            try {
+                byte[] buffer = new byte[1024 * 1024];
+                int read;
+                while ((read = in.read(buffer)) >= 0) {
+                    digest.update(buffer, 0, read);
+                }
+            } finally {
+                in.close();
+            }
+            StringBuilder hex = new StringBuilder();
+            for (byte b : digest.digest()) {
+                hex.append(Character.forDigit((b >> 4) & 0xF, 16)).append(Character.forDigit(b & 0xF, 16));
+            }
+            return hex.toString();
+        } catch (Exception ex) {
+            return "";
         }
     }
 

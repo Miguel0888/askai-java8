@@ -33,7 +33,34 @@ public final class HuggingFaceMetadataLoader {
         this.gateway = gateway;
     }
 
+    /** The enriched metadata plus its provenance ledger. */
+    public static final class Result {
+        private final OllamaCreateMetadata metadata;
+        private final HuggingFaceImportProvenance provenance;
+
+        Result(OllamaCreateMetadata metadata, HuggingFaceImportProvenance provenance) {
+            this.metadata = metadata;
+            this.provenance = provenance;
+        }
+
+        public OllamaCreateMetadata metadata() {
+            return metadata;
+        }
+
+        public HuggingFaceImportProvenance provenance() {
+            return provenance;
+        }
+    }
+
     public OllamaCreateMetadata load(HuggingFaceInstallPlan plan, String fileName) {
+        return loadWithProvenance(plan, fileName, "", 0L).metadata();
+    }
+
+    /**
+     * Loads the metadata and, alongside it, the full provenance ledger (repository provenance, per-field
+     * source/confidence and a copy of what will be sent to {@code /api/create}) for the audit sidecar.
+     */
+    public Result loadWithProvenance(HuggingFaceInstallPlan plan, String fileName, String fileSha256, long fileSize) {
         String repo = plan.getRepositoryId();
         // Pin every download and metadata fetch to the same commit, so the file and its metadata match.
         String revision = plan.getPinnedRevision();
@@ -119,7 +146,90 @@ public final class HuggingFaceMetadataLoader {
         // B3: a tested per-family create profile may set renderer/parser/requires. template/system/messages
         // are intentionally not derived (GGUF template wins; HF Jinja needs a separate tested converter).
         applyCreateProfile(builder, family.best());
-        return builder.build();
+        OllamaCreateMetadata metadata = builder.build();
+
+        HuggingFaceImportProvenance provenance = buildProvenance(plan, fileName, fileSha256, fileSize, info,
+                metadata, family.best(), baseName.best(), quant.best(), parameterSize.best(),
+                contextLength.best(), embeddingLength.best(), license.best());
+        return new Result(metadata, provenance);
+    }
+
+    private HuggingFaceImportProvenance buildProvenance(HuggingFaceInstallPlan plan, String fileName,
+            String fileSha256, long fileSize, Map<String, Object> info, OllamaCreateMetadata metadata,
+            MetadataValue<String> family, MetadataValue<String> baseName, MetadataValue<String> quant,
+            MetadataValue<String> parameterSize, MetadataValue<Integer> contextLength,
+            MetadataValue<Integer> embeddingLength, MetadataValue<List<String>> license) {
+        Map<String, Object> document = new LinkedHashMap<String, Object>();
+        document.put("repositoryId", plan.getRepositoryId());
+        document.put("author", info == null ? "" : string(info, "author"));
+        document.put("requestedRevision", plan.getRevision());
+        document.put("resolvedRevisionSha", plan.getResolvedRevisionSha());
+        document.put("selectedFilePath", fileName);
+        document.put("selectedFileSize", fileSize);
+        document.put("selectedFileSha256", fileSha256 == null ? "" : fileSha256);
+        document.put("pipelineTag", info == null ? "" : string(info, "pipeline_tag"));
+        document.put("libraryName", info == null ? "" : string(info, "library_name"));
+        document.put("baseModels", info == null ? new ArrayList<Object>() : listOrEmpty(info.get("baseModels")));
+        document.put("rawTags", info == null ? new ArrayList<Object>() : listOrEmpty(info.get("tags")));
+        document.put("gated", info == null ? Boolean.FALSE : boolOf(info.get("gated")));
+        document.put("private", info == null ? Boolean.FALSE : boolOf(info.get("private")));
+
+        // Per-field source/confidence ledger for the resolved values.
+        Map<String, Object> fields = new LinkedHashMap<String, Object>();
+        putSource(fields, "model_family", family);
+        putSource(fields, "base_name", baseName);
+        putSource(fields, "quantization_level", quant);
+        putSource(fields, "parameter_size", parameterSize);
+        putSource(fields, "context_length", contextLength);
+        putSource(fields, "embedding_length", embeddingLength);
+        putSource(fields, "license", license);
+        document.put("fields", fields);
+
+        // A copy of exactly what will be sent to /api/create (never used for the installed display).
+        Map<String, Object> sent = new LinkedHashMap<String, Object>(metadata.toInfoMap());
+        if (!metadata.licenses().isEmpty()) {
+            sent.put("license", metadata.licenses());
+        }
+        if (!metadata.parameters().isEmpty()) {
+            sent.put("parameters", metadata.parameters());
+        }
+        putIfPresent(sent, "renderer", metadata.renderer());
+        putIfPresent(sent, "parser", metadata.parser());
+        putIfPresent(sent, "requires", metadata.requires());
+        putIfPresent(sent, "template", metadata.template());
+        putIfPresent(sent, "system", metadata.system());
+        document.put("sentCreateMetadata", sent);
+
+        return new HuggingFaceImportProvenance(document);
+    }
+
+    private static void putSource(Map<String, Object> fields, String key, MetadataValue<?> value) {
+        if (value == null || value.value() == null) {
+            return;
+        }
+        Map<String, Object> record = new LinkedHashMap<String, Object>();
+        record.put("value", String.valueOf(value.value()));
+        record.put("source", value.source().name());
+        record.put("confidence", value.confidence().name());
+        fields.put(key, record);
+    }
+
+    private static void putIfPresent(Map<String, Object> map, String key, String value) {
+        if (value != null && value.length() > 0) {
+            map.put(key, value);
+        }
+    }
+
+    private static java.util.List<Object> listOrEmpty(Object value) {
+        return value instanceof java.util.List ? new ArrayList<Object>((java.util.List<?>) value)
+                : new ArrayList<Object>();
+    }
+
+    private static Boolean boolOf(Object value) {
+        if (value instanceof Boolean) {
+            return (Boolean) value;
+        }
+        return Boolean.valueOf("true".equalsIgnoreCase(String.valueOf(value)));
     }
 
     private static void applyCreateProfile(OllamaCreateMetadata.Builder builder, MetadataValue<String> family) {

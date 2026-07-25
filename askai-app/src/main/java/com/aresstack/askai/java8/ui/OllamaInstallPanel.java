@@ -1768,6 +1768,7 @@ public final class OllamaInstallPanel extends JPanel {
         targets.add(mainFile);
         targets.add(new File(mainFile.getParentFile(), mainFile.getName() + ".part"));
         targets.add(HuggingFaceInstallPlan.sidecarFile(mainFile));
+        targets.add(com.aresstack.askai.java8.hf.meta.HuggingFaceImportProvenance.sidecarFile(mainFile));
         if (companions != null) {
             for (File companion : companions) {
                 targets.add(companion);
