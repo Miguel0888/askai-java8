@@ -14,13 +14,69 @@ import java.util.Set;
  */
 public enum ModelCapability {
 
-    TEXT,
-    VISION,
-    AUDIO,
-    TOOLS,
-    THINKING,
-    EMBEDDING,
-    CLOUD;
+    TEXT("Text", "Accepts text input", "completion"),
+    VISION("Vision", "Accepts image input", "vision"),
+    AUDIO("Audio", "Accepts audio input", "audio"),
+    TOOLS("Tools", "Supports tool calls", "tools"),
+    THINKING("Thinking", "Supports reasoning output", "thinking"),
+    EMBEDDING("Embedding", "Creates vector embeddings", "embedding"),
+    CLOUD("Cloud", "Remote Ollama model", "");
+
+    private final String displayName;
+    private final String description;
+    private final String ollamaTag;
+
+    ModelCapability(String displayName, String description, String ollamaTag) {
+        this.displayName = displayName;
+        this.description = description;
+        this.ollamaTag = ollamaTag;
+    }
+
+    public String getDisplayName() {
+        return displayName;
+    }
+
+    public String getDescription() {
+        return description;
+    }
+
+    /** @return the canonical {@code /api/show} capability tag this maps to, or "" when not local (CLOUD). */
+    public String getOllamaCapabilityTag() {
+        return ollamaTag;
+    }
+
+    /** @return "Text — accepts text input" style one-liner for tooltips. */
+    public String tooltipLine() {
+        return displayName + " — " + Character.toLowerCase(description.charAt(0)) + description.substring(1);
+    }
+
+    /** @return an HTML tooltip listing each present capability with its description (shared by the UIs). */
+    public static String tooltipHtml(Set<ModelCapability> capabilities) {
+        StringBuilder builder = new StringBuilder("<html>Model capabilities:");
+        for (ModelCapability capability : values()) {
+            if (capabilities != null && capabilities.contains(capability)) {
+                builder.append("<br>").append(capability.tooltipLine());
+            }
+        }
+        return builder.append("</html>").toString();
+    }
+
+    /**
+     * @return the canonical Ollama capability tags a set of capabilities must yield after install
+     *         (CLOUD dropped: it is not a locally installable capability), in enum order.
+     */
+    public static java.util.List<String> requiredOllamaTags(Set<ModelCapability> capabilities) {
+        java.util.List<String> tags = new java.util.ArrayList<String>();
+        if (capabilities == null) {
+            return tags;
+        }
+        for (ModelCapability capability : values()) {
+            if (capabilities.contains(capability) && capability.ollamaTag.length() > 0) {
+                tags.add(capability.ollamaTag);
+            }
+        }
+        return tags;
+    }
 
     /** @return the capability for an ollama.com tag (vision/tools/thinking/embedding/cloud/...), or null. */
     public static ModelCapability fromOllamaTag(String tag) {

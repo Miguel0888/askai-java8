@@ -1,0 +1,45 @@
+package com.aresstack.askai.java8.ui;
+
+import org.junit.Test;
+
+import java.util.Arrays;
+import java.util.EnumSet;
+import java.util.List;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+
+/** Canonical HF-capability → Ollama-tag mapping (the install contract) and tooltip text. */
+public class ModelCapabilityTest {
+
+    @Test
+    public void textAudioMapToCompletionAudio() {
+        List<String> tags = ModelCapability.requiredOllamaTags(
+                EnumSet.of(ModelCapability.TEXT, ModelCapability.AUDIO));
+        assertEquals(Arrays.asList("completion", "audio"), tags);
+    }
+
+    @Test
+    public void textVisionMapToCompletionVision() {
+        List<String> tags = ModelCapability.requiredOllamaTags(
+                EnumSet.of(ModelCapability.TEXT, ModelCapability.VISION));
+        assertEquals(Arrays.asList("completion", "vision"), tags);
+    }
+
+    @Test
+    public void cloudHasNoLocalTagAndIsDropped() {
+        assertEquals("", ModelCapability.CLOUD.getOllamaCapabilityTag());
+        assertTrue(ModelCapability.requiredOllamaTags(EnumSet.of(ModelCapability.CLOUD)).isEmpty());
+    }
+
+    @Test
+    public void perCapabilityTags() {
+        assertEquals("completion", ModelCapability.TEXT.getOllamaCapabilityTag());
+        assertEquals("audio", ModelCapability.AUDIO.getOllamaCapabilityTag());
+        assertEquals("vision", ModelCapability.VISION.getOllamaCapabilityTag());
+        assertEquals("tools", ModelCapability.TOOLS.getOllamaCapabilityTag());
+        assertEquals("thinking", ModelCapability.THINKING.getOllamaCapabilityTag());
+        assertEquals("embedding", ModelCapability.EMBEDDING.getOllamaCapabilityTag());
+    }
+
+}

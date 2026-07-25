@@ -5,6 +5,7 @@ import com.aresstack.askai.java8.config.AppConfigurationRepository;
 import com.aresstack.askai.java8.config.HuggingFaceSearchSuggestion;
 import com.aresstack.askai.java8.hf.GgufFile;
 import com.aresstack.askai.java8.hf.HuggingFaceFile;
+import com.aresstack.askai.java8.hf.HuggingFaceInstallPlan;
 import com.aresstack.askai.java8.hf.HuggingFaceModel;
 import com.aresstack.askai.java8.hf.HuggingFaceSearchResult;
 import com.aresstack.askai.java8.hf.ModelSearchCriteria;
@@ -1442,11 +1443,18 @@ public final class OllamaInstallPanel extends JPanel {
             companions.add(mmproj);
             append("Including audio/vision encoder: " + mmproj.getName());
         }
+        // The capabilities Hugging Face declared for this model are the installation contract: map them
+        // to canonical Ollama tags and require /api/show to confirm them after create.
+        final List<String> requiredCapabilities = resolveRequiredCapabilities(lastDownloadedFile, modelName);
+        if (!requiredCapabilities.isEmpty()) {
+            append("Hugging Face declares: " + join(requiredCapabilities)
+                    + " — will verify against /api/show after install.");
+        }
         append("Installing " + lastDownloadedFile.getAbsolutePath() + " as " + modelName + ".");
         showProgress(0, "Installing");
         setInstallInProgress(true);
         installTask = askAiService.installGgufFileWithCompanions(modelName, lastDownloadedFile, companions,
-                new AskAiService.InstallListener() {
+                requiredCapabilities, new AskAiService.InstallListener() {
             public void onProgress(final String phase, final long completed, final long total) {
                 onUi(new Runnable() {
                     public void run() {
@@ -1458,16 +1466,7 @@ public final class OllamaInstallPanel extends JPanel {
             public void onVerified(final VerificationResult result) {
                 onUi(new Runnable() {
                     public void run() {
-                        // Only /api/show describes the installed model; the search-side modality hints
-                        // are never copied onto it.
-                        if (result.getStatus() == VerificationStatus.UNKNOWN) {
-                            append("Note: Ollama reported no capabilities for " + result.getModelName()
-                                    + " (older server?). Audio/vision stay off until /api/show confirms them.");
-                        } else if (result.getStatus() == VerificationStatus.FAILED) {
-                            append("Note: could not verify capabilities via /api/show: " + result.getErrorMessage());
-                        } else {
-                            append("Verified capabilities (from /api/show): " + result.describeReported() + ".");
-                        }
+                        reportVerification(result, requiredCapabilities);
                     }
                 });
             }
@@ -1497,6 +1496,67 @@ public final class OllamaInstallPanel extends JPanel {
                 });
             }
         });
+    }
+
+    /**
+     * @return the canonical Ollama capability tags the install must reproduce, from the persisted
+     *         sidecar if present, else derived from the currently selected Hugging Face model (and then
+     *         persisted as a sidecar). Empty for a plain manual GGUF import with no declared capabilities.
+     */
+    private List<String> resolveRequiredCapabilities(File modelFile, String modelName) {
+        HuggingFaceInstallPlan sidecar = HuggingFaceInstallPlan.readSidecar(modelFile);
+        if (sidecar != null) {
+            return sidecar.getRequiredOllamaCapabilities();
+        }
+        if (currentModel == null) {
+            return Collections.emptyList();
+        }
+        java.util.Set<ModelCapability> declared = HuggingFaceModelClassifier.modalitiesOf(currentModel);
+        List<String> required = ModelCapability.requiredOllamaTags(declared);
+        List<String> declaredNames = new ArrayList<String>();
+        for (ModelCapability capability : declared) {
+            declaredNames.add(capability.name());
+        }
+        // Persist the contract so a later install from "Downloaded files" keeps repo + capabilities.
+        new HuggingFaceInstallPlan(currentModel.getId(), "main", modelName, declaredNames, required)
+                .writeSidecar(modelFile);
+        return required;
+    }
+
+    /** Reports the /api/show verification: VERIFIED, INSTALLED_BUT_INCOMPLETE or an unverifiable note. */
+    private void reportVerification(VerificationResult result, List<String> required) {
+        if (result.getStatus() == VerificationStatus.FAILED) {
+            append("Note: could not verify capabilities via /api/show: " + result.getErrorMessage());
+            return;
+        }
+        if (result.getStatus() == VerificationStatus.UNKNOWN) {
+            append("Note: Ollama reported no capabilities (older server?)."
+                    + (required.isEmpty() ? "" : " Cannot confirm the declared capabilities " + join(required) + "."));
+            return;
+        }
+        if (required.isEmpty()) {
+            append("Verified capabilities (from /api/show): " + result.describeReported() + ".");
+            return;
+        }
+        if (result.getMissingRequired().isEmpty()) {
+            append("VERIFIED: Hugging Face capabilities reproduced (/api/show: " + result.describeReported() + ").");
+        } else {
+            append("INSTALLED_BUT_INCOMPLETE: /api/show did not report " + join(result.getMissingRequired())
+                    + " declared by Hugging Face (reported: " + result.describeReported() + "). The model is "
+                    + "installed, but this capability was not reproduced — the repository may not ship the "
+                    + "required encoder/template, or the base model does not support it.");
+        }
+    }
+
+    private static String join(List<String> values) {
+        StringBuilder builder = new StringBuilder();
+        for (int i = 0; i < values.size(); i++) {
+            if (i > 0) {
+                builder.append(", ");
+            }
+            builder.append(values.get(i));
+        }
+        return builder.toString();
     }
 
     /** Cancel a running install; the service aborts the upload/create. */
