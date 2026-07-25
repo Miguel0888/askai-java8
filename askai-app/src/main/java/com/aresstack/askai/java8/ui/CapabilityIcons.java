@@ -28,6 +28,8 @@ final class CapabilityIcons {
     private static final Color TOOLS_COLOR = new Color(0x6D, 0x4C, 0x41);
     private static final Color THINKING_COLOR = new Color(0x8E, 0x24, 0xAA);
     private static final Color EMBEDDING_COLOR = new Color(0xEF, 0x6C, 0x00);
+    private static final Color IMAGE_COLOR = new Color(0xAD, 0x14, 0x57);
+    private static final Color INSERT_COLOR = new Color(0x00, 0x83, 0x8F);
     private static final Color CLOUD_COLOR = new Color(0x54, 0x6E, 0x7A);
 
     private CapabilityIcons() {
@@ -103,8 +105,10 @@ final class CapabilityIcons {
                 case TEXT: paintText(g, x, y); break;
                 case VISION: paintVision(g, x, y); break;
                 case AUDIO: paintAudio(g, x, y); break;
+                case IMAGE: paintImage(g, x, y); break;
                 case TOOLS: paintTools(g, x, y); break;
                 case THINKING: paintThinking(g, x, y); break;
+                case INSERT: paintInsert(g, x, y); break;
                 case EMBEDDING: paintEmbedding(g, x, y); break;
                 case CLOUD: paintCloud(g, x, y); break;
                 default: break;
@@ -173,6 +177,30 @@ final class CapabilityIcons {
             g.fillOval(x + 12, y + 2, 3, 3);
             g.setStroke(new BasicStroke(1.3f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
             g.drawLine(x + 3, y + 11, x + 13, y + 3);
+        }
+
+        /** Image generation: a picture frame with a small sun and a mountain (image output). */
+        private void paintImage(Graphics2D g, int x, int y) {
+            g.setColor(IMAGE_COLOR);
+            g.setStroke(new BasicStroke(1.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            g.drawRoundRect(x + 2, y + 3, 11, 10, 3, 3);
+            g.fillOval(x + 4, y + 5, 2, 2);
+            int[] xs = {x + 4, x + 7, x + 11};
+            int[] ys = {y + 11, y + 8, y + 11};
+            g.drawPolyline(xs, ys, 3);
+        }
+
+        /** Insert / fill-in-the-middle: two brackets with a caret between them. */
+        private void paintInsert(Graphics2D g, int x, int y) {
+            g.setColor(INSERT_COLOR);
+            g.setStroke(new BasicStroke(1.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            g.drawLine(x + 4, y + 3, x + 2, y + 3);
+            g.drawLine(x + 2, y + 3, x + 2, y + 13);
+            g.drawLine(x + 2, y + 13, x + 4, y + 13);
+            g.drawLine(x + 11, y + 3, x + 13, y + 3);
+            g.drawLine(x + 13, y + 3, x + 13, y + 13);
+            g.drawLine(x + 13, y + 13, x + 11, y + 13);
+            g.fillRect(x + 7, y + 5, 2, 6);
         }
 
         /** Cloud: a rounded cloud outline. */

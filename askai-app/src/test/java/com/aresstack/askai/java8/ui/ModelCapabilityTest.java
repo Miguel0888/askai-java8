@@ -50,6 +50,27 @@ public class ModelCapabilityTest {
     }
 
     @Test
+    public void insertAndImageAreFullyMapped() {
+        assertEquals(ModelCapability.INSERT, ModelCapability.fromOllamaTag("insert"));
+        assertEquals(ModelCapability.IMAGE, ModelCapability.fromOllamaTag("image"));
+        assertEquals("insert", ModelCapability.INSERT.getOllamaCapabilityTag());
+        assertEquals("image", ModelCapability.IMAGE.getOllamaCapabilityTag());
+        // Both survive requiredOllamaTags and the installer normalizer.
+        assertEquals(Arrays.asList("insert"), ModelCapability.requiredOllamaTags(
+                java.util.EnumSet.of(ModelCapability.INSERT)));
+        assertEquals(Arrays.asList("image"),
+                com.aresstack.askai.java8.service.RemoteGgufInstaller.normalizeCapabilities(
+                        Arrays.asList("image")));
+    }
+
+    @Test
+    public void cloudIsNeverSentToApiCreate() {
+        assertEquals("", ModelCapability.CLOUD.getOllamaCapabilityTag());
+        assertTrue(com.aresstack.askai.java8.service.RemoteGgufInstaller.normalizeCapabilities(
+                Arrays.asList("cloud")).isEmpty());
+    }
+
+    @Test
     public void duplicatesAreRemovedFromRequiredTags() {
         List<String> tags = ModelCapability.requiredOllamaTags(
                 EnumSet.of(ModelCapability.TEXT, ModelCapability.AUDIO));

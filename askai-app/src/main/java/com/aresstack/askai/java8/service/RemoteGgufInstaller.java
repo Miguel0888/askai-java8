@@ -53,7 +53,7 @@ public final class RemoteGgufInstaller {
     /** The capability tags Ollama understands on {@code /api/create.info.capabilities}. */
     private static final java.util.Set<String> OLLAMA_CAPABILITY_TAGS =
             new java.util.LinkedHashSet<String>(java.util.Arrays.asList(
-                    "completion", "vision", "audio", "tools", "thinking", "embedding"));
+                    "completion", "vision", "audio", "image", "tools", "thinking", "insert", "embedding"));
 
     public void install(String modelName, File file, ProgressListener listener) throws Exception {
         install(modelName, file, java.util.Collections.<File>emptyList(),

@@ -17,8 +17,10 @@ public enum ModelCapability {
     TEXT("Text", "Accepts text input", "completion"),
     VISION("Vision", "Accepts image input", "vision"),
     AUDIO("Audio", "Accepts audio input", "audio"),
+    IMAGE("Image generation", "Generates images", "image"),
     TOOLS("Tools", "Supports tool calls", "tools"),
     THINKING("Thinking", "Supports reasoning output", "thinking"),
+    INSERT("Insert", "Supports fill-in-the-middle completion", "insert"),
     EMBEDDING("Embedding", "Creates vector embeddings", "embedding"),
     CLOUD("Cloud", "Remote Ollama model", "");
 
@@ -95,6 +97,12 @@ public enum ModelCapability {
         }
         if (value.equals("embedding")) {
             return EMBEDDING;
+        }
+        if (value.equals("insert")) {
+            return INSERT;
+        }
+        if (value.equals("image")) {
+            return IMAGE;
         }
         if (value.equals("cloud")) {
             return CLOUD;
