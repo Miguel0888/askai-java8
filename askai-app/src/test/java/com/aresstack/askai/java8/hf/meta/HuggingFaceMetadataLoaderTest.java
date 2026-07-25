@@ -11,6 +11,7 @@ import java.util.Map;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 /** Maps trusted HF metadata into /api/create, with source/confidence conflict resolution. */
 public class HuggingFaceMetadataLoaderTest {
@@ -65,6 +66,62 @@ public class HuggingFaceMetadataLoaderTest {
         gw.files.put("generation_config.json", "{\"stop_strings\":\"<|end|>\"}");
         Map<String, Object> parameters = new HuggingFaceMetadataLoader(gw).load(plan(""), "m.gguf").parameters();
         assertEquals(Collections.singletonList("<|end|>"), parameters.get("stop"));
+    }
+
+    @Test
+    public void embeddingCapabilityDerivedFromPipelineTag() {
+        FakeGateway gw = new FakeGateway();
+        Map<String, Object> info = new LinkedHashMap<String, Object>();
+        info.put("pipeline_tag", "feature-extraction");
+        gw.modelInfo = info;
+
+        OllamaCreateMetadata metadata = new HuggingFaceMetadataLoader(gw).load(plan(""), "m.gguf");
+        assertTrue(metadata.capabilities().contains("embedding"));
+    }
+
+    @Test
+    public void toolsAndThinkingDerivedFromChatTemplate() {
+        FakeGateway gw = new FakeGateway();
+        gw.files.put("tokenizer_config.json",
+                "{\"chat_template\":\"{% for m in messages %}{{ m.content }}{% endfor %}"
+                        + "{% if tool_calls %}<think>{{ reasoning_content }}</think>{% endif %}\"}");
+
+        OllamaCreateMetadata metadata = new HuggingFaceMetadataLoader(gw).load(plan(""), "m.gguf");
+        assertTrue(metadata.capabilities().contains("tools"));
+        assertTrue(metadata.capabilities().contains("thinking"));
+        // The raw HF Jinja is never sent as Ollama's template.
+        assertEquals("", metadata.template());
+    }
+
+    @Test
+    public void insertCapabilityDerivedFromFimTokens() {
+        FakeGateway gw = new FakeGateway();
+        gw.files.put("tokenizer_config.json",
+                "{\"added_tokens_decoder\":{\"1\":{\"content\":\"<|fim_prefix|>\"}}}");
+
+        OllamaCreateMetadata metadata = new HuggingFaceMetadataLoader(gw).load(plan(""), "m.gguf");
+        assertTrue(metadata.capabilities().contains("insert"));
+    }
+
+    @Test
+    public void chatTemplateAsListVariantsIsDetected() {
+        FakeGateway gw = new FakeGateway();
+        gw.files.put("tokenizer_config.json",
+                "{\"chat_template\":[{\"name\":\"default\",\"template\":\"{{ messages }}\"},"
+                        + "{\"name\":\"tool_use\",\"template\":\"{{ tool_calls }}\"}]}");
+
+        OllamaCreateMetadata metadata = new HuggingFaceMetadataLoader(gw).load(plan(""), "m.gguf");
+        assertTrue(metadata.capabilities().contains("tools"));
+    }
+
+    @Test
+    public void plainChatModelGetsNoExtraCapabilities() {
+        FakeGateway gw = new FakeGateway();
+        gw.files.put("tokenizer_config.json",
+                "{\"chat_template\":\"{% for m in messages %}{{ m.role }}: {{ m.content }}{% endfor %}\"}");
+
+        OllamaCreateMetadata metadata = new HuggingFaceMetadataLoader(gw).load(plan(""), "m.gguf");
+        assertEquals(Arrays.asList("completion"), metadata.capabilities());
     }
 
     @Test
