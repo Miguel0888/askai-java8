@@ -11,10 +11,17 @@ import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Swing-free coordinator for a single dictation: open microphone → record → stop → finalize →
- * normalize → check quality → verify audio model → upload → transcribe → return text (or a structured
- * failure). Owns the {@link DictationState}, guarantees exactly one terminal callback per operation,
- * and keeps the temporary recording after a failure so it can be retried or saved. All work runs on an
- * injected {@link Executor} (a synchronous one in tests), so the flow is deterministically testable.
+ * normalize → check quality → verify audio model → transcribe → return text (or a structured failure).
+ * Owns the {@link DictationState}, guarantees exactly one terminal callback per operation, keeps the
+ * temporary recording after a failure so it can be retried or saved, and honours cancellation between
+ * every step (not only during the HTTP call). All work runs on an injected {@link Executor} (a
+ * synchronous one in tests), so the flow is deterministically testable.
+ *
+ * <p>Operations are tagged with a monotonic generation id: a late result from a cancelled or superseded
+ * operation is dropped instead of being delivered. Retry/Save availability is exposed through
+ * {@link #hasRetryableRecording()} / {@link #hasSavableRecording()} — the UI must use those rather than
+ * inferring from a state/error flag, because a finalize failure or a cancel-while-recording leaves no
+ * usable file.</p>
  */
 public final class SpeechDictationService {
 
@@ -39,6 +46,7 @@ public final class SpeechDictationService {
     private String requestedModel = "";
     private String language = "";
     private String prompt = "";
+    private long generation;
     private boolean terminalDelivered;
     private boolean cancelRequested;
 
@@ -66,33 +74,49 @@ public final class SpeechDictationService {
         return session == null ? null : session.getMeter();
     }
 
+    /** @return true when a normalized recording exists that a Retry can re-transcribe. */
+    public synchronized boolean hasRetryableRecording() {
+        return lastNormalized != null && lastNormalized.isFile();
+    }
+
+    /** @return true when a raw recording file exists that the user can Save. */
+    public synchronized boolean hasSavableRecording() {
+        return lastRaw != null && lastRaw.getFile() != null && lastRaw.getFile().isFile();
+    }
+
     // ------------------------------------------------------------------ user actions
 
     /** Begin a recording from {@code deviceName} (empty = system default). */
     public void startRecording(final String deviceName) {
+        final long op;
         synchronized (this) {
             if (!state.canStartRecording()) {
                 return;
             }
-            beginOperation();
+            op = beginOperation();
             deleteTempsLocked(); // a fresh recording supersedes any kept one
-            transition(DictationState.OPENING_MICROPHONE, null);
+            transition(op, DictationState.OPENING_MICROPHONE);
         }
         executor.execute(new Runnable() {
             public void run() {
+                MicrophoneRecorder.Session opened;
                 try {
-                    MicrophoneRecorder.Session opened = recorder.start(deviceName, workingDirectory);
-                    synchronized (SpeechDictationService.this) {
-                        if (cancelRequested) {
-                            opened.discard();
-                            transition(DictationState.IDLE, null);
-                            return;
-                        }
-                        session = opened;
-                        transition(DictationState.RECORDING, null);
-                    }
+                    opened = recorder.start(deviceName, workingDirectory);
                 } catch (Exception ex) {
-                    fail(DictationErrorKind.MICROPHONE_OPEN_FAILED, message(ex));
+                    fail(op, DictationErrorKind.MICROPHONE_OPEN_FAILED, message(ex));
+                    return;
+                }
+                boolean discard;
+                synchronized (SpeechDictationService.this) {
+                    discard = cancelRequested || op != generation;
+                    if (!discard) {
+                        session = opened;
+                        transition(op, DictationState.RECORDING);
+                    }
+                }
+                if (discard) {
+                    opened.discard();
+                    deliverCancelled(op);
                 }
             }
         });
@@ -101,6 +125,7 @@ public final class SpeechDictationService {
     /** Stop the recording and run the full transcription flow for the given model/language/prompt. */
     public void stopAndTranscribe(String requestedModel, String language, String prompt) {
         final MicrophoneRecorder.Session active;
+        final long op;
         synchronized (this) {
             if (state != DictationState.RECORDING || session == null) {
                 return;
@@ -110,7 +135,8 @@ public final class SpeechDictationService {
             this.prompt = prompt == null ? "" : prompt;
             active = session;
             session = null;
-            transition(DictationState.FINALIZING_RECORDING, null);
+            op = generation;
+            transition(op, DictationState.FINALIZING_RECORDING);
         }
         executor.execute(new Runnable() {
             public void run() {
@@ -118,31 +144,36 @@ public final class SpeechDictationService {
                 try {
                     raw = active.stop();
                 } catch (Exception ex) {
-                    fail(DictationErrorKind.FINALIZE_FAILED, message(ex));
+                    // The recorder cleans up its own temp on finalize failure; nothing usable remains.
+                    fail(op, DictationErrorKind.FINALIZE_FAILED, message(ex));
                     return;
                 }
                 synchronized (SpeechDictationService.this) {
                     lastRaw = raw;
                 }
-                if (!normalizeAndCheckQuality(raw)) {
+                if (abortIfCancelled(op)) {
                     return;
                 }
-                transcribeNormalized();
+                if (!normalizeAndCheckQuality(op, raw)) {
+                    return;
+                }
+                transcribeNormalized(op);
             }
         });
     }
 
     /** Re-run the transcription using the same (already recorded and normalized) audio. */
     public void retryTranscription() {
+        final long op;
         synchronized (this) {
             if (lastNormalized == null || !lastNormalized.isFile()) {
                 return;
             }
-            beginOperation();
+            op = beginOperation();
         }
         executor.execute(new Runnable() {
             public void run() {
-                transcribeNormalized();
+                transcribeNormalized(op);
             }
         });
     }
@@ -150,8 +181,10 @@ public final class SpeechDictationService {
     /** Cancel the current recording or transcription; a kept recording survives for retry. */
     public void cancel() {
         MicrophoneRecorder.Session toDiscard = null;
+        final long op;
         synchronized (this) {
             cancelRequested = true;
+            op = generation;
             if (state == DictationState.RECORDING && session != null) {
                 toDiscard = session;
                 session = null;
@@ -164,9 +197,10 @@ public final class SpeechDictationService {
                     s.discard();
                 }
             });
-            deliverCancelled();
+            deliverCancelled(op);
         } else {
-            // Transcription in flight: abort it; the transcribe call will surface CANCELLED.
+            // Transcription may be in flight: abort it. The worker's per-step cancel checks (and the
+            // transcribe call surfacing CANCELLED) deliver the terminal CANCELLED.
             transcriber.cancel();
         }
     }
@@ -176,6 +210,8 @@ public final class SpeechDictationService {
         MicrophoneRecorder.Session toDiscard = null;
         synchronized (this) {
             cancelRequested = true;
+            generation++; // supersede any in-flight worker
+            terminalDelivered = true;
             if (session != null) {
                 toDiscard = session;
                 session = null;
@@ -183,7 +219,7 @@ public final class SpeechDictationService {
             deleteTempsLocked();
             state = DictationState.IDLE;
         }
-        emitState(DictationState.IDLE, null);
+        emitState(DictationState.IDLE);
         if (toDiscard != null) {
             final MicrophoneRecorder.Session s = toDiscard;
             executor.execute(new Runnable() {
@@ -194,51 +230,56 @@ public final class SpeechDictationService {
         }
     }
 
-    /** Copy the raw recording to {@code destination} for the user (Save recording); keeps the temp. */
+    /** @return the raw recording file for Save recording, or {@code null} when none exists. */
     public synchronized File savedRecordingSource() {
-        return lastRaw == null ? null : lastRaw.getFile();
+        return hasSavableRecording() ? lastRaw.getFile() : null;
     }
 
     // ------------------------------------------------------------------ flow steps
 
-    private boolean normalizeAndCheckQuality(RawRecording raw) {
+    private boolean normalizeAndCheckQuality(long op, RawRecording raw) {
         File target = new File(workingDirectory,
                 "askai-speech-norm-" + System.nanoTime() + "-" + tempCounter.incrementAndGet() + ".wav");
         NormalizationResult norm;
         try {
             norm = normalizer.normalize(raw.getFile(), target);
         } catch (Exception ex) {
-            fail(DictationErrorKind.NORMALIZE_FAILED, message(ex));
+            fail(op, DictationErrorKind.NORMALIZE_FAILED, message(ex));
             return false;
         }
         synchronized (this) {
             lastNormalized = target;
             lastNormalization = norm;
         }
+        if (abortIfCancelled(op)) {
+            return false;
+        }
         RecordingQuality quality = qualityAnalyzer.analyze(norm.getDurationMillis(), norm.getOverallRms(),
                 norm.getPeak(), norm.getClippedSamples(), norm.getTotalSamples(), raw.getDroppedFrames());
         if (quality == RecordingQuality.TOO_SHORT) {
-            fail(DictationErrorKind.QUALITY_TOO_SHORT, "Recording too short.");
+            fail(op, DictationErrorKind.QUALITY_TOO_SHORT, "Recording too short.");
             return false;
         }
         if (quality == RecordingQuality.NO_SIGNAL) {
-            fail(DictationErrorKind.QUALITY_NO_SIGNAL, "No speech signal detected.");
+            fail(op, DictationErrorKind.QUALITY_NO_SIGNAL, "No speech signal detected.");
             return false;
         }
         return true; // VALID / CLIPPED / DROPPED_FRAMES may proceed (clipping is a warning)
     }
 
-    private void transcribeNormalized() {
-        transition(DictationState.VERIFYING_MODEL, null);
+    private void transcribeNormalized(long op) {
+        transition(op, DictationState.VERIFYING_MODEL);
         AudioModelResolver.AudioModelResolution resolution = modelResolver.resolve(requestedModel);
+        if (abortIfCancelled(op)) {
+            return;
+        }
         if (!resolution.isResolved()) {
-            fail(mapResolution(resolution.getStatus()), "Audio model not confirmed: " + resolution.getStatus());
+            fail(op, mapResolution(resolution.getStatus()), "Audio model not confirmed: " + resolution.getStatus());
             return;
         }
         String model = resolution.getModelName();
 
-        transition(DictationState.UPLOADING_AUDIO, null);
-        transition(DictationState.TRANSCRIBING, null);
+        transition(op, DictationState.TRANSCRIBING);
         long startedAt = System.currentTimeMillis();
         String text;
         try {
@@ -246,21 +287,25 @@ public final class SpeechDictationService {
                     lastNormalized, model, language, prompt));
         } catch (SpeechTranscriber.SpeechTranscriberException ex) {
             if (ex.getKind() == DictationErrorKind.CANCELLED) {
-                deliverCancelled();
+                deliverCancelled(op);
             } else {
-                fail(ex.getKind(), message(ex));
+                fail(op, ex.getKind(), message(ex));
             }
             return;
         }
+        // A cancel that raced past the (already returned) HTTP call must still win: never insert text.
+        if (abortIfCancelled(op)) {
+            return;
+        }
         if (text == null || text.trim().isEmpty()) {
-            fail(DictationErrorKind.TRANSCRIPTION_EMPTY, "The model returned an empty transcription.");
+            fail(op, DictationErrorKind.TRANSCRIPTION_EMPTY, "The model returned an empty transcription.");
             return;
         }
         long transcriptionMillis = System.currentTimeMillis() - startedAt;
         DictationDiagnostics diagnostics = buildDiagnostics(model, resolution.getCapabilityStatus(),
                 transcriber.lastHttpStatus(), transcriptionMillis);
         deleteTemps();
-        succeed(new DictationResult(text, diagnostics));
+        succeed(op, new DictationResult(text, model, diagnostics));
     }
 
     private DictationDiagnostics buildDiagnostics(String model, String capabilityStatus,
@@ -310,28 +355,41 @@ public final class SpeechDictationService {
         }
     }
 
-    // ------------------------------------------------------------------ terminal transitions
+    // ------------------------------------------------------------------ terminal transitions (generation-guarded)
 
-    private void beginOperation() {
+    private synchronized long beginOperation() {
+        generation++;
         terminalDelivered = false;
         cancelRequested = false;
+        return generation;
     }
 
-    private void succeed(DictationResult result) {
+    /** @return true (and delivers CANCELLED) when a cancel was requested for the current operation. */
+    private boolean abortIfCancelled(long op) {
         synchronized (this) {
-            if (terminalDelivered) {
+            if (!cancelRequested || op != generation) {
+                return op != generation; // a superseded op stops silently; the current one may proceed
+            }
+        }
+        deliverCancelled(op);
+        return true;
+    }
+
+    private void succeed(long op, DictationResult result) {
+        synchronized (this) {
+            if (op != generation || terminalDelivered) {
                 return;
             }
             terminalDelivered = true;
             state = DictationState.TRANSCRIPTION_READY;
         }
-        emitState(DictationState.TRANSCRIPTION_READY, null);
+        emitState(DictationState.TRANSCRIPTION_READY);
         listener.onResult(result);
     }
 
-    private void fail(DictationErrorKind kind, String detail) {
+    private void fail(long op, DictationErrorKind kind, String detail) {
         synchronized (this) {
-            if (terminalDelivered) {
+            if (op != generation || terminalDelivered) {
                 return;
             }
             terminalDelivered = true;
@@ -340,31 +398,34 @@ public final class SpeechDictationService {
                 deleteTempsLocked();
             }
         }
-        emitState(DictationState.FAILED, null);
+        emitState(DictationState.FAILED);
         listener.onFailure(new DictationFailure(kind, detail));
     }
 
-    private void deliverCancelled() {
+    private void deliverCancelled(long op) {
         synchronized (this) {
-            if (terminalDelivered) {
+            if (op != generation || terminalDelivered) {
                 return;
             }
             terminalDelivered = true;
             state = DictationState.CANCELLED;
         }
-        emitState(DictationState.CANCELLED, null);
+        emitState(DictationState.CANCELLED);
         listener.onFailure(new DictationFailure(DictationErrorKind.CANCELLED, "Cancelled."));
     }
 
-    private void transition(DictationState next, String message) {
+    private void transition(long op, DictationState next) {
         synchronized (this) {
+            if (op != generation || terminalDelivered) {
+                return;
+            }
             state = next;
         }
-        emitState(next, message);
+        emitState(next);
     }
 
-    private void emitState(DictationState next, String message) {
-        listener.onState(next, message);
+    private void emitState(DictationState next) {
+        listener.onState(next, null);
     }
 
     // ------------------------------------------------------------------ temp handling

@@ -11,7 +11,11 @@ import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -199,6 +203,120 @@ public class SpeechDictationServiceTest {
         assertTrue(recorder.discarded);
     }
 
+    // ------------------------------------------------------------------ cancel races
+
+    @Test
+    public void cancelRacingWithReturnedResultDoesNotInsert() {
+        // The transcription "returns" successfully, but a cancel arrives at the same instant: the guard
+        // after transcribe must win so the (already fetched) text is never inserted.
+        final SpeechDictationService[] holder = new SpeechDictationService[1];
+        SpeechTranscriber racing = new SpeechTranscriber() {
+            public String transcribe(TranscriptionInput input) {
+                holder[0].cancel();     // cancel races in just as the result is ready
+                return "late text";
+            }
+
+            public void cancel() {
+            }
+
+            public int lastHttpStatus() {
+                return 200;
+            }
+        };
+        SpeechDictationService service = new SpeechDictationService(INLINE, recorder, normalizer, resolver,
+                racing, null, workDir, null, listener);
+        holder[0] = service;
+        service.startRecording("");
+        service.stopAndTranscribe("Automatic", "", "");
+
+        assertEquals("late text must not be inserted", 0, listener.results.size());
+        assertEquals(1, listener.failures.size());
+        assertEquals(DictationErrorKind.CANCELLED, listener.failures.get(0).getKind());
+        assertEquals(1, listener.terminalCount());
+    }
+
+    @Test
+    public void cancelDuringNormalizationStopsBeforeTranscription() {
+        final SpeechDictationService[] holder = new SpeechDictationService[1];
+        final NormalizationResult good = goodMetrics();
+        RecordingNormalizer cancelling = new RecordingNormalizer() {
+            public NormalizationResult normalize(File rawWav, File targetWav) throws Exception {
+                writeStub(targetWav);
+                holder[0].cancel();     // cancel arrives while normalizing
+                return new NormalizationResult(targetWav, good.getSourceFormat(), good.getTargetFormat(),
+                        good.getDurationMillis(), good.getOverallRms(), good.getPeak(),
+                        good.getClippedSamples(), good.getTotalSamples());
+            }
+        };
+        SpeechDictationService service = new SpeechDictationService(INLINE, recorder, cancelling, resolver,
+                transcriber, null, workDir, null, listener);
+        holder[0] = service;
+        service.startRecording("");
+        service.stopAndTranscribe("Automatic", "", "");
+
+        assertEquals(DictationErrorKind.CANCELLED, listener.failures.get(0).getKind());
+        assertEquals("must not reach transcription", 0, transcriber.calls);
+    }
+
+    @Test
+    public void asyncCancelDuringTranscriptionIsCancelled() throws Exception {
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            final CountDownLatch entered = new CountDownLatch(1);
+            final CountDownLatch proceed = new CountDownLatch(1);
+            final boolean[] cancelled = {false};
+            SpeechTranscriber blocking = new SpeechTranscriber() {
+                public String transcribe(TranscriptionInput input) throws SpeechTranscriberException {
+                    entered.countDown();
+                    try {
+                        proceed.await(5, TimeUnit.SECONDS);
+                    } catch (InterruptedException ignored) {
+                    }
+                    if (cancelled[0]) {
+                        throw new SpeechTranscriberException(DictationErrorKind.CANCELLED, "aborted");
+                    }
+                    return "text";
+                }
+
+                public void cancel() {
+                    cancelled[0] = true;
+                    proceed.countDown();
+                }
+
+                public int lastHttpStatus() {
+                    return 200;
+                }
+            };
+            SpeechDictationService service = new SpeechDictationService(pool, recorder, normalizer, resolver,
+                    blocking, null, workDir, null, listener);
+            service.startRecording("");
+            waitForState(service, DictationState.RECORDING);
+            service.stopAndTranscribe("Automatic", "", "");
+            assertTrue("transcription started", entered.await(5, TimeUnit.SECONDS));
+
+            service.cancel();            // abort the in-flight transcription
+            waitForTerminal();
+            assertEquals(1, listener.failures.size());
+            assertEquals(DictationErrorKind.CANCELLED, listener.failures.get(0).getKind());
+            assertEquals(0, listener.results.size());
+            assertTrue("recording kept for retry", service.hasRetryableRecording());
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    private void waitForState(SpeechDictationService service, DictationState target) throws InterruptedException {
+        for (int i = 0; i < 500 && service.getState() != target; i++) {
+            Thread.sleep(5);
+        }
+    }
+
+    private void waitForTerminal() throws InterruptedException {
+        for (int i = 0; i < 500 && listener.terminalCount() == 0; i++) {
+            Thread.sleep(5);
+        }
+    }
+
     @Test
     public void exactlyOneTerminalCallbackOnSuccess() {
         transcriber.text = "once";
@@ -226,8 +344,10 @@ public class SpeechDictationServiceTest {
     }
 
     private static final class RecordingListener implements DictationListener {
-        final List<DictationResult> results = new ArrayList<DictationResult>();
-        final List<DictationFailure> failures = new ArrayList<DictationFailure>();
+        final List<DictationResult> results =
+                java.util.Collections.synchronizedList(new ArrayList<DictationResult>());
+        final List<DictationFailure> failures =
+                java.util.Collections.synchronizedList(new ArrayList<DictationFailure>());
 
         public void onState(DictationState state, String message) {
         }

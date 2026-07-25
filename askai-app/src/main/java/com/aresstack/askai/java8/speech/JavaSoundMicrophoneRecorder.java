@@ -53,7 +53,16 @@ public final class JavaSoundMicrophoneRecorder implements MicrophoneRecorder {
             }
 
             public RawRecording stop() throws Exception {
-                long droppedFrames = session.stop();
+                long droppedFrames;
+                try {
+                    droppedFrames = session.stop();
+                } catch (Exception ex) {
+                    // Finalize failed: the WAV header was never patched, so the temp is unusable — clean up.
+                    if (tempFile.isFile()) {
+                        tempFile.delete();
+                    }
+                    throw ex;
+                }
                 return new RawRecording(tempFile, captureFormat, droppedFrames, device);
             }
 

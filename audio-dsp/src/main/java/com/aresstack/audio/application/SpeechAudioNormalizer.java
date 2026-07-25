@@ -60,7 +60,11 @@ public final class SpeechAudioNormalizer {
             sink.close();
         }
 
+        // Clipping fraction is clippedSamples / totalSamples in the SAME domain: the level meter counts
+        // clipped samples across every (interleaved) sample, so the denominator must be the total sample
+        // count, not the frame count — otherwise stereo would report ~double the clipping.
         return new NormalizationResult(targetWav, sourceFormat, TARGET_FORMAT, durationMillis,
-                rawMeter.getOverallRms(), rawMeter.getPeak(), rawMeter.getClippedSampleCount(), frames);
+                rawMeter.getOverallRms(), rawMeter.getPeak(), rawMeter.getClippedSampleCount(),
+                rawMeter.getTotalSampleCount());
     }
 }

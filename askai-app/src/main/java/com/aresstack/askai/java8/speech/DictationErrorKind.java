@@ -9,7 +9,9 @@ public enum DictationErrorKind {
 
     MICROPHONE_OPEN_FAILED(false),
     RECORDING_FAILED(false),
-    FINALIZE_FAILED(true),
+    // A finalize failure leaves no reliably usable file (the header was never patched), so nothing
+    // is kept; the recorder cleans up its own temp on stop() failure.
+    FINALIZE_FAILED(false),
     NORMALIZE_FAILED(true),
     QUALITY_TOO_SHORT(true),
     QUALITY_NO_SIGNAL(true),

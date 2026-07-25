@@ -53,6 +53,40 @@ public class SpeechAudioNormalizerTest {
         assertEquals(RecordingQuality.NO_SIGNAL, quality);
     }
 
+    @Test
+    public void clippingFractionUsesTotalSamplesNotFrames() throws Exception {
+        // Every stereo sample at the 16-bit limit → all samples clipped. Total-samples and clipped-samples
+        // must be in the same (interleaved) domain, so the fraction is 1.0, not 2.0. Before the fix,
+        // getTotalSamples() returned the frame count (1000), not the interleaved count (2000).
+        int frames = 16000; // ~333 ms at 48 kHz, above the min-duration gate
+        File raw = writeConstantWav(new PcmAudioFormat(48000, 2, 16), frames, (short) 32767);
+        File target = File.createTempFile("askai-norm-", ".wav");
+        target.deleteOnExit();
+
+        NormalizationResult result = normalizer.normalize(raw, target);
+        assertEquals(frames * 2L, result.getTotalSamples());    // frames * 2 channels (interleaved)
+        assertEquals(result.getTotalSamples(), result.getClippedSamples());
+        assertEquals(RecordingQuality.CLIPPED, RecordingQualityAnalyzer.withDefaults().analyze(
+                result.getDurationMillis(), result.getOverallRms(), result.getPeak(),
+                result.getClippedSamples(), result.getTotalSamples(), 0L));
+    }
+
+    /** Writes a constant value on every sample (used to force full clipping). */
+    private static File writeConstantWav(PcmAudioFormat format, int frames, short value) throws Exception {
+        File file = File.createTempFile("askai-raw-", ".wav");
+        file.deleteOnExit();
+        int channels = format.getChannels();
+        short[] samples = new short[frames * channels];
+        for (int i = 0; i < samples.length; i++) {
+            samples[i] = value;
+        }
+        WavFileAudioSink sink = new WavFileAudioSink(file);
+        sink.open(format);
+        sink.write(samples, samples.length);
+        sink.close();
+        return file;
+    }
+
     /** Writes a sine (amplitude on every channel) as a raw WAV in the given format. */
     private static File writeRawWav(PcmAudioFormat format, int frames, int amplitude) throws Exception {
         File file = File.createTempFile("askai-raw-", ".wav");

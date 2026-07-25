@@ -2,12 +2,16 @@ package com.aresstack.audio.dsp;
 
 /**
  * Resample a mono 16-bit PCM buffer from one sample rate to another by linear interpolation. Pure and
- * stateless. Handles non-integer rate ratios (e.g. 44.1 kHz → 16 kHz) and keeps the tail of the
- * signal: the output length is {@code round(inputLength * dstRate / srcRate)} and the last output
- * sample is interpolated up to the final input sample (clamped, never read past the end).
+ * stateless. Handles non-integer rate ratios (e.g. 44.1 kHz → 16 kHz). The output length is
+ * {@code round(inputLength * dstRate / srcRate)}, i.e. it reflects the full input duration and is not
+ * truncated; the final output samples are interpolated toward the last input sample (indices are
+ * clamped, never read past the end).
  *
- * <p>Linear interpolation is adequate for speech fed to a transcription model; it is not a
- * high-fidelity anti-aliasing resampler and is not meant for music.</p>
+ * <p>Linear interpolation is adequate for getting speech to a transcription model, but it is NOT an
+ * anti-aliasing resampler: when downsampling (e.g. 48 kHz → 16 kHz), content above the target Nyquist
+ * (8 kHz) is not low-pass filtered first and can alias. A proper poly-phase/FIR low-pass is a planned
+ * audio-quality improvement (tracked for before the feature leaves "Experimental"); it is not meant
+ * for music.</p>
  */
 public final class Pcm16Resampler {
 
