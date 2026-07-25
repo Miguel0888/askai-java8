@@ -88,6 +88,10 @@ public final class OllamaInstallPanel extends JPanel {
     private List<HuggingFaceModel> lastVariantModels = Collections.emptyList();
     private File lastDownloadedFile;
     private AskAiService.InstallTask installTask;
+    // The install contract frozen at the moment "Download and install" starts, so that re-selecting a
+    // different search result during a long download can never mix another model's metadata into this
+    // installation. Null for a plain download or a re-install from disk (which reads the sidecar).
+    private HuggingFaceInstallPlan pendingInstallPlan;
 
     // Curated library quick-picks (a preview of the future Main-tab Libraries facet); values are
     // the real HuggingFace tag/filter values, labels are what the chip shows.
@@ -482,7 +486,7 @@ public final class OllamaInstallPanel extends JPanel {
         detailsButton.addActionListener(event -> openDetailDialog());
         downloadButton.addActionListener(event -> downloadSelected(false));
         fullInstallButton.addActionListener(event -> downloadSelected(true));
-        importLastButton.addActionListener(event -> installDownloadedFile());
+        importLastButton.addActionListener(event -> installDownloadedFile(null));
         importMenuButton.addActionListener(event -> showDownloadedFilesMenu(importMenuButton));
         // A split button: primary installs the current download, the arrow lists all downloads.
         JPanel installSplit = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
@@ -1061,6 +1065,11 @@ public final class OllamaInstallPanel extends JPanel {
                     + " will be downloaded and installed with the model.");
         }
 
+        // Freeze the install contract now, from the currently selected model — not later in the
+        // install callback. During a long download the user may pick another search result; the file
+        // being installed must keep the metadata of the model it was actually downloaded for.
+        final HuggingFaceInstallPlan frozenPlan = freezeInstallPlan();
+
         final String modelFileName = selected.getFileName();
         append("Downloading " + modelFileName + " ...");
         // Always name the file in the bar and reset to 0 so consecutive downloads (model, then
@@ -1087,11 +1096,11 @@ public final class OllamaInstallPanel extends JPanel {
                         lastDownloadedFile = file;
                         append("Download complete: " + file.getAbsolutePath());
                         if (companionFile != null) {
-                            downloadCompanion(companionFile, installAfterDownload);
+                            downloadCompanion(companionFile, installAfterDownload, frozenPlan);
                         } else {
                             showProgress(100, "Files downloaded");
                             if (installAfterDownload) {
-                                installDownloadedFile();
+                                installDownloadedFile(frozenPlan);
                             }
                         }
                     }
@@ -1110,7 +1119,8 @@ public final class OllamaInstallPanel extends JPanel {
     }
 
     /** Download the encoder after the model; keeps {@code lastDownloadedFile} on the model file. */
-    private void downloadCompanion(HuggingFaceFile companion, final boolean installAfterDownload) {
+    private void downloadCompanion(HuggingFaceFile companion, final boolean installAfterDownload,
+                                   final HuggingFaceInstallPlan frozenPlan) {
         final String encoderFileName = companion.getFileName();
         append("Downloading encoder " + encoderFileName + " ...");
         // Reset the bar for this second download phase — otherwise it lingers at the model's 100%.
@@ -1136,7 +1146,7 @@ public final class OllamaInstallPanel extends JPanel {
                         append("Encoder downloaded: " + file.getAbsolutePath());
                         showProgress(100, "Files downloaded");
                         if (installAfterDownload) {
-                            installDownloadedFile();
+                            installDownloadedFile(frozenPlan);
                         }
                     }
                 });
@@ -1149,7 +1159,7 @@ public final class OllamaInstallPanel extends JPanel {
                                 + " — the model will work for text, but not for audio/vision.");
                         showProgress(0, "Encoder download failed");
                         if (installAfterDownload) {
-                            installDownloadedFile();
+                            installDownloadedFile(frozenPlan);
                         }
                     }
                 });
@@ -1374,7 +1384,9 @@ public final class OllamaInstallPanel extends JPanel {
         // would be wrong.
         installAsField.setText(suggestInstallNameForFile(file));
         append("Selected downloaded file: " + file.getAbsolutePath());
-        installDownloadedFile();
+        // Re-install from disk: the metadata comes from the sidecar written at first download, not from
+        // whatever model happens to be selected now.
+        installDownloadedFile(null);
     }
 
     /** @return all downloaded {@code .gguf} files under the model download directory, newest first. */
@@ -1424,7 +1436,7 @@ public final class OllamaInstallPanel extends JPanel {
         return cleaned.length() == 0 ? "model" : cleaned;
     }
 
-    private void installDownloadedFile() {
+    private void installDownloadedFile(HuggingFaceInstallPlan frozenPlan) {
         final String modelName = installAsField.getText().trim();
         if (modelName.length() == 0) {
             append("ERROR: 'Install as' is empty.");
@@ -1445,7 +1457,13 @@ public final class OllamaInstallPanel extends JPanel {
         }
         // The capabilities Hugging Face declared for this model are the installation contract: map them
         // to canonical Ollama tags and require /api/show to confirm them after create.
-        final List<String> requiredCapabilities = resolveRequiredCapabilities(lastDownloadedFile, modelName);
+        final List<String> requiredCapabilities =
+                resolveRequiredCapabilities(lastDownloadedFile, modelName, frozenPlan);
+        if (requiredCapabilities == null) {
+            // The user cancelled at an invalid-metadata prompt: do not install.
+            showProgress(0, "Install cancelled");
+            return;
+        }
         if (!requiredCapabilities.isEmpty()) {
             append("Hugging Face declares: " + join(requiredCapabilities)
                     + " — will verify against /api/show after install.");
@@ -1482,6 +1500,18 @@ public final class OllamaInstallPanel extends JPanel {
                 });
             }
 
+            public void onIncomplete(final VerificationResult result) {
+                onUi(new Runnable() {
+                    public void run() {
+                        // The model was created but /api/show did not confirm it: never show "Installed".
+                        setInstallInProgress(false);
+                        progressBar.setIndeterminate(false);
+                        boolean failed = result.getStatus() == VerificationStatus.FAILED;
+                        showProgress(0, failed ? "Verification failed" : "Installed but not verified");
+                    }
+                });
+            }
+
             public void onError(final Exception ex) {
                 onUi(new Runnable() {
                     public void run() {
@@ -1499,35 +1529,78 @@ public final class OllamaInstallPanel extends JPanel {
     }
 
     /**
-     * @return the canonical Ollama capability tags the install must reproduce, from the persisted
-     *         sidecar if present, else derived from the currently selected Hugging Face model (and then
-     *         persisted as a sidecar). Empty for a plain manual GGUF import with no declared capabilities.
+     * Snapshots the install contract of the currently selected Hugging Face model, so it can be carried
+     * unchanged through a long download even if the user re-selects another search result meanwhile.
+     *
+     * @return the frozen plan, or {@code null} when no model is selected (a plain manual download).
      */
-    private List<String> resolveRequiredCapabilities(File modelFile, String modelName) {
+    private HuggingFaceInstallPlan freezeInstallPlan() {
+        if (currentModel == null) {
+            return null;
+        }
+        java.util.Set<ModelCapability> declared = HuggingFaceModelClassifier.modalitiesOf(currentModel);
+        List<String> declaredNames = new ArrayList<String>();
+        for (ModelCapability capability : declared) {
+            declaredNames.add(capability.name());
+        }
+        return new HuggingFaceInstallPlan(currentModel.getId(), "main", installAsField.getText().trim(),
+                declaredNames, ModelCapability.requiredOllamaTags(declared));
+    }
+
+    /**
+     * @return the canonical Ollama capability tags the install must reproduce: from the persisted sidecar
+     *         if present, else from the plan frozen when the download started (which is then persisted as
+     *         a sidecar). Empty for a plain manual GGUF import; {@code null} when the user cancels after an
+     *         invalid sidecar (the install must then not proceed).
+     */
+    private List<String> resolveRequiredCapabilities(File modelFile, String modelName,
+                                                     HuggingFaceInstallPlan frozenPlan) {
         try {
             HuggingFaceInstallPlan sidecar = HuggingFaceInstallPlan.readSidecar(modelFile);
             if (sidecar != null) {
                 return sidecar.getRequiredOllamaCapabilities();
             }
         } catch (java.io.IOException ex) {
-            // A present-but-invalid sidecar must not be silently treated as an empty plan.
-            append("WARNING: " + ex.getMessage()
-                    + " — installing as a manual GGUF import without declared capabilities.");
+            // A present-but-invalid sidecar must be an explicit user decision, not a silent downgrade.
+            return confirmManualImportForInvalidSidecar(ex);
+        }
+        if (frozenPlan == null) {
             return Collections.emptyList();
         }
-        if (currentModel == null) {
+        // Re-target the frozen contract to the actual install name, then persist it so a later install
+        // from "Downloaded files" keeps repo + capabilities.
+        HuggingFaceInstallPlan plan = new HuggingFaceInstallPlan(frozenPlan.getRepositoryId(),
+                frozenPlan.getRevision(), modelName, frozenPlan.getDeclaredCapabilities(),
+                frozenPlan.getRequiredOllamaCapabilities());
+        try {
+            plan.writeSidecar(modelFile);
+        } catch (java.io.IOException ex) {
+            append("WARNING: could not persist install metadata next to the model: " + ex.getMessage());
+        }
+        return plan.getRequiredOllamaCapabilities();
+    }
+
+    /**
+     * A downloaded GGUF has a sidecar that exists but cannot be parsed. Rather than silently installing
+     * without the declared capabilities, ask the user to either cancel or continue as a plain manual
+     * import.
+     *
+     * @return an empty list to continue as a manual import, or {@code null} to cancel the install.
+     */
+    private List<String> confirmManualImportForInvalidSidecar(java.io.IOException ex) {
+        append("ERROR: The Hugging Face installation metadata is invalid: " + ex.getMessage());
+        Object[] options = {"Cancel", "Import as manual GGUF without Hugging Face metadata"};
+        int choice = javax.swing.JOptionPane.showOptionDialog(this,
+                "The Hugging Face installation metadata is invalid.\n" + ex.getMessage()
+                        + "\n\nInstall this file as a plain GGUF without Hugging Face metadata?",
+                "Invalid install metadata", javax.swing.JOptionPane.DEFAULT_OPTION,
+                javax.swing.JOptionPane.WARNING_MESSAGE, null, options, options[0]);
+        if (choice == 1) {
+            append("Continuing as a manual GGUF import without declared capabilities.");
             return Collections.emptyList();
         }
-        java.util.Set<ModelCapability> declared = HuggingFaceModelClassifier.modalitiesOf(currentModel);
-        List<String> required = ModelCapability.requiredOllamaTags(declared);
-        List<String> declaredNames = new ArrayList<String>();
-        for (ModelCapability capability : declared) {
-            declaredNames.add(capability.name());
-        }
-        // Persist the contract so a later install from "Downloaded files" keeps repo + capabilities.
-        new HuggingFaceInstallPlan(currentModel.getId(), "main", modelName, declaredNames, required)
-                .writeSidecar(modelFile);
-        return required;
+        append("Install cancelled: invalid Hugging Face metadata.");
+        return null;
     }
 
     /** Reports the post-create /api/show verification: VERIFIED / MISSING_REQUIRED / UNKNOWN / FAILED. */

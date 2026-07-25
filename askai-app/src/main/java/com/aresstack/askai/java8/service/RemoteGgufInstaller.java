@@ -250,12 +250,32 @@ public final class RemoteGgufInstaller {
             report(listener, "Creating model", 0, 0);
             reader = new BufferedReader(new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8));
             String line;
+            boolean succeeded = false;
             while ((line = reader.readLine()) != null) {
                 checkCancelled();
-                String status = extractStatus(line);
-                if (status.length() > 0) {
-                    report(listener, status, 0, 0);
+                Map parsed = parseJsonObject(line);
+                if (parsed == null) {
+                    continue;
                 }
+                // A streamed {"error":...} object is a failure, not just a progress line: Ollama can
+                // report e.g. an unsupported architecture mid-stream and then simply end the stream.
+                Object error = parsed.get("error");
+                if (error != null) {
+                    throw new IOException("Ollama model creation failed: " + error);
+                }
+                Object status = parsed.get("status");
+                if (status != null) {
+                    String text = String.valueOf(status);
+                    report(listener, text, 0, 0);
+                    if ("success".equalsIgnoreCase(text)) {
+                        succeeded = true;
+                    }
+                }
+            }
+            // A stream that ends without an explicit success (and without an error above) is not a
+            // completed install — do not fall through to a silent "done".
+            if (!succeeded) {
+                throw new IOException("Create stream ended without success confirmation.");
             }
         } catch (IOException ex) {
             throw cancelAware(ex);
@@ -319,27 +339,20 @@ public final class RemoteGgufInstaller {
         throw new IOException("Remote Ollama returned HTTP " + code + ": " + readBody(connection.getErrorStream()));
     }
 
-    /** Pull the {@code status} field out of one create/pull NDJSON line, or "" when absent. */
-    private static String extractStatus(String line) {
+    /** Parse one create/pull NDJSON line into a JSON object, or {@code null} when it is not one. */
+    private static Map parseJsonObject(String line) {
         if (line == null || line.trim().length() == 0) {
-            return "";
+            return null;
         }
         try {
             Object parsed = OllamaJson.parse(line);
             if (parsed instanceof Map) {
-                Object status = ((Map) parsed).get("status");
-                if (status != null) {
-                    return String.valueOf(status);
-                }
-                Object error = ((Map) parsed).get("error");
-                if (error != null) {
-                    return "error: " + error;
-                }
+                return (Map) parsed;
             }
         } catch (RuntimeException ignored) {
             // Not JSON: ignore this line.
         }
-        return "";
+        return null;
     }
 
     private void checkCancelled() throws InterruptedIOException {

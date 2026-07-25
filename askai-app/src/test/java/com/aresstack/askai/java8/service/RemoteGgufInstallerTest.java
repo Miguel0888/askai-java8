@@ -33,6 +33,8 @@ public class RemoteGgufInstallerTest {
 
     private HttpServer server;
     private final AtomicReference<String> createBody = new AtomicReference<String>();
+    private final AtomicReference<String> createResponse =
+            new AtomicReference<String>("{\"status\":\"success\"}\n");
     private File gguf;
 
     @Before
@@ -49,7 +51,7 @@ public class RemoteGgufInstallerTest {
                 }
                 if (path.equals("/api/create") && "POST".equals(method)) {
                     createBody.set(new String(drain(exchange.getRequestBody()), StandardCharsets.UTF_8));
-                    byte[] response = "{\"status\":\"success\"}\n".getBytes(StandardCharsets.UTF_8);
+                    byte[] response = createResponse.get().getBytes(StandardCharsets.UTF_8);
                     exchange.sendResponseHeaders(200, response.length);
                     OutputStream out = exchange.getResponseBody();
                     out.write(response);
@@ -137,6 +139,35 @@ public class RemoteGgufInstallerTest {
                 RemoteGgufInstaller.normalizeCapabilities(Arrays.asList("completion", "audio", "completion")));
         assertEquals(Collections.<String>emptyList(),
                 RemoteGgufInstaller.normalizeCapabilities(Arrays.asList("TEXT", "nonsense", null)));
+    }
+
+    // ------------------------------------------------------------------ streamed create errors
+
+    @Test
+    public void streamedCreateErrorFailsTheInstall() throws Exception {
+        // Ollama can report a failure mid-stream (e.g. unsupported architecture) and then just end the
+        // stream — that must surface as an install failure, not a silent success.
+        createResponse.set("{\"status\":\"reading model\"}\n{\"error\":\"unsupported model architecture\"}\n");
+        try {
+            installer().install("m", gguf, Collections.<File>emptyList(),
+                    Collections.<String>emptyList(), null);
+            org.junit.Assert.fail("expected an IOException for a streamed create error");
+        } catch (java.io.IOException expected) {
+            assertTrue(expected.getMessage(), expected.getMessage().contains("unsupported model architecture"));
+        }
+    }
+
+    @Test
+    public void createStreamWithoutSuccessFailsTheInstall() throws Exception {
+        // A stream that ends with neither an error nor a success confirmation is not a completed install.
+        createResponse.set("{\"status\":\"reading model\"}\n{\"status\":\"writing manifest\"}\n");
+        try {
+            installer().install("m", gguf, Collections.<File>emptyList(),
+                    Collections.<String>emptyList(), null);
+            org.junit.Assert.fail("expected an IOException when the stream ends without success");
+        } catch (java.io.IOException expected) {
+            assertTrue(expected.getMessage(), expected.getMessage().contains("without success"));
+        }
     }
 
     @SuppressWarnings("unchecked")

@@ -73,20 +73,19 @@ public final class HuggingFaceInstallPlan {
         return new File(modelFile.getParentFile(), modelFile.getName() + SIDECAR_SUFFIX);
     }
 
-    /** Writes the plan next to {@code modelFile}; failures are non-fatal (best-effort persistence). */
-    public void writeSidecar(File modelFile) {
+    /**
+     * Writes the plan next to {@code modelFile}. A write failure is surfaced, not swallowed: losing the
+     * install contract silently would let a later re-install fall back to a plain manual import without
+     * the declared capabilities.
+     */
+    public void writeSidecar(File modelFile) throws IOException {
         OutputStream out = null;
         try {
             out = new FileOutputStream(sidecarFor(modelFile));
             out.write(toJson().getBytes(StandardCharsets.UTF_8));
-        } catch (IOException ignored) {
-            // best-effort
         } finally {
             if (out != null) {
-                try {
-                    out.close();
-                } catch (IOException ignored) {
-                }
+                out.close();
             }
         }
     }

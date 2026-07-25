@@ -264,9 +264,16 @@ public final class DefaultAskAiService implements AskAiService {
                                     listener.onProgress(phase, completed, total);
                                 }
                             });
-                    // Verify against /api/show before declaring the install complete.
-                    listener.onVerified(verifyInstalled(modelName, capabilities));
-                    listener.onComplete("Installed " + modelName + " on remote Ollama.");
+                    // Verify against /api/show before declaring the install complete. Only a VERIFIED
+                    // result may report "Installed"; MISSING_REQUIRED / UNKNOWN / FAILED end as
+                    // incomplete so the UI never shows a failed verification and "Installed" together.
+                    VerificationResult verification = verifyInstalled(modelName, capabilities);
+                    listener.onVerified(verification);
+                    if (verification.getStatus() == VerificationStatus.VERIFIED) {
+                        listener.onComplete("Installed " + modelName + " on remote Ollama.");
+                    } else {
+                        listener.onIncomplete(verification);
+                    }
                 } catch (Exception ex) {
                     listener.onError(ex);
                 }

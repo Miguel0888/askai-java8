@@ -167,11 +167,24 @@ public interface AskAiService {
 
         /**
          * The verified {@code /api/show} result for the just-installed model, delivered right before
-         * {@link #onComplete(String)}. Default no-op so existing callers stay source-compatible.
+         * {@link #onComplete(String)} or {@link #onIncomplete(VerificationResult)}. Default no-op so
+         * existing callers stay source-compatible.
          */
         default void onVerified(VerificationResult result) {
         }
 
+        /**
+         * Terminal callback for a model that was created on the server but whose {@code /api/show}
+         * verification did not reach {@link VerificationStatus#VERIFIED} (MISSING_REQUIRED, UNKNOWN or
+         * FAILED). Mutually exclusive with {@link #onComplete(String)}: the install must never be
+         * reported as "Installed" and incomplete at the same time. Default falls back to {@code onError}
+         * so existing callers still see a terminal signal.
+         */
+        default void onIncomplete(VerificationResult result) {
+            onError(new java.io.IOException("Model created but not verified: " + result.getStatus()));
+        }
+
+        /** Terminal callback for a fully verified install. Mutually exclusive with {@link #onIncomplete}. */
         void onComplete(String message);
 
         void onError(Exception ex);
