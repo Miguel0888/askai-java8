@@ -1,5 +1,6 @@
 package com.aresstack.askai.java8.ui;
 
+import com.aresstack.askai.java8.ui.bubble.AgentActivityBubblePanel;
 import com.aresstack.askai.java8.ui.bubble.BubblePalette;
 import com.aresstack.askai.java8.ui.bubble.BubbleTranscriptPanel;
 
@@ -60,5 +61,32 @@ final class ChatTranscript {
 
     void finishAssistant() {
         panel.finishAssistantMessage();
+    }
+
+    // ------------------------------------------------------------------ agent activity
+
+    /**
+     * Starts a temporary agent-activity ("thought") bubble showing a visible activity summary — not
+     * internal chain-of-thought. Keep the returned handle to update or finish exactly this activity.
+     */
+    AgentActivityBubblePanel startAgentActivity(String title, String explanation) {
+        return panel.startAgentActivity(title, explanation);
+    }
+
+    void updateAgentActivity(AgentActivityBubblePanel activity, String title, String explanation) {
+        panel.updateAgentActivity(activity, title, explanation);
+    }
+
+    /** Plays the burst + rising-summary animation, then removes the activity row. */
+    void completeAgentActivity(AgentActivityBubblePanel activity, String summary) {
+        panel.completeAgentActivity(activity, summary);
+    }
+
+    void failAgentActivity(AgentActivityBubblePanel activity, String summary) {
+        panel.failAgentActivity(activity, summary);
+    }
+
+    void cancelAgentActivity(AgentActivityBubblePanel activity, String summary) {
+        panel.cancelAgentActivity(activity, summary);
     }
 }

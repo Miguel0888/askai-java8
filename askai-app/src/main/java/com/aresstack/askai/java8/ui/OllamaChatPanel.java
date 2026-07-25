@@ -303,6 +303,48 @@ public final class OllamaChatPanel extends JPanel {
         add(buildToolbar(), BorderLayout.NORTH);
         add(transcript.getComponent(), BorderLayout.CENTER);
         add(buildComposer(), BorderLayout.SOUTH);
+        registerDemoShortcuts();
+    }
+
+    /**
+     * Ctrl+Shift+T plays a self-contained agent-activity ("thought bubble") demo in the transcript, so the
+     * animation can be checked in the running client without Ollama, streaming or a real agent. Temporary
+     * developer aid; remove once agent events drive the bubbles for real.
+     */
+    private void registerDemoShortcuts() {
+        javax.swing.KeyStroke stroke = javax.swing.KeyStroke.getKeyStroke(java.awt.event.KeyEvent.VK_T,
+                java.awt.event.InputEvent.CTRL_DOWN_MASK | java.awt.event.InputEvent.SHIFT_DOWN_MASK);
+        getInputMap(WHEN_IN_FOCUSED_WINDOW).put(stroke, "demoThoughtBubble");
+        getActionMap().put("demoThoughtBubble", new javax.swing.AbstractAction() {
+            public void actionPerformed(java.awt.event.ActionEvent event) {
+                runDemoThoughtBubble();
+            }
+        });
+    }
+
+    /** Scripted activity-summary sequence: understand → plan → check tools → burst with a summary. */
+    private void runDemoThoughtBubble() {
+        final String[][] steps = {
+                {"Understanding request", "Reviewing what you asked for."},
+                {"Planning next step", "Deciding which action to take first."},
+                {"Checking available tools", "Matching the task to installed capabilities."},
+        };
+        final com.aresstack.askai.java8.ui.bubble.AgentActivityBubblePanel activity =
+                transcript.startAgentActivity(steps[0][0], steps[0][1]);
+        final int[] index = {0};
+        javax.swing.Timer timer = new javax.swing.Timer(1200, null);
+        timer.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent event) {
+                index[0]++;
+                if (index[0] < steps.length) {
+                    transcript.updateAgentActivity(activity, steps[index[0]][0], steps[index[0]][1]);
+                } else {
+                    ((javax.swing.Timer) event.getSource()).stop();
+                    transcript.completeAgentActivity(activity, "Plan ready");
+                }
+            }
+        });
+        timer.start();
     }
 
     private JComponent buildToolbar() {
