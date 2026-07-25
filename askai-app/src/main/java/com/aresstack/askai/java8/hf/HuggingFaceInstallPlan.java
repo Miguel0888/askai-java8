@@ -129,6 +129,11 @@ public final class HuggingFaceInstallPlan {
         return new File(modelFile.getParentFile(), modelFile.getName() + SIDECAR_SUFFIX);
     }
 
+    /** @return the sidecar file that belongs next to {@code modelFile} (for cleanup/existence checks). */
+    public static File sidecarFile(File modelFile) {
+        return sidecarFor(modelFile);
+    }
+
     /**
      * Writes the plan next to {@code modelFile} atomically: a temp file is written and then renamed over
      * the target, so a crash mid-write cannot leave a half-written sidecar. A failure is surfaced, not

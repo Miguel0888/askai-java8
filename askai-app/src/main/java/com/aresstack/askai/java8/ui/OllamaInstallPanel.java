@@ -77,6 +77,8 @@ public final class OllamaInstallPanel extends JPanel {
     private final JLabel quantizationLabel = new JLabel("—");
     private final JProgressBar progressBar;
     private final JButton cancelInstallButton;
+    private final JCheckBox deleteAfterInstallCheckbox =
+            new JCheckBox("Delete download after install");
     private final JLabel repoCapabilityLabel = new JLabel(" ");
     private final JLabel importStatusLabel = new JLabel(" ");
     // Always-visible one-line summary of the latest step/result/error; the full history lives in the
@@ -205,6 +207,10 @@ public final class OllamaInstallPanel extends JPanel {
 
         progressBar.setStringPainted(true);
         JPanel progressRow = new JPanel(new BorderLayout(6, 0));
+        deleteAfterInstallCheckbox.setToolTipText(
+                "After a successful Ollama create, delete the local GGUF, its companion/mmproj, the sidecar "
+                        + "and the recovery entry. The model created in Ollama is not affected.");
+        progressRow.add(deleteAfterInstallCheckbox, BorderLayout.WEST);
         progressRow.add(progressBar, BorderLayout.CENTER);
         progressRow.add(cancelInstallButton, BorderLayout.EAST);
         add(progressRow, BorderLayout.SOUTH);
@@ -1493,6 +1499,24 @@ public final class OllamaInstallPanel extends JPanel {
             append("Hugging Face declares: " + join(requiredCapabilities)
                     + " — will verify against /api/show after install.");
         }
+        // A model that declares audio/vision needs its mmproj encoder alongside it before /api/create;
+        // warn (and let the user decide) when the required encoder is missing, rather than creating a
+        // model that will silently lack the capability (post-install /api/show then also won't confirm it).
+        if (companions.isEmpty() && declaresEncoderCapability(requiredCapabilities)) {
+            String missing = requiredCapabilities.contains("audio") ? "audio" : "vision";
+            int choice = javax.swing.JOptionPane.showConfirmDialog(this,
+                    "This model declares " + missing + ", but no mmproj encoder file was found next to it.\n"
+                            + missing + " input will not work until the encoder is added.\n\nInstall anyway?",
+                    "Missing " + missing + " encoder", javax.swing.JOptionPane.YES_NO_OPTION,
+                    javax.swing.JOptionPane.WARNING_MESSAGE);
+            if (choice != javax.swing.JOptionPane.YES_OPTION) {
+                append("Install cancelled: missing " + missing + " encoder (mmproj).");
+                showProgress(0, "Install cancelled");
+                return;
+            }
+            append("WARNING: installing without the " + missing + " encoder — " + missing
+                    + " will not work until it is added via the model card's add-on button.");
+        }
         append("Installing " + lastDownloadedFile.getAbsolutePath() + " as " + modelName + ".");
         showProgress(0, "Installing");
         setInstallInProgress(true);
@@ -1520,6 +1544,10 @@ public final class OllamaInstallPanel extends JPanel {
                         append(message);
                         progressBar.setIndeterminate(false);
                         showProgress(100, "Installed");
+                        // Only after a verified create: clean up the local transfer files if requested.
+                        if (deleteAfterInstallCheckbox.isSelected()) {
+                            deleteDownloadArtifacts(lastDownloadedFile, companions);
+                        }
                     }
                 });
             }
@@ -1714,12 +1742,54 @@ public final class OllamaInstallPanel extends JPanel {
         }
     }
 
+    /** @return true when the declared capabilities need a separate mmproj encoder (audio or vision). */
+    private static boolean declaresEncoderCapability(List<String> requiredCapabilities) {
+        return requiredCapabilities.contains("audio") || requiredCapabilities.contains("vision");
+    }
+
     private void forgetRecovery(File modelFile) {
         try {
             recoveryIndex.remove(modelFile);
         } catch (java.io.IOException ignored) {
             // best-effort cleanup
         }
+    }
+
+    /**
+     * Deletes the local transfer artifacts after a verified Ollama create: the GGUF, its companion/mmproj
+     * files, the sidecar, any {@code .part} remnant and the recovery entry, plus the now-empty model
+     * directory. The model created inside Ollama is untouched.
+     */
+    private void deleteDownloadArtifacts(File mainFile, List<File> companions) {
+        if (mainFile == null) {
+            return;
+        }
+        List<File> targets = new ArrayList<File>();
+        targets.add(mainFile);
+        targets.add(new File(mainFile.getParentFile(), mainFile.getName() + ".part"));
+        targets.add(HuggingFaceInstallPlan.sidecarFile(mainFile));
+        if (companions != null) {
+            for (File companion : companions) {
+                targets.add(companion);
+                targets.add(HuggingFaceInstallPlan.sidecarFile(companion));
+            }
+        }
+        int deleted = 0;
+        for (File target : targets) {
+            if (target != null && target.isFile() && target.delete()) {
+                deleted++;
+            }
+        }
+        forgetRecovery(mainFile);
+        if (mainFile.equals(lastDownloadedFile)) {
+            lastDownloadedFile = null;
+        }
+        File parent = mainFile.getParentFile();
+        String[] remaining = parent == null ? null : parent.list();
+        if (remaining != null && remaining.length == 0 && parent.delete()) {
+            append("Removed empty model directory: " + parent.getName());
+        }
+        append("Cleaned up " + deleted + " local download file(s) after install (the Ollama model is kept).");
     }
 
     /**
