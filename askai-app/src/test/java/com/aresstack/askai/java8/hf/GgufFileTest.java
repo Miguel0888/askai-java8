@@ -62,19 +62,46 @@ public class GgufFileTest {
     }
 
     @Test
-    public void aClipProjectorWithoutEncoderFlagsStillCountsAsVision() throws IOException {
-        // Accepted purely on architecture/projector_type (no has_*_encoder flag): must not then be treated
-        // as "no modality" — a bare clip projector is a vision projector by construction.
+    public void projectorTypeAloneIsNotEnough() throws IOException {
+        // A bare clip file with only a projector_type and no encoder flag / block count is NOT accepted as
+        // an attachable projector (Ollama-aligned: projector_type alone is insufficient).
         Map<String, Object> meta = new LinkedHashMap<String, Object>();
         meta.put("general.architecture", "clip");
         meta.put("clip.projector_type", "ldpv2");
 
         GgufFile.GgufInfo info = GgufFile.inspect(writeGguf("proj.gguf", meta));
 
+        assertFalse(info.isProjector());
+        assertTrue(info.modalityCapabilities().isEmpty());
+    }
+
+    @Test
+    public void clipWithVisionEncoderFlagAndNoMainBlocksIsAVisionProjector() throws IOException {
+        Map<String, Object> meta = new LinkedHashMap<String, Object>();
+        meta.put("general.architecture", "clip");
+        meta.put("clip.has_vision_encoder", Boolean.TRUE);
+
+        GgufFile.GgufInfo info = GgufFile.inspect(writeGguf("proj.gguf", meta));
+
         assertTrue(info.isProjector());
         assertTrue(info.hasVisionEncoder());
-        assertFalse(info.hasAudioEncoder());
         assertEquals(Arrays.asList("vision"), info.modalityCapabilities());
+    }
+
+    @Test
+    public void integratedMultimodalModelWithMainBlocksIsNotAProjector() throws IOException {
+        // An integrated multimodal model has main transformer blocks (> 0). Even with vision metadata it
+        // must never be treated as an attachable projector.
+        Map<String, Object> meta = new LinkedHashMap<String, Object>();
+        meta.put("general.architecture", "gemma3");
+        meta.put("gemma3.block_count", 34);
+        meta.put("clip.has_vision_encoder", Boolean.TRUE);
+        meta.put("clip.vision.block_count", 27);
+
+        GgufFile.GgufInfo info = GgufFile.inspect(writeGguf("model.gguf", meta));
+
+        assertFalse(info.isProjector());
+        assertTrue(info.modalityCapabilities().isEmpty());
     }
 
     @Test

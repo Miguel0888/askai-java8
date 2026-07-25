@@ -209,6 +209,7 @@ public final class GgufFile {
         private final String name;
         private final String basename;
         private final String projectorType;
+        private final long blockCount;
         private final long visionBlockCount;
         private final long audioBlockCount;
         private final boolean projector;
@@ -222,24 +223,37 @@ public final class GgufFile {
             this.name = str(meta, "general.name");
             this.basename = str(meta, "general.basename");
             this.projectorType = firstBySuffix(meta, ".projector_type", "clip.projector_type");
+            // The main transformer block count (e.g. qwen3.block_count / clip.block_count) — NOT the
+            // vision/audio sub-encoder counts. A real projector has 0 main blocks; an integrated multimodal
+            // model has > 0 and must never be treated as an attachable projector.
+            this.blockCount = firstBlockCount(meta);
             this.visionBlockCount = firstLongBySuffix(meta, ".vision.block_count");
             this.audioBlockCount = firstLongBySuffix(meta, ".audio.block_count");
 
-            // A single, content-based classification: the same signals decide add-on eligibility, the
-            // dialog display, the runtime capabilities at first install AND the expected add-on caps.
-            boolean visionSignal = anyBoolBySuffix(meta, "has_vision_encoder") || visionBlockCount > 0;
-            boolean audioSignal = anyBoolBySuffix(meta, "has_audio_encoder") || audioBlockCount > 0;
+            boolean visionEncoder = anyBoolBySuffix(meta, "has_vision_encoder");
+            boolean audioEncoder = anyBoolBySuffix(meta, "has_audio_encoder");
             String arch = architecture.toLowerCase(java.util.Locale.ROOT);
-            String typeLower = generalType.toLowerCase(java.util.Locale.ROOT);
-            boolean looksProjector = arch.equals("clip") || arch.equals("mtmd")
-                    || typeLower.contains("proj") || typeLower.contains("mmproj") || typeLower.contains("clip")
-                    || projectorType.length() > 0;
-            this.projector = visionSignal || audioSignal || looksProjector;
-            // A projector accepted only on architecture/type/projector_type (no explicit modality signal)
-            // is a vision (clip) projector by construction — so an accepted projector never yields "no
-            // modality", which would let it be treated as wirkungslos right after being accepted.
-            this.hasVision = visionSignal || (projector && !audioSignal);
-            this.hasAudio = audioSignal;
+            String kind = generalType.toLowerCase(java.util.Locale.ROOT);
+
+            // Ollama-aligned projector classification (a single source of truth for eligibility, the dialog,
+            // first-install runtime caps and the expected add-on caps). Deliberately narrow: neither `mtmd`
+            // alone, a "proj"/"clip" substring, nor a bare projector_type is sufficient.
+            boolean kindIsProjector = kind.equals("projector") || kind.equals("mmproj");
+            boolean subEncoderProjector = blockCount == 0L && (visionBlockCount > 0L || audioBlockCount > 0L);
+            // A dedicated encoder architecture (clip/mtmd) with no main transformer blocks and an explicit
+            // encoder flag. The block_count == 0 guard is what excludes an integrated multimodal model.
+            boolean encoderArchProjector = (arch.equals("clip") || arch.equals("mtmd")) && blockCount == 0L
+                    && (visionEncoder || audioEncoder);
+            this.projector = kindIsProjector || subEncoderProjector || encoderArchProjector;
+
+            boolean visionSignal = visionEncoder || visionBlockCount > 0L;
+            boolean audioSignal = audioEncoder || audioBlockCount > 0L;
+            this.hasAudio = projector && audioSignal;
+            // A recognised projector always provides at least one modality: vision when there is a vision
+            // signal, and vision by default for a projector that only declared its kind (no explicit signal),
+            // so an accepted projector is never immediately treated as wirkungslos. A pure audio projector
+            // (audio signal, no vision signal) keeps audio only.
+            this.hasVision = projector && (visionSignal || !audioSignal);
         }
 
         public String architecture() {
@@ -318,6 +332,18 @@ public final class GgufFile {
         private static long firstLongBySuffix(Map<String, Object> meta, String suffix) {
             for (Map.Entry<String, Object> entry : meta.entrySet()) {
                 if (entry.getKey().endsWith(suffix) && entry.getValue() instanceof Number) {
+                    return ((Number) entry.getValue()).longValue();
+                }
+            }
+            return 0L;
+        }
+
+        /** @return the main transformer {@code *.block_count}, ignoring the {@code *.vision/audio.block_count}. */
+        private static long firstBlockCount(Map<String, Object> meta) {
+            for (Map.Entry<String, Object> entry : meta.entrySet()) {
+                String key = entry.getKey();
+                if (key.endsWith(".block_count") && !key.endsWith(".vision.block_count")
+                        && !key.endsWith(".audio.block_count") && entry.getValue() instanceof Number) {
                     return ((Number) entry.getValue()).longValue();
                 }
             }

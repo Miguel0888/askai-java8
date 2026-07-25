@@ -94,6 +94,11 @@ public final class OllamaInstallPanel extends JPanel {
     // Non-null while the panel is searching for an ENCODER to add to an already-installed model (add-on
     // mode). Transient UI state only — never persisted; a chosen encoder is attached via from/adapters.
     private String addOnTargetModel;
+    // Bumped whenever an add-on operation starts or the mode is left (cancel / manual search / new op).
+    // Every add-on download/attach callback captures the value at start and no-ops if it no longer matches,
+    // so a cancelled or superseded operation can never finish attaching to the old target.
+    private int addOnGeneration;
+    private boolean addOnAttachRunning;
     private AskAiService.InstallTask installTask;
     // The install contract frozen at the moment "Download and install" starts, so that re-selecting a
     // different search result during a long download can never mix another model's metadata into this
@@ -726,6 +731,12 @@ public final class OllamaInstallPanel extends JPanel {
 
     /** Leaves add-on mode (back to normal install) on any terminal path, and hides the banner. */
     private void clearAddOnMode() {
+        // Invalidate any in-flight add-on download/attach callbacks so they cannot finish attaching.
+        addOnGeneration++;
+        if (addOnAttachRunning && installTask != null) {
+            installTask.cancel();
+            addOnAttachRunning = false;
+        }
         this.addOnTargetModel = null;
         if (addOnBanner != null) {
             addOnBanner.setVisible(false);
@@ -1302,12 +1313,17 @@ public final class OllamaInstallPanel extends JPanel {
      */
     private void downloadAndAttachEncoder(HuggingFaceFile encoder, final String existingModel) {
         final String encoderName = encoder.getFileName();
+        // A fresh operation id: any earlier add-on download/attach is now stale and its callbacks no-op.
+        final int gen = ++addOnGeneration;
         append("Downloading encoder " + encoderName + " to attach to \"" + existingModel + "\" ...");
         showProgress(0, "Downloading encoder " + encoderName);
         askAiService.downloadHuggingFaceFile(encoder, new AskAiService.DownloadListener() {
             public void onProgress(final long completed, final long total) {
                 onUi(new Runnable() {
                     public void run() {
+                        if (gen != addOnGeneration) {
+                            return;
+                        }
                         if (total > 0L) {
                             int percent = (int) (completed * 100L / total);
                             showProgress(percent, "Downloading encoder " + encoderName + "  " + percent + "%");
@@ -1322,8 +1338,11 @@ public final class OllamaInstallPanel extends JPanel {
             public void onComplete(final File file) {
                 onUi(new Runnable() {
                     public void run() {
+                        if (gen != addOnGeneration) {
+                            return; // cancelled or superseded during the download — do not attach
+                        }
                         append("Encoder downloaded: " + file.getAbsolutePath());
-                        attachDownloadedEncoder(existingModel, file);
+                        attachDownloadedEncoder(existingModel, file, gen);
                     }
                 });
             }
@@ -1331,6 +1350,9 @@ public final class OllamaInstallPanel extends JPanel {
             public void onError(final Exception ex) {
                 onUi(new Runnable() {
                     public void run() {
+                        if (gen != addOnGeneration) {
+                            return;
+                        }
                         append("ERROR: encoder download failed: " + ex.getMessage());
                         showProgress(0, "Encoder download failed");
                         clearAddOnMode();
@@ -1341,7 +1363,10 @@ public final class OllamaInstallPanel extends JPanel {
     }
 
     /** Validate the downloaded file as a projector and attach it to the existing model, then re-verify. */
-    private void attachDownloadedEncoder(final String existingModel, File encoder) {
+    private void attachDownloadedEncoder(final String existingModel, File encoder, final int gen) {
+        if (gen != addOnGeneration) {
+            return; // cancelled or superseded before the attach could start
+        }
         try {
             if (!com.aresstack.askai.java8.hf.GgufFile.inspect(encoder).isProjector()) {
                 append("ERROR: " + encoder.getName() + " is not a multimodal encoder (projector) GGUF — "
@@ -1359,10 +1384,14 @@ public final class OllamaInstallPanel extends JPanel {
         append("Attaching " + describeProjector(encoder) + " to \"" + existingModel + "\" ...");
         showProgress(0, "Attaching encoder");
         setInstallInProgress(true);
+        addOnAttachRunning = true;
         installTask = askAiService.attachEncoder(existingModel, encoder, new AskAiService.InstallListener() {
             public void onProgress(final String phase, final long completed, final long total) {
                 onUi(new Runnable() {
                     public void run() {
+                        if (gen != addOnGeneration) {
+                            return;
+                        }
                         updateInstallProgress(phase, completed, total);
                     }
                 });
@@ -1371,7 +1400,10 @@ public final class OllamaInstallPanel extends JPanel {
             public void onVerified(final VerificationResult result) {
                 onUi(new Runnable() {
                     public void run() {
-                        reportVerification(result, Collections.<String>emptyList());
+                        if (gen != addOnGeneration) {
+                            return;
+                        }
+                        reportVerification(result, true);
                     }
                 });
             }
@@ -1379,6 +1411,10 @@ public final class OllamaInstallPanel extends JPanel {
             public void onComplete(final String message) {
                 onUi(new Runnable() {
                     public void run() {
+                        if (gen != addOnGeneration) {
+                            return;
+                        }
+                        addOnAttachRunning = false;
                         setInstallInProgress(false);
                         append(message);
                         progressBar.setIndeterminate(false);
@@ -1391,6 +1427,10 @@ public final class OllamaInstallPanel extends JPanel {
             public void onIncomplete(final VerificationResult result) {
                 onUi(new Runnable() {
                     public void run() {
+                        if (gen != addOnGeneration) {
+                            return;
+                        }
+                        addOnAttachRunning = false;
                         setInstallInProgress(false);
                         progressBar.setIndeterminate(false);
                         showProgress(0, "Attached but not verified");
@@ -1402,6 +1442,10 @@ public final class OllamaInstallPanel extends JPanel {
             public void onError(final Exception ex) {
                 onUi(new Runnable() {
                     public void run() {
+                        if (gen != addOnGeneration) {
+                            return;
+                        }
+                        addOnAttachRunning = false;
                         setInstallInProgress(false);
                         progressBar.setIndeterminate(false);
                         String message = ex.getMessage() == null ? ex.toString() : ex.getMessage();
@@ -1805,7 +1849,7 @@ public final class OllamaInstallPanel extends JPanel {
             public void onVerified(final VerificationResult result) {
                 onUi(new Runnable() {
                     public void run() {
-                        reportVerification(result, requiredCapabilities);
+                        reportVerification(result, false);
                     }
                 });
             }
@@ -2126,29 +2170,35 @@ public final class OllamaInstallPanel extends JPanel {
     }
 
     /** Reports the post-create /api/show verification: VERIFIED / MISSING_REQUIRED / UNKNOWN / FAILED. */
-    private void reportVerification(VerificationResult result, List<String> required) {
-        if (result.getStatus() == VerificationStatus.FAILED) {
-            append("Model was created, but post-install verification through /api/show failed: "
-                    + result.getErrorMessage());
-            return;
-        }
-        if (result.getStatus() == VerificationStatus.UNKNOWN) {
-            append("Model was created, but the Ollama server did not return a usable capabilities field.");
-            return;
-        }
-        if (required.isEmpty()) {
-            append("Model installed and verified. Capabilities reported by Ollama: "
-                    + result.describeReported() + ".");
-            return;
-        }
-        if (result.getMissingRequired().isEmpty()) {
-            append("Model installed and verified. Capabilities reported by Ollama: "
-                    + result.describeReported() + ".");
-        } else {
-            append("Model was created, but Ollama did not return all installed capabilities.\n"
-                    + "  Expected: " + join(required) + "\n"
-                    + "  Reported by /api/show: " + result.describeReported() + "\n"
-                    + "  Missing: " + join(result.getMissingRequired()));
+    /**
+     * Reports the {@code /api/show} verification, deciding purely by {@link VerificationStatus} — never by
+     * an empty required list (that produced a false "verified" for add-ons). The expected capabilities are
+     * reconstructed from the result ({@code confirmedRequired + missingRequired}), and the wording matches
+     * whether this was a fresh model install or an add-on encoder attach.
+     */
+    private void reportVerification(VerificationResult result, boolean addOn) {
+        String created = addOn ? "The encoder was attached" : "The model was created";
+        switch (result.getStatus()) {
+            case FAILED:
+                append(created + ", but post-install verification through /api/show failed: "
+                        + result.getErrorMessage());
+                return;
+            case UNKNOWN:
+                append(created + ", but the Ollama server did not return a usable capabilities field.");
+                return;
+            case MISSING_REQUIRED:
+                List<String> expected = new ArrayList<String>(result.getConfirmedRequired());
+                expected.addAll(result.getMissingRequired());
+                append(created + ", but Ollama did not report the expected "
+                        + (addOn ? "encoder" : "installed") + " capabilities.\n"
+                        + "  Expected: " + join(expected) + "\n"
+                        + "  Reported by /api/show: " + result.describeReported() + "\n"
+                        + "  Missing: " + join(result.getMissingRequired()));
+                return;
+            case VERIFIED:
+            default:
+                append((addOn ? "Encoder attached and verified" : "Model installed and verified")
+                        + ". Capabilities reported by Ollama: " + result.describeReported() + ".");
         }
     }
 

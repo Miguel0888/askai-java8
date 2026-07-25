@@ -347,6 +347,17 @@ public final class DefaultAskAiService implements AskAiService {
         final Future<?> future = executorService.submit(new Runnable() {
             public void run() {
                 try {
+                    // Inspect the projector exactly ONCE, before any upload/create. It must be a real
+                    // projector and yield a non-empty expected capability set; that immutable list is then
+                    // used for verification. No "read again after attach, fall back to empty on error" path,
+                    // which could otherwise resurrect the empty-list sham verification.
+                    com.aresstack.askai.java8.hf.GgufFile.GgufInfo info =
+                            com.aresstack.askai.java8.hf.GgufFile.inspect(projectorGguf);
+                    if (!info.isProjector()) {
+                        throw new IllegalArgumentException(
+                                "The chosen file is not a multimodal encoder (projector) GGUF.");
+                    }
+                    final List<String> expected = info.modalityCapabilities();
                     installer.attachAdapter(existingModelName, projectorGguf,
                             new RemoteGgufInstaller.ProgressListener() {
                                 public void onProgress(String phase, long completed, long total) {
@@ -355,8 +366,7 @@ public final class DefaultAskAiService implements AskAiService {
                             });
                     // Verify against what THIS projector actually backs (vision and/or audio), not an empty
                     // list — otherwise a no-op attach that still reports only "completion" would count as
-                    // verified. The expected caps come from the same GGUF classification used to accept it.
-                    List<String> expected = expectedAddOnCapabilities(projectorGguf);
+                    // verified.
                     VerificationResult verification = verifyInstalled(existingModelName, expected);
                     listener.onVerified(verification);
                     if (verification.getStatus() == VerificationStatus.VERIFIED) {
@@ -375,15 +385,6 @@ public final class DefaultAskAiService implements AskAiService {
                 future.cancel(true);
             }
         };
-    }
-
-    /** @return the vision/audio capabilities the projector backs, or empty when it cannot be read. */
-    private static List<String> expectedAddOnCapabilities(File projectorGguf) {
-        try {
-            return com.aresstack.askai.java8.hf.GgufFile.inspect(projectorGguf).modalityCapabilities();
-        } catch (Exception ex) {
-            return java.util.Collections.emptyList();
-        }
     }
 
     /**

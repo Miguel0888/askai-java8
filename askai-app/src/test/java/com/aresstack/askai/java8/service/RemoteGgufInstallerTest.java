@@ -276,7 +276,16 @@ public class RemoteGgufInstallerTest {
             raf.writeBytes("GGUF");
             writeIntLe(raf, 3);          // version
             writeLongLe(raf, 0L);        // tensor count
-            writeLongLe(raf, 1L);        // one metadata kv
+            writeLongLe(raf, 2L);        // two metadata kv
+            // general.architecture = clip (a dedicated encoder architecture)
+            byte[] archKey = "general.architecture".getBytes(StandardCharsets.UTF_8);
+            writeLongLe(raf, archKey.length);
+            raf.write(archKey);
+            writeIntLe(raf, 8);          // value type STRING
+            byte[] archVal = "clip".getBytes(StandardCharsets.UTF_8);
+            writeLongLe(raf, archVal.length);
+            raf.write(archVal);
+            // clip.has_vision_encoder = true → a vision projector with no main transformer blocks
             byte[] key = "clip.has_vision_encoder".getBytes(StandardCharsets.UTF_8);
             writeLongLe(raf, key.length);
             raf.write(key);
