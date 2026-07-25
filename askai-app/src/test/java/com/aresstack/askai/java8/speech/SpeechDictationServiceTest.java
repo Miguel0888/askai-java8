@@ -107,7 +107,7 @@ public class SpeechDictationServiceTest {
         service.startRecording("");
         service.stopAndTranscribe("Automatic", "", "");
         assertEquals(DictationErrorKind.QUALITY_NO_SIGNAL, listener.failures.get(0).getKind());
-        assertTrue(listener.failures.get(0).keepsRecording());
+        assertTrue("raw kept for save", service.hasSavableRecording());
         assertTrue("raw kept for retry", recorder.lastRawFile.isFile());
         assertEquals(0, transcriber.calls);   // never uploaded
     }
@@ -232,6 +232,36 @@ public class SpeechDictationServiceTest {
         assertEquals("late text must not be inserted", 0, listener.results.size());
         assertEquals(1, listener.failures.size());
         assertEquals(DictationErrorKind.CANCELLED, listener.failures.get(0).getKind());
+        assertEquals(1, listener.terminalCount());
+    }
+
+    @Test
+    public void cancelWinsEvenWhenTransportReportsAnotherError() {
+        // After abort() the adapter may raise e.g. TRANSCRIPTION_FAILED instead of CANCELLED; the
+        // user's cancel must still win and never surface as a technical error.
+        final SpeechDictationService[] holder = new SpeechDictationService[1];
+        SpeechTranscriber failingAfterCancel = new SpeechTranscriber() {
+            public String transcribe(TranscriptionInput input) throws SpeechTranscriberException {
+                holder[0].cancel();
+                throw new SpeechTranscriberException(DictationErrorKind.TRANSCRIPTION_FAILED, "connection reset");
+            }
+
+            public void cancel() {
+            }
+
+            public int lastHttpStatus() {
+                return 0;
+            }
+        };
+        SpeechDictationService service = new SpeechDictationService(INLINE, recorder, normalizer, resolver,
+                failingAfterCancel, null, workDir, null, listener);
+        holder[0] = service;
+        service.startRecording("");
+        service.stopAndTranscribe("Automatic", "", "");
+
+        assertEquals(1, listener.failures.size());
+        assertEquals(DictationErrorKind.CANCELLED, listener.failures.get(0).getKind());
+        assertEquals(0, listener.results.size());
         assertEquals(1, listener.terminalCount());
     }
 

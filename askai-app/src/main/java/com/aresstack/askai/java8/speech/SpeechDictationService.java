@@ -286,6 +286,11 @@ public final class SpeechDictationService {
             text = transcriber.transcribe(new SpeechTranscriber.TranscriptionInput(
                     lastNormalized, model, language, prompt));
         } catch (SpeechTranscriber.SpeechTranscriberException ex) {
+            // A user cancel wins regardless of which transport error the disconnect surfaced
+            // (the adapter may report FAILED/TIMEOUT/UNREACHABLE instead of CANCELLED after abort()).
+            if (abortIfCancelled(op)) {
+                return;
+            }
             if (ex.getKind() == DictationErrorKind.CANCELLED) {
                 deliverCancelled(op);
             } else {

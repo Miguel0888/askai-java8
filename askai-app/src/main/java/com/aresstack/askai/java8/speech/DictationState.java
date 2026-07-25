@@ -55,7 +55,13 @@ public enum DictationState {
         return canDiscard;
     }
 
-    /** @return true when a temporary recording exists (kept for retry/save until success or discard). */
+    /**
+     * @return a coarse hint whether this state <em>usually</em> has a temp recording.
+     * @deprecated a state alone does not prove a file exists (a finalize failure or a cancel while
+     *     recording leaves none). The UI must ask {@link SpeechDictationService#hasRetryableRecording()}
+     *     / {@link SpeechDictationService#hasSavableRecording()} instead.
+     */
+    @Deprecated
     public boolean hasTempRecording() {
         return hasTempRecording;
     }

@@ -23,7 +23,13 @@ public final class DictationFailure {
         return detail;
     }
 
-    /** @return whether a temporary recording is kept for Retry/Save after this failure. */
+    /**
+     * @return whether this kind of failure <em>intends</em> to keep the recording.
+     * @deprecated the intent does not prove a file exists; the UI must ask
+     *     {@link SpeechDictationService#hasRetryableRecording()} /
+     *     {@link SpeechDictationService#hasSavableRecording()} to decide whether to offer Retry/Save.
+     */
+    @Deprecated
     public boolean keepsRecording() {
         return kind.keepRecording();
     }

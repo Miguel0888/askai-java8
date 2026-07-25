@@ -71,6 +71,9 @@ public final class AskAiFrame extends JFrame {
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
         addWindowListener(new WindowAdapter() {
             public void windowClosed(WindowEvent event) {
+                if (chatPanel != null) {
+                    chatPanel.shutdownDictation();
+                }
                 askAiService.shutdown();
             }
         });
@@ -196,6 +199,11 @@ public final class AskAiFrame extends JFrame {
 
     private JPanel createContentPanel() {
         this.chatPanel = new OllamaChatPanel(model, ollamaService, speechToTextService);
+        chatPanel.setInstallAudioModelHandler(new OllamaChatPanel.InstallAudioModelHandler() {
+            public void openInstall() {
+                showScreen(INSTALL_VIEW);
+            }
+        });
         contentPanel.add(chatPanel, CHAT_VIEW);
         // One-click "Use in chat" from an installed model card: switch to Chat and select the model.
         modelsPanel.setUseInChatHandler(new OllamaModelsPanel.UseInChatHandler() {
@@ -227,6 +235,10 @@ public final class AskAiFrame extends JFrame {
     private void showScreen(String screenName) {
         contentLayout.show(contentPanel, screenName);
         refreshConnectionStatus();
+        // Re-check speech-to-text readiness when returning to the chat (server/model may have changed).
+        if (CHAT_VIEW.equals(screenName) && chatPanel != null) {
+            chatPanel.invalidateSpeechReadiness();
+        }
     }
 
     /** Show the Models view and select the Installed or Running Models sub-view. */
