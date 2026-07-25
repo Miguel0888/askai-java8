@@ -8,10 +8,7 @@ import com.aresstack.askai.java8.hf.HuggingFaceFile;
 import com.aresstack.askai.java8.hf.HuggingFaceInstallPlan;
 import com.aresstack.askai.java8.hf.HuggingFaceModel;
 import com.aresstack.askai.java8.hf.HuggingFaceSearchResult;
-import com.aresstack.askai.java8.hf.meta.GgufQuantization;
-import com.aresstack.askai.java8.hf.meta.MetadataValue;
 import com.aresstack.askai.java8.hf.meta.OllamaCreateMetadata;
-import com.aresstack.askai.java8.hf.meta.OllamaModelFamilyRegistry;
 import com.aresstack.askai.java8.hf.ModelSearchCriteria;
 import com.aresstack.askai.java8.hf.SearchFilterState;
 import com.aresstack.askai.java8.hf.SortOrder;
@@ -21,7 +18,6 @@ import com.aresstack.askai.java8.hf.convert.ConverterService;
 import com.aresstack.askai.java8.hf.convert.RepositoryAnalysis;
 import com.aresstack.askai.java8.hf.convert.SupportDecision;
 import com.aresstack.askai.java8.service.AskAiService;
-import com.aresstack.askai.java8.service.RemoteGgufInstaller;
 import com.aresstack.askai.java8.service.VerificationResult;
 import com.aresstack.askai.java8.service.VerificationStatus;
 
@@ -1463,17 +1459,16 @@ public final class OllamaInstallPanel extends JPanel {
             companions.add(mmproj);
             append("Including audio/vision encoder: " + mmproj.getName());
         }
-        // The capabilities Hugging Face declared for this model are the installation contract: map them
-        // to canonical Ollama tags and require /api/show to confirm them after create. The metadata also
-        // carries the safe info fields (family, quantization) to record on /api/create.
-        final OllamaCreateMetadata metadata =
-                resolveInstallMetadata(lastDownloadedFile, modelName, frozenPlan);
-        if (metadata == null) {
-            // The user cancelled at an invalid-metadata prompt: do not install.
+        // Resolve the install plan on the EDT (sidecar precedence + any prompts). The heavier metadata
+        // enrichment (config.json / HF model-info) then runs off the EDT inside the service.
+        final PlanResolution resolution = resolvePlan(lastDownloadedFile, modelName, frozenPlan);
+        if (resolution.isCancelled()) {
             showProgress(0, "Install cancelled");
             return;
         }
-        final List<String> requiredCapabilities = metadata.capabilities();
+        final HuggingFaceInstallPlan plan = resolution.getPlan(); // null → a plain manual import
+        final List<String> requiredCapabilities = plan == null
+                ? Collections.<String>emptyList() : plan.getRequiredOllamaCapabilities();
         if (!requiredCapabilities.isEmpty()) {
             append("Hugging Face declares: " + join(requiredCapabilities)
                     + " — will verify against /api/show after install.");
@@ -1481,8 +1476,7 @@ public final class OllamaInstallPanel extends JPanel {
         append("Installing " + lastDownloadedFile.getAbsolutePath() + " as " + modelName + ".");
         showProgress(0, "Installing");
         setInstallInProgress(true);
-        installTask = askAiService.installGgufFileWithCompanions(modelName, lastDownloadedFile, companions,
-                metadata, new AskAiService.InstallListener() {
+        AskAiService.InstallListener installListener = new AskAiService.InstallListener() {
             public void onProgress(final String phase, final long completed, final long total) {
                 onUi(new Runnable() {
                     public void run() {
@@ -1535,7 +1529,17 @@ public final class OllamaInstallPanel extends JPanel {
                     }
                 });
             }
-        });
+        };
+        if (plan == null) {
+            // A plain manual GGUF import: no Hugging Face metadata is invented.
+            installTask = askAiService.installGgufFileWithCompanions(modelName, lastDownloadedFile, companions,
+                    OllamaCreateMetadata.empty(), installListener);
+        } else {
+            // The service enriches the plan (config.json / HF model-info) off the EDT and sends the trusted
+            // metadata on /api/create.
+            installTask = askAiService.installGgufFileWithPlan(modelName, lastDownloadedFile, companions,
+                    plan, installListener);
+        }
     }
 
     /**
@@ -1560,27 +1564,54 @@ public final class OllamaInstallPanel extends JPanel {
                 declaredNames, ModelCapability.requiredOllamaTags(declared), modelType);
     }
 
+    /** Outcome of resolving which install plan (if any) drives an install. */
+    private static final class PlanResolution {
+        private static final PlanResolution CANCEL = new PlanResolution(null, true);
+        private static final PlanResolution MANUAL = new PlanResolution(null, false);
+        private final HuggingFaceInstallPlan plan;
+        private final boolean cancelled;
+
+        private PlanResolution(HuggingFaceInstallPlan plan, boolean cancelled) {
+            this.plan = plan;
+            this.cancelled = cancelled;
+        }
+
+        static PlanResolution of(HuggingFaceInstallPlan plan) {
+            return new PlanResolution(plan, false);
+        }
+
+        boolean isCancelled() {
+            return cancelled;
+        }
+
+        /** @return the Hugging Face plan, or {@code null} for a plain manual import. */
+        HuggingFaceInstallPlan getPlan() {
+            return plan;
+        }
+    }
+
     /**
-     * @return the typed install metadata (capabilities plus any trusted info fields) the install must
-     *         reproduce. A freshly frozen plan is authoritative and overwrites any stale sidecar; without
-     *         one (a re-install from the download directory) the persisted sidecar is the only source.
-     *         Empty metadata for a plain manual GGUF import; {@code null} when the user cancels (invalid
-     *         sidecar, or a metadata write failure) — the install must then not proceed.
+     * Resolves which install plan drives this install (EDT only; may prompt). A freshly frozen plan is
+     * authoritative and overwrites any stale sidecar; without one (a re-install from the download
+     * directory) the persisted sidecar is the only source. The heavy metadata enrichment happens later,
+     * off the EDT, in the service.
+     *
+     * @return {@link PlanResolution#CANCEL} to abort, a manual resolution ({@code getPlan() == null}) for
+     *         a plain GGUF import, or a resolution carrying the Hugging Face plan.
      */
-    private OllamaCreateMetadata resolveInstallMetadata(File modelFile, String modelName,
-                                                        HuggingFaceInstallPlan frozenPlan) {
+    private PlanResolution resolvePlan(File modelFile, String modelName, HuggingFaceInstallPlan frozenPlan) {
         if (frozenPlan != null) {
             // The plan frozen for this download wins over whatever sidecar is on disk, so re-downloading
             // a file can never be shadowed by an older sidecar. Persist it (atomically) as the new truth.
             HuggingFaceInstallPlan plan = frozenPlan.withTargetModelName(modelName);
             Boolean written = persistSidecarOrPrompt(plan, modelFile);
             if (written == null) {
-                return null; // cancelled after a write failure
+                return PlanResolution.CANCEL; // cancelled after a write failure
             }
             if (!written.booleanValue()) {
-                return OllamaCreateMetadata.empty(); // user chose a plain manual import instead
+                return PlanResolution.MANUAL; // user chose a plain manual import instead
             }
-            return buildInstallMetadata(plan, modelFile);
+            return PlanResolution.of(plan);
         }
         // Re-install from the download directory: the sidecar written earlier is the only contract.
         HuggingFaceInstallPlan sidecar;
@@ -1589,12 +1620,12 @@ public final class OllamaInstallPanel extends JPanel {
         } catch (java.io.IOException ex) {
             // A present-but-invalid sidecar must be an explicit user decision, not a silent downgrade.
             List<String> decision = confirmManualImportForInvalidSidecar(ex);
-            return decision == null ? null : OllamaCreateMetadata.empty();
+            return decision == null ? PlanResolution.CANCEL : PlanResolution.MANUAL;
         }
         if (sidecar == null) {
-            return OllamaCreateMetadata.empty(); // no contract → manual import
+            return PlanResolution.MANUAL; // no contract → manual import
         }
-        return buildInstallMetadata(sidecar, modelFile);
+        return PlanResolution.of(sidecar);
     }
 
     /**
@@ -1640,27 +1671,6 @@ public final class OllamaInstallPanel extends JPanel {
             append("Install cancelled: could not save install metadata.");
             return null;
         }
-    }
-
-    /**
-     * Builds the typed {@code /api/create} metadata from a resolved plan and the file: capabilities from
-     * the contract, plus the safe, high-confidence fields derivable in-process — the family from a curated
-     * registry (config.json model_type) and the quantization from the file name.
-     */
-    private OllamaCreateMetadata buildInstallMetadata(HuggingFaceInstallPlan plan, File modelFile) {
-        OllamaCreateMetadata.Builder builder = new OllamaCreateMetadata.Builder()
-                .capabilities(RemoteGgufInstaller.normalizeCapabilities(plan.getRequiredOllamaCapabilities()));
-        MetadataValue<String> family = OllamaModelFamilyRegistry.familyValue(plan.getModelType());
-        if (family != null) {
-            builder.modelFamily(family);
-            append("Detected model family: " + family.value() + ".");
-        }
-        MetadataValue<String> quant = GgufQuantization.fromFileNameValue(modelFile.getName());
-        if (quant != null) {
-            builder.quantizationLevel(quant);
-            append("Detected quantization: " + quant.value() + ".");
-        }
-        return builder.build();
     }
 
     /**

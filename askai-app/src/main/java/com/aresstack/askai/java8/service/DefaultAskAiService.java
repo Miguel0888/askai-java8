@@ -259,23 +259,68 @@ public final class DefaultAskAiService implements AskAiService {
                                                      final List<File> companionFiles,
                                                      final com.aresstack.askai.java8.hf.meta.OllamaCreateMetadata metadata,
                                                      final InstallListener listener) {
+        return runInstall(modelName, ggufFile, companionFiles, new java.util.concurrent.Callable<
+                com.aresstack.askai.java8.hf.meta.OllamaCreateMetadata>() {
+            public com.aresstack.askai.java8.hf.meta.OllamaCreateMetadata call() {
+                return metadata;
+            }
+        }, listener);
+    }
+
+    public InstallTask installGgufFileWithPlan(final String modelName, final File ggufFile,
+                                               final List<File> companionFiles,
+                                               final com.aresstack.askai.java8.hf.HuggingFaceInstallPlan plan,
+                                               final InstallListener listener) {
+        final com.aresstack.askai.java8.hf.HuggingFaceClient hf = huggingFaceClient();
+        return runInstall(modelName, ggufFile, companionFiles, new java.util.concurrent.Callable<
+                com.aresstack.askai.java8.hf.meta.OllamaCreateMetadata>() {
+            public com.aresstack.askai.java8.hf.meta.OllamaCreateMetadata call() {
+                // Runs on the install executor (never the EDT): loads config.json / generation_config.json
+                // / HF model-info for the frozen repo+revision and maps the trusted values to /api/create.
+                listener.onProgress("Preparing metadata", 0, 0);
+                return buildPlanMetadata(hf, plan, ggufFile);
+            }
+        }, listener);
+    }
+
+    /** Best-effort enrichment; degrades to the plan's capabilities + registry family when HF is unreachable. */
+    private com.aresstack.askai.java8.hf.meta.OllamaCreateMetadata buildPlanMetadata(
+            com.aresstack.askai.java8.hf.HuggingFaceClient hf,
+            com.aresstack.askai.java8.hf.HuggingFaceInstallPlan plan, File ggufFile) {
+        try {
+            return new com.aresstack.askai.java8.hf.meta.HuggingFaceMetadataLoader(
+                    new com.aresstack.askai.java8.hf.meta.HuggingFaceClientMetadataGateway(hf))
+                    .load(plan, ggufFile.getName());
+        } catch (RuntimeException ex) {
+            return com.aresstack.askai.java8.hf.meta.OllamaCreateMetadata.ofCapabilities(
+                    RemoteGgufInstaller.normalizeCapabilities(plan.getRequiredOllamaCapabilities()));
+        }
+    }
+
+    /**
+     * Shared install pipeline: resolve the metadata (possibly with a network fetch) on the executor, send
+     * it to Ollama on {@code /api/create}, then verify via {@code /api/show}. Only a VERIFIED result
+     * reports "Installed"; MISSING_REQUIRED / UNKNOWN / FAILED end as incomplete so the UI never shows a
+     * failed verification and "Installed" together.
+     */
+    private InstallTask runInstall(final String modelName, final File ggufFile, final List<File> companionFiles,
+                                   final java.util.concurrent.Callable<
+                                           com.aresstack.askai.java8.hf.meta.OllamaCreateMetadata> metadataSupplier,
+                                   final InstallListener listener) {
         AppConfiguration configuration = configurationRepository.load();
         final RemoteGgufInstaller installer = new RemoteGgufInstaller(configuration.getOllamaBaseUrl());
-        // The metadata's capability list is the install contract, used for BOTH steps: sent to Ollama in
-        // /api/create and checked against /api/show — not just a post-hoc comparison.
-        final List<String> capabilities = metadata.capabilities();
         final Future<?> future = executorService.submit(new Runnable() {
             public void run() {
                 try {
+                    com.aresstack.askai.java8.hf.meta.OllamaCreateMetadata metadata = metadataSupplier.call();
+                    // The metadata's capability list is the install contract, used for BOTH steps.
+                    List<String> capabilities = metadata.capabilities();
                     installer.install(modelName, ggufFile, companionFiles, metadata,
                             new RemoteGgufInstaller.ProgressListener() {
                                 public void onProgress(String phase, long completed, long total) {
                                     listener.onProgress(phase, completed, total);
                                 }
                             });
-                    // Verify against /api/show before declaring the install complete. Only a VERIFIED
-                    // result may report "Installed"; MISSING_REQUIRED / UNKNOWN / FAILED end as
-                    // incomplete so the UI never shows a failed verification and "Installed" together.
                     VerificationResult verification = verifyInstalled(modelName, capabilities);
                     listener.onVerified(verification);
                     if (verification.getStatus() == VerificationStatus.VERIFIED) {

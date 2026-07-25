@@ -55,6 +55,9 @@ public final class OllamaModelFamilyRegistry {
         put(map, "gemma");
         put(map, "gemma2");
         put(map, "gemma3");
+        put(map, "gemma3_text");
+        map.put("gemma3_text", "gemma3");
+        put(map, "gemma4");
         // Phi
         put(map, "phi");
         put(map, "phi3");

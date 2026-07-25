@@ -78,6 +78,15 @@ public interface AskAiService {
                                               com.aresstack.askai.java8.hf.meta.OllamaCreateMetadata metadata,
                                               InstallListener listener);
 
+    /**
+     * Installs a Hugging Face GGUF from its frozen install plan. The plan's repository + revision are used
+     * to load config.json / generation_config.json / HF model-info off the UI thread and map the trusted
+     * values (family, sizes, quantization, license, generation parameters) into {@code /api/create}.
+     */
+    InstallTask installGgufFileWithPlan(String modelName, File ggufFile, List<File> companionFiles,
+                                        com.aresstack.askai.java8.hf.HuggingFaceInstallPlan plan,
+                                        InstallListener listener);
+
     void shutdown();
 
     /** Handle to a running install; {@link #cancel()} aborts the upload/create. */

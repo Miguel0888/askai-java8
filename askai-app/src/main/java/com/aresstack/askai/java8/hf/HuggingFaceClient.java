@@ -717,8 +717,33 @@ public final class HuggingFaceClient implements HuggingFaceSearchGateway {
      * automatically. Throws on a non-2xx final status (e.g. 401 for a gated repo without a token).
      */
     public String fetchFileText(String modelId, String path) throws IOException {
-        String url = "https://huggingface.co/" + encodePath(modelId) + "/resolve/main/" + encodePath(path);
+        return fetchFileText(modelId, "main", path);
+    }
+
+    /** Like {@link #fetchFileText(String, String)} but pinned to a concrete revision (branch/tag/commit). */
+    public String fetchFileText(String modelId, String revision, String path) throws IOException {
+        String rev = revision == null || revision.trim().isEmpty() ? "main" : revision.trim();
+        String url = "https://huggingface.co/" + encodePath(modelId) + "/resolve/"
+                + encodePath(rev) + "/" + encodePath(path);
         return getText(url);
+    }
+
+    /**
+     * Fetches the detailed model-info JSON ({@code /api/models/<id>/revision/<rev>}): {@code sha},
+     * {@code tags}, {@code cardData}, {@code config}, {@code gguf}, {@code safetensors}, {@code siblings}.
+     *
+     * @return the parsed object, or an empty map when the response is not a JSON object.
+     */
+    public Map<String, Object> fetchModelInfo(String modelId, String revision) throws IOException {
+        String rev = revision == null || revision.trim().isEmpty() ? "main" : revision.trim();
+        String url = "https://huggingface.co/api/models/" + encodePath(modelId) + "/revision/" + encodePath(rev);
+        Object parsed = OllamaJson.parse(getText(url));
+        if (parsed instanceof Map) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> map = (Map<String, Object>) parsed;
+            return map;
+        }
+        return new LinkedHashMap<String, Object>();
     }
 
     /** Public GET of an arbitrary text/JSON URL through the same proxy/TLS plumbing (catalog endpoints). */
