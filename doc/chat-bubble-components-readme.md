@@ -44,7 +44,10 @@ Sie ist nicht dafür vorgesehen, verborgenes internes Modell-Reasoning anzuzeige
 
 1. `RUNNING`: Die Begründung ist sichtbar. Vier Kreise wandern zur Mitte, steigen auf und werden größer.
 2. `BURSTING`: Die Gedankenblase bläht sich kurz auf, verblasst und zerfällt in Partikel.
-3. `FLOATING_RESULT`: Eine kompakte Zusammenfassung steigt nach oben und blendet aus.
+3. `FLOATING_RESULT`: Eine kompakte Zusammenfassung steigt auf. Innerhalb von `BubbleTranscriptPanel`
+   wird sie auf einer transparenten Overlay-Ebene gezeichnet, überlagert damit alle darunterliegenden
+   Zeilen und steigt bis zur oberen Kante des Verlaufs auf, bevor sie ausblendet. (Ohne Transcript-Overlay
+   fällt die Blase auf den zeileninternen Aufstieg zurück.)
 4. `FINISHED`: Die Animation endet. `BubbleTranscriptPanel` entfernt die temporäre Zeile.
 
 Die Animation verwendet ausschließlich `javax.swing.Timer` und läuft damit auf dem Swing Event Dispatch Thread.

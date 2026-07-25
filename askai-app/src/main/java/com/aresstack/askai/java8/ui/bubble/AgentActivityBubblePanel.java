@@ -48,6 +48,15 @@ public final class AgentActivityBubblePanel extends JPanel {
         CANCELLED
     }
 
+    /**
+     * Optional sink for the finished summary. When set, the burst hands the decorated summary off to be
+     * animated elsewhere (e.g. a transcript-wide overlay that rises to the top edge) instead of the
+     * in-row float. The bubble then finishes immediately so its row can be removed.
+     */
+    public interface SummaryFloatHandler {
+        void floatSummary(AgentActivityBubblePanel source, String text, Color accent, Font font);
+    }
+
     private static final int CONNECTOR_SPACE = 58;
     private static final int ARC = 24;
     private static final int CONTENT_PADDING = 17;
@@ -72,6 +81,7 @@ public final class AgentActivityBubblePanel extends JPanel {
     private ResultKind resultKind;
     private Runnable completionListener;
     private int maximumBubbleWidth;
+    private SummaryFloatHandler summaryFloatHandler;
 
     public AgentActivityBubblePanel(BubbleSide side,
                                     BubblePalette palette,
@@ -144,6 +154,11 @@ public final class AgentActivityBubblePanel extends JPanel {
 
     public void stopAnimation() {
         animationTimer.stop();
+    }
+
+    /** Route the finished summary to an external animator (e.g. a transcript overlay). */
+    public void setSummaryFloatHandler(SummaryFloatHandler handler) {
+        this.summaryFloatHandler = handler;
     }
 
     public void setMaximumBubbleWidth(int maximumBubbleWidth) {
@@ -265,6 +280,14 @@ public final class AgentActivityBubblePanel extends JPanel {
         }
         if (visualState == VisualState.BURSTING
                 && now - phaseStartedAt >= BURST_DURATION_MILLIS) {
+            if (summaryFloatHandler != null) {
+                // Hand the finished summary to the overlay (rises over everything to the top edge) while
+                // the bubble still knows its own position, then finish so this row is removed.
+                summaryFloatHandler.floatSummary(this, decorateSummary(resultSummary),
+                        resolveResultAccent(), resolveResultFont());
+                finishAnimation();
+                return;
+            }
             visualState = VisualState.FLOATING_RESULT;
             phaseStartedAt = now;
             repaint();
