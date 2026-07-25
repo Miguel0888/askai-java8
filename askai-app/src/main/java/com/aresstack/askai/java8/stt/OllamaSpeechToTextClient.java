@@ -31,10 +31,14 @@ final class OllamaSpeechToTextClient {
     private static final String BOUNDARY_PREFIX = "askai-java8-stt-";
     private static final String CRLF = "\r\n";
 
+    /** Cap on how much of a response/error body is read, so a huge/hostile body can't exhaust memory. */
+    private static final int MAX_BODY_BYTES = 1024 * 1024;
+
     private final String baseUrl;
     private final int timeoutSeconds;
     private volatile HttpURLConnection activeConnection;
     private volatile boolean aborted;
+    private volatile int lastStatus;
 
     OllamaSpeechToTextClient(String baseUrl, int timeoutSeconds) {
         this.baseUrl = normalizeBaseUrl(baseUrl);
@@ -48,6 +52,11 @@ final class OllamaSpeechToTextClient {
         if (connection != null) {
             connection.disconnect();
         }
+    }
+
+    /** @return the HTTP status of the last transcription attempt (for diagnostics), or 0. */
+    int lastHttpStatus() {
+        return lastStatus;
     }
 
     /**
@@ -71,15 +80,17 @@ final class OllamaSpeechToTextClient {
         } catch (SpeechToTextException ex) {
             throw ex;
         } catch (SocketTimeoutException ex) {
-            throw failure("The transcription timed out after " + timeoutSeconds + " seconds. "
-                    + "Increase the Speech-to-Text timeout or use a shorter audio file.", ex);
+            throw new SpeechToTextException(TranscriptionErrorKind.TIMEOUT, 0,
+                    "The transcription timed out after " + timeoutSeconds + " seconds.", ex);
         } catch (ConnectException ex) {
-            throw failure("Ollama at " + baseUrl + " is not reachable: " + ex.getMessage(), ex);
+            throw new SpeechToTextException(TranscriptionErrorKind.UNREACHABLE, 0,
+                    "Ollama at " + baseUrl + " is not reachable: " + messageOf(ex), ex);
         } catch (IOException ex) {
             if (aborted) {
-                throw failure("Transcription cancelled.", ex);
+                throw new SpeechToTextException(TranscriptionErrorKind.CANCELLED, 0, "Transcription cancelled.", ex);
             }
-            throw failure("Transcription failed: " + messageOf(ex), ex);
+            throw new SpeechToTextException(TranscriptionErrorKind.FAILED, 0,
+                    "Transcription failed: " + messageOf(ex), ex);
         } finally {
             activeConnection = null;
             if (connection != null) {
@@ -121,9 +132,30 @@ final class OllamaSpeechToTextClient {
         builder.append("--").append(boundary).append(CRLF);
         builder.append("Content-Disposition: form-data; name=\"file\"; filename=\"")
                 .append(sanitizeFileName(fileName)).append('"').append(CRLF);
-        builder.append("Content-Type: application/octet-stream").append(CRLF);
+        builder.append("Content-Type: ").append(mimeForFile(fileName)).append(CRLF);
         builder.append(CRLF);
         return builder.toString().getBytes(StandardCharsets.UTF_8);
+    }
+
+    /** @return the audio MIME type for the file extension; generated recordings are {@code audio/wav}. */
+    private static String mimeForFile(String fileName) {
+        String lower = fileName == null ? "" : fileName.toLowerCase();
+        if (lower.endsWith(".wav")) {
+            return "audio/wav";
+        }
+        if (lower.endsWith(".mp3")) {
+            return "audio/mpeg";
+        }
+        if (lower.endsWith(".m4a")) {
+            return "audio/mp4";
+        }
+        if (lower.endsWith(".ogg")) {
+            return "audio/ogg";
+        }
+        if (lower.endsWith(".flac")) {
+            return "audio/flac";
+        }
+        return "application/octet-stream";
     }
 
     private static void appendField(StringBuilder builder, String boundary, String name, String value) {
@@ -161,60 +193,61 @@ final class OllamaSpeechToTextClient {
     private String readTranscription(HttpURLConnection connection, String modelName)
             throws IOException, SpeechToTextException {
         int status = connection.getResponseCode();
+        lastStatus = status;
         String body = readText(status >= 200 && status < 300
                 ? connection.getInputStream() : connection.getErrorStream());
 
         if (status == 404) {
-            throw failure("This Ollama version does not offer /v1/audio/transcriptions. "
-                    + "Update Ollama to a version with audio transcription support.", null);
+            throw new SpeechToTextException(TranscriptionErrorKind.ENDPOINT_NOT_FOUND, 404,
+                    "This Ollama server does not offer /v1/audio/transcriptions.", null);
         }
         if (status < 200 || status >= 300) {
-            throw failure(describeHttpError(status, body, modelName), null);
+            throw classifyHttpError(status, body);
         }
 
         Object parsed;
         try {
             parsed = OllamaJson.parse(body);
         } catch (RuntimeException ex) {
-            throw failure("Ollama returned an invalid transcription response (not JSON): "
-                    + excerpt(body), ex);
+            throw new SpeechToTextException(TranscriptionErrorKind.BAD_JSON, status,
+                    "Ollama returned an invalid transcription response (not JSON): " + excerpt(body), ex);
         }
         if (!(parsed instanceof Map)) {
-            throw failure("Ollama returned an unexpected transcription response: " + excerpt(body), null);
+            throw new SpeechToTextException(TranscriptionErrorKind.BAD_JSON, status,
+                    "Ollama returned an unexpected transcription response: " + excerpt(body), null);
         }
         Object text = ((Map) parsed).get("text");
         if (text == null) {
-            throw failure("The transcription response contained no text field: " + excerpt(body), null);
+            throw new SpeechToTextException(TranscriptionErrorKind.BAD_JSON, status,
+                    "The transcription response contained no text field: " + excerpt(body), null);
         }
         String transcription = String.valueOf(text).trim();
         if (transcription.length() == 0) {
-            throw failure("The transcription came back empty. The audio may be silent, or the model "
-                    + "may not support audio input — configure an audio-capable STT model.", null);
+            throw new SpeechToTextException(TranscriptionErrorKind.EMPTY_RESULT, status,
+                    "The transcription came back empty.", null);
         }
         return transcription;
     }
 
-    /** Maps HTTP errors to user-readable messages, surfacing the server's own error text when present. */
-    private String describeHttpError(int status, String body, String modelName) {
+    /**
+     * Classifies a non-2xx response into a structured {@link TranscriptionErrorKind}, keeping the
+     * server's own error text but adding no UI wording or install instructions (that is the
+     * application layer's job).
+     */
+    private SpeechToTextException classifyHttpError(int status, String body) {
         String serverMessage = extractErrorMessage(body);
         String lower = serverMessage.toLowerCase();
-        // The most common audio failure: the model is loaded without its audio encoder (mmproj).
         if (lower.contains("mmproj") || lower.contains("audio input is not supported")
-                || lower.contains("does not support") && lower.contains("audio")) {
-            String name = modelName == null || modelName.trim().length() == 0
-                    ? "the selected model" : "\"" + modelName.trim() + "\"";
-            return "This model cannot accept audio: " + name + " has no audio encoder (mmproj). "
-                    + "A single GGUF is only the language model — multimodal models need a separate "
-                    + "*mmproj* GGUF. Either import the matching mmproj file alongside the model, or pull "
-                    + "an already-assembled multimodal model that bundles the encoder, e.g. run "
-                    + "\"ollama pull gemma3n:e4b\" on the Ollama host, then select gemma3n:e4b as the audio "
-                    + "model. (Ollama said: " + serverMessage + ")";
+                || (lower.contains("does not support") && lower.contains("audio"))) {
+            return new SpeechToTextException(TranscriptionErrorKind.MODEL_NOT_AUDIO, status,
+                    "The selected model cannot accept audio"
+                            + (serverMessage.length() > 0 ? " (server: " + serverMessage + ")" : "") + ".", null);
         }
-        String hint = status == 400 || status == 422 || status == 500
-                ? " The selected model may not support audio input — pick an audio-capable model."
-                : "";
-        return "Transcription failed with HTTP " + status
-                + (serverMessage.length() > 0 ? ": " + serverMessage : "") + hint;
+        TranscriptionErrorKind kind = status == 400 || status == 422
+                ? TranscriptionErrorKind.BAD_REQUEST
+                : status >= 500 ? TranscriptionErrorKind.SERVER_ERROR : TranscriptionErrorKind.FAILED;
+        return new SpeechToTextException(kind, status, "Transcription failed with HTTP " + status
+                + (serverMessage.length() > 0 ? ": " + serverMessage : ""), null);
     }
 
     private String extractErrorMessage(String body) {
@@ -246,6 +279,8 @@ final class OllamaSpeechToTextClient {
         return text.length() > 300 ? text.substring(0, 300) + " …" : text;
     }
 
+    /** Reads at most {@link #MAX_BODY_BYTES} of the stream (a transcription JSON is tiny; error/HTML
+     *  bodies are bounded so a hostile response can't exhaust memory). */
     private String readText(InputStream inputStream) throws IOException {
         if (inputStream == null) {
             return "";
@@ -254,17 +289,13 @@ final class OllamaSpeechToTextClient {
         byte[] bytes = new byte[8192];
         int read;
         try {
-            while ((read = inputStream.read(bytes)) >= 0) {
+            while (buffer.size() < MAX_BODY_BYTES && (read = inputStream.read(bytes)) >= 0) {
                 buffer.write(bytes, 0, read);
             }
         } finally {
             closeQuietly(inputStream);
         }
         return new String(buffer.toByteArray(), StandardCharsets.UTF_8);
-    }
-
-    private SpeechToTextException failure(String message, Throwable cause) {
-        return new SpeechToTextException(message, cause);
     }
 
     private static String messageOf(Throwable throwable) {
