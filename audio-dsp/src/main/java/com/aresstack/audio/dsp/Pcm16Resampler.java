@@ -7,11 +7,9 @@ package com.aresstack.audio.dsp;
  * truncated; the final output samples are interpolated toward the last input sample (indices are
  * clamped, never read past the end).
  *
- * <p>Linear interpolation is adequate for getting speech to a transcription model, but it is NOT an
- * anti-aliasing resampler: when downsampling (e.g. 48 kHz → 16 kHz), content above the target Nyquist
- * (8 kHz) is not low-pass filtered first and can alias. A proper poly-phase/FIR low-pass is a planned
- * audio-quality improvement (tracked for before the feature leaves "Experimental"); it is not meant
- * for music.</p>
+ * <p>When downsampling (e.g. 48 kHz → 16 kHz) the input is first low-pass filtered (a windowed-sinc FIR,
+ * {@link Pcm16LowPassFilter}) to just below the destination Nyquist, so content above it is removed and
+ * cannot alias into the audible band before the linear-interpolation stage.</p>
  */
 public final class Pcm16Resampler {
 
@@ -33,6 +31,11 @@ public final class Pcm16Resampler {
             short[] copy = new short[inputLength];
             System.arraycopy(mono, 0, copy, 0, inputLength);
             return copy;
+        }
+        // Anti-aliasing: when downsampling, remove everything above the destination Nyquist first (a small
+        // guard below it for the transition band), so it cannot fold back into the band we keep.
+        if (dstRate < srcRate) {
+            mono = Pcm16LowPassFilter.filter(mono, srcRate, 0.45d * dstRate);
         }
         long rounded = Math.round((double) inputLength * dstRate / srcRate);
         int outputLength = (int) Math.max(1L, rounded);
