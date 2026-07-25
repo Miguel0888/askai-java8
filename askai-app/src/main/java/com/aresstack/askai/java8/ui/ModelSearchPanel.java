@@ -15,11 +15,21 @@ import java.awt.BorderLayout;
  */
 public final class ModelSearchPanel extends JPanel {
 
+    private final JTabbedPane tabs;
+    private final OllamaInstallPanel huggingFacePanel;
+
     public ModelSearchPanel(AppConfigurationRepository configurationRepository, AskAiService askAiService) {
         super(new BorderLayout());
-        JTabbedPane tabs = new JTabbedPane();
-        tabs.addTab("Hugging Face", new OllamaInstallPanel(configurationRepository, askAiService));
+        this.huggingFacePanel = new OllamaInstallPanel(configurationRepository, askAiService);
+        this.tabs = new JTabbedPane();
+        tabs.addTab("Hugging Face", huggingFacePanel);
         tabs.addTab("Ollama Library", new OllamaLibraryPanel(askAiService));
         add(tabs, BorderLayout.CENTER);
+    }
+
+    /** Selects the Hugging Face tab and runs a search for {@code query} (used to find model add-ons). */
+    public void openHuggingFaceSearch(String query) {
+        tabs.setSelectedComponent(huggingFacePanel);
+        huggingFacePanel.searchFor(query);
     }
 }

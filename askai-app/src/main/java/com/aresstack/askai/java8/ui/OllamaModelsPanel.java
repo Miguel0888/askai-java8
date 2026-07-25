@@ -40,6 +40,11 @@ public final class OllamaModelsPanel extends JPanel {
         void useInChat(String modelName);
     }
 
+    /** Routes to the Hugging Face search prefilled with a model name (wired by the owning frame). */
+    public interface FindAddOnsHandler {
+        void findAddOns(String modelName);
+    }
+
     private static final String INSTALLED_CARD = "installed";
     private static final String RUNNING_CARD = "running";
 
@@ -55,8 +60,8 @@ public final class OllamaModelsPanel extends JPanel {
     private final JLabel runningStatusLabel;
     private final JLabel informationLabel;
     private boolean serverInformationLoaded;
-    private AskAiService.InstallTask addOnInstallTask;
     private UseInChatHandler useInChatHandler;
+    private FindAddOnsHandler findAddOnsHandler;
 
     public OllamaModelsPanel(AskAiModel model, OllamaService ollamaService,
                              AskAiService askAiService, AppConfigurationRepository configurationRepository) {
@@ -77,6 +82,10 @@ public final class OllamaModelsPanel extends JPanel {
     /** Wires the "Use in chat" primary action shown on each installed model card. */
     public void setUseInChatHandler(UseInChatHandler handler) {
         this.useInChatHandler = handler;
+    }
+
+    public void setFindAddOnsHandler(FindAddOnsHandler handler) {
+        this.findAddOnsHandler = handler;
     }
 
     /** Show the installed-models view and refresh it (the "Models > Installed" entry). */
@@ -239,12 +248,6 @@ public final class OllamaModelsPanel extends JPanel {
         if (models.isEmpty()) {
             addPlaceholder(installedCardsPanel, "No installed models returned by Ollama.");
         } else {
-            OllamaModelCard.AddOnHandler addOnHandler = new OllamaModelCard.AddOnHandler() {
-                @Override
-                public void installAddOn(OllamaModelInfo modelInfo, Modality modality, boolean alreadyInstalled) {
-                    startAddOnInstall(modelInfo, modality, alreadyInstalled);
-                }
-            };
             for (final OllamaModelInfo modelInfo : models) {
                 Runnable useInChat = new Runnable() {
                     @Override
@@ -254,7 +257,16 @@ public final class OllamaModelsPanel extends JPanel {
                         }
                     }
                 };
-                OllamaModelCard card = OllamaModelCard.installed(modelInfo, addOnHandler, useInChat, new Runnable() {
+                // Stateless: route to HF search by name instead of guessing/installing an encoder locally.
+                Runnable findAddOns = new Runnable() {
+                    @Override
+                    public void run() {
+                        if (findAddOnsHandler != null) {
+                            findAddOnsHandler.findAddOns(modelInfo.getDisplayName());
+                        }
+                    }
+                };
+                OllamaModelCard card = OllamaModelCard.installed(modelInfo, findAddOns, useInChat, new Runnable() {
                     @Override
                     public void run() {
                         confirmAndDelete(modelInfo.getDisplayName());
@@ -294,345 +306,6 @@ public final class OllamaModelsPanel extends JPanel {
         });
     }
 
-    /**
-     * Install (or reinstall) the audio/vision encoder add-on for an installed model: locate the
-     * model's GGUF and the matching *mmproj* file locally, then re-create the model on the server
-     * with both files. Uploads of blobs the server already has are skipped automatically.
-     */
-    private void startAddOnInstall(OllamaModelInfo modelInfo, Modality modality, boolean alreadyInstalled) {
-        if (addOnInstallTask != null) {
-            installedStatusLabel.setText("An add-on installation is already running.");
-            return;
-        }
-        final String modalityName = modality == Modality.AUDIO ? "Audio" : "Vision";
-        final String modelName = modelInfo.getDisplayName();
-        if (alreadyInstalled) {
-            int answer = JOptionPane.showConfirmDialog(this,
-                    modalityName + " is already installed for '" + modelName + "'. Reinstall it?",
-                    modalityName + " already installed",
-                    JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
-            if (answer != JOptionPane.YES_OPTION) {
-                return;
-            }
-        }
-
-        // The base model GGUF: use the local copy silently when found, otherwise ask the user to
-        // point at it (needed so /api/create can reference the model blob it already has).
-        File located = findModelGguf(modelName);
-        final File modelFile = located != null ? located
-                : chooseGgufFile("Select the model's GGUF file for '" + modelName + "'");
-        if (modelFile == null) {
-            return;
-        }
-
-        // 1) A *mmproj* already sitting next to the model? Use it offline.
-        File localEncoder = findMmprojNear(modelFile);
-        if (localEncoder != null) {
-            int answer = JOptionPane.showConfirmDialog(this,
-                    "Use the encoder found next to the model?\n" + localEncoder.getName(),
-                    "Install " + modalityName + " for " + modelName, JOptionPane.YES_NO_OPTION);
-            if (answer == JOptionPane.YES_OPTION) {
-                doAddOnInstall(modelName, modelFile, localEncoder, modalityName);
-                return;
-            }
-        }
-
-        // 2) Otherwise fetch the matching encoder from the model's HuggingFace repository.
-        String repoId = deriveRepoId(modelFile);
-        if (repoId == null) {
-            fallbackToManualEncoder(modelName, modelFile, modalityName,
-                    "Could not determine the HuggingFace repository for this model.");
-            return;
-        }
-        searchEncoderOnHuggingFace(modelName, modelFile, modality, modalityName, repoId);
-    }
-
-    /** List the repository's files and pick the matching encoder, all on the service threads. */
-    private void searchEncoderOnHuggingFace(final String modelName, final File modelFile,
-                                            final Modality modality, final String modalityName,
-                                            final String repoId) {
-        installedStatusLabel.setText("Looking for a " + modalityName.toLowerCase()
-                + " encoder in " + repoId + " on HuggingFace ...");
-        askAiService.listHuggingFaceFiles(repoId, new AskAiService.HuggingFaceFileListener() {
-            @Override
-            public void onFiles(final List<HuggingFaceFile> files) {
-                onUi(new Runnable() {
-                    @Override
-                    public void run() {
-                        HuggingFaceFile encoder = pickEncoder(files, modality);
-                        if (encoder == null) {
-                            noEncoderInRepo(modelName, modelFile, modalityName, repoId);
-                        } else {
-                            confirmAndDownloadEncoder(modelName, modelFile, modalityName, encoder);
-                        }
-                    }
-                });
-            }
-
-            @Override
-            public void onError(final Exception ex) {
-                onUi(new Runnable() {
-                    @Override
-                    public void run() {
-                        fallbackToManualEncoder(modelName, modelFile, modalityName,
-                                "Could not read " + repoId + " from HuggingFace: " + ex.getMessage());
-                    }
-                });
-            }
-        });
-    }
-
-    /** Confirm the encoder found on HuggingFace, then download it and install both files. */
-    private void confirmAndDownloadEncoder(final String modelName, final File modelFile,
-                                           final String modalityName, HuggingFaceFile encoder) {
-        long megabytes = encoder.getSize() / (1024L * 1024L);
-        int answer = JOptionPane.showConfirmDialog(this,
-                "Download the encoder and install " + modalityName + " for '" + modelName + "'?\n\n"
-                        + "Model: " + modelFile.getName() + " (local)\n"
-                        + "Encoder: " + encoder.getFileName() + " (" + megabytes + " MB) from "
-                        + encoder.getModelId(),
-                "Install " + modalityName + " for " + modelName,
-                JOptionPane.OK_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE);
-        if (answer != JOptionPane.OK_OPTION) {
-            installedStatusLabel.setText("Cancelled.");
-            return;
-        }
-        installedStatusLabel.setText("Downloading encoder " + encoder.getFileName() + " ...");
-        askAiService.downloadHuggingFaceFile(encoder, new AskAiService.DownloadListener() {
-            @Override
-            public void onProgress(final long completed, final long total) {
-                onUi(new Runnable() {
-                    @Override
-                    public void run() {
-                        installedStatusLabel.setText(total > 0
-                                ? "Downloading encoder " + (completed * 100L / total) + "%"
-                                : "Downloading encoder ...");
-                    }
-                });
-            }
-
-            @Override
-            public void onComplete(final File encoderFile) {
-                onUi(new Runnable() {
-                    @Override
-                    public void run() {
-                        doAddOnInstall(modelName, modelFile, encoderFile, modalityName);
-                    }
-                });
-            }
-
-            @Override
-            public void onError(final Exception ex) {
-                onUi(new Runnable() {
-                    @Override
-                    public void run() {
-                        installedStatusLabel.setText("Encoder download failed: " + ex.getMessage());
-                    }
-                });
-            }
-        });
-    }
-
-    /** The repository has no encoder: explain honestly and offer manual selection. */
-    private void noEncoderInRepo(String modelName, File modelFile, String modalityName, String repoId) {
-        installedStatusLabel.setText("No " + modalityName.toLowerCase() + " encoder in " + repoId + ".");
-        int answer = JOptionPane.showConfirmDialog(this,
-                repoId + " does not contain a multimodal encoder (mmproj), so this GGUF is "
-                        + "language-only and cannot do " + modalityName.toLowerCase() + ".\n\n"
-                        + "For an assembled multimodal model, pull one that bundles the encoder, e.g. run\n"
-                        + "    ollama pull gemma3n:e4b\n"
-                        + "on the Ollama host and use that model.\n\n"
-                        + "If you have the encoder file elsewhere, select it manually?",
-                "No " + modalityName.toLowerCase() + " encoder found",
-                JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
-        if (answer == JOptionPane.YES_OPTION) {
-            File encoder = chooseGgufFile("Select the " + modalityName.toLowerCase() + " encoder (*mmproj*.gguf)");
-            if (encoder != null) {
-                doAddOnInstall(modelName, modelFile, encoder, modalityName);
-            }
-        }
-    }
-
-    private void fallbackToManualEncoder(String modelName, File modelFile, String modalityName, String reason) {
-        installedStatusLabel.setText(reason);
-        File encoder = chooseGgufFile(reason + " Select the " + modalityName.toLowerCase()
-                + " encoder (*mmproj*.gguf) manually?");
-        if (encoder != null) {
-            doAddOnInstall(modelName, modelFile, encoder, modalityName);
-        }
-    }
-
-    /** Re-create the model on the server from its GGUF plus the encoder, streaming progress. */
-    private void doAddOnInstall(final String modelName, File modelFile, File encoderFile, final String modalityName) {
-        installedStatusLabel.setText("Installing " + modalityName + " add-on for " + modelName + " ...");
-        List<File> companions = new ArrayList<File>();
-        companions.add(encoderFile);
-        // Targeted provisioning: the install only counts if /api/show confirms this exact capability.
-        final String requiredCapability = modalityName.toLowerCase(java.util.Locale.ROOT);
-        final VerificationResult[] verification = new VerificationResult[1];
-        addOnInstallTask = askAiService.installGgufFileWithCompanions(modelName, modelFile, companions,
-                java.util.Collections.singletonList(requiredCapability),
-                new AskAiService.InstallListener() {
-                    @Override
-                    public void onProgress(final String phase, final long completed, final long total) {
-                        onUi(new Runnable() {
-                            @Override
-                            public void run() {
-                                installedStatusLabel.setText(total > 0
-                                        ? phase + " " + (completed * 100L / total) + "%"
-                                        : phase);
-                            }
-                        });
-                    }
-
-                    @Override
-                    public void onVerified(VerificationResult result) {
-                        verification[0] = result;
-                    }
-
-                    @Override
-                    public void onComplete(final String message) {
-                        onUi(new Runnable() {
-                            @Override
-                            public void run() {
-                                addOnInstallTask = null;
-                                VerificationResult result = verification[0];
-                                if (result != null && result.isRequiredSatisfied()) {
-                                    installedStatusLabel.setText(modalityName + " confirmed for " + modelName
-                                            + " (/api/show: " + result.describeReported() + ").");
-                                } else {
-                                    // Installed, but Ollama did not report the required capability: this is a
-                                    // hard failure for a targeted provisioning — the model is not enabled as
-                                    // an audio/vision model (the capability gating relies on /api/show).
-                                    String reported = result == null ? "unknown" : result.describeReported();
-                                    installedStatusLabel.setText(modalityName + " NOT confirmed for " + modelName
-                                            + " — /api/show reports: " + reported
-                                            + ". The model stays installed but is not enabled as "
-                                            + modalityName.toLowerCase(java.util.Locale.ROOT) + ".");
-                                }
-                                // Icons come straight from /api/show on refresh (no cached capabilities).
-                                refreshInstalledModels();
-                            }
-                        });
-                    }
-
-                    @Override
-                    public void onError(final Exception ex) {
-                        onUi(new Runnable() {
-                            @Override
-                            public void run() {
-                                addOnInstallTask = null;
-                                installedStatusLabel.setText("Add-on install failed: " + ex.getMessage());
-                            }
-                        });
-                    }
-                });
-    }
-
-    /** Open a GGUF file chooser rooted at the download directory. */
-    private File chooseGgufFile(String title) {
-        JFileChooser chooser = new JFileChooser(configurationRepository.load().getModelDownloadDirectory());
-        chooser.setDialogTitle(title);
-        chooser.setFileFilter(new FileNameExtensionFilter("GGUF files", "gguf"));
-        if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) {
-            return null;
-        }
-        return chooser.getSelectedFile();
-    }
-
-    /**
-     * Derive the HuggingFace repository id from the model file's download folder. Downloads are
-     * stored under {@code <downloadDir>/<sanitized-repo-id>/<file>}, where the repo id's '/' was
-     * replaced by '_'; restore the first '_' to '/'. Returns null when the file is not under such a
-     * folder.
-     */
-    private String deriveRepoId(File modelFile) {
-        File parent = modelFile.getParentFile();
-        File downloadRoot = configurationRepository.load().getModelDownloadDirectory();
-        if (parent == null || downloadRoot == null || parent.equals(downloadRoot)) {
-            return null;
-        }
-        String folder = parent.getName();
-        int underscore = folder.indexOf('_');
-        if (underscore <= 0 || underscore >= folder.length() - 1) {
-            return null;
-        }
-        return folder.substring(0, underscore) + "/" + folder.substring(underscore + 1);
-    }
-
-    /** Pick the encoder file for the modality: a *mmproj* GGUF, preferring one naming the modality. */
-    private HuggingFaceFile pickEncoder(List<HuggingFaceFile> files, Modality modality) {
-        String modalityKeyword = modality == Modality.AUDIO ? "audio" : "vision";
-        HuggingFaceFile anyMmproj = null;
-        for (int i = 0; i < files.size(); i++) {
-            String name = files.get(i).getFileName().toLowerCase();
-            if (!name.contains("mmproj")) {
-                continue;
-            }
-            if (name.contains(modalityKeyword)) {
-                return files.get(i);
-            }
-            if (anyMmproj == null) {
-                anyMmproj = files.get(i);
-            }
-        }
-        return anyMmproj;
-    }
-
-    /** Best-effort match of an installed model name to a GGUF in the download directory. */
-    private File findModelGguf(String modelName) {
-        String wanted = modelName.toLowerCase();
-        int colon = wanted.indexOf(':');
-        if (colon > 0) {
-            wanted = wanted.substring(0, colon);
-        }
-        List<File> ggufs = new ArrayList<File>();
-        collectGgufs(configurationRepository.load().getModelDownloadDirectory(), ggufs, 0);
-        for (int i = 0; i < ggufs.size(); i++) {
-            String fileName = ggufs.get(i).getName().toLowerCase();
-            String base = fileName.endsWith(".gguf") ? fileName.substring(0, fileName.length() - 5) : fileName;
-            if (base.replace("_", "-").equals(wanted) && !base.contains("mmproj")) {
-                return ggufs.get(i);
-            }
-        }
-        return null;
-    }
-
-    /** Look for a *mmproj*.gguf next to the model file only (offline fast path). */
-    private File findMmprojNear(File modelFile) {
-        File parent = modelFile.getParentFile();
-        if (parent == null || !parent.isDirectory()) {
-            return null;
-        }
-        File[] siblings = parent.listFiles();
-        if (siblings == null) {
-            return null;
-        }
-        for (int i = 0; i < siblings.length; i++) {
-            String name = siblings[i].getName().toLowerCase();
-            if (siblings[i].isFile() && name.contains("mmproj") && name.endsWith(".gguf")) {
-                return siblings[i];
-            }
-        }
-        return null;
-    }
-
-    private void collectGgufs(File directory, List<File> out, int depth) {
-        if (directory == null || !directory.isDirectory() || depth > 4) {
-            return;
-        }
-        File[] children = directory.listFiles();
-        if (children == null) {
-            return;
-        }
-        for (int i = 0; i < children.length; i++) {
-            if (children[i].isDirectory()) {
-                collectGgufs(children[i], out, depth + 1);
-            } else if (children[i].isFile() && children[i].getName().toLowerCase().endsWith(".gguf")) {
-                out.add(children[i]);
-            }
-        }
-    }
 
     private void showRunningModels(List<OllamaRunningModelInfo> models) {
         runningCardsPanel.removeAll();

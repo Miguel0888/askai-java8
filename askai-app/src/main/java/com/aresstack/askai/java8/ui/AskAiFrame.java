@@ -215,7 +215,15 @@ public final class AskAiFrame extends JFrame {
         contentPanel.add(new OllamaActionsPanel(featureActionService, ollamaService), ACTIONS_VIEW);
         // Java 8 port: model search with two sources in tabs — HuggingFace (search/analyze/import)
         // and the Ollama Library (scrape ollama.com, pull a tag on the remote server).
-        contentPanel.add(new ModelSearchPanel(configurationRepository, askAiService), INSTALL_VIEW);
+        final ModelSearchPanel modelSearchPanel = new ModelSearchPanel(configurationRepository, askAiService);
+        contentPanel.add(modelSearchPanel, INSTALL_VIEW);
+        // "Add-ons on Hugging Face" from an installed model card: switch to Setup and search by name.
+        modelsPanel.setFindAddOnsHandler(new OllamaModelsPanel.FindAddOnsHandler() {
+            public void findAddOns(String modelName) {
+                showScreen(INSTALL_VIEW);
+                modelSearchPanel.openHuggingFaceSearch(modelName);
+            }
+        });
         this.configPanel = new OllamaConfigPanel(model, ollamaService);
         contentPanel.add(configPanel, CONNECTIONS_VIEW);
         // Java 8 port: the extended proxy panel (WScript discovery, TLS trust, HTTP client, IPv6).

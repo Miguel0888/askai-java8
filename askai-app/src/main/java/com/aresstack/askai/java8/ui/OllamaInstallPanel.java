@@ -695,6 +695,21 @@ public final class OllamaInstallPanel extends JPanel {
         }
     }
 
+    /** Prefills the search box with {@code query} and runs the search (used to route from a model card). */
+    public void searchFor(String query) {
+        if (query == null || query.trim().isEmpty()) {
+            return;
+        }
+        // Strip an Ollama tag (":latest" etc.) — the repo name is the useful Hugging Face query.
+        String cleaned = query.trim();
+        int colon = cleaned.indexOf(':');
+        if (colon > 0) {
+            cleaned = cleaned.substring(0, colon);
+        }
+        searchCombo.getEditor().setItem(cleaned);
+        searchModels();
+    }
+
     private void searchModels() {
         final String query = String.valueOf(searchCombo.getEditor().getItem()).trim();
         if (query.length() == 0) {
@@ -1072,7 +1087,7 @@ public final class OllamaInstallPanel extends JPanel {
         // Multimodal repos ship the audio/vision encoder as a separate *mmproj* GGUF. Include it
         // automatically so the install is complete in one step — no extra prompt.
         final HuggingFaceFile companionFile =
-                isMmprojName(selected.getFileName()) ? null : findMmprojInFileList();
+                isMmprojName(selected.getFileName()) ? null : chooseCompanionEncoder();
         if (companionFile != null) {
             append("Multimodal repo: the encoder " + companionFile.getFileName()
                     + " will be downloaded and installed with the model.");
@@ -1227,11 +1242,40 @@ public final class OllamaInstallPanel extends JPanel {
     }
 
     /** @return the first *mmproj* GGUF in the currently listed repository files, or null. */
-    private HuggingFaceFile findMmprojInFileList() {
+    /**
+     * @return the mmproj encoder to bundle with the model: none → {@code null}; exactly one → it
+     *         automatically; several → let the user choose which one to include.
+     */
+    private HuggingFaceFile chooseCompanionEncoder() {
+        List<HuggingFaceFile> encoders = new ArrayList<HuggingFaceFile>();
         for (int i = 0; i < filesModel.getSize(); i++) {
             HuggingFaceFile file = filesModel.getElementAt(i);
             if (isMmprojName(file.getFileName())) {
-                return file;
+                encoders.add(file);
+            }
+        }
+        if (encoders.isEmpty()) {
+            return null;
+        }
+        if (encoders.size() == 1) {
+            return encoders.get(0);
+        }
+        // Several encoders (e.g. an audio and a vision mmproj, or different quants): the user picks one.
+        String[] names = new String[encoders.size()];
+        for (int i = 0; i < encoders.size(); i++) {
+            names[i] = encoders.get(i).getFileName();
+        }
+        Object choice = javax.swing.JOptionPane.showInputDialog(this,
+                "This repository has several encoder (mmproj) files. Which one should be installed with "
+                        + "the model?", "Choose the encoder", javax.swing.JOptionPane.QUESTION_MESSAGE,
+                null, names, names[0]);
+        if (choice == null) {
+            append("No encoder chosen — installing the model without a multimodal encoder.");
+            return null;
+        }
+        for (int i = 0; i < encoders.size(); i++) {
+            if (names[i].equals(choice)) {
+                return encoders.get(i);
             }
         }
         return null;

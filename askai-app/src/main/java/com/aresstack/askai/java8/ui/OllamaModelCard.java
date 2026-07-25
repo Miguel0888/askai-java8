@@ -1,6 +1,5 @@
 package com.aresstack.askai.java8.ui;
 
-import com.aresstack.askai.java8.config.HuggingFaceSearchSuggestion.Modality;
 import com.aresstack.askai.java8.client.OllamaModelInfo;
 import com.aresstack.askai.java8.client.OllamaRunningModelInfo;
 
@@ -20,25 +19,13 @@ import java.util.Set;
 
 final class OllamaModelCard extends JPanel {
 
-    /** Receive add-on install requests from a card ("+ Audio" / "+ Vision"). */
-    interface AddOnHandler {
-        /**
-         * @param model            the installed model the add-on belongs to
-         * @param modality         which encoder to install (AUDIO or VISION)
-         * @param alreadyInstalled whether the model already reports that capability
-         */
-        void installAddOn(OllamaModelInfo model, Modality modality, boolean alreadyInstalled);
-    }
-
     private final JLabel capabilityIconLabel = new JLabel();
-    private final JButton audioAddOnButton = new JButton("+ Audio");
-    private final JButton visionAddOnButton = new JButton("+ Vision");
     // The full set of capabilities /api/show reported (completion, tools, thinking, vision, audio, ...).
     private Set<ModelCapability> capabilities = EnumSet.noneOf(ModelCapability.class);
     private boolean capabilitiesKnown;
 
     private OllamaModelCard(String title, String line1, String line2, boolean running,
-                            final OllamaModelInfo installedModel, final AddOnHandler addOnHandler,
+                            final OllamaModelInfo installedModel, final Runnable findAddOnsAction,
                             final Runnable useInChatAction, Runnable deleteAction) {
         setLayout(new BorderLayout(12, 0));
         setBorder(BorderFactory.createCompoundBorder(
@@ -72,15 +59,15 @@ final class OllamaModelCard extends JPanel {
                 useInChat.addActionListener(event -> useInChatAction.run());
                 right.add(useInChat);
             }
-            if (addOnHandler != null && installedModel != null) {
-                configureAddOnButton(audioAddOnButton, Modality.AUDIO,
-                        "Install the audio encoder (mmproj) so this model accepts audio input",
-                        installedModel, addOnHandler);
-                configureAddOnButton(visionAddOnButton, Modality.VISION,
-                        "Install the vision encoder (mmproj) so this model accepts image input",
-                        installedModel, addOnHandler);
-                right.add(audioAddOnButton);
-                right.add(visionAddOnButton);
+            if (findAddOnsAction != null) {
+                // AskAI stores no model state, so it cannot know whether a text model is secretly a
+                // multimodal model missing its encoder. Instead of guessing, route to the Hugging Face
+                // search by name so the user can find and install the right helper/mmproj model(s).
+                JButton addOns = new JButton("Add-ons on Hugging Face");
+                addOns.setToolTipText("Search Hugging Face for this model to add an audio/vision encoder "
+                        + "(mmproj) or another helper model");
+                addOns.addActionListener(event -> findAddOnsAction.run());
+                right.add(addOns);
             }
             // Destructive action last and clearly marked.
             JButton deleteButton = new JButton("Delete");
@@ -99,35 +86,14 @@ final class OllamaModelCard extends JPanel {
         add(right, BorderLayout.EAST);
     }
 
-    private void configureAddOnButton(JButton button, final Modality modality, String tooltip,
-                                      final OllamaModelInfo installedModel, final AddOnHandler handler) {
-        button.setToolTipText(tooltip);
-        button.setFocusPainted(false);
-        // Disabled until the capabilities have been queried, so "already installed?" is answerable.
-        button.setEnabled(false);
-        button.addActionListener(event ->
-                handler.installAddOn(installedModel, modality, capabilities.contains(toCapability(modality))));
-    }
-
-    /** The add-on buttons only ever ask about audio/vision installation. */
-    private static ModelCapability toCapability(Modality modality) {
-        return modality == Modality.AUDIO ? ModelCapability.AUDIO : ModelCapability.VISION;
-    }
-
     /** @return the capabilities currently shown on the card (test hook). */
     Set<ModelCapability> shownCapabilities() {
         return capabilities;
     }
 
-    /** @return whether the add-on for {@code modality} would be treated as already installed (test hook). */
-    boolean isAddOnAlreadyInstalled(Modality modality) {
-        return capabilities.contains(toCapability(modality));
-    }
-
     /**
-     * Apply the capability tags reported by {@code /api/show}: render the modality icons and enable
-     * the add-on buttons. Pass an empty list when the server does not report capabilities — the
-     * buttons still enable (the user may know better), but no icons are claimed.
+     * Apply the capability tags reported by {@code /api/show}: render the capability icons. AskAI keeps no
+     * capability state of its own — this is display only, straight from {@code /api/show}.
      */
     void setCapabilities(List<String> capabilityTags) {
         // Show every capability /api/show reports (TEXT, TOOLS, THINKING, VISION, AUDIO, EMBEDDING, ...),
@@ -137,18 +103,16 @@ final class OllamaModelCard extends JPanel {
         capabilityIconLabel.setIcon(capabilities.isEmpty() ? null : CapabilityIcons.forCapabilities(capabilities));
         capabilityIconLabel.setToolTipText(capabilities.isEmpty()
                 ? "Model capabilities (from /api/show)" : ModelCapability.tooltipHtml(capabilities));
-        audioAddOnButton.setEnabled(true);
-        visionAddOnButton.setEnabled(true);
         revalidate();
         repaint();
     }
 
-    static OllamaModelCard installed(OllamaModelInfo model, AddOnHandler addOnHandler,
+    static OllamaModelCard installed(OllamaModelInfo model, Runnable findAddOnsAction,
                                      Runnable useInChatAction, Runnable deleteAction) {
         String details = join(model.getDetails().getFamily(), model.getDetails().getParameterSize(),
                 model.getDetails().getQuantizationLevel(), model.getDetails().getFormat());
         String meta = join(formatBytes(model.getSize()), shortDate(model.getModifiedAt()), shortDigest(model.getDigest()));
-        return new OllamaModelCard(model.getDisplayName(), details, meta, false, model, addOnHandler,
+        return new OllamaModelCard(model.getDisplayName(), details, meta, false, model, findAddOnsAction,
                 useInChatAction, deleteAction);
     }
 
