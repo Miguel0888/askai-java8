@@ -32,9 +32,12 @@ public final class BubbleComponentsShowcase {
         SpeechBubblePanel assistant = transcript.startAssistantMessage("AskAI");
         assistant.appendText("Ich prüfe zuerst die offizielle Quelle.");
         transcript.finishAssistantMessage();
-        final AgentActivityBubblePanel activity = transcript.startAgentActivity(
+        final BubbleTranscriptPanel.AgentActivityHandle activity = transcript.startAgentActivity(
                 "Herstellerseite öffnen",
                 "Die offizielle Produktseite soll die technischen Angaben verifizieren.");
+
+        final BubbleTranscriptPanel.ThinkingHandle thinking = transcript.startAssistantThinking("AskAI");
+        transcript.appendAssistantThinkingDelta(thinking, "Ich vergleiche die Angaben mit der Quelle …");
 
         frame.add(transcript, BorderLayout.CENTER);
         frame.setPreferredSize(new Dimension(900, 620));
@@ -44,6 +47,7 @@ public final class BubbleComponentsShowcase {
 
         Timer completionTimer = new Timer(4200, new ActionListener() {
             public void actionPerformed(ActionEvent event) {
+                transcript.completeAssistantThinking(thinking, "Quelle geprüft");
                 transcript.completeAgentActivity(activity, "Produktdaten verifiziert");
             }
         });

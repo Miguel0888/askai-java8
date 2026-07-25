@@ -133,38 +133,45 @@ public final class BubbleTranscriptPanel extends JPanel {
         refreshTranscript();
     }
 
-    public AgentActivityBubblePanel startAgentActivity(String title, String explanation) {
+    /** Opaque handle to one amber tool-/agent-activity bubble; the panel keeps the component internally. */
+    public static final class AgentActivityHandle {
+        private final AgentActivityBubblePanel bubble;
+
+        private AgentActivityHandle(AgentActivityBubblePanel bubble) {
+            this.bubble = bubble;
+        }
+    }
+
+    public AgentActivityHandle startAgentActivity(String title, String explanation) {
         requireEventDispatchThread();
         AgentActivityBubblePanel activity = new AgentActivityBubblePanel(BubbleSide.LEFT, palette, title, explanation);
         addThoughtBubble(activity);
-        return activity;
+        return new AgentActivityHandle(activity);
     }
 
-    public void updateAgentActivity(AgentActivityBubblePanel activity,
-                                    String title,
-                                    String explanation) {
+    public void updateAgentActivity(AgentActivityHandle handle, String title, String explanation) {
         requireEventDispatchThread();
-        requireKnownActivity(activity);
-        activity.updateActivity(title, explanation);
+        requireKnownActivity(handle == null ? null : handle.bubble);
+        handle.bubble.updateActivity(title, explanation);
         refreshTranscript();
     }
 
-    public void completeAgentActivity(final AgentActivityBubblePanel activity, String summary) {
+    public void completeAgentActivity(AgentActivityHandle handle, String summary) {
         requireEventDispatchThread();
-        requireKnownActivity(activity);
-        activity.completeSuccessfully(summary, createActivityRemoval(activity));
+        requireKnownActivity(handle == null ? null : handle.bubble);
+        handle.bubble.completeSuccessfully(summary, createActivityRemoval(handle.bubble));
     }
 
-    public void failAgentActivity(final AgentActivityBubblePanel activity, String summary) {
+    public void failAgentActivity(AgentActivityHandle handle, String summary) {
         requireEventDispatchThread();
-        requireKnownActivity(activity);
-        activity.completeWithFailure(summary, createActivityRemoval(activity));
+        requireKnownActivity(handle == null ? null : handle.bubble);
+        handle.bubble.completeWithFailure(summary, createActivityRemoval(handle.bubble));
     }
 
-    public void cancelAgentActivity(final AgentActivityBubblePanel activity, String summary) {
+    public void cancelAgentActivity(AgentActivityHandle handle, String summary) {
         requireEventDispatchThread();
-        requireKnownActivity(activity);
-        activity.cancel(summary, createActivityRemoval(activity));
+        requireKnownActivity(handle == null ? null : handle.bubble);
+        handle.bubble.cancel(summary, createActivityRemoval(handle.bubble));
     }
 
     // ------------------------------------------------------------------ assistant thinking

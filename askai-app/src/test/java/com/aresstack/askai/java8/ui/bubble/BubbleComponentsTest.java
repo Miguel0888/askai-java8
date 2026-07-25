@@ -45,16 +45,12 @@ public class BubbleComponentsTest {
                 new AtomicReference<AgentActivityBubblePanel>();
         SwingUtilities.invokeAndWait(new Runnable() {
             public void run() {
-                BubbleTranscriptPanel transcript = new BubbleTranscriptPanel();
-                AgentActivityBubblePanel activity = transcript.startAgentActivity(
-                        "Open website",
-                        "Verify the official product data.");
-                transcript.updateAgentActivity(
-                        activity,
-                        "Read website",
-                        "Compare the documented capabilities.");
+                AgentActivityBubblePanel activity = new AgentActivityBubblePanel(
+                        BubbleSide.LEFT, BubblePalette.windowsPhoneInspired(),
+                        "Open website", "Verify the official product data.");
+                activity.updateActivity("Read website", "Compare the documented capabilities.");
                 activityReference.set(activity);
-                transcript.clear();
+                activity.stopAnimation();
             }
         });
 
