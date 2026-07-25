@@ -65,6 +65,8 @@ public final class ChatComposerPanel extends JPanel {
 
     /** Route semantic user actions without exposing the internal buttons. */
     public interface Actions {
+        void selectModel();
+
         void send();
 
         void stop();
@@ -118,6 +120,7 @@ public final class ChatComposerPanel extends JPanel {
     private final JPanel statusPanel;
     private final JLabel chatStatusLabel;
     private final JLabel dictationStatusLabel;
+    private final JButton modelButton;
     private final JButton recordButton;
     private final JButton audioFileButton;
     private final JButton discardButton;
@@ -142,6 +145,7 @@ public final class ChatComposerPanel extends JPanel {
         this.chatStatusLabel = createStatusLabel();
         this.dictationStatusLabel = createStatusLabel();
         this.statusPanel = createStatusPanel();
+        this.modelButton = createModelButton();
         this.recordButton = createSecondaryButton(new MicrophoneIcon(), "Record", "Record or stop dictation");
         this.audioFileButton = createIconButton(new AudioFileIcon(), "Transcribe audio file");
         this.discardButton = createIconButton(new CloseIcon(), "Discard or cancel dictation");
@@ -175,7 +179,11 @@ public final class ChatComposerPanel extends JPanel {
         JPanel footer = new JPanel(new BorderLayout(8, 0));
         footer.setOpaque(false);
         footer.setBorder(new EmptyBorder(5, 0, 0, 0));
-        footer.add(buildLeftActions(), BorderLayout.WEST);
+        JPanel west = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        west.setOpaque(false);
+        west.add(modelButton);
+        west.add(buildLeftActions());
+        footer.add(west, BorderLayout.WEST);
         footer.add(statusPanel, BorderLayout.CENTER);
         footer.add(buildPrimaryActions(), BorderLayout.EAST);
         return footer;
@@ -247,6 +255,14 @@ public final class ChatComposerPanel extends JPanel {
         return bar;
     }
 
+    /** The ChatGPT-style model selector shown at the left of the footer (text + a down chevron). */
+    private JButton createModelButton() {
+        ComposerButton button = new ComposerButton(new ChevronDownIcon(), "Select model", false);
+        button.setHorizontalTextPosition(SwingConstants.LEFT); // name first, chevron after
+        configureButton(button, "Choose the chat model");
+        return button;
+    }
+
     private JButton createIconButton(Icon icon, String tooltip) {
         ComposerButton button = new ComposerButton(icon, null, false);
         configureButton(button, tooltip);
@@ -279,6 +295,11 @@ public final class ChatComposerPanel extends JPanel {
     }
 
     private void wireActions() {
+        modelButton.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent event) {
+                actions.selectModel();
+            }
+        });
         sendButton.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent event) {
                 actions.send();
@@ -389,6 +410,18 @@ public final class ChatComposerPanel extends JPanel {
     /** Return the editor for caret-aware insertion and existing integration code. */
     public JTextArea getEditor() {
         return editor;
+    }
+
+    /** Set the selected model name shown on the in-composer selector (empty → "Select model"). */
+    public void setModelName(String name) {
+        modelButton.setText(name == null || name.trim().length() == 0 ? "Select model" : name.trim());
+        revalidate();
+        repaint();
+    }
+
+    /** Return the model selector button, so the panel can anchor its model popup to it. */
+    public JComponent getModelButton() {
+        return modelButton;
     }
 
     /** Return the untrimmed message text. */
@@ -738,6 +771,13 @@ public final class ChatComposerPanel extends JPanel {
             g2.drawLine(4, 7, 8, 11);
             g2.drawLine(12, 7, 8, 11);
             g2.drawLine(3, 13, 13, 13);
+        }
+    }
+
+    private static final class ChevronDownIcon extends StrokeIcon {
+        protected void paint(Graphics2D g2) {
+            g2.drawLine(3, 6, 7, 10);
+            g2.drawLine(7, 10, 11, 6);
         }
     }
 }

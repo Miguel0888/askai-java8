@@ -142,6 +142,10 @@ public final class OllamaChatPanel extends JPanel {
         this.systemPromptArea = new JTextArea("You are a concise local assistant.", 2, 40);
         this.transcript = new ChatTranscript();
         this.composer = new ChatComposerPanel(new ChatComposerPanel.Actions() {
+            public void selectModel() {
+                openModelPopup();
+            }
+
             public void send() {
                 sendChat();
             }
@@ -289,15 +293,14 @@ public final class OllamaChatPanel extends JPanel {
     }
 
     private JComponent buildToolbar() {
+        // The model is now chosen from the ChatGPT-style selector inside the composer; the top row only
+        // keeps New chat + a refresh. (modelCombo lives on as the off-screen data model / selection.)
         JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
-        toolbar.add(new JLabel("Model"));
-        modelCombo.setPreferredSize(new Dimension(260, modelCombo.getPreferredSize().height));
-        toolbar.add(modelCombo);
         JButton newChatButton = new JButton("New chat");
         newChatButton.addActionListener(event -> newChat());
         toolbar.add(newChatButton);
 
-        int refreshSize = modelCombo.getPreferredSize().height;
+        int refreshSize = newChatButton.getPreferredSize().height;
         JButton refreshButton = new JButton(new RefreshIcon(refreshSize - 6));
         refreshButton.setToolTipText("Refresh models");
         refreshButton.setFocusPainted(false);
@@ -385,11 +388,9 @@ public final class OllamaChatPanel extends JPanel {
                             modelCombo.setSelectedItem(previous);
                         }
                         refreshAudioModels(names);
-                        if (names.isEmpty()) {
-                            setStatus("No models installed. Open Install to add one.");
-                        } else {
-                            setStatus("Ready. " + names.size() + " model(s) available.");
-                        }
+                        // The in-composer selector shows the current model; keep the status line quiet.
+                        composer.setModelName((String) modelCombo.getSelectedItem());
+                        setStatus(names.isEmpty() ? "No models installed. Open Install to add one." : " ");
                     }
                 });
             }
@@ -431,8 +432,37 @@ public final class OllamaChatPanel extends JPanel {
             modelCombo.addItem(modelName);
         }
         modelCombo.setSelectedItem(modelName);
+        composer.setModelName(modelName);
         transcript.appendInfo("Now chatting with " + modelName + ".");
         setStatus("Model set to " + modelName + ".");
+    }
+
+    /** Opens the ChatGPT-style model picker anchored to the composer's model button. */
+    private void openModelPopup() {
+        javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
+        String current = (String) modelCombo.getSelectedItem();
+        if (modelCombo.getItemCount() == 0) {
+            javax.swing.JMenuItem none = new javax.swing.JMenuItem("No models — open Install");
+            none.addActionListener(event -> openInstallAudioModel());
+            menu.add(none);
+        } else {
+            for (int i = 0; i < modelCombo.getItemCount(); i++) {
+                final String name = modelCombo.getItemAt(i);
+                javax.swing.JRadioButtonMenuItem item =
+                        new javax.swing.JRadioButtonMenuItem(name, name.equals(current));
+                item.addActionListener(event -> {
+                    modelCombo.setSelectedItem(name);
+                    composer.setModelName(name);
+                });
+                menu.add(item);
+            }
+        }
+        menu.addSeparator();
+        javax.swing.JMenuItem refresh = new javax.swing.JMenuItem("Refresh models");
+        refresh.addActionListener(event -> refreshModels());
+        menu.add(refresh);
+        JComponent anchor = composer.getModelButton();
+        menu.show(anchor, 0, anchor.getHeight());
     }
 
     private void showEmptyState() {
@@ -1025,7 +1055,9 @@ public final class OllamaChatPanel extends JPanel {
                 canRecord,
                 recording,
                 inFlight || checkingReadiness,
-                recording || inFlight || micTestSession != null,
+                // Only a real "throw away the recording" affordance: while transcribing, the record
+                // button itself already shows "Cancel", so no separate discard X is needed there.
+                recording || micTestSession != null,
                 retryable,
                 savable,
                 installVisible,

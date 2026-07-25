@@ -105,6 +105,10 @@ public final class ChatComposerPanelTest {
     private static final class ActionCounter implements ChatComposerPanel.Actions {
         private final Map<String, Integer> counts = new HashMap<String, Integer>();
 
+        public void selectModel() {
+            increment("model");
+        }
+
         public void send() {
             increment("send");
         }
