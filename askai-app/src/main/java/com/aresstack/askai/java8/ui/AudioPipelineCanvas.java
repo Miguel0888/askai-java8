@@ -30,7 +30,12 @@ public final class AudioPipelineCanvas extends JPanel {
     static final int BLOCK_WIDTH = 168;
     private static final int BLOCK_HEIGHT = 92;
     private static final int BLOCK_GAP = 54;
-    private static final int MARGIN = 28;
+    private static final int MARGIN = 20;
+    /** Vertical gap between a block's bottom edge and the top of its settings card (leaves room for the caret). */
+    private static final int CARD_GAP = 4;
+
+    /** The settings card that drops out of the selected block; hosted inside the canvas so it scrolls with it. */
+    private AudioInspectorCard inspectorCard;
 
     public interface Listener {
         void selectionChanged(int selectedIndex);
@@ -45,11 +50,21 @@ public final class AudioPipelineCanvas extends JPanel {
 
     public AudioPipelineCanvas() {
         setOpaque(true);
+        setLayout(null); // the settings card is positioned manually under the selected block
         installMouseInteraction();
     }
 
     public void setListener(Listener listener) {
         this.listener = listener;
+    }
+
+    /** Hosts the settings card inside the canvas so it appears directly under the selected block. */
+    public void setInspectorCard(AudioInspectorCard card) {
+        this.inspectorCard = card;
+        if (card != null) {
+            add(card);
+        }
+        revalidate();
     }
 
     public void setBlocks(List<AudioBlockDefinition> blocks) {
@@ -69,6 +84,7 @@ public final class AudioPipelineCanvas extends JPanel {
 
     public void setSelectedIndex(int index) {
         selectedIndex = index >= 0 && index < blocks.size() ? index : -1;
+        revalidate();
         repaint();
     }
 
@@ -97,7 +113,7 @@ public final class AudioPipelineCanvas extends JPanel {
     }
 
     private void paintPipeline(Graphics2D g) {
-        int y = Math.max(MARGIN, (getHeight() - BLOCK_HEIGHT) / 2);
+        int y = MARGIN; // blocks sit at the TOP; the settings card drops down beneath the selected one
         for (int i = 0; i < blocks.size(); i++) {
             int x = blockX(i);
             if (i > 0) {
@@ -245,7 +261,7 @@ public final class AudioPipelineCanvas extends JPanel {
     }
 
     private int indexAt(int x, int y) {
-        int blockY = Math.max(MARGIN, (getHeight() - BLOCK_HEIGHT) / 2);
+        int blockY = MARGIN;
         if (y < blockY || y > blockY + BLOCK_HEIGHT) {
             return -1;
         }
@@ -273,10 +289,43 @@ public final class AudioPipelineCanvas extends JPanel {
         return MARGIN + index * (BLOCK_WIDTH + BLOCK_GAP);
     }
 
-    private void updatePreferredSize() {
+    private int cardTopY() {
+        return MARGIN + BLOCK_HEIGHT + CARD_GAP;
+    }
+
+    /** Position the settings card directly under the selected block; the canvas grows to contain it. */
+    @Override
+    public void doLayout() {
+        if (inspectorCard == null) {
+            return;
+        }
+        if (selectedIndex < 0 || selectedIndex >= blocks.size()) {
+            inspectorCard.setBounds(0, 0, 0, 0);
+            return;
+        }
+        int cardWidth = inspectorCard.cardWidth();
+        int cardHeight = inspectorCard.getPreferredSize().height;
+        int center = blockX(selectedIndex) + BLOCK_WIDTH / 2;
+        int left = Math.max(0, center - cardWidth / 2);
+        inspectorCard.setBounds(left, cardTopY(), cardWidth, cardHeight);
+        inspectorCard.setCaretX(center - left);
+    }
+
+    @Override
+    public Dimension getPreferredSize() {
         int width = Math.max(640, MARGIN * 2 + blocks.size() * BLOCK_WIDTH
                 + Math.max(0, blocks.size() - 1) * BLOCK_GAP);
-        setPreferredSize(new Dimension(width, 190));
+        int height = MARGIN + BLOCK_HEIGHT + MARGIN;
+        if (inspectorCard != null && selectedIndex >= 0 && selectedIndex < blocks.size()) {
+            int cardHeight = inspectorCard.getPreferredSize().height;
+            if (cardHeight > 0) {
+                height = Math.max(height, cardTopY() + cardHeight + MARGIN);
+            }
+        }
+        return new Dimension(width, height);
+    }
+
+    private void updatePreferredSize() {
         revalidate();
     }
 

@@ -36,8 +36,6 @@ public final class AudioProcessingPanel extends JPanel {
     private final AudioBlockInspectorPanel inspector = new AudioBlockInspectorPanel();
     private final AudioInspectorCard inspectorCard =
             new AudioInspectorCard(inspector, AudioPipelineCanvas.BLOCK_WIDTH);
-    private final InspectorHost inspectorHost = new InspectorHost(inspectorCard);
-    private JScrollPane canvasScroll;
 
     private AudioProcessingProfile selectedProfile;
     private List<AudioBlockDefinition> workingBlocks = new ArrayList<AudioBlockDefinition>();
@@ -88,64 +86,15 @@ public final class AudioProcessingPanel extends JPanel {
 
     private JPanel buildEditor() {
         JPanel editor = new JPanel(new BorderLayout(8, 8));
-        canvasScroll = new JScrollPane(canvas,
-                JScrollPane.VERTICAL_SCROLLBAR_NEVER, JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-        canvasScroll.setBorder(BorderFactory.createTitledBorder("Processing pipeline · drag blocks to reorder"));
-        canvasScroll.setPreferredSize(new Dimension(760, 210));
-        // The inspector drops out of the selected block as an animated card BELOW the wide pipeline, so its
-        // settings spread across the width instead of a tall right-hand column.
-        canvasScroll.getViewport().addChangeListener(event -> updateInspectorAnchor());
+        // The settings card lives INSIDE the canvas, directly under the selected block, so the pipeline sits
+        // at the top and the card scrolls together with it — no scroll bar between the two.
+        canvas.setInspectorCard(inspectorCard);
+        JScrollPane canvasScroll = new JScrollPane(canvas,
+                JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+        canvasScroll.setBorder(BorderFactory.createEmptyBorder());
+        canvasScroll.getViewport().setBackground(canvas.getBackground());
         editor.add(canvasScroll, BorderLayout.CENTER);
-        editor.add(inspectorHost, BorderLayout.SOUTH);
         return editor;
-    }
-
-    /** Anchors the block-width card under the selected block, following horizontal scrolling. */
-    private void updateInspectorAnchor() {
-        int center = canvas.selectedBlockCenterX();
-        if (center < 0 || canvasScroll == null) {
-            inspectorHost.setAnchorX(-1);
-            return;
-        }
-        int viewX = canvasScroll.getViewport().getViewPosition().x;
-        inspectorHost.setAnchorX(center - viewX);
-    }
-
-    /**
-     * Positions the block-width inspector card horizontally under the selected block (clamped to stay
-     * visible) and follows the card's animated height, so the card appears to drop out of the block.
-     */
-    private static final class InspectorHost extends JPanel {
-        private final AudioInspectorCard card;
-        private int anchorX = -1;
-
-        InspectorHost(AudioInspectorCard card) {
-            this.card = card;
-            setOpaque(false);
-            setLayout(null);
-            add(card);
-        }
-
-        void setAnchorX(int x) {
-            this.anchorX = x;
-            revalidate();
-            repaint();
-        }
-
-        @Override
-        public Dimension getPreferredSize() {
-            return new Dimension(0, card.getPreferredSize().height);
-        }
-
-        @Override
-        public void doLayout() {
-            int width = card.cardWidth();
-            int height = card.getPreferredSize().height;
-            int maxLeft = Math.max(0, getWidth() - width);
-            int left = anchorX < 0 ? 0 : Math.max(0, Math.min(anchorX - width / 2, maxLeft));
-            card.setBounds(left, 0, width, height);
-            card.setCaretX(anchorX < 0 ? -1 : anchorX - left);
-        }
     }
 
     private void wireActions() {
@@ -309,12 +258,8 @@ public final class AudioProcessingPanel extends JPanel {
                 ? workingBlocks.get(index) : null;
         inspector.setBlock(block);
         // Roll the settings card down under the selected block, or up again when nothing is selected.
-        if (block != null) {
-            updateInspectorAnchor();
-            inspectorCard.setExpanded(true);
-        } else {
-            inspectorCard.setExpanded(false);
-        }
+        inspectorCard.setExpanded(block != null);
+        canvas.revalidate();
     }
 
     private void reloadProfiles(String selectedId) {
