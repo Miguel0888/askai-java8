@@ -9,6 +9,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.charset.Charset;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -58,6 +59,50 @@ public class GgufFileTest {
         assertTrue(info.hasVisionEncoder());
         assertTrue(info.hasAudioEncoder());
         assertEquals("vision+audio", info.projectorKind());
+    }
+
+    @Test
+    public void aClipProjectorWithoutEncoderFlagsStillCountsAsVision() throws IOException {
+        // Accepted purely on architecture/projector_type (no has_*_encoder flag): must not then be treated
+        // as "no modality" — a bare clip projector is a vision projector by construction.
+        Map<String, Object> meta = new LinkedHashMap<String, Object>();
+        meta.put("general.architecture", "clip");
+        meta.put("clip.projector_type", "ldpv2");
+
+        GgufFile.GgufInfo info = GgufFile.inspect(writeGguf("proj.gguf", meta));
+
+        assertTrue(info.isProjector());
+        assertTrue(info.hasVisionEncoder());
+        assertFalse(info.hasAudioEncoder());
+        assertEquals(Arrays.asList("vision"), info.modalityCapabilities());
+    }
+
+    @Test
+    public void audioBlockCountAloneProvesAnAudioProjector() throws IOException {
+        Map<String, Object> meta = new LinkedHashMap<String, Object>();
+        meta.put("general.architecture", "clip");
+        meta.put("clip.audio.block_count", 24);
+
+        GgufFile.GgufInfo info = GgufFile.inspect(writeGguf("mmproj.gguf", meta));
+
+        assertTrue(info.isProjector());
+        assertTrue(info.hasAudioEncoder());
+        assertFalse(info.hasVisionEncoder()); // audio signal present → not defaulted to vision
+        assertEquals(24L, info.audioBlockCount());
+        assertEquals(Arrays.asList("audio"), info.modalityCapabilities());
+    }
+
+    @Test
+    public void acceptedProjectorAlwaysReportsAtLeastOneModality() throws IOException {
+        // The classification that accepts a projector and the one that reports its modalities are the same:
+        // isProjector() ⟺ (vision or audio), so an accepted projector is never wirkungslos.
+        Map<String, Object> meta = new LinkedHashMap<String, Object>();
+        meta.put("general.type", "mmproj");
+
+        GgufFile.GgufInfo info = GgufFile.inspect(writeGguf("x.gguf", meta));
+
+        assertTrue(info.isProjector());
+        assertTrue(!info.modalityCapabilities().isEmpty());
     }
 
     @Test

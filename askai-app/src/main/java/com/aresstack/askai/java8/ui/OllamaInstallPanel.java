@@ -187,7 +187,10 @@ public final class OllamaInstallPanel extends JPanel {
     private void buildUserInterface() {
         setLayout(new BorderLayout(8, 8));
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        add(buildSearchBar(), BorderLayout.NORTH);
+        JPanel top = new JPanel(new BorderLayout(0, 4));
+        top.add(buildAddOnBanner(), BorderLayout.NORTH);
+        top.add(buildSearchBar(), BorderLayout.CENTER);
+        add(top, BorderLayout.NORTH);
 
         // Resizable two-column layout: models on the left (toggled between Originals / Variants /
         // All), GGUF files on the right.
@@ -240,9 +243,9 @@ public final class OllamaInstallPanel extends JPanel {
         editSuggestionsButton.setToolTipText("Edit the model suggestions shown in the dropdown");
         editSuggestionsButton.addActionListener(event -> editSearchSuggestions());
         searchRow.add(editSuggestionsButton);
-        searchButton.addActionListener(event -> searchModels());
+        searchButton.addActionListener(event -> manualSearch());
         // Enter in the editable combo editor triggers the search, matching the old text field.
-        searchCombo.getEditor().addActionListener(event -> searchModels());
+        searchCombo.getEditor().addActionListener(event -> manualSearch());
 
         JPanel filterRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
         filterRow.add(new JLabel("Libraries:"));
@@ -709,14 +712,55 @@ public final class OllamaInstallPanel extends JPanel {
             append("Add-on mode: choose a multimodal encoder (mmproj) to attach to \""
                     + this.addOnTargetModel + "\". It will be added to the existing model, not installed as "
                     + "a new one.");
+            if (addOnBannerLabel != null) {
+                addOnBannerLabel.setText("Add-on mode: an encoder chosen here is attached to \""
+                        + this.addOnTargetModel + "\" (Download and attach), not installed as a new model.");
+            }
+            if (addOnBanner != null) {
+                addOnBanner.setVisible(true);
+            }
         }
+        // The programmatic search below must NOT go through the manual-search path (which clears the mode).
         searchFor(query);
     }
 
-    /** Leaves add-on mode (back to normal install). */
+    /** Leaves add-on mode (back to normal install) on any terminal path, and hides the banner. */
     private void clearAddOnMode() {
         this.addOnTargetModel = null;
+        if (addOnBanner != null) {
+            addOnBanner.setVisible(false);
+        }
     }
+
+    /** @return true while an encoder is being attached to an existing model. */
+    private boolean isAddOnMode() {
+        return addOnTargetModel != null && addOnTargetModel.length() > 0;
+    }
+
+    private JLabel addOnBannerLabel;
+
+    /** A dismissible banner shown only in add-on mode, so the transient target model is always visible. */
+    private JComponent buildAddOnBanner() {
+        addOnBannerLabel = new JLabel();
+        JButton cancel = new JButton("Cancel add-on mode");
+        cancel.addActionListener(event -> {
+            append("Add-on mode cancelled.");
+            clearAddOnMode();
+        });
+        JPanel banner = new JPanel(new BorderLayout(8, 0));
+        banner.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new java.awt.Color(0xE3, 0x9A, 0x18)),
+                BorderFactory.createEmptyBorder(4, 8, 4, 8)));
+        banner.setBackground(new java.awt.Color(0xFF, 0xF6, 0xDF));
+        banner.setOpaque(true);
+        banner.add(addOnBannerLabel, BorderLayout.CENTER);
+        banner.add(cancel, BorderLayout.EAST);
+        banner.setVisible(false);
+        this.addOnBanner = banner;
+        return banner;
+    }
+
+    private JComponent addOnBanner;
 
     /** Prefills the search box with {@code query} and runs the search (used to route from a model card). */
     public void searchFor(String query) {
@@ -730,6 +774,15 @@ public final class OllamaInstallPanel extends JPanel {
             cleaned = cleaned.substring(0, colon);
         }
         searchCombo.getEditor().setItem(cleaned);
+        searchModels();
+    }
+
+    /** A user-initiated search: leaves add-on mode first, so its target model is not silently kept. */
+    private void manualSearch() {
+        if (isAddOnMode()) {
+            append("Left add-on mode (started a new search).");
+            clearAddOnMode();
+        }
         searchModels();
     }
 
@@ -1280,6 +1333,7 @@ public final class OllamaInstallPanel extends JPanel {
                     public void run() {
                         append("ERROR: encoder download failed: " + ex.getMessage());
                         showProgress(0, "Encoder download failed");
+                        clearAddOnMode();
                     }
                 });
             }
@@ -1293,11 +1347,13 @@ public final class OllamaInstallPanel extends JPanel {
                 append("ERROR: " + encoder.getName() + " is not a multimodal encoder (projector) GGUF — "
                         + "nothing was attached. Choose an mmproj file.");
                 showProgress(0, "Not an encoder");
+                clearAddOnMode();
                 return;
             }
         } catch (java.io.IOException ex) {
             append("ERROR: could not read " + encoder.getName() + " as a GGUF: " + ex.getMessage());
             showProgress(0, "Not a GGUF");
+            clearAddOnMode();
             return;
         }
         append("Attaching " + describeProjector(encoder) + " to \"" + existingModel + "\" ...");
@@ -1351,6 +1407,7 @@ public final class OllamaInstallPanel extends JPanel {
                         String message = ex.getMessage() == null ? ex.toString() : ex.getMessage();
                         append("ERROR: " + message);
                         showProgress(0, "Attach failed");
+                        clearAddOnMode();
                     }
                 });
             }

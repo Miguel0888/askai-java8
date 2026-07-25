@@ -353,9 +353,11 @@ public final class DefaultAskAiService implements AskAiService {
                                     listener.onProgress(phase, completed, total);
                                 }
                             });
-                    // Re-derive the truth from Ollama; no required capabilities are asserted for an add-on.
-                    VerificationResult verification =
-                            verifyInstalled(existingModelName, java.util.Collections.<String>emptyList());
+                    // Verify against what THIS projector actually backs (vision and/or audio), not an empty
+                    // list — otherwise a no-op attach that still reports only "completion" would count as
+                    // verified. The expected caps come from the same GGUF classification used to accept it.
+                    List<String> expected = expectedAddOnCapabilities(projectorGguf);
+                    VerificationResult verification = verifyInstalled(existingModelName, expected);
                     listener.onVerified(verification);
                     if (verification.getStatus() == VerificationStatus.VERIFIED) {
                         listener.onComplete("Attached encoder to " + existingModelName + " on remote Ollama.");
@@ -373,6 +375,15 @@ public final class DefaultAskAiService implements AskAiService {
                 future.cancel(true);
             }
         };
+    }
+
+    /** @return the vision/audio capabilities the projector backs, or empty when it cannot be read. */
+    private static List<String> expectedAddOnCapabilities(File projectorGguf) {
+        try {
+            return com.aresstack.askai.java8.hf.GgufFile.inspect(projectorGguf).modalityCapabilities();
+        } catch (Exception ex) {
+            return java.util.Collections.emptyList();
+        }
     }
 
     /**

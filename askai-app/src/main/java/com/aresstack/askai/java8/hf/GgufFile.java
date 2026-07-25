@@ -209,8 +209,11 @@ public final class GgufFile {
         private final String name;
         private final String basename;
         private final String projectorType;
-        private final boolean hasVisionEncoder;
-        private final boolean hasAudioEncoder;
+        private final long visionBlockCount;
+        private final long audioBlockCount;
+        private final boolean projector;
+        private final boolean hasVision;
+        private final boolean hasAudio;
 
         GgufInfo(Map<String, Object> meta) {
             this.architecture = str(meta, "general.architecture");
@@ -219,8 +222,24 @@ public final class GgufFile {
             this.name = str(meta, "general.name");
             this.basename = str(meta, "general.basename");
             this.projectorType = firstBySuffix(meta, ".projector_type", "clip.projector_type");
-            this.hasVisionEncoder = anyBoolBySuffix(meta, "has_vision_encoder");
-            this.hasAudioEncoder = anyBoolBySuffix(meta, "has_audio_encoder");
+            this.visionBlockCount = firstLongBySuffix(meta, ".vision.block_count");
+            this.audioBlockCount = firstLongBySuffix(meta, ".audio.block_count");
+
+            // A single, content-based classification: the same signals decide add-on eligibility, the
+            // dialog display, the runtime capabilities at first install AND the expected add-on caps.
+            boolean visionSignal = anyBoolBySuffix(meta, "has_vision_encoder") || visionBlockCount > 0;
+            boolean audioSignal = anyBoolBySuffix(meta, "has_audio_encoder") || audioBlockCount > 0;
+            String arch = architecture.toLowerCase(java.util.Locale.ROOT);
+            String typeLower = generalType.toLowerCase(java.util.Locale.ROOT);
+            boolean looksProjector = arch.equals("clip") || arch.equals("mtmd")
+                    || typeLower.contains("proj") || typeLower.contains("mmproj") || typeLower.contains("clip")
+                    || projectorType.length() > 0;
+            this.projector = visionSignal || audioSignal || looksProjector;
+            // A projector accepted only on architecture/type/projector_type (no explicit modality signal)
+            // is a vision (clip) projector by construction — so an accepted projector never yields "no
+            // modality", which would let it be treated as wirkungslos right after being accepted.
+            this.hasVision = visionSignal || (projector && !audioSignal);
+            this.hasAudio = audioSignal;
         }
 
         public String architecture() {
@@ -243,36 +262,66 @@ public final class GgufFile {
             return projectorType;
         }
 
-        public boolean hasVisionEncoder() {
-            return hasVisionEncoder;
+        public long visionBlockCount() {
+            return visionBlockCount;
         }
 
+        public long audioBlockCount() {
+            return audioBlockCount;
+        }
+
+        /** @return whether the projector provides a vision encoder (unified content signal). */
+        public boolean hasVisionEncoder() {
+            return hasVision;
+        }
+
+        /** @return whether the projector provides an audio encoder (unified content signal). */
         public boolean hasAudioEncoder() {
-            return hasAudioEncoder;
+            return hasAudio;
         }
 
         /** @return true when the header proves this file is a multimodal projector (mmproj), by content. */
         public boolean isProjector() {
-            String arch = architecture.toLowerCase(java.util.Locale.ROOT);
-            String type = generalType.toLowerCase(java.util.Locale.ROOT);
-            return hasVisionEncoder || hasAudioEncoder
-                    || projectorType.length() > 0
-                    || arch.equals("clip") || arch.equals("mtmd")
-                    || type.contains("proj") || type.contains("mmproj") || type.contains("clip");
+            return projector;
+        }
+
+        /**
+         * @return the Ollama capability tags this projector actually backs — {@code vision} and/or
+         *         {@code audio}. This is exactly what an add-on install should expect {@code /api/show} to
+         *         confirm, and what the runtime intersection keeps. Empty when the file is not a projector.
+         */
+        public java.util.List<String> modalityCapabilities() {
+            java.util.List<String> caps = new java.util.ArrayList<String>();
+            if (hasVision) {
+                caps.add("vision");
+            }
+            if (hasAudio) {
+                caps.add("audio");
+            }
+            return caps;
         }
 
         /** @return a short human label for the projector kind, e.g. {@code "vision+audio"} or the projector type. */
         public String projectorKind() {
-            if (hasVisionEncoder && hasAudioEncoder) {
+            if (hasVision && hasAudio) {
                 return "vision+audio";
             }
-            if (hasVisionEncoder) {
+            if (hasVision) {
                 return "vision";
             }
-            if (hasAudioEncoder) {
+            if (hasAudio) {
                 return "audio";
             }
             return projectorType.length() > 0 ? projectorType : "projector";
+        }
+
+        private static long firstLongBySuffix(Map<String, Object> meta, String suffix) {
+            for (Map.Entry<String, Object> entry : meta.entrySet()) {
+                if (entry.getKey().endsWith(suffix) && entry.getValue() instanceof Number) {
+                    return ((Number) entry.getValue()).longValue();
+                }
+            }
+            return 0L;
         }
 
         private static String str(Map<String, Object> meta, String key) {
