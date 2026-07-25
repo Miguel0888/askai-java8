@@ -3,20 +3,25 @@ package com.aresstack.askai.java8.ui;
 import javax.swing.BorderFactory;
 import javax.swing.JLabel;
 import javax.swing.SwingConstants;
-import java.awt.Color;
 import java.awt.Cursor;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 
 /**
- * Top-right connection indicator: a coloured dot plus a semantic status word ("Connected",
- * "Not reachable", …). The Ollama base URL — and, when available, the server version or the error —
- * stays reachable through the tooltip, and clicking runs the supplied action (open Connections
- * settings, which doubles as "retry"). Replaces the previous bare-URL label in the menu bar.
+ * Top-right connection indicator: a coloured status dot followed by the Ollama host:port shown as a
+ * link (scheme stripped). The dot's colour carries the semantic state (green = connected, red = not
+ * reachable, …); the address itself stays a normal link — link-blue, underlined on hover — and clicking
+ * opens the Connections settings (which doubles as "retry"). The full URL, version or error is in the
+ * tooltip.
  */
 public final class ConnectionStatusView extends JLabel {
 
+    /** The address link colour (matches the previous bare-URL link); never green. */
+    private static final int LINK_RGB = 0x0D47A1;
+
     private ConnectionStatus status = ConnectionStatus.NOT_CHECKED;
+    private String url = "";
+    private String detail = "";
 
     public ConnectionStatusView(final Runnable onClick) {
         setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
@@ -29,32 +34,47 @@ public final class ConnectionStatusView extends JLabel {
                     onClick.run();
                 }
             }
+
+            @Override
+            public void mouseEntered(MouseEvent event) {
+                render(true);
+            }
+
+            @Override
+            public void mouseExited(MouseEvent event) {
+                render(false);
+            }
         });
-        render(ConnectionStatus.NOT_CHECKED, "", "");
+        render(false);
     }
 
     /**
-     * @param newStatus the semantic state to display
-     * @param url       the Ollama base URL (shown in the tooltip)
+     * @param newStatus the semantic state (drives the dot colour)
+     * @param url       the Ollama base URL (shown as host:port and, in full, in the tooltip)
      * @param detail    extra tooltip context (e.g. "version 0.1.29" or an error message), may be empty
      */
     public void setStatus(ConnectionStatus newStatus, String url, String detail) {
-        this.status = newStatus;
-        render(newStatus, url == null ? "" : url, detail == null ? "" : detail);
+        this.status = newStatus == null ? ConnectionStatus.NOT_CHECKED : newStatus;
+        this.url = url == null ? "" : url;
+        this.detail = detail == null ? "" : detail;
+        render(false);
     }
 
     public ConnectionStatus getStatus() {
         return status;
     }
 
-    private void render(ConnectionStatus state, String url, String detail) {
-        String dot = "<font color='#" + hex(state.getColorRgb()) + "'>●</font>";
-        setText("<html>" + dot + "&nbsp;" + state.getLabel() + "</html>");
-        setForeground(new Color(state.getColorRgb()));
+    private void render(boolean hovered) {
+        String dot = "<font color='#" + hex(status.getColorRgb()) + "'>●</font>";
+        String address = escape(stripScheme(url));
+        String linked = hovered ? "<u>" + address + "</u>" : address;
+        setText("<html>" + dot + "&nbsp;<font color='#" + hex(LINK_RGB) + "'>" + linked + "</font></html>");
+
         StringBuilder tip = new StringBuilder("<html>");
         if (url.length() > 0) {
             tip.append("Ollama: ").append(escape(url)).append("<br>");
         }
+        tip.append("Status: ").append(status.getLabel()).append("<br>");
         if (detail.length() > 0) {
             tip.append(escape(detail)).append("<br>");
         }
@@ -63,6 +83,19 @@ public final class ConnectionStatusView extends JLabel {
         // Keep it flush right after the menu-bar glue: an HTML label reports an unbounded maximum
         // size, so bound it to the natural width or the BoxLayout would stretch it left.
         setMaximumSize(getPreferredSize());
+    }
+
+    /** @return the URL without the http/https scheme and any trailing slash (e.g. "10.0.0.5:11434"). */
+    private static String stripScheme(String value) {
+        String result = value == null ? "" : value.trim();
+        int scheme = result.indexOf("://");
+        if (scheme >= 0) {
+            result = result.substring(scheme + 3);
+        }
+        while (result.endsWith("/")) {
+            result = result.substring(0, result.length() - 1);
+        }
+        return result;
     }
 
     private static String hex(int rgb) {

@@ -172,9 +172,9 @@ public final class AskAiFrame extends JFrame {
         installedItem.addActionListener(event -> showModels(true));
         JMenuItem runningItem = new JMenuItem("Running Models");
         runningItem.addActionListener(event -> showModels(false));
+        modelsMenu.add(createScreenItem("Setup", INSTALL_VIEW));
         modelsMenu.add(installedItem);
         modelsMenu.add(runningItem);
-        modelsMenu.add(createScreenItem("Install models", INSTALL_VIEW));
         return modelsMenu;
     }
 
