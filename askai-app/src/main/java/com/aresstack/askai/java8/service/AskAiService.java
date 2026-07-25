@@ -50,6 +50,13 @@ public interface AskAiService {
 
     void downloadHuggingFaceFile(HuggingFaceFile file, DownloadListener listener);
 
+    /**
+     * Downloads a file pinned to an explicit commit SHA/revision instead of re-resolving {@code main}. Used
+     * so a companion encoder is taken from the SAME commit as the main model it belongs to (the branch may
+     * move between the two downloads). An empty/blank {@code pinnedRevision} falls back to resolving main.
+     */
+    void downloadHuggingFaceFile(HuggingFaceFile file, String pinnedRevision, DownloadListener listener);
+
     InstallTask installGgufFile(String modelName, File ggufFile, InstallListener listener);
 
     /**

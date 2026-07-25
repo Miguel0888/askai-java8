@@ -34,7 +34,7 @@ public final class HuggingFaceInstallPlan {
     private static final String SIDECAR_SUFFIX = ".askai-install.json";
 
     /** The sidecar shape this build writes. Absent in the wild means the original (v1) shape. */
-    private static final int SCHEMA_VERSION = 3;
+    private static final int SCHEMA_VERSION = 4;
 
     private final String repositoryId;
     private final String revision;                         // the requested revision (branch/tag), e.g. "main"
@@ -43,6 +43,57 @@ public final class HuggingFaceInstallPlan {
     private final List<String> declaredCapabilities;      // ModelCapability names, e.g. ["TEXT","AUDIO"]
     private final List<String> requiredOllamaCapabilities; // canonical tags, e.g. ["completion","audio"]
     private final String modelType;                        // config.json model_type, e.g. "qwen3" ("" if unknown)
+    private final List<Companion> companions;             // the exact encoder(s) chosen at download (v4)
+
+    /**
+     * One companion encoder chosen at download time: enough to fetch the SAME file again for a later
+     * install (its HF path pinned to {@link #getPinnedRevision()}) and to find/verify the local copy
+     * (file name + expected SHA-256 + size). Never re-guessed as "the first projector in the folder".
+     */
+    public static final class Companion {
+        private final String path;      // HF file path within the repo, e.g. "mmproj-model-f16.gguf"
+        private final String fileName;  // local file name (basename of path)
+        private final String sha256;    // expected SHA-256 (git-LFS oid), or "" when unknown
+        private final long size;        // expected size in bytes, or 0 when unknown
+
+        public Companion(String path, String fileName, String sha256, long size) {
+            this.path = path == null ? "" : path;
+            this.fileName = fileName == null || fileName.trim().isEmpty()
+                    ? basename(this.path) : fileName;
+            this.sha256 = sha256 == null ? "" : sha256;
+            this.size = size < 0 ? 0 : size;
+        }
+
+        public String getPath() {
+            return path;
+        }
+
+        public String getFileName() {
+            return fileName;
+        }
+
+        public String getSha256() {
+            return sha256;
+        }
+
+        public long getSize() {
+            return size;
+        }
+
+        private static String basename(String path) {
+            int slash = path.lastIndexOf('/');
+            return slash < 0 ? path : path.substring(slash + 1);
+        }
+
+        Map<String, Object> toMap() {
+            Map<String, Object> map = new LinkedHashMap<String, Object>();
+            map.put("path", path);
+            map.put("fileName", fileName);
+            map.put("sha256", sha256);
+            map.put("size", size);
+            return map;
+        }
+    }
 
     public HuggingFaceInstallPlan(String repositoryId, String revision, String targetModelName,
                                   List<String> declaredCapabilities, List<String> requiredOllamaCapabilities) {
@@ -58,6 +109,14 @@ public final class HuggingFaceInstallPlan {
     public HuggingFaceInstallPlan(String repositoryId, String revision, String resolvedRevisionSha,
                                   String targetModelName, List<String> declaredCapabilities,
                                   List<String> requiredOllamaCapabilities, String modelType) {
+        this(repositoryId, revision, resolvedRevisionSha, targetModelName, declaredCapabilities,
+                requiredOllamaCapabilities, modelType, Collections.<Companion>emptyList());
+    }
+
+    public HuggingFaceInstallPlan(String repositoryId, String revision, String resolvedRevisionSha,
+                                  String targetModelName, List<String> declaredCapabilities,
+                                  List<String> requiredOllamaCapabilities, String modelType,
+                                  List<Companion> companions) {
         this.repositoryId = repositoryId == null ? "" : repositoryId;
         this.revision = revision == null || revision.trim().isEmpty() ? "main" : revision.trim();
         this.resolvedRevisionSha = resolvedRevisionSha == null ? "" : resolvedRevisionSha.trim();
@@ -65,6 +124,8 @@ public final class HuggingFaceInstallPlan {
         this.declaredCapabilities = immutable(declaredCapabilities);
         this.requiredOllamaCapabilities = immutable(requiredOllamaCapabilities);
         this.modelType = modelType == null ? "" : modelType.trim();
+        this.companions = companions == null ? Collections.<Companion>emptyList()
+                : Collections.unmodifiableList(new ArrayList<Companion>(companions));
     }
 
     private static List<String> immutable(List<String> values) {
@@ -98,6 +159,17 @@ public final class HuggingFaceInstallPlan {
         return modelType;
     }
 
+    /** @return the exact encoder(s) chosen at download, to be installed with the model (may be empty). */
+    public List<Companion> getCompanions() {
+        return companions;
+    }
+
+    /** @return a copy of this plan carrying the given chosen companion encoder(s). */
+    public HuggingFaceInstallPlan withCompanions(List<Companion> newCompanions) {
+        return new HuggingFaceInstallPlan(repositoryId, revision, resolvedRevisionSha, targetModelName,
+                declaredCapabilities, requiredOllamaCapabilities, modelType, newCompanions);
+    }
+
     /** @return the pinned commit SHA the file was taken from, or "" when not resolved. */
     public String getResolvedRevisionSha() {
         return resolvedRevisionSha;
@@ -114,13 +186,13 @@ public final class HuggingFaceInstallPlan {
     /** @return a copy of this plan re-targeted to a different install name. */
     public HuggingFaceInstallPlan withTargetModelName(String newTargetModelName) {
         return new HuggingFaceInstallPlan(repositoryId, revision, resolvedRevisionSha, newTargetModelName,
-                declaredCapabilities, requiredOllamaCapabilities, modelType);
+                declaredCapabilities, requiredOllamaCapabilities, modelType, companions);
     }
 
     /** @return a copy of this plan pinned to the given resolved commit SHA. */
     public HuggingFaceInstallPlan withResolvedRevisionSha(String sha) {
         return new HuggingFaceInstallPlan(repositoryId, revision, sha, targetModelName,
-                declaredCapabilities, requiredOllamaCapabilities, modelType);
+                declaredCapabilities, requiredOllamaCapabilities, modelType, companions);
     }
 
     // ------------------------------------------------------------------ sidecar
@@ -205,9 +277,10 @@ public final class HuggingFaceInstallPlan {
         String modelType = optionalString(sidecar, map, "modelType"); // absent in v1 → ""
         List<String> declared = optionalStringList(sidecar, map, "declaredCapabilities");
         List<String> required = optionalStringList(sidecar, map, "requiredOllamaCapabilities");
+        List<Companion> companions = optionalCompanions(sidecar, map); // absent < v4 → empty
 
         return new HuggingFaceInstallPlan(repositoryId, revision, resolvedRevisionSha, targetModelName,
-                declared, required, modelType);
+                declared, required, modelType, companions);
     }
 
     private Map<String, Object> toMap() {
@@ -220,7 +293,35 @@ public final class HuggingFaceInstallPlan {
         map.put("modelType", modelType);
         map.put("declaredCapabilities", new ArrayList<String>(declaredCapabilities));
         map.put("requiredOllamaCapabilities", new ArrayList<String>(requiredOllamaCapabilities));
+        List<Object> companionMaps = new ArrayList<Object>();
+        for (Companion companion : companions) {
+            companionMaps.add(companion.toMap());
+        }
+        map.put("companions", companionMaps);
         return map;
+    }
+
+    private static List<Companion> optionalCompanions(File sidecar, Map<?, ?> map) throws IOException {
+        Object value = map.get("companions");
+        if (value == null) {
+            return Collections.emptyList();
+        }
+        if (!(value instanceof List)) {
+            throw invalid(sidecar, "field 'companions' must be an array");
+        }
+        List<Companion> result = new ArrayList<Companion>();
+        for (Object element : (List<?>) value) {
+            if (!(element instanceof Map)) {
+                throw invalid(sidecar, "field 'companions' must contain only objects");
+            }
+            Map<?, ?> entry = (Map<?, ?>) element;
+            String path = entry.get("path") == null ? "" : String.valueOf(entry.get("path"));
+            String fileName = entry.get("fileName") == null ? "" : String.valueOf(entry.get("fileName"));
+            String sha256 = entry.get("sha256") == null ? "" : String.valueOf(entry.get("sha256"));
+            long size = entry.get("size") instanceof Number ? ((Number) entry.get("size")).longValue() : 0L;
+            result.add(new Companion(path, fileName, sha256, size));
+        }
+        return result;
     }
 
     // ------------------------------------------------------------------ validation helpers

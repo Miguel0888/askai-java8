@@ -217,13 +217,20 @@ public final class DefaultAskAiService implements AskAiService {
     }
 
     public void downloadHuggingFaceFile(final HuggingFaceFile file, final DownloadListener listener) {
+        downloadHuggingFaceFile(file, null, listener);
+    }
+
+    public void downloadHuggingFaceFile(final HuggingFaceFile file, final String pinnedRevision,
+                                        final DownloadListener listener) {
         executorService.submit(new Runnable() {
             public void run() {
                 try {
                     com.aresstack.askai.java8.hf.HuggingFaceClient client = huggingFaceClient();
-                    // Pin to an immutable commit first, so the file and its later metadata match even if
-                    // the branch moves between download and install.
-                    String sha = client.resolveRevisionSha(file.getModelId(), "main");
+                    // Pin to an immutable commit: use the caller's pinned SHA when given (so a companion
+                    // shares the main model's commit), otherwise resolve main once here.
+                    String sha = pinnedRevision != null && pinnedRevision.trim().length() > 0
+                            ? pinnedRevision.trim()
+                            : client.resolveRevisionSha(file.getModelId(), "main");
                     listener.onResolvedRevision(sha);
                     File downloaded = client.download(file,
                             configurationRepository.load().getModelDownloadDirectory(), sha,
@@ -293,11 +300,13 @@ public final class DefaultAskAiService implements AskAiService {
     private com.aresstack.askai.java8.hf.meta.OllamaCreateMetadata buildPlanMetadata(
             com.aresstack.askai.java8.hf.HuggingFaceClient hf,
             com.aresstack.askai.java8.hf.HuggingFaceInstallPlan plan, File ggufFile, List<File> companionFiles) {
-        // The capability set sent to /api/create must be intersected with what these exact files can honour:
-        // vision/audio only when a GGUF here actually carries that encoder (proven from GGUF content). A
-        // cancelled or absent projector then drops vision/audio automatically.
+        // The capability set sent to /api/create is decided by the INSTALLED files, not by HF alone:
+        //  - vision/audio only when a GGUF here actually carries that encoder (RuntimeCapabilities), and
+        //  - tools/thinking/insert only from the main GGUF's own baked-in template (the real runtime),
+        // so a HF tokenizer config can never feign a capability the runtime does not have.
         com.aresstack.askai.java8.hf.RuntimeCapabilities runtime =
                 com.aresstack.askai.java8.hf.RuntimeCapabilities.fromFiles(ggufFile, companionFiles);
+        List<String> runtimeTemplateCaps = templateCapabilities(ggufFile);
         try {
             com.aresstack.askai.java8.hf.meta.HuggingFaceMetadataLoader.Result result =
                     new com.aresstack.askai.java8.hf.meta.HuggingFaceMetadataLoader(
@@ -309,10 +318,30 @@ public final class DefaultAskAiService implements AskAiService {
             } catch (Exception ignored) {
                 // provenance is optional; a write failure must not block the install
             }
-            return result.metadata().withCapabilities(runtime.intersect(result.metadata().capabilities()));
+            return result.metadata().withCapabilities(
+                    finalCapabilities(result.metadata().capabilities(), runtime, runtimeTemplateCaps));
         } catch (RuntimeException ex) {
-            return com.aresstack.askai.java8.hf.meta.OllamaCreateMetadata.ofCapabilities(
-                    runtime.intersect(RemoteGgufInstaller.normalizeCapabilities(plan.getRequiredOllamaCapabilities())));
+            return com.aresstack.askai.java8.hf.meta.OllamaCreateMetadata.ofCapabilities(finalCapabilities(
+                    RemoteGgufInstaller.normalizeCapabilities(plan.getRequiredOllamaCapabilities()),
+                    runtime, runtimeTemplateCaps));
+        }
+    }
+
+    /** vision/audio intersected with the installed files, unioned with the GGUF template's tools/thinking/insert. */
+    private static List<String> finalCapabilities(List<String> base,
+            com.aresstack.askai.java8.hf.RuntimeCapabilities runtime, List<String> runtimeTemplateCaps) {
+        java.util.LinkedHashSet<String> caps =
+                new java.util.LinkedHashSet<String>(runtime.intersect(base));
+        caps.addAll(runtimeTemplateCaps);
+        return new java.util.ArrayList<String>(caps);
+    }
+
+    /** @return tools/thinking/insert the main GGUF's own template supports, or empty when unreadable. */
+    private static List<String> templateCapabilities(File ggufFile) {
+        try {
+            return com.aresstack.askai.java8.hf.GgufFile.inspect(ggufFile).templateCapabilities();
+        } catch (Exception ex) {
+            return java.util.Collections.emptyList();
         }
     }
 

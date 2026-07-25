@@ -133,6 +133,30 @@ public class GgufFileTest {
     }
 
     @Test
+    public void templateCapabilitiesComeFromTheGgufsOwnBakedInTemplate() throws IOException {
+        Map<String, Object> meta = new LinkedHashMap<String, Object>();
+        meta.put("general.architecture", "qwen3");
+        meta.put("tokenizer.chat_template",
+                "{% if tool_calls %}...{% endif %}<think>{{ reasoning_content }}</think> <|fim_prefix|>");
+
+        GgufFile.GgufInfo info = GgufFile.inspect(writeGguf("model.gguf", meta));
+
+        assertEquals(Arrays.asList("tools", "thinking", "insert"), info.templateCapabilities());
+        assertFalse(info.isProjector());
+    }
+
+    @Test
+    public void plainTemplateYieldsNoTemplateCapabilities() throws IOException {
+        Map<String, Object> meta = new LinkedHashMap<String, Object>();
+        meta.put("general.architecture", "llama");
+        meta.put("tokenizer.chat_template", "{% for m in messages %}{{ m.role }}: {{ m.content }}{% endfor %}");
+
+        GgufFile.GgufInfo info = GgufFile.inspect(writeGguf("model.gguf", meta));
+
+        assertTrue(info.templateCapabilities().isEmpty());
+    }
+
+    @Test
     public void aPlainLanguageModelIsNotAProjector() throws IOException {
         Map<String, Object> meta = new LinkedHashMap<String, Object>();
         meta.put("general.architecture", "qwen3");

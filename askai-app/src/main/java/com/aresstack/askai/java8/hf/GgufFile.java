@@ -215,6 +215,9 @@ public final class GgufFile {
         private final boolean projector;
         private final boolean hasVision;
         private final boolean hasAudio;
+        private final boolean supportsTools;
+        private final boolean supportsThinking;
+        private final boolean supportsInsert;
 
         GgufInfo(Map<String, Object> meta) {
             this.architecture = str(meta, "general.architecture");
@@ -254,6 +257,16 @@ public final class GgufFile {
             // so an accepted projector is never immediately treated as wirkungslos. A pure audio projector
             // (audio signal, no vision signal) keeps audio only.
             this.hasVision = projector && (visionSignal || !audioSignal);
+
+            // The template BAKED INTO THIS GGUF (the installed runtime), used to decide tools/thinking/insert
+            // from what the model actually ships — never from a HF repo's tokenizer_config, which may differ.
+            String template = str(meta, "tokenizer.chat_template").toLowerCase(java.util.Locale.ROOT);
+            this.supportsTools = template.contains("tool_call") || template.contains("tool_calls")
+                    || (template.contains("tools") && template.contains("tojson"));
+            this.supportsThinking = template.contains("<think") || template.contains("</think")
+                    || template.contains("reasoning_content");
+            this.supportsInsert = template.contains("fim_prefix") || template.contains("fim_middle")
+                    || template.contains("fim_suffix") || template.contains("<|fim") || template.contains("<fim_");
         }
 
         public String architecture() {
@@ -311,6 +324,24 @@ public final class GgufFile {
             }
             if (hasAudio) {
                 caps.add("audio");
+            }
+            return caps;
+        }
+
+        /**
+         * @return the tools/thinking/insert capability tags this GGUF's own baked-in template supports —
+         *         the installed runtime truth. Empty for a projector or a plain model with none of these.
+         */
+        public java.util.List<String> templateCapabilities() {
+            java.util.List<String> caps = new java.util.ArrayList<String>();
+            if (supportsTools) {
+                caps.add("tools");
+            }
+            if (supportsThinking) {
+                caps.add("thinking");
+            }
+            if (supportsInsert) {
+                caps.add("insert");
             }
             return caps;
         }

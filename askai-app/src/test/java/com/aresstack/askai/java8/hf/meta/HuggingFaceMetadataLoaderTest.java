@@ -69,49 +69,31 @@ public class HuggingFaceMetadataLoaderTest {
     }
 
     @Test
-    public void embeddingCapabilityDerivedFromPipelineTag() {
+    public void embeddingPipelineYieldsExclusiveEmbeddingBase() {
         FakeGateway gw = new FakeGateway();
         Map<String, Object> info = new LinkedHashMap<String, Object>();
         info.put("pipeline_tag", "feature-extraction");
         gw.modelInfo = info;
 
+        // The frozen plan for an embedding model still carries "completion" (modalitiesOf → TEXT); the
+        // loader must REPLACE it with an exclusive "embedding" base, not union the two.
         OllamaCreateMetadata metadata = new HuggingFaceMetadataLoader(gw).load(plan(""), "m.gguf");
-        assertTrue(metadata.capabilities().contains("embedding"));
+        assertEquals(Arrays.asList("embedding"), metadata.capabilities());
     }
 
     @Test
-    public void toolsAndThinkingDerivedFromChatTemplate() {
+    public void toolsThinkingInsertAreNotDerivedFromHfTokenizerConfig() {
+        // A HF chat template must NOT feign runtime capability: tools/thinking/insert come only from the
+        // installed GGUF's own template (added by the service), never from the repo's tokenizer_config.
         FakeGateway gw = new FakeGateway();
         gw.files.put("tokenizer_config.json",
-                "{\"chat_template\":\"{% for m in messages %}{{ m.content }}{% endfor %}"
-                        + "{% if tool_calls %}<think>{{ reasoning_content }}</think>{% endif %}\"}");
+                "{\"chat_template\":\"{% if tool_calls %}<think>{{ reasoning_content }}</think>{% endif %}"
+                        + " <|fim_prefix|>\"}");
 
         OllamaCreateMetadata metadata = new HuggingFaceMetadataLoader(gw).load(plan(""), "m.gguf");
-        assertTrue(metadata.capabilities().contains("tools"));
-        assertTrue(metadata.capabilities().contains("thinking"));
-        // The raw HF Jinja is never sent as Ollama's template.
+        assertEquals(Arrays.asList("completion"), metadata.capabilities());
+        // The raw HF Jinja is never sent as Ollama's template either.
         assertEquals("", metadata.template());
-    }
-
-    @Test
-    public void insertCapabilityDerivedFromFimTokens() {
-        FakeGateway gw = new FakeGateway();
-        gw.files.put("tokenizer_config.json",
-                "{\"added_tokens_decoder\":{\"1\":{\"content\":\"<|fim_prefix|>\"}}}");
-
-        OllamaCreateMetadata metadata = new HuggingFaceMetadataLoader(gw).load(plan(""), "m.gguf");
-        assertTrue(metadata.capabilities().contains("insert"));
-    }
-
-    @Test
-    public void chatTemplateAsListVariantsIsDetected() {
-        FakeGateway gw = new FakeGateway();
-        gw.files.put("tokenizer_config.json",
-                "{\"chat_template\":[{\"name\":\"default\",\"template\":\"{{ messages }}\"},"
-                        + "{\"name\":\"tool_use\",\"template\":\"{{ tool_calls }}\"}]}");
-
-        OllamaCreateMetadata metadata = new HuggingFaceMetadataLoader(gw).load(plan(""), "m.gguf");
-        assertTrue(metadata.capabilities().contains("tools"));
     }
 
     @Test

@@ -35,6 +35,44 @@ public class HuggingFaceInstallPlanTest {
     }
 
     @Test
+    public void sidecarRoundTripsTheExactChosenCompanion() throws Exception {
+        File gguf = File.createTempFile("askai-mm-", ".gguf");
+        gguf.deleteOnExit();
+
+        HuggingFaceInstallPlan plan = new HuggingFaceInstallPlan(
+                "owner/model-GGUF", "main", "abc123sha", "model:q4_k_m",
+                Arrays.asList("TEXT", "VISION"), Arrays.asList("completion", "vision"), "gemma3")
+                .withCompanions(java.util.Collections.singletonList(
+                        new HuggingFaceInstallPlan.Companion(
+                                "mmproj-model-f16.gguf", "mmproj-model-f16.gguf", "deadbeef", 1234L)));
+        plan.writeSidecar(gguf);
+
+        HuggingFaceInstallPlan loaded = HuggingFaceInstallPlan.readSidecar(gguf);
+        assertEquals(1, loaded.getCompanions().size());
+        HuggingFaceInstallPlan.Companion companion = loaded.getCompanions().get(0);
+        assertEquals("mmproj-model-f16.gguf", companion.getPath());
+        assertEquals("mmproj-model-f16.gguf", companion.getFileName());
+        assertEquals("deadbeef", companion.getSha256());
+        assertEquals(1234L, companion.getSize());
+        // The pinned commit is preserved so the companion is re-fetched from the same commit as the model.
+        assertEquals("abc123sha", loaded.getResolvedRevisionSha());
+
+        new File(gguf.getParentFile(), gguf.getName() + ".askai-install.json").deleteOnExit();
+    }
+
+    @Test
+    public void sidecarWithoutCompanionsReadsAsEmptyList() throws Exception {
+        File gguf = File.createTempFile("askai-nocomp-", ".gguf");
+        gguf.deleteOnExit();
+        new HuggingFaceInstallPlan("owner/model-GGUF", "main", "m:q4",
+                Arrays.asList("TEXT"), Arrays.asList("completion")).writeSidecar(gguf);
+
+        HuggingFaceInstallPlan loaded = HuggingFaceInstallPlan.readSidecar(gguf);
+        assertEquals(0, loaded.getCompanions().size());
+        new File(gguf.getParentFile(), gguf.getName() + ".askai-install.json").deleteOnExit();
+    }
+
+    @Test
     public void sidecarCarriesModelTypeForFamilyDerivation() throws Exception {
         File gguf = File.createTempFile("askai-typed-", ".gguf");
         gguf.deleteOnExit();

@@ -131,19 +131,12 @@ public final class HuggingFaceMetadataLoader {
         // --- license file (preferred when small enough to be real text) ------------------------
         license.offer(licenseFile(repo, revision));
 
-        // --- chat template + tokenizer config (only to DETECT capabilities, never to send raw) ---
-        String tokenizerConfigRaw = gateway.fetchFile(repo, revision, "tokenizer_config.json");
-        String chatTemplate = extractChatTemplate(parseJson(tokenizerConfigRaw));
-        String chatTemplateFile = gateway.fetchFile(repo, revision, "chat_template.jinja");
-        if (chatTemplateFile != null) {
-            chatTemplate = chatTemplate + "\n" + chatTemplateFile;
-        }
-
-        // Capabilities: the plan's HF modalities PLUS capabilities derived only from structured sources
-        // (pipeline_tag, the actual chat template, the tokenizer config) — never from names or README text.
-        java.util.LinkedHashSet<String> capabilityTags =
-                new java.util.LinkedHashSet<String>(plan.getRequiredOllamaCapabilities());
-        capabilityTags.addAll(deriveStructuredCapabilities(info, chatTemplate, tokenizerConfigRaw));
+        // Base capability is EXCLUSIVE and comes only from the HF pipeline: an embedding model is
+        // "embedding" (never "completion"), everything else keeps its text/chat + vision/audio modalities.
+        // tools/thinking/insert are intentionally NOT derived from HF here — they must come from the
+        // installed GGUF's own template (the real runtime), which the service unions in. vision/audio are
+        // likewise intersected with the installed files by the service.
+        java.util.LinkedHashSet<String> capabilityTags = baseCapabilityTags(info, plan);
 
         OllamaCreateMetadata.Builder builder = new OllamaCreateMetadata.Builder()
                 .capabilities(new ArrayList<String>(capabilityTags))
@@ -333,75 +326,29 @@ public final class HuggingFaceMetadataLoader {
     // ------------------------------------------------------------------ capability derivation
 
     /**
-     * Derives extra Ollama capability tags strictly from structured sources: the HF {@code pipeline_tag}
-     * and the actual chat template / tokenizer config. Never derived from the model or repository name,
-     * README prose or marketing. VISION/AUDIO are intentionally not derived here — they are decided by the
-     * real installed runtime (main GGUF and any attached projector), not by HF metadata.
+     * The EXCLUSIVE base capability set from the HF pipeline, plus the plan's declared vision/audio
+     * modalities (which the service then intersects with the installed files). An embedding model is
+     * {@code embedding} only — never {@code completion}; every other model keeps {@code completion}.
      *
-     * @param info the HF model-info map (for {@code pipeline_tag}), may be {@code null}
-     * @param chatTemplate the combined chat-template text (tokenizer_config.chat_template + chat_template.jinja)
-     * @param tokenizerConfigRaw the raw tokenizer_config.json text (holds FIM special tokens), may be {@code null}
-     * @return the set of extra Ollama capability tags to union into the plan's capabilities
+     * <p>tools/thinking/insert are deliberately NOT derived here: a HF tokenizer/chat template must not
+     * feign Ollama's installed runtime capability. Those are added by the service from the installed
+     * GGUF's own baked-in template ({@link com.aresstack.askai.java8.hf.GgufFile.GgufInfo#templateCapabilities}).</p>
      */
-    private static java.util.Set<String> deriveStructuredCapabilities(Map<String, Object> info,
-                                                                      String chatTemplate,
-                                                                      String tokenizerConfigRaw) {
-        java.util.Set<String> tags = new java.util.LinkedHashSet<String>();
-
-        // EMBEDDING: only from an unambiguous embedding pipeline_tag.
+    private static java.util.LinkedHashSet<String> baseCapabilityTags(Map<String, Object> info,
+                                                                      HuggingFaceInstallPlan plan) {
+        java.util.LinkedHashSet<String> tags = new java.util.LinkedHashSet<String>();
         String pipelineTag = info == null ? "" : string(info, "pipeline_tag").toLowerCase(Locale.ROOT).trim();
-        if ("feature-extraction".equals(pipelineTag) || "sentence-similarity".equals(pipelineTag)) {
-            tags.add("embedding");
+        boolean embedding = "feature-extraction".equals(pipelineTag) || "sentence-similarity".equals(pipelineTag);
+        if (embedding) {
+            tags.add("embedding"); // exclusive: an embedding model does not also complete/chat
         }
-
-        // TOOLS / THINKING: only from a usable chat template that actually renders tool calls / reasoning.
-        String template = chatTemplate == null ? "" : chatTemplate.toLowerCase(Locale.ROOT);
-        if (template.contains("tool_call") || template.contains("tool_calls")
-                || template.contains("tojson") && template.contains("tools")) {
-            tags.add("tools");
-        }
-        if (template.contains("<think") || template.contains("</think")
-                || template.contains("reasoning_content")) {
-            tags.add("thinking");
-        }
-
-        // INSERT (fill-in-the-middle): only from a verified FIM template/token set, not from code models in general.
-        String fimSource = template + "\n" + (tokenizerConfigRaw == null ? "" : tokenizerConfigRaw.toLowerCase(Locale.ROOT));
-        if (fimSource.contains("fim_prefix") || fimSource.contains("fim_middle") || fimSource.contains("fim_suffix")
-                || fimSource.contains("<|fim") || fimSource.contains("<fim_")) {
-            tags.add("insert");
+        for (String tag : plan.getRequiredOllamaCapabilities()) {
+            if (embedding && "completion".equals(tag)) {
+                continue; // never emit completion for an embedding model
+            }
+            tags.add(tag); // completion / vision / audio (vision & audio are intersected later by the service)
         }
         return tags;
-    }
-
-    /**
-     * Extracts the chat-template text from a parsed tokenizer_config map. Supports both a single string and
-     * a list of {@code {name, template}} maps (default / tool_use variants) — all variants are concatenated
-     * because the text is used only to detect capabilities, never sent to Ollama.
-     */
-    private static String extractChatTemplate(Map<String, Object> tokenizerConfig) {
-        if (tokenizerConfig == null) {
-            return "";
-        }
-        Object raw = tokenizerConfig.get("chat_template");
-        if (raw instanceof String) {
-            return (String) raw;
-        }
-        if (raw instanceof List) {
-            StringBuilder combined = new StringBuilder();
-            for (Object element : (List<?>) raw) {
-                if (element instanceof Map) {
-                    Object template = ((Map<?, ?>) element).get("template");
-                    if (template != null) {
-                        combined.append(String.valueOf(template)).append('\n');
-                    }
-                } else if (element instanceof String) {
-                    combined.append((String) element).append('\n');
-                }
-            }
-            return combined.toString();
-        }
-        return "";
     }
 
     // ------------------------------------------------------------------ value factories

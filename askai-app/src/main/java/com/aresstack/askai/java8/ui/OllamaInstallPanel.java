@@ -1194,6 +1194,13 @@ public final class OllamaInstallPanel extends JPanel {
         // Held in a 1-element array so the resolved commit SHA (delivered before the bytes) can pin the
         // plan before it is persisted/installed.
         final HuggingFaceInstallPlan[] frozenPlanRef = { freezeInstallPlan() };
+        // Record the EXACT chosen encoder in the plan (path + name + sha256 + size), so a later install
+        // uses precisely this file — never "the first projector in the folder".
+        if (companionFile != null && frozenPlanRef[0] != null) {
+            frozenPlanRef[0] = frozenPlanRef[0].withCompanions(java.util.Collections.singletonList(
+                    new HuggingFaceInstallPlan.Companion(companionFile.getPath(), companionFile.getFileName(),
+                            companionFile.getSha256(), companionFile.getSize())));
+        }
 
         final String modelFileName = selected.getFileName();
         append("Downloading " + modelFileName + " ...");
@@ -1264,7 +1271,10 @@ public final class OllamaInstallPanel extends JPanel {
         append("Downloading encoder " + encoderFileName + " ...");
         // Reset the bar for this second download phase — otherwise it lingers at the model's 100%.
         showProgress(0, "Downloading encoder " + encoderFileName);
-        askAiService.downloadHuggingFaceFile(companion, new AskAiService.DownloadListener() {
+        // Pin the companion to the SAME commit the main model resolved to, so the branch moving between the
+        // two downloads cannot pull the encoder from a different commit than the model it belongs to.
+        String pinnedRevision = frozenPlan == null ? null : frozenPlan.getPinnedRevision();
+        askAiService.downloadHuggingFaceFile(companion, pinnedRevision, new AskAiService.DownloadListener() {
             public void onProgress(final long completed, final long total) {
                 onUi(new Runnable() {
                     public void run() {
@@ -1792,24 +1802,39 @@ public final class OllamaInstallPanel extends JPanel {
             append("ERROR: No downloaded GGUF file available.");
             return;
         }
-        // Multimodal models need their separate *mmproj* encoder GGUF installed alongside the
-        // language model — otherwise Ollama rejects audio/vision input. Include any encoder found
-        // next to the model file automatically.
-        final List<File> companions = new ArrayList<File>();
-        File mmproj = findLocalMmproj(lastDownloadedFile);
-        if (mmproj != null) {
-            companions.add(mmproj);
-            String described = describeProjector(mmproj);
-            append("Including encoder: " + (described.length() > 0 ? described : mmproj.getName()));
-        }
-        // Resolve the install plan on the EDT (sidecar precedence + any prompts). The heavier metadata
-        // enrichment (config.json / HF model-info) then runs off the EDT inside the service.
+        // Resolve the install plan first (sidecar precedence + any prompts) — it is authoritative for which
+        // encoder(s) belong to this model. Heavier metadata enrichment runs off the EDT in the service.
         final PlanResolution resolution = resolvePlan(lastDownloadedFile, modelName, frozenPlan);
         if (resolution.isCancelled()) {
             showProgress(0, "Install cancelled");
             return;
         }
         final HuggingFaceInstallPlan plan = resolution.getPlan(); // null → a plain manual import
+        // Companions come from the plan's EXACT recorded encoders, resolved to their local files by name —
+        // never by scanning the folder for "the first projector". A plain manual import (no plan) may still
+        // use findLocalMmproj as an explicitly-understood convenience.
+        final List<File> companions = new ArrayList<File>();
+        if (plan != null && !plan.getCompanions().isEmpty()) {
+            for (HuggingFaceInstallPlan.Companion companion : plan.getCompanions()) {
+                File local = new File(lastDownloadedFile.getParentFile(), companion.getFileName());
+                if (local.isFile()) {
+                    companions.add(local);
+                    String described = describeProjector(local);
+                    append("Including encoder: " + (described.length() > 0 ? described : local.getName()));
+                } else {
+                    append("WARNING: the chosen encoder " + companion.getFileName()
+                            + " is not present next to the model — it will not be installed. Re-download it, "
+                            + "or add it later via the model card's add-on button.");
+                }
+            }
+        } else if (plan == null) {
+            File mmproj = findLocalMmproj(lastDownloadedFile);
+            if (mmproj != null) {
+                companions.add(mmproj);
+                String described = describeProjector(mmproj);
+                append("Including encoder: " + (described.length() > 0 ? described : mmproj.getName()));
+            }
+        }
         final List<String> requiredCapabilities = plan == null
                 ? Collections.<String>emptyList() : plan.getRequiredOllamaCapabilities();
         if (!requiredCapabilities.isEmpty()) {
