@@ -55,7 +55,8 @@ public final class ChatComposerPanelTest {
                 assertFalse(composer.isSendEnabled());
                 JButton record = findButton(composer, "Record or stop dictation");
                 JButton discard = findButton(composer, "Discard or cancel dictation");
-                assertEquals("Stop", record.getText());
+                // The record button is icon-only now; the action is shown via the tooltip.
+                assertEquals("Stop", record.getToolTipText());
                 assertTrue(discard.isVisible());
 
                 record.doClick();

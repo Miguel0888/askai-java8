@@ -146,7 +146,7 @@ public final class ChatComposerPanel extends JPanel {
         this.dictationStatusLabel = createStatusLabel();
         this.statusPanel = createStatusPanel();
         this.modelButton = createModelButton();
-        this.recordButton = createSecondaryButton(new MicrophoneIcon(), "Record", "Record or stop dictation");
+        this.recordButton = createIconButton(new MicrophoneIcon(), "Record or stop dictation");
         this.audioFileButton = createIconButton(new AudioFileIcon(), "Transcribe audio file");
         this.discardButton = createIconButton(new CloseIcon(), "Discard or cancel dictation");
         this.retryButton = createSecondaryButton(new RetryIcon(), "Retry", "Retry transcription");
@@ -192,8 +192,6 @@ public final class ChatComposerPanel extends JPanel {
     private JComponent buildLeftActions() {
         JPanel actionsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 0));
         actionsPanel.setOpaque(false);
-        actionsPanel.add(recordButton);
-        actionsPanel.add(levelBar);
         actionsPanel.add(audioFileButton);
         actionsPanel.add(discardButton);
         actionsPanel.add(retryButton);
@@ -213,6 +211,10 @@ public final class ChatComposerPanel extends JPanel {
         actionsPanel.setOpaque(false);
         actionsPanel.setLayout(new BoxLayout(actionsPanel, BoxLayout.X_AXIS));
         actionsPanel.add(Box.createHorizontalGlue());
+        actionsPanel.add(levelBar);
+        actionsPanel.add(Box.createHorizontalStrut(4));
+        actionsPanel.add(recordButton);   // mic sits just left of Send, ChatGPT-style
+        actionsPanel.add(Box.createHorizontalStrut(4));
         actionsPanel.add(sendButton);
         actionsPanel.add(stopButton);
         return actionsPanel;
@@ -465,9 +467,12 @@ public final class ChatComposerPanel extends JPanel {
         }
         dictationActive = view.recordingActive || view.dictationWorking || view.audioLevelVisible;
         dictationStatusLabel.setForeground(dictationActive ? BORDER_DICTATION : TEXT_MUTED);
-        recordButton.setText(view.recordLabel);
+        // Icon-only: recording → stop square, working/cancel → X, otherwise the microphone. The action
+        // (Record / Stop / Cancel) is conveyed by the tooltip, not by button text.
         recordButton.setEnabled(view.recordEnabled);
-        recordButton.setIcon(view.recordingActive ? new StopRecordingIcon() : new MicrophoneIcon());
+        recordButton.setIcon(view.recordingActive ? new StopRecordingIcon()
+                : view.dictationWorking ? new CloseIcon() : new MicrophoneIcon());
+        recordButton.setToolTipText(view.recordLabel);
         if (recordButton instanceof ComposerButton) {
             ((ComposerButton) recordButton).setAccent(view.recordingActive ? RECORDING : null);
             ((ComposerButton) recordButton).setEmphasized(view.recordingActive);
