@@ -110,6 +110,10 @@ public final class ChatComposerPanelTest {
             increment("model");
         }
 
+        public void openSettings() {
+            increment("settings");
+        }
+
         public void send() {
             increment("send");
         }

@@ -146,6 +146,10 @@ public final class OllamaChatPanel extends JPanel {
                 openModelPopup();
             }
 
+            public void openSettings() {
+                openSettingsDialog();
+            }
+
             public void send() {
                 sendChat();
             }
@@ -316,12 +320,23 @@ public final class OllamaChatPanel extends JPanel {
 
         JPanel header = new JPanel(new BorderLayout(4, 4));
         header.add(toolbarRow, BorderLayout.NORTH);
-        header.add(new CollapsiblePanel("Chat settings", buildChatSettings(), false), BorderLayout.CENTER);
+        // Chat settings moved behind the composer's gear; only Technical details stays here (collapsed).
+        header.add(new CollapsiblePanel("Technical details", buildTechnicalDetails(), false), BorderLayout.CENTER);
         return header;
     }
 
-    /** Collapsed advanced section: system prompt, keep-alive, audio model and microphone. */
-    private JComponent buildChatSettings() {
+    /** The always-available (collapsed) technical log shown in the header. */
+    private JComponent buildTechnicalDetails() {
+        techDetails.setEditable(false);
+        techDetails.setLineWrap(true);
+        techDetails.setWrapStyleWord(true);
+        JScrollPane techScroll = new JScrollPane(techDetails);
+        techScroll.setPreferredSize(new Dimension(techScroll.getPreferredSize().width, 140));
+        return techScroll;
+    }
+
+    /** The chat settings (system prompt, keep-alive, audio model, microphone) shown in the gear dialog. */
+    private JComponent buildSettingsContent() {
         JPanel params = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
         params.add(new JLabel("keep_alive"));
         params.add(keepAliveField);
@@ -347,21 +362,33 @@ public final class OllamaChatPanel extends JPanel {
         systemPromptArea.setWrapStyleWord(true);
         system.add(new JScrollPane(systemPromptArea), BorderLayout.CENTER);
 
-        techDetails.setEditable(false);
-        techDetails.setLineWrap(true);
-        techDetails.setWrapStyleWord(true);
-        JScrollPane techScroll = new JScrollPane(techDetails);
-        techScroll.setPreferredSize(new Dimension(techScroll.getPreferredSize().width, 140));
-
         JPanel top = new JPanel(new BorderLayout(4, 4));
         top.add(params, BorderLayout.NORTH);
         top.add(micRow, BorderLayout.CENTER);
 
         JPanel settings = new JPanel(new BorderLayout(4, 4));
+        settings.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         settings.add(top, BorderLayout.NORTH);
         settings.add(system, BorderLayout.CENTER);
-        settings.add(new CollapsiblePanel("Technical details", techScroll, false), BorderLayout.SOUTH);
         return settings;
+    }
+
+    private javax.swing.JDialog settingsDialog;
+
+    /** Opens the (modeless) Chat settings dialog behind the composer's gear icon. */
+    private void openSettingsDialog() {
+        if (settingsDialog == null) {
+            java.awt.Window owner = SwingUtilities.getWindowAncestor(this);
+            settingsDialog = new javax.swing.JDialog(
+                    owner instanceof java.awt.Frame ? (java.awt.Frame) owner : null, "Chat settings", false);
+            JComponent content = buildSettingsContent();
+            settingsDialog.setContentPane(new JScrollPane(content));
+            settingsDialog.pack();
+            settingsDialog.setSize(new Dimension(Math.max(460, settingsDialog.getWidth()), 360));
+            settingsDialog.setLocationRelativeTo(this);
+        }
+        settingsDialog.setVisible(true);
+        settingsDialog.toFront();
     }
 
     private JComponent buildComposer() {

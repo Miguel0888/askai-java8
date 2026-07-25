@@ -67,6 +67,8 @@ public final class ChatComposerPanel extends JPanel {
     public interface Actions {
         void selectModel();
 
+        void openSettings();
+
         void send();
 
         void stop();
@@ -121,6 +123,7 @@ public final class ChatComposerPanel extends JPanel {
     private final JLabel chatStatusLabel;
     private final JLabel dictationStatusLabel;
     private final JButton modelButton;
+    private final JButton settingsButton;
     private final JButton recordButton;
     private final JButton audioFileButton;
     private final JButton discardButton;
@@ -146,6 +149,7 @@ public final class ChatComposerPanel extends JPanel {
         this.dictationStatusLabel = createStatusLabel();
         this.statusPanel = createStatusPanel();
         this.modelButton = createModelButton();
+        this.settingsButton = createIconButton(new GearIcon(), "Chat settings");
         this.recordButton = createIconButton(new MicrophoneIcon(), "Record or stop dictation");
         this.audioFileButton = createIconButton(new AudioFileIcon(), "Transcribe audio file");
         this.discardButton = createIconButton(new CloseIcon(), "Discard or cancel dictation");
@@ -192,6 +196,7 @@ public final class ChatComposerPanel extends JPanel {
     private JComponent buildLeftActions() {
         JPanel actionsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 0));
         actionsPanel.setOpaque(false);
+        actionsPanel.add(settingsButton);
         actionsPanel.add(audioFileButton);
         actionsPanel.add(discardButton);
         actionsPanel.add(retryButton);
@@ -300,6 +305,11 @@ public final class ChatComposerPanel extends JPanel {
         modelButton.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent event) {
                 actions.selectModel();
+            }
+        });
+        settingsButton.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent event) {
+                actions.openSettings();
             }
         });
         sendButton.addActionListener(new ActionListener() {
@@ -783,6 +793,24 @@ public final class ChatComposerPanel extends JPanel {
         protected void paint(Graphics2D g2) {
             g2.drawLine(3, 6, 7, 10);
             g2.drawLine(7, 10, 11, 6);
+        }
+    }
+
+    private static final class GearIcon extends StrokeIcon {
+        protected void paint(Graphics2D g2) {
+            int cx = 7;
+            int cy = 7;
+            int r = 4;
+            g2.drawOval(cx - r, cy - r, 2 * r, 2 * r);
+            g2.drawOval(cx - 2, cy - 2, 4, 4);
+            for (int i = 0; i < 8; i++) {
+                double a = Math.PI * 2 * i / 8;
+                int x1 = (int) Math.round(cx + Math.cos(a) * r);
+                int y1 = (int) Math.round(cy + Math.sin(a) * r);
+                int x2 = (int) Math.round(cx + Math.cos(a) * (r + 2.5));
+                int y2 = (int) Math.round(cy + Math.sin(a) * (r + 2.5));
+                g2.drawLine(x1, y1, x2, y2);
+            }
         }
     }
 }
