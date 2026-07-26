@@ -42,6 +42,7 @@ public final class AskAiFrame extends JFrame {
     private static final String NETWORK_VIEW = "network";
     private static final String ABOUT_VIEW = "about";
     private static final String AUDIO_PROCESSING_VIEW = "audio-processing";
+    private static final String PLUGINS_VIEW = "plugins";
 
     private final AskAiModel model;
     private final AppConfigurationRepository configurationRepository;
@@ -58,6 +59,9 @@ public final class AskAiFrame extends JFrame {
     private OllamaConfigPanel configPanel;
     private OllamaChatPanel chatPanel;
     private com.aresstack.askai.plugin.host.ChatWorkspaceHostPanel chatWorkspaceHost;
+    private com.aresstack.askai.plugin.host.WorkspacePluginService pluginService;
+    private com.aresstack.askai.plugin.host.PluginEnablementService pluginEnablement;
+    private java.io.File pluginsDirectory;
     private AudioProcessingPanel audioProcessingPanel;
     private ModelSearchPanel installSearchPanel;
 
@@ -203,6 +207,7 @@ public final class AskAiFrame extends JFrame {
         configurationMenu.add(createScreenItem("Connections", CONNECTIONS_VIEW));
         configurationMenu.add(createScreenItem("Network", NETWORK_VIEW));
         configurationMenu.add(createScreenItem("Audio processing", AUDIO_PROCESSING_VIEW));
+        configurationMenu.add(createScreenItem("Plugins", PLUGINS_VIEW));
         return configurationMenu;
     }
 
@@ -248,11 +253,14 @@ public final class AskAiFrame extends JFrame {
                         new com.aresstack.askai.java8.plugin.host.AskAiMarkdownViewFactory(),
                         new com.aresstack.askai.java8.plugin.host.AskAiConversationSurfaceFactory(),
                         notificationService);
-        com.aresstack.askai.plugin.host.WorkspacePluginService pluginService =
-                new com.aresstack.askai.plugin.host.WorkspacePluginService(pluginsRoot, HOST_PLUGIN_VERSION, 1,
-                        uiExecutor);
         com.aresstack.askai.plugin.api.service.WorkspaceStateStore hostState =
                 new com.aresstack.askai.java8.plugin.host.ApplicationStateWorkspaceStateStore(applicationState, "");
+        this.pluginEnablement = new com.aresstack.askai.plugin.host.PluginEnablementService(hostState);
+        this.pluginsDirectory = pluginsRoot.toFile();
+        com.aresstack.askai.plugin.host.WorkspacePluginService pluginService =
+                new com.aresstack.askai.plugin.host.WorkspacePluginService(pluginsRoot, HOST_PLUGIN_VERSION, 1,
+                        uiExecutor, pluginEnablement);
+        this.pluginService = pluginService;
         com.aresstack.askai.plugin.host.ChatWorkspaceHostPanel host =
                 new com.aresstack.askai.plugin.host.ChatWorkspaceHostPanel(
                         normalChat, pluginService, hostContextFactory, uiExecutor, hostState, notificationService);
@@ -348,6 +356,10 @@ public final class AskAiFrame extends JFrame {
         // Java2D pipeline editor for audio-processing profiles (shared repository instance).
         this.audioProcessingPanel = new AudioProcessingPanel(audioProfileRepository, applicationState);
         contentPanel.add(audioProcessingPanel, AUDIO_PROCESSING_VIEW);
+        // Configuration → Plugins: the real PF4J catalog (enable/disable, details), built after the host so
+        // pluginService/enablement exist.
+        contentPanel.add(new com.aresstack.askai.plugin.host.PluginManagementPanel(
+                pluginService, pluginEnablement, pluginsDirectory), PLUGINS_VIEW);
         return contentPanel;
     }
 

@@ -151,11 +151,12 @@ public final class ChatWorkspaceHostPanel extends JPanel implements WorkspaceMod
     // ------------------------------------------------------------------ discovery
 
     private void startDiscovery() {
-        pluginService.discoverAsync(new WorkspaceCatalogListener() {
+        pluginService.addCatalogListener(new WorkspaceCatalogListener() {
             public void onCatalogReady(List<PluginCatalogEntry> catalog, List<PluginLoadFailure> failures) {
                 applyCatalog(catalog);
             }
         });
+        pluginService.refreshAsync();
     }
 
     private void applyCatalog(List<PluginCatalogEntry> catalog) {
