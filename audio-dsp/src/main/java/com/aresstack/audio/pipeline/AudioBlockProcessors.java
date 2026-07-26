@@ -22,6 +22,10 @@ import com.aresstack.audio.dsp.BreathReductionProcessor;
 import com.aresstack.audio.dsp.BreathReductionSettings;
 import com.aresstack.audio.dsp.DeEsserProcessor;
 import com.aresstack.audio.dsp.DeEsserSettings;
+import com.aresstack.audio.dsp.NoiseProfile;
+import com.aresstack.audio.dsp.NoiseProfileEstimator;
+import com.aresstack.audio.dsp.NoiseSuppressionSettings;
+import com.aresstack.audio.dsp.SpectralNoiseSuppressor;
 import com.aresstack.audio.dsp.ExpanderProcessor;
 import com.aresstack.audio.dsp.ExpanderSettings;
 import com.aresstack.audio.dsp.ExpanderState;
@@ -493,6 +497,84 @@ final class AudioBlockProcessors {
                 return input;
             }
         };
+    }
+
+    /**
+     * Noise Profiler: an analysis block that never changes the audio. It estimates a background-noise
+     * magnitude spectrum from the frames treated as noise (non-speech frames when an upstream speech track
+     * is available, otherwise the whole signal), publishes the {@link NoiseProfile} into the context for a
+     * later Adaptive Noise Suppression block, and returns the input buffer unchanged.
+     */
+    static AudioBlockProcessor noiseProfiler() {
+        return new AudioBlockProcessor() {
+            public AudioBuffer process(AudioBuffer input, AudioBlockDefinition block, AudioProcessingContext context) {
+                String mode = block.getParameter("mode", "AUTOMATIC");
+                if ("USE_EXISTING".equals(mode) && context.getNoiseProfile() != null) {
+                    return input; // keep a previously supplied/learned profile
+                }
+                SpeechActivityTrack track = context.getSpeechActivity();
+                SpeechGate gate = "LEARN_FROM_SILENCE".equals(mode)
+                        ? null // treat the whole recording as noise
+                        : (track == null ? null : speechGate(track, input.getFormat().getChannels()));
+                int rate = input.getFormat().getSampleRateHz();
+                int maxFrames = 0;
+                double learnTimeMs = block.getDoubleParameter("learnTimeMs", 0.0d);
+                if (learnTimeMs > 0.0d) {
+                    maxFrames = (int) Math.max(1, learnTimeMs * rate / 1000.0d / FFT_HOP);
+                }
+                NoiseProfile profile = new NoiseProfileEstimator(FFT_SIZE, FFT_HOP)
+                        .estimate(input.getSamples(), input.getSamples().length, input.getFormat(),
+                                gate, maxFrames);
+                if (profile != null) {
+                    context.setNoiseProfile(profile);
+                }
+                return input; // analysis only — audio is passed through untouched
+            }
+        };
+    }
+
+    /**
+     * Adaptive Noise Suppression: frequency-dependent reduction of stationary/slowly drifting background
+     * noise in the STFT domain. In "use fixed profile" mode it uses the noise model published by an upstream
+     * Noise Profiler; otherwise it tracks the noise floor per bin itself. Speech protection reads the
+     * upstream speech-activity track. Format-preserving.
+     */
+    static AudioBlockProcessor adaptiveNoiseSuppression() {
+        return new AudioBlockProcessor() {
+            public AudioBuffer process(AudioBuffer input, AudioBlockDefinition block, AudioProcessingContext context) {
+                final NoiseSuppressionSettings settings = new NoiseSuppressionSettings(
+                        parseSuppressionMode(block.getParameter("mode", "AUTOMATIC")),
+                        block.getDoubleParameter("maxAttenuationDb", 12.0d),
+                        block.getDoubleParameter("adaptationSpeed", 0.1d),
+                        block.getDoubleParameter("noiseFloorDb", -60.0d),
+                        block.getBooleanParameter("speechProtection", true),
+                        block.getDoubleParameter("minSpeechProbability", 0.5d),
+                        block.getBooleanParameter("adaptDuringSpeech", false),
+                        block.getBooleanParameter("freezeProfile", false),
+                        block.getDoubleParameter("artifactProtection", 0.4d),
+                        block.getDoubleParameter("attackMs", 15.0d),
+                        block.getDoubleParameter("releaseMs", 120.0d));
+                final NoiseProfile fixed = settings.getMode()
+                        == NoiseSuppressionSettings.Mode.USE_FIXED_PROFILE ? context.getNoiseProfile() : null;
+                final SpeechGate gate = speechGate(settings.isSpeechProtection() ? context.getSpeechActivity()
+                        : null, input.getFormat().getChannels());
+                SpectralBlockRunner.apply(input.getSamples(), input.getSamples().length, input.getFormat(),
+                        FFT_SIZE, FFT_HOP, new SpectralBlockRunner.ModifierFactory() {
+                            public SpectralModifier create() {
+                                return new SpectralNoiseSuppressor(settings, fixed, gate);
+                            }
+                        });
+                return input;
+            }
+        };
+    }
+
+    private static NoiseSuppressionSettings.Mode parseSuppressionMode(String value) {
+        try {
+            return NoiseSuppressionSettings.Mode.valueOf(value);
+        } catch (RuntimeException ex) {
+            return NoiseSuppressionSettings.Mode.AUTOMATIC;
+        }
     }
 
     /** Bridge a mono STFT sample index to the interleaved speech-activity track, or NEVER without a track. */

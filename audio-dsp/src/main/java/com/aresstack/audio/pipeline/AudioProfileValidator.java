@@ -78,6 +78,7 @@ public final class AudioProfileValidator {
         int currentRate = inputFormat == null ? 0 : inputFormat.getSampleRateHz();
         boolean sawChannelMixer = false;
         boolean sawEnabledVad = false;
+        boolean sawEnabledNoiseProfiler = false;
         boolean timeBaseChangedAfterVad = false;
         int silenceTrimmerCount = 0;
         List<AudioBlockDefinition> blocks = profile.getBlocks();
@@ -90,6 +91,9 @@ public final class AudioProfileValidator {
             }
             if (type == AudioBlockType.VOICE_ACTIVITY_DETECTION && enabled) {
                 sawEnabledVad = true;
+            }
+            if (type == AudioBlockType.NOISE_PROFILER && enabled) {
+                sawEnabledNoiseProfiler = true;
             }
             validateParseable(issues, block, enabled);
             switch (type) {
@@ -143,6 +147,12 @@ public final class AudioProfileValidator {
                 case BREATH_REDUCTION:
                 case BREATH_REDUCTION_FFT:
                     validateBreathReduction(issues, block, enabled, sawEnabledVad);
+                    break;
+                case NOISE_PROFILER:
+                    validateNoiseProfiler(issues, block, enabled);
+                    break;
+                case ADAPTIVE_NOISE_SUPPRESSION:
+                    validateNoiseSuppression(issues, block, enabled, sawEnabledVad, sawEnabledNoiseProfiler);
                     break;
                 default:
                     break;
@@ -402,6 +412,34 @@ public final class AudioProfileValidator {
         nonNegativeError(issues, block, enabled, name, "maxAttenuationDb", "Maximum attenuation");
         nonNegativeError(issues, block, enabled, name, "attackMs", "Attack");
         nonNegativeError(issues, block, enabled, name, "releaseMs", "Release");
+        if (block.getBooleanParameter("speechProtection", true) && !sawEnabledVad) {
+            add(issues, block, enabled, AudioValidationSeverity.WARNING, "speechProtection",
+                    name + ": speech protection needs a Voice Activity Detection block upstream.");
+        }
+    }
+
+    private void validateNoiseProfiler(List<AudioProfileValidationIssue> issues, AudioBlockDefinition block,
+                                       boolean enabled) {
+        String name = block.getType().getDisplayName();
+        nonNegativeError(issues, block, enabled, name, "learnTimeMs", "Learn time");
+        rangeError(issues, block, enabled, name, "minConfidence", "Minimum confidence", 0.0d, 1.0d);
+    }
+
+    private void validateNoiseSuppression(List<AudioProfileValidationIssue> issues, AudioBlockDefinition block,
+                                          boolean enabled, boolean sawEnabledVad, boolean sawEnabledNoiseProfiler) {
+        String name = block.getType().getDisplayName();
+        nonNegativeError(issues, block, enabled, name, "maxAttenuationDb", "Maximum attenuation");
+        rangeError(issues, block, enabled, name, "adaptationSpeed", "Adaptation speed", 0.0d, 1.0d);
+        finiteError(issues, block, enabled, name, "noiseFloorDb", "Noise floor");
+        rangeError(issues, block, enabled, name, "minSpeechProbability", "Minimum speech probability", 0.0d, 1.0d);
+        rangeError(issues, block, enabled, name, "artifactProtection", "Artifact protection", 0.0d, 1.0d);
+        nonNegativeError(issues, block, enabled, name, "attackMs", "Attack");
+        nonNegativeError(issues, block, enabled, name, "releaseMs", "Release");
+        if ("USE_FIXED_PROFILE".equals(block.getParameter("mode", "AUTOMATIC")) && !sawEnabledNoiseProfiler) {
+            add(issues, block, enabled, AudioValidationSeverity.WARNING, "mode",
+                    name + ": \"Use a learned noise profile\" needs a Noise Profiler block upstream; "
+                            + "it falls back to tracking the noise floor until then.");
+        }
         if (block.getBooleanParameter("speechProtection", true) && !sawEnabledVad) {
             add(issues, block, enabled, AudioValidationSeverity.WARNING, "speechProtection",
                     name + ": speech protection needs a Voice Activity Detection block upstream.");

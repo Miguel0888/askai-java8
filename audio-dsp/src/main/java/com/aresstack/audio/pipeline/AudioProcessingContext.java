@@ -1,5 +1,6 @@
 package com.aresstack.audio.pipeline;
 
+import com.aresstack.audio.dsp.NoiseProfile;
 import com.aresstack.audio.dsp.SpeechActivityTrack;
 
 import java.util.HashMap;
@@ -16,6 +17,7 @@ public final class AudioProcessingContext {
 
     private final Map<String, Object> metadata = new HashMap<String, Object>();
     private SpeechActivityTrack speechActivity;
+    private NoiseProfile noiseProfile;
 
     /** Store the per-frame speech-activity track produced by the voice-activity block (typed, no string key). */
     public void setSpeechActivity(SpeechActivityTrack track) {
@@ -25,6 +27,16 @@ public final class AudioProcessingContext {
     /** @return the speech-activity track for this run, or null if no voice-activity block ran. */
     public SpeechActivityTrack getSpeechActivity() {
         return speechActivity;
+    }
+
+    /** Store the noise model learned by a Noise Profiler for a later Adaptive Noise Suppression block. */
+    public void setNoiseProfile(NoiseProfile profile) {
+        this.noiseProfile = profile;
+    }
+
+    /** @return the learned noise profile for this run, or null if no Noise Profiler ran. */
+    public NoiseProfile getNoiseProfile() {
+        return noiseProfile;
     }
 
     public void put(String key, Object value) {

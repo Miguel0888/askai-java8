@@ -26,7 +26,9 @@ public enum AudioBlockType {
     DE_ESSER_FFT("De-Esser (FFT)"),
     ADAPTIVE_HUM_REMOVAL_FFT("Adaptive Hum Removal (FFT)"),
     PLOSIVE_REDUCTION_FFT("Plosive Reduction (FFT)"),
-    BREATH_REDUCTION_FFT("Breath Reduction (FFT)");
+    BREATH_REDUCTION_FFT("Breath Reduction (FFT)"),
+    NOISE_PROFILER("Noise Profiler"),
+    ADAPTIVE_NOISE_SUPPRESSION("Adaptive Noise Suppression");
 
     private final String displayName;
 

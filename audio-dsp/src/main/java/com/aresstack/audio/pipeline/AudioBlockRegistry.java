@@ -49,6 +49,8 @@ public final class AudioBlockRegistry {
         register(adaptiveHumRemovalFft());
         register(plosiveReductionFft());
         register(breathReductionFft());
+        register(noiseProfiler());
+        register(adaptiveNoiseSuppression());
     }
 
     public static AudioBlockRegistry getInstance() {
@@ -656,6 +658,76 @@ public final class AudioBlockRegistry {
                     public String summarize(AudioBlockDefinition block) {
                         return "FFT · sensitivity " + formatQ(block.getDoubleParameter("sensitivity", 0.0d))
                                 + " · -" + formatQ(block.getDoubleParameter("maxAttenuationDb", 0.0d)) + " dB max";
+                    }
+                });
+    }
+
+    // ------------------------------------------------------------------ noise profiling / suppression
+
+    private static AudioBlockDescriptor noiseProfiler() {
+        List<AudioParameterDescriptor> params = new ArrayList<AudioParameterDescriptor>();
+        params.add(AudioParameterDescriptor.choice("mode", "Mode", "AUTOMATIC", Arrays.asList(
+                new AudioParameterChoice("AUTOMATIC", "Learn from detected speech pauses"),
+                new AudioParameterChoice("LEARN_FROM_SILENCE", "Treat the whole recording as noise"),
+                new AudioParameterChoice("USE_EXISTING", "Keep an existing learned profile"))));
+        params.add(AudioParameterDescriptor.decimal("learnTimeMs", "Learn time (ms, 0 = all)",
+                0.0d, 0.0d, 600000.0d, 100.0d));
+        params.add(AudioParameterDescriptor.decimal("minConfidence", "Minimum confidence",
+                0.2d, 0.0d, 1.0d, 0.05d));
+        AudioBlockCapabilities capabilities = StaticBlockCapabilities.builder()
+                .modifiesAudio(false)
+                .producesMetadata(true)
+                .consumesSpeechMetadata(true)
+                .framing(1024, 0, 512)
+                .build();
+        return descriptor(AudioBlockType.NOISE_PROFILER, AudioBlockCategory.ANALYSIS, params, capabilities,
+                new SimpleAudioBlockDescriptor.ProcessorFactory() {
+                    public AudioBlockProcessor create() {
+                        return AudioBlockProcessors.noiseProfiler();
+                    }
+                },
+                new SimpleAudioBlockDescriptor.Summarizer() {
+                    public String summarize(AudioBlockDefinition block) {
+                        return "Learns noise · " + block.getParameter("mode", "AUTOMATIC");
+                    }
+                });
+    }
+
+    private static AudioBlockDescriptor adaptiveNoiseSuppression() {
+        List<AudioParameterDescriptor> params = new ArrayList<AudioParameterDescriptor>();
+        params.add(AudioParameterDescriptor.choice("mode", "Mode", "AUTOMATIC", Arrays.asList(
+                new AudioParameterChoice("AUTOMATIC", "Automatic (track the noise floor)"),
+                new AudioParameterChoice("LEARN_FROM_SILENCE", "Learn from silence"),
+                new AudioParameterChoice("USE_FIXED_PROFILE", "Use a learned noise profile"))));
+        params.add(AudioParameterDescriptor.decimal("maxAttenuationDb", "Maximum attenuation (dB)",
+                12.0d, 0.0d, 80.0d, 1.0d));
+        params.add(AudioParameterDescriptor.decimal("adaptationSpeed", "Adaptation speed", 0.1d, 0.0d, 1.0d, 0.01d));
+        params.add(AudioParameterDescriptor.decimal("noiseFloorDb", "Noise floor (dBFS)",
+                -60.0d, -120.0d, 0.0d, 1.0d));
+        params.add(AudioParameterDescriptor.bool("speechProtection", "Speech protection", true));
+        params.add(AudioParameterDescriptor.decimal("minSpeechProbability", "Min speech probability",
+                0.5d, 0.0d, 1.0d, 0.05d));
+        params.add(AudioParameterDescriptor.bool("adaptDuringSpeech", "Adapt during speech", false));
+        params.add(AudioParameterDescriptor.bool("freezeProfile", "Freeze learned profile", false));
+        params.add(AudioParameterDescriptor.decimal("artifactProtection", "Artifact protection",
+                0.4d, 0.0d, 1.0d, 0.05d));
+        params.add(AudioParameterDescriptor.decimal("attackMs", "Attack (ms)", 15.0d, 0.0d, 500.0d, 1.0d));
+        params.add(AudioParameterDescriptor.decimal("releaseMs", "Release (ms)", 120.0d, 1.0d, 5000.0d, 5.0d));
+        AudioBlockCapabilities capabilities = StaticBlockCapabilities.builder()
+                .framing(1024, 0, 512)
+                .consumesSpeechMetadata(true)
+                .build();
+        return descriptor(AudioBlockType.ADAPTIVE_NOISE_SUPPRESSION, AudioBlockCategory.NOISE_REDUCTION,
+                params, capabilities,
+                new SimpleAudioBlockDescriptor.ProcessorFactory() {
+                    public AudioBlockProcessor create() {
+                        return AudioBlockProcessors.adaptiveNoiseSuppression();
+                    }
+                },
+                new SimpleAudioBlockDescriptor.Summarizer() {
+                    public String summarize(AudioBlockDefinition block) {
+                        return "-" + formatQ(block.getDoubleParameter("maxAttenuationDb", 0.0d))
+                                + " dB max · " + block.getParameter("mode", "AUTOMATIC");
                     }
                 });
     }
