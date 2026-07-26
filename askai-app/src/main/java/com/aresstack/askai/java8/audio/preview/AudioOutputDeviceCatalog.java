@@ -25,23 +25,34 @@ public final class AudioOutputDeviceCatalog {
         List<OpenAlDevice> list();
     }
 
-    private final OpenAlDeviceSource openAlSource;
-
-    public AudioOutputDeviceCatalog() {
-        this(new NativeOpenAlDeviceSource());
+    /** Reports whether a usable VLC install exists; abstracted for testability. */
+    interface VlcAvailability {
+        boolean isAvailable();
     }
 
-    AudioOutputDeviceCatalog(OpenAlDeviceSource openAlSource) {
+    private final OpenAlDeviceSource openAlSource;
+    private final VlcAvailability vlcAvailability;
+
+    public AudioOutputDeviceCatalog() {
+        this(new NativeOpenAlDeviceSource(), new InstalledVlcAvailability());
+    }
+
+    AudioOutputDeviceCatalog(OpenAlDeviceSource openAlSource, VlcAvailability vlcAvailability) {
         this.openAlSource = openAlSource;
+        this.vlcAvailability = vlcAvailability;
     }
 
     public List<AudioOutputDevice> findAll() {
         List<AudioOutputDevice> devices = new ArrayList<AudioOutputDevice>();
-        // Primary path: OpenAL Soft endpoints (WASAPI on Windows).
+        // Primary path: the VLC sidecar (system default endpoint) when a VLC install is located.
+        if (vlcAvailability.isAvailable()) {
+            devices.add(AudioOutputDevice.vlcSystemDefault());
+        }
+        // Opt-in path: OpenAL Soft endpoints (only when its natives were installed separately).
         for (OpenAlDevice device : openAlSource.list()) {
             devices.add(AudioOutputDevice.forOpenAl(device.getSpecifier(), device.getDisplayName()));
         }
-        // Legacy path: Java Sound. Kept distinct, never linked to the OpenAL entries.
+        // Legacy path: Java Sound. Kept distinct, never linked to the VLC/OpenAL entries.
         devices.add(AudioOutputDevice.systemDefault());
         List<Mixer.Info> mixers = findPlaybackMixers();
         Map<String, Integer> nameCounts = countNames(mixers);
@@ -94,14 +105,32 @@ public final class AudioOutputDeviceCatalog {
         return value == null || value.trim().length() == 0 ? fallback : value.trim();
     }
 
-    /** Real OpenAL enumeration; degrades to an empty list if the native library cannot be loaded. */
+    /**
+     * Real OpenAL enumeration. OpenAL is opt-in: its natives are not shipped, so unless they have been
+     * installed into the add-on directory this returns nothing and the app stays on VLC/Java Sound.
+     */
     private static final class NativeOpenAlDeviceSource implements OpenAlDeviceSource {
         public List<OpenAlDevice> list() {
+            if (!OpenAlNativeSupport.nativesInstalled()) {
+                return new ArrayList<OpenAlDevice>();
+            }
             try {
+                OpenAlNativeSupport.configureLibraryPath();
                 return new OpenAlPlayback().listPlaybackDevices();
             } catch (Throwable t) {
-                // No OpenAL natives (non-Windows, headless test JVM, …): fall back to Java Sound only.
+                // Natives present but unusable: stay on the other backends rather than crashing.
                 return new ArrayList<OpenAlDevice>();
+            }
+        }
+    }
+
+    /** True when a user-provided VLC install can be located. */
+    private static final class InstalledVlcAvailability implements VlcAvailability {
+        public boolean isAvailable() {
+            try {
+                return new VlcInstallation().isAvailable();
+            } catch (Throwable t) {
+                return false;
             }
         }
     }

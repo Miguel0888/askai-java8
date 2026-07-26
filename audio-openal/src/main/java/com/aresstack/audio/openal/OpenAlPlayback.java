@@ -99,6 +99,13 @@ public final class OpenAlPlayback implements OpenAlAudioBackend {
             checkAl("genSource", deviceSpecifier, device);
             AL10.alSourcei(source, AL10.AL_BUFFER, buffer);
             checkAl("bindBuffer", deviceSpecifier, device);
+            // Play at unity gain with no spatial attenuation (quiet output otherwise depends on the
+            // per-application Windows volume mixer level for this process).
+            AL10.alListenerf(AL10.AL_GAIN, 1.0f);
+            AL10.alSourcef(source, AL10.AL_GAIN, 1.0f);
+            AL10.alSourcei(source, AL10.AL_SOURCE_RELATIVE, AL10.AL_TRUE);
+            AL10.alSource3f(source, AL10.AL_POSITION, 0.0f, 0.0f, 0.0f);
+            AL10.alGetError();
 
             long startNanos = System.nanoTime();
             AL10.alSourcePlay(source);

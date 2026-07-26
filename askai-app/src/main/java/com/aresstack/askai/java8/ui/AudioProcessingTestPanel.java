@@ -5,6 +5,7 @@ import com.aresstack.askai.java8.audio.preview.AudioOutputDeviceCatalog;
 import com.aresstack.askai.java8.audio.preview.AudioProcessingTestController;
 import com.aresstack.askai.java8.audio.preview.AudioTestRecordingStore;
 import com.aresstack.askai.java8.audio.preview.DispatchingAudioPreviewPlaybackService;
+import com.aresstack.askai.java8.audio.preview.VlcInstallation;
 import com.aresstack.askai.java8.audio.preview.WavAudioTestSource;
 import com.aresstack.audio.openal.StereoTestTone;
 import com.aresstack.askai.java8.speech.JavaSoundMicrophoneRecorder;
@@ -63,6 +64,9 @@ public final class AudioProcessingTestPanel extends JPanel {
     private final JComboBox<AudioOutputDevice> outputCombo = new JComboBox<AudioOutputDevice>();
     private final JButton testMicButton = new JButton("Test microphone");
     private final JButton testOutputButton = new JButton("Test output");
+    private final JButton testBeepButton = new JButton("Test beep");
+    private final JButton locateVlcButton = new JButton("Locate VLC…");
+    private final VlcInstallation vlcInstallation = new VlcInstallation();
     private final JLabel sourceLabel = new JLabel("No test file selected");
     private final JLabel statusLabel = new JLabel(" ");
     private final JButton processAndPlayButton = new JButton("Process and play");
@@ -165,9 +169,15 @@ public final class AudioProcessingTestPanel extends JPanel {
         outRefresh.setToolTipText("Refresh output device list");
         outRefresh.addActionListener(event -> refreshPlaybackDevices());
         deviceRow.add(outRefresh);
-        testOutputButton.setToolTipText("Play a short beep through the selected output device.");
+        testOutputButton.setToolTipText("Play the stereo test tone (left then right) through the selected device.");
         testOutputButton.addActionListener(event -> testOutput());
         deviceRow.add(testOutputButton);
+        testBeepButton.setToolTipText("Play a short beep through the selected output device.");
+        testBeepButton.addActionListener(event -> testBeep());
+        deviceRow.add(testBeepButton);
+        locateVlcButton.setToolTipText("Point AskAI at an installed vlc.exe to enable the VLC output backend.");
+        locateVlcButton.addActionListener(event -> locateVlc());
+        deviceRow.add(locateVlcButton);
 
         JPanel actionRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
         processAndPlayButton.addActionListener(event -> controller.processAndPlay());
@@ -312,6 +322,54 @@ public final class AudioProcessingTestPanel extends JPanel {
                         });
                     }
                 });
+    }
+
+    /** Play a short beep through the selected output device so the user can confirm it is audible. */
+    private void testBeep() {
+        applySelectedOutputDevice();
+        setStatus("Playing test beep…");
+        playback.play(generateBeep(), new com.aresstack.audio.domain.PcmAudioFormat(44100, 1, 16),
+                new Runnable() {
+                    public void run() {
+                        SwingUtilities.invokeLater(new Runnable() {
+                            public void run() {
+                                setStatus("Test beep finished.");
+                            }
+                        });
+                    }
+                });
+    }
+
+    /** A ~350 ms 880 Hz sine "bing" with a short fade-in and exponential decay, 44.1 kHz mono 16-bit. */
+    private static short[] generateBeep() {
+        int rate = 44100;
+        int length = rate * 350 / 1000;
+        double frequency = 880.0;
+        short[] samples = new short[length];
+        for (int i = 0; i < length; i++) {
+            double t = (double) i / rate;
+            double envelope = Math.min(1.0, i / (rate * 0.01)) * Math.exp(-3.5 * t); // fade-in + decay
+            double value = Math.sin(2.0 * Math.PI * frequency * t) * envelope * 0.6;
+            samples[i] = (short) Math.max(Short.MIN_VALUE, Math.min(Short.MAX_VALUE, value * Short.MAX_VALUE));
+        }
+        return samples;
+    }
+
+    /** Let the user point AskAI at an installed vlc.exe, then refresh so the VLC backend becomes selectable. */
+    private void locateVlc() {
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Locate vlc.exe");
+        if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) {
+            return;
+        }
+        File file = chooser.getSelectedFile();
+        if (file == null || !file.isFile()) {
+            setStatus("That is not a file — VLC was not set.");
+            return;
+        }
+        vlcInstallation.setExecutable(file);
+        refreshPlaybackDevices();
+        setStatus("VLC set: " + file.getAbsolutePath());
     }
 
     private void selectTestFile() {

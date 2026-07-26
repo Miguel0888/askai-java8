@@ -72,6 +72,7 @@ public final class OpenAlAudioPreviewPlaybackService implements AudioPreviewPlay
                 reportError("No OpenAL output device selected. No other device was used.");
                 return;
             }
+            OpenAlNativeSupport.configureLibraryPath();
             OpenAlCancellation cancellation = new OpenAlCancellation() {
                 public boolean isCancelled() {
                     return playbackGeneration != generation || Thread.currentThread().isInterrupted();

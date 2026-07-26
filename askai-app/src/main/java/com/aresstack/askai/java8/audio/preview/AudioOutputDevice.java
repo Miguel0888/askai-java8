@@ -12,22 +12,27 @@ import javax.sound.sampled.Mixer;
 public final class AudioOutputDevice {
 
     public enum Backend {
-        JAVA_SOUND, OPENAL
+        JAVA_SOUND, OPENAL, VLC
     }
 
     private static final AudioOutputDevice SYSTEM_DEFAULT =
-            new AudioOutputDevice(Backend.JAVA_SOUND, null, null, "System default (Java Sound)");
+            new AudioOutputDevice(Backend.JAVA_SOUND, null, null, null, "System default (Java Sound)");
+
+    private static final AudioOutputDevice VLC_SYSTEM_DEFAULT =
+            new AudioOutputDevice(Backend.VLC, null, null, "", "VLC (system default)");
 
     private final Backend backend;
-    private final Mixer.Info mixerInfo;      // Java Sound identity (null for OpenAL / system default)
-    private final String openAlSpecifier;    // OpenAL identity (null for Java Sound)
+    private final Mixer.Info mixerInfo;      // Java Sound identity (null for OpenAL / VLC)
+    private final String openAlSpecifier;    // OpenAL identity (null otherwise)
+    private final String vlcDeviceId;        // VLC MMDevice endpoint id ("" = system default; null otherwise)
     private final String displayName;
 
     private AudioOutputDevice(Backend backend, Mixer.Info mixerInfo, String openAlSpecifier,
-                             String displayName) {
+                             String vlcDeviceId, String displayName) {
         this.backend = backend;
         this.mixerInfo = mixerInfo;
         this.openAlSpecifier = openAlSpecifier;
+        this.vlcDeviceId = vlcDeviceId;
         this.displayName = displayName;
     }
 
@@ -35,12 +40,17 @@ public final class AudioOutputDevice {
         return SYSTEM_DEFAULT;
     }
 
+    /** The VLC sidecar playing on the Windows default endpoint (slice-1 scope: no per-endpoint selection). */
+    public static AudioOutputDevice vlcSystemDefault() {
+        return VLC_SYSTEM_DEFAULT;
+    }
+
     public static AudioOutputDevice forMixer(Mixer.Info mixerInfo, String displayName) {
         if (mixerInfo == null) {
             throw new IllegalArgumentException("Mixer info must not be null.");
         }
         requireDisplayName(displayName);
-        return new AudioOutputDevice(Backend.JAVA_SOUND, mixerInfo, null, displayName.trim());
+        return new AudioOutputDevice(Backend.JAVA_SOUND, mixerInfo, null, null, displayName.trim());
     }
 
     public static AudioOutputDevice forOpenAl(String specifier, String displayName) {
@@ -48,7 +58,7 @@ public final class AudioOutputDevice {
             throw new IllegalArgumentException("OpenAL specifier must not be empty.");
         }
         requireDisplayName(displayName);
-        return new AudioOutputDevice(Backend.OPENAL, null, specifier, displayName.trim());
+        return new AudioOutputDevice(Backend.OPENAL, null, specifier, null, displayName.trim());
     }
 
     public Backend getBackend() {
@@ -63,13 +73,22 @@ public final class AudioOutputDevice {
         return backend == Backend.OPENAL;
     }
 
+    public boolean isVlc() {
+        return backend == Backend.VLC;
+    }
+
     public String getDisplayName() {
         return displayName;
     }
 
-    /** @return the OpenAL device specifier, or null for Java Sound devices. */
+    /** @return the OpenAL device specifier, or null for non-OpenAL devices. */
     public String getOpenAlSpecifier() {
         return openAlSpecifier;
+    }
+
+    /** @return the VLC MMDevice endpoint id ("" = system default), or null for non-VLC devices. */
+    public String getVlcDeviceId() {
+        return vlcDeviceId;
     }
 
     Mixer getMixer() {

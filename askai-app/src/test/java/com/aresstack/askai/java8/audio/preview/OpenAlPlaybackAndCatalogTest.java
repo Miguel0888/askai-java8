@@ -31,7 +31,8 @@ public class OpenAlPlaybackAndCatalogTest {
         List<OpenAlDevice> openAlDevices = Arrays.asList(
                 new OpenAlDevice("OpenAL Soft on Sound Blaster AE-7", "OpenAL Soft on Sound Blaster AE-7"),
                 new OpenAlDevice("OpenAL Soft on Speakers", "OpenAL Soft on Speakers"));
-        AudioOutputDeviceCatalog catalog = new AudioOutputDeviceCatalog(fixedSource(openAlDevices));
+        AudioOutputDeviceCatalog catalog =
+                new AudioOutputDeviceCatalog(fixedSource(openAlDevices), vlcUnavailable());
 
         List<AudioOutputDevice> all = catalog.findAll();
 
@@ -46,12 +47,22 @@ public class OpenAlPlaybackAndCatalogTest {
     }
 
     @Test
-    public void catalogDegradesToJavaSoundOnlyWhenOpenAlIsUnavailable() {
-        AudioOutputDeviceCatalog catalog = new AudioOutputDeviceCatalog(fixedSource(new ArrayList<OpenAlDevice>()));
+    public void catalogListsVlcFirstWhenAvailable() {
+        AudioOutputDeviceCatalog catalog =
+                new AudioOutputDeviceCatalog(fixedSource(new ArrayList<OpenAlDevice>()), vlcAvailable());
+        List<AudioOutputDevice> all = catalog.findAll();
+        assertEquals(AudioOutputDevice.Backend.VLC, all.get(0).getBackend());
+        assertTrue(all.get(0).isVlc());
+    }
+
+    @Test
+    public void catalogDegradesToJavaSoundOnlyWhenOpenAlAndVlcAreUnavailable() {
+        AudioOutputDeviceCatalog catalog =
+                new AudioOutputDeviceCatalog(fixedSource(new ArrayList<OpenAlDevice>()), vlcUnavailable());
         List<AudioOutputDevice> all = catalog.findAll();
         assertFalse(all.isEmpty());
         for (AudioOutputDevice device : all) {
-            assertEquals("no OpenAL entries when the native backend is unavailable",
+            assertEquals("no OpenAL/VLC entries when those backends are unavailable",
                     AudioOutputDevice.Backend.JAVA_SOUND, device.getBackend());
         }
     }
@@ -114,7 +125,9 @@ public class OpenAlPlaybackAndCatalogTest {
         OpenAlAudioPreviewPlaybackService openAlService = new OpenAlAudioPreviewPlaybackService(backend);
         DispatchingAudioPreviewPlaybackService dispatcher =
                 new DispatchingAudioPreviewPlaybackService(
-                        new JavaSoundAudioPreviewPlaybackService(), openAlService);
+                        new JavaSoundAudioPreviewPlaybackService(), openAlService,
+                        new VlcSidecarPlaybackService(new VlcInstallation(), neverLaunches(),
+                                new java.io.File(System.getProperty("java.io.tmpdir"), "askai-vlc-test")));
 
         // Java Sound / system default: the OpenAL backend must not be touched.
         dispatcher.setOutputDevice(AudioOutputDevice.systemDefault());
@@ -147,10 +160,34 @@ public class OpenAlPlaybackAndCatalogTest {
         };
     }
 
+    private static AudioOutputDeviceCatalog.VlcAvailability vlcAvailable() {
+        return new AudioOutputDeviceCatalog.VlcAvailability() {
+            public boolean isAvailable() {
+                return true;
+            }
+        };
+    }
+
+    private static AudioOutputDeviceCatalog.VlcAvailability vlcUnavailable() {
+        return new AudioOutputDeviceCatalog.VlcAvailability() {
+            public boolean isAvailable() {
+                return false;
+            }
+        };
+    }
+
     private static java.util.function.Consumer<String> capture(final AtomicReference<String> sink) {
         return new java.util.function.Consumer<String>() {
             public void accept(String value) {
                 sink.set(value);
+            }
+        };
+    }
+
+    private static VlcProcessLauncher neverLaunches() {
+        return new VlcProcessLauncher() {
+            public Handle start(java.util.List<String> command) throws java.io.IOException {
+                throw new java.io.IOException("VLC launcher must not be used in this test.");
             }
         };
     }

@@ -7,9 +7,31 @@ apply plugin: 'java-library'
 def lwjglVersion = '3.3.3'
 
 dependencies {
+    // Java bindings only. The native DLLs are deliberately NOT bundled: OpenAL is a last-resort,
+    // opt-in backend whose natives are installed later into %APPDATA%/.askai*/addons/audio-openal and
+    // loaded via org.lwjgl.librarypath. This keeps the shipped fat JAR free of any native binaries.
     api "org.lwjgl:lwjgl:$lwjglVersion"
     api "org.lwjgl:lwjgl-openal:$lwjglVersion"
-    runtimeOnly "org.lwjgl:lwjgl:$lwjglVersion:natives-windows"
-    runtimeOnly "org.lwjgl:lwjgl-openal:$lwjglVersion:natives-windows"
     testImplementation 'junit:junit:4.13.2'
+}
+
+// A separate, non-shipped configuration so the Windows x64 natives can be assembled into an
+// installable add-on directory on demand, without ever landing on the runtime/fat-JAR classpath.
+configurations {
+    openAlNatives
+}
+
+dependencies {
+    openAlNatives "org.lwjgl:lwjgl:$lwjglVersion:natives-windows"
+    openAlNatives "org.lwjgl:lwjgl-openal:$lwjglVersion:natives-windows"
+}
+
+task assembleOpenAlAddon(type: Copy) {
+    group = 'distribution'
+    description = 'Extract the LWJGL/OpenAL Windows x64 native DLLs into build/openal-addon for opt-in install.'
+    from { configurations.openAlNatives.collect { zipTree(it) } }
+    include '**/*.dll'
+    eachFile { it.path = it.name } // flatten to bare lwjgl.dll / OpenAL.dll
+    includeEmptyDirs = false
+    into layout.buildDirectory.dir('openal-addon')
 }
