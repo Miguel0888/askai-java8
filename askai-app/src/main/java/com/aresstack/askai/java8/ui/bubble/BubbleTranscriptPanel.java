@@ -1,5 +1,8 @@
 package com.aresstack.askai.java8.ui.bubble;
 
+import com.aresstack.askai.java8.ui.markdown.MarkdownMessageView;
+import com.aresstack.askai.java8.ui.markdown.MarkdownTheme;
+
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
@@ -8,6 +11,7 @@ import javax.swing.JLabel;
 import javax.swing.JLayeredPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
+import javax.swing.Scrollable;
 import javax.swing.ScrollPaneConstants;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
@@ -23,6 +27,7 @@ import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Point;
+import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
@@ -44,7 +49,9 @@ public final class BubbleTranscriptPanel extends JPanel {
     private final JScrollPane scrollPane;
     private final SummaryOverlay overlay;
     private final Map<AnimatedThoughtBubblePanel, BubbleMessageRow> activityRows;
-    private SpeechBubblePanel activeAssistantMessage;
+    // The streaming assistant answer renders as native Markdown (headings, lists, code, tables, links,
+    // Mermaid) inside a speech bubble. Thinking/tool/user messages keep the plain speech bubble.
+    private MarkdownMessageView activeAssistantView;
 
     public BubbleTranscriptPanel() {
         this(BubblePalette.windowsPhoneInspired());
@@ -88,7 +95,7 @@ public final class BubbleTranscriptPanel extends JPanel {
         stopAllActivityAnimations();
         messageList.removeAll();
         activityRows.clear();
-        activeAssistantMessage = null;
+        activeAssistantView = null;
         refreshTranscript();
     }
 
@@ -108,31 +115,36 @@ public final class BubbleTranscriptPanel extends JPanel {
         return bubble;
     }
 
-    public SpeechBubblePanel startAssistantMessage(String header) {
+    /**
+     * Starts a streaming assistant answer rendered as native Markdown inside a speech bubble. While
+     * streaming the text re-renders debounced; a Mermaid fence stays a code block until
+     * {@link #finishAssistantMessage()} turns it into a diagram.
+     */
+    public void startAssistantMessage(String header) {
         requireEventDispatchThread();
         finishAssistantMessage();
-        activeAssistantMessage = new SpeechBubblePanel(
-                BubbleSide.LEFT,
-                palette.getAssistantBackground(),
-                palette.getAssistantForeground(),
-                header,
-                "");
-        addBubbleRow(activeAssistantMessage, BubbleSide.LEFT);
-        return activeAssistantMessage;
+        MarkdownTheme theme = MarkdownTheme.forBubble(
+                palette.getAssistantBackground(), palette.getAssistantForeground());
+        activeAssistantView = new MarkdownMessageView(theme);
+        activeAssistantView.startStreaming();
+        addAssistantMarkdownRow(header, activeAssistantView);
     }
 
     public void appendAssistantDelta(String delta) {
         requireEventDispatchThread();
-        if (activeAssistantMessage == null) {
+        if (activeAssistantView == null) {
             startAssistantMessage("Assistant");
         }
-        activeAssistantMessage.appendText(delta);
+        activeAssistantView.appendMarkdownDelta(delta);
         refreshTranscript();
     }
 
     public void finishAssistantMessage() {
         requireEventDispatchThread();
-        activeAssistantMessage = null;
+        if (activeAssistantView != null) {
+            activeAssistantView.finishStreaming();
+        }
+        activeAssistantView = null;
     }
 
     public void appendInfo(String text) {
@@ -274,11 +286,44 @@ public final class BubbleTranscriptPanel extends JPanel {
     }
 
     private JPanel createMessageList() {
-        JPanel panel = new JPanel();
+        JPanel panel = new WidthTrackingList();
         panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
         panel.setBackground(palette.getTranscriptBackground());
         panel.setBorder(BorderFactory.createEmptyBorder(8, 0, 12, 0));
         return panel;
+    }
+
+    /**
+     * The transcript body always matches the viewport width instead of driving its own from the rows, so
+     * bubbles reflow (and never trigger a horizontal scrollbar) when the window is made narrower — the row
+     * widths are derived from this width, so it must be led by the viewport, not by the rows.
+     */
+    private static final class WidthTrackingList extends JPanel implements Scrollable {
+
+        @Override
+        public Dimension getPreferredScrollableViewportSize() {
+            return getPreferredSize();
+        }
+
+        @Override
+        public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return 18;
+        }
+
+        @Override
+        public int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return orientation == SwingConstants.VERTICAL ? visibleRect.height : visibleRect.width;
+        }
+
+        @Override
+        public boolean getScrollableTracksViewportWidth() {
+            return true;
+        }
+
+        @Override
+        public boolean getScrollableTracksViewportHeight() {
+            return false;
+        }
     }
 
     private JScrollPane createScrollPane(JPanel content) {
@@ -299,6 +344,55 @@ public final class BubbleTranscriptPanel extends JPanel {
         messageList.add(Box.createVerticalStrut(2));
         refreshTranscript();
         return row;
+    }
+
+    /** Adds the assistant answer inside a left speech bubble, capped in width and reflowing on resize. */
+    private void addAssistantMarkdownRow(String header, MarkdownMessageView view) {
+        AssistantMarkdownBubble bubble = new AssistantMarkdownBubble(
+                palette, header == null || header.length() == 0 ? "Assistant" : header, view);
+        MarkdownAnswerRow row = new MarkdownAnswerRow(bubble);
+        row.setAlignmentX(LEFT_ALIGNMENT);
+        messageList.add(row);
+        messageList.add(Box.createVerticalStrut(2));
+        refreshTranscript();
+    }
+
+    /**
+     * Hosts the assistant Markdown bubble at a generous, viewport-relative width (not the content's own
+     * preferred width, which for wrapped Markdown collapses to something narrow). The width follows the
+     * transcript width, so the bubble uses the available horizontal space and reflows on resize.
+     */
+    private static final class MarkdownAnswerRow extends JPanel {
+
+        private static final int LEFT_MARGIN = 14;
+        private static final int RIGHT_GAP = 64;
+        private static final double MAX_WIDTH_RATIO = 0.86d;
+
+        private MarkdownAnswerRow(JComponent bubble) {
+            super(new BorderLayout());
+            setOpaque(false);
+            setBorder(BorderFactory.createEmptyBorder(0, LEFT_MARGIN, 0, 0));
+            add(bubble, BorderLayout.CENTER);
+        }
+
+        private int targetWidth() {
+            int available = getParent() != null && getParent().getWidth() > 0
+                    ? getParent().getWidth() : 720;
+            int byGap = available - LEFT_MARGIN - RIGHT_GAP;
+            int byRatio = (int) Math.round((available - LEFT_MARGIN) * MAX_WIDTH_RATIO);
+            return Math.max(160, Math.min(byGap, byRatio));
+        }
+
+        @Override
+        public Dimension getMaximumSize() {
+            return new Dimension(LEFT_MARGIN + targetWidth(), getPreferredSize().height);
+        }
+
+        @Override
+        public Dimension getPreferredSize() {
+            Dimension preferred = super.getPreferredSize();
+            return new Dimension(LEFT_MARGIN + targetWidth(), preferred.height);
+        }
     }
 
     private Runnable createActivityRemoval(final AnimatedThoughtBubblePanel activity) {

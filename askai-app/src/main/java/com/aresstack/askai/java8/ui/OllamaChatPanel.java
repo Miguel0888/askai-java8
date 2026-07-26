@@ -998,12 +998,24 @@ public final class OllamaChatPanel extends JPanel {
         }
     }
 
+    /**
+     * Output-format contract appended to every system turn so the transcript can render Markdown/Mermaid.
+     * Models otherwise tend to wrap the whole reply in a ```markdown fence or nest a Mermaid fence inside
+     * one, which then shows as raw code instead of a rendered document/diagram.
+     */
+    private static final String OUTPUT_FORMAT_HINT =
+            "Formatting: reply in normal Markdown directly. Do not wrap the whole response in a ```markdown "
+            + "or ```md fence. For a diagram, emit a direct fenced Mermaid block:\n"
+            + "```mermaid\ngraph TD\n  A --> B\n```\n"
+            + "Never put a Mermaid fence inside a markdown fence.";
+
     private List<OllamaChatTurn> buildConversation() {
         List<OllamaChatTurn> conversation = new ArrayList<OllamaChatTurn>();
         String system = systemPromptArea.getText();
-        if (system != null && !system.trim().isEmpty()) {
-            conversation.add(OllamaChatTurn.system(system));
-        }
+        String combined = system == null || system.trim().isEmpty()
+                ? OUTPUT_FORMAT_HINT
+                : system.trim() + "\n\n" + OUTPUT_FORMAT_HINT;
+        conversation.add(OllamaChatTurn.system(combined));
         conversation.addAll(history);
         return conversation;
     }

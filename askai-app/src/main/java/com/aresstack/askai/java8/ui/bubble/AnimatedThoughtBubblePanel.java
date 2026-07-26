@@ -369,18 +369,23 @@ public class AnimatedThoughtBubblePanel extends JPanel {
     private void paintConnectorBubbles(Graphics2D graphics) {
         long elapsed = System.currentTimeMillis() - animationStartedAt;
         double cycle = (elapsed % 1200L) / 1200.0d;
-        // Comic thought-bubble trail pointing toward the transcript centre: for a left-side bubble the dots
-        // start at the cloud's centre-facing edge and rise up-and-out toward the centre, growing as they go.
-        int bodyEdge = side.pointsRight() ? getWidth() - CONNECTOR_SPACE : CONNECTOR_SPACE;
-        int direction = side.pointsRight() ? 1 : -1;
-        int baseY = Math.max(30, getHeight() - 27);
+        // The trail lives entirely inside the free connector strip beside the cloud (never over it) and flows
+        // back toward the thinker: for a left-side (assistant) bubble that strip is on the right, so the dots
+        // start at its outer bottom corner and rise up-and-inward toward the cloud edge — up and to the left,
+        // higher on the bubble side. A right-side bubble mirrors it.
+        int cloudEdge = side.pointsRight() ? getWidth() - CONNECTOR_SPACE : CONNECTOR_SPACE;
+        int outward = side.pointsRight() ? 1 : -1;
+        int baseY = Math.max(30, getHeight() - 22);
 
         for (int index = 0; index < 4; index++) {
             double progress = (cycle + (index * 0.24d)) % 1.0d;
             double eased = easeOut(progress);
-            double radius = 3.0d + (5.5d * eased);
-            double x = bodyEdge + direction * (7.0d + (40.0d * eased));
-            double y = baseY - (18.0d * eased) + Math.sin(progress * Math.PI) * 2.0d;
+            double radius = 3.0d + (5.0d * eased);
+            // Offset shrinks as the dot rises: large near the outer edge at the bottom, small near the cloud
+            // edge at the top — a diagonal up-and-inward (up-left for a left bubble), peaking at the cloud.
+            double offset = 8.0d + (40.0d * (1.0d - eased));
+            double x = cloudEdge + outward * offset;
+            double y = baseY - (26.0d * eased) + Math.sin(progress * Math.PI) * 2.0d;
             float alpha = (float) (0.38d + (0.62d * (1.0d - progress)));
 
             graphics.setComposite(AlphaComposite.SrcOver.derive(alpha));

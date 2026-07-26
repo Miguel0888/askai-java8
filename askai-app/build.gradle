@@ -12,9 +12,23 @@ dependencies {
     // JSON for versioned audio-profile import/export (Slice 3). Gson is Java 8 compatible; do not
     // introduce Jackson in parallel.
     implementation 'com.google.code.gson:gson:2.10.1'
+
+    // Markdown parsing — last Java 8-compatible line (do NOT move to 0.64.x which needs Java 11).
+    // Only the extensions actually used are added, not flexmark-all.
+    implementation 'com.vladsch.flexmark:flexmark:0.62.2'
+    implementation 'com.vladsch.flexmark:flexmark-ext-autolink:0.62.2'
+    implementation 'com.vladsch.flexmark:flexmark-ext-gfm-strikethrough:0.62.2'
+    implementation 'com.vladsch.flexmark:flexmark-ext-tables:0.62.2'
+    // Mermaid rendered to a BufferedImage via GraalJS + Batik (no WebView / CDN / external process).
+    implementation 'com.aresstack:mermaid-java:0.2.0-beta.2'
+
     // Silence the "no SLF4J providers" startup warning Jodd's slf4j-api dependency prints.
     runtimeOnly 'org.slf4j:slf4j-nop:1.7.36'
     testImplementation 'junit:junit:4.13.2'
+}
+
+test {
+    useJUnit()
 }
 
 mainClassName = 'com.aresstack.askai.java8.AskAiJava8App'
