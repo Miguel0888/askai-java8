@@ -120,7 +120,9 @@ public final class AudioProfileImportService {
             takenIds.add(existing.getId());
             takenNames.add(existing.getName());
         }
-        takenIds.add(AudioProcessingProfiles.DEFAULT_PROFILE_ID); // reserved
+        for (AudioProcessingProfile builtIn : AudioProcessingProfiles.builtIns()) {
+            takenIds.add(builtIn.getId()); // reserved: built-in ids are never adopted
+        }
 
         List<PlannedProfileImport> importable = new ArrayList<PlannedProfileImport>();
         List<RejectedProfileImport> rejected = new ArrayList<RejectedProfileImport>();
@@ -181,7 +183,7 @@ public final class AudioProfileImportService {
         List<String> profileWarnings = new ArrayList<String>();
         String requestedId = profile.id == null ? "" : profile.id.trim();
         boolean idReassigned = requestedId.length() == 0
-                || AudioProcessingProfiles.DEFAULT_PROFILE_ID.equals(requestedId)
+                || AudioProcessingProfiles.isBuiltInId(requestedId)
                 || takenIds.contains(requestedId);
         String finalId = idReassigned ? UUID.randomUUID().toString() : requestedId;
         takenIds.add(finalId);

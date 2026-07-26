@@ -39,7 +39,7 @@ public final class FileAudioProfileRepository implements AudioProfileRepository 
     @Override
     public List<AudioProcessingProfile> findAll() {
         List<AudioProcessingProfile> profiles = new ArrayList<AudioProcessingProfile>();
-        profiles.add(AudioProcessingProfiles.defaultSpeech());
+        profiles.addAll(AudioProcessingProfiles.builtIns());
         if (directory.isDirectory()) {
             File[] files = directory.listFiles();
             if (files != null) {
@@ -67,9 +67,12 @@ public final class FileAudioProfileRepository implements AudioProfileRepository 
 
     @Override
     public AudioProcessingProfile findById(String profileId) {
-        if (profileId == null || profileId.trim().isEmpty()
-                || AudioProcessingProfiles.DEFAULT_PROFILE_ID.equals(profileId.trim())) {
+        if (profileId == null || profileId.trim().isEmpty()) {
             return AudioProcessingProfiles.defaultSpeech();
+        }
+        AudioProcessingProfile builtIn = AudioProcessingProfiles.builtInById(profileId.trim());
+        if (builtIn != null) {
+            return builtIn;
         }
         File file = profileFile(profileId.trim());
         AudioProcessingProfile profile = read(file);
@@ -92,8 +95,8 @@ public final class FileAudioProfileRepository implements AudioProfileRepository 
         if (profile == null) {
             throw new IllegalArgumentException("Profile must not be null.");
         }
-        if (profile.isBuiltIn() || AudioProcessingProfiles.DEFAULT_PROFILE_ID.equals(profile.getId())) {
-            throw new IllegalArgumentException("The built-in default profile cannot be overwritten.");
+        if (profile.isBuiltIn() || AudioProcessingProfiles.isBuiltInId(profile.getId())) {
+            throw new IllegalArgumentException("A built-in profile cannot be overwritten.");
         }
         ensureDirectory();
         File target = profileFile(profile.getId());
@@ -109,8 +112,8 @@ public final class FileAudioProfileRepository implements AudioProfileRepository 
 
     @Override
     public void delete(String profileId) throws IOException {
-        if (profileId == null || AudioProcessingProfiles.DEFAULT_PROFILE_ID.equals(profileId)) {
-            throw new IllegalArgumentException("The built-in default profile cannot be deleted.");
+        if (profileId == null || AudioProcessingProfiles.isBuiltInId(profileId)) {
+            throw new IllegalArgumentException("A built-in profile cannot be deleted.");
         }
         File target = profileFile(profileId);
         if (target.isFile() && !target.delete()) {
