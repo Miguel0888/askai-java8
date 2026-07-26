@@ -57,6 +57,7 @@ public final class AskAiFrame extends JFrame {
     private final ApplicationStateService applicationState;
     private OllamaConfigPanel configPanel;
     private OllamaChatPanel chatPanel;
+    private com.aresstack.askai.plugin.host.ChatWorkspaceHostPanel chatWorkspaceHost;
     private AudioProcessingPanel audioProcessingPanel;
     private ModelSearchPanel installSearchPanel;
 
@@ -81,6 +82,15 @@ public final class AskAiFrame extends JFrame {
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
         addWindowListener(new WindowAdapter() {
             public void windowClosed(WindowEvent event) {
+                // Explicit, bounded shutdown order: tear down workspaces + plugin host first (force-dispose,
+                // no unbounded wait on a plugin's close callback), then the chat/dictation, then the service.
+                if (chatWorkspaceHost != null) {
+                    try {
+                        chatWorkspaceHost.shutdown();
+                    } catch (RuntimeException ignored) {
+                        // never let plugin teardown block application shutdown
+                    }
+                }
                 if (chatPanel != null) {
                     chatPanel.shutdownDictation();
                 }
@@ -208,6 +218,45 @@ public final class AskAiFrame extends JFrame {
         return item;
     }
 
+    /**
+     * Builds the generic chat workspace host around the existing chat panel. The host discovers workspace
+     * plugins from a controlled root (overridable via {@code -Daskai.pluginsDir=...}), off the EDT, and wraps
+     * AskAI's Markdown/bubble UI as host services. The research plugin is never a compile dependency.
+     */
+    private com.aresstack.askai.plugin.host.ChatWorkspaceHostPanel buildChatWorkspaceHost(
+            OllamaChatPanel normalChat) {
+        String override = System.getProperty("askai.pluginsDir");
+        java.nio.file.Path pluginsRoot = override != null && override.trim().length() > 0
+                ? java.nio.file.Paths.get(override.trim())
+                : com.aresstack.askai.java8.settings.AskAiPaths.appDirectory().resolve("plugins");
+        try {
+            java.nio.file.Files.createDirectories(pluginsRoot);
+        } catch (java.io.IOException ignored) {
+            // A missing plugin dir just yields an empty catalog; Normal Chat still works.
+        }
+
+        java.io.File dataDir = com.aresstack.askai.java8.settings.AskAiPaths.appDirectory().toFile();
+        com.aresstack.askai.plugin.host.SwingUiExecutor uiExecutor =
+                new com.aresstack.askai.plugin.host.SwingUiExecutor();
+        com.aresstack.askai.plugin.host.WorkspaceHostContextFactory hostContextFactory =
+                new com.aresstack.askai.plugin.host.WorkspaceHostContextFactory(
+                        dataDir, uiExecutor,
+                        new com.aresstack.askai.java8.plugin.host.AskAiThemeService(),
+                        new com.aresstack.askai.java8.plugin.host.AskAiMarkdownViewFactory(),
+                        new com.aresstack.askai.java8.plugin.host.AskAiConversationSurfaceFactory(),
+                        new com.aresstack.askai.java8.plugin.host.AskAiNotificationService());
+        com.aresstack.askai.plugin.host.WorkspacePluginService pluginService =
+                new com.aresstack.askai.plugin.host.WorkspacePluginService(pluginsRoot, HOST_PLUGIN_VERSION, 1,
+                        uiExecutor);
+        com.aresstack.askai.plugin.api.service.WorkspaceStateStore hostState =
+                new com.aresstack.askai.java8.plugin.host.ApplicationStateWorkspaceStateStore(applicationState, "");
+        return new com.aresstack.askai.plugin.host.ChatWorkspaceHostPanel(
+                normalChat, pluginService, hostContextFactory, uiExecutor, hostState);
+    }
+
+    /** Host version advertised to PF4J for a plugin's {@code Plugin-Requires} check. */
+    private static final String HOST_PLUGIN_VERSION = "0.1.0";
+
     private JPanel createContentPanel() {
         this.chatPanel = new OllamaChatPanel(model, ollamaService, speechToTextService,
                 audioProfileRepository, applicationState);
@@ -222,7 +271,10 @@ public final class AskAiFrame extends JFrame {
                 showScreen(AUDIO_PROCESSING_VIEW);
             }
         });
-        contentPanel.add(chatPanel, CHAT_VIEW);
+        // The Chat view is a generic workspace host: "Normal Chat" (the existing OllamaChatPanel, unchanged)
+        // plus any installed, compatible workspace plugins. The host never constructs the chat itself.
+        this.chatWorkspaceHost = buildChatWorkspaceHost(chatPanel);
+        contentPanel.add(chatWorkspaceHost, CHAT_VIEW);
         // One-click "Use in chat" from an installed model card: switch to Chat and select the model.
         modelsPanel.setUseInChatHandler(new OllamaModelsPanel.UseInChatHandler() {
             public void useInChat(String modelName) {
