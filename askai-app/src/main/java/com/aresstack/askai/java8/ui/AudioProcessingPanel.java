@@ -219,8 +219,8 @@ public final class AudioProcessingPanel extends JPanel {
     }
 
     private void addBlock() {
-        AudioBlockDefinition block = AudioBlockDefinition.of(
-                "block-" + UUID.randomUUID().toString(), AudioBlockType.LOW_PASS);
+        AudioBlockDefinition block = com.aresstack.audio.pipeline.AudioBlockRegistry.getInstance()
+                .defaultDefinition(AudioBlockType.LOW_PASS, "block-" + UUID.randomUUID().toString());
         workingBlocks.add(block);
         canvas.setBlocks(workingBlocks);
         canvas.setSelectedIndex(workingBlocks.size() - 1);

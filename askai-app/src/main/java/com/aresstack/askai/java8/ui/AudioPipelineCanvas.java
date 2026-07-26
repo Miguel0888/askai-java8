@@ -175,45 +175,9 @@ public final class AudioPipelineCanvas extends JPanel {
     }
 
     private String parameterSummary(AudioBlockDefinition block) {
-        switch (block.getType()) {
-            case LOW_PASS:
-            case HIGH_PASS:
-                return block.getParameter("cutoffHz", "") + " Hz · "
-                        + filterDesignLabel(block.getParameter("implementation", ""));
-            case BAND_PASS:
-            case BAND_STOP:
-                return block.getParameter("centerHz", "") + " Hz · width "
-                        + block.getParameter("widthHz", "") + " Hz";
-            case RESAMPLER:
-                return block.getParameter("targetRateHz", "") + " Hz · "
-                        + block.getParameter("quality", "BALANCED");
-            case CHANNEL_MIXER:
-                return "Output: mono";
-            case NOISE_GATE:
-                return "Threshold " + block.getParameter("threshold", "");
-            case COMPRESSOR:
-                return block.getParameter("ratio", "") + ":1 above "
-                        + block.getParameter("threshold", "");
-            case LIMITER:
-                return "Ceiling " + block.getParameter("ceiling", "");
-            case DC_OFFSET_REMOVAL:
-                return "Adaptive offset estimate";
-            default:
-                return "";
-        }
-    }
-
-    private static String filterDesignLabel(String value) {
-        if ("FIR_65".equals(value)) {
-            return "65-tap FIR";
-        }
-        if ("LEGACY_IIR".equals(value)) {
-            return "1st-order IIR";
-        }
-        if ("BUTTERWORTH".equals(value)) {
-            return "Butterworth";
-        }
-        return value;
+        // The one-line summary comes from the block's descriptor in the registry, not a per-type switch.
+        return com.aresstack.audio.pipeline.AudioBlockRegistry.getInstance()
+                .descriptor(block.getType()).summarize(block);
     }
 
     private void installMouseInteraction() {

@@ -24,7 +24,7 @@ public final class AudioProfileProcessorTest {
         AudioProcessingProfile profile = new AudioProcessingProfile("test", "Test", false, blocks);
         short[] stereo = new short[48000 * 2];
 
-        AudioBuffer result = new AudioProfileProcessor().process(
+        AudioBuffer result = new com.aresstack.audio.pipeline.AudioProfileProcessor().process(
                 new AudioBuffer(stereo, new PcmAudioFormat(48000, 2, 16)), profile);
 
         assertEquals(16000, result.getFormat().getSampleRateHz());
@@ -39,7 +39,7 @@ public final class AudioProfileProcessorTest {
         blocks.add(AudioBlockDefinition.of("mix", AudioBlockType.CHANNEL_MIXER));
         AudioProcessingProfile profile = new AudioProcessingProfile("invalid", "Invalid", false, blocks);
 
-        new AudioProfileProcessor().process(
+        new com.aresstack.audio.pipeline.AudioProfileProcessor().process(
                 new AudioBuffer(new short[200], new PcmAudioFormat(48000, 2, 16)), profile);
     }
 }

@@ -100,53 +100,12 @@ public final class AudioBlockDefinition {
         return new AudioBlockDefinition(id, type, enabled, changed);
     }
 
+    /**
+     * @return the default parameters for a block type. The values come from the single source of truth —
+     *         the block's descriptor in {@link com.aresstack.audio.pipeline.AudioBlockRegistry} — so there
+     *         is no second per-type parameter switch to keep in sync.
+     */
     public static Map<String, String> defaultParameters(AudioBlockType type) {
-        Map<String, String> values = new LinkedHashMap<String, String>();
-        switch (type) {
-            case CHANNEL_MIXER:
-                values.put("channels", "1");
-                break;
-            case LOW_PASS:
-                values.put("implementation", "FIR_65");
-                values.put("cutoffHz", "7200");
-                values.put("order", "4");
-                break;
-            case HIGH_PASS:
-                values.put("implementation", "LEGACY_IIR");
-                values.put("cutoffHz", "80");
-                values.put("order", "2");
-                break;
-            case BAND_PASS:
-            case BAND_STOP:
-                values.put("centerHz", "1000");
-                values.put("widthHz", "500");
-                values.put("order", "2");
-                break;
-            case RESAMPLER:
-                values.put("targetRateHz", "16000");
-                values.put("quality", "BALANCED");
-                values.put("hiddenAntiAliasing", "false");
-                break;
-            case NOISE_GATE:
-                values.put("threshold", "300");
-                values.put("closedGain", "0.3");
-                values.put("attackMillis", "5");
-                values.put("releaseMillis", "150");
-                break;
-            case COMPRESSOR:
-                values.put("threshold", "12000");
-                values.put("ratio", "3");
-                values.put("attackMillis", "5");
-                values.put("releaseMillis", "100");
-                break;
-            case LIMITER:
-                values.put("ceiling", "30000");
-                break;
-            case DC_OFFSET_REMOVAL:
-                break;
-            default:
-                throw new IllegalArgumentException("Unsupported block type: " + type);
-        }
-        return values;
+        return com.aresstack.audio.pipeline.AudioBlockRegistry.getInstance().defaultParameters(type);
     }
 }

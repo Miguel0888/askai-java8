@@ -3,7 +3,7 @@ package com.aresstack.audio.application;
 import com.aresstack.audio.domain.AudioBuffer;
 import com.aresstack.audio.domain.PcmAudioFormat;
 import com.aresstack.audio.dsp.AudioLevelMeter;
-import com.aresstack.audio.dsp.AudioProfileProcessor;
+import com.aresstack.audio.pipeline.AudioProfileProcessor;
 import com.aresstack.audio.infrastructure.WavFileAudioSink;
 import com.aresstack.audio.infrastructure.WavFileReader;
 import com.aresstack.audio.profile.AudioProcessingProfile;
