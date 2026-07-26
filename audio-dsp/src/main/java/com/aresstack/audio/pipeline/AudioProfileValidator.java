@@ -226,7 +226,7 @@ public final class AudioProfileValidator {
                     validateVoiceIsolation(issues, block, enabled, currentChannels);
                     break;
                 case ADAPTIVE_NOISE_SUPPRESSION:
-                    validateNoiseSuppression(issues, block, enabled, sawEnabledVad, sawEnabledNoiseProfiler);
+                    validateNoiseSuppression(issues, block, enabled, sawEnabledNoiseProfiler);
                     break;
                 case SPEECH_LEVELER:
                     validateSpeechLeveler(issues, block, enabled, sawEnabledVad);
@@ -627,7 +627,7 @@ public final class AudioProfileValidator {
     }
 
     private void validateNoiseSuppression(List<AudioProfileValidationIssue> issues, AudioBlockDefinition block,
-                                          boolean enabled, boolean sawEnabledVad, boolean sawEnabledNoiseProfiler) {
+                                          boolean enabled, boolean sawEnabledNoiseProfiler) {
         String name = block.getType().getDisplayName();
         nonNegativeError(issues, block, enabled, name, "maxAttenuationDb", "Maximum attenuation");
         rangeError(issues, block, enabled, name, "adaptationSpeed", "Adaptation speed", 0.0d, 1.0d);
@@ -641,10 +641,9 @@ public final class AudioProfileValidator {
                     name + ": \"Use a learned noise profile\" needs a Noise Profiler block upstream; "
                             + "it falls back to tracking the noise floor until then.");
         }
-        if (block.getBooleanParameter("speechProtection", true) && !sawEnabledVad) {
-            add(issues, block, enabled, AudioValidationSeverity.WARNING, "speechProtection",
-                    name + ": speech protection needs a Voice Activity Detection block upstream.");
-        }
+        // Speech protection is optional here: Adaptive Noise Suppression works fully without an upstream
+        // Voice Activity Detection block (it just cannot ease suppression during detected speech). Do not
+        // warn about a missing VAD, so the block is not needlessly reordered and quality is not hurt.
     }
 
     private void validateFinalLoudnessNormalizer(List<AudioProfileValidationIssue> issues,

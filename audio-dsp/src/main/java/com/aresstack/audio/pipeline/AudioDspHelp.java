@@ -251,6 +251,8 @@ public final class AudioDspHelp {
                 "Sets the center of the sibilance band watched for harsh S and SH sounds.");
         contextual.put(contextKey(AudioBlockType.DE_ESSER_FFT, "targetFrequencyHz"),
                 "Sets the center of the FFT sibilance band watched for harsh S and SH sounds.");
+        contextual.put(contextKey(AudioBlockType.ADAPTIVE_NOISE_SUPPRESSION, "speechProtection"),
+                "Optional: eases suppression during detected speech when a Voice Activity Detection block is present upstream. Adaptive Noise Suppression works fully without one, so no VAD block is required.");
         contextual.put(contextKey(AudioBlockType.SPEECH_GATE, "attackMs"),
                 "Sets a short fade-in when the gate opens so speech onsets do not start with an audible click.");
         contextual.put(contextKey(AudioBlockType.SPEECH_GATE, "releaseMs"),
