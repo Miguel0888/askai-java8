@@ -54,6 +54,7 @@ public final class AudioBlockRegistry {
         register(speechLeveler());
         register(finalLoudnessNormalizer());
         register(roomReverbAnalyzer());
+        register(dereverberation());
     }
 
     public static AudioBlockRegistry getInstance() {
@@ -829,6 +830,40 @@ public final class AudioBlockRegistry {
                 new SimpleAudioBlockDescriptor.Summarizer() {
                     public String summarize(AudioBlockDefinition block) {
                         return "Estimates reverb (RT60, strength)";
+                    }
+                });
+    }
+
+    private static AudioBlockDescriptor dereverberation() {
+        List<AudioParameterDescriptor> params = new ArrayList<AudioParameterDescriptor>();
+        params.add(AudioParameterDescriptor.choice("mode", "Processing mode", "OFFLINE",
+                Arrays.asList(new AudioParameterChoice("OFFLINE", "Offline (whole recording)"))));
+        params.add(AudioParameterDescriptor.decimal("strength", "Strength", 0.7d, 0.0d, 1.0d, 0.05d));
+        params.add(AudioParameterDescriptor.integer("predictionDelay", "Prediction delay (frames)", 2, 1, 32));
+        params.add(AudioParameterDescriptor.integer("filterLength", "Filter length (taps)", 8, 1, 32));
+        params.add(AudioParameterDescriptor.integer("iterations", "Iterations", 3, 1, 10));
+        params.add(AudioParameterDescriptor.decimal("earlyReflectionPreservation",
+                "Early reflection preservation", 0.5d, 0.0d, 1.0d, 0.05d));
+        params.add(AudioParameterDescriptor.bool("speechProtection", "Speech protection", false));
+        params.add(AudioParameterDescriptor.decimal("artifactProtection", "Artifact protection",
+                0.2d, 0.0d, 1.0d, 0.05d));
+        AudioBlockCapabilities capabilities = StaticBlockCapabilities.builder()
+                .framing(512, 0, 128)
+                .streaming(false)
+                .requiresCompleteSignal(true)
+                .consumesSpeechMetadata(true)
+                .build();
+        return descriptor(AudioBlockType.DEREVERBERATION, AudioBlockCategory.DEREVERBERATION, params,
+                capabilities,
+                new SimpleAudioBlockDescriptor.ProcessorFactory() {
+                    public AudioBlockProcessor create() {
+                        return AudioBlockProcessors.dereverberation();
+                    }
+                },
+                new SimpleAudioBlockDescriptor.Summarizer() {
+                    public String summarize(AudioBlockDefinition block) {
+                        return "WPE · " + block.getParameter("mode", "OFFLINE") + " · strength "
+                                + formatQ(block.getDoubleParameter("strength", 0.0d));
                     }
                 });
     }

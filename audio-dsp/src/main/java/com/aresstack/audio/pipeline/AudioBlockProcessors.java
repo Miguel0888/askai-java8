@@ -29,6 +29,8 @@ import com.aresstack.audio.dsp.SpectralNoiseSuppressor;
 import com.aresstack.audio.dsp.SpeechLevelerProcessor;
 import com.aresstack.audio.dsp.SpeechLevelerSettings;
 import com.aresstack.audio.dsp.SpeechLevelerState;
+import com.aresstack.audio.dsp.WpeDereverberation;
+import com.aresstack.audio.dsp.WpeDereverberationSettings;
 import com.aresstack.audio.dsp.ExpanderProcessor;
 import com.aresstack.audio.dsp.FinalLoudnessNormalizer;
 import com.aresstack.audio.dsp.FinalLoudnessNormalizerSettings;
@@ -642,6 +644,41 @@ final class AudioBlockProcessors {
                 return input; // analysis only — audio is passed through untouched
             }
         };
+    }
+
+    /**
+     * Dereverberation: pure-Java single-channel WPE. Format-preserving; reads the upstream speech-activity
+     * track for speech protection. A fresh processor per run keeps adaptive estimates from leaking.
+     */
+    static AudioBlockProcessor dereverberation() {
+        return new AudioBlockProcessor() {
+            public AudioBuffer process(AudioBuffer input, AudioBlockDefinition block, AudioProcessingContext context) {
+                WpeDereverberationSettings settings = new WpeDereverberationSettings(
+                        parseWpeMode(block.getParameter("mode", "OFFLINE")),
+                        block.getDoubleParameter("strength", 0.7d),
+                        block.getIntParameter("predictionDelay", 2),
+                        block.getIntParameter("filterLength", 8),
+                        block.getIntParameter("iterations", 3),
+                        block.getDoubleParameter("earlyReflectionPreservation", 0.5d),
+                        block.getBooleanParameter("speechProtection", false),
+                        block.getDoubleParameter("artifactProtection", 0.2d),
+                        block.getDoubleParameter("adaptationSpeed", 0.3d),
+                        block.getIntParameter("blockSizeFrames", 64));
+                SpeechGate gate = speechGate(settings.isSpeechProtection() ? context.getSpeechActivity() : null,
+                        input.getFormat().getChannels());
+                new WpeDereverberation(settings).process(input.getSamples(), input.getSamples().length,
+                        input.getFormat(), gate);
+                return input;
+            }
+        };
+    }
+
+    private static WpeDereverberationSettings.Mode parseWpeMode(String value) {
+        try {
+            return WpeDereverberationSettings.Mode.valueOf(value);
+        } catch (RuntimeException ex) {
+            return WpeDereverberationSettings.Mode.OFFLINE;
+        }
     }
 
     private static FinalLoudnessNormalizerSettings.Mode parseLoudnessMode(String value) {

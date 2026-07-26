@@ -155,6 +155,9 @@ public final class AudioProfileValidator {
                 case ROOM_REVERB_ANALYZER:
                     validateRoomReverbAnalyzer(issues, block, enabled);
                     break;
+                case DEREVERBERATION:
+                    validateDereverberation(issues, block, enabled);
+                    break;
                 case ADAPTIVE_NOISE_SUPPRESSION:
                     validateNoiseSuppression(issues, block, enabled, sawEnabledVad, sawEnabledNoiseProfiler);
                     break;
@@ -434,6 +437,18 @@ public final class AudioProfileValidator {
         String name = block.getType().getDisplayName();
         nonNegativeError(issues, block, enabled, name, "learnTimeMs", "Learn time");
         rangeError(issues, block, enabled, name, "minConfidence", "Minimum confidence", 0.0d, 1.0d);
+    }
+
+    private void validateDereverberation(List<AudioProfileValidationIssue> issues, AudioBlockDefinition block,
+                                         boolean enabled) {
+        String name = block.getType().getDisplayName();
+        rangeError(issues, block, enabled, name, "strength", "Strength", 0.0d, 1.0d);
+        positiveError(issues, block, enabled, name, "predictionDelay", "Prediction delay");
+        positiveError(issues, block, enabled, name, "filterLength", "Filter length");
+        positiveError(issues, block, enabled, name, "iterations", "Iterations");
+        rangeError(issues, block, enabled, name, "earlyReflectionPreservation",
+                "Early reflection preservation", 0.0d, 1.0d);
+        rangeError(issues, block, enabled, name, "artifactProtection", "Artifact protection", 0.0d, 1.0d);
     }
 
     private void validateRoomReverbAnalyzer(List<AudioProfileValidationIssue> issues, AudioBlockDefinition block,
