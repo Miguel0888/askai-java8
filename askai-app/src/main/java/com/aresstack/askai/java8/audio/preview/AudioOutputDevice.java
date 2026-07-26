@@ -4,18 +4,30 @@ import javax.sound.sampled.AudioSystem;
 import javax.sound.sampled.Mixer;
 
 /**
- * Identify one Java Sound playback target without reducing it to an ambiguous display name.
+ * A backend-neutral playback target. It carries which backend owns it ({@link Backend}), the native
+ * identity for that backend (a Java Sound {@link Mixer.Info} or an OpenAL device specifier) and a display
+ * name. OpenAL and Java Sound devices are never treated as the same device or linked by name — each keeps
+ * its own backend identity so the exact endpoint can be reopened without guessing.
  */
 public final class AudioOutputDevice {
 
-    private static final AudioOutputDevice SYSTEM_DEFAULT =
-            new AudioOutputDevice(null, "System default");
+    public enum Backend {
+        JAVA_SOUND, OPENAL
+    }
 
-    private final Mixer.Info mixerInfo;
+    private static final AudioOutputDevice SYSTEM_DEFAULT =
+            new AudioOutputDevice(Backend.JAVA_SOUND, null, null, "System default (Java Sound)");
+
+    private final Backend backend;
+    private final Mixer.Info mixerInfo;      // Java Sound identity (null for OpenAL / system default)
+    private final String openAlSpecifier;    // OpenAL identity (null for Java Sound)
     private final String displayName;
 
-    private AudioOutputDevice(Mixer.Info mixerInfo, String displayName) {
+    private AudioOutputDevice(Backend backend, Mixer.Info mixerInfo, String openAlSpecifier,
+                             String displayName) {
+        this.backend = backend;
         this.mixerInfo = mixerInfo;
+        this.openAlSpecifier = openAlSpecifier;
         this.displayName = displayName;
     }
 
@@ -27,18 +39,37 @@ public final class AudioOutputDevice {
         if (mixerInfo == null) {
             throw new IllegalArgumentException("Mixer info must not be null.");
         }
-        if (displayName == null || displayName.trim().length() == 0) {
-            throw new IllegalArgumentException("Display name must not be empty.");
+        requireDisplayName(displayName);
+        return new AudioOutputDevice(Backend.JAVA_SOUND, mixerInfo, null, displayName.trim());
+    }
+
+    public static AudioOutputDevice forOpenAl(String specifier, String displayName) {
+        if (specifier == null || specifier.trim().length() == 0) {
+            throw new IllegalArgumentException("OpenAL specifier must not be empty.");
         }
-        return new AudioOutputDevice(mixerInfo, displayName.trim());
+        requireDisplayName(displayName);
+        return new AudioOutputDevice(Backend.OPENAL, null, specifier, displayName.trim());
+    }
+
+    public Backend getBackend() {
+        return backend;
     }
 
     public boolean isSystemDefault() {
-        return mixerInfo == null;
+        return backend == Backend.JAVA_SOUND && mixerInfo == null;
+    }
+
+    public boolean isOpenAl() {
+        return backend == Backend.OPENAL;
     }
 
     public String getDisplayName() {
         return displayName;
+    }
+
+    /** @return the OpenAL device specifier, or null for Java Sound devices. */
+    public String getOpenAlSpecifier() {
+        return openAlSpecifier;
     }
 
     Mixer getMixer() {
@@ -47,6 +78,12 @@ public final class AudioOutputDevice {
 
     Mixer.Info getMixerInfo() {
         return mixerInfo;
+    }
+
+    private static void requireDisplayName(String displayName) {
+        if (displayName == null || displayName.trim().length() == 0) {
+            throw new IllegalArgumentException("Display name must not be empty.");
+        }
     }
 
     public String toString() {

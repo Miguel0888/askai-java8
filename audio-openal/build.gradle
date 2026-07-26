@@ -1,0 +1,15 @@
+// Isolated OpenAL Soft playback backend (LWJGL). Swing/AWT-free and free of any askai dependency:
+// it only knows PCM samples, device specifiers and formats. On Windows OpenAL Soft routes through
+// WASAPI, which — unlike Java's built-in DirectSound lines — opens dedicated endpoints such as the
+// Sound Blaster AE-7. Only lwjgl, lwjgl-openal and the Windows x64 natives are pulled in.
+apply plugin: 'java-library'
+
+def lwjglVersion = '3.3.3'
+
+dependencies {
+    api "org.lwjgl:lwjgl:$lwjglVersion"
+    api "org.lwjgl:lwjgl-openal:$lwjglVersion"
+    runtimeOnly "org.lwjgl:lwjgl:$lwjglVersion:natives-windows"
+    runtimeOnly "org.lwjgl:lwjgl-openal:$lwjglVersion:natives-windows"
+    testImplementation 'junit:junit:4.13.2'
+}

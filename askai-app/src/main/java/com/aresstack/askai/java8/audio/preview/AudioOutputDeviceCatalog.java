@@ -1,5 +1,8 @@
 package com.aresstack.askai.java8.audio.preview;
 
+import com.aresstack.audio.openal.OpenAlDevice;
+import com.aresstack.audio.openal.OpenAlPlayback;
+
 import javax.sound.sampled.AudioSystem;
 import javax.sound.sampled.Clip;
 import javax.sound.sampled.DataLine;
@@ -11,17 +14,39 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Discover playback-capable Java Sound mixers and keep their native mixer identity intact.
+ * Discover playback devices across backends. On Windows OpenAL Soft (WASAPI) is the primary path and is
+ * listed first; Java Sound mixers follow as a clearly labelled legacy option. Each device keeps its own
+ * backend identity — OpenAL specifiers and Java Sound mixers are never merged or matched by name.
  */
 public final class AudioOutputDeviceCatalog {
 
+    /** Enumerates OpenAL endpoints; abstracted so the catalog is testable without the native library. */
+    interface OpenAlDeviceSource {
+        List<OpenAlDevice> list();
+    }
+
+    private final OpenAlDeviceSource openAlSource;
+
+    public AudioOutputDeviceCatalog() {
+        this(new NativeOpenAlDeviceSource());
+    }
+
+    AudioOutputDeviceCatalog(OpenAlDeviceSource openAlSource) {
+        this.openAlSource = openAlSource;
+    }
+
     public List<AudioOutputDevice> findAll() {
-        List<Mixer.Info> candidates = findPlaybackMixers();
-        Map<String, Integer> nameCounts = countNames(candidates);
         List<AudioOutputDevice> devices = new ArrayList<AudioOutputDevice>();
+        // Primary path: OpenAL Soft endpoints (WASAPI on Windows).
+        for (OpenAlDevice device : openAlSource.list()) {
+            devices.add(AudioOutputDevice.forOpenAl(device.getSpecifier(), device.getDisplayName()));
+        }
+        // Legacy path: Java Sound. Kept distinct, never linked to the OpenAL entries.
         devices.add(AudioOutputDevice.systemDefault());
-        for (Mixer.Info info : candidates) {
-            devices.add(AudioOutputDevice.forMixer(info, createDisplayName(info, nameCounts)));
+        List<Mixer.Info> mixers = findPlaybackMixers();
+        Map<String, Integer> nameCounts = countNames(mixers);
+        for (Mixer.Info info : mixers) {
+            devices.add(AudioOutputDevice.forMixer(info, createDisplayName(info, nameCounts) + " (Java Sound)"));
         }
         return devices;
     }
@@ -67,5 +92,17 @@ public final class AudioOutputDeviceCatalog {
 
     private static String safe(String value, String fallback) {
         return value == null || value.trim().length() == 0 ? fallback : value.trim();
+    }
+
+    /** Real OpenAL enumeration; degrades to an empty list if the native library cannot be loaded. */
+    private static final class NativeOpenAlDeviceSource implements OpenAlDeviceSource {
+        public List<OpenAlDevice> list() {
+            try {
+                return new OpenAlPlayback().listPlaybackDevices();
+            } catch (Throwable t) {
+                // No OpenAL natives (non-Windows, headless test JVM, …): fall back to Java Sound only.
+                return new ArrayList<OpenAlDevice>();
+            }
+        }
     }
 }

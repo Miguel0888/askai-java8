@@ -227,7 +227,7 @@ public class AudioProcessingTestControllerTest {
             return playing;
         }
 
-        public void setOutputDeviceName(String deviceName) {
+        public void setOutputDevice(AudioOutputDevice device) {
             // no-op for the fake
         }
     }

@@ -13,8 +13,8 @@ public interface AudioPreviewPlaybackService {
      */
     void play(short[] samples, PcmAudioFormat format, Runnable onFinished);
 
-    /** Select one output device by its exact Java Sound mixer name; use empty text for the system default. */
-    void setOutputDeviceName(String deviceName);
+    /** Select the exact backend-neutral output device; use the system default when {@code device} is null. */
+    void setOutputDevice(AudioOutputDevice device);
 
     void stop();
 

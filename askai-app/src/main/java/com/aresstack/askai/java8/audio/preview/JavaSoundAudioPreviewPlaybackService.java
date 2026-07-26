@@ -226,7 +226,7 @@ public final class JavaSoundAudioPreviewPlaybackService implements AudioPreviewP
         handler.accept("Played on " + success.device.getDisplayName() + " via " + success.backend
                 + " @ " + AudioPlaybackMessages.describe(success.audio.getFormat())
                 + (success.audio.isConverted() ? " (converted)" : "")
-                + "; accepted " + succsess.metrics.getByteCount() + " bytes, position "
+                + "; accepted " + success.metrics.getByteCount() + " bytes, position "
                 + success.metrics.getFramePosition() + " frames.");
     }
 

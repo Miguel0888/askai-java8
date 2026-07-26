@@ -1,10 +1,12 @@
 package com.aresstack.askai.java8.ui;
 
-import com.aresstack.askai.java8.audio.preview.AudioPreviewPlaybackService;
+import com.aresstack.askai.java8.audio.preview.AudioOutputDevice;
+import com.aresstack.askai.java8.audio.preview.AudioOutputDeviceCatalog;
 import com.aresstack.askai.java8.audio.preview.AudioProcessingTestController;
 import com.aresstack.askai.java8.audio.preview.AudioTestRecordingStore;
-import com.aresstack.askai.java8.audio.preview.JavaSoundAudioPreviewPlaybackService;
+import com.aresstack.askai.java8.audio.preview.DispatchingAudioPreviewPlaybackService;
 import com.aresstack.askai.java8.audio.preview.WavAudioTestSource;
+import com.aresstack.audio.openal.StereoTestTone;
 import com.aresstack.askai.java8.speech.JavaSoundMicrophoneRecorder;
 import com.aresstack.askai.java8.speech.MicrophoneRecorder;
 import com.aresstack.askai.java8.speech.RawRecording;
@@ -53,12 +55,12 @@ public final class AudioProcessingTestPanel extends JPanel {
     private final AudioProcessingTestController controller;
     private final AudioTestRecordingStore recordingStore = new AudioTestRecordingStore();
     private final MicrophoneRecorder recorder = new JavaSoundMicrophoneRecorder();
-    private final JavaSoundAudioPreviewPlaybackService playback = new JavaSoundAudioPreviewPlaybackService();
+    private final DispatchingAudioPreviewPlaybackService playback = new DispatchingAudioPreviewPlaybackService();
     private final File tempDir = new File(System.getProperty("java.io.tmpdir"), "askai-audio-tests-temp");
     private final ExecutorService executor;
 
     private final JComboBox<String> micCombo = new JComboBox<String>();
-    private final JComboBox<String> outputCombo = new JComboBox<String>();
+    private final JComboBox<AudioOutputDevice> outputCombo = new JComboBox<AudioOutputDevice>();
     private final JButton testMicButton = new JButton("Test microphone");
     private final JButton testOutputButton = new JButton("Test output");
     private final JLabel sourceLabel = new JLabel("No test file selected");
@@ -155,8 +157,9 @@ public final class AudioProcessingTestPanel extends JPanel {
         testMicButton.addActionListener(event -> toggleMicTest());
         deviceRow.add(testMicButton);
         deviceRow.add(new JLabel("   Output:"));
-        outputCombo.setToolTipText("Playback device used for Play original / Play processed.");
-        outputCombo.addActionListener(event -> playback.setOutputDeviceName(selectedOutputDevice()));
+        outputCombo.setToolTipText("Playback device used for Play original / Play processed "
+                + "(OpenAL Soft on Windows; Java Sound as legacy).");
+        outputCombo.addActionListener(event -> applySelectedOutputDevice());
         deviceRow.add(outputCombo);
         JButton outRefresh = new JButton("↻");
         outRefresh.setToolTipText("Refresh output device list");
@@ -196,8 +199,32 @@ public final class AudioProcessingTestPanel extends JPanel {
     }
 
     private void refreshPlaybackDevices() {
-        fillCombo(outputCombo, safeList(false));
-        playback.setOutputDeviceName(selectedOutputDevice());
+        String previous = outputCombo.getSelectedItem() == null
+                ? null : outputCombo.getSelectedItem().toString();
+        outputCombo.removeAllItems();
+        List<AudioOutputDevice> devices;
+        try {
+            devices = new AudioOutputDeviceCatalog().findAll();
+        } catch (Exception ex) {
+            devices = java.util.Collections.<AudioOutputDevice>emptyList();
+        }
+        AudioOutputDevice reselect = null;
+        for (AudioOutputDevice device : devices) {
+            outputCombo.addItem(device);
+            if (previous != null && previous.equals(device.getDisplayName())) {
+                reselect = device;
+            }
+        }
+        if (reselect != null) {
+            outputCombo.setSelectedItem(reselect);
+        } else if (outputCombo.getItemCount() > 0) {
+            outputCombo.setSelectedIndex(0); // OpenAL primary first, else Java Sound system default
+        }
+        applySelectedOutputDevice();
+    }
+
+    private void applySelectedOutputDevice() {
+        playback.setOutputDevice((AudioOutputDevice) outputCombo.getSelectedItem());
     }
 
     private static void fillCombo(JComboBox<String> combo, List<String> devices) {
@@ -225,12 +252,6 @@ public final class AudioProcessingTestPanel extends JPanel {
 
     private String selectedMicDevice() {
         Object selected = micCombo.getSelectedItem();
-        String value = selected == null ? "" : String.valueOf(selected);
-        return SYSTEM_DEFAULT.equals(value) ? "" : value;
-    }
-
-    private String selectedOutputDevice() {
-        Object selected = outputCombo.getSelectedItem();
         String value = selected == null ? "" : String.valueOf(selected);
         return SYSTEM_DEFAULT.equals(value) ? "" : value;
     }
@@ -275,35 +296,22 @@ public final class AudioProcessingTestPanel extends JPanel {
         setStatus(status);
     }
 
-    /** Play a short beep through the selected output device so the user can confirm it is audible. */
+    /** Play the stereo test tone (left then right) through the selected output device. */
     private void testOutput() {
-        playback.setOutputDeviceName(selectedOutputDevice());
-        setStatus("Playing test beep…");
-        playback.play(generateBeep(), new com.aresstack.audio.domain.PcmAudioFormat(44100, 1, 16),
+        applySelectedOutputDevice();
+        setStatus("Playing stereo test tone…");
+        int rate = 44100;
+        playback.play(StereoTestTone.interleaved(rate),
+                new com.aresstack.audio.domain.PcmAudioFormat(rate, StereoTestTone.CHANNELS, 16),
                 new Runnable() {
                     public void run() {
                         SwingUtilities.invokeLater(new Runnable() {
                             public void run() {
-                                setStatus("Test beep finished.");
+                                setStatus("Test tone finished.");
                             }
                         });
                     }
                 });
-    }
-
-    /** A ~350 ms 880 Hz sine "bing" with a short fade-in and exponential decay, 44.1 kHz mono 16-bit. */
-    private static short[] generateBeep() {
-        int rate = 44100;
-        int length = rate * 350 / 1000;
-        double frequency = 880.0;
-        short[] samples = new short[length];
-        for (int i = 0; i < length; i++) {
-            double t = (double) i / rate;
-            double envelope = Math.min(1.0, i / (rate * 0.01)) * Math.exp(-3.5 * t); // fade-in + decay
-            double value = Math.sin(2.0 * Math.PI * frequency * t) * envelope * 0.6;
-            samples[i] = (short) Math.max(Short.MIN_VALUE, Math.min(Short.MAX_VALUE, value * Short.MAX_VALUE));
-        }
-        return samples;
     }
 
     private void selectTestFile() {
@@ -415,7 +423,7 @@ public final class AudioProcessingTestPanel extends JPanel {
                 try {
                     WavAudioTestSource temp = new WavAudioTestSource(raw.getFile(), true);
                     com.aresstack.audio.domain.AudioBuffer buffer = temp.readBuffer();
-                    playback.setOutputDeviceName(selectedOutputDevice());
+                    applySelectedOutputDevice();
                     playback.play(buffer.getSamples(), buffer.getFormat(), null);
                 } catch (Exception ex) {
                     JOptionPane.showMessageDialog(this, "Could not play the recording:\n" + message(ex),

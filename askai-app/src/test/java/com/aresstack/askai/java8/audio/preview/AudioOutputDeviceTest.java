@@ -16,7 +16,8 @@ public class AudioOutputDeviceTest {
         AudioOutputDevice device = AudioOutputDevice.systemDefault();
 
         assertTrue(device.isSystemDefault());
-        assertEquals("System default", device.getDisplayName());
+        assertEquals(AudioOutputDevice.Backend.JAVA_SOUND, device.getBackend());
+        assertEquals("System default (Java Sound)", device.getDisplayName());
         assertSame(device, AudioOutputDevice.systemDefault());
     }
 
