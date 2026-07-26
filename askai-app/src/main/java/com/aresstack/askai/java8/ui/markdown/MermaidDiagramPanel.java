@@ -1,9 +1,6 @@
 package com.aresstack.askai.java8.ui.markdown;
 
 import javax.swing.BorderFactory;
-import javax.swing.JMenuItem;
-import javax.swing.JOptionPane;
-import javax.swing.JPopupMenu;
 import javax.swing.JPanel;
 import javax.swing.SwingWorker;
 import java.awt.Color;
@@ -12,14 +9,6 @@ import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
-import java.awt.Toolkit;
-import java.awt.datatransfer.Clipboard;
-import java.awt.datatransfer.DataFlavor;
-import java.awt.datatransfer.StringSelection;
-import java.awt.datatransfer.Transferable;
-import java.awt.datatransfer.UnsupportedFlavorException;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
 
 /** Render Mermaid off the EDT and paint the result with Java2D. */
@@ -46,93 +35,7 @@ public final class MermaidDiagramPanel extends JPanel {
                 BorderFactory.createLineBorder(theme.getSeparatorColor()),
                 BorderFactory.createEmptyBorder(PADDING, PADDING, PADDING, PADDING)));
         setPreferredSize(new Dimension(600, 140));
-        setToolTipText("Right-click to copy this diagram as an image or its Mermaid code");
-        installContextMenu();
         renderAsync();
-    }
-
-    /** @return the raw Mermaid source of this diagram. */
-    public String getDiagramCode() {
-        return diagramCode;
-    }
-
-    private void installContextMenu() {
-        addMouseListener(new MouseAdapter() {
-            @Override
-            public void mousePressed(MouseEvent event) {
-                maybeShowPopup(event);
-            }
-
-            @Override
-            public void mouseReleased(MouseEvent event) {
-                maybeShowPopup(event);
-            }
-        });
-    }
-
-    private void maybeShowPopup(MouseEvent event) {
-        if (!event.isPopupTrigger()) {
-            return;
-        }
-        JPopupMenu menu = new JPopupMenu();
-
-        JMenuItem copyImage = new JMenuItem("Copy diagram as image");
-        copyImage.setEnabled(image != null);
-        copyImage.addActionListener(action -> copyImageToClipboard());
-        menu.add(copyImage);
-
-        JMenuItem copyCode = new JMenuItem("Copy Mermaid code");
-        copyCode.setEnabled(diagramCode.trim().length() > 0);
-        copyCode.addActionListener(action -> copyCodeToClipboard());
-        menu.add(copyCode);
-
-        menu.show(this, event.getX(), event.getY());
-    }
-
-    private void copyImageToClipboard() {
-        if (image == null) {
-            return;
-        }
-        try {
-            Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
-            clipboard.setContents(imageTransferable(image), null);
-        } catch (RuntimeException ex) {
-            JOptionPane.showMessageDialog(this, "Could not copy the diagram image: " + ex.getMessage(),
-                    "Copy failed", JOptionPane.WARNING_MESSAGE);
-        }
-    }
-
-    private void copyCodeToClipboard() {
-        try {
-            Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
-            clipboard.setContents(new StringSelection(diagramCode), null);
-        } catch (RuntimeException ex) {
-            JOptionPane.showMessageDialog(this, "Could not copy the Mermaid code: " + ex.getMessage(),
-                    "Copy failed", JOptionPane.WARNING_MESSAGE);
-        }
-    }
-
-    /** A clipboard transferable that exposes a rendered diagram as an image (visible for tests). */
-    static Transferable imageTransferable(final BufferedImage image) {
-        return new Transferable() {
-            @Override
-            public DataFlavor[] getTransferDataFlavors() {
-                return new DataFlavor[] {DataFlavor.imageFlavor};
-            }
-
-            @Override
-            public boolean isDataFlavorSupported(DataFlavor flavor) {
-                return DataFlavor.imageFlavor.equals(flavor);
-            }
-
-            @Override
-            public Object getTransferData(DataFlavor flavor) throws UnsupportedFlavorException {
-                if (!DataFlavor.imageFlavor.equals(flavor)) {
-                    throw new UnsupportedFlavorException(flavor);
-                }
-                return image;
-            }
-        };
     }
 
     private void renderAsync() {
