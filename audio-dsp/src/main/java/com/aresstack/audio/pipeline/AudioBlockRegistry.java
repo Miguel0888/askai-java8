@@ -53,6 +53,7 @@ public final class AudioBlockRegistry {
         register(adaptiveNoiseSuppression());
         register(speechLeveler());
         register(finalLoudnessNormalizer());
+        register(roomReverbAnalyzer());
     }
 
     public static AudioBlockRegistry getInstance() {
@@ -803,6 +804,31 @@ public final class AudioBlockRegistry {
                         return block.getParameter("mode", "TARGET_RMS") + " · "
                                 + formatQ(block.getDoubleParameter("targetLevelDb", 0.0d)) + " dBFS · ceiling "
                                 + formatQ(block.getDoubleParameter("peakCeilingDb", 0.0d)) + " dB";
+                    }
+                });
+    }
+
+    private static AudioBlockDescriptor roomReverbAnalyzer() {
+        List<AudioParameterDescriptor> params = new ArrayList<AudioParameterDescriptor>();
+        params.add(AudioParameterDescriptor.decimal("frameDurationMs", "Frame duration (ms)",
+                20.0d, 5.0d, 100.0d, 1.0d));
+        params.add(AudioParameterDescriptor.decimal("minDecayDb", "Minimum decay (dB)", 6.0d, 1.0d, 60.0d, 1.0d));
+        params.add(AudioParameterDescriptor.decimal("maxReverbSeconds", "Maximum reverb time (s)",
+                3.0d, 0.1d, 10.0d, 0.1d));
+        AudioBlockCapabilities capabilities = StaticBlockCapabilities.builder()
+                .modifiesAudio(false)
+                .producesMetadata(true)
+                .framing(320, 0, 0)
+                .build();
+        return descriptor(AudioBlockType.ROOM_REVERB_ANALYZER, AudioBlockCategory.ANALYSIS, params, capabilities,
+                new SimpleAudioBlockDescriptor.ProcessorFactory() {
+                    public AudioBlockProcessor create() {
+                        return AudioBlockProcessors.roomReverbAnalyzer();
+                    }
+                },
+                new SimpleAudioBlockDescriptor.Summarizer() {
+                    public String summarize(AudioBlockDefinition block) {
+                        return "Estimates reverb (RT60, strength)";
                     }
                 });
     }

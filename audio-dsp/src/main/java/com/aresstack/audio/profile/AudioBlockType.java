@@ -30,7 +30,8 @@ public enum AudioBlockType {
     NOISE_PROFILER("Noise Profiler"),
     ADAPTIVE_NOISE_SUPPRESSION("Adaptive Noise Suppression"),
     SPEECH_LEVELER("Speech Leveler"),
-    FINAL_LOUDNESS_NORMALIZER("Final Loudness Normalizer");
+    FINAL_LOUDNESS_NORMALIZER("Final Loudness Normalizer"),
+    ROOM_REVERB_ANALYZER("Room/Reverb Analyzer");
 
     private final String displayName;
 

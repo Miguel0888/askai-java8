@@ -152,6 +152,9 @@ public final class AudioProfileValidator {
                 case NOISE_PROFILER:
                     validateNoiseProfiler(issues, block, enabled);
                     break;
+                case ROOM_REVERB_ANALYZER:
+                    validateRoomReverbAnalyzer(issues, block, enabled);
+                    break;
                 case ADAPTIVE_NOISE_SUPPRESSION:
                     validateNoiseSuppression(issues, block, enabled, sawEnabledVad, sawEnabledNoiseProfiler);
                     break;
@@ -431,6 +434,14 @@ public final class AudioProfileValidator {
         String name = block.getType().getDisplayName();
         nonNegativeError(issues, block, enabled, name, "learnTimeMs", "Learn time");
         rangeError(issues, block, enabled, name, "minConfidence", "Minimum confidence", 0.0d, 1.0d);
+    }
+
+    private void validateRoomReverbAnalyzer(List<AudioProfileValidationIssue> issues, AudioBlockDefinition block,
+                                            boolean enabled) {
+        String name = block.getType().getDisplayName();
+        positiveError(issues, block, enabled, name, "frameDurationMs", "Frame duration");
+        positiveError(issues, block, enabled, name, "minDecayDb", "Minimum decay");
+        positiveError(issues, block, enabled, name, "maxReverbSeconds", "Maximum reverb time");
     }
 
     private void validateNoiseSuppression(List<AudioProfileValidationIssue> issues, AudioBlockDefinition block,

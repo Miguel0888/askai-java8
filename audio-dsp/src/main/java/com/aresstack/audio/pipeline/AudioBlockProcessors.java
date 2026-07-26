@@ -36,6 +36,8 @@ import com.aresstack.audio.dsp.ExpanderSettings;
 import com.aresstack.audio.dsp.ExpanderState;
 import com.aresstack.audio.dsp.PlosiveReductionProcessor;
 import com.aresstack.audio.dsp.PlosiveReductionSettings;
+import com.aresstack.audio.dsp.RoomProfile;
+import com.aresstack.audio.dsp.RoomReverbAnalyzer;
 import com.aresstack.audio.dsp.SpectralBlockRunner;
 import com.aresstack.audio.dsp.SpectralBreathReduction;
 import com.aresstack.audio.dsp.SpectralDeEsser;
@@ -619,6 +621,25 @@ final class AudioBlockProcessors {
                         block.getBooleanParameter("allowAttenuation", true));
                 new FinalLoudnessNormalizer(settings).process(input.getSamples(), input.getSamples().length);
                 return input;
+            }
+        };
+    }
+
+    /**
+     * Room/Reverb Analyzer: an analysis block that estimates reverberation time and strength from the decay
+     * of the signal energy, publishes a {@link RoomProfile} into the context for a later Dereverberation
+     * block, and returns the input buffer unchanged.
+     */
+    static AudioBlockProcessor roomReverbAnalyzer() {
+        return new AudioBlockProcessor() {
+            public AudioBuffer process(AudioBuffer input, AudioBlockDefinition block, AudioProcessingContext context) {
+                RoomProfile profile = new RoomReverbAnalyzer(
+                        block.getDoubleParameter("frameDurationMs", 20.0d),
+                        block.getDoubleParameter("minDecayDb", 6.0d),
+                        block.getDoubleParameter("maxReverbSeconds", 3.0d))
+                        .analyze(input.getSamples(), input.getSamples().length, input.getFormat());
+                context.setRoomProfile(profile);
+                return input; // analysis only — audio is passed through untouched
             }
         };
     }
