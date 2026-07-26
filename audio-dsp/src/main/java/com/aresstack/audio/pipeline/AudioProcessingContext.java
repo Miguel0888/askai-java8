@@ -21,6 +21,7 @@ public final class AudioProcessingContext {
     private NoiseProfile noiseProfile;
     private RoomProfile roomProfile;
     private Double channelCorrelation;
+    private String channelHealthSummary;
 
     /** Store the per-frame speech-activity track produced by the voice-activity block (typed, no string key). */
     public void setSpeechActivity(SpeechActivityTrack track) {
@@ -60,6 +61,16 @@ public final class AudioProcessingContext {
     /** @return the measured inter-channel correlation for this run, or null if none was measured. */
     public Double getChannelCorrelation() {
         return channelCorrelation;
+    }
+
+    /** Store the per-channel health summary from a Channel Health Analyzer. */
+    public void setChannelHealthSummary(String summary) {
+        this.channelHealthSummary = summary;
+    }
+
+    /** @return the channel health summary for this run, or null if no analyzer ran. */
+    public String getChannelHealthSummary() {
+        return channelHealthSummary;
     }
 
     public void put(String key, Object value) {

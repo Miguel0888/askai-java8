@@ -11,6 +11,8 @@ import com.aresstack.audio.dsp.HighPassFilterProcessor;
 import com.aresstack.audio.dsp.HighShelfEqualizerProcessor;
 import com.aresstack.audio.dsp.LimiterProcessor;
 import com.aresstack.audio.dsp.LowShelfEqualizerProcessor;
+import com.aresstack.audio.dsp.ChannelAligner;
+import com.aresstack.audio.dsp.ChannelDiagnostics;
 import com.aresstack.audio.dsp.MultichannelOps;
 import com.aresstack.audio.dsp.ParametricEqualizerProcessor;
 import com.aresstack.audio.dsp.Pcm16Processor;
@@ -716,6 +718,84 @@ final class AudioBlockProcessors {
                 return input;
             }
         };
+    }
+
+    /** Channel Delay Alignment: time-align channels to a reference (auto cross-correlation or manual). */
+    static AudioBlockProcessor channelDelayAlignment() {
+        return new AudioBlockProcessor() {
+            public AudioBuffer process(AudioBuffer input, AudioBlockDefinition block, AudioProcessingContext context) {
+                int channels = input.getFormat().getChannels();
+                if (channels < 2) {
+                    return input;
+                }
+                int reference = clampIndex(block.getIntParameter("referenceChannel", 0), channels);
+                int maxCorrection = Math.max(1, block.getIntParameter("maxCorrectionSamples", 64));
+                boolean fractional = block.getBooleanParameter("fractionalDelay", true);
+                double[] delays = new double[channels];
+                if ("MANUAL".equals(block.getParameter("mode", "AUTO"))) {
+                    double[] manual = parseDoubles(block.getParameter("delaysSamples", ""));
+                    for (int c = 0; c < channels && c < manual.length; c++) {
+                        delays[c] = clampDelay(manual[c], maxCorrection);
+                    }
+                } else {
+                    for (int c = 0; c < channels; c++) {
+                        if (c == reference) {
+                            continue;
+                        }
+                        double lag = ChannelAligner.estimateDelay(input.getSamples(),
+                                input.getSamples().length, channels, reference, c, maxCorrection);
+                        if (!fractional) {
+                            lag = Math.rint(lag);
+                        }
+                        delays[c] = clampDelay(-lag, maxCorrection); // shift the channel to line up with the reference
+                    }
+                }
+                ChannelAligner.applyDelays(input.getSamples(), input.getSamples().length, channels, delays);
+                return input;
+            }
+        };
+    }
+
+    /** Best Channel Selector: choose the highest-quality channel and output it as mono. */
+    static AudioBlockProcessor bestChannelSelector() {
+        return new AudioBlockProcessor() {
+            public AudioBuffer process(AudioBuffer input, AudioBlockDefinition block, AudioProcessingContext context) {
+                PcmAudioFormat format = input.getFormat();
+                int channels = format.getChannels();
+                if (channels == 1) {
+                    return input;
+                }
+                int preferred = block.getIntParameter("preferredChannel", -1);
+                int best = ChannelDiagnostics.bestChannelIndex(input.getSamples(),
+                        input.getSamples().length, channels, preferred);
+                short[] mono = MultichannelOps.selectChannel(input.getSamples(),
+                        input.getSamples().length, channels, best);
+                return new AudioBuffer(mono, new PcmAudioFormat(format.getSampleRateHz(), 1,
+                        format.getBitsPerSample()));
+            }
+        };
+    }
+
+    /** Channel Health Analyzer: report silent/clipping/DC/quiet channels. Audio unchanged. */
+    static AudioBlockProcessor channelHealthAnalyzer() {
+        return new AudioBlockProcessor() {
+            public AudioBuffer process(AudioBuffer input, AudioBlockDefinition block, AudioProcessingContext context) {
+                context.setChannelHealthSummary(ChannelDiagnostics.describeHealth(input.getSamples(),
+                        input.getSamples().length, input.getFormat().getChannels()));
+                return input;
+            }
+        };
+    }
+
+    private static int clampIndex(int index, int channels) {
+        return index < 0 ? 0 : (index >= channels ? channels - 1 : index);
+    }
+
+    private static double clampDelay(double delay, int max) {
+        if (Double.isNaN(delay)) {
+            return 0.0d;
+        }
+        return delay < -max ? -max : (delay > max ? max : delay);
     }
 
     private static double[] parseDoubles(String csv) {

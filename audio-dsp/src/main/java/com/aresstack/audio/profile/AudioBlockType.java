@@ -36,7 +36,10 @@ public enum AudioBlockType {
     CHANNEL_SELECTOR("Channel Selector"),
     MATRIX_MIXER("Matrix Mixer"),
     CHANNEL_GAIN_POLARITY("Channel Gain and Polarity"),
-    PHASE_CORRELATION_ANALYZER("Phase and Correlation Analyzer");
+    PHASE_CORRELATION_ANALYZER("Phase and Correlation Analyzer"),
+    CHANNEL_DELAY_ALIGNMENT("Channel Delay Alignment"),
+    BEST_CHANNEL_SELECTOR("Best Channel Selector"),
+    CHANNEL_HEALTH_ANALYZER("Channel Health Analyzer");
 
     private final String displayName;
 

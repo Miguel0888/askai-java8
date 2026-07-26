@@ -178,6 +178,20 @@ public final class AudioProfileValidator {
                                         + "mono at this point.");
                     }
                     break;
+                case CHANNEL_DELAY_ALIGNMENT:
+                    positiveError(issues, block, enabled, block.getType().getDisplayName(),
+                            "maxCorrectionSamples", "Maximum correction");
+                    if (currentChannels == 1) {
+                        add(issues, block, enabled, AudioValidationSeverity.WARNING, null,
+                                "Channel Delay Alignment: needs at least two channels; the signal is mono here.");
+                    }
+                    break;
+                case BEST_CHANNEL_SELECTOR:
+                    if (currentChannels == 1) {
+                        add(issues, block, enabled, AudioValidationSeverity.WARNING, null,
+                                "Best Channel Selector: the input is already mono at this point.");
+                    }
+                    break;
                 case ADAPTIVE_NOISE_SUPPRESSION:
                     validateNoiseSuppression(issues, block, enabled, sawEnabledVad, sawEnabledNoiseProfiler);
                     break;
@@ -580,7 +594,7 @@ public final class AudioProfileValidator {
 
     private static boolean reducesToMono(AudioBlockType type) {
         return type == AudioBlockType.CHANNEL_MIXER || type == AudioBlockType.CHANNEL_SELECTOR
-                || type == AudioBlockType.MATRIX_MIXER;
+                || type == AudioBlockType.MATRIX_MIXER || type == AudioBlockType.BEST_CHANNEL_SELECTOR;
     }
 
     private static boolean isTimeBaseChanger(AudioBlockType type) {

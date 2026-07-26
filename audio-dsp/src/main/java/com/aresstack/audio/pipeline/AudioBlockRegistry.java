@@ -59,6 +59,9 @@ public final class AudioBlockRegistry {
         register(matrixMixer());
         register(channelGainPolarity());
         register(phaseCorrelationAnalyzer());
+        register(channelDelayAlignment());
+        register(bestChannelSelector());
+        register(channelHealthAnalyzer());
     }
 
     public static AudioBlockRegistry getInstance() {
@@ -815,6 +818,76 @@ public final class AudioBlockRegistry {
                 new SimpleAudioBlockDescriptor.Summarizer() {
                     public String summarize(AudioBlockDefinition block) {
                         return "Stereo correlation / phase check";
+                    }
+                });
+    }
+
+    private static AudioBlockDescriptor channelDelayAlignment() {
+        List<AudioParameterDescriptor> params = new ArrayList<AudioParameterDescriptor>();
+        params.add(AudioParameterDescriptor.choice("mode", "Mode", "AUTO", Arrays.asList(
+                new AudioParameterChoice("AUTO", "Automatic (cross-correlation)"),
+                new AudioParameterChoice("MANUAL", "Manual delays"))));
+        params.add(AudioParameterDescriptor.integer("referenceChannel", "Reference channel", 0, 0, 31));
+        params.add(AudioParameterDescriptor.integer("maxCorrectionSamples", "Max correction (samples)",
+                64, 1, 4096));
+        params.add(AudioParameterDescriptor.bool("fractionalDelay", "Fractional delay", true));
+        params.add(AudioParameterDescriptor.text("delaysSamples", "Manual delays (samples, per channel)", ""));
+        return descriptor(AudioBlockType.CHANNEL_DELAY_ALIGNMENT, AudioBlockCategory.INPUT_CHANNEL, params,
+                StaticBlockCapabilities.audioEffect(),
+                new SimpleAudioBlockDescriptor.ProcessorFactory() {
+                    public AudioBlockProcessor create() {
+                        return AudioBlockProcessors.channelDelayAlignment();
+                    }
+                },
+                new SimpleAudioBlockDescriptor.Summarizer() {
+                    public String summarize(AudioBlockDefinition block) {
+                        return "Align to channel " + block.getIntParameter("referenceChannel", 0)
+                                + " · " + block.getParameter("mode", "AUTO");
+                    }
+                });
+    }
+
+    private static AudioBlockDescriptor bestChannelSelector() {
+        List<AudioParameterDescriptor> params = new ArrayList<AudioParameterDescriptor>();
+        params.add(AudioParameterDescriptor.integer("preferredChannel", "Preferred channel (-1 = auto)",
+                -1, -1, 31));
+        params.add(AudioParameterDescriptor.decimal("evaluationWindowMs", "Evaluation window (ms)",
+                500.0d, 50.0d, 10000.0d, 10.0d));
+        params.add(AudioParameterDescriptor.decimal("minHoldMs", "Minimum hold (ms)", 500.0d, 0.0d, 10000.0d, 10.0d));
+        params.add(AudioParameterDescriptor.bool("switchDuringSpeech", "Allow switching during speech", false));
+        AudioBlockCapabilities capabilities = StaticBlockCapabilities.builder()
+                .preservesChannelCount(false)
+                .build();
+        return descriptor(AudioBlockType.BEST_CHANNEL_SELECTOR, AudioBlockCategory.INPUT_CHANNEL, params,
+                capabilities,
+                new SimpleAudioBlockDescriptor.ProcessorFactory() {
+                    public AudioBlockProcessor create() {
+                        return AudioBlockProcessors.bestChannelSelector();
+                    }
+                },
+                new SimpleAudioBlockDescriptor.Summarizer() {
+                    public String summarize(AudioBlockDefinition block) {
+                        int pref = block.getIntParameter("preferredChannel", -1);
+                        return (pref < 0 ? "Auto-select best" : "Prefer channel " + pref) + " -> mono";
+                    }
+                });
+    }
+
+    private static AudioBlockDescriptor channelHealthAnalyzer() {
+        AudioBlockCapabilities capabilities = StaticBlockCapabilities.builder()
+                .modifiesAudio(false)
+                .producesMetadata(true)
+                .build();
+        return descriptor(AudioBlockType.CHANNEL_HEALTH_ANALYZER, AudioBlockCategory.ANALYSIS,
+                Collections.<AudioParameterDescriptor>emptyList(), capabilities,
+                new SimpleAudioBlockDescriptor.ProcessorFactory() {
+                    public AudioBlockProcessor create() {
+                        return AudioBlockProcessors.channelHealthAnalyzer();
+                    }
+                },
+                new SimpleAudioBlockDescriptor.Summarizer() {
+                    public String summarize(AudioBlockDefinition block) {
+                        return "Detects silent/clipping/DC channels";
                     }
                 });
     }
