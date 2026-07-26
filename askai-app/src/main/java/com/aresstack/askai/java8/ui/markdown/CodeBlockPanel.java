@@ -1,7 +1,6 @@
 package com.aresstack.askai.java8.ui.markdown;
 
 import javax.swing.BorderFactory;
-import javax.swing.JButton;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
@@ -28,9 +27,13 @@ final class CodeBlockPanel extends JPanel {
         JLabel languageLabel = new JLabel(language == null || language.trim().isEmpty() ? "code" : language.trim());
         languageLabel.setForeground(theme.getMutedForeground());
         languageLabel.setHorizontalAlignment(SwingConstants.LEFT);
-        JButton copyButton = new JButton("Copy");
-        copyButton.setFocusable(false);
-        copyButton.addActionListener(event -> copy(code));
+        MarkdownActionButton copyButton = new MarkdownActionButton(
+                new MarkdownActionButton.CopyIcon(), "Copy code", theme.getMutedForeground(),
+                new Runnable() {
+                    public void run() {
+                        copy(code);
+                    }
+                });
         header.add(languageLabel, BorderLayout.WEST);
         header.add(copyButton, BorderLayout.EAST);
 

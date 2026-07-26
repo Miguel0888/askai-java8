@@ -1,15 +1,12 @@
 package com.aresstack.askai.java8.ui.markdown;
 
 import javax.swing.BorderFactory;
-import javax.swing.Icon;
-import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.SwingWorker;
 import java.awt.BorderLayout;
 import java.awt.Color;
-import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.FontMetrics;
@@ -35,7 +32,7 @@ public final class MermaidDiagramPanel extends JPanel {
     private final MarkdownTheme theme;
     private final MermaidImageRenderer imageRenderer;
     private final DiagramCanvas canvas;
-    private final JButton copyImageButton;
+    private final MarkdownActionButton copyImageButton;
     private BufferedImage image;
     private String errorMessage;
     private boolean rendering;
@@ -46,8 +43,8 @@ public final class MermaidDiagramPanel extends JPanel {
         this.theme = theme;
         this.imageRenderer = imageRenderer;
         this.canvas = new DiagramCanvas();
-        this.copyImageButton = squareButton(new CopyImageIcon(theme.getMutedForeground()),
-                "Copy diagram as image", new Runnable() {
+        this.copyImageButton = new MarkdownActionButton(new MarkdownActionButton.ImageIcon(),
+                "Copy diagram as image", theme.getMutedForeground(), new Runnable() {
                     public void run() {
                         copyImageToClipboard();
                     }
@@ -70,8 +67,8 @@ public final class MermaidDiagramPanel extends JPanel {
     }
 
     private JComponent buildToolbar() {
-        JButton copyCodeButton = squareButton(new CopyCodeIcon(theme.getMutedForeground()),
-                "Copy Mermaid code", new Runnable() {
+        MarkdownActionButton copyCodeButton = new MarkdownActionButton(new MarkdownActionButton.CopyIcon(),
+                "Copy Mermaid code", theme.getMutedForeground(), new Runnable() {
                     public void run() {
                         copyCodeToClipboard();
                     }
@@ -83,18 +80,6 @@ public final class MermaidDiagramPanel extends JPanel {
         toolbar.add(copyImageButton);
         toolbar.add(copyCodeButton);
         return toolbar;
-    }
-
-    private static JButton squareButton(Icon icon, String tooltip, final Runnable action) {
-        JButton button = new JButton(icon);
-        button.setToolTipText(tooltip);
-        button.setPreferredSize(new Dimension(22, 22));
-        button.setFocusable(false);
-        button.setMargin(new java.awt.Insets(0, 0, 0, 0));
-        button.setContentAreaFilled(false);
-        button.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
-        button.addActionListener(event -> action.run());
-        return button;
     }
 
     private void renderAsync() {
@@ -245,73 +230,6 @@ public final class MermaidDiagramPanel extends JPanel {
         public Dimension getMaximumSize() {
             Dimension preferred = getPreferredSize();
             return new Dimension(Integer.MAX_VALUE, preferred.height);
-        }
-    }
-
-    /** A minimal "copy" glyph: two offset rounded rectangles. */
-    private static final class CopyCodeIcon implements Icon {
-        private final Color color;
-
-        private CopyCodeIcon(Color color) {
-            this.color = color == null ? Color.GRAY : color;
-        }
-
-        @Override
-        public void paintIcon(Component c, Graphics g, int x, int y) {
-            Graphics2D g2 = (Graphics2D) g.create();
-            try {
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setColor(color);
-                g2.drawRoundRect(x + 5, y + 2, 8, 10, 3, 3);
-                g2.drawRoundRect(x + 2, y + 5, 8, 10, 3, 3);
-            } finally {
-                g2.dispose();
-            }
-        }
-
-        @Override
-        public int getIconWidth() {
-            return 16;
-        }
-
-        @Override
-        public int getIconHeight() {
-            return 16;
-        }
-    }
-
-    /** A minimal "image" glyph: a framed rectangle with a sun and a mountain. */
-    private static final class CopyImageIcon implements Icon {
-        private final Color color;
-
-        private CopyImageIcon(Color color) {
-            this.color = color == null ? Color.GRAY : color;
-        }
-
-        @Override
-        public void paintIcon(Component c, Graphics g, int x, int y) {
-            Graphics2D g2 = (Graphics2D) g.create();
-            try {
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setColor(color);
-                g2.drawRoundRect(x + 2, y + 3, 12, 10, 2, 2);
-                g2.fillOval(x + 5, y + 5, 3, 3);
-                int[] px = {x + 3, x + 7, x + 13};
-                int[] py = {y + 12, y + 8, y + 12};
-                g2.fillPolygon(px, py, 3);
-            } finally {
-                g2.dispose();
-            }
-        }
-
-        @Override
-        public int getIconWidth() {
-            return 16;
-        }
-
-        @Override
-        public int getIconHeight() {
-            return 16;
         }
     }
 }
