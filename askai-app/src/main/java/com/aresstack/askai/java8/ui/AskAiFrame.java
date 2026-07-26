@@ -252,8 +252,14 @@ public final class AskAiFrame extends JFrame {
                         uiExecutor);
         com.aresstack.askai.plugin.api.service.WorkspaceStateStore hostState =
                 new com.aresstack.askai.java8.plugin.host.ApplicationStateWorkspaceStateStore(applicationState, "");
-        return new com.aresstack.askai.plugin.host.ChatWorkspaceHostPanel(
-                normalChat, pluginService, hostContextFactory, uiExecutor, hostState, notificationService);
+        com.aresstack.askai.plugin.host.ChatWorkspaceHostPanel host =
+                new com.aresstack.askai.plugin.host.ChatWorkspaceHostPanel(
+                        normalChat, pluginService, hostContextFactory, uiExecutor, hostState, notificationService);
+        // The controls factory needs the mode controller, which the host panel is; wire it now so agent
+        // workspaces can embed a reusable Yapping/Questing + agent selector bound to the same controller.
+        hostContextFactory.setInteractionModeControlsFactory(
+                new com.aresstack.askai.plugin.host.DefaultInteractionModeControlsFactory(host));
+        return host;
     }
 
     /** Host version advertised to PF4J for a plugin's {@code Plugin-Requires} check. */

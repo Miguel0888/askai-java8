@@ -18,6 +18,9 @@ public interface WorkspaceHostContext {
 
     ConversationSurfaceFactory getConversationSurfaceFactory();
 
+    /** Reusable Yapping/Questing + agent selector bound to the host's shared interaction-mode controller. */
+    InteractionModeControlsFactory getInteractionModeControlsFactory();
+
     WorkspaceStateStore getWorkspaceStateStore();
 
     PluginPathService getPluginPathService();

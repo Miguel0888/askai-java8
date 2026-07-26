@@ -1,6 +1,7 @@
 package com.aresstack.askai.plugin.host;
 
 import com.aresstack.askai.plugin.api.service.ConversationSurfaceFactory;
+import com.aresstack.askai.plugin.api.service.InteractionModeControlsFactory;
 import com.aresstack.askai.plugin.api.service.MarkdownViewFactory;
 import com.aresstack.askai.plugin.api.service.NotificationService;
 import com.aresstack.askai.plugin.api.service.PluginPathService;
@@ -16,6 +17,7 @@ final class DefaultWorkspaceHostContext implements WorkspaceHostContext {
     private final ThemeService themeService;
     private final MarkdownViewFactory markdownViewFactory;
     private final ConversationSurfaceFactory conversationSurfaceFactory;
+    private final InteractionModeControlsFactory interactionModeControlsFactory;
     private final WorkspaceStateStore workspaceStateStore;
     private final PluginPathService pluginPathService;
     private final NotificationService notificationService;
@@ -23,6 +25,7 @@ final class DefaultWorkspaceHostContext implements WorkspaceHostContext {
     DefaultWorkspaceHostContext(UiExecutor uiExecutor, ThemeService themeService,
                                 MarkdownViewFactory markdownViewFactory,
                                 ConversationSurfaceFactory conversationSurfaceFactory,
+                                InteractionModeControlsFactory interactionModeControlsFactory,
                                 WorkspaceStateStore workspaceStateStore,
                                 PluginPathService pluginPathService,
                                 NotificationService notificationService) {
@@ -30,6 +33,7 @@ final class DefaultWorkspaceHostContext implements WorkspaceHostContext {
         this.themeService = themeService;
         this.markdownViewFactory = markdownViewFactory;
         this.conversationSurfaceFactory = conversationSurfaceFactory;
+        this.interactionModeControlsFactory = interactionModeControlsFactory;
         this.workspaceStateStore = workspaceStateStore;
         this.pluginPathService = pluginPathService;
         this.notificationService = notificationService;
@@ -53,6 +57,11 @@ final class DefaultWorkspaceHostContext implements WorkspaceHostContext {
     @Override
     public ConversationSurfaceFactory getConversationSurfaceFactory() {
         return conversationSurfaceFactory;
+    }
+
+    @Override
+    public InteractionModeControlsFactory getInteractionModeControlsFactory() {
+        return interactionModeControlsFactory;
     }
 
     @Override

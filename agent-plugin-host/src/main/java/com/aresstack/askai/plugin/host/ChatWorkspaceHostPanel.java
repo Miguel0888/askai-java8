@@ -33,7 +33,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * If the active agent vanishes, Questing keeps another available agent, or falls back to Yapping when none
  * remain.</p>
  */
-public final class ChatWorkspaceHostPanel extends JPanel {
+public final class ChatWorkspaceHostPanel extends JPanel implements WorkspaceModeController {
 
     private static final String STATE_INTERACTION_MODE = "chat.interactionMode";
     private static final String STATE_QUESTING_AGENT = "chat.questingAgentId";
@@ -53,7 +53,7 @@ public final class ChatWorkspaceHostPanel extends JPanel {
 
     private final Map<String, WorkspaceLifecycleController> openWorkspaces =
             new LinkedHashMap<String, WorkspaceLifecycleController>();
-    private final CopyOnWriteArrayList<Runnable> catalogListeners = new CopyOnWriteArrayList<Runnable>();
+    private final CopyOnWriteArrayList<Runnable> changeListeners = new CopyOnWriteArrayList<Runnable>();
 
     private List<WorkspaceModeEntry> agents = new ArrayList<WorkspaceModeEntry>();
     private String interactionMode;
@@ -101,14 +101,26 @@ public final class ChatWorkspaceHostPanel extends JPanel {
         return new ArrayList<WorkspaceModeEntry>(agents);
     }
 
-    /** Registers a listener invoked (on the EDT) whenever the agent list changes. */
-    public void addCatalogListener(Runnable listener) {
+    @Override
+    public void addChangeListener(Runnable listener) {
         if (listener != null) {
-            catalogListeners.addIfAbsent(listener);
+            changeListeners.addIfAbsent(listener);
+        }
+    }
+
+    @Override
+    public void removeChangeListener(Runnable listener) {
+        changeListeners.remove(listener);
+    }
+
+    private void fireChange() {
+        for (Runnable listener : changeListeners) {
+            listener.run();
         }
     }
 
     /** Yapping shows the normal chat; Questing activates the current/last agent (or reports none). */
+    @Override
     public void setInteractionMode(String modeId) {
         userSwitched = true;
         if (WorkspaceModeEntry.QUESTING_ID.equals(modeId)) {
@@ -121,9 +133,11 @@ public final class ChatWorkspaceHostPanel extends JPanel {
             deactivateActiveWorkspace();
             showNormalChat();
         }
+        fireChange();
     }
 
     /** Selects the Questing agent; activates it immediately when Questing is the current mode. */
+    @Override
     public void selectAgent(String agentId) {
         userSwitched = true;
         activeAgentId = agentId;
@@ -131,6 +145,7 @@ public final class ChatWorkspaceHostPanel extends JPanel {
         if (WorkspaceModeEntry.QUESTING_ID.equals(interactionMode)) {
             activateQuesting();
         }
+        fireChange();
     }
 
     // ------------------------------------------------------------------ discovery
@@ -145,9 +160,7 @@ public final class ChatWorkspaceHostPanel extends JPanel {
 
     private void applyCatalog(List<PluginCatalogEntry> catalog) {
         agents = buildAgents(catalog);
-        for (Runnable listener : catalogListeners) {
-            listener.run();
-        }
+        fireChange();
         // Restore a persisted Questing selection once agents are known, unless the user already switched.
         if (WorkspaceModeEntry.QUESTING_ID.equals(interactionMode) && !userSwitched) {
             activateQuesting();
@@ -248,9 +261,7 @@ public final class ChatWorkspaceHostPanel extends JPanel {
         interactionMode = WorkspaceModeEntry.YAPPING_ID;
         persist(STATE_INTERACTION_MODE, interactionMode);
         showNormalChat();
-        for (Runnable listener : catalogListeners) {
-            listener.run(); // let the composer reflect the mode change
-        }
+        fireChange();
     }
 
     private void showPluginWorkspace(WorkspaceLifecycleController controller) {

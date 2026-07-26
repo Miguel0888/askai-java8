@@ -1,6 +1,7 @@
 package com.aresstack.askai.plugin.host;
 
 import com.aresstack.askai.plugin.api.service.ConversationSurfaceFactory;
+import com.aresstack.askai.plugin.api.service.InteractionModeControlsFactory;
 import com.aresstack.askai.plugin.api.service.MarkdownViewFactory;
 import com.aresstack.askai.plugin.api.service.NotificationService;
 import com.aresstack.askai.plugin.api.service.ThemeService;
@@ -23,6 +24,9 @@ public final class WorkspaceHostContextFactory {
     private final MarkdownViewFactory markdownViewFactory;
     private final ConversationSurfaceFactory conversationSurfaceFactory;
     private final NotificationService notificationService;
+    // Set after construction: the controls factory needs the mode controller, which is created with the
+    // ChatWorkspaceHostPanel that this factory is passed into.
+    private InteractionModeControlsFactory interactionModeControlsFactory;
 
     public WorkspaceHostContextFactory(File dataDirectory, UiExecutor uiExecutor, ThemeService themeService,
                                        MarkdownViewFactory markdownViewFactory,
@@ -36,11 +40,17 @@ public final class WorkspaceHostContextFactory {
         this.notificationService = notificationService;
     }
 
+    /** Wires the interaction-mode controls factory once the mode controller exists. */
+    public void setInteractionModeControlsFactory(InteractionModeControlsFactory factory) {
+        this.interactionModeControlsFactory = factory;
+    }
+
     public WorkspaceHostContext create(String pluginId, String workspaceInstanceId) {
         ScopedPluginPathService pathService = new ScopedPluginPathService(dataDirectory, pluginId);
         File stateFile = new File(pathService.getWorkspaceDirectory(workspaceInstanceId), "workspace-state.properties");
         FileWorkspaceStateStore stateStore = new FileWorkspaceStateStore(stateFile);
         return new DefaultWorkspaceHostContext(uiExecutor, themeService, markdownViewFactory,
-                conversationSurfaceFactory, stateStore, pathService, notificationService);
+                conversationSurfaceFactory, interactionModeControlsFactory, stateStore, pathService,
+                notificationService);
     }
 }
