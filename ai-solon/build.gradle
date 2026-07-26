@@ -1,0 +1,15 @@
+// Solon AI runtime module (Slice 2 target): wraps Solon AI's ChatModel + tool loop + MCP so the rest of
+// the app depends only on ai-runtime-api. Solon AI is compiled to Java 8 bytecode (verified: major 52) and
+// is officially compatible with Java 8..25, so it can run in-process in this Java 8 build.
+dependencies {
+    // Solon AI core primitives (ChatModel, tools, MCP client) without the Solon web container.
+    // 4.0.3 is the latest stable release; verified Java 8 compatible (main bytecode major 52, official
+    // java8..25 support). Keep to stable (non -M) releases.
+    implementation 'org.noear:solon-ai-core:4.0.3'
+
+    testImplementation 'junit:junit:4.13.2'
+}
+
+test {
+    useJUnit()
+}
