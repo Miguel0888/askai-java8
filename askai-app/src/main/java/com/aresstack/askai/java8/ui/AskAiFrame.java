@@ -238,20 +238,22 @@ public final class AskAiFrame extends JFrame {
         java.io.File dataDir = com.aresstack.askai.java8.settings.AskAiPaths.appDirectory().toFile();
         com.aresstack.askai.plugin.host.SwingUiExecutor uiExecutor =
                 new com.aresstack.askai.plugin.host.SwingUiExecutor();
+        com.aresstack.askai.java8.plugin.host.AskAiNotificationService notificationService =
+                new com.aresstack.askai.java8.plugin.host.AskAiNotificationService();
         com.aresstack.askai.plugin.host.WorkspaceHostContextFactory hostContextFactory =
                 new com.aresstack.askai.plugin.host.WorkspaceHostContextFactory(
                         dataDir, uiExecutor,
                         new com.aresstack.askai.java8.plugin.host.AskAiThemeService(),
                         new com.aresstack.askai.java8.plugin.host.AskAiMarkdownViewFactory(),
                         new com.aresstack.askai.java8.plugin.host.AskAiConversationSurfaceFactory(),
-                        new com.aresstack.askai.java8.plugin.host.AskAiNotificationService());
+                        notificationService);
         com.aresstack.askai.plugin.host.WorkspacePluginService pluginService =
                 new com.aresstack.askai.plugin.host.WorkspacePluginService(pluginsRoot, HOST_PLUGIN_VERSION, 1,
                         uiExecutor);
         com.aresstack.askai.plugin.api.service.WorkspaceStateStore hostState =
                 new com.aresstack.askai.java8.plugin.host.ApplicationStateWorkspaceStateStore(applicationState, "");
         return new com.aresstack.askai.plugin.host.ChatWorkspaceHostPanel(
-                normalChat, pluginService, hostContextFactory, uiExecutor, hostState);
+                normalChat, pluginService, hostContextFactory, uiExecutor, hostState, notificationService);
     }
 
     /** Host version advertised to PF4J for a plugin's {@code Plugin-Requires} check. */
