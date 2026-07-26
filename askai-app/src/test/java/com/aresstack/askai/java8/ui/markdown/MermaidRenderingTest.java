@@ -99,6 +99,66 @@ public class MermaidRenderingTest {
     }
 
     @Test
+    public void mermaidWrappedInAMarkdownFenceStillRendersADiagram() {
+        FlexmarkSwingRenderer renderer = renderer(new FakeMermaidImageRenderer());
+        String wrapped = "```markdown\n```mermaid\ngraph TD\nA-->B\n```\n```";
+        java.awt.Component rendered = renderer.render(wrapped, true);
+        assertTrue("nested mermaid must render a diagram",
+                MarkdownTestSupport.containsType(rendered, MermaidDiagramPanel.class));
+        assertFalse("the markdown wrapper must not remain a code block",
+                MarkdownTestSupport.containsType(rendered, CodeBlockPanel.class));
+    }
+
+    @Test
+    public void introTextPlusMermaidRendersBothParagraphAndDiagram() {
+        FlexmarkSwingRenderer renderer = renderer(new FakeMermaidImageRenderer());
+        String answer = "Here is a diagram:\n\n```mermaid\ngraph TD\nA-->B\n```";
+        java.awt.Component rendered = renderer.render(answer, true);
+        assertTrue(MarkdownTestSupport.containsType(rendered, WrappingTextPane.class));
+        assertTrue(MarkdownTestSupport.containsType(rendered, MermaidDiagramPanel.class));
+    }
+
+    @Test
+    public void aMarkdownFenceWithoutMermaidStaysACodeBlock() {
+        FlexmarkSwingRenderer renderer = renderer(new FakeMermaidImageRenderer());
+        String docExample = "```markdown\n# Heading\n\nSome **text**\n```";
+        java.awt.Component rendered = renderer.render(docExample, true);
+        assertTrue("a plain markdown demo stays code",
+                MarkdownTestSupport.containsType(rendered, CodeBlockPanel.class));
+        assertFalse(MarkdownTestSupport.containsType(rendered, MermaidDiagramPanel.class));
+    }
+
+    @Test
+    public void aJavaFenceIsNeverReinterpreted() {
+        FlexmarkSwingRenderer renderer = renderer(new FakeMermaidImageRenderer());
+        String java = "```java\nSystem.out.println(1);\n```";
+        java.awt.Component rendered = renderer.render(java, true);
+        assertTrue(MarkdownTestSupport.containsType(rendered, CodeBlockPanel.class));
+        assertFalse(MarkdownTestSupport.containsType(rendered, MermaidDiagramPanel.class));
+    }
+
+    @Test
+    public void nestedMarkdownWrapperStaysCodeWhileStreaming() {
+        FlexmarkSwingRenderer renderer = renderer(new FakeMermaidImageRenderer());
+        String wrapped = "```markdown\n```mermaid\ngraph TD\nA-->B\n```\n```";
+        java.awt.Component rendered = renderer.render(wrapped, false); // streaming
+        assertFalse("no diagram while streaming",
+                MarkdownTestSupport.containsType(rendered, MermaidDiagramPanel.class));
+        assertTrue(MarkdownTestSupport.containsType(rendered, CodeBlockPanel.class));
+    }
+
+    @Test
+    public void doublyNestedMarkdownDoesNotRecurseBeyondOneLevel() {
+        FlexmarkSwingRenderer renderer = renderer(new FakeMermaidImageRenderer());
+        // Outer markdown wraps an inner markdown that wraps mermaid: only one level is unwrapped, so the
+        // inner markdown stays a code block and no diagram is produced (and it must not loop forever).
+        String doublyNested = "````markdown\n```markdown\n```mermaid\ngraph TD\nA-->B\n```\n```\n````";
+        java.awt.Component rendered = renderer.render(doublyNested, true);
+        assertTrue(MarkdownTestSupport.containsType(rendered, CodeBlockPanel.class));
+        assertFalse(MarkdownTestSupport.containsType(rendered, MermaidDiagramPanel.class));
+    }
+
+    @Test
     public void diagramPanelExposesItsSourceForCopying() {
         MermaidDiagramPanel panel = new MermaidDiagramPanel(
                 "graph LR\nA-->B", MarkdownTheme.fromUiDefaults(), new FakeMermaidImageRenderer());
