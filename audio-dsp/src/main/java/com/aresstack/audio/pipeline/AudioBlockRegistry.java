@@ -39,6 +39,7 @@ public final class AudioBlockRegistry {
         register(parametricEqualizer());
         register(lowShelfEqualizer());
         register(highShelfEqualizer());
+        register(equalizer());
         register(voiceActivityDetection());
         register(speechGate());
         register(expander());
@@ -372,6 +373,40 @@ public final class AudioBlockRegistry {
                 new SimpleAudioBlockDescriptor.ProcessorFactory() {
                     public AudioBlockProcessor create() {
                         return AudioBlockProcessors.highShelfEqualizer();
+                    }
+                });
+    }
+
+    private static AudioBlockDescriptor equalizer() {
+        List<AudioParameterDescriptor> params = new ArrayList<AudioParameterDescriptor>();
+        params.add(AudioParameterDescriptor.decimal("lowShelfHz", "Low shelf (Hz)", 120.0d, 20.0d, 2000.0d, 10.0d));
+        params.add(AudioParameterDescriptor.decimal("lowShelfGainDb", "Low shelf gain (dB)",
+                0.0d, -24.0d, 24.0d, 0.5d));
+        params.add(AudioParameterDescriptor.decimal("midHz", "Mid frequency (Hz)", 1000.0d, 100.0d, 12000.0d, 10.0d));
+        params.add(AudioParameterDescriptor.decimal("midGainDb", "Mid gain (dB)", 0.0d, -24.0d, 24.0d, 0.5d));
+        params.add(AudioParameterDescriptor.decimal("midQ", "Mid Q", 1.0d, 0.1d, 24.0d, 0.1d));
+        params.add(AudioParameterDescriptor.decimal("highShelfHz", "High shelf (Hz)",
+                6000.0d, 1000.0d, 20000.0d, 100.0d));
+        params.add(AudioParameterDescriptor.decimal("highShelfGainDb", "High shelf gain (dB)",
+                0.0d, -24.0d, 24.0d, 0.5d));
+        params.add(AudioParameterDescriptor.decimal("gainDb", "Master gain (dB)", 0.0d, -24.0d, 24.0d, 0.5d));
+        params.add(AudioParameterDescriptor.bool("loudness", "Loudness (soft saturation)", false));
+        params.add(AudioParameterDescriptor.decimal("loudnessDriveDb", "Loudness drive (dB)",
+                0.0d, 0.0d, 24.0d, 0.5d));
+        params.add(AudioParameterDescriptor.decimal("peakCeilingDb", "Peak ceiling (dBFS)",
+                -0.5d, -12.0d, 0.0d, 0.5d));
+        return descriptor(AudioBlockType.EQUALIZER, AudioBlockCategory.FILTERS_EQ, params,
+                StaticBlockCapabilities.audioEffect(),
+                new SimpleAudioBlockDescriptor.ProcessorFactory() {
+                    public AudioBlockProcessor create() {
+                        return AudioBlockProcessors.equalizer();
+                    }
+                },
+                new SimpleAudioBlockDescriptor.Summarizer() {
+                    public String summarize(AudioBlockDefinition block) {
+                        String loud = block.getBooleanParameter("loudness", false)
+                                ? " · loudness +" + formatQ(block.getDoubleParameter("loudnessDriveDb", 0.0d)) : "";
+                        return "3-band · master " + formatDb(block.getDoubleParameter("gainDb", 0.0d)) + loud;
                     }
                 });
     }

@@ -17,6 +17,7 @@ public enum AudioBlockType {
     PARAMETRIC_EQ("Parametric Equalizer"),
     LOW_SHELF("Low-Shelf Equalizer"),
     HIGH_SHELF("High-Shelf Equalizer"),
+    EQUALIZER("Equalizer"),
     VOICE_ACTIVITY_DETECTION("Voice Activity Detection"),
     SPEECH_GATE("Speech Gate"),
     EXPANDER("Expander"),

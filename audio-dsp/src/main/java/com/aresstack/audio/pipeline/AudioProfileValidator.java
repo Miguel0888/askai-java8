@@ -123,6 +123,9 @@ public final class AudioProfileValidator {
                 case HIGH_SHELF:
                     validateEqBand(issues, block, "cutoffHz", currentRate, false, enabled);
                     break;
+                case EQUALIZER:
+                    validateEqualizer(issues, block, currentRate, enabled);
+                    break;
                 case VOICE_ACTIVITY_DETECTION:
                     validateVoiceActivity(issues, block, enabled);
                     break;
@@ -371,6 +374,30 @@ public final class AudioProfileValidator {
         } else if (Math.abs(gainDb) > 36.0d) {
             add(issues, block, enabled, AudioValidationSeverity.WARNING, "gainDb",
                     name + ": " + gainDb + " dB is an extreme equalizer gain.");
+        }
+    }
+
+    private void validateEqualizer(List<AudioProfileValidationIssue> issues, AudioBlockDefinition block,
+                                   int rate, boolean enabled) {
+        String name = block.getType().getDisplayName();
+        frequencyChecks(issues, block, enabled, name, "lowShelfHz", rate);
+        frequencyChecks(issues, block, enabled, name, "midHz", rate);
+        frequencyChecks(issues, block, enabled, name, "highShelfHz", rate);
+        finiteError(issues, block, enabled, name, "lowShelfGainDb", "Low shelf gain");
+        finiteError(issues, block, enabled, name, "midGainDb", "Mid gain");
+        finiteError(issues, block, enabled, name, "highShelfGainDb", "High shelf gain");
+        double midQ = block.getDoubleParameter("midQ", 1.0d);
+        if (!isFinite(midQ) || midQ <= 0.0d) {
+            add(issues, block, enabled, AudioValidationSeverity.ERROR, "midQ",
+                    name + ": the mid Q must be a finite value above 0.");
+        }
+        finiteError(issues, block, enabled, name, "gainDb", "Master gain");
+        nonNegativeError(issues, block, enabled, name, "loudnessDriveDb", "Loudness drive");
+        finiteError(issues, block, enabled, name, "peakCeilingDb", "Peak ceiling");
+        double master = block.getDoubleParameter("gainDb", 0.0d);
+        if (isFinite(master) && Math.abs(master) > 36.0d) {
+            add(issues, block, enabled, AudioValidationSeverity.WARNING, "gainDb",
+                    name + ": " + master + " dB is an extreme master gain.");
         }
     }
 

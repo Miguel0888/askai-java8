@@ -46,6 +46,8 @@ public final class AudioDspHelp {
                 "Boosts or cuts low frequencies below the selected cutoff with a smooth transition.");
         blocks.put(AudioBlockType.HIGH_SHELF,
                 "Boosts or cuts high frequencies above the selected cutoff with a smooth transition.");
+        blocks.put(AudioBlockType.EQUALIZER,
+                "A channel-strip equalizer: a low shelf, a parametric mid band and a high shelf for tone, plus a master gain and an optional loudness stage. Loudness folds the make-up gain into a soft saturation curve so the signal sounds louder and fuller while peaks are limited toward the ceiling instead of clipping.");
         blocks.put(AudioBlockType.VOICE_ACTIVITY_DETECTION,
                 "Analyzes the recording and marks which time frames probably contain speech. Later blocks can use this metadata to protect speech or trim silence.");
         blocks.put(AudioBlockType.SPEECH_GATE,
@@ -226,6 +228,15 @@ public final class AudioDspHelp {
         parameters.put("iterations", "Sets how many times the offline WPE filter is re-estimated. More iterations cost more CPU.");
         parameters.put("earlyReflectionPreservation", "Reduces processing of the early room response so direct speech remains natural.");
         parameters.put("blockSizeFrames", "Sets how many spectral frames are processed before a block-adaptive WPE filter update.");
+        parameters.put("lowShelfHz", "Sets the corner frequency of the low shelf. Frequencies below it are boosted or cut.");
+        parameters.put("lowShelfGainDb", "Boosts or cuts the low band. Zero leaves the low frequencies unchanged.");
+        parameters.put("midHz", "Sets the center frequency of the parametric mid band.");
+        parameters.put("midGainDb", "Boosts or cuts the mid band around its center frequency. Zero leaves it unchanged.");
+        parameters.put("midQ", "Sets the bandwidth of the mid band. Higher Q affects a narrower range of frequencies.");
+        parameters.put("highShelfHz", "Sets the corner frequency of the high shelf. Frequencies above it are boosted or cut.");
+        parameters.put("highShelfGainDb", "Boosts or cuts the high band. Zero leaves the high frequencies unchanged.");
+        parameters.put("loudness", "Enables a soft saturation loudness stage. It raises perceived loudness and limits peaks toward the ceiling instead of clipping, applying the master gain through the limiter.");
+        parameters.put("loudnessDriveDb", "Adds extra drive into the loudness saturation. More drive means a louder, denser sound with gentler peaks; it has no effect unless loudness is enabled.");
         PARAMETER_DESCRIPTIONS = Collections.unmodifiableMap(parameters);
 
         Map<String, String> contextual = new HashMap<String, String>();

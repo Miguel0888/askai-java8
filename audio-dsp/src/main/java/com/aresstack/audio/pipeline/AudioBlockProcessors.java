@@ -13,6 +13,7 @@ import com.aresstack.audio.dsp.HighPassFilterProcessor;
 import com.aresstack.audio.dsp.HighShelfEqualizerProcessor;
 import com.aresstack.audio.dsp.LimiterProcessor;
 import com.aresstack.audio.dsp.LowShelfEqualizerProcessor;
+import com.aresstack.audio.dsp.MasterEqualizerProcessor;
 import com.aresstack.audio.dsp.ChannelAligner;
 import com.aresstack.audio.dsp.ChannelDiagnostics;
 import com.aresstack.audio.dsp.DelayAndSumBeamformer;
@@ -219,6 +220,26 @@ final class AudioBlockProcessors {
         return inPlace(new Pcm16Factory() {
             public Pcm16Processor create(AudioBlockDefinition block) {
                 return new GainProcessor(block.getDoubleParameter("gainDb", 0.0d));
+            }
+        });
+    }
+
+    /** Channel-strip equalizer: 3-band tone shaping + master gain + optional loudness soft-saturation. */
+    static AudioBlockProcessor equalizer() {
+        return inPlace(new Pcm16Factory() {
+            public Pcm16Processor create(AudioBlockDefinition block) {
+                return new MasterEqualizerProcessor(
+                        block.getDoubleParameter("lowShelfHz", 120.0d),
+                        block.getDoubleParameter("lowShelfGainDb", 0.0d),
+                        block.getDoubleParameter("midHz", 1000.0d),
+                        block.getDoubleParameter("midGainDb", 0.0d),
+                        block.getDoubleParameter("midQ", 1.0d),
+                        block.getDoubleParameter("highShelfHz", 6000.0d),
+                        block.getDoubleParameter("highShelfGainDb", 0.0d),
+                        block.getDoubleParameter("gainDb", 0.0d),
+                        block.getBooleanParameter("loudness", false),
+                        block.getDoubleParameter("loudnessDriveDb", 0.0d),
+                        block.getDoubleParameter("peakCeilingDb", -0.5d));
             }
         });
     }
