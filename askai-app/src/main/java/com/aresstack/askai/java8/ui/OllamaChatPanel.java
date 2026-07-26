@@ -91,8 +91,6 @@ public final class OllamaChatPanel extends JPanel {
 
     /** Application-state keys under which the chat remembers its last selection. */
     private static final String STATE_LAST_MODEL = "chat.lastModel";
-    private static final String STATE_MODE = "chat.mode";
-    private static final String STATE_AGENT = "chat.agent";
     private static final String STATE_REASONING = "chat.reasoningEffort";
 
     private final AskAiModel model;
@@ -108,10 +106,14 @@ public final class OllamaChatPanel extends JPanel {
     private final JTextArea systemPromptArea;
     private final ChatTranscript transcript;
     private final ChatComposerPanel composer;
-    // The interaction mode shown on the composer's mode selector: "Yapping" (casual chat, default) or the
-    // name of the selected agent when in "Questing" mode. selectedAgent is null while yapping.
-    private String chatMode = "Yapping";
-    private String selectedAgent;
+    // The single source of truth for the interaction mode (Yapping/Questing) and the selected agent is the
+    // host WorkspaceModeController; this panel's composer selector only drives and reflects it.
+    private com.aresstack.askai.plugin.host.WorkspaceModeController modeController;
+    private final Runnable modeChangeListener = new Runnable() {
+        public void run() {
+            reflectMode();
+        }
+    };
     // Thinking effort ("off"/"low"/"medium"/"high"), only sent when the selected model supports thinking.
     private String reasoningEffort = "off";
     private boolean modelSupportsThinking;
@@ -278,17 +280,8 @@ public final class OllamaChatPanel extends JPanel {
         if (applicationState == null) {
             return;
         }
-        String mode = applicationState.get(STATE_MODE, YAPPING_MODE);
-        String agent = applicationState.get(STATE_AGENT, null);
-        if (YAPPING_MODE.equals(mode) || agent == null || agent.trim().isEmpty()) {
-            chatMode = YAPPING_MODE;
-            selectedAgent = null;
-        } else {
-            chatMode = mode;
-            selectedAgent = agent;
-        }
-        composer.setModeName(chatMode);
-
+        // Interaction mode / agent are owned by the WorkspaceModeController (set later); the composer label
+        // is driven from it via reflectMode(). Nothing about the mode is read or written here anymore.
         String effort = applicationState.get(STATE_REASONING, "off");
         reasoningEffort = isKnownReasoningLevel(effort) ? effort : "off";
         composer.setReasoningName(reasoningLabel(reasoningEffort));
@@ -724,58 +717,85 @@ public final class OllamaChatPanel extends JPanel {
     /** The default, casual chat mode label (a gamified name for "just talking"). */
     private static final String YAPPING_MODE = "Yapping";
 
+    /** Binds the existing composer mode selector to the shared host controller (single source of truth). */
+    public void setWorkspaceModeController(com.aresstack.askai.plugin.host.WorkspaceModeController controller) {
+        if (this.modeController != null) {
+            this.modeController.removeChangeListener(modeChangeListener);
+        }
+        this.modeController = controller;
+        if (controller != null) {
+            controller.addChangeListener(modeChangeListener);
+            reflectMode();
+        }
+    }
+
     /**
-     * The in-composer mode selector: "Yapping" is the default casual chat; "Questing" is the agent mode
-     * and carries a submenu of installed agents (none yet). Selecting an agent switches into that mode.
+     * The in-composer mode selector, driven entirely by the {@link com.aresstack.askai.plugin.host
+     * .WorkspaceModeController}: "Yapping" is the direct model chat; "Questing" carries a submenu of installed
+     * agents. Selecting an agent switches to Questing with that agent.
      */
     private void openModePopup() {
         javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
+        boolean questing = modeController != null
+                && com.aresstack.askai.plugin.host.WorkspaceModeEntry.QUESTING_ID
+                        .equals(modeController.getInteractionMode());
 
         javax.swing.JRadioButtonMenuItem yapping =
-                new javax.swing.JRadioButtonMenuItem(YAPPING_MODE, YAPPING_MODE.equals(chatMode));
-        yapping.addActionListener(event -> selectYappingMode());
+                new javax.swing.JRadioButtonMenuItem(YAPPING_MODE, !questing);
+        yapping.addActionListener(event -> {
+            if (modeController != null) {
+                modeController.setInteractionMode(
+                        com.aresstack.askai.plugin.host.WorkspaceModeEntry.YAPPING_ID);
+            }
+        });
         menu.add(yapping);
 
-        // "Questing" is a submenu (the arrow) listing the installed agents to run.
-        javax.swing.JMenu questing = new javax.swing.JMenu("Questing");
-        List<String> agents = installedAgentNames();
+        javax.swing.JMenu questingMenu = new javax.swing.JMenu("Questing");
+        List<com.aresstack.askai.plugin.host.WorkspaceModeEntry> agents = modeController == null
+                ? java.util.Collections.<com.aresstack.askai.plugin.host.WorkspaceModeEntry>emptyList()
+                : modeController.getAvailableAgents();
         if (agents.isEmpty()) {
             javax.swing.JMenuItem none = new javax.swing.JMenuItem("No agents installed");
             none.setEnabled(false);
-            questing.add(none);
+            questingMenu.add(none);
         } else {
-            for (final String agent : agents) {
-                javax.swing.JRadioButtonMenuItem item =
-                        new javax.swing.JRadioButtonMenuItem(agent, agent.equals(selectedAgent));
-                item.addActionListener(event -> selectAgentMode(agent));
-                questing.add(item);
+            String activeAgentId = modeController.getActiveAgentId();
+            for (final com.aresstack.askai.plugin.host.WorkspaceModeEntry agent : agents) {
+                javax.swing.JRadioButtonMenuItem item = new javax.swing.JRadioButtonMenuItem(
+                        agent.getDisplayName(), questing && agent.getId().equals(activeAgentId));
+                item.addActionListener(event -> {
+                    modeController.selectAgent(agent.getId());
+                    modeController.setInteractionMode(
+                            com.aresstack.askai.plugin.host.WorkspaceModeEntry.QUESTING_ID);
+                });
+                questingMenu.add(item);
             }
         }
-        menu.add(questing);
+        menu.add(questingMenu);
 
         JComponent anchor = composer.getModeButton();
         menu.show(anchor, 0, anchor.getHeight());
     }
 
-    /** @return the names of installed agents; empty until agent support ships. */
-    private List<String> installedAgentNames() {
-        return Collections.emptyList();
-    }
-
-    private void selectYappingMode() {
-        chatMode = YAPPING_MODE;
-        selectedAgent = null;
-        composer.setModeName(YAPPING_MODE);
-        rememberState(STATE_MODE, YAPPING_MODE);
-        rememberState(STATE_AGENT, null);
-    }
-
-    private void selectAgentMode(String agent) {
-        chatMode = agent;
-        selectedAgent = agent;
-        composer.setModeName(agent);
-        rememberState(STATE_MODE, agent);
-        rememberState(STATE_AGENT, agent);
+    /** Updates the composer's mode label from the controller (Yapping, or the active agent under Questing). */
+    private void reflectMode() {
+        if (modeController == null) {
+            return;
+        }
+        if (com.aresstack.askai.plugin.host.WorkspaceModeEntry.QUESTING_ID
+                .equals(modeController.getInteractionMode())) {
+            String agentId = modeController.getActiveAgentId();
+            String label = "Questing";
+            for (com.aresstack.askai.plugin.host.WorkspaceModeEntry agent : modeController.getAvailableAgents()) {
+                if (agent.getId().equals(agentId)) {
+                    label = agent.getDisplayName();
+                    break;
+                }
+            }
+            composer.setModeName(label);
+        } else {
+            composer.setModeName(YAPPING_MODE);
+        }
     }
 
     // ------------------------------------------------------------------ reasoning effort

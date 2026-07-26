@@ -225,6 +225,7 @@ public final class AskAiFrame extends JFrame {
      */
     private com.aresstack.askai.plugin.host.ChatWorkspaceHostPanel buildChatWorkspaceHost(
             OllamaChatPanel normalChat) {
+        migrateLegacyChatModeState();
         String override = System.getProperty("askai.pluginsDir");
         java.nio.file.Path pluginsRoot = override != null && override.trim().length() > 0
                 ? java.nio.file.Paths.get(override.trim())
@@ -259,7 +260,31 @@ public final class AskAiFrame extends JFrame {
         // workspaces can embed a reusable Yapping/Questing + agent selector bound to the same controller.
         hostContextFactory.setInteractionModeControlsFactory(
                 new com.aresstack.askai.plugin.host.DefaultInteractionModeControlsFactory(host));
+        // Controller = single source of truth: bind the existing chat composer selector to it.
+        normalChat.setWorkspaceModeController(host);
         return host;
+    }
+
+    /**
+     * One-time migration from the old chat.mode/chat.agent keys to the controller's chat.interactionMode/
+     * chat.questingAgentId. Runs only when the new keys are absent; old keys are then ignored.
+     */
+    private void migrateLegacyChatModeState() {
+        if (applicationState.get("chat.interactionMode", null) != null) {
+            return;
+        }
+        String oldMode = applicationState.get("chat.mode", null);
+        if (oldMode == null) {
+            return;
+        }
+        boolean questing = !"Yapping".equalsIgnoreCase(oldMode.trim());
+        applicationState.putAndSave("chat.interactionMode",
+                questing ? com.aresstack.askai.plugin.host.WorkspaceModeEntry.QUESTING_ID
+                        : com.aresstack.askai.plugin.host.WorkspaceModeEntry.YAPPING_ID);
+        String oldAgent = applicationState.get("chat.agent", null);
+        if (questing && oldAgent != null && oldAgent.trim().length() > 0) {
+            applicationState.putAndSave("chat.questingAgentId", oldAgent.trim());
+        }
     }
 
     /** Host version advertised to PF4J for a plugin's {@code Plugin-Requires} check. */
