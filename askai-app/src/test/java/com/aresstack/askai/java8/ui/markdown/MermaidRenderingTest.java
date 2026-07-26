@@ -2,6 +2,8 @@ package com.aresstack.askai.java8.ui.markdown;
 
 import org.junit.Test;
 
+import java.awt.datatransfer.DataFlavor;
+import java.awt.datatransfer.Transferable;
 import java.awt.image.BufferedImage;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -9,6 +11,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 /** Verify Mermaid detection, off-EDT rendering, error isolation and caching. */
@@ -93,5 +96,20 @@ public class MermaidRenderingTest {
         assertEquals("identical code+width rendered once", 1, delegateCalls.get());
         cache.render("graph LR\nA-->B", 900);
         assertEquals("different width rendered again", 2, delegateCalls.get());
+    }
+
+    @Test
+    public void diagramPanelExposesItsSourceForCopying() {
+        MermaidDiagramPanel panel = new MermaidDiagramPanel(
+                "graph LR\nA-->B", MarkdownTheme.fromUiDefaults(), new FakeMermaidImageRenderer());
+        assertEquals("graph LR\nA-->B", panel.getDiagramCode());
+    }
+
+    @Test
+    public void imageTransferableCarriesTheRenderedImage() throws Exception {
+        BufferedImage rendered = new BufferedImage(4, 3, BufferedImage.TYPE_INT_ARGB);
+        Transferable transferable = MermaidDiagramPanel.imageTransferable(rendered);
+        assertTrue(transferable.isDataFlavorSupported(DataFlavor.imageFlavor));
+        assertSame(rendered, transferable.getTransferData(DataFlavor.imageFlavor));
     }
 }
