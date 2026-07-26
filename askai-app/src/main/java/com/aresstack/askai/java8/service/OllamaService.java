@@ -78,7 +78,16 @@ public interface OllamaService {
     }
 
     interface ChatListener extends FailureListener {
+        /** A reasoning delta ({@code message.thinking}); default no-op for content-only listeners. */
+        default void onThinkingDelta(String delta) {
+        }
+
+        /** An answer delta ({@code message.content}). */
         void onContent(String content);
+
+        /** Tool calls emitted in a chunk; default no-op for listeners that ignore tools. */
+        default void onToolCalls(java.util.List<com.aresstack.askai.java8.client.OllamaToolCall> toolCalls) {
+        }
 
         void onStatus(String status);
 
@@ -93,11 +102,18 @@ public interface OllamaService {
         private final String modelName;
         private final String keepAlive;
         private final List<OllamaChatTurn> messages;
+        private final ThinkingOption thinking;
 
         public ChatRequest(String modelName, String keepAlive, List<OllamaChatTurn> messages) {
+            this(modelName, keepAlive, messages, ThinkingOption.defaultOption());
+        }
+
+        public ChatRequest(String modelName, String keepAlive, List<OllamaChatTurn> messages,
+                           ThinkingOption thinking) {
             this.modelName = modelName;
             this.keepAlive = keepAlive;
             this.messages = messages;
+            this.thinking = thinking == null ? ThinkingOption.defaultOption() : thinking;
         }
 
         public String getModelName() {
@@ -111,17 +127,46 @@ public interface OllamaService {
         public List<OllamaChatTurn> getMessages() {
             return messages;
         }
+
+        /** @return the typed thinking configuration (never null). */
+        public ThinkingOption getThinking() {
+            return thinking;
+        }
     }
 
     final class ChatResult {
+        private final String thinking;
         private final String fallbackText;
+        private final java.util.List<com.aresstack.askai.java8.client.OllamaToolCall> toolCalls;
         private final long evalCount;
         private final long evalDurationNanos;
 
         public ChatResult(String fallbackText, long evalCount, long evalDurationNanos) {
+            this("", fallbackText, java.util.Collections.<com.aresstack.askai.java8.client.OllamaToolCall>emptyList(),
+                    evalCount, evalDurationNanos);
+        }
+
+        public ChatResult(String thinking, String fallbackText,
+                          java.util.List<com.aresstack.askai.java8.client.OllamaToolCall> toolCalls,
+                          long evalCount, long evalDurationNanos) {
+            this.thinking = thinking == null ? "" : thinking;
             this.fallbackText = fallbackText == null ? "" : fallbackText;
+            this.toolCalls = toolCalls == null
+                    ? java.util.Collections.<com.aresstack.askai.java8.client.OllamaToolCall>emptyList()
+                    : java.util.Collections.unmodifiableList(
+                            new java.util.ArrayList<com.aresstack.askai.java8.client.OllamaToolCall>(toolCalls));
             this.evalCount = evalCount;
             this.evalDurationNanos = evalDurationNanos;
+        }
+
+        /** @return the full reasoning of this turn (empty when the model did not think). */
+        public String getThinking() {
+            return thinking;
+        }
+
+        /** @return the tool calls the assistant requested this turn (empty when none). */
+        public java.util.List<com.aresstack.askai.java8.client.OllamaToolCall> getToolCalls() {
+            return toolCalls;
         }
 
         public String getFallbackText() {

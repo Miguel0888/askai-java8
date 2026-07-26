@@ -19,26 +19,83 @@ public final class AppConfiguration {
     private final File modelDownloadDirectory;
     private final SpeechToTextConfiguration speechToTextConfiguration;
     private final String huggingFaceSearchSuggestions;
+    private final String huggingFaceSearchFilters;
+    private final ChatColorSettings chatColors;
 
     /**
      * Default HuggingFace search suggestions for the Install panel dropdown, curated for a 16 GB
-     * VRAM card. Mix of chat models (gpt-oss-20b fits in MXFP4; the rest comfortably at Q4/Q5) and
-     * audio-capable models for the speech-to-text feature (gemma-3n, voxtral, qwen3-asr, ultravox —
-     * plain llama/gemma/gpt-oss cannot take audio input). Format per line:
-     * {@code <term> | <modality>,<modality>} — see {@link HuggingFaceSearchSuggestion}.
+     * VRAM card. Format per line: {@code <term> | <modality>,<modality>} — see
+     * {@link HuggingFaceSearchSuggestion}.
+     *
+     * <p>An audio/vision tag here means a mainstream GGUF repository for that search actually ships
+     * the model's encoder (mmproj), so installing it from HuggingFace yields a working multimodal
+     * model. The audio entries are verified to include an mmproj: {@code voxtral-mini-3b}
+     * (ggml-org/Voxtral-Mini-3B-2507-GGUF) and {@code ultravox}
+     * (ggml-org/ultravox-v0_5-llama-3_1-8b-GGUF). Note: gemma-3n's common GGUF repos are
+     * language-only (no mmproj), so it is tagged text here; its audio/vision works via
+     * {@code ollama pull gemma3n:e4b}, not the single-file HuggingFace import.</p>
      */
     public static final String DEFAULT_HF_SEARCH_SUGGESTIONS =
-            "gpt-oss-20b | text\n"
+            "openai/gpt-oss-20b | text\n"
+                    + "LiquidAI/LFM2-24B-A2B | text\n"
+                    + "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct | text\n"
+                    + "unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF | text\n"
+                    + "unsloth/GLM-4.7-Flash-GGUF | text\n"
+                    + "mistralai/Devstral-Small-2-24B-Instruct-2512 | text\n"
                     + "llama-3.1-8b-instruct | text\n"
                     + "gemma-3-12b-it | text,vision\n"
                     + "qwen2.5-14b-instruct | text\n"
                     + "qwen2.5-coder-14b | text\n"
                     + "phi-4 | text\n"
                     + "mistral-nemo | text\n"
-                    + "gemma-3n-e4b | text,audio,vision\n"
+                    + "gemma-3n-e4b | text\n"
                     + "voxtral-mini-3b | text,audio\n"
-                    + "qwen3-asr | audio\n"
                     + "ultravox | text,audio";
+
+    // Earlier default suggestion lists that shipped inaccurate audio tags (e.g. gemma-3n as audio).
+    // A persisted list identical to one of these was never customized, so upgrade it to the current
+    // default instead of freezing the old, misleading tags.
+    private static final String[] LEGACY_HF_SEARCH_SUGGESTIONS = {
+            "gpt-oss-20b\nllama-3.1-8b-instruct\ngemma-3-12b-it\nqwen2.5-14b-instruct\n"
+                    + "qwen2.5-coder-14b\nphi-4\nmistral-nemo\ngemma-3n-e4b\nvoxtral-mini-3b\n"
+                    + "qwen3-asr\nultravox",
+            "gpt-oss-20b | text\nllama-3.1-8b-instruct | text\ngemma-3-12b-it | text,vision\n"
+                    + "qwen2.5-14b-instruct | text\nqwen2.5-coder-14b | text\nphi-4 | text\n"
+                    + "mistral-nemo | text\ngemma-3n-e4b | text,audio,vision\nvoxtral-mini-3b | text,audio\n"
+                    + "qwen3-asr | audio\nultravox | text,audio",
+            // The default list shipped just before the 16 GB additions (openai/gpt-oss-20b,
+            // LiquidAI/LFM2-24B-A2B, DeepSeek-Coder-V2-Lite, Qwen3-Coder-30B-A3B, GLM-4.7-Flash).
+            // An unchanged persisted copy of it should upgrade to the new defaults.
+            "gpt-oss-20b | text\nllama-3.1-8b-instruct | text\ngemma-3-12b-it | text,vision\n"
+                    + "qwen2.5-14b-instruct | text\nqwen2.5-coder-14b | text\nphi-4 | text\n"
+                    + "mistral-nemo | text\ngemma-3n-e4b | text\nvoxtral-mini-3b | text,audio\n"
+                    + "ultravox | text,audio",
+            // The default list shipped with the 16 GB additions but before Devstral was added.
+            "openai/gpt-oss-20b | text\nLiquidAI/LFM2-24B-A2B | text\n"
+                    + "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct | text\n"
+                    + "unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF | text\nunsloth/GLM-4.7-Flash-GGUF | text\n"
+                    + "llama-3.1-8b-instruct | text\ngemma-3-12b-it | text,vision\n"
+                    + "qwen2.5-14b-instruct | text\nqwen2.5-coder-14b | text\nphi-4 | text\n"
+                    + "mistral-nemo | text\ngemma-3n-e4b | text\nvoxtral-mini-3b | text,audio\n"
+                    + "ultravox | text,audio"
+    };
+
+    /**
+     * @return the current default when {@code raw} equals a superseded default list (silent
+     *         migration of the inaccurate audio/vision tags), otherwise {@code raw} unchanged.
+     */
+    public static String migrateSearchSuggestions(String raw) {
+        if (raw == null) {
+            return DEFAULT_HF_SEARCH_SUGGESTIONS;
+        }
+        String trimmed = raw.trim();
+        for (int i = 0; i < LEGACY_HF_SEARCH_SUGGESTIONS.length; i++) {
+            if (trimmed.equals(LEGACY_HF_SEARCH_SUGGESTIONS[i].trim())) {
+                return DEFAULT_HF_SEARCH_SUGGESTIONS;
+            }
+        }
+        return raw;
+    }
 
     public AppConfiguration(String ollamaBaseUrl, String keepAlive) {
         this(ollamaBaseUrl, keepAlive, ProxyConfiguration.defaults(),
@@ -72,7 +129,8 @@ public final class AppConfiguration {
                             String huggingFaceToken, File modelDownloadDirectory) {
         this(ollamaBaseUrl, keepAlive, proxyConfiguration, certificateTrustConfiguration,
                 httpClientConfiguration, defaultQuantization, huggingFaceToken, modelDownloadDirectory,
-                SpeechToTextConfiguration.defaults(), DEFAULT_HF_SEARCH_SUGGESTIONS);
+                SpeechToTextConfiguration.defaults(), DEFAULT_HF_SEARCH_SUGGESTIONS, "",
+                ChatColorSettings.defaults());
     }
 
     private AppConfiguration(String ollamaBaseUrl, String keepAlive, ProxyConfiguration proxyConfiguration,
@@ -80,7 +138,8 @@ public final class AppConfiguration {
                              HttpClientConfiguration httpClientConfiguration, String defaultQuantization,
                              String huggingFaceToken, File modelDownloadDirectory,
                              SpeechToTextConfiguration speechToTextConfiguration,
-                             String huggingFaceSearchSuggestions) {
+                             String huggingFaceSearchSuggestions, String huggingFaceSearchFilters,
+                             ChatColorSettings chatColors) {
         this.ollamaBaseUrl = normalizeBaseUrl(ollamaBaseUrl);
         this.keepAlive = keepAlive == null || keepAlive.trim().length() == 0 ? "5m" : keepAlive.trim();
         this.proxyConfiguration = proxyConfiguration == null ? ProxyConfiguration.defaults() : proxyConfiguration;
@@ -97,6 +156,10 @@ public final class AppConfiguration {
         this.huggingFaceSearchSuggestions = huggingFaceSearchSuggestions == null
                 || huggingFaceSearchSuggestions.trim().length() == 0
                 ? DEFAULT_HF_SEARCH_SUGGESTIONS : huggingFaceSearchSuggestions;
+        // Empty means "use the first-run defaults" — SearchFilterState.deserialize("") yields them;
+        // stored opaquely here to keep the config package free of a dependency on the hf package.
+        this.huggingFaceSearchFilters = huggingFaceSearchFilters == null ? "" : huggingFaceSearchFilters;
+        this.chatColors = chatColors == null ? ChatColorSettings.defaults() : chatColors;
     }
 
     /**
@@ -106,7 +169,8 @@ public final class AppConfiguration {
     public AppConfiguration withSpeechToTextConfiguration(SpeechToTextConfiguration configuration) {
         return new AppConfiguration(ollamaBaseUrl, keepAlive, proxyConfiguration,
                 certificateTrustConfiguration, httpClientConfiguration, defaultQuantization,
-                huggingFaceToken, modelDownloadDirectory, configuration, huggingFaceSearchSuggestions);
+                huggingFaceToken, modelDownloadDirectory, configuration, huggingFaceSearchSuggestions,
+                huggingFaceSearchFilters, chatColors);
     }
 
     /**
@@ -116,7 +180,27 @@ public final class AppConfiguration {
     public AppConfiguration withHuggingFaceSearchSuggestions(String suggestions) {
         return new AppConfiguration(ollamaBaseUrl, keepAlive, proxyConfiguration,
                 certificateTrustConfiguration, httpClientConfiguration, defaultQuantization,
-                huggingFaceToken, modelDownloadDirectory, speechToTextConfiguration, suggestions);
+                huggingFaceToken, modelDownloadDirectory, speechToTextConfiguration, suggestions,
+                huggingFaceSearchFilters, chatColors);
+    }
+
+    /**
+     * @return a copy of this configuration with the given serialized HuggingFace search-filter
+     *         selection (see {@code SearchFilterState}); empty means the first-run defaults.
+     */
+    public AppConfiguration withHuggingFaceSearchFilters(String filters) {
+        return new AppConfiguration(ollamaBaseUrl, keepAlive, proxyConfiguration,
+                certificateTrustConfiguration, httpClientConfiguration, defaultQuantization,
+                huggingFaceToken, modelDownloadDirectory, speechToTextConfiguration,
+                huggingFaceSearchSuggestions, filters, chatColors);
+    }
+
+    /** @return a copy of this configuration with the given chat bubble colors. */
+    public AppConfiguration withChatColors(ChatColorSettings colors) {
+        return new AppConfiguration(ollamaBaseUrl, keepAlive, proxyConfiguration,
+                certificateTrustConfiguration, httpClientConfiguration, defaultQuantization,
+                huggingFaceToken, modelDownloadDirectory, speechToTextConfiguration,
+                huggingFaceSearchSuggestions, huggingFaceSearchFilters, colors);
     }
 
     public static AppConfiguration defaults() {
@@ -151,9 +235,18 @@ public final class AppConfiguration {
         return speechToTextConfiguration;
     }
 
+    public ChatColorSettings getChatColors() {
+        return chatColors;
+    }
+
     /** @return the raw newline-separated suggestion list, as persisted. */
     public String getHuggingFaceSearchSuggestionsRaw() {
         return huggingFaceSearchSuggestions;
+    }
+
+    /** @return the serialized HuggingFace search-filter selection, or "" for first-run defaults. */
+    public String getHuggingFaceSearchFilters() {
+        return huggingFaceSearchFilters;
     }
 
     /** @return the parsed HuggingFace search suggestions for the Install panel dropdown, in order. */

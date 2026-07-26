@@ -1,0 +1,37 @@
+// Isolated OpenAL Soft playback backend (LWJGL). Swing/AWT-free and free of any askai dependency:
+// it only knows PCM samples, device specifiers and formats. On Windows OpenAL Soft routes through
+// WASAPI, which — unlike Java's built-in DirectSound lines — opens dedicated endpoints such as the
+// Sound Blaster AE-7. Only lwjgl, lwjgl-openal and the Windows x64 natives are pulled in.
+apply plugin: 'java-library'
+
+def lwjglVersion = '3.3.3'
+
+dependencies {
+    // Java bindings only. The native DLLs are deliberately NOT bundled: OpenAL is a last-resort,
+    // opt-in backend whose natives are installed later into %APPDATA%/.askai*/addons/audio-openal and
+    // loaded via org.lwjgl.librarypath. This keeps the shipped fat JAR free of any native binaries.
+    api "org.lwjgl:lwjgl:$lwjglVersion"
+    api "org.lwjgl:lwjgl-openal:$lwjglVersion"
+    testImplementation 'junit:junit:4.13.2'
+}
+
+// A separate, non-shipped configuration so the Windows x64 natives can be assembled into an
+// installable add-on directory on demand, without ever landing on the runtime/fat-JAR classpath.
+configurations {
+    openAlNatives
+}
+
+dependencies {
+    openAlNatives "org.lwjgl:lwjgl:$lwjglVersion:natives-windows"
+    openAlNatives "org.lwjgl:lwjgl-openal:$lwjglVersion:natives-windows"
+}
+
+task assembleOpenAlAddon(type: Copy) {
+    group = 'distribution'
+    description = 'Extract the LWJGL/OpenAL Windows x64 native DLLs into build/openal-addon for opt-in install.'
+    from { configurations.openAlNatives.collect { zipTree(it) } }
+    include '**/*.dll'
+    eachFile { it.path = it.name } // flatten to bare lwjgl.dll / OpenAL.dll
+    includeEmptyDirs = false
+    into layout.buildDirectory.dir('openal-addon')
+}

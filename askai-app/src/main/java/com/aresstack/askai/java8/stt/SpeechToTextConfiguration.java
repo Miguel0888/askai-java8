@@ -1,5 +1,7 @@
 package com.aresstack.askai.java8.stt;
 
+import com.aresstack.audio.pipeline.AudioProcessingProfiles;
+
 /**
  * Persisted speech-to-text settings. The backend is an extension point: only
  * {@link Backend#OLLAMA} exists today (the OpenAI-compatible {@code /v1/audio/transcriptions}
@@ -14,6 +16,7 @@ public final class SpeechToTextConfiguration {
 
     public static final int DEFAULT_MAX_FILE_SIZE_MB = 200;
     public static final int DEFAULT_TIMEOUT_SECONDS = 600;
+    public static final String DEFAULT_AUDIO_PROCESSING_PROFILE_ID = AudioProcessingProfiles.DEFAULT_PROFILE_ID;
 
     private final boolean enabled;
     private final Backend backend;
@@ -22,9 +25,30 @@ public final class SpeechToTextConfiguration {
     private final String prompt;
     private final int maxFileSizeMb;
     private final int timeoutSeconds;
+    // Dictation additions:
+    private final String microphoneDeviceId;   // "" = system default
+    private final boolean audioModelAutomatic;  // pick a verified audio model automatically
+    private final String lastAudioModel;        // last model that transcribed successfully (preferred)
+    private final String audioProcessingProfileId;
 
     public SpeechToTextConfiguration(boolean enabled, Backend backend, String modelName, String language,
                                      String prompt, int maxFileSizeMb, int timeoutSeconds) {
+        this(enabled, backend, modelName, language, prompt, maxFileSizeMb, timeoutSeconds, "", true, "",
+                DEFAULT_AUDIO_PROCESSING_PROFILE_ID);
+    }
+
+    public SpeechToTextConfiguration(boolean enabled, Backend backend, String modelName, String language,
+                                     String prompt, int maxFileSizeMb, int timeoutSeconds,
+                                     String microphoneDeviceId, boolean audioModelAutomatic, String lastAudioModel) {
+        this(enabled, backend, modelName, language, prompt, maxFileSizeMb, timeoutSeconds,
+                microphoneDeviceId, audioModelAutomatic, lastAudioModel,
+                DEFAULT_AUDIO_PROCESSING_PROFILE_ID);
+    }
+
+    public SpeechToTextConfiguration(boolean enabled, Backend backend, String modelName, String language,
+                                     String prompt, int maxFileSizeMb, int timeoutSeconds,
+                                     String microphoneDeviceId, boolean audioModelAutomatic, String lastAudioModel,
+                                     String audioProcessingProfileId) {
         this.enabled = enabled;
         this.backend = backend == null ? Backend.OLLAMA : backend;
         this.modelName = modelName == null ? "" : modelName.trim();
@@ -32,12 +56,19 @@ public final class SpeechToTextConfiguration {
         this.prompt = prompt == null ? "" : prompt.trim();
         this.maxFileSizeMb = maxFileSizeMb > 0 ? maxFileSizeMb : DEFAULT_MAX_FILE_SIZE_MB;
         this.timeoutSeconds = timeoutSeconds > 0 ? timeoutSeconds : DEFAULT_TIMEOUT_SECONDS;
+        this.microphoneDeviceId = microphoneDeviceId == null ? "" : microphoneDeviceId;
+        this.audioModelAutomatic = audioModelAutomatic;
+        this.lastAudioModel = lastAudioModel == null ? "" : lastAudioModel.trim();
+        this.audioProcessingProfileId = audioProcessingProfileId == null
+                || audioProcessingProfileId.trim().isEmpty()
+                ? DEFAULT_AUDIO_PROCESSING_PROFILE_ID : audioProcessingProfileId.trim();
     }
 
     /** Enabled by default with no dedicated model: the chat panel then falls back to the chat model. */
     public static SpeechToTextConfiguration defaults() {
         return new SpeechToTextConfiguration(true, Backend.OLLAMA, "", "auto", "",
-                DEFAULT_MAX_FILE_SIZE_MB, DEFAULT_TIMEOUT_SECONDS);
+                DEFAULT_MAX_FILE_SIZE_MB, DEFAULT_TIMEOUT_SECONDS, "", true, "",
+                DEFAULT_AUDIO_PROCESSING_PROFILE_ID);
     }
 
     public boolean isEnabled() {
@@ -68,6 +99,56 @@ public final class SpeechToTextConfiguration {
 
     public int getTimeoutSeconds() {
         return timeoutSeconds;
+    }
+
+    /** @return the selected capture device id, or "" for the system default microphone. */
+    public String getMicrophoneDeviceId() {
+        return microphoneDeviceId;
+    }
+
+    /** @return whether an audio model should be picked automatically (verified via /api/show). */
+    public boolean isAudioModelAutomatic() {
+        return audioModelAutomatic;
+    }
+
+    /** @return the last model that transcribed successfully (preferred by automatic selection). */
+    public String getLastAudioModel() {
+        return lastAudioModel;
+    }
+
+    /** @return the reusable audio-processing profile selected for transcription input. */
+    public String getAudioProcessingProfileId() {
+        return audioProcessingProfileId;
+    }
+
+    public SpeechToTextConfiguration withModelName(String value) {
+        return new SpeechToTextConfiguration(enabled, backend, value, language, prompt, maxFileSizeMb,
+                timeoutSeconds, microphoneDeviceId, audioModelAutomatic, lastAudioModel,
+                audioProcessingProfileId);
+    }
+
+    public SpeechToTextConfiguration withMicrophoneDeviceId(String value) {
+        return new SpeechToTextConfiguration(enabled, backend, modelName, language, prompt, maxFileSizeMb,
+                timeoutSeconds, value, audioModelAutomatic, lastAudioModel,
+                audioProcessingProfileId);
+    }
+
+    public SpeechToTextConfiguration withAudioModelAutomatic(boolean value) {
+        return new SpeechToTextConfiguration(enabled, backend, modelName, language, prompt, maxFileSizeMb,
+                timeoutSeconds, microphoneDeviceId, value, lastAudioModel,
+                audioProcessingProfileId);
+    }
+
+    public SpeechToTextConfiguration withLastAudioModel(String value) {
+        return new SpeechToTextConfiguration(enabled, backend, modelName, language, prompt, maxFileSizeMb,
+                timeoutSeconds, microphoneDeviceId, audioModelAutomatic, value,
+                audioProcessingProfileId);
+    }
+
+
+    public SpeechToTextConfiguration withAudioProcessingProfileId(String value) {
+        return new SpeechToTextConfiguration(enabled, backend, modelName, language, prompt, maxFileSizeMb,
+                timeoutSeconds, microphoneDeviceId, audioModelAutomatic, lastAudioModel, value);
     }
 
     public static Backend parseBackend(String value) {

@@ -1,60 +1,74 @@
 package com.aresstack.askai.java8.ui;
 
-import javax.swing.JScrollPane;
-import javax.swing.JTextPane;
-import javax.swing.text.BadLocationException;
-import javax.swing.text.SimpleAttributeSet;
-import javax.swing.text.StyleConstants;
-import javax.swing.text.StyledDocument;
-import java.awt.Color;
-import java.awt.Font;
+import com.aresstack.askai.java8.config.ChatColorSettings;
+import com.aresstack.askai.java8.ui.bubble.BubblePalette;
+import com.aresstack.askai.java8.ui.bubble.BubbleTranscriptPanel;
+
+import javax.swing.JComponent;
 
 /**
  * Scrollable, role-styled conversation transcript for the chat window.
  *
- * <p>Backed by a {@link JTextPane} so streamed tokens can be appended cheaply, text
- * stays selectable/copyable, and long messages wrap automatically. User turns are
- * right-aligned in blue, assistant turns left-aligned in green, system/info notes are
- * muted and centered.</p>
+ * <p>A thin adapter over {@link BubbleTranscriptPanel}: user turns render as right-aligned speech
+ * bubbles pointing to the centre, assistant turns as left-aligned bubbles, and system/info notes as
+ * muted centred lines. The bubble text lives in transparent text areas so it stays selectable and
+ * copyable. Streamed tokens append into the active assistant bubble.</p>
+ *
+ * <p>All mutating methods must be called on the Swing Event Dispatch Thread (the panel enforces this).
+ * The existing callers already dispatch through {@code invokeLater}, so that contract holds.</p>
  */
 final class ChatTranscript {
 
-    private static final Color USER_COLOR = new Color(0x1565C0);
-    private static final Color ASSISTANT_COLOR = new Color(0x2E7D32);
-    private static final Color INFO_COLOR = new Color(0x757575);
-
-    private final JTextPane pane;
-    private final JScrollPane scrollPane;
+    private final BubbleTranscriptPanel panel;
 
     ChatTranscript() {
-        this.pane = new JTextPane();
-        this.pane.setEditable(false);
-        this.pane.setBorder(javax.swing.BorderFactory.createEmptyBorder(8, 12, 8, 12));
-        this.scrollPane = new JScrollPane(pane);
-        this.scrollPane.getVerticalScrollBar().setUnitIncrement(16);
+        this.panel = new BubbleTranscriptPanel(BubblePalette.windowsPhoneInspired());
     }
 
-    JScrollPane getComponent() {
-        return scrollPane;
+    JComponent getComponent() {
+        return panel;
+    }
+
+    /** Applies the user-chosen chat colors, keeping the default activity/failure/info colors. */
+    void applyColors(ChatColorSettings colors) {
+        panel.applyPalette(paletteFrom(colors));
+    }
+
+    /** Maps the adjustable chat colors onto a full bubble palette (activity/failure/info stay default). */
+    static BubblePalette paletteFrom(ChatColorSettings colors) {
+        BubblePalette defaults = BubblePalette.windowsPhoneInspired();
+        if (colors == null) {
+            return defaults;
+        }
+        return new BubblePalette(
+                colors.getTranscriptBackground(),
+                colors.getUserBackground(),
+                colors.getUserForeground(),
+                colors.getAssistantBackground(),
+                colors.getAssistantForeground(),
+                defaults.getActivityBackground(),
+                defaults.getActivityForeground(),
+                defaults.getActivityAccent(),
+                defaults.getFailureAccent(),
+                defaults.getInfoForeground());
     }
 
     void clear() {
-        pane.setText("");
+        panel.clear();
     }
 
     boolean isEmpty() {
-        return pane.getDocument().getLength() == 0;
+        return panel.isEmpty();
     }
 
     /** Appends a finished user message. */
     void appendUser(String text) {
-        appendHeader("You", USER_COLOR, StyleConstants.ALIGN_RIGHT);
-        appendBody(text + "\n\n", USER_COLOR, StyleConstants.ALIGN_RIGHT);
+        panel.appendUserMessage(text);
     }
 
     /** Appends a muted, centered info/system line. */
     void appendInfo(String text) {
-        appendBody(text + "\n\n", INFO_COLOR, StyleConstants.ALIGN_CENTER, true);
+        panel.appendInfo(text);
     }
 
     /**
@@ -62,52 +76,59 @@ final class ChatTranscript {
      * Subsequent {@link #appendAssistantDelta(String)} calls append into this message.
      */
     void startAssistant(String header) {
-        appendHeader(header, ASSISTANT_COLOR, StyleConstants.ALIGN_LEFT);
+        panel.startAssistantMessage(header);
     }
 
     void appendAssistantDelta(String delta) {
-        appendBody(delta, null, StyleConstants.ALIGN_LEFT);
+        panel.appendAssistantDelta(delta);
     }
 
     void finishAssistant() {
-        appendBody("\n\n", null, StyleConstants.ALIGN_LEFT);
+        panel.finishAssistantMessage();
     }
 
-    private void appendHeader(String text, Color color, int alignment) {
-        SimpleAttributeSet attrs = new SimpleAttributeSet();
-        StyleConstants.setBold(attrs, true);
-        StyleConstants.setForeground(attrs, color);
-        StyleConstants.setFontSize(attrs, 11);
-        insert(text + "\n", attrs, alignment);
+    // ------------------------------------------------------------------ agent activity
+
+    /**
+     * Starts a temporary agent-activity ("thought") bubble showing a visible activity summary — not
+     * internal chain-of-thought. Keep the returned handle to update or finish exactly this activity.
+     */
+    BubbleTranscriptPanel.AgentActivityHandle startAgentActivity(String title, String explanation) {
+        return panel.startAgentActivity(title, explanation);
     }
 
-    private void appendBody(String text, Color color, int alignment) {
-        appendBody(text, color, alignment, false);
+    void updateAgentActivity(BubbleTranscriptPanel.AgentActivityHandle handle, String title, String explanation) {
+        panel.updateAgentActivity(handle, title, explanation);
     }
 
-    private void appendBody(String text, Color color, int alignment, boolean italic) {
-        SimpleAttributeSet attrs = new SimpleAttributeSet();
-        if (color != null) {
-            StyleConstants.setForeground(attrs, color);
-        }
-        StyleConstants.setItalic(attrs, italic);
-        StyleConstants.setFontSize(attrs, 13);
-        StyleConstants.setFontFamily(attrs, Font.SANS_SERIF);
-        insert(text, attrs, alignment);
+    /** Plays the burst + rising-summary animation, then removes the activity row. */
+    void completeAgentActivity(BubbleTranscriptPanel.AgentActivityHandle handle, String summary) {
+        panel.completeAgentActivity(handle, summary);
     }
 
-    private void insert(String text, SimpleAttributeSet attrs, int alignment) {
-        StyledDocument doc = pane.getStyledDocument();
-        int start = doc.getLength();
-        try {
-            doc.insertString(start, text, attrs);
-        } catch (BadLocationException ex) {
-            return;
-        }
-        SimpleAttributeSet paragraph = new SimpleAttributeSet();
-        StyleConstants.setAlignment(paragraph, alignment);
-        StyleConstants.setSpaceBelow(paragraph, 2f);
-        doc.setParagraphAttributes(start, text.length(), paragraph, false);
-        pane.setCaretPosition(doc.getLength());
+    // ------------------------------------------------------------------ assistant thinking
+
+    BubbleTranscriptPanel.ThinkingHandle startAssistantThinking(String modelName) {
+        return panel.startAssistantThinking(modelName);
+    }
+
+    void appendAssistantThinkingDelta(BubbleTranscriptPanel.ThinkingHandle handle, String delta) {
+        panel.appendAssistantThinkingDelta(handle, delta);
+    }
+
+    void completeAssistantThinking(BubbleTranscriptPanel.ThinkingHandle handle, String summary) {
+        panel.completeAssistantThinking(handle, summary);
+    }
+
+    void cancelAssistantThinking(BubbleTranscriptPanel.ThinkingHandle handle, String summary) {
+        panel.cancelAssistantThinking(handle, summary);
+    }
+
+    void failAgentActivity(BubbleTranscriptPanel.AgentActivityHandle handle, String summary) {
+        panel.failAgentActivity(handle, summary);
+    }
+
+    void cancelAgentActivity(BubbleTranscriptPanel.AgentActivityHandle handle, String summary) {
+        panel.cancelAgentActivity(handle, summary);
     }
 }

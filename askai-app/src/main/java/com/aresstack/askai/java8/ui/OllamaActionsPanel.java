@@ -19,6 +19,7 @@ import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
 import java.awt.BorderLayout;
 import java.awt.Color;
+import java.awt.FlowLayout;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.GridLayout;
@@ -120,11 +121,32 @@ public final class OllamaActionsPanel extends JPanel {
                 BorderFactory.createTitledBorder(action.getTitle()),
                 BorderFactory.createEmptyBorder(8, 8, 8, 8)));
         JLabel body = new JLabel("<html>" + action.getDescription() + "</html>");
-        JButton button = new JButton("Run");
-        button.addActionListener(event -> run(action.getId()));
         panel.add(body, BorderLayout.CENTER);
-        panel.add(button, BorderLayout.SOUTH);
+
+        if (action.isAvailable()) {
+            JButton button = new JButton("Run");
+            button.addActionListener(event -> run(action.getId()));
+            panel.add(button, BorderLayout.SOUTH);
+        } else {
+            // Not wired yet: don't offer a Run button that would only fail after the click; label the
+            // card as experimental so it doesn't read as a usable feature.
+            panel.add(experimentalBadge(), BorderLayout.SOUTH);
+            body.setForeground(new Color(0x9E, 0x9E, 0x9E));
+        }
         return panel;
+    }
+
+    /** A muted "not available yet" chip, matching the badge style used on model cards. */
+    private static JComponent experimentalBadge() {
+        JLabel badge = new JLabel("Experimental — not available yet");
+        badge.setOpaque(true);
+        badge.setForeground(Color.WHITE);
+        badge.setBackground(new Color(0x90, 0x90, 0x90));
+        badge.setBorder(BorderFactory.createEmptyBorder(3, 8, 3, 8));
+        JPanel wrap = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        wrap.setOpaque(false);
+        wrap.add(badge);
+        return wrap;
     }
 
     private void run(String actionId) {

@@ -25,6 +25,7 @@ public final class AppConfigurationRepository {
     private static final String HF_TOKEN = "huggingface.token";
     private static final String DOWNLOAD_DIRECTORY = "huggingface.downloadDirectory";
     private static final String HF_SEARCH_SUGGESTIONS = "huggingface.searchSuggestions";
+    private static final String HF_SEARCH_FILTERS = "huggingface.searchFilters";
     private static final String TRUST_JVM_DEFAULT = "trust.jvmDefault";
     private static final String TRUST_WINDOWS_ROOT = "trust.windowsRoot";
     private static final String TRUST_WINDOWS_CA_STORES = "trust.windowsCaStores";
@@ -40,6 +41,15 @@ public final class AppConfigurationRepository {
     private static final String STT_PROMPT = "stt.prompt";
     private static final String STT_MAX_FILE_SIZE_MB = "stt.maxFileSizeMb";
     private static final String STT_TIMEOUT_SECONDS = "stt.timeoutSeconds";
+    private static final String STT_MIC_DEVICE_ID = "stt.microphoneDeviceId";
+    private static final String STT_AUDIO_MODEL_AUTOMATIC = "stt.audioModelAutomatic";
+    private static final String STT_LAST_AUDIO_MODEL = "stt.lastAudioModel";
+    private static final String STT_AUDIO_PROFILE = "stt.audioProcessingProfile";
+    private static final String CHAT_COLOR_TRANSCRIPT_BG = "chat.color.transcriptBackground";
+    private static final String CHAT_COLOR_USER_BG = "chat.color.userBackground";
+    private static final String CHAT_COLOR_USER_FG = "chat.color.userForeground";
+    private static final String CHAT_COLOR_ASSISTANT_BG = "chat.color.assistantBackground";
+    private static final String CHAT_COLOR_ASSISTANT_FG = "chat.color.assistantForeground";
 
     private final File configurationFile;
 
@@ -72,7 +82,24 @@ public final class AppConfigurationRepository {
                     parseInt(properties.getProperty(STT_MAX_FILE_SIZE_MB,
                             String.valueOf(defaultStt.getMaxFileSizeMb()))),
                     parseInt(properties.getProperty(STT_TIMEOUT_SECONDS,
-                            String.valueOf(defaultStt.getTimeoutSeconds()))));
+                            String.valueOf(defaultStt.getTimeoutSeconds()))),
+                    properties.getProperty(STT_MIC_DEVICE_ID, defaultStt.getMicrophoneDeviceId()),
+                    parseBoolean(properties.getProperty(STT_AUDIO_MODEL_AUTOMATIC),
+                            defaultStt.isAudioModelAutomatic()),
+                    properties.getProperty(STT_LAST_AUDIO_MODEL, defaultStt.getLastAudioModel()),
+                    properties.getProperty(STT_AUDIO_PROFILE, defaultStt.getAudioProcessingProfileId()));
+            ChatColorSettings defaultColors = defaults.getChatColors();
+            ChatColorSettings chatColors = new ChatColorSettings(
+                    ChatColorSettings.parseHex(properties.getProperty(CHAT_COLOR_TRANSCRIPT_BG),
+                            defaultColors.getTranscriptBackground()),
+                    ChatColorSettings.parseHex(properties.getProperty(CHAT_COLOR_USER_BG),
+                            defaultColors.getUserBackground()),
+                    ChatColorSettings.parseHex(properties.getProperty(CHAT_COLOR_USER_FG),
+                            defaultColors.getUserForeground()),
+                    ChatColorSettings.parseHex(properties.getProperty(CHAT_COLOR_ASSISTANT_BG),
+                            defaultColors.getAssistantBackground()),
+                    ChatColorSettings.parseHex(properties.getProperty(CHAT_COLOR_ASSISTANT_FG),
+                            defaultColors.getAssistantForeground()));
             return new AppConfiguration(
                     properties.getProperty(OLLAMA_BASE_URL, defaults.getOllamaBaseUrl()),
                     properties.getProperty(KEEP_ALIVE, defaults.getKeepAlive()),
@@ -98,8 +125,11 @@ public final class AppConfigurationRepository {
                     properties.getProperty(HF_TOKEN, ""),
                     new File(properties.getProperty(DOWNLOAD_DIRECTORY, defaults.getModelDownloadDirectory().getAbsolutePath())))
                     .withSpeechToTextConfiguration(stt)
-                    .withHuggingFaceSearchSuggestions(properties.getProperty(
-                            HF_SEARCH_SUGGESTIONS, AppConfiguration.DEFAULT_HF_SEARCH_SUGGESTIONS));
+                    .withHuggingFaceSearchSuggestions(AppConfiguration.migrateSearchSuggestions(
+                            properties.getProperty(HF_SEARCH_SUGGESTIONS,
+                                    AppConfiguration.DEFAULT_HF_SEARCH_SUGGESTIONS)))
+                    .withHuggingFaceSearchFilters(properties.getProperty(HF_SEARCH_FILTERS, ""))
+                    .withChatColors(chatColors);
         } catch (IOException ex) {
             return AppConfiguration.defaults();
         } finally {
@@ -141,9 +171,20 @@ public final class AppConfigurationRepository {
         properties.setProperty(STT_PROMPT, stt.getPrompt());
         properties.setProperty(STT_MAX_FILE_SIZE_MB, String.valueOf(stt.getMaxFileSizeMb()));
         properties.setProperty(STT_TIMEOUT_SECONDS, String.valueOf(stt.getTimeoutSeconds()));
+        properties.setProperty(STT_MIC_DEVICE_ID, stt.getMicrophoneDeviceId());
+        properties.setProperty(STT_AUDIO_MODEL_AUTOMATIC, String.valueOf(stt.isAudioModelAutomatic()));
+        properties.setProperty(STT_LAST_AUDIO_MODEL, stt.getLastAudioModel());
+        properties.setProperty(STT_AUDIO_PROFILE, stt.getAudioProcessingProfileId());
         properties.setProperty(HF_TOKEN, configuration.getHuggingFaceToken());
         properties.setProperty(DOWNLOAD_DIRECTORY, configuration.getModelDownloadDirectory().getAbsolutePath());
         properties.setProperty(HF_SEARCH_SUGGESTIONS, configuration.getHuggingFaceSearchSuggestionsRaw());
+        properties.setProperty(HF_SEARCH_FILTERS, configuration.getHuggingFaceSearchFilters());
+        ChatColorSettings colors = configuration.getChatColors();
+        properties.setProperty(CHAT_COLOR_TRANSCRIPT_BG, ChatColorSettings.toHex(colors.getTranscriptBackground()));
+        properties.setProperty(CHAT_COLOR_USER_BG, ChatColorSettings.toHex(colors.getUserBackground()));
+        properties.setProperty(CHAT_COLOR_USER_FG, ChatColorSettings.toHex(colors.getUserForeground()));
+        properties.setProperty(CHAT_COLOR_ASSISTANT_BG, ChatColorSettings.toHex(colors.getAssistantBackground()));
+        properties.setProperty(CHAT_COLOR_ASSISTANT_FG, ChatColorSettings.toHex(colors.getAssistantForeground()));
         FileOutputStream outputStream = null;
         try {
             outputStream = new FileOutputStream(configurationFile);

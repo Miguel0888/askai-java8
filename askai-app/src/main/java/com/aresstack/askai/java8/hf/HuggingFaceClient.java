@@ -29,7 +29,7 @@ import java.util.regex.Pattern;
 
 import javax.net.ssl.HttpsURLConnection;
 
-public final class HuggingFaceClient {
+public final class HuggingFaceClient implements HuggingFaceSearchGateway {
 
     // Probed in order; the last one (the JSON API) decides overall success. The bare site is probed
     // first so an HTML/policy page there can be compared against the API's JSON response.
@@ -526,9 +526,99 @@ public final class HuggingFaceClient {
         return value == null ? "" : value;
     }
 
-    public List<HuggingFaceModel> searchModels(String query, int limit) throws IOException {
-        String url = "https://huggingface.co/api/models?search=" + encode(query) + "&filter=gguf&limit=" + limit;
-        Object parsed = OllamaJson.parse(getText(url));
+    /** Map a JSON array of strings to a List; anything else yields an empty list. */
+    private static List<String> stringList(Object value) {
+        List<String> result = new ArrayList<String>();
+        if (value instanceof List) {
+            List values = (List) value;
+            for (int i = 0; i < values.size(); i++) {
+                Object entry = values.get(i);
+                if (entry != null) {
+                    result.add(String.valueOf(entry));
+                }
+            }
+        }
+        return result;
+    }
+
+    /** Runs one all-ANDed search request built from the criteria (see {@link #buildSearchUrl}). */
+    public HuggingFaceSearchPage searchModels(ModelSearchCriteria criteria) throws IOException {
+        return fetchSearchPage(buildSearchUrl(criteria));
+    }
+
+    /**
+     * Builds the {@code /api/models} request URL for one all-ANDed criteria. Extracted (and static)
+     * so the exact query encoding — {@code filter=} tags vs. the {@code apps=} / {@code inference=warm}
+     * / {@code gated=true} facets — is unit-testable without live HTTP.
+     *
+     * <p>Library, task pipeline_tag, language code, license id and "other" tag are plain tags emitted
+     * as repeated {@code filter=} (the server ANDs them). Apps are the exception: HuggingFace filters
+     * app compatibility through a dedicated {@code apps=<id>} parameter, not a tag, so a model like a
+     * GGUF that Ollama can run is matched even though it carries no literal "ollama" tag. OR within a
+     * group and cross-group OR are handled one level up by splitting into separate requests
+     * ({@link HuggingFaceSearchUseCase}), so each criteria reaching here is meant to be all-ANDed.</p>
+     */
+    static String buildSearchUrl(ModelSearchCriteria criteria) {
+        StringBuilder url = new StringBuilder("https://huggingface.co/api/models?");
+        if (criteria.getSearchText().length() > 0) {
+            url.append("search=").append(encode(criteria.getSearchText())).append('&');
+        }
+        appendFilters(url, criteria.getLibraries());
+        appendFilters(url, criteria.getTasks());
+        appendFilters(url, criteria.getLanguages());
+        appendFilters(url, criteria.getLicenses());
+        appendFilters(url, criteria.getOther());
+        appendParams(url, "apps", criteria.getApps());
+        if (criteria.isGated()) {
+            url.append("gated=true&");
+        }
+        if (criteria.isInference()) {
+            // Verified: inference=warm keeps only models with at least one warm inference provider
+            // (equivalent to inference_provider=all); the general "Inference" switch of the HF website.
+            url.append("inference=warm&");
+        }
+        url.append("sort=").append(encode(criteria.getSortOrder().getApiField())).append("&direction=-1");
+        url.append("&limit=").append(criteria.getPageSize());
+        return url.toString();
+    }
+
+    private static void appendFilters(StringBuilder url, List<String> values) {
+        appendParams(url, "filter", values);
+    }
+
+    private static void appendParams(StringBuilder url, String key, List<String> values) {
+        for (int i = 0; i < values.size(); i++) {
+            url.append(key).append('=').append(encode(values.get(i))).append('&');
+        }
+    }
+
+    /**
+     * Continues pagination from a previous page's {@link HuggingFaceSearchPage#getNextPageUrl()}.
+     * That URL already carries HuggingFace's opaque cursor plus every filter/sort parameter from the
+     * original request, so no criteria re-encoding happens here.
+     */
+    public HuggingFaceSearchPage loadMore(String nextPageUrl) throws IOException {
+        return fetchSearchPage(nextPageUrl);
+    }
+
+    private HuggingFaceSearchPage fetchSearchPage(String url) throws IOException {
+        HttpURLConnection connection = open(url);
+        String body;
+        String nextPageUrl;
+        InputStream inputStream = null;
+        try {
+            int status = connection.getResponseCode();
+            inputStream = status >= 200 && status < 300 ? connection.getInputStream() : connection.getErrorStream();
+            body = readText(inputStream);
+            if (status < 200 || status >= 300) {
+                throw new IOException("HuggingFace request failed with HTTP " + status + ": " + body);
+            }
+            nextPageUrl = parseNextLink(connection.getHeaderField("Link"));
+        } finally {
+            closeQuietly(inputStream);
+            connection.disconnect();
+        }
+        Object parsed = OllamaJson.parse(body);
         List values = parsed instanceof List ? (List) parsed : new ArrayList();
         List<HuggingFaceModel> models = new ArrayList<HuggingFaceModel>();
         for (int i = 0; i < values.size(); i++) {
@@ -539,10 +629,26 @@ public final class HuggingFaceClient {
                         firstNonEmpty(string(map, "id"), string(map, "modelId")),
                         string(map, "pipeline_tag"),
                         number(map, "downloads"),
-                        number(map, "likes")));
+                        number(map, "likes"),
+                        stringList(map.get("tags")),
+                        string(map, "library_name")));
             }
         }
-        return models;
+        return new HuggingFaceSearchPage(models, nextPageUrl);
+    }
+
+    private static final Pattern LINK_NEXT_PATTERN = Pattern.compile("<([^>]+)>\\s*;\\s*rel=\"next\"");
+
+    /**
+     * @return the {@code rel="next"} URL from an RFC 5988 {@code Link} header value, or {@code null}
+     *         when the header is absent or has no next relation (i.e. this was the last page).
+     */
+    private static String parseNextLink(String linkHeaderValue) {
+        if (linkHeaderValue == null) {
+            return null;
+        }
+        Matcher matcher = LINK_NEXT_PATTERN.matcher(linkHeaderValue);
+        return matcher.find() ? matcher.group(1) : null;
     }
 
     public List<HuggingFaceFile> listFiles(String modelId) throws IOException {
@@ -580,7 +686,94 @@ public final class HuggingFaceClient {
         return files;
     }
 
+    /**
+     * Lists every file path in the repository (not just GGUF), for format detection. Unlike
+     * {@link #listFiles} this keeps all files (config.json, safetensors, tokenizer, etc.) so the
+     * import classifier can see the real repository structure (spec §18), not only the tags.
+     */
+    public List<String> listAllFiles(String modelId) throws IOException {
+        String url = "https://huggingface.co/api/models/" + encodePath(modelId) + "/tree/main?recursive=true";
+        Object parsed = OllamaJson.parse(getText(url));
+        List values = parsed instanceof List ? (List) parsed : new ArrayList();
+        List<String> paths = new ArrayList<String>();
+        for (int i = 0; i < values.size(); i++) {
+            Object value = values.get(i);
+            if (value instanceof Map) {
+                Map map = (Map) value;
+                String type = string(map, "type");
+                String path = string(map, "path");
+                if ((type.length() == 0 || "file".equals(type)) && path.length() > 0) {
+                    paths.add(path);
+                }
+            }
+        }
+        return paths;
+    }
+
+    /**
+     * Fetches a repository file's text content (e.g. {@code config.json}) from
+     * {@code /<id>/resolve/main/<path>}. HuggingFace answers with a relative redirect to a cache URL;
+     * {@link #getText} uses {@code HttpURLConnection}, which follows same-protocol redirects
+     * automatically. Throws on a non-2xx final status (e.g. 401 for a gated repo without a token).
+     */
+    public String fetchFileText(String modelId, String path) throws IOException {
+        return fetchFileText(modelId, "main", path);
+    }
+
+    /** Like {@link #fetchFileText(String, String)} but pinned to a concrete revision (branch/tag/commit). */
+    public String fetchFileText(String modelId, String revision, String path) throws IOException {
+        String rev = revision == null || revision.trim().isEmpty() ? "main" : revision.trim();
+        String url = "https://huggingface.co/" + encodePath(modelId) + "/resolve/"
+                + encodePath(rev) + "/" + encodePath(path);
+        return getText(url);
+    }
+
+    /**
+     * Fetches the detailed model-info JSON ({@code /api/models/<id>/revision/<rev>}): {@code sha},
+     * {@code tags}, {@code cardData}, {@code config}, {@code gguf}, {@code safetensors}, {@code siblings}.
+     *
+     * @return the parsed object, or an empty map when the response is not a JSON object.
+     */
+    /** The model-info fields AskAI needs, requested explicitly so they are populated in the response. */
+    private static final String[] MODEL_INFO_EXPAND = {
+            "sha", "baseModels", "cardData", "config", "gguf", "safetensors", "tags", "transformersInfo"};
+
+    public Map<String, Object> fetchModelInfo(String modelId, String revision) throws IOException {
+        String rev = revision == null || revision.trim().isEmpty() ? "main" : revision.trim();
+        StringBuilder url = new StringBuilder("https://huggingface.co/api/models/")
+                .append(encodePath(modelId)).append("/revision/").append(encodePath(rev));
+        for (int i = 0; i < MODEL_INFO_EXPAND.length; i++) {
+            url.append(i == 0 ? '?' : '&').append("expand[]=").append(encode(MODEL_INFO_EXPAND[i]));
+        }
+        Object parsed = OllamaJson.parse(getText(url.toString()));
+        if (parsed instanceof Map) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> map = (Map<String, Object>) parsed;
+            return map;
+        }
+        return new LinkedHashMap<String, Object>();
+    }
+
+    /** Public GET of an arbitrary text/JSON URL through the same proxy/TLS plumbing (catalog endpoints). */
+    public String fetchText(String url) throws IOException {
+        return getText(url);
+    }
+
+    /**
+     * Resolves a branch/tag to its current commit SHA, so downloads and metadata can be pinned to one
+     * immutable commit (the repo's {@code main} may move between download and install).
+     *
+     * @return the resolved commit SHA, or {@code revision} itself when the API does not report one.
+     */
+    public String resolveRevisionSha(String modelId, String revision) throws IOException {
+        String rev = revision == null || revision.trim().isEmpty() ? "main" : revision.trim();
+        String sha = string(fetchModelInfo(modelId, rev), "sha");
+        return sha.length() > 0 ? sha : rev;
+    }
+
     private static final int MAX_DOWNLOAD_ATTEMPTS = 5;
+    /** Per-read timeout for downloads: long enough for slow links, short enough to not hang for an hour. */
+    private static final int DOWNLOAD_READ_TIMEOUT_MILLIS = 60000;
 
     /**
      * Downloads a GGUF file with resume + retry, and only returns once the file is verifiably complete.
@@ -593,6 +786,12 @@ public final class HuggingFaceClient {
      * {@code .part} file is kept so a later attempt can resume.</p>
      */
     public File download(HuggingFaceFile file, File targetDirectory, DownloadProgressListener listener) throws IOException {
+        return download(file, targetDirectory, "main", listener);
+    }
+
+    /** Like {@link #download(HuggingFaceFile, File, DownloadProgressListener)} but pinned to a revision/SHA. */
+    public File download(HuggingFaceFile file, File targetDirectory, String revision,
+                         DownloadProgressListener listener) throws IOException {
         if (!targetDirectory.isDirectory() && !targetDirectory.mkdirs()) {
             throw new IOException("Could not create download directory: " + targetDirectory.getAbsolutePath());
         }
@@ -600,9 +799,11 @@ public final class HuggingFaceClient {
         if (!modelDirectory.isDirectory() && !modelDirectory.mkdirs()) {
             throw new IOException("Could not create model directory: " + modelDirectory.getAbsolutePath());
         }
+        String rev = revision == null || revision.trim().isEmpty() ? "main" : revision.trim();
         File targetFile = new File(modelDirectory, file.getFileName());
         File partFile = new File(modelDirectory, file.getFileName() + ".part");
-        String url = "https://huggingface.co/" + encodePath(file.getModelId()) + "/resolve/main/" + encodePath(file.getPath());
+        String url = "https://huggingface.co/" + encodePath(file.getModelId()) + "/resolve/"
+                + encodePath(rev) + "/" + encodePath(file.getPath());
         long expectedSize = file.getSize();
 
         IOException last = null;
@@ -614,14 +815,14 @@ public final class HuggingFaceClient {
                 resumeFrom = 0L;
             }
             try {
-                long total = downloadOnce(url, partFile, resumeFrom, expectedSize, listener);
+                DownloadPass pass = downloadOnce(url, partFile, resumeFrom, expectedSize, listener);
                 long actual = partFile.length();
-                long expected = expectedSize > 0 ? expectedSize : total;
+                long expected = expectedSize > 0 ? expectedSize : pass.total;
                 if (expected > 0 && actual != expected) {
                     last = new IOException("Incomplete download: got " + actual + " of " + expected + " bytes");
                     continue; // resume on the next attempt
                 }
-                verifySha256(file, partFile);
+                verifySha256(file, pass.sha256Hex);
                 if (targetFile.isFile() && !targetFile.delete()) {
                     throw new IOException("Could not replace existing file: " + targetFile.getAbsolutePath());
                 }
@@ -643,16 +844,32 @@ public final class HuggingFaceClient {
                 + ". The partial file was kept for a later resume.", last);
     }
 
+    /** The result of one download pass: the expected total size and the SHA-256 of the file so far. */
+    private static final class DownloadPass {
+        final long total;
+        final String sha256Hex;
+
+        DownloadPass(long total, String sha256Hex) {
+            this.total = total;
+            this.sha256Hex = sha256Hex;
+        }
+    }
+
     /**
      * Performs a single download pass into {@code partFile}, resuming from {@code resumeFrom} via a
-     * {@code Range} request when possible.
-     *
-     * @return the total expected file size derived from the response (Content-Range/Content-Length), or
-     *         0 when the server did not report it.
+     * {@code Range} request when possible. The SHA-256 is computed incrementally while writing (and,
+     * on resume, over the bytes already on disk), so no separate re-read of the whole file is needed
+     * afterwards — this avoids a long silent pause at 100% on large files.
      */
-    private long downloadOnce(String url, File partFile, long resumeFrom, long expectedSize,
-                              DownloadProgressListener listener) throws IOException {
+    private DownloadPass downloadOnce(String url, File partFile, long resumeFrom, long expectedSize,
+                                      DownloadProgressListener listener) throws IOException {
         HttpURLConnection connection = open(url);
+        // A file download, not JSON: ask for the raw bytes so Content-Length is the real size, and
+        // cap the per-read wait low enough that a stalled connection (flaky Wi-Fi/hotspot) fails
+        // fast and the loop resumes via Range instead of blocking near 100% for the long default.
+        connection.setRequestProperty("Accept", "*/*");
+        connection.setRequestProperty("Accept-Encoding", "identity");
+        connection.setReadTimeout(DOWNLOAD_READ_TIMEOUT_MILLIS);
         if (resumeFrom > 0) {
             connection.setRequestProperty("Range", "bytes=" + resumeFrom + "-");
         }
@@ -671,7 +888,7 @@ public final class HuggingFaceClient {
             } else if (status == 416) {
                 // Requested range beyond the file: it is already fully downloaded when sizes match.
                 if (expectedSize > 0 && partFile.length() == expectedSize) {
-                    return expectedSize;
+                    return new DownloadPass(expectedSize, sha256Hex(partFile));
                 }
                 deleteQuietly(partFile);
                 throw new IOException("Server rejected the resume range (HTTP 416); restarting.");
@@ -679,6 +896,11 @@ public final class HuggingFaceClient {
                 String body = readBodyExcerpt(connection.getErrorStream());
                 throw new IOException("HuggingFace download failed with HTTP " + status
                         + (body.length() > 0 ? ": " + body : ""));
+            }
+
+            MessageDigest digest = newSha256();
+            if (append) {
+                digestExistingBytes(partFile, resumeFrom, digest);
             }
 
             long total = totalFromResponse(connection, baseCompleted, expectedSize);
@@ -689,18 +911,59 @@ public final class HuggingFaceClient {
             int read;
             while ((read = inputStream.read(buffer)) >= 0) {
                 outputStream.write(buffer, 0, read);
+                digest.update(buffer, 0, read);
                 completed += read;
                 if (listener != null) {
                     listener.onProgress(completed, total);
                 }
             }
             outputStream.flush();
-            return total;
+            return new DownloadPass(total, toHex(digest.digest()));
         } finally {
             closeQuietly(inputStream);
             closeQuietly(outputStream);
             connection.disconnect();
         }
+    }
+
+    private static MessageDigest newSha256() throws IOException {
+        try {
+            return MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException ex) {
+            throw new IOException("SHA-256 not available: " + ex.getMessage(), ex);
+        }
+    }
+
+    /** Feed the first {@code count} bytes already on disk into the digest (resume case only). */
+    private static void digestExistingBytes(File partFile, long count, MessageDigest digest) throws IOException {
+        FileInputStream inputStream = new FileInputStream(partFile);
+        try {
+            byte[] buffer = new byte[1024 * 1024];
+            long remaining = count;
+            int read;
+            while (remaining > 0 && (read = inputStream.read(buffer, 0,
+                    (int) Math.min(buffer.length, remaining))) >= 0) {
+                digest.update(buffer, 0, read);
+                remaining -= read;
+            }
+        } finally {
+            try {
+                inputStream.close();
+            } catch (IOException ignored) {
+            }
+        }
+    }
+
+    private static String toHex(byte[] bytes) {
+        StringBuilder builder = new StringBuilder(bytes.length * 2);
+        for (int i = 0; i < bytes.length; i++) {
+            String hex = Integer.toHexString(bytes[i] & 0xff);
+            if (hex.length() == 1) {
+                builder.append('0');
+            }
+            builder.append(hex);
+        }
+        return builder.toString();
     }
 
     /** Derives the full expected size from Content-Range (preferred), else Content-Length, else the HF size. */
@@ -723,24 +986,20 @@ public final class HuggingFaceClient {
         return expectedSize;
     }
 
-    private void verifySha256(HuggingFaceFile file, File partFile) throws IOException {
+    /** Compare the already-computed SHA-256 with the one HuggingFace advertised (no file re-read). */
+    private void verifySha256(HuggingFaceFile file, String actualSha256Hex) throws IOException {
         String expected = file.getSha256();
         if (expected == null || expected.length() == 0) {
             return; // HuggingFace did not provide a checksum; the size check already passed.
         }
-        String actual = sha256Hex(partFile);
-        if (!expected.equalsIgnoreCase(actual)) {
-            throw new Sha256MismatchException("Checksum mismatch: expected " + expected + " but got " + actual);
+        if (!expected.equalsIgnoreCase(actualSha256Hex)) {
+            throw new Sha256MismatchException("Checksum mismatch: expected " + expected
+                    + " but got " + actualSha256Hex);
         }
     }
 
     private static String sha256Hex(File file) throws IOException {
-        MessageDigest digest;
-        try {
-            digest = MessageDigest.getInstance("SHA-256");
-        } catch (NoSuchAlgorithmException ex) {
-            throw new IOException("SHA-256 not available: " + ex.getMessage(), ex);
-        }
+        MessageDigest digest = newSha256();
         FileInputStream inputStream = null;
         try {
             inputStream = new FileInputStream(file);
@@ -757,16 +1016,7 @@ public final class HuggingFaceClient {
                 }
             }
         }
-        byte[] bytes = digest.digest();
-        StringBuilder builder = new StringBuilder(bytes.length * 2);
-        for (int i = 0; i < bytes.length; i++) {
-            String hex = Integer.toHexString(bytes[i] & 0xff);
-            if (hex.length() == 1) {
-                builder.append('0');
-            }
-            builder.append(hex);
-        }
-        return builder.toString();
+        return toHex(digest.digest());
     }
 
     private void deleteQuietly(File file) {
@@ -914,7 +1164,7 @@ public final class HuggingFaceClient {
                 ? message : throwable.getClass().getName();
     }
 
-    private String encode(String value) {
+    private static String encode(String value) {
         try {
             return URLEncoder.encode(value == null ? "" : value, "UTF-8");
         } catch (UnsupportedEncodingException ex) {

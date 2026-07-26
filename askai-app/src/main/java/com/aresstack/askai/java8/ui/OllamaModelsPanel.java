@@ -2,42 +2,79 @@ package com.aresstack.askai.java8.ui;
 
 import com.aresstack.askai.java8.AskAiModel;
 import com.aresstack.askai.java8.client.OllamaModelInfo;
+import com.aresstack.askai.java8.client.OllamaModelInfoView;
 import com.aresstack.askai.java8.client.OllamaRunningModelInfo;
+import com.aresstack.askai.java8.config.AppConfigurationRepository;
+import com.aresstack.askai.java8.config.HuggingFaceSearchSuggestion.Modality;
+import com.aresstack.askai.java8.hf.HuggingFaceFile;
+import com.aresstack.askai.java8.service.AskAiService;
 import com.aresstack.askai.java8.service.OllamaService;
+import com.aresstack.askai.java8.service.VerificationResult;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JButton;
+import javax.swing.JFileChooser;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
-import javax.swing.JTabbedPane;
 import javax.swing.SwingUtilities;
+import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.BorderLayout;
+import java.awt.CardLayout;
 import java.awt.FlowLayout;
+import java.io.File;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Shows installed and currently loaded Ollama models as rich object cards.
+ * Shows installed and currently loaded Ollama models as rich object cards. Installed and running
+ * are two separate views selected from the "Models" menu (no in-panel tabs).
  */
 public final class OllamaModelsPanel extends JPanel {
 
+    /** Opens a model in the chat view (wired by the frame that owns both panels). */
+    public interface UseInChatHandler {
+        void useInChat(String modelName);
+    }
+
+    /** Routes the two add-on entry points for a model (wired by the owning frame). */
+    public interface FindAddOnsHandler {
+        /** Enter add-on mode and search Hugging Face for an encoder to attach to {@code modelName}. */
+        void findAddOns(String modelName);
+
+        /** Enter add-on mode and pick a local projector GGUF to attach to {@code modelName}. */
+        void selectLocalAddOn(String modelName);
+    }
+
+    private static final String INSTALLED_CARD = "installed";
+    private static final String RUNNING_CARD = "running";
+
     private final AskAiModel model;
     private final OllamaService ollamaService;
-    private final JTabbedPane tabs;
+    private final AskAiService askAiService;
+    private final AppConfigurationRepository configurationRepository;
+    private final CardLayout cardLayout;
+    private final JPanel cards;
     private final JPanel installedCardsPanel;
     private final JPanel runningCardsPanel;
     private final JLabel installedStatusLabel;
     private final JLabel runningStatusLabel;
     private final JLabel informationLabel;
-    private boolean refreshedOnce;
+    private boolean serverInformationLoaded;
+    private UseInChatHandler useInChatHandler;
+    private FindAddOnsHandler findAddOnsHandler;
 
-    public OllamaModelsPanel(AskAiModel model, OllamaService ollamaService) {
+    public OllamaModelsPanel(AskAiModel model, OllamaService ollamaService,
+                             AskAiService askAiService, AppConfigurationRepository configurationRepository) {
         this.model = model;
         this.ollamaService = ollamaService;
-        this.tabs = new JTabbedPane();
+        this.askAiService = askAiService;
+        this.configurationRepository = configurationRepository;
+        this.cardLayout = new CardLayout();
+        this.cards = new JPanel(cardLayout);
         this.installedCardsPanel = createCardsPanel();
         this.runningCardsPanel = createCardsPanel();
         this.installedStatusLabel = new JLabel("Installed models are not loaded yet.");
@@ -46,40 +83,59 @@ public final class OllamaModelsPanel extends JPanel {
         buildUserInterface();
     }
 
-    public void onShown() {
-        if (!refreshedOnce) {
-            refreshedOnce = true;
-            refreshInstalledModels();
+    /** Wires the "Use in chat" primary action shown on each installed model card. */
+    public void setUseInChatHandler(UseInChatHandler handler) {
+        this.useInChatHandler = handler;
+    }
+
+    public void setFindAddOnsHandler(FindAddOnsHandler handler) {
+        this.findAddOnsHandler = handler;
+    }
+
+    /** Show the installed-models view and refresh it (the "Models > Installed" entry). */
+    public void showInstalled() {
+        cardLayout.show(cards, INSTALLED_CARD);
+        ensureServerInformation();
+        refreshInstalledModels();
+    }
+
+    /** Show the running-models view and refresh it (the "Models > Running Models" entry). */
+    public void showRunning() {
+        cardLayout.show(cards, RUNNING_CARD);
+        ensureServerInformation();
+        refreshRunningModels();
+    }
+
+    private void ensureServerInformation() {
+        if (!serverInformationLoaded) {
+            serverInformationLoaded = true;
             refreshServerInformation();
-            return;
         }
-        refreshSelectedTab();
     }
 
     private void buildUserInterface() {
         setLayout(new BorderLayout(8, 8));
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        tabs.addTab("Installed Models", createInstalledModelsTab());
-        tabs.addTab("Running Models", createRunningModelsTab());
-        tabs.addChangeListener(event -> refreshSelectedTab());
-        add(tabs, BorderLayout.CENTER);
+        cards.add(createInstalledModelsCard(), INSTALLED_CARD);
+        cards.add(createRunningModelsCard(), RUNNING_CARD);
+        add(cards, BorderLayout.CENTER);
         informationLabel.setBorder(BorderFactory.createEmptyBorder(4, 4, 0, 4));
         add(informationLabel, BorderLayout.SOUTH);
     }
 
-    private JPanel createInstalledModelsTab() {
+    private JPanel createInstalledModelsCard() {
         JPanel panel = new JPanel(new BorderLayout(8, 8));
         panel.add(createInstalledToolbar(), BorderLayout.NORTH);
         panel.add(new JScrollPane(installedCardsPanel), BorderLayout.CENTER);
-        showInstalledPlaceholder("Open Models or click Refresh to load installed models.");
+        showInstalledPlaceholder("Open Models > Installed or click Refresh to load installed models.");
         return panel;
     }
 
-    private JPanel createRunningModelsTab() {
+    private JPanel createRunningModelsCard() {
         JPanel panel = new JPanel(new BorderLayout(8, 8));
         panel.add(createRunningToolbar(), BorderLayout.NORTH);
         panel.add(new JScrollPane(runningCardsPanel), BorderLayout.CENTER);
-        showRunningPlaceholder("Switch to this tab to load running models.");
+        showRunningPlaceholder("Open Models > Running Models or click Refresh to load running models.");
         return panel;
     }
 
@@ -106,14 +162,6 @@ public final class OllamaModelsPanel extends JPanel {
         panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
         panel.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
         return panel;
-    }
-
-    private void refreshSelectedTab() {
-        if (tabs.getSelectedIndex() == 0) {
-            refreshInstalledModels();
-        } else if (tabs.getSelectedIndex() == 1) {
-            refreshRunningModels();
-        }
     }
 
     private void refreshInstalledModels() {
@@ -205,17 +253,72 @@ public final class OllamaModelsPanel extends JPanel {
             addPlaceholder(installedCardsPanel, "No installed models returned by Ollama.");
         } else {
             for (final OllamaModelInfo modelInfo : models) {
-                installedCardsPanel.add(OllamaModelCard.installed(modelInfo, new Runnable() {
+                Runnable useInChat = new Runnable() {
+                    @Override
+                    public void run() {
+                        if (useInChatHandler != null) {
+                            useInChatHandler.useInChat(modelInfo.getDisplayName());
+                        }
+                    }
+                };
+                // Stateless: route to HF search or a local projector file — never guess/store encoder state.
+                Runnable searchAddOns = new Runnable() {
+                    @Override
+                    public void run() {
+                        if (findAddOnsHandler != null) {
+                            findAddOnsHandler.findAddOns(modelInfo.getDisplayName());
+                        }
+                    }
+                };
+                Runnable localAddOn = new Runnable() {
+                    @Override
+                    public void run() {
+                        if (findAddOnsHandler != null) {
+                            findAddOnsHandler.selectLocalAddOn(modelInfo.getDisplayName());
+                        }
+                    }
+                };
+                OllamaModelCard card = OllamaModelCard.installed(modelInfo, searchAddOns, localAddOn, useInChat,
+                        new Runnable() {
                     @Override
                     public void run() {
                         confirmAndDelete(modelInfo.getDisplayName());
                     }
-                }));
+                });
+                installedCardsPanel.add(card);
                 installedCardsPanel.add(Box.createVerticalStrut(6));
+                loadCapabilities(modelInfo.getDisplayName(), card);
             }
         }
         refreshCards(installedCardsPanel);
     }
+
+    /** Query /api/show for the model's capability tags and render them on the card. */
+    private void loadCapabilities(String modelName, final OllamaModelCard card) {
+        ollamaService.getModelInfo(modelName, new OllamaService.ModelInfoListener() {
+            @Override
+            public void onModelInfo(final OllamaModelInfoView info) {
+                onUi(new Runnable() {
+                    @Override
+                    public void run() {
+                        card.setCapabilities(info.getCapabilities());
+                    }
+                });
+            }
+
+            @Override
+            public void onError(Exception ex) {
+                onUi(new Runnable() {
+                    @Override
+                    public void run() {
+                        // Older Ollama without capabilities: enable the buttons without icons.
+                        card.setCapabilities(new ArrayList<String>());
+                    }
+                });
+            }
+        });
+    }
+
 
     private void showRunningModels(List<OllamaRunningModelInfo> models) {
         runningCardsPanel.removeAll();
@@ -260,9 +363,6 @@ public final class OllamaModelsPanel extends JPanel {
                     public void run() {
                         installedStatusLabel.setText(message);
                         refreshInstalledModels();
-                        if (tabs.getSelectedIndex() == 1) {
-                            refreshRunningModels();
-                        }
                     }
                 });
             }

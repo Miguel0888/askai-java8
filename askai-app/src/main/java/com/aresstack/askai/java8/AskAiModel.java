@@ -2,6 +2,7 @@ package com.aresstack.askai.java8;
 
 import com.aresstack.askai.java8.config.AppConfiguration;
 import com.aresstack.askai.java8.config.AppConfigurationRepository;
+import com.aresstack.askai.java8.config.ChatColorSettings;
 import com.aresstack.askai.java8.stt.SpeechToTextConfiguration;
 
 import java.io.File;
@@ -21,6 +22,7 @@ public final class AskAiModel {
     private String defaultQuantization;
     private String defaultKeepAlive;
     private SpeechToTextConfiguration speechToTextConfiguration;
+    private ChatColorSettings chatColors;
 
     public AskAiModel(AppConfigurationRepository configurationRepository) {
         this.configurationRepository = configurationRepository;
@@ -30,6 +32,7 @@ public final class AskAiModel {
         this.defaultQuantization = configuration.getDefaultQuantization();
         this.defaultKeepAlive = configuration.getKeepAlive();
         this.speechToTextConfiguration = configuration.getSpeechToTextConfiguration();
+        this.chatColors = configuration.getChatColors();
     }
 
     public String getOllamaBaseUrl() {
@@ -73,6 +76,14 @@ public final class AskAiModel {
                 ? SpeechToTextConfiguration.defaults() : speechToTextConfiguration;
     }
 
+    public ChatColorSettings getChatColors() {
+        return chatColors;
+    }
+
+    public void setChatColors(ChatColorSettings chatColors) {
+        this.chatColors = chatColors == null ? ChatColorSettings.defaults() : chatColors;
+    }
+
     /**
      * Persists the buffered values, preserving every other setting (proxy, TLS trust, HTTP client,
      * HuggingFace token) exactly as currently stored.
@@ -89,7 +100,9 @@ public final class AskAiModel {
                 current.getHuggingFaceToken(),
                 modelRoot)
                 .withSpeechToTextConfiguration(speechToTextConfiguration)
-                .withHuggingFaceSearchSuggestions(current.getHuggingFaceSearchSuggestionsRaw()));
+                .withHuggingFaceSearchSuggestions(current.getHuggingFaceSearchSuggestionsRaw())
+                .withHuggingFaceSearchFilters(current.getHuggingFaceSearchFilters())
+                .withChatColors(chatColors));
         this.ollamaBaseUrl = configurationRepository.load().getOllamaBaseUrl();
     }
 }

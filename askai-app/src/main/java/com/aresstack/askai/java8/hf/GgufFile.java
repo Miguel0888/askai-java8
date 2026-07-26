@@ -118,6 +118,306 @@ public final class GgufFile {
         }
     }
 
+    /**
+     * Reads the GGUF header metadata (never the tensor data) and returns the subset of general/projector
+     * keys that let the caller decide, from the file's <em>content</em>, whether it is a multimodal
+     * projector and what modalities it carries — instead of guessing from an {@code mmproj} file name.
+     *
+     * @throws IOException when the file is not a readable GGUF header (bad magic or truncated).
+     */
+    public static GgufInfo inspect(File file) throws IOException {
+        if (file == null || !file.isFile()) {
+            throw new IOException("GGUF file does not exist.");
+        }
+        CountingInputStream in = new CountingInputStream(
+                new BufferedInputStream(new FileInputStream(file), 1 << 16));
+        try {
+            byte[] magic = new byte[4];
+            readFully(in, magic);
+            if (!(magic[0] == 'G' && magic[1] == 'G' && magic[2] == 'U' && magic[3] == 'F')) {
+                throw new IOException("Not a GGUF file (bad magic bytes).");
+            }
+            long version = readU32(in);
+            long kvCount;
+            if (version == 1L) {
+                readU32(in); // tensorCount (unused here)
+                kvCount = readU32(in);
+            } else {
+                readU64(in); // tensorCount (unused here)
+                kvCount = readU64(in);
+            }
+            checkCount(kvCount, "metadata");
+
+            Map<String, Object> meta = new HashMap<String, Object>();
+            for (long i = 0; i < kvCount; i++) {
+                String key = readString(in);
+                long valueType = readU32(in);
+                Object value = readInspectValue(in, valueType);
+                if (value != null) {
+                    meta.put(key.toLowerCase(java.util.Locale.ROOT), value);
+                }
+            }
+            return new GgufInfo(meta);
+        } catch (EOFException ex) {
+            throw new IOException("GGUF header is truncated (unexpected end of file).", ex);
+        } finally {
+            closeQuietly(in);
+        }
+    }
+
+    /** Reads a metadata value, keeping strings/integers (as {@link Object}); arrays and floats are skipped. */
+    private static Object readInspectValue(CountingInputStream in, long valueType) throws IOException {
+        switch ((int) valueType) {
+            case 0:  // UINT8
+            case 1:  // INT8
+            case 7:  // BOOL
+                return Long.valueOf(readU8(in));
+            case 2:  // UINT16
+            case 3:  // INT16
+                return Long.valueOf(readLe(in, 2));
+            case 4:  // UINT32
+            case 5:  // INT32
+                return Long.valueOf(readLe(in, 4));
+            case 6:  // FLOAT32
+                skipFully(in, 4);
+                return null;
+            case 8:  // STRING
+                return readString(in);
+            case 9:  // ARRAY
+                readArray(in);
+                return null;
+            case 10: // UINT64
+            case 11: // INT64
+                return Long.valueOf(readU64(in));
+            case 12: // FLOAT64
+                skipFully(in, 8);
+                return null;
+            default:
+                throw new IOException("Corrupt GGUF header: unknown metadata value type " + valueType + ".");
+        }
+    }
+
+    /**
+     * A read-only view of the GGUF header keys that identify a multimodal projector and its modalities.
+     * Projector-ness is proven from content: the architecture ({@code clip}/{@code mtmd}), a
+     * {@code general.type}/{@code general.kind} that names a projector, a {@code *.projector_type} key, or
+     * a vision/audio encoder flag ({@code *.has_vision_encoder} / {@code *.has_audio_encoder}).
+     */
+    public static final class GgufInfo {
+        private final String architecture;
+        private final String generalType;
+        private final String name;
+        private final String basename;
+        private final String projectorType;
+        private final long blockCount;
+        private final long visionBlockCount;
+        private final long audioBlockCount;
+        private final boolean projector;
+        private final boolean hasVision;
+        private final boolean hasAudio;
+        private final boolean supportsTools;
+        private final boolean supportsThinking;
+        private final boolean supportsInsert;
+
+        GgufInfo(Map<String, Object> meta) {
+            this.architecture = str(meta, "general.architecture");
+            String type = str(meta, "general.type");
+            this.generalType = type.length() > 0 ? type : str(meta, "general.kind");
+            this.name = str(meta, "general.name");
+            this.basename = str(meta, "general.basename");
+            this.projectorType = firstBySuffix(meta, ".projector_type", "clip.projector_type");
+            // The main transformer block count (e.g. qwen3.block_count / clip.block_count) — NOT the
+            // vision/audio sub-encoder counts. A real projector has 0 main blocks; an integrated multimodal
+            // model has > 0 and must never be treated as an attachable projector.
+            this.blockCount = firstBlockCount(meta);
+            this.visionBlockCount = firstLongBySuffix(meta, ".vision.block_count");
+            this.audioBlockCount = firstLongBySuffix(meta, ".audio.block_count");
+
+            boolean visionEncoder = anyBoolBySuffix(meta, "has_vision_encoder");
+            boolean audioEncoder = anyBoolBySuffix(meta, "has_audio_encoder");
+            String arch = architecture.toLowerCase(java.util.Locale.ROOT);
+            String kind = generalType.toLowerCase(java.util.Locale.ROOT);
+
+            // Ollama-aligned projector classification (a single source of truth for eligibility, the dialog,
+            // first-install runtime caps and the expected add-on caps). Deliberately narrow: neither `mtmd`
+            // alone, a "proj"/"clip" substring, nor a bare projector_type is sufficient.
+            boolean kindIsProjector = kind.equals("projector") || kind.equals("mmproj");
+            boolean subEncoderProjector = blockCount == 0L && (visionBlockCount > 0L || audioBlockCount > 0L);
+            // A dedicated encoder architecture (clip/mtmd) with no main transformer blocks and an explicit
+            // encoder flag. The block_count == 0 guard is what excludes an integrated multimodal model.
+            boolean encoderArchProjector = (arch.equals("clip") || arch.equals("mtmd")) && blockCount == 0L
+                    && (visionEncoder || audioEncoder);
+            this.projector = kindIsProjector || subEncoderProjector || encoderArchProjector;
+
+            boolean visionSignal = visionEncoder || visionBlockCount > 0L;
+            boolean audioSignal = audioEncoder || audioBlockCount > 0L;
+            this.hasAudio = projector && audioSignal;
+            // A recognised projector always provides at least one modality: vision when there is a vision
+            // signal, and vision by default for a projector that only declared its kind (no explicit signal),
+            // so an accepted projector is never immediately treated as wirkungslos. A pure audio projector
+            // (audio signal, no vision signal) keeps audio only.
+            this.hasVision = projector && (visionSignal || !audioSignal);
+
+            // The template BAKED INTO THIS GGUF (the installed runtime), used to decide tools/thinking/insert
+            // from what the model actually ships — never from a HF repo's tokenizer_config, which may differ.
+            String template = str(meta, "tokenizer.chat_template").toLowerCase(java.util.Locale.ROOT);
+            this.supportsTools = template.contains("tool_call") || template.contains("tool_calls")
+                    || (template.contains("tools") && template.contains("tojson"));
+            this.supportsThinking = template.contains("<think") || template.contains("</think")
+                    || template.contains("reasoning_content");
+            this.supportsInsert = template.contains("fim_prefix") || template.contains("fim_middle")
+                    || template.contains("fim_suffix") || template.contains("<|fim") || template.contains("<fim_");
+        }
+
+        public String architecture() {
+            return architecture;
+        }
+
+        public String generalType() {
+            return generalType;
+        }
+
+        public String name() {
+            return name;
+        }
+
+        public String basename() {
+            return basename;
+        }
+
+        public String projectorType() {
+            return projectorType;
+        }
+
+        public long visionBlockCount() {
+            return visionBlockCount;
+        }
+
+        public long audioBlockCount() {
+            return audioBlockCount;
+        }
+
+        /** @return whether the projector provides a vision encoder (unified content signal). */
+        public boolean hasVisionEncoder() {
+            return hasVision;
+        }
+
+        /** @return whether the projector provides an audio encoder (unified content signal). */
+        public boolean hasAudioEncoder() {
+            return hasAudio;
+        }
+
+        /** @return true when the header proves this file is a multimodal projector (mmproj), by content. */
+        public boolean isProjector() {
+            return projector;
+        }
+
+        /**
+         * @return the Ollama capability tags this projector actually backs — {@code vision} and/or
+         *         {@code audio}. This is exactly what an add-on install should expect {@code /api/show} to
+         *         confirm, and what the runtime intersection keeps. Empty when the file is not a projector.
+         */
+        public java.util.List<String> modalityCapabilities() {
+            java.util.List<String> caps = new java.util.ArrayList<String>();
+            if (hasVision) {
+                caps.add("vision");
+            }
+            if (hasAudio) {
+                caps.add("audio");
+            }
+            return caps;
+        }
+
+        /**
+         * @return the tools/thinking/insert capability tags this GGUF's own baked-in template supports —
+         *         the installed runtime truth. Empty for a projector or a plain model with none of these.
+         */
+        public java.util.List<String> templateCapabilities() {
+            java.util.List<String> caps = new java.util.ArrayList<String>();
+            if (supportsTools) {
+                caps.add("tools");
+            }
+            if (supportsThinking) {
+                caps.add("thinking");
+            }
+            if (supportsInsert) {
+                caps.add("insert");
+            }
+            return caps;
+        }
+
+        /** @return a short human label for the projector kind, e.g. {@code "vision+audio"} or the projector type. */
+        public String projectorKind() {
+            if (hasVision && hasAudio) {
+                return "vision+audio";
+            }
+            if (hasVision) {
+                return "vision";
+            }
+            if (hasAudio) {
+                return "audio";
+            }
+            return projectorType.length() > 0 ? projectorType : "projector";
+        }
+
+        private static long firstLongBySuffix(Map<String, Object> meta, String suffix) {
+            for (Map.Entry<String, Object> entry : meta.entrySet()) {
+                if (entry.getKey().endsWith(suffix) && entry.getValue() instanceof Number) {
+                    return ((Number) entry.getValue()).longValue();
+                }
+            }
+            return 0L;
+        }
+
+        /** @return the main transformer {@code *.block_count}, ignoring the {@code *.vision/audio.block_count}. */
+        private static long firstBlockCount(Map<String, Object> meta) {
+            for (Map.Entry<String, Object> entry : meta.entrySet()) {
+                String key = entry.getKey();
+                if (key.endsWith(".block_count") && !key.endsWith(".vision.block_count")
+                        && !key.endsWith(".audio.block_count") && entry.getValue() instanceof Number) {
+                    return ((Number) entry.getValue()).longValue();
+                }
+            }
+            return 0L;
+        }
+
+        private static String str(Map<String, Object> meta, String key) {
+            Object value = meta.get(key);
+            return value == null ? "" : String.valueOf(value).trim();
+        }
+
+        private static String firstBySuffix(Map<String, Object> meta, String suffix, String preferred) {
+            String prefer = str(meta, preferred);
+            if (prefer.length() > 0) {
+                return prefer;
+            }
+            for (Map.Entry<String, Object> entry : meta.entrySet()) {
+                if (entry.getKey().endsWith(suffix) && entry.getValue() instanceof String) {
+                    String value = ((String) entry.getValue()).trim();
+                    if (value.length() > 0) {
+                        return value;
+                    }
+                }
+            }
+            return "";
+        }
+
+        private static boolean anyBoolBySuffix(Map<String, Object> meta, String suffix) {
+            for (Map.Entry<String, Object> entry : meta.entrySet()) {
+                if (entry.getKey().endsWith(suffix)) {
+                    Object value = entry.getValue();
+                    if (value instanceof Number && ((Number) value).longValue() != 0L) {
+                        return true;
+                    }
+                    if (value instanceof String && "true".equalsIgnoreCase(((String) value).trim())) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+    }
+
     private static void checkCount(long count, String what) throws IOException {
         if (count < 0L || count > MAX_COUNT) {
             throw new IOException("Corrupt GGUF header: implausible " + what + " count (" + count + ").");

@@ -1,0 +1,15 @@
+{
+  "id": "bartowski/Meta-Llama-3.1-8B-Instruct-GGUF",
+  "sha": "bbb2223334445556667778889990001112223334",
+  "tags": ["gguf", "base_model:meta-llama/Llama-3.1-8B-Instruct", "license:llama3.1"],
+  "library_name": "gguf",
+  "cardData": {"license": "llama3.1"},
+  "config": {"model_type": "llama"},
+  "gguf": {
+    "quantization_level": "Q4_K_M",
+    "context_length": 131072,
+    "embedding_length": 4096,
+    "total": 8030000000,
+    "architecture": "llama"
+  }
+}
