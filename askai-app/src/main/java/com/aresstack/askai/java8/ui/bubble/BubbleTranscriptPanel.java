@@ -142,18 +142,22 @@ public final class BubbleTranscriptPanel extends JPanel {
         }
     }
 
-    /** Adds a left-aligned assistant answer inside a speech bubble whose body renders Markdown. */
+    /** Adds a left-aligned assistant answer row: a muted header over the Markdown body. */
     private void addAssistantMarkdownRow(String header, MarkdownMessageView view) {
-        AssistantMarkdownBubble bubble = new AssistantMarkdownBubble(
-                palette, header == null || header.length() == 0 ? "Assistant" : header, view);
+        JLabel title = new JLabel(header == null || header.length() == 0 ? "Assistant" : header);
+        Font font = UIManager.getFont("Label.font");
+        if (font != null) {
+            title.setFont(font.deriveFont(Font.BOLD, Math.max(10f, font.getSize2D() - 1f)));
+        }
+        title.setForeground(palette.getInfoForeground());
 
-        JPanel holder = new JPanel(new BorderLayout());
-        holder.setOpaque(false);
-        // Left margin matches the speech bubbles; the right gap keeps the assistant bubble off the far edge.
-        holder.setBorder(BorderFactory.createEmptyBorder(3, 14, 3, 72));
-        holder.add(bubble, BorderLayout.CENTER);
+        JPanel content = new JPanel(new BorderLayout(0, 4));
+        content.setOpaque(false);
+        content.setBorder(BorderFactory.createEmptyBorder(4, 16, 4, 64));
+        content.add(title, BorderLayout.NORTH);
+        content.add(view, BorderLayout.CENTER);
 
-        MarkdownAnswerRow row = new MarkdownAnswerRow(holder);
+        MarkdownAnswerRow row = new MarkdownAnswerRow(content);
         row.setAlignmentX(LEFT_ALIGNMENT);
         messageList.add(row);
         messageList.add(Box.createVerticalStrut(2));
