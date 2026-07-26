@@ -8,6 +8,7 @@ import javax.swing.JLabel;
 import javax.swing.JLayeredPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
+import javax.swing.Scrollable;
 import javax.swing.ScrollPaneConstants;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
@@ -23,6 +24,7 @@ import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Point;
+import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
@@ -274,11 +276,44 @@ public final class BubbleTranscriptPanel extends JPanel {
     }
 
     private JPanel createMessageList() {
-        JPanel panel = new JPanel();
+        JPanel panel = new WidthTrackingList();
         panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
         panel.setBackground(palette.getTranscriptBackground());
         panel.setBorder(BorderFactory.createEmptyBorder(8, 0, 12, 0));
         return panel;
+    }
+
+    /**
+     * The transcript body always matches the viewport width instead of driving its own from the rows, so
+     * bubbles reflow (and never trigger a horizontal scrollbar) when the window is made narrower — the row
+     * widths are derived from this width, so it must be led by the viewport, not by the rows.
+     */
+    private static final class WidthTrackingList extends JPanel implements Scrollable {
+
+        @Override
+        public Dimension getPreferredScrollableViewportSize() {
+            return getPreferredSize();
+        }
+
+        @Override
+        public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return 18;
+        }
+
+        @Override
+        public int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return orientation == SwingConstants.VERTICAL ? visibleRect.height : visibleRect.width;
+        }
+
+        @Override
+        public boolean getScrollableTracksViewportWidth() {
+            return true;
+        }
+
+        @Override
+        public boolean getScrollableTracksViewportHeight() {
+            return false;
+        }
     }
 
     private JScrollPane createScrollPane(JPanel content) {
