@@ -219,6 +219,9 @@ public final class AudioProfileValidator {
                 case SPEECH_ENHANCER:
                     validateSpeechEnhancer(issues, block, enabled, inputFormat);
                     break;
+                case VOICE_ISOLATION:
+                    validateVoiceIsolation(issues, block, enabled, currentChannels);
+                    break;
                 case ADAPTIVE_NOISE_SUPPRESSION:
                     validateNoiseSuppression(issues, block, enabled, sawEnabledVad, sawEnabledNoiseProfiler);
                     break;
@@ -524,6 +527,25 @@ public final class AudioProfileValidator {
                     name + ": needs at least two synchronized channels; the signal is mono at this point.");
         }
         positiveError(issues, block, enabled, name, "speedOfSoundMmPerS", "Speed of sound");
+    }
+
+    private void validateVoiceIsolation(List<AudioProfileValidationIssue> issues, AudioBlockDefinition block,
+                                        boolean enabled, int currentChannels) {
+        String name = block.getType().getDisplayName();
+        rangeError(issues, block, enabled, name, "strength", "Strength", 0.0d, 1.0d);
+        String backend = block.getParameter("backend", "PURE_JAVA_CENTER");
+        if ("NEURAL".equals(backend)) {
+            add(issues, block, enabled, AudioValidationSeverity.WARNING, "backend",
+                    name + ": the neural backend is not installed; the block passes the audio through "
+                            + "unchanged until it is available.");
+        } else if (currentChannels != 0 && currentChannels != 2) {
+            add(issues, block, enabled, AudioValidationSeverity.WARNING, null,
+                    name + ": the pure-Java center backend needs a stereo source; the signal has "
+                            + currentChannels + " channel(s) here.");
+        }
+        add(issues, block, enabled, AudioValidationSeverity.WARNING, null,
+                name + ": voice isolation is distinct from noise suppression and only reduces other "
+                        + "voices/music approximately.");
     }
 
     private void validateSpeechEnhancer(List<AudioProfileValidationIssue> issues, AudioBlockDefinition block,

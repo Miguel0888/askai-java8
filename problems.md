@@ -92,3 +92,18 @@ with slice, affected function, concrete blocker, tried approaches, impact and po
 - **Possible later solution:** Optional Gradle module `audio-dsp-deepfilter` bundling an ONNX-runtime binding
   + model loader, registered via ServiceLoader on explicit user opt-in.
 
+## Slice 13D — Voice Isolation is an approximation; true speaker isolation needs a model
+
+- **Slice:** 13D
+- **Affected function:** Isolating a target/dominant voice from other voices and music.
+- **What is implemented:** A `Voice Isolation` block with two backends. The pure-Java center backend is a
+  real but limited stereo approximation (emphasize centred speech, reduce laterally-panned voices/music via
+  mid/side) — genuinely useful for suitable stereo but not true source separation. A neural backend is
+  offered but reports not-installed and passes audio through. Mono input passes through (the center approach
+  needs stereo). The validator warns about the limitation and the missing neural backend.
+- **Honest limitation:** True target-speaker isolation / voice enrollment needs a neural model (and
+  enrollment data), which is not bundled and not implementable in pure Java in-core. Target Speaker
+  Enrollment / Voice Enrollment are therefore not implemented (not faked), as the roadmap allows.
+- **Possible later solution:** An optional neural voice-isolation module (same ServiceLoader/optional-module
+  pattern as the other model backends), plus a speaker-enrollment artifact if/when a model supports it.
+

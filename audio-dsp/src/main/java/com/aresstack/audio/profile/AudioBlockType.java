@@ -45,7 +45,8 @@ public enum AudioBlockType {
     STEREO_WIDTH_CONTROL("Stereo Width Control"),
     DELAY_AND_SUM_BEAMFORMER("Delay-and-Sum Beamformer"),
     DIRECTION_OF_ARRIVAL_ANALYZER("Direction of Arrival Analyzer"),
-    SPEECH_ENHANCER("Speech Enhancer");
+    SPEECH_ENHANCER("Speech Enhancer"),
+    VOICE_ISOLATION("Voice Isolation");
 
     private final String displayName;
 

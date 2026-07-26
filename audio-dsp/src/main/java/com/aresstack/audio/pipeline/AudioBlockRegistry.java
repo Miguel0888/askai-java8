@@ -68,6 +68,7 @@ public final class AudioBlockRegistry {
         register(delayAndSumBeamformer());
         register(directionOfArrivalAnalyzer());
         register(speechEnhancer());
+        register(voiceIsolation());
     }
 
     public static AudioBlockRegistry getInstance() {
@@ -986,6 +987,28 @@ public final class AudioBlockRegistry {
                 new SimpleAudioBlockDescriptor.Summarizer() {
                     public String summarize(AudioBlockDefinition block) {
                         return block.getParameter("backend", "PURE_JAVA_DSP") + " · strength "
+                                + formatQ(block.getDoubleParameter("strength", 0.0d));
+                    }
+                });
+    }
+
+    private static AudioBlockDescriptor voiceIsolation() {
+        List<AudioParameterDescriptor> params = new ArrayList<AudioParameterDescriptor>();
+        params.add(AudioParameterDescriptor.choice("backend", "Backend", "PURE_JAVA_CENTER", Arrays.asList(
+                new AudioParameterChoice("PURE_JAVA_CENTER", "Pure Java (stereo center)"),
+                new AudioParameterChoice("NEURAL", "Neural (optional, not installed)"))));
+        params.add(AudioParameterDescriptor.decimal("strength", "Strength", 0.7d, 0.0d, 1.0d, 0.05d));
+        params.add(AudioParameterDescriptor.text("modelId", "Model / profile id", ""));
+        return descriptor(AudioBlockType.VOICE_ISOLATION, AudioBlockCategory.SPEECH_ENHANCEMENT, params,
+                StaticBlockCapabilities.audioEffect(),
+                new SimpleAudioBlockDescriptor.ProcessorFactory() {
+                    public AudioBlockProcessor create() {
+                        return AudioBlockProcessors.voiceIsolation();
+                    }
+                },
+                new SimpleAudioBlockDescriptor.Summarizer() {
+                    public String summarize(AudioBlockDefinition block) {
+                        return block.getParameter("backend", "PURE_JAVA_CENTER") + " · strength "
                                 + formatQ(block.getDoubleParameter("strength", 0.0d));
                     }
                 });

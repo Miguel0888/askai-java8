@@ -680,6 +680,29 @@ final class AudioBlockProcessors {
         };
     }
 
+    /**
+     * Voice Isolation: keep the dominant voice and reduce other voices/music. Distinct from noise
+     * suppression. The pure-Java center backend is a limited stereo approximation (emphasize centred speech,
+     * reduce lateral content); a neural backend is optional and not bundled. When the backend is unavailable
+     * or the source is unsuitable (mono for the center backend) the audio passes through unchanged.
+     */
+    static AudioBlockProcessor voiceIsolation() {
+        return new AudioBlockProcessor() {
+            public AudioBuffer process(AudioBuffer input, AudioBlockDefinition block, AudioProcessingContext context) {
+                String backend = block.getParameter("backend", "PURE_JAVA_CENTER");
+                if (!"PURE_JAVA_CENTER".equals(backend)) {
+                    return input; // neural backend not installed: pass through, stays editable
+                }
+                if (input.getFormat().getChannels() != 2) {
+                    return input; // the center approximation needs a stereo source
+                }
+                double strength = clamp01(block.getDoubleParameter("strength", 0.7d));
+                StereoOps.applyMidSide(input.getSamples(), input.getSamples().length, 1.0d, 1.0d - strength, true);
+                return input;
+            }
+        };
+    }
+
     /** Channel Selector: output a mono buffer consisting of one chosen input channel (with a fallback). */
     static AudioBlockProcessor channelSelector() {
         return new AudioBlockProcessor() {
