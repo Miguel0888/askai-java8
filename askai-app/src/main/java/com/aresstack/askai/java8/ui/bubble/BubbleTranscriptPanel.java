@@ -1,7 +1,5 @@
 package com.aresstack.askai.java8.ui.bubble;
 
-import com.aresstack.askai.java8.ui.markdown.MarkdownMessageView;
-
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
@@ -46,9 +44,7 @@ public final class BubbleTranscriptPanel extends JPanel {
     private final JScrollPane scrollPane;
     private final SummaryOverlay overlay;
     private final Map<AnimatedThoughtBubblePanel, BubbleMessageRow> activityRows;
-    // The final assistant answer renders as a native Markdown block (headings, lists, code, tables,
-    // links, Mermaid). Thinking/tool/user messages keep their speech-bubble chrome.
-    private MarkdownMessageView activeAssistantView;
+    private SpeechBubblePanel activeAssistantMessage;
 
     public BubbleTranscriptPanel() {
         this(BubblePalette.windowsPhoneInspired());
@@ -92,7 +88,7 @@ public final class BubbleTranscriptPanel extends JPanel {
         stopAllActivityAnimations();
         messageList.removeAll();
         activityRows.clear();
-        activeAssistantView = null;
+        activeAssistantMessage = null;
         refreshTranscript();
     }
 
@@ -112,56 +108,31 @@ public final class BubbleTranscriptPanel extends JPanel {
         return bubble;
     }
 
-    /**
-     * Starts a streaming assistant answer rendered as native Markdown. While streaming the text
-     * re-renders debounced; a Mermaid fence stays a code block until {@link #finishAssistantMessage()}
-     * turns it into a diagram.
-     */
-    public void startAssistantMessage(String header) {
+    public SpeechBubblePanel startAssistantMessage(String header) {
         requireEventDispatchThread();
         finishAssistantMessage();
-        activeAssistantView = new MarkdownMessageView();
-        activeAssistantView.startStreaming();
-        addAssistantMarkdownRow(header, activeAssistantView);
+        activeAssistantMessage = new SpeechBubblePanel(
+                BubbleSide.LEFT,
+                palette.getAssistantBackground(),
+                palette.getAssistantForeground(),
+                header,
+                "");
+        addBubbleRow(activeAssistantMessage, BubbleSide.LEFT);
+        return activeAssistantMessage;
     }
 
     public void appendAssistantDelta(String delta) {
         requireEventDispatchThread();
-        if (activeAssistantView == null) {
+        if (activeAssistantMessage == null) {
             startAssistantMessage("Assistant");
         }
-        activeAssistantView.appendMarkdownDelta(delta);
+        activeAssistantMessage.appendText(delta);
         refreshTranscript();
     }
 
     public void finishAssistantMessage() {
         requireEventDispatchThread();
-        if (activeAssistantView != null) {
-            activeAssistantView.finishStreaming();
-            activeAssistantView = null;
-        }
-    }
-
-    /** Adds a left-aligned assistant answer row: a muted header over the Markdown body. */
-    private void addAssistantMarkdownRow(String header, MarkdownMessageView view) {
-        JLabel title = new JLabel(header == null || header.length() == 0 ? "Assistant" : header);
-        Font font = UIManager.getFont("Label.font");
-        if (font != null) {
-            title.setFont(font.deriveFont(Font.BOLD, Math.max(10f, font.getSize2D() - 1f)));
-        }
-        title.setForeground(palette.getInfoForeground());
-
-        JPanel content = new JPanel(new BorderLayout(0, 4));
-        content.setOpaque(false);
-        content.setBorder(BorderFactory.createEmptyBorder(4, 16, 4, 64));
-        content.add(title, BorderLayout.NORTH);
-        content.add(view, BorderLayout.CENTER);
-
-        MarkdownAnswerRow row = new MarkdownAnswerRow(content);
-        row.setAlignmentX(LEFT_ALIGNMENT);
-        messageList.add(row);
-        messageList.add(Box.createVerticalStrut(2));
-        refreshTranscript();
+        activeAssistantMessage = null;
     }
 
     public void appendInfo(String text) {
@@ -360,22 +331,6 @@ public final class BubbleTranscriptPanel extends JPanel {
             }
         }
         return -1;
-    }
-
-    /** A full-width slot for a Markdown assistant answer; caps its height so BoxLayout stretches width. */
-    private static final class MarkdownAnswerRow extends JPanel {
-
-        private MarkdownAnswerRow(JComponent content) {
-            super(new BorderLayout());
-            setOpaque(false);
-            add(content, BorderLayout.CENTER);
-        }
-
-        @Override
-        public Dimension getMaximumSize() {
-            Dimension preferred = getPreferredSize();
-            return new Dimension(Integer.MAX_VALUE, preferred.height);
-        }
     }
 
     private void stopAllActivityAnimations() {
