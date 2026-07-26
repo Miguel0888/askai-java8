@@ -209,7 +209,8 @@ public final class AskAiFrame extends JFrame {
     }
 
     private JPanel createContentPanel() {
-        this.chatPanel = new OllamaChatPanel(model, ollamaService, speechToTextService, audioProfileRepository);
+        this.chatPanel = new OllamaChatPanel(model, ollamaService, speechToTextService,
+                audioProfileRepository, applicationState);
         chatPanel.setInstallAudioModelHandler(new OllamaChatPanel.InstallAudioModelHandler() {
             public void openInstall() {
                 showScreen(INSTALL_VIEW);

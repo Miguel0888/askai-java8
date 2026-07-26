@@ -3,6 +3,7 @@ package com.aresstack.askai.java8.ui;
 import com.aresstack.askai.java8.AskAiModel;
 import com.aresstack.askai.java8.audio.AudioProfileRepository;
 import com.aresstack.askai.java8.audio.FileAudioProfileRepository;
+import com.aresstack.askai.java8.state.ApplicationStateService;
 import com.aresstack.askai.java8.client.OllamaChatTurn;
 import com.aresstack.askai.java8.service.OllamaService;
 import com.aresstack.askai.java8.service.ThinkingOption;
@@ -88,10 +89,19 @@ public final class OllamaChatPanel extends JPanel {
     /** Delete leftover dictation temp files older than this many milliseconds on startup/close. */
     private static final long TEMP_TTL_MILLIS = 24L * 60L * 60L * 1000L;
 
+    /** Application-state keys under which the chat remembers its last selection. */
+    private static final String STATE_LAST_MODEL = "chat.lastModel";
+    private static final String STATE_MODE = "chat.mode";
+    private static final String STATE_AGENT = "chat.agent";
+    private static final String STATE_REASONING = "chat.reasoningEffort";
+
     private final AskAiModel model;
     private final OllamaService ollamaService;
     private final SpeechToTextService speechToTextService;
     private final AudioProfileRepository audioProfileRepository;
+    private final ApplicationStateService applicationState;
+    // The persisted model to restore once the model list first loads (consumed once, then cleared).
+    private String pendingRestoreModel;
 
     private final JComboBox<String> modelCombo;
     private final JTextField keepAliveField;
@@ -168,16 +178,24 @@ public final class OllamaChatPanel extends JPanel {
 
     public OllamaChatPanel(AskAiModel model, OllamaService ollamaService,
                            SpeechToTextService speechToTextService) {
-        this(model, ollamaService, speechToTextService, new FileAudioProfileRepository());
+        this(model, ollamaService, speechToTextService, new FileAudioProfileRepository(), null);
     }
 
     public OllamaChatPanel(AskAiModel model, OllamaService ollamaService,
                            SpeechToTextService speechToTextService,
                            AudioProfileRepository audioProfileRepository) {
+        this(model, ollamaService, speechToTextService, audioProfileRepository, null);
+    }
+
+    public OllamaChatPanel(AskAiModel model, OllamaService ollamaService,
+                           SpeechToTextService speechToTextService,
+                           AudioProfileRepository audioProfileRepository,
+                           ApplicationStateService applicationState) {
         this.model = model;
         this.ollamaService = ollamaService;
         this.speechToTextService = speechToTextService;
         this.audioProfileRepository = audioProfileRepository;
+        this.applicationState = applicationState;
         this.modelCombo = new JComboBox<String>();
         this.keepAliveField = new JTextField(model.getDefaultKeepAlive(), 6);
         this.systemPromptArea = new JTextArea("You are a concise local assistant.", 2, 40);
@@ -244,11 +262,60 @@ public final class OllamaChatPanel extends JPanel {
         this.readiness = new SpeechToTextReadinessService(new OllamaServerProbe(baseUrl), audioModelResolver());
 
         buildUserInterface();
+        restoreChatPreferences();
         setBusy(false);
         showEmptyState();
         cleanupOldRecordings();
         refreshModels();
         refreshMicrophones();
+    }
+
+    /**
+     * Restores the mode, agent and thinking effort remembered in the application state and arms the last
+     * model for restoration once the model list loads. Nothing is persisted here; only user actions write.
+     */
+    private void restoreChatPreferences() {
+        if (applicationState == null) {
+            return;
+        }
+        String mode = applicationState.get(STATE_MODE, YAPPING_MODE);
+        String agent = applicationState.get(STATE_AGENT, null);
+        if (YAPPING_MODE.equals(mode) || agent == null || agent.trim().isEmpty()) {
+            chatMode = YAPPING_MODE;
+            selectedAgent = null;
+        } else {
+            chatMode = mode;
+            selectedAgent = agent;
+        }
+        composer.setModeName(chatMode);
+
+        String effort = applicationState.get(STATE_REASONING, "off");
+        reasoningEffort = isKnownReasoningLevel(effort) ? effort : "off";
+        composer.setReasoningName(reasoningLabel(reasoningEffort));
+
+        pendingRestoreModel = applicationState.get(STATE_LAST_MODEL, null);
+    }
+
+    private static boolean isKnownReasoningLevel(String level) {
+        for (String known : REASONING_LEVELS) {
+            if (known.equals(level)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** @return the remembered model to select, if it is present in the freshly loaded list; consumed once. */
+    private String consumePendingRestoreModel(List<String> names) {
+        String wanted = pendingRestoreModel;
+        pendingRestoreModel = null;
+        return wanted != null && names.contains(wanted) ? wanted : null;
+    }
+
+    private void rememberState(String key, String value) {
+        if (applicationState != null) {
+            applicationState.putAndSave(key, value);
+        }
     }
 
     private boolean windowCleanupInstalled;
@@ -565,7 +632,10 @@ public final class OllamaChatPanel extends JPanel {
                         for (String name : names) {
                             modelCombo.addItem(name);
                         }
-                        if (previous != null) {
+                        String restored = consumePendingRestoreModel(names);
+                        if (restored != null) {
+                            modelCombo.setSelectedItem(restored);
+                        } else if (previous != null) {
                             modelCombo.setSelectedItem(previous);
                         }
                         refreshAudioModels(names);
@@ -616,6 +686,7 @@ public final class OllamaChatPanel extends JPanel {
         modelCombo.setSelectedItem(modelName);
         composer.setModelName(modelName);
         refreshReasoningForModel(modelName);
+        rememberState(STATE_LAST_MODEL, modelName);
         transcript.appendInfo("Now chatting with " + modelName + ".");
         setStatus("Model set to " + modelName + ".");
     }
@@ -637,6 +708,7 @@ public final class OllamaChatPanel extends JPanel {
                     modelCombo.setSelectedItem(name);
                     composer.setModelName(name);
                     refreshReasoningForModel(name);
+                    rememberState(STATE_LAST_MODEL, name);
                 });
                 menu.add(item);
             }
@@ -694,12 +766,16 @@ public final class OllamaChatPanel extends JPanel {
         chatMode = YAPPING_MODE;
         selectedAgent = null;
         composer.setModeName(YAPPING_MODE);
+        rememberState(STATE_MODE, YAPPING_MODE);
+        rememberState(STATE_AGENT, null);
     }
 
     private void selectAgentMode(String agent) {
         chatMode = agent;
         selectedAgent = agent;
         composer.setModeName(agent);
+        rememberState(STATE_MODE, agent);
+        rememberState(STATE_AGENT, agent);
     }
 
     // ------------------------------------------------------------------ reasoning effort
@@ -723,6 +799,7 @@ public final class OllamaChatPanel extends JPanel {
     private void selectReasoningEffort(String level) {
         reasoningEffort = level;
         composer.setReasoningName(reasoningLabel(level));
+        rememberState(STATE_REASONING, level);
     }
 
     private static String reasoningLabel(String level) {
