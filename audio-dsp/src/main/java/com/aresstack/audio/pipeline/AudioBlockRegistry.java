@@ -39,6 +39,7 @@ public final class AudioBlockRegistry {
         register(lowShelfEqualizer());
         register(highShelfEqualizer());
         register(voiceActivityDetection());
+        register(speechGate());
         register(expander());
         register(silenceTrimmer());
         register(deEsser());
@@ -408,6 +409,33 @@ public final class AudioBlockRegistry {
                                 + " · threshold "
                                 + String.format(java.util.Locale.ROOT, "%.2f",
                                         block.getDoubleParameter("minSpeechProbability", 0.5d));
+                    }
+                });
+    }
+
+    private static AudioBlockDescriptor speechGate() {
+        List<AudioParameterDescriptor> params = new ArrayList<AudioParameterDescriptor>();
+        params.add(AudioParameterDescriptor.decimal("minSpeechProbability", "Min speech probability",
+                0.5d, 0.0d, 1.0d, 0.05d));
+        params.add(AudioParameterDescriptor.decimal("preRollMs", "Pre-roll (ms)", 100.0d, 0.0d, 2000.0d, 10.0d));
+        params.add(AudioParameterDescriptor.decimal("postRollMs", "Post-roll (ms)", 250.0d, 0.0d, 5000.0d, 10.0d));
+        params.add(AudioParameterDescriptor.decimal("attackMs", "Open fade (ms)", 5.0d, 0.0d, 500.0d, 1.0d));
+        params.add(AudioParameterDescriptor.decimal("releaseMs", "Close fade (ms)", 50.0d, 0.0d, 2000.0d, 5.0d));
+        AudioBlockCapabilities capabilities = StaticBlockCapabilities.builder()
+                .framing(320, 0, 0)
+                .consumesSpeechMetadata(true)
+                .requiresSpeechActivityTrack(true)
+                .build();
+        return descriptor(AudioBlockType.SPEECH_GATE, AudioBlockCategory.DYNAMICS, params, capabilities,
+                new SimpleAudioBlockDescriptor.ProcessorFactory() {
+                    public AudioBlockProcessor create() {
+                        return AudioBlockProcessors.speechGate();
+                    }
+                },
+                new SimpleAudioBlockDescriptor.Summarizer() {
+                    public String summarize(AudioBlockDefinition block) {
+                        return "Mute pauses · pre " + formatQ(block.getDoubleParameter("preRollMs", 100.0d))
+                                + " / post " + formatQ(block.getDoubleParameter("postRollMs", 250.0d)) + " ms";
                     }
                 });
     }

@@ -62,6 +62,7 @@ import com.aresstack.audio.dsp.SilenceTrimNoSpeechBehavior;
 import com.aresstack.audio.dsp.SilenceTrimmer;
 import com.aresstack.audio.dsp.SilenceTrimmerSettings;
 import com.aresstack.audio.dsp.SoftNoiseGateProcessor;
+import com.aresstack.audio.dsp.SpeechActivityGate;
 import com.aresstack.audio.dsp.SpeechActivityTrack;
 import com.aresstack.audio.dsp.VoiceActivityDetector;
 import com.aresstack.audio.dsp.VoiceActivityDetectorSettings;
@@ -284,6 +285,33 @@ final class AudioBlockProcessors {
                 }
                 context.setSpeechActivity(track);
                 return input; // analysis only — audio is passed through untouched
+            }
+        };
+    }
+
+    /**
+     * Speech Gate: mute every non-speech region to exact digital silence using the upstream speech-activity
+     * track only (no own detector). Format-preserving; without a usable track (or when the track's time base
+     * no longer matches the audio) it passes the audio through unchanged — the validator flags that case.
+     */
+    static AudioBlockProcessor speechGate() {
+        return new AudioBlockProcessor() {
+            public AudioBuffer process(AudioBuffer input, AudioBlockDefinition block, AudioProcessingContext context) {
+                SpeechActivityTrack track = context.getSpeechActivity();
+                PcmAudioFormat format = input.getFormat();
+                if (track == null || track.isEmpty()
+                        || track.getSampleRateHz() != format.getSampleRateHz()
+                        || track.getChannels() != Math.max(1, format.getChannels())
+                        || track.getFrameSampleCountPerChannel() <= 0) {
+                    return input; // no usable track: never fall back to a hidden energy detector
+                }
+                SpeechActivityGate.apply(input.getSamples(), input.getSamples().length, format, track,
+                        block.getDoubleParameter("minSpeechProbability", 0.5d),
+                        block.getDoubleParameter("preRollMs", 100.0d),
+                        block.getDoubleParameter("postRollMs", 250.0d),
+                        block.getDoubleParameter("attackMs", 5.0d),
+                        block.getDoubleParameter("releaseMs", 50.0d));
+                return input;
             }
         };
     }

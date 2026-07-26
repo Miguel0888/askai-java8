@@ -17,6 +17,7 @@ public enum AudioBlockType {
     LOW_SHELF("Low-Shelf Equalizer"),
     HIGH_SHELF("High-Shelf Equalizer"),
     VOICE_ACTIVITY_DETECTION("Voice Activity Detection"),
+    SPEECH_GATE("Speech Gate"),
     EXPANDER("Expander"),
     SILENCE_TRIMMER("Silence Trimmer"),
     DE_ESSER("De-Esser"),

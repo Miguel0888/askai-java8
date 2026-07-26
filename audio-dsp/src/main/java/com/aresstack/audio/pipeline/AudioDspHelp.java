@@ -46,6 +46,8 @@ public final class AudioDspHelp {
                 "Boosts or cuts high frequencies above the selected cutoff with a smooth transition.");
         blocks.put(AudioBlockType.VOICE_ACTIVITY_DETECTION,
                 "Analyzes the recording and marks which time frames probably contain speech. Later blocks can use this metadata to protect speech or trim silence.");
+        blocks.put(AudioBlockType.SPEECH_GATE,
+                "Uses upstream Voice Activity Detection to keep speech and turn every non-speech region into exact digital silence. Pre-/post-roll protect word boundaries and short fades avoid clicks; the recording length is not changed.");
         blocks.put(AudioBlockType.EXPANDER,
                 "Smoothly turns down low-level sound below a threshold while leaving louder speech unchanged. It is gentler than a Noise Gate.");
         blocks.put(AudioBlockType.SILENCE_TRIMMER,
@@ -247,6 +249,14 @@ public final class AudioDspHelp {
                 "Sets the center of the sibilance band watched for harsh S and SH sounds.");
         contextual.put(contextKey(AudioBlockType.DE_ESSER_FFT, "targetFrequencyHz"),
                 "Sets the center of the FFT sibilance band watched for harsh S and SH sounds.");
+        contextual.put(contextKey(AudioBlockType.SPEECH_GATE, "attackMs"),
+                "Sets a short fade-in when the gate opens so speech onsets do not start with an audible click.");
+        contextual.put(contextKey(AudioBlockType.SPEECH_GATE, "releaseMs"),
+                "Sets a short fade-out before the gate reaches exact digital silence, avoiding a click at the close.");
+        contextual.put(contextKey(AudioBlockType.SPEECH_GATE, "preRollMs"),
+                "Opens the gate this long before detected speech so consonant onsets are preserved.");
+        contextual.put(contextKey(AudioBlockType.SPEECH_GATE, "postRollMs"),
+                "Holds the gate open this long after detected speech so word endings are not cut off.");
         CONTEXT_PARAMETER_DESCRIPTIONS = Collections.unmodifiableMap(contextual);
     }
 

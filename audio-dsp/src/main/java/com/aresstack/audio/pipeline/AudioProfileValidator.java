@@ -126,6 +126,9 @@ public final class AudioProfileValidator {
                 case VOICE_ACTIVITY_DETECTION:
                     validateVoiceActivity(issues, block, enabled);
                     break;
+                case SPEECH_GATE:
+                    validateSpeechGate(issues, block, enabled, sawEnabledVad, timeBaseChangedAfterVad);
+                    break;
                 case EXPANDER:
                     validateExpander(issues, block, enabled, sawEnabledVad);
                     break;
@@ -392,6 +395,24 @@ public final class AudioProfileValidator {
             add(issues, block, enabled, AudioValidationSeverity.ERROR, "noiseAdaptationSpeed",
                     name + ": the noise adaptation speed must be a finite value in (0, 0.5].");
         }
+    }
+
+    private void validateSpeechGate(List<AudioProfileValidationIssue> issues, AudioBlockDefinition block,
+                                    boolean enabled, boolean sawEnabledVad, boolean timeBaseChangedAfterVad) {
+        String name = block.getType().getDisplayName();
+        if (!sawEnabledVad) {
+            add(issues, block, enabled, AudioValidationSeverity.ERROR, null,
+                    name + ": requires an enabled Voice Activity Detection block before it.");
+        } else if (timeBaseChangedAfterVad) {
+            add(issues, block, enabled, AudioValidationSeverity.ERROR, null,
+                    name + ": a block that changes the time base (e.g. Resampler or Silence Trimmer) must not "
+                            + "sit between Voice Activity Detection and Speech Gate.");
+        }
+        rangeError(issues, block, enabled, name, "minSpeechProbability", "Minimum speech probability", 0.0d, 1.0d);
+        nonNegativeError(issues, block, enabled, name, "preRollMs", "Pre-roll");
+        nonNegativeError(issues, block, enabled, name, "postRollMs", "Post-roll");
+        nonNegativeError(issues, block, enabled, name, "attackMs", "Open fade");
+        nonNegativeError(issues, block, enabled, name, "releaseMs", "Close fade");
     }
 
     private void validateExpander(List<AudioProfileValidationIssue> issues, AudioBlockDefinition block,
