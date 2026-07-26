@@ -1,6 +1,13 @@
 package com.aresstack.askai.java8.ui;
 
 import com.aresstack.askai.java8.audio.AudioProfileRepository;
+import com.aresstack.askai.java8.audio.transfer.AudioProfileExportService;
+import com.aresstack.askai.java8.audio.transfer.AudioProfileImportPreview;
+import com.aresstack.askai.java8.audio.transfer.AudioProfileImportResult;
+import com.aresstack.askai.java8.audio.transfer.AudioProfileImportService;
+import com.aresstack.askai.java8.audio.transfer.AudioProfileTransferException;
+import com.aresstack.askai.java8.audio.transfer.PlannedProfileImport;
+import com.aresstack.askai.java8.audio.transfer.RejectedProfileImport;
 import com.aresstack.audio.profile.AudioBlockDefinition;
 import com.aresstack.audio.profile.AudioBlockType;
 import com.aresstack.audio.profile.AudioProcessingProfile;
@@ -8,13 +15,16 @@ import com.aresstack.audio.profile.AudioProcessingProfile;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
+import javax.swing.JFileChooser;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
+import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.BorderLayout;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
+import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -29,8 +39,13 @@ public final class AudioProcessingPanel extends JPanel {
     private final JButton saveAsButton = new JButton("Save as…");
     private final JButton deleteButton = new JButton("Delete");
     private final JButton resetButton = new JButton("Reset changes");
+    private final JButton importButton = new JButton("Import profiles…");
+    private final JButton exportSelectedButton = new JButton("Export selected profile…");
+    private final JButton exportAllButton = new JButton("Export all user profiles…");
     private final JButton addButton = new JButton("Add block");
     private final JButton removeButton = new JButton("Remove block");
+    private final AudioProfileExportService exportService = new AudioProfileExportService();
+    private final AudioProfileImportService importService;
     private final JLabel statusLabel = new JLabel(" ");
     private final AudioPipelineCanvas canvas = new AudioPipelineCanvas();
     private final AudioBlockInspectorPanel inspector = new AudioBlockInspectorPanel();
@@ -42,12 +57,14 @@ public final class AudioProcessingPanel extends JPanel {
     private List<AudioBlockDefinition> workingBlocks = new ArrayList<AudioBlockDefinition>();
     private boolean dirty;
     private boolean updatingProfileCombo;
+    private File lastTransferDirectory;
 
     public AudioProcessingPanel(AudioProfileRepository repository) {
         if (repository == null) {
             throw new IllegalArgumentException("Repository must not be null.");
         }
         this.repository = repository;
+        this.importService = new AudioProfileImportService(repository);
         buildUserInterface();
         wireActions();
         reloadProfiles(null);
@@ -93,6 +110,9 @@ public final class AudioProcessingPanel extends JPanel {
         profileArea.add(saveAsButton);
         profileArea.add(deleteButton);
         profileArea.add(resetButton);
+        profileArea.add(importButton);
+        profileArea.add(exportSelectedButton);
+        profileArea.add(exportAllButton);
 
         JPanel blockArea = new JPanel(new FlowLayout(FlowLayout.RIGHT, 6, 2));
         blockArea.add(addButton);
@@ -121,6 +141,9 @@ public final class AudioProcessingPanel extends JPanel {
         saveAsButton.addActionListener(event -> saveAsProfile());
         deleteButton.addActionListener(event -> deleteCurrentProfile());
         resetButton.addActionListener(event -> resetWorkingCopy());
+        importButton.addActionListener(event -> importProfiles());
+        exportSelectedButton.addActionListener(event -> exportSelectedProfile());
+        exportAllButton.addActionListener(event -> exportAllUserProfiles());
         addButton.addActionListener(event -> addBlock());
         removeButton.addActionListener(event -> removeSelectedBlock());
 
@@ -239,6 +262,176 @@ public final class AudioProcessingPanel extends JPanel {
         setStatus("Unsaved changes discarded.");
     }
 
+    // ------------------------------------------------------------------ JSON import / export
+
+    private void exportSelectedProfile() {
+        if (selectedProfile == null || selectedProfile.isBuiltIn()) {
+            setStatus("The built-in default profile cannot be exported.");
+            return;
+        }
+        File target = chooseJsonToSave(selectedProfile.getName());
+        if (target == null) {
+            return;
+        }
+        try {
+            exportService.export(java.util.Collections.singletonList(selectedProfile), target);
+            setStatus("Exported “" + selectedProfile.getName() + "” to " + target.getName() + ".");
+        } catch (AudioProfileTransferException ex) {
+            setStatus(ex.getMessage());
+        } catch (IOException ex) {
+            showError("Could not export the profile.", ex);
+        }
+    }
+
+    private void exportAllUserProfiles() {
+        File target = chooseJsonToSave("askai-audio-profiles");
+        if (target == null) {
+            return;
+        }
+        try {
+            exportService.export(repository.findAll(), target);
+            setStatus("Exported user profiles to " + target.getName() + ".");
+        } catch (AudioProfileTransferException ex) {
+            setStatus(ex.getMessage());
+        } catch (IOException ex) {
+            showError("Could not export the profiles.", ex);
+        }
+    }
+
+    private void importProfiles() {
+        if (dirty && !resolveUnsavedBeforeImport()) {
+            return;
+        }
+        JFileChooser chooser = new JFileChooser();
+        if (lastTransferDirectory != null) {
+            chooser.setCurrentDirectory(lastTransferDirectory);
+        }
+        chooser.setDialogTitle("Import audio profiles");
+        chooser.setAcceptAllFileFilterUsed(false);
+        chooser.setFileFilter(new FileNameExtensionFilter("JSON files (*.json)", "json"));
+        if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) {
+            return;
+        }
+        File source = chooser.getSelectedFile();
+        lastTransferDirectory = source.getParentFile();
+        try {
+            AudioProfileImportPreview preview = importService.preview(source);
+            if (!preview.hasImportableProfiles()) {
+                JOptionPane.showMessageDialog(this, importPreviewText(preview),
+                        "Nothing to import", JOptionPane.WARNING_MESSAGE);
+                setStatus("Nothing to import.");
+                return;
+            }
+            int answer = JOptionPane.showConfirmDialog(this, importPreviewText(preview),
+                    "Import preview", JOptionPane.OK_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE);
+            if (answer != JOptionPane.OK_OPTION) {
+                setStatus("Import cancelled.");
+                return;
+            }
+            AudioProfileImportResult result = importService.commit(preview);
+            String firstId = result.getImportedIds().isEmpty() ? null : result.getImportedIds().get(0);
+            reloadProfiles(firstId);
+            setStatus("Imported " + result.getImportedCount() + " profile(s).");
+            if (result.hasFailures() || !preview.getWarnings().isEmpty()) {
+                JOptionPane.showMessageDialog(this, importResultText(result, preview),
+                        "Import finished", JOptionPane.INFORMATION_MESSAGE);
+            }
+        } catch (AudioProfileTransferException ex) {
+            JOptionPane.showMessageDialog(this, ex.getMessage(), "Import failed", JOptionPane.ERROR_MESSAGE);
+            setStatus("Import failed.");
+        } catch (IOException ex) {
+            showError("Could not read the import file.", ex);
+        }
+    }
+
+    /** Save/Discard/Cancel before an import. @return true to proceed with the import. */
+    private boolean resolveUnsavedBeforeImport() {
+        Object[] options = {"Save changes", "Discard changes", "Cancel import"};
+        int choice = JOptionPane.showOptionDialog(this,
+                "The editor has unsaved changes. What should happen before importing?",
+                "Unsaved changes", JOptionPane.DEFAULT_OPTION, JOptionPane.QUESTION_MESSAGE,
+                null, options, options[0]);
+        if (choice == 0) {
+            saveCurrentProfile(); // built-in profiles are routed to "Save as…"
+            return !dirty;        // proceed only if the save actually completed
+        }
+        if (choice == 1) {
+            dirty = false;
+            return true;
+        }
+        return false;
+    }
+
+    private File chooseJsonToSave(String suggestedName) {
+        JFileChooser chooser = new JFileChooser();
+        if (lastTransferDirectory != null) {
+            chooser.setCurrentDirectory(lastTransferDirectory);
+        }
+        chooser.setDialogTitle("Export audio profiles");
+        chooser.setFileFilter(new FileNameExtensionFilter("JSON files (*.json)", "json"));
+        chooser.setSelectedFile(new File(sanitizeFileName(suggestedName) + ".json"));
+        if (chooser.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) {
+            return null;
+        }
+        File file = chooser.getSelectedFile();
+        if (!file.getName().toLowerCase().endsWith(".json")) {
+            file = new File(file.getParentFile(), file.getName() + ".json");
+        }
+        lastTransferDirectory = file.getParentFile();
+        if (file.exists() && JOptionPane.showConfirmDialog(this,
+                "Overwrite the existing file " + file.getName() + "?", "Overwrite",
+                JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) {
+            return null;
+        }
+        return file;
+    }
+
+    private static String sanitizeFileName(String value) {
+        String cleaned = value == null ? "profile" : value.trim().replaceAll("[^a-zA-Z0-9._ -]", "_");
+        return cleaned.isEmpty() ? "profile" : cleaned;
+    }
+
+    private static String importPreviewText(AudioProfileImportPreview preview) {
+        StringBuilder text = new StringBuilder();
+        text.append("Found ").append(preview.getFoundCount()).append(" profile(s).\n");
+        text.append("Importable: ").append(preview.getValidCount()).append('\n');
+        text.append("Cannot import: ").append(preview.getInvalidCount()).append('\n');
+        text.append("New ids assigned: ").append(preview.getNewIdCount()).append('\n');
+        text.append("Name collisions resolved: ").append(preview.getNameCollisionCount()).append('\n');
+        for (PlannedProfileImport planned : preview.getImportable()) {
+            text.append("  + ").append(planned.getFinalName());
+            if (planned.isNameReassigned() || planned.isIdReassigned()) {
+                text.append("  (").append(planned.isNameReassigned() ? "renamed" : "")
+                        .append(planned.isNameReassigned() && planned.isIdReassigned() ? ", " : "")
+                        .append(planned.isIdReassigned() ? "new id" : "").append(')');
+            }
+            text.append('\n');
+        }
+        for (RejectedProfileImport rejected : preview.getRejected()) {
+            text.append("  ✗ ").append(rejected.getDisplayName())
+                    .append(" — ").append(String.join("; ", rejected.getReasons())).append('\n');
+        }
+        for (String warning : preview.getWarnings()) {
+            text.append("! ").append(warning).append('\n');
+        }
+        if (preview.hasImportableProfiles()) {
+            text.append("\nImport these profiles as new profiles?");
+        }
+        return text.toString();
+    }
+
+    private static String importResultText(AudioProfileImportResult result, AudioProfileImportPreview preview) {
+        StringBuilder text = new StringBuilder();
+        text.append("Imported ").append(result.getImportedCount()).append(" profile(s).\n");
+        for (String warning : preview.getWarnings()) {
+            text.append("! ").append(warning).append('\n');
+        }
+        for (String failure : result.getFailures()) {
+            text.append("Failed: ").append(failure).append('\n');
+        }
+        return text.toString();
+    }
+
     private void addBlock() {
         AudioBlockDefinition block = com.aresstack.audio.pipeline.AudioBlockRegistry.getInstance()
                 .defaultDefinition(AudioBlockType.LOW_PASS, "block-" + UUID.randomUUID().toString());
@@ -347,6 +540,8 @@ public final class AudioProcessingPanel extends JPanel {
         saveAsButton.setEnabled(hasProfile);
         deleteButton.setEnabled(hasProfile && !selectedProfile.isBuiltIn());
         resetButton.setEnabled(hasProfile && dirty);
+        // The built-in default profile can never be exported.
+        exportSelectedButton.setEnabled(hasProfile && !selectedProfile.isBuiltIn());
         removeButton.setEnabled(canvas.getSelectedIndex() >= 0);
     }
 
