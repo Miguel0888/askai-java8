@@ -16,9 +16,17 @@ import com.aresstack.audio.dsp.Pcm16Processor;
 import com.aresstack.audio.dsp.Pcm16Resampler;
 import com.aresstack.audio.dsp.PcmChannelConverter;
 import com.aresstack.audio.dsp.ResamplingQuality;
+import com.aresstack.audio.dsp.AdaptiveHumRemovalProcessor;
+import com.aresstack.audio.dsp.AdaptiveHumRemovalSettings;
+import com.aresstack.audio.dsp.BreathReductionProcessor;
+import com.aresstack.audio.dsp.BreathReductionSettings;
+import com.aresstack.audio.dsp.DeEsserProcessor;
+import com.aresstack.audio.dsp.DeEsserSettings;
 import com.aresstack.audio.dsp.ExpanderProcessor;
 import com.aresstack.audio.dsp.ExpanderSettings;
 import com.aresstack.audio.dsp.ExpanderState;
+import com.aresstack.audio.dsp.PlosiveReductionProcessor;
+import com.aresstack.audio.dsp.PlosiveReductionSettings;
 import com.aresstack.audio.dsp.SilenceTrimNoSpeechBehavior;
 import com.aresstack.audio.dsp.SilenceTrimmer;
 import com.aresstack.audio.dsp.SilenceTrimmerSettings;
@@ -314,6 +322,76 @@ final class AudioBlockProcessors {
                 System.arraycopy(input.getSamples(), bounds.startInterleaved, trimmed, 0, length);
                 context.setSpeechActivity(null); // the track no longer matches the trimmed time base
                 return new AudioBuffer(trimmed, input.getFormat());
+            }
+        };
+    }
+
+    /** De-esser: dynamic reduction of an over-emphasized sibilance band. Format-preserving, no track needed. */
+    static AudioBlockProcessor deEsser() {
+        return new AudioBlockProcessor() {
+            public AudioBuffer process(AudioBuffer input, AudioBlockDefinition block, AudioProcessingContext context) {
+                DeEsserSettings settings = new DeEsserSettings(
+                        block.getDoubleParameter("targetFrequencyHz", 6500.0d),
+                        block.getDoubleParameter("bandwidthHz", 2500.0d),
+                        block.getDoubleParameter("thresholdDb", -30.0d),
+                        block.getDoubleParameter("reductionDb", 8.0d),
+                        block.getDoubleParameter("attackMs", 2.0d),
+                        block.getDoubleParameter("releaseMs", 60.0d));
+                new DeEsserProcessor(settings).process(input.getSamples(), input.getSamples().length,
+                        input.getFormat());
+                return input;
+            }
+        };
+    }
+
+    /** Adaptive hum removal: tracks a drifting mains fundamental and notches it and its harmonics. */
+    static AudioBlockProcessor adaptiveHumRemoval() {
+        return new AudioBlockProcessor() {
+            public AudioBuffer process(AudioBuffer input, AudioBlockDefinition block, AudioProcessingContext context) {
+                AdaptiveHumRemovalSettings settings = new AdaptiveHumRemovalSettings(
+                        block.getDoubleParameter("baseFrequencyHz", 50.0d),
+                        block.getDoubleParameter("searchRangeHz", 3.0d),
+                        block.getDoubleParameter("adaptationSpeed", 0.1d),
+                        block.getIntParameter("harmonics", 3),
+                        block.getDoubleParameter("maxAttenuationDb", 24.0d),
+                        block.getBooleanParameter("speechProtection", false));
+                SpeechActivityTrack track = settings.isSpeechProtection() ? context.getSpeechActivity() : null;
+                new AdaptiveHumRemovalProcessor(settings).process(input.getSamples(),
+                        input.getSamples().length, input.getFormat(), track);
+                return input;
+            }
+        };
+    }
+
+    /** Plosive reduction: ducks low-frequency transient bursts (P/B pops). Format-preserving, no track needed. */
+    static AudioBlockProcessor plosiveReduction() {
+        return new AudioBlockProcessor() {
+            public AudioBuffer process(AudioBuffer input, AudioBlockDefinition block, AudioProcessingContext context) {
+                PlosiveReductionSettings settings = new PlosiveReductionSettings(
+                        block.getDoubleParameter("strength", 0.6d),
+                        block.getDoubleParameter("targetFrequencyHz", 120.0d),
+                        block.getDoubleParameter("attackMs", 3.0d),
+                        block.getDoubleParameter("releaseMs", 80.0d));
+                new PlosiveReductionProcessor(settings).process(input.getSamples(),
+                        input.getSamples().length, input.getFormat());
+                return input;
+            }
+        };
+    }
+
+    /** Breath reduction: attenuates audible non-speech using the upstream track; passes through without one. */
+    static AudioBlockProcessor breathReduction() {
+        return new AudioBlockProcessor() {
+            public AudioBuffer process(AudioBuffer input, AudioBlockDefinition block, AudioProcessingContext context) {
+                BreathReductionSettings settings = new BreathReductionSettings(
+                        block.getDoubleParameter("sensitivity", 0.5d),
+                        block.getDoubleParameter("maxAttenuationDb", 12.0d),
+                        block.getBooleanParameter("speechProtection", true),
+                        block.getDoubleParameter("attackMs", 5.0d),
+                        block.getDoubleParameter("releaseMs", 120.0d));
+                new BreathReductionProcessor(settings).process(input.getSamples(),
+                        input.getSamples().length, input.getFormat(), context.getSpeechActivity());
+                return input;
             }
         };
     }

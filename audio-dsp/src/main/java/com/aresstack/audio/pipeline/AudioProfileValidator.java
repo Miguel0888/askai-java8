@@ -128,6 +128,18 @@ public final class AudioProfileValidator {
                     validateSilenceTrimmer(issues, block, enabled, sawEnabledVad,
                             timeBaseChangedAfterVad, silenceTrimmerCount);
                     break;
+                case DE_ESSER:
+                    validateDeEsser(issues, block, currentRate, enabled);
+                    break;
+                case ADAPTIVE_HUM_REMOVAL:
+                    validateAdaptiveHumRemoval(issues, block, currentRate, enabled, sawEnabledVad);
+                    break;
+                case PLOSIVE_REDUCTION:
+                    validatePlosiveReduction(issues, block, currentRate, enabled);
+                    break;
+                case BREATH_REDUCTION:
+                    validateBreathReduction(issues, block, enabled, sawEnabledVad);
+                    break;
                 default:
                     break;
             }
@@ -335,6 +347,83 @@ public final class AudioProfileValidator {
         nonNegativeError(issues, block, enabled, name, "zeroCrossingSearchMs", "Zero-crossing search window");
         rangeError(issues, block, enabled, name, "minSpeechProbability", "Minimum speech probability",
                 0.0d, 1.0d);
+    }
+
+    private void validateDeEsser(List<AudioProfileValidationIssue> issues, AudioBlockDefinition block,
+                                 int rate, boolean enabled) {
+        String name = block.getType().getDisplayName();
+        frequencyChecks(issues, block, enabled, name, "targetFrequencyHz", rate);
+        positiveError(issues, block, enabled, name, "bandwidthHz", "Bandwidth");
+        finiteError(issues, block, enabled, name, "thresholdDb", "Threshold");
+        nonNegativeError(issues, block, enabled, name, "reductionDb", "Reduction");
+        nonNegativeError(issues, block, enabled, name, "attackMs", "Attack");
+        nonNegativeError(issues, block, enabled, name, "releaseMs", "Release");
+    }
+
+    private void validateAdaptiveHumRemoval(List<AudioProfileValidationIssue> issues, AudioBlockDefinition block,
+                                            int rate, boolean enabled, boolean sawEnabledVad) {
+        String name = block.getType().getDisplayName();
+        frequencyChecks(issues, block, enabled, name, "baseFrequencyHz", rate);
+        nonNegativeError(issues, block, enabled, name, "searchRangeHz", "Search range");
+        double speed = block.getDoubleParameter("adaptationSpeed", 0.1d);
+        if (!isFinite(speed) || speed < 0.0d || speed > 1.0d) {
+            add(issues, block, enabled, AudioValidationSeverity.ERROR, "adaptationSpeed",
+                    name + ": the adaptation speed must be a finite value between 0 and 1.");
+        }
+        double harmonics = block.getDoubleParameter("harmonics", 3.0d);
+        if (!isFinite(harmonics) || harmonics < 1.0d) {
+            add(issues, block, enabled, AudioValidationSeverity.ERROR, "harmonics",
+                    name + ": the number of harmonics must be at least 1.");
+        }
+        nonNegativeError(issues, block, enabled, name, "maxAttenuationDb", "Maximum attenuation");
+        if (block.getBooleanParameter("speechProtection", false) && !sawEnabledVad) {
+            add(issues, block, enabled, AudioValidationSeverity.WARNING, "speechProtection",
+                    name + ": speech protection needs a Voice Activity Detection block upstream.");
+        }
+    }
+
+    private void validatePlosiveReduction(List<AudioProfileValidationIssue> issues, AudioBlockDefinition block,
+                                          int rate, boolean enabled) {
+        String name = block.getType().getDisplayName();
+        rangeError(issues, block, enabled, name, "strength", "Strength", 0.0d, 1.0d);
+        frequencyChecks(issues, block, enabled, name, "targetFrequencyHz", rate);
+        nonNegativeError(issues, block, enabled, name, "attackMs", "Attack");
+        nonNegativeError(issues, block, enabled, name, "releaseMs", "Release");
+    }
+
+    private void validateBreathReduction(List<AudioProfileValidationIssue> issues, AudioBlockDefinition block,
+                                         boolean enabled, boolean sawEnabledVad) {
+        String name = block.getType().getDisplayName();
+        rangeError(issues, block, enabled, name, "sensitivity", "Sensitivity", 0.0d, 1.0d);
+        nonNegativeError(issues, block, enabled, name, "maxAttenuationDb", "Maximum attenuation");
+        nonNegativeError(issues, block, enabled, name, "attackMs", "Attack");
+        nonNegativeError(issues, block, enabled, name, "releaseMs", "Release");
+        if (block.getBooleanParameter("speechProtection", true) && !sawEnabledVad) {
+            add(issues, block, enabled, AudioValidationSeverity.WARNING, "speechProtection",
+                    name + ": speech protection needs a Voice Activity Detection block upstream.");
+        }
+    }
+
+    private void frequencyChecks(List<AudioProfileValidationIssue> issues, AudioBlockDefinition block,
+                                 boolean enabled, String name, String key, int rate) {
+        double frequency = block.getDoubleParameter(key, 0.0d);
+        if (!isFinite(frequency) || frequency <= 0.0d) {
+            add(issues, block, enabled, AudioValidationSeverity.ERROR, key,
+                    name + ": the frequency must be a finite value above 0 Hz.");
+        } else if (rate > 0 && frequency >= rate / 2.0d) {
+            add(issues, block, enabled, AudioValidationSeverity.WARNING, key,
+                    name + ": the frequency (" + frequency + " Hz) is at or above the Nyquist frequency ("
+                            + (rate / 2) + " Hz) here.");
+        }
+    }
+
+    private void positiveError(List<AudioProfileValidationIssue> issues, AudioBlockDefinition block,
+                               boolean enabled, String name, String key, String label) {
+        double value = block.getDoubleParameter(key, 0.0d);
+        if (!isFinite(value) || value <= 0.0d) {
+            add(issues, block, enabled, AudioValidationSeverity.ERROR, key,
+                    name + ": " + label + " must be a finite value above 0.");
+        }
     }
 
     private static boolean isTimeBaseChanger(AudioBlockType type) {

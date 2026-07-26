@@ -18,7 +18,11 @@ public enum AudioBlockType {
     HIGH_SHELF("High-Shelf Equalizer"),
     VOICE_ACTIVITY_DETECTION("Voice Activity Detection"),
     EXPANDER("Expander"),
-    SILENCE_TRIMMER("Silence Trimmer");
+    SILENCE_TRIMMER("Silence Trimmer"),
+    DE_ESSER("De-Esser"),
+    ADAPTIVE_HUM_REMOVAL("Adaptive Hum Removal"),
+    PLOSIVE_REDUCTION("Plosive Reduction"),
+    BREATH_REDUCTION("Breath Reduction");
 
     private final String displayName;
 

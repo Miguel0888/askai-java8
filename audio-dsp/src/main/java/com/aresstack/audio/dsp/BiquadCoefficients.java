@@ -25,6 +25,34 @@ public final class BiquadCoefficients {
         this.a2 = a2;
     }
 
+    /** Band-pass with constant 0 dB peak gain (unity at the center) — used to isolate a band for analysis. */
+    public static BiquadCoefficients bandPass(int sampleRateHz, double centerHz, double q) {
+        requireFrequency(sampleRateHz, centerHz);
+        requireQ(q);
+        double w0 = omega(sampleRateHz, centerHz);
+        double cosw0 = Math.cos(w0);
+        double alpha = Math.sin(w0) / (2.0d * q);
+        return normalized(alpha, 0.0d, -alpha, 1.0d + alpha, -2.0d * cosw0, 1.0d - alpha);
+    }
+
+    /** Second-order low-pass, used to split off a low band for transient/plosive handling. */
+    public static BiquadCoefficients lowPass(int sampleRateHz, double cutoffHz, double q) {
+        requireFrequency(sampleRateHz, cutoffHz);
+        requireQ(q);
+        double w0 = omega(sampleRateHz, cutoffHz);
+        double cosw0 = Math.cos(w0);
+        double alpha = Math.sin(w0) / (2.0d * q);
+        double oneMinusCos = 1.0d - cosw0;
+        return normalized(oneMinusCos / 2.0d, oneMinusCos, oneMinusCos / 2.0d,
+                1.0d + alpha, -2.0d * cosw0, 1.0d - alpha);
+    }
+
+    private static void requireQ(double q) {
+        if (!(q > 0.0d) || !finite(q)) {
+            throw new IllegalArgumentException("Q must be > 0.");
+        }
+    }
+
     /** Peaking (bell) EQ: boosts/cuts around {@code centerHz} with bandwidth set by {@code q}. */
     public static BiquadCoefficients peaking(int sampleRateHz, double centerHz, double gainDb, double q) {
         requireFrequency(sampleRateHz, centerHz);
