@@ -13,6 +13,8 @@ import com.aresstack.audio.dsp.LimiterProcessor;
 import com.aresstack.audio.dsp.LowShelfEqualizerProcessor;
 import com.aresstack.audio.dsp.ChannelAligner;
 import com.aresstack.audio.dsp.ChannelDiagnostics;
+import com.aresstack.audio.dsp.DelayAndSumBeamformer;
+import com.aresstack.audio.dsp.MicrophoneArrayProfile;
 import com.aresstack.audio.dsp.MultichannelOps;
 import com.aresstack.audio.dsp.ParametricEqualizerProcessor;
 import com.aresstack.audio.dsp.Pcm16Processor;
@@ -717,6 +719,33 @@ final class AudioBlockProcessors {
                     context.setChannelCorrelation(corr);
                 }
                 return input;
+            }
+        };
+    }
+
+    /**
+     * Delay-and-Sum Beamformer: with a valid microphone-array geometry, aligns and sums the channels toward
+     * a target direction, producing a mono output. Without a valid geometry (or on a channel-count mismatch)
+     * it passes the input through unchanged — the validator surfaces the error — and never invents positions.
+     */
+    static AudioBlockProcessor delayAndSumBeamformer() {
+        return new AudioBlockProcessor() {
+            public AudioBuffer process(AudioBuffer input, AudioBlockDefinition block, AudioProcessingContext context) {
+                PcmAudioFormat format = input.getFormat();
+                int channels = format.getChannels();
+                MicrophoneArrayProfile array = MicrophoneArrayProfile.parse(block.getId(), "inline",
+                        block.getParameter("micPositionsMm", ""));
+                if (array == null || channels < 2 || array.getMicrophoneCount() != channels) {
+                    return input; // invalid/absent geometry: never fabricate positions
+                }
+                double[] weights = parseDoubles(block.getParameter("channelWeights", ""));
+                double gain = Math.pow(10.0d, block.getDoubleParameter("outputGainDb", 0.0d) / 20.0d);
+                short[] mono = DelayAndSumBeamformer.beamform(input.getSamples(), input.getSamples().length,
+                        format, array, block.getDoubleParameter("targetAzimuthDeg", 90.0d),
+                        block.getDoubleParameter("targetElevationDeg", 0.0d),
+                        block.getDoubleParameter("speedOfSoundMmPerS", 343000.0d), weights, gain);
+                return new AudioBuffer(mono, new PcmAudioFormat(format.getSampleRateHz(), 1,
+                        format.getBitsPerSample()));
             }
         };
     }

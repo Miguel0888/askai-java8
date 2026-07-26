@@ -65,6 +65,7 @@ public final class AudioBlockRegistry {
         register(midSideProcessor());
         register(centerSpeechExtractor());
         register(stereoWidthControl());
+        register(delayAndSumBeamformer());
     }
 
     public static AudioBlockRegistry getInstance() {
@@ -951,6 +952,38 @@ public final class AudioBlockRegistry {
                 new SimpleAudioBlockDescriptor.Summarizer() {
                     public String summarize(AudioBlockDefinition block) {
                         return "Width " + formatQ(block.getDoubleParameter("width", 1.0d));
+                    }
+                });
+    }
+
+    private static AudioBlockDescriptor delayAndSumBeamformer() {
+        List<AudioParameterDescriptor> params = new ArrayList<AudioParameterDescriptor>();
+        params.add(AudioParameterDescriptor.text("micPositionsMm",
+                "Microphone positions (mm; x,y,z per mic, ';' separated)", ""));
+        params.add(AudioParameterDescriptor.decimal("targetAzimuthDeg", "Target azimuth (deg)",
+                90.0d, -180.0d, 180.0d, 1.0d));
+        params.add(AudioParameterDescriptor.decimal("targetElevationDeg", "Target elevation (deg)",
+                0.0d, -90.0d, 90.0d, 1.0d));
+        params.add(AudioParameterDescriptor.decimal("speedOfSoundMmPerS", "Speed of sound (mm/s)",
+                343000.0d, 300000.0d, 360000.0d, 1000.0d));
+        params.add(AudioParameterDescriptor.text("channelWeights", "Channel weights (comma-separated)", ""));
+        params.add(AudioParameterDescriptor.decimal("outputGainDb", "Output gain (dB)", 0.0d, -24.0d, 24.0d, 0.5d));
+        AudioBlockCapabilities capabilities = StaticBlockCapabilities.builder()
+                .preservesChannelCount(false)
+                .requiresSynchronizedChannels(true)
+                .requiresKnownMicrophoneGeometry(true)
+                .build();
+        return descriptor(AudioBlockType.DELAY_AND_SUM_BEAMFORMER, AudioBlockCategory.INPUT_CHANNEL, params,
+                capabilities,
+                new SimpleAudioBlockDescriptor.ProcessorFactory() {
+                    public AudioBlockProcessor create() {
+                        return AudioBlockProcessors.delayAndSumBeamformer();
+                    }
+                },
+                new SimpleAudioBlockDescriptor.Summarizer() {
+                    public String summarize(AudioBlockDefinition block) {
+                        return "Beam @ " + formatQ(block.getDoubleParameter("targetAzimuthDeg", 0.0d))
+                                + " deg -> mono";
                     }
                 });
     }

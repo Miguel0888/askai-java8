@@ -42,3 +42,19 @@ with slice, affected function, concrete blocker, tried approaches, impact and po
 - **Possible later solution:** Add a streaming pipeline runner that feeds frames through stateful processors
   incrementally; the WPE STREAMING core already keeps bounded state and would slot into it.
 
+## Slice 11 — MicrophoneArrayProfile persistence by id / editor picker deferred
+
+- **Slice:** 11
+- **Affected function:** Persisting a `MicrophoneArrayProfile` on disk and referencing it by
+  `microphoneArrayProfileId`, plus an editor picker for it.
+- **Status:** The `MicrophoneArrayProfile` type and geometry validation exist and the Delay-and-Sum
+  Beamformer is fully functional — it takes the microphone positions inline (a `micPositionsMm` text
+  parameter, "x,y,z" per mic in millimetres). With a valid geometry it aligns + sums toward a target
+  direction; without one it refuses to run (validator ERROR) and never invents positions, exactly as
+  required.
+- **Deferred:** A persisted array-profile repository + id resolution + editor picker (same shape as the
+  deferred `NoiseProfile`/`RoomProfile` persistence). Not required by any later slice.
+- **Possible later solution:** One shared artifact-persistence slice for
+  `NoiseProfile`/`RoomProfile`/`MicrophoneArrayProfile` (versioned JSON envelope, atomic write, id
+  resolver placed into the processing context before a run).
+

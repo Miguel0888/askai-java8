@@ -210,6 +210,9 @@ public final class AudioProfileValidator {
                             "Center Speech Extractor: only for suitable stereo sources — it can damage "
                                     + "off-centre speech and is not a replacement for voice isolation.");
                     break;
+                case DELAY_AND_SUM_BEAMFORMER:
+                    validateBeamformer(issues, block, enabled, currentChannels);
+                    break;
                 case ADAPTIVE_NOISE_SUPPRESSION:
                     validateNoiseSuppression(issues, block, enabled, sawEnabledVad, sawEnabledNoiseProfiler);
                     break;
@@ -495,6 +498,28 @@ public final class AudioProfileValidator {
         rangeError(issues, block, enabled, name, "minConfidence", "Minimum confidence", 0.0d, 1.0d);
     }
 
+    private void validateBeamformer(List<AudioProfileValidationIssue> issues, AudioBlockDefinition block,
+                                    boolean enabled, int currentChannels) {
+        String name = block.getType().getDisplayName();
+        com.aresstack.audio.dsp.MicrophoneArrayProfile array =
+                com.aresstack.audio.dsp.MicrophoneArrayProfile.parse(block.getId(), "inline",
+                        block.getParameter("micPositionsMm", ""));
+        if (array == null) {
+            add(issues, block, enabled, AudioValidationSeverity.ERROR, "micPositionsMm",
+                    name + ": needs a valid microphone-array geometry (at least two \"x,y,z\" positions in "
+                            + "millimetres); it will not run with invented positions.");
+        } else if (currentChannels != 0 && array.getMicrophoneCount() != currentChannels) {
+            add(issues, block, enabled, AudioValidationSeverity.ERROR, "micPositionsMm",
+                    name + ": the geometry has " + array.getMicrophoneCount() + " microphones but the signal "
+                            + "has " + currentChannels + " channel(s) here.");
+        }
+        if (currentChannels != 0 && currentChannels < 2) {
+            add(issues, block, enabled, AudioValidationSeverity.ERROR, null,
+                    name + ": needs at least two synchronized channels; the signal is mono at this point.");
+        }
+        positiveError(issues, block, enabled, name, "speedOfSoundMmPerS", "Speed of sound");
+    }
+
     private void validateDereverberation(List<AudioProfileValidationIssue> issues, AudioBlockDefinition block,
                                          boolean enabled) {
         String name = block.getType().getDisplayName();
@@ -612,7 +637,8 @@ public final class AudioProfileValidator {
 
     private static boolean reducesToMono(AudioBlockType type) {
         return type == AudioBlockType.CHANNEL_MIXER || type == AudioBlockType.CHANNEL_SELECTOR
-                || type == AudioBlockType.MATRIX_MIXER || type == AudioBlockType.BEST_CHANNEL_SELECTOR;
+                || type == AudioBlockType.MATRIX_MIXER || type == AudioBlockType.BEST_CHANNEL_SELECTOR
+                || type == AudioBlockType.DELAY_AND_SUM_BEAMFORMER;
     }
 
     private static boolean isTimeBaseChanger(AudioBlockType type) {

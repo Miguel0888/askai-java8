@@ -42,7 +42,8 @@ public enum AudioBlockType {
     CHANNEL_HEALTH_ANALYZER("Channel Health Analyzer"),
     MID_SIDE_PROCESSOR("Mid/Side Processor"),
     CENTER_SPEECH_EXTRACTOR("Center Speech Extractor"),
-    STEREO_WIDTH_CONTROL("Stereo Width Control");
+    STEREO_WIDTH_CONTROL("Stereo Width Control"),
+    DELAY_AND_SUM_BEAMFORMER("Delay-and-Sum Beamformer");
 
     private final String displayName;
 

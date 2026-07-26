@@ -63,4 +63,14 @@ public interface AudioBlockCapabilities {
     default boolean requiresCompleteSignal() {
         return false;
     }
+
+    /** @return whether the block requires synchronized input channels (e.g. a beamformer). */
+    default boolean requiresSynchronizedChannels() {
+        return false;
+    }
+
+    /** @return whether the block requires a known microphone-array geometry (e.g. a beamformer). */
+    default boolean requiresKnownMicrophoneGeometry() {
+        return false;
+    }
 }

@@ -24,6 +24,8 @@ public final class StaticBlockCapabilities implements AudioBlockCapabilities {
     private final boolean changesDuration;
     private final boolean changesSampleCount;
     private final boolean requiresCompleteSignal;
+    private final boolean requiresSynchronizedChannels;
+    private final boolean requiresKnownMicrophoneGeometry;
 
     private StaticBlockCapabilities(Builder builder) {
         this.requiresFraming = builder.requiresFraming;
@@ -43,6 +45,8 @@ public final class StaticBlockCapabilities implements AudioBlockCapabilities {
         this.changesDuration = builder.changesDuration;
         this.changesSampleCount = builder.changesSampleCount;
         this.requiresCompleteSignal = builder.requiresCompleteSignal;
+        this.requiresSynchronizedChannels = builder.requiresSynchronizedChannels;
+        this.requiresKnownMicrophoneGeometry = builder.requiresKnownMicrophoneGeometry;
     }
 
     /** @return capabilities for a plain audio effect: modifies audio, any rate, no framing, offline+streaming. */
@@ -122,6 +126,14 @@ public final class StaticBlockCapabilities implements AudioBlockCapabilities {
         return requiresCompleteSignal;
     }
 
+    public boolean requiresSynchronizedChannels() {
+        return requiresSynchronizedChannels;
+    }
+
+    public boolean requiresKnownMicrophoneGeometry() {
+        return requiresKnownMicrophoneGeometry;
+    }
+
     public static final class Builder {
         private boolean requiresFraming;
         private int preferredFrameSize;
@@ -140,6 +152,8 @@ public final class StaticBlockCapabilities implements AudioBlockCapabilities {
         private boolean changesDuration;
         private boolean changesSampleCount;
         private boolean requiresCompleteSignal;
+        private boolean requiresSynchronizedChannels;
+        private boolean requiresKnownMicrophoneGeometry;
 
         public Builder framing(int frameSize, int lookAhead, int history) {
             this.requiresFraming = true;
@@ -211,6 +225,16 @@ public final class StaticBlockCapabilities implements AudioBlockCapabilities {
 
         public Builder requiresCompleteSignal(boolean value) {
             this.requiresCompleteSignal = value;
+            return this;
+        }
+
+        public Builder requiresSynchronizedChannels(boolean value) {
+            this.requiresSynchronizedChannels = value;
+            return this;
+        }
+
+        public Builder requiresKnownMicrophoneGeometry(boolean value) {
+            this.requiresKnownMicrophoneGeometry = value;
             return this;
         }
 
