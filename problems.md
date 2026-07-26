@@ -78,3 +78,17 @@ with slice, affected function, concrete blocker, tried approaches, impact and po
   binding + downloads/loads the native library on explicit user opt-in (like the OpenAL add-on) and registers
   a real backend through the ServiceLoader. The core needs no change.
 
+## Slice 13B — DeepFilterNet runtime + model not bundled
+
+- **Slice:** 13B
+- **Affected function:** Running DeepFilterNet as a Speech Enhancer backend.
+- **Blocker:** DeepFilterNet is a neural model requiring a runtime (native/ONNX) and a model file; neither is
+  bundled, and there is no license-clean Java-8 embedding to ship in-core without platform binaries/models.
+- **What is implemented:** `DeepFilterNetSpeechEnhancer` adapter registered in the backend registry; probes
+  runtime (`askai.audio.deepfilternet.runtime`) + model (`askai.audio.deepfilternet.model`) properties and
+  reports NOT_INSTALLED / MISSING_MODEL / INVALID_SAMPLE_RATE (DeepFilterNet is 48 kHz). The Speech Enhancer
+  block passes audio through when it is unavailable; the profile stays editable.
+- **Impact:** No live DeepFilterNet processing here. Selection/availability/graceful-missing all work.
+- **Possible later solution:** Optional Gradle module `audio-dsp-deepfilter` bundling an ONNX-runtime binding
+  + model loader, registered via ServiceLoader on explicit user opt-in.
+

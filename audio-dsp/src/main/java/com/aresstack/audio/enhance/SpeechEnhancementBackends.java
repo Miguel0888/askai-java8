@@ -22,6 +22,7 @@ public final class SpeechEnhancementBackends {
     static {
         register(new PureJavaSpeechEnhancer());
         register(new RnnoiseSpeechEnhancer());
+        register(new DeepFilterNetSpeechEnhancer());
         for (SpeechEnhancementBackend backend : ServiceLoader.load(SpeechEnhancementBackend.class)) {
             register(backend); // optional external modules override/extend the built-ins
         }
