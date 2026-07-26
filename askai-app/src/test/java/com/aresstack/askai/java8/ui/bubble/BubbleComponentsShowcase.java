@@ -29,8 +29,8 @@ public final class BubbleComponentsShowcase {
 
         final BubbleTranscriptPanel transcript = new BubbleTranscriptPanel();
         transcript.appendUserMessage("Prüfe bitte, ob das Modell diese Aufgabe wirklich unterstützt.");
-        SpeechBubblePanel assistant = transcript.startAssistantMessage("AskAI");
-        assistant.appendText("Ich prüfe zuerst die offizielle Quelle.");
+        transcript.startAssistantMessage("AskAI");
+        transcript.appendAssistantDelta("Ich prüfe zuerst die offizielle Quelle.");
         transcript.finishAssistantMessage();
         final BubbleTranscriptPanel.AgentActivityHandle activity = transcript.startAgentActivity(
                 "Herstellerseite öffnen",
