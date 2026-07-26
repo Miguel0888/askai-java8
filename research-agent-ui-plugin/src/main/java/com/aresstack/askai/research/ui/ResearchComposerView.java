@@ -1,33 +1,26 @@
 package com.aresstack.askai.research.ui;
 
-import com.aresstack.askai.plugin.api.service.ConversationSurface;
-
 import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JTextField;
 import java.awt.BorderLayout;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * The research composer: the host-provided interaction-mode controls (Yapping/Questing + agent) on top, the
- * active-section context, and a prompt field. Sending posts a user message to the host conversation surface
- * (no backend in Commit 7; Commit 8 turns prompts into a simulated agent run).
+ * active-section context, and a prompt field. Sending submits the prompt to the backend (tied to the active
+ * section); the resulting user/assistant messages arrive back as backend events on the conversation surface.
  */
 final class ResearchComposerView extends JPanel {
 
     private final ResearchWorkspaceController controller;
-    private final ConversationSurface conversation;
     private final JLabel contextLabel = new JLabel();
     private final JTextField input = new JTextField();
-    private final AtomicLong messageSequence = new AtomicLong();
 
-    ResearchComposerView(ResearchWorkspaceController controller, JComponent modeControls,
-                         ConversationSurface conversation) {
+    ResearchComposerView(ResearchWorkspaceController controller, JComponent modeControls) {
         super(new BorderLayout(6, 4));
         this.controller = controller;
-        this.conversation = conversation;
 
         JPanel top = new JPanel(new BorderLayout());
         top.setOpaque(false);
@@ -53,7 +46,7 @@ final class ResearchComposerView extends JPanel {
         if (text.isEmpty()) {
             return;
         }
-        conversation.addUserMessage("m" + messageSequence.incrementAndGet(), text);
+        controller.submitPrompt(text);
         input.setText("");
     }
 

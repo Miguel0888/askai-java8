@@ -7,12 +7,15 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import java.awt.FlowLayout;
 
-/** Toolbar / phase bar: shows the phase + run state and offers state-machine-gated actions. */
+/**
+ * Toolbar / phase bar: shows the phase + run state and offers the human-in-the-loop actions. The run itself
+ * advances automatically inside the backend, so there is no manual "next step"; the buttons here are the
+ * control surface (pause/resume/cancel) plus the approval gate (approve / request changes).
+ */
 final class ResearchToolbarView extends JPanel {
 
     private final ResearchWorkspaceController controller;
     private final JLabel phaseLabel = new JLabel();
-    private final JButton nextButton = new JButton("Next step");
     private final JButton pauseButton = new JButton("Pause");
     private final JButton resumeButton = new JButton("Resume");
     private final JButton approveButton = new JButton("Approve");
@@ -26,40 +29,27 @@ final class ResearchToolbarView extends JPanel {
 
         add(new JLabel("Research Agent  ·  Demo project  ·  "));
         add(phaseLabel);
-        add(nextButton);
         add(pauseButton);
         add(resumeButton);
         add(approveButton);
         add(requestChangesButton);
         add(cancelButton);
 
-        nextButton.addActionListener(e -> dispatch(controller.nextStepCommand()));
-        pauseButton.addActionListener(e -> dispatch(ResearchCommandType.PAUSE));
-        resumeButton.addActionListener(e -> dispatch(ResearchCommandType.RESUME));
-        approveButton.addActionListener(e -> dispatch(controller.approveCommand()));
-        requestChangesButton.addActionListener(e -> dispatch(controller.requestChangesCommand()));
-        cancelButton.addActionListener(e -> dispatch(ResearchCommandType.CANCEL));
+        pauseButton.addActionListener(e -> controller.pause());
+        resumeButton.addActionListener(e -> controller.resume());
+        approveButton.addActionListener(e -> controller.approveCurrent());
+        requestChangesButton.addActionListener(e -> controller.rejectCurrent("Please revise."));
+        cancelButton.addActionListener(e -> controller.cancel());
 
         refresh();
     }
 
-    private void dispatch(ResearchCommandType type) {
-        if (type != null) {
-            controller.dispatch(type);
-        }
-    }
-
     void refresh() {
         phaseLabel.setText(controller.phase() + " / " + controller.runState());
-        nextButton.setEnabled(canDispatch(controller.nextStepCommand()));
         pauseButton.setEnabled(controller.canDispatch(ResearchCommandType.PAUSE));
         resumeButton.setEnabled(controller.canDispatch(ResearchCommandType.RESUME));
-        approveButton.setEnabled(canDispatch(controller.approveCommand()));
-        requestChangesButton.setEnabled(canDispatch(controller.requestChangesCommand()));
+        approveButton.setEnabled(controller.hasPendingApproval());
+        requestChangesButton.setEnabled(controller.hasPendingApproval());
         cancelButton.setEnabled(controller.canDispatch(ResearchCommandType.CANCEL));
-    }
-
-    private boolean canDispatch(ResearchCommandType type) {
-        return type != null && controller.canDispatch(type);
     }
 }

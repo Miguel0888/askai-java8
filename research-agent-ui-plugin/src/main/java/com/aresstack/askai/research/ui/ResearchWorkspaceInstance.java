@@ -14,6 +14,12 @@ import com.aresstack.askai.plugin.api.service.WorkspaceHostContext;
 import com.aresstack.askai.plugin.api.service.WorkspaceStateStore;
 import com.aresstack.askai.plugin.api.ui.WorkspaceLayoutContribution;
 import com.aresstack.askai.plugin.api.ui.WorkspaceLayoutHints;
+import com.aresstack.askai.research.backend.FakeResearchSessionBackend;
+import com.aresstack.askai.research.backend.RealResearchScheduler;
+import com.aresstack.askai.research.backend.ResearchClock;
+import com.aresstack.askai.research.backend.ResearchIdGenerator;
+import com.aresstack.askai.research.backend.ResearchScheduler;
+import com.aresstack.askai.research.backend.ResearchSessionBackend;
 
 import javax.swing.JComponent;
 import java.util.Optional;
@@ -28,10 +34,15 @@ public final class ResearchWorkspaceInstance implements WorkspaceInstance {
     private static final String KEY_NAV_WIDTH = "research.navWidth";
     private static final String KEY_ACTIVITY_WIDTH = "research.activityWidth";
 
+    /** Delay between simulated run steps in the shipped clickdummy (deterministic backend, real scheduler). */
+    private static final long STEP_DELAY_MILLIS = 350L;
+
     private final UiExecutor uiExecutor;
     private final com.aresstack.askai.plugin.api.service.ThemeService themeService;
     private final WorkspaceStateStore stateStore;
 
+    private final ResearchSessionBackend backend;
+    private final ResearchScheduler ownedScheduler;
     private final ResearchWorkspaceController controller;
     private final MarkdownView markdownView;
     private final ConversationSurface conversation;
@@ -49,20 +60,40 @@ public final class ResearchWorkspaceInstance implements WorkspaceInstance {
     private boolean disposed;
 
     public ResearchWorkspaceInstance(WorkspaceCreationRequest request, WorkspaceHostContext host) {
+        this(request, host, null, null);
+    }
+
+    /**
+     * Full constructor. When {@code injectedBackend} is null a {@link FakeResearchSessionBackend} on a real
+     * daemon scheduler is created and owned here; tests inject a deterministic backend (and null scheduler).
+     */
+    ResearchWorkspaceInstance(WorkspaceCreationRequest request, WorkspaceHostContext host,
+                              ResearchSessionBackend injectedBackend, ResearchScheduler injectedScheduler) {
         this.uiExecutor = host.getUiExecutor();
         this.themeService = host.getThemeService();
         this.stateStore = host.getWorkspaceStateStore();
 
-        this.controller = new ResearchWorkspaceController(request.getWorkspaceInstanceId());
+        if (injectedBackend != null) {
+            this.backend = injectedBackend;
+            this.ownedScheduler = injectedScheduler;
+        } else {
+            RealResearchScheduler scheduler = new RealResearchScheduler();
+            this.ownedScheduler = scheduler;
+            this.backend = new FakeResearchSessionBackend(scheduler, ResearchClock.system(),
+                    ResearchIdGenerator.random(), STEP_DELAY_MILLIS);
+        }
+
         this.markdownView = host.getMarkdownViewFactory().create(MarkdownViewOptions.defaults());
         this.conversation = host.getConversationSurfaceFactory().create(ConversationSurfaceOptions.defaults());
+        this.controller = new ResearchWorkspaceController(backend, uiExecutor, conversation,
+                request.getWorkspaceInstanceId(), request.getProjectId());
         this.modeControls = host.getInteractionModeControlsFactory()
                 .create(InteractionModeControlsOptions.defaults());
 
         this.toolbar = new ResearchToolbarView(controller);
         this.outline = new ResearchOutlineView(controller);
         this.main = new ResearchMainView(controller, markdownView);
-        this.composer = new ResearchComposerView(controller, modeControls.getComponent(), conversation);
+        this.composer = new ResearchComposerView(controller, modeControls.getComponent());
         this.layout = new Layout();
 
         this.controllerListener = new Runnable() {
@@ -84,16 +115,6 @@ public final class ResearchWorkspaceInstance implements WorkspaceInstance {
                 }
             }
         };
-
-        seedDemoActivity();
-    }
-
-    private void seedDemoActivity() {
-        // Static demo activity only (no timing; the event-driven run arrives in Commit 8).
-        conversation.addUserMessage("m0", "Research the plugin architecture.");
-        conversation.addAssistantMessage("a0", "I will scope the work and propose an outline.");
-        conversation.startToolActivity("t0", "Search web", "Looking up PF4J and Solon AI");
-        conversation.completeToolActivity("t0", "Captured 3 sources");
     }
 
     private void refreshViews() {
@@ -117,6 +138,7 @@ public final class ResearchWorkspaceInstance implements WorkspaceInstance {
             themeService.addThemeChangeListener(themeListener);
             themeListenerRegistered = true;
         }
+        controller.start(); // idempotent: opens the backend session and starts the simulated run
         refreshViews();
     }
 
@@ -142,6 +164,10 @@ public final class ResearchWorkspaceInstance implements WorkspaceInstance {
         }
         disposed = true;
         controller.removeChangeListener(controllerListener);
+        controller.dispose(); // closes the backend session: no listener call happens afterwards
+        if (ownedScheduler != null) {
+            ownedScheduler.shutdown(); // release the daemon scheduler thread we own
+        }
         if (themeListenerRegistered) {
             themeService.removeThemeChangeListener(themeListener);
             themeListenerRegistered = false;

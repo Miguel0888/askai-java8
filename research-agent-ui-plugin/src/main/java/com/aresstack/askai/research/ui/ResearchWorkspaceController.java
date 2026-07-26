@@ -1,82 +1,236 @@
 package com.aresstack.askai.research.ui;
 
+import com.aresstack.askai.plugin.api.service.ConversationSurface;
+import com.aresstack.askai.plugin.api.service.UiExecutor;
+import com.aresstack.askai.research.backend.ResearchBackendEvent;
+import com.aresstack.askai.research.backend.ResearchProjectRequest;
+import com.aresstack.askai.research.backend.ResearchPrompt;
+import com.aresstack.askai.research.backend.ResearchSessionBackend;
+import com.aresstack.askai.research.backend.ResearchSessionHandle;
+import com.aresstack.askai.research.backend.ResearchSessionListener;
 import com.aresstack.askai.research.demo.ResearchDemoData;
 import com.aresstack.askai.research.domain.ResearchFinding;
 import com.aresstack.askai.research.domain.ResearchOutline;
 import com.aresstack.askai.research.domain.ResearchProblem;
 import com.aresstack.askai.research.domain.ResearchSection;
 import com.aresstack.askai.research.domain.ResearchSource;
-import com.aresstack.askai.research.state.DefaultResearchStateMachine;
-import com.aresstack.askai.research.state.ResearchCommand;
 import com.aresstack.askai.research.state.ResearchCommandType;
 import com.aresstack.askai.research.state.ResearchPhase;
 import com.aresstack.askai.research.state.ResearchRunState;
-import com.aresstack.askai.research.state.ResearchSessionState;
-import com.aresstack.askai.research.state.ResearchStateMachine;
-import com.aresstack.askai.research.state.ResearchTransitionResult;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Drives the research workspace against the real {@link ResearchStateMachine} over a local state (Commit 7).
- * The UI reads the current state, queries which commands are legal (for button enablement), and dispatches
- * commands here; an illegal command is a no-op and never changes the state. It also holds the static demo
- * outline/sources/findings/problems and the active-section filter. Commit 8 swaps the local dispatch for the
- * event-driven fake backend without changing the UI.
+ * Bridges the research UI to the {@link ResearchSessionBackend}. It owns no session state machine: the UI
+ * sends commands/prompts/approvals here, they go to the backend, and backend events are marshalled onto the
+ * EDT via {@link UiExecutor} and applied to a small view-model that the panels read. Late/duplicate/foreign
+ * events are dropped (guards: not disposed, session id current, sequence strictly newer). The outline shown
+ * for the tables is static demo data filtered by the active section.
  */
-public final class ResearchWorkspaceController {
+public final class ResearchWorkspaceController implements ResearchSessionListener {
 
-    private final ResearchStateMachine stateMachine;
-    private final AtomicLong commandSequence = new AtomicLong();
+    private final ResearchSessionBackend backend;
+    private final UiExecutor uiExecutor;
+    private final ConversationSurface conversation;
+    private final ResearchProjectRequest request;
     private final List<Runnable> listeners = new ArrayList<Runnable>();
 
-    private ResearchSessionState state = ResearchSessionState.initial();
+    // View-model (updated only on the EDT from backend events).
+    private ResearchPhase phase = ResearchPhase.SCOPING;
+    private ResearchRunState runState = ResearchRunState.NEW;
+    private String pendingApprovalId;
+    private long lastSequence = -1L;
+
     private ResearchOutline outline = ResearchDemoData.outline();
     private final List<ResearchSource> sources = ResearchDemoData.sources();
     private final List<ResearchFinding> findings = ResearchDemoData.findings();
     private final List<ResearchProblem> problems = ResearchDemoData.problems();
     private String activeSectionId = "";
 
-    public ResearchWorkspaceController(String sessionId) {
-        this.stateMachine = new DefaultResearchStateMachine(sessionId);
+    private ResearchSessionHandle handle;
+    private boolean disposed;
+
+    public ResearchWorkspaceController(ResearchSessionBackend backend, UiExecutor uiExecutor,
+                                       ConversationSurface conversation, String sessionId, String projectId) {
+        this.backend = backend;
+        this.uiExecutor = uiExecutor;
+        this.conversation = conversation;
+        this.request = new ResearchProjectRequest(sessionId, projectId, "Research project");
     }
 
-    // ------------------------------------------------------------------ state + commands
-
-    public ResearchSessionState getState() {
-        return state;
+    /** Opens the backend session and starts the simulated run. Idempotent. */
+    public void start() {
+        if (disposed || handle != null) {
+            return;
+        }
+        handle = backend.createSession(request, this);
     }
+
+    public void dispose() {
+        disposed = true;
+        if (handle != null) {
+            backend.close(handle);
+            handle = null;
+        }
+    }
+
+    // ------------------------------------------------------------------ event intake (backend thread → EDT)
+
+    @Override
+    public void onEvent(final ResearchBackendEvent event) {
+        if (disposed || handle == null || !handle.getSessionId().equals(event.getSessionId())) {
+            return;
+        }
+        uiExecutor.execute(new Runnable() {
+            public void run() {
+                applyEvent(event);
+            }
+        });
+    }
+
+    private void applyEvent(ResearchBackendEvent event) {
+        if (disposed || handle == null || !handle.getSessionId().equals(event.getSessionId())) {
+            return; // workspace closed or a different session while queued
+        }
+        if (event.getSequenceNumber() <= lastSequence) {
+            return; // stale or duplicate delivery
+        }
+        lastSequence = event.getSequenceNumber();
+        switch (event.getType()) {
+            case SESSION_STATE_CHANGED:
+                phase = event.getPhase();
+                runState = event.getRunState();
+                if (runState != ResearchRunState.WAITING_FOR_USER) {
+                    pendingApprovalId = null;
+                }
+                break;
+            case APPROVAL_REQUESTED:
+                pendingApprovalId = event.getApprovalId();
+                conversation.addAssistantMessage(event.getEventId(),
+                        "Approval required: " + event.getText());
+                break;
+            case ACTIVITY:
+                applyActivity(event);
+                break;
+            case USER_MESSAGE:
+                conversation.addUserMessage(event.getEventId(), event.getText());
+                break;
+            case ASSISTANT_MESSAGE:
+            case COMPLETED:
+                conversation.addAssistantMessage(event.getEventId(), event.getText());
+                break;
+            case BLOCKED:
+            case ERROR:
+                // Only the public message reaches the surface; the technical detail stays out.
+                conversation.addAssistantMessage(event.getEventId(), event.getPublicMessage());
+                break;
+            default:
+                break; // SOURCE_ADDED/FINDING_ADDED/OUTLINE_CHANGED/PROBLEM_REPORTED: tables use demo data
+        }
+        fireChange();
+    }
+
+    private void applyActivity(ResearchBackendEvent event) {
+        String id = event.getActivityId();
+        switch (event.getActivityKind()) {
+            case THINKING_STARTED:
+                conversation.startThinking(id, event.getTitle());
+                break;
+            case THINKING_UPDATE:
+                conversation.updateThinking(id, event.getText());
+                break;
+            case THINKING_FINISHED:
+                conversation.finishThinking(id, event.getText());
+                break;
+            case TOOL_STARTED:
+                conversation.startToolActivity(id, event.getTitle(), event.getText());
+                break;
+            case TOOL_UPDATE:
+                conversation.updateToolActivity(id, event.getTitle(), event.getText());
+                break;
+            case TOOL_COMPLETED:
+                conversation.completeToolActivity(id, event.getText());
+                break;
+            case TOOL_FAILED:
+                conversation.failToolActivity(id, event.getText());
+                break;
+            case APPROVAL_REQUIRED:
+                conversation.markApprovalRequired(id, event.getText());
+                break;
+            default:
+                break;
+        }
+    }
+
+    // ------------------------------------------------------------------ commands (UI → backend)
 
     public boolean canDispatch(ResearchCommandType type) {
-        return stateMachine.dispatch(state, command(type)).isAccepted();
+        return handle != null && backend.canExecute(handle, type);
     }
 
-    /** @return true if the command was accepted and applied; false (no-op) for an illegal command. */
-    public boolean dispatch(ResearchCommandType type) {
-        ResearchTransitionResult result = stateMachine.dispatch(state, command(type));
-        if (result.isAccepted()) {
-            state = result.getState();
-            fireChange();
-            return true;
+    public void dispatch(ResearchCommandType type) {
+        if (handle != null) {
+            backend.executeCommand(handle, type);
         }
-        return false;
     }
 
-    private ResearchCommand command(ResearchCommandType type) {
-        return ResearchCommand.of(type, type + "-" + commandSequence.incrementAndGet());
+    public void pause() {
+        if (handle != null) {
+            backend.pause(handle);
+        }
     }
 
-    // ------------------------------------------------------------------ outline
+    public void resume() {
+        if (handle != null) {
+            backend.resume(handle);
+        }
+    }
+
+    public void cancel() {
+        if (handle != null) {
+            backend.cancel(handle);
+        }
+    }
+
+    public boolean hasPendingApproval() {
+        return pendingApprovalId != null;
+    }
+
+    public void approveCurrent() {
+        if (handle != null && pendingApprovalId != null) {
+            backend.approve(handle, pendingApprovalId);
+        }
+    }
+
+    public void rejectCurrent(String reason) {
+        if (handle != null && pendingApprovalId != null) {
+            backend.reject(handle, pendingApprovalId, reason);
+        }
+    }
+
+    public void submitPrompt(String text) {
+        if (handle != null) {
+            backend.submitPrompt(handle, new ResearchPrompt(text, activeSectionId));
+        }
+    }
+
+    // ------------------------------------------------------------------ view-model reads
+
+    public ResearchPhase phase() {
+        return phase;
+    }
+
+    public ResearchRunState runState() {
+        return runState;
+    }
 
     public ResearchOutline getOutline() {
         return outline;
     }
 
-    /** Outline edits are allowed while the session is not terminal and not paused. */
     public boolean canEditOutline() {
-        return !state.getRunState().isTerminal() && state.getRunState() != ResearchRunState.PAUSED;
+        return !runState.isTerminal() && runState != ResearchRunState.PAUSED;
     }
 
     public boolean addSection(String parentId, String newId, String title) {
@@ -127,8 +281,6 @@ public final class ResearchWorkspaceController {
     private interface OutlineEdit {
         ResearchOutline apply();
     }
-
-    // ------------------------------------------------------------------ active section + filters
 
     public String getActiveSectionId() {
         return activeSectionId;
@@ -196,80 +348,6 @@ public final class ResearchWorkspaceController {
     private void fireChange() {
         for (Runnable listener : new ArrayList<Runnable>(listeners)) {
             listener.run();
-        }
-    }
-
-    // Convenience for the phase bar.
-    public ResearchPhase phase() {
-        return state.getPhase();
-    }
-
-    public ResearchRunState runState() {
-        return state.getRunState();
-    }
-
-    // ------------------------------------------------------------------ context commands for the toolbar
-
-    /** The APPROVE_* command valid in the current state, or {@code null}. */
-    public ResearchCommandType approveCommand() {
-        if (state.getRunState() != ResearchRunState.WAITING_FOR_USER) {
-            return null;
-        }
-        switch (state.getPhase()) {
-            case OUTLINE:
-                return ResearchCommandType.APPROVE_OUTLINE;
-            case EVIDENCE:
-                return ResearchCommandType.APPROVE_EVIDENCE;
-            case REVIEW:
-                return ResearchCommandType.APPROVE_DRAFT;
-            case FINALIZATION:
-                return ResearchCommandType.APPROVE_FINAL;
-            default:
-                return null;
-        }
-    }
-
-    /** The "request changes / revision" command valid in the current state, or {@code null}. */
-    public ResearchCommandType requestChangesCommand() {
-        if (state.getRunState() != ResearchRunState.WAITING_FOR_USER) {
-            return null;
-        }
-        switch (state.getPhase()) {
-            case OUTLINE:
-                return ResearchCommandType.REQUEST_OUTLINE_CHANGES;
-            case EVIDENCE:
-            case REVIEW:
-                return ResearchCommandType.REQUEST_REVISION;
-            default:
-                return null;
-        }
-    }
-
-    /** The next natural forward command in the happy path for the current state, or {@code null}. */
-    public ResearchCommandType nextStepCommand() {
-        ResearchPhase phase = state.getPhase();
-        ResearchRunState run = state.getRunState();
-        if (run == ResearchRunState.NEW && phase == ResearchPhase.SCOPING) {
-            return ResearchCommandType.START;
-        }
-        if (run != ResearchRunState.RUNNING && run != ResearchRunState.WAITING_FOR_USER) {
-            return null;
-        }
-        switch (phase) {
-            case SCOPING:
-                return run == ResearchRunState.RUNNING ? ResearchCommandType.SUBMIT_SCOPE : null;
-            case OUTLINE:
-                return run == ResearchRunState.RUNNING ? ResearchCommandType.PROPOSE_OUTLINE : null;
-            case RESEARCH:
-                return run == ResearchRunState.WAITING_FOR_USER
-                        ? ResearchCommandType.START_RESEARCH : ResearchCommandType.REQUEST_EVIDENCE_REVIEW;
-            case DRAFT:
-                return run == ResearchRunState.WAITING_FOR_USER
-                        ? ResearchCommandType.START_DRAFTING : ResearchCommandType.REQUEST_DRAFT_REVIEW;
-            case FINALIZATION:
-                return run == ResearchRunState.RUNNING ? ResearchCommandType.REQUEST_FINAL_REVIEW : null;
-            default:
-                return null;
         }
     }
 }
