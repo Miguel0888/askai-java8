@@ -55,6 +55,10 @@ public final class AudioBlockRegistry {
         register(finalLoudnessNormalizer());
         register(roomReverbAnalyzer());
         register(dereverberation());
+        register(channelSelector());
+        register(matrixMixer());
+        register(channelGainPolarity());
+        register(phaseCorrelationAnalyzer());
     }
 
     public static AudioBlockRegistry getInstance() {
@@ -732,6 +736,85 @@ public final class AudioBlockRegistry {
                     public String summarize(AudioBlockDefinition block) {
                         return "-" + formatQ(block.getDoubleParameter("maxAttenuationDb", 0.0d))
                                 + " dB max · " + block.getParameter("mode", "AUTOMATIC");
+                    }
+                });
+    }
+
+    // ------------------------------------------------------------------ multichannel
+
+    private static AudioBlockDescriptor channelSelector() {
+        List<AudioParameterDescriptor> params = new ArrayList<AudioParameterDescriptor>();
+        params.add(AudioParameterDescriptor.integer("channelIndex", "Channel index (0-based)", 0, 0, 31));
+        params.add(AudioParameterDescriptor.integer("fallbackChannel", "Fallback channel", 0, 0, 31));
+        AudioBlockCapabilities capabilities = StaticBlockCapabilities.builder()
+                .preservesChannelCount(false)
+                .build();
+        return descriptor(AudioBlockType.CHANNEL_SELECTOR, AudioBlockCategory.INPUT_CHANNEL, params, capabilities,
+                new SimpleAudioBlockDescriptor.ProcessorFactory() {
+                    public AudioBlockProcessor create() {
+                        return AudioBlockProcessors.channelSelector();
+                    }
+                },
+                new SimpleAudioBlockDescriptor.Summarizer() {
+                    public String summarize(AudioBlockDefinition block) {
+                        return "Channel " + block.getIntParameter("channelIndex", 0) + " -> mono";
+                    }
+                });
+    }
+
+    private static AudioBlockDescriptor matrixMixer() {
+        List<AudioParameterDescriptor> params = new ArrayList<AudioParameterDescriptor>();
+        params.add(AudioParameterDescriptor.text("weights", "Input weights (comma-separated)", "0.5,0.5"));
+        params.add(AudioParameterDescriptor.bool("normalize", "Normalize by total weight", true));
+        AudioBlockCapabilities capabilities = StaticBlockCapabilities.builder()
+                .preservesChannelCount(false)
+                .build();
+        return descriptor(AudioBlockType.MATRIX_MIXER, AudioBlockCategory.INPUT_CHANNEL, params, capabilities,
+                new SimpleAudioBlockDescriptor.ProcessorFactory() {
+                    public AudioBlockProcessor create() {
+                        return AudioBlockProcessors.matrixMixer();
+                    }
+                },
+                new SimpleAudioBlockDescriptor.Summarizer() {
+                    public String summarize(AudioBlockDefinition block) {
+                        return "Downmix [" + block.getParameter("weights", "") + "] -> mono";
+                    }
+                });
+    }
+
+    private static AudioBlockDescriptor channelGainPolarity() {
+        List<AudioParameterDescriptor> params = new ArrayList<AudioParameterDescriptor>();
+        params.add(AudioParameterDescriptor.text("gainsDb", "Per-channel gain (dB, comma-separated)", "0,0"));
+        params.add(AudioParameterDescriptor.text("polarityInvert", "Invert polarity (per channel, 0/1)", "0,0"));
+        return descriptor(AudioBlockType.CHANNEL_GAIN_POLARITY, AudioBlockCategory.INPUT_CHANNEL, params,
+                StaticBlockCapabilities.audioEffect(),
+                new SimpleAudioBlockDescriptor.ProcessorFactory() {
+                    public AudioBlockProcessor create() {
+                        return AudioBlockProcessors.channelGainPolarity();
+                    }
+                },
+                new SimpleAudioBlockDescriptor.Summarizer() {
+                    public String summarize(AudioBlockDefinition block) {
+                        return "Gain [" + block.getParameter("gainsDb", "") + "] dB";
+                    }
+                });
+    }
+
+    private static AudioBlockDescriptor phaseCorrelationAnalyzer() {
+        AudioBlockCapabilities capabilities = StaticBlockCapabilities.builder()
+                .modifiesAudio(false)
+                .producesMetadata(true)
+                .build();
+        return descriptor(AudioBlockType.PHASE_CORRELATION_ANALYZER, AudioBlockCategory.ANALYSIS,
+                Collections.<AudioParameterDescriptor>emptyList(), capabilities,
+                new SimpleAudioBlockDescriptor.ProcessorFactory() {
+                    public AudioBlockProcessor create() {
+                        return AudioBlockProcessors.phaseCorrelationAnalyzer();
+                    }
+                },
+                new SimpleAudioBlockDescriptor.Summarizer() {
+                    public String summarize(AudioBlockDefinition block) {
+                        return "Stereo correlation / phase check";
                     }
                 });
     }

@@ -11,6 +11,7 @@ import com.aresstack.audio.dsp.HighPassFilterProcessor;
 import com.aresstack.audio.dsp.HighShelfEqualizerProcessor;
 import com.aresstack.audio.dsp.LimiterProcessor;
 import com.aresstack.audio.dsp.LowShelfEqualizerProcessor;
+import com.aresstack.audio.dsp.MultichannelOps;
 import com.aresstack.audio.dsp.ParametricEqualizerProcessor;
 import com.aresstack.audio.dsp.Pcm16Processor;
 import com.aresstack.audio.dsp.Pcm16Resampler;
@@ -644,6 +645,106 @@ final class AudioBlockProcessors {
                 return input; // analysis only — audio is passed through untouched
             }
         };
+    }
+
+    /** Channel Selector: output a mono buffer consisting of one chosen input channel (with a fallback). */
+    static AudioBlockProcessor channelSelector() {
+        return new AudioBlockProcessor() {
+            public AudioBuffer process(AudioBuffer input, AudioBlockDefinition block, AudioProcessingContext context) {
+                PcmAudioFormat format = input.getFormat();
+                int channels = format.getChannels();
+                if (channels == 1) {
+                    return input;
+                }
+                int index = block.getIntParameter("channelIndex", 0);
+                if (index < 0 || index >= channels) {
+                    index = block.getIntParameter("fallbackChannel", 0);
+                }
+                short[] mono = MultichannelOps.selectChannel(input.getSamples(),
+                        input.getSamples().length, channels, index);
+                return new AudioBuffer(mono, new PcmAudioFormat(format.getSampleRateHz(), 1,
+                        format.getBitsPerSample()));
+            }
+        };
+    }
+
+    /** Matrix Mixer / configurable downmix: a weighted combination of the input channels into mono. */
+    static AudioBlockProcessor matrixMixer() {
+        return new AudioBlockProcessor() {
+            public AudioBuffer process(AudioBuffer input, AudioBlockDefinition block, AudioProcessingContext context) {
+                PcmAudioFormat format = input.getFormat();
+                int channels = format.getChannels();
+                if (channels == 1) {
+                    return input;
+                }
+                double[] weights = parseDoubles(block.getParameter("weights", ""));
+                boolean normalize = block.getBooleanParameter("normalize", true);
+                short[] mono = MultichannelOps.downmixToMono(input.getSamples(),
+                        input.getSamples().length, channels, weights, normalize);
+                return new AudioBuffer(mono, new PcmAudioFormat(format.getSampleRateHz(), 1,
+                        format.getBitsPerSample()));
+            }
+        };
+    }
+
+    /** Channel Gain and Polarity: per-channel gain and optional polarity inversion (channel count kept). */
+    static AudioBlockProcessor channelGainPolarity() {
+        return new AudioBlockProcessor() {
+            public AudioBuffer process(AudioBuffer input, AudioBlockDefinition block, AudioProcessingContext context) {
+                int channels = input.getFormat().getChannels();
+                double[] gains = parseDoubles(block.getParameter("gainsDb", ""));
+                for (int i = 0; i < gains.length; i++) {
+                    gains[i] = Math.pow(10.0d, gains[i] / 20.0d);
+                }
+                boolean[] invert = parseBooleans(block.getParameter("polarityInvert", ""), channels);
+                MultichannelOps.applyGainPolarity(input.getSamples(), input.getSamples().length,
+                        channels, gains, invert);
+                return input;
+            }
+        };
+    }
+
+    /** Phase and Correlation Analyzer: measure channel 0/1 correlation and publish it. Audio unchanged. */
+    static AudioBlockProcessor phaseCorrelationAnalyzer() {
+        return new AudioBlockProcessor() {
+            public AudioBuffer process(AudioBuffer input, AudioBlockDefinition block, AudioProcessingContext context) {
+                if (input.getFormat().getChannels() >= 2) {
+                    double corr = MultichannelOps.correlation(input.getSamples(),
+                            input.getSamples().length, input.getFormat().getChannels(), 0, 1);
+                    context.setChannelCorrelation(corr);
+                }
+                return input;
+            }
+        };
+    }
+
+    private static double[] parseDoubles(String csv) {
+        if (csv == null || csv.trim().length() == 0) {
+            return new double[0];
+        }
+        String[] parts = csv.split(",");
+        double[] out = new double[parts.length];
+        for (int i = 0; i < parts.length; i++) {
+            try {
+                out[i] = Double.parseDouble(parts[i].trim());
+            } catch (NumberFormatException ex) {
+                out[i] = 0.0d;
+            }
+        }
+        return out;
+    }
+
+    private static boolean[] parseBooleans(String csv, int channels) {
+        boolean[] out = new boolean[Math.max(0, channels)];
+        if (csv == null || csv.trim().length() == 0) {
+            return out;
+        }
+        String[] parts = csv.split(",");
+        for (int i = 0; i < parts.length && i < out.length; i++) {
+            String v = parts[i].trim();
+            out[i] = "1".equals(v) || "true".equalsIgnoreCase(v) || "-".equals(v);
+        }
+        return out;
     }
 
     /**

@@ -32,7 +32,11 @@ public enum AudioBlockType {
     SPEECH_LEVELER("Speech Leveler"),
     FINAL_LOUDNESS_NORMALIZER("Final Loudness Normalizer"),
     ROOM_REVERB_ANALYZER("Room/Reverb Analyzer"),
-    DEREVERBERATION("Dereverberation");
+    DEREVERBERATION("Dereverberation"),
+    CHANNEL_SELECTOR("Channel Selector"),
+    MATRIX_MIXER("Matrix Mixer"),
+    CHANNEL_GAIN_POLARITY("Channel Gain and Polarity"),
+    PHASE_CORRELATION_ANALYZER("Phase and Correlation Analyzer");
 
     private final String displayName;
 

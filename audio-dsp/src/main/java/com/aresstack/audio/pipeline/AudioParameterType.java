@@ -5,5 +5,6 @@ public enum AudioParameterType {
     INTEGER,
     DECIMAL,
     BOOLEAN,
-    CHOICE
+    CHOICE,
+    TEXT
 }

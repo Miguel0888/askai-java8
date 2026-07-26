@@ -16,6 +16,7 @@ import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JSpinner;
+import javax.swing.JTextField;
 import javax.swing.SpinnerNumberModel;
 import javax.swing.UIManager;
 import javax.swing.border.Border;
@@ -217,6 +218,10 @@ public final class AudioBlockInspectorPanel extends JPanel {
                         Boolean.parseBoolean(parameter.getDefaultValue())));
                 editor = checkBox;
                 break;
+            case TEXT:
+                editor = new JTextField(selected.getParameter(parameter.getKey(),
+                        parameter.getDefaultValue()));
+                break;
             case CHOICE:
             default:
                 editor = buildChoice(parameter, selected);
@@ -305,6 +310,9 @@ public final class AudioBlockInspectorPanel extends JPanel {
         }
         if (component instanceof JCheckBox) {
             return String.valueOf(((JCheckBox) component).isSelected());
+        }
+        if (component instanceof JTextField) {
+            return ((JTextField) component).getText();
         }
         return "";
     }

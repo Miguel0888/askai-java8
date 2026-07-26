@@ -76,6 +76,7 @@ public final class AudioProfileValidator {
             return new AudioProfileValidationResult(issues);
         }
         int currentRate = inputFormat == null ? 0 : inputFormat.getSampleRateHz();
+        int currentChannels = inputFormat == null ? 0 : inputFormat.getChannels();
         boolean sawChannelMixer = false;
         boolean sawEnabledVad = false;
         boolean sawEnabledNoiseProfiler = false;
@@ -158,6 +159,25 @@ public final class AudioProfileValidator {
                 case DEREVERBERATION:
                     validateDereverberation(issues, block, enabled);
                     break;
+                case CHANNEL_SELECTOR:
+                    if (currentChannels == 1) {
+                        add(issues, block, enabled, AudioValidationSeverity.WARNING, null,
+                                "Channel Selector: the input is already mono at this point.");
+                    }
+                    break;
+                case MATRIX_MIXER:
+                    if (currentChannels == 1) {
+                        add(issues, block, enabled, AudioValidationSeverity.WARNING, null,
+                                "Matrix Mixer: the input is already mono at this point.");
+                    }
+                    break;
+                case PHASE_CORRELATION_ANALYZER:
+                    if (currentChannels == 1) {
+                        add(issues, block, enabled, AudioValidationSeverity.WARNING, null,
+                                "Phase and Correlation Analyzer: needs at least two channels; the signal is "
+                                        + "mono at this point.");
+                    }
+                    break;
                 case ADAPTIVE_NOISE_SUPPRESSION:
                     validateNoiseSuppression(issues, block, enabled, sawEnabledVad, sawEnabledNoiseProfiler);
                     break;
@@ -174,6 +194,10 @@ public final class AudioProfileValidator {
             // After validating this block, note whether it shifts the time base for anything downstream.
             if (enabled && sawEnabledVad && isTimeBaseChanger(type)) {
                 timeBaseChangedAfterVad = true;
+            }
+            // Track the channel count so downstream stereo/multichannel checks are accurate.
+            if (enabled && reducesToMono(type)) {
+                currentChannels = 1;
             }
         }
         return new AudioProfileValidationResult(issues);
@@ -552,6 +576,11 @@ public final class AudioProfileValidator {
             add(issues, block, enabled, AudioValidationSeverity.ERROR, key,
                     name + ": " + label + " must be a finite value above 0.");
         }
+    }
+
+    private static boolean reducesToMono(AudioBlockType type) {
+        return type == AudioBlockType.CHANNEL_MIXER || type == AudioBlockType.CHANNEL_SELECTOR
+                || type == AudioBlockType.MATRIX_MIXER;
     }
 
     private static boolean isTimeBaseChanger(AudioBlockType type) {

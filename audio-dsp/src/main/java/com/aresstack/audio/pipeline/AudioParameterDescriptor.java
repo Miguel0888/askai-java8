@@ -61,6 +61,13 @@ public final class AudioParameterDescriptor {
                 Collections.<AudioParameterChoice>emptyList());
     }
 
+    /** A free-text parameter (for example a comma-separated list of channel weights or coordinates). */
+    public static AudioParameterDescriptor text(String key, String label, String defaultValue) {
+        return new AudioParameterDescriptor(key, label, AudioParameterType.TEXT,
+                defaultValue == null ? "" : defaultValue, 0.0d, 0.0d, 0.0d,
+                Collections.<AudioParameterChoice>emptyList());
+    }
+
     public static AudioParameterDescriptor choice(String key, String label, String defaultValue,
                                                   List<AudioParameterChoice> choices) {
         return new AudioParameterDescriptor(key, label, AudioParameterType.CHOICE, defaultValue,

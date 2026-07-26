@@ -20,6 +20,7 @@ public final class AudioProcessingContext {
     private SpeechActivityTrack speechActivity;
     private NoiseProfile noiseProfile;
     private RoomProfile roomProfile;
+    private Double channelCorrelation;
 
     /** Store the per-frame speech-activity track produced by the voice-activity block (typed, no string key). */
     public void setSpeechActivity(SpeechActivityTrack track) {
@@ -49,6 +50,16 @@ public final class AudioProcessingContext {
     /** @return the estimated room profile for this run, or null if no Room/Reverb Analyzer ran. */
     public RoomProfile getRoomProfile() {
         return roomProfile;
+    }
+
+    /** Store the measured inter-channel correlation from a Phase and Correlation Analyzer. */
+    public void setChannelCorrelation(double correlation) {
+        this.channelCorrelation = correlation;
+    }
+
+    /** @return the measured inter-channel correlation for this run, or null if none was measured. */
+    public Double getChannelCorrelation() {
+        return channelCorrelation;
     }
 
     public void put(String key, Object value) {
