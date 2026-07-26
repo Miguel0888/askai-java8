@@ -16,6 +16,8 @@ public final class AudioDspHelp {
 
     static {
         EnumMap<AudioBlockType, String> blocks = new EnumMap<AudioBlockType, String>(AudioBlockType.class);
+        blocks.put(AudioBlockType.PASSTHROUGH,
+                "A neutral placeholder that leaves the audio unchanged. Choose a function in the inspector to make this block do something.");
         blocks.put(AudioBlockType.CHANNEL_MIXER,
                 "Combines a multi-channel recording into one mono channel so the speech-processing pipeline can continue.");
         blocks.put(AudioBlockType.LOW_PASS,

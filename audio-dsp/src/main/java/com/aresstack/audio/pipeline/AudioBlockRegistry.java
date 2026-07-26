@@ -24,6 +24,7 @@ public final class AudioBlockRegistry {
             new LinkedHashMap<AudioBlockType, AudioBlockDescriptor>();
 
     private AudioBlockRegistry() {
+        register(passthrough());
         register(channelMixer());
         register(lowPass());
         register(highPass());
@@ -124,6 +125,24 @@ public final class AudioBlockRegistry {
     }
 
     // ------------------------------------------------------------------ descriptor declarations
+
+    private static AudioBlockDescriptor passthrough() {
+        AudioBlockCapabilities capabilities = StaticBlockCapabilities.builder()
+                .modifiesAudio(false)
+                .build();
+        return descriptor(AudioBlockType.PASSTHROUGH, AudioBlockCategory.GENERAL,
+                Collections.<AudioParameterDescriptor>emptyList(), capabilities,
+                new SimpleAudioBlockDescriptor.ProcessorFactory() {
+                    public AudioBlockProcessor create() {
+                        return AudioBlockProcessors.passthrough();
+                    }
+                },
+                new SimpleAudioBlockDescriptor.Summarizer() {
+                    public String summarize(AudioBlockDefinition block) {
+                        return "No effect — choose a function";
+                    }
+                });
+    }
 
     private static AudioBlockDescriptor channelMixer() {
         return descriptor(AudioBlockType.CHANNEL_MIXER, AudioBlockCategory.INPUT_CHANNEL,

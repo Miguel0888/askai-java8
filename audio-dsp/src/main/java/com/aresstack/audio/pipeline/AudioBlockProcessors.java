@@ -85,6 +85,15 @@ final class AudioBlockProcessors {
     private AudioBlockProcessors() {
     }
 
+    /** Neutral placeholder that leaves the audio unchanged until the user picks a real function. */
+    static AudioBlockProcessor passthrough() {
+        return new AudioBlockProcessor() {
+            public AudioBuffer process(AudioBuffer input, AudioBlockDefinition block, AudioProcessingContext context) {
+                return input;
+            }
+        };
+    }
+
     static AudioBlockProcessor channelMixer() {
         return new AudioBlockProcessor() {
             public AudioBuffer process(AudioBuffer input, AudioBlockDefinition block, AudioProcessingContext context) {

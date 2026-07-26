@@ -2,6 +2,7 @@ package com.aresstack.audio.profile;
 
 /** Define every processing function that can be placed in an audio profile. */
 public enum AudioBlockType {
+    PASSTHROUGH("---"),
     CHANNEL_MIXER("Channel mixer"),
     LOW_PASS("Low-pass filter"),
     HIGH_PASS("High-pass filter"),
