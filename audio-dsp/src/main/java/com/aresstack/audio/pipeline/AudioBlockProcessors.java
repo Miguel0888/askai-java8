@@ -30,6 +30,8 @@ import com.aresstack.audio.dsp.SpeechLevelerProcessor;
 import com.aresstack.audio.dsp.SpeechLevelerSettings;
 import com.aresstack.audio.dsp.SpeechLevelerState;
 import com.aresstack.audio.dsp.ExpanderProcessor;
+import com.aresstack.audio.dsp.FinalLoudnessNormalizer;
+import com.aresstack.audio.dsp.FinalLoudnessNormalizerSettings;
 import com.aresstack.audio.dsp.ExpanderSettings;
 import com.aresstack.audio.dsp.ExpanderState;
 import com.aresstack.audio.dsp.PlosiveReductionProcessor;
@@ -597,6 +599,36 @@ final class AudioBlockProcessors {
                 return input;
             }
         };
+    }
+
+    /**
+     * Final Loudness Normalizer: offline, whole-signal normalization to a target RMS or peak level with one
+     * constant gain (no dynamic pumping), bounded by the maximum total boost/cut and the peak ceiling.
+     */
+    static AudioBlockProcessor finalLoudnessNormalizer() {
+        return new AudioBlockProcessor() {
+            public AudioBuffer process(AudioBuffer input, AudioBlockDefinition block, AudioProcessingContext context) {
+                FinalLoudnessNormalizerSettings settings = new FinalLoudnessNormalizerSettings(
+                        parseLoudnessMode(block.getParameter("mode", "TARGET_RMS")),
+                        block.getDoubleParameter("targetLevelDb", -20.0d),
+                        block.getDoubleParameter("maxTotalGainDb", 24.0d),
+                        block.getDoubleParameter("maxTotalAttenuationDb", 24.0d),
+                        block.getDoubleParameter("peakCeilingDb", -1.0d),
+                        block.getBooleanParameter("clippingProtection", true),
+                        block.getBooleanParameter("allowAmplification", true),
+                        block.getBooleanParameter("allowAttenuation", true));
+                new FinalLoudnessNormalizer(settings).process(input.getSamples(), input.getSamples().length);
+                return input;
+            }
+        };
+    }
+
+    private static FinalLoudnessNormalizerSettings.Mode parseLoudnessMode(String value) {
+        try {
+            return FinalLoudnessNormalizerSettings.Mode.valueOf(value);
+        } catch (RuntimeException ex) {
+            return FinalLoudnessNormalizerSettings.Mode.TARGET_RMS;
+        }
     }
 
     private static NoiseSuppressionSettings.Mode parseSuppressionMode(String value) {

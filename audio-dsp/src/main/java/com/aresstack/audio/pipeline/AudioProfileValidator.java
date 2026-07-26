@@ -81,6 +81,7 @@ public final class AudioProfileValidator {
         boolean sawEnabledNoiseProfiler = false;
         boolean timeBaseChangedAfterVad = false;
         int silenceTrimmerCount = 0;
+        int loudnessNormalizerCount = 0;
         List<AudioBlockDefinition> blocks = profile.getBlocks();
         for (int i = 0; i < blocks.size(); i++) {
             AudioBlockDefinition block = blocks.get(i);
@@ -156,6 +157,10 @@ public final class AudioProfileValidator {
                     break;
                 case SPEECH_LEVELER:
                     validateSpeechLeveler(issues, block, enabled, sawEnabledVad);
+                    break;
+                case FINAL_LOUDNESS_NORMALIZER:
+                    loudnessNormalizerCount++;
+                    validateFinalLoudnessNormalizer(issues, block, enabled, blocks, i, loudnessNormalizerCount);
                     break;
                 default:
                     break;
@@ -446,6 +451,29 @@ public final class AudioProfileValidator {
         if (block.getBooleanParameter("speechProtection", true) && !sawEnabledVad) {
             add(issues, block, enabled, AudioValidationSeverity.WARNING, "speechProtection",
                     name + ": speech protection needs a Voice Activity Detection block upstream.");
+        }
+    }
+
+    private void validateFinalLoudnessNormalizer(List<AudioProfileValidationIssue> issues,
+                                                 AudioBlockDefinition block, boolean enabled,
+                                                 List<AudioBlockDefinition> blocks, int index, int occurrence) {
+        String name = block.getType().getDisplayName();
+        finiteError(issues, block, enabled, name, "targetLevelDb", "Target level");
+        nonNegativeError(issues, block, enabled, name, "maxTotalGainDb", "Maximum total gain");
+        nonNegativeError(issues, block, enabled, name, "maxTotalAttenuationDb", "Maximum total attenuation");
+        finiteError(issues, block, enabled, name, "peakCeilingDb", "Peak ceiling");
+        if (occurrence > 1) {
+            add(issues, block, enabled, AudioValidationSeverity.WARNING, null,
+                    name + ": a second final loudness normalizer causes an uncontrolled double normalization.");
+        }
+        for (int j = index + 1; j < blocks.size(); j++) {
+            AudioBlockDefinition later = blocks.get(j);
+            if (later.isEnabled() && registry.descriptor(later.getType()).getCapabilities().modifiesAudio()) {
+                add(issues, block, enabled, AudioValidationSeverity.WARNING, null,
+                        name + ": it should be the last level-changing stage, but "
+                                + later.getType().getDisplayName() + " follows and can change the level again.");
+                break;
+            }
         }
     }
 

@@ -52,6 +52,7 @@ public final class AudioBlockRegistry {
         register(noiseProfiler());
         register(adaptiveNoiseSuppression());
         register(speechLeveler());
+        register(finalLoudnessNormalizer());
     }
 
     public static AudioBlockRegistry getInstance() {
@@ -766,6 +767,42 @@ public final class AudioBlockRegistry {
                         return formatQ(block.getDoubleParameter("targetSpeechLevelDb", 0.0d)) + " dBFS · +"
                                 + formatQ(block.getDoubleParameter("maxGainDb", 0.0d)) + "/-"
                                 + formatQ(block.getDoubleParameter("maxAttenuationDb", 0.0d)) + " dB";
+                    }
+                });
+    }
+
+    private static AudioBlockDescriptor finalLoudnessNormalizer() {
+        List<AudioParameterDescriptor> params = new ArrayList<AudioParameterDescriptor>();
+        params.add(AudioParameterDescriptor.choice("mode", "Mode", "TARGET_RMS", Arrays.asList(
+                new AudioParameterChoice("TARGET_RMS", "Target RMS level"),
+                new AudioParameterChoice("PEAK", "Peak normalization"))));
+        params.add(AudioParameterDescriptor.decimal("targetLevelDb", "Target level (dBFS)",
+                -20.0d, -60.0d, 0.0d, 1.0d));
+        params.add(AudioParameterDescriptor.decimal("maxTotalGainDb", "Maximum total gain (dB)",
+                24.0d, 0.0d, 60.0d, 1.0d));
+        params.add(AudioParameterDescriptor.decimal("maxTotalAttenuationDb", "Maximum total attenuation (dB)",
+                24.0d, 0.0d, 60.0d, 1.0d));
+        params.add(AudioParameterDescriptor.decimal("peakCeilingDb", "Peak ceiling (dBFS)",
+                -1.0d, -30.0d, 0.0d, 0.5d));
+        params.add(AudioParameterDescriptor.bool("clippingProtection", "Clipping protection", true));
+        params.add(AudioParameterDescriptor.bool("allowAmplification", "Allow amplification", true));
+        params.add(AudioParameterDescriptor.bool("allowAttenuation", "Allow attenuation", true));
+        AudioBlockCapabilities capabilities = StaticBlockCapabilities.builder()
+                .streaming(false)
+                .requiresCompleteSignal(true)
+                .build();
+        return descriptor(AudioBlockType.FINAL_LOUDNESS_NORMALIZER, AudioBlockCategory.OUTPUT, params,
+                capabilities,
+                new SimpleAudioBlockDescriptor.ProcessorFactory() {
+                    public AudioBlockProcessor create() {
+                        return AudioBlockProcessors.finalLoudnessNormalizer();
+                    }
+                },
+                new SimpleAudioBlockDescriptor.Summarizer() {
+                    public String summarize(AudioBlockDefinition block) {
+                        return block.getParameter("mode", "TARGET_RMS") + " · "
+                                + formatQ(block.getDoubleParameter("targetLevelDb", 0.0d)) + " dBFS · ceiling "
+                                + formatQ(block.getDoubleParameter("peakCeilingDb", 0.0d)) + " dB";
                     }
                 });
     }
