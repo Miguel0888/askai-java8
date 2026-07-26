@@ -43,7 +43,8 @@ public enum AudioBlockType {
     MID_SIDE_PROCESSOR("Mid/Side Processor"),
     CENTER_SPEECH_EXTRACTOR("Center Speech Extractor"),
     STEREO_WIDTH_CONTROL("Stereo Width Control"),
-    DELAY_AND_SUM_BEAMFORMER("Delay-and-Sum Beamformer");
+    DELAY_AND_SUM_BEAMFORMER("Delay-and-Sum Beamformer"),
+    DIRECTION_OF_ARRIVAL_ANALYZER("Direction of Arrival Analyzer");
 
     private final String displayName;
 

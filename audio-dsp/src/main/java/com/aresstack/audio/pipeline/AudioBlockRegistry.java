@@ -66,6 +66,7 @@ public final class AudioBlockRegistry {
         register(centerSpeechExtractor());
         register(stereoWidthControl());
         register(delayAndSumBeamformer());
+        register(directionOfArrivalAnalyzer());
     }
 
     public static AudioBlockRegistry getInstance() {
@@ -956,6 +957,32 @@ public final class AudioBlockRegistry {
                 });
     }
 
+    private static AudioBlockDescriptor directionOfArrivalAnalyzer() {
+        List<AudioParameterDescriptor> params = new ArrayList<AudioParameterDescriptor>();
+        params.add(AudioParameterDescriptor.text("micPositionsMm",
+                "Microphone positions (mm; x,y,z per mic, ';' separated)", ""));
+        params.add(AudioParameterDescriptor.decimal("speedOfSoundMmPerS", "Speed of sound (mm/s)",
+                343000.0d, 300000.0d, 360000.0d, 1000.0d));
+        params.add(AudioParameterDescriptor.integer("maxLagSamples", "Max inter-mic lag (samples)", 32, 1, 512));
+        AudioBlockCapabilities capabilities = StaticBlockCapabilities.builder()
+                .modifiesAudio(false)
+                .producesMetadata(true)
+                .requiresKnownMicrophoneGeometry(true)
+                .build();
+        return descriptor(AudioBlockType.DIRECTION_OF_ARRIVAL_ANALYZER, AudioBlockCategory.ANALYSIS, params,
+                capabilities,
+                new SimpleAudioBlockDescriptor.ProcessorFactory() {
+                    public AudioBlockProcessor create() {
+                        return AudioBlockProcessors.directionOfArrivalAnalyzer();
+                    }
+                },
+                new SimpleAudioBlockDescriptor.Summarizer() {
+                    public String summarize(AudioBlockDefinition block) {
+                        return "Estimates source azimuth";
+                    }
+                });
+    }
+
     private static AudioBlockDescriptor delayAndSumBeamformer() {
         List<AudioParameterDescriptor> params = new ArrayList<AudioParameterDescriptor>();
         params.add(AudioParameterDescriptor.text("micPositionsMm",
@@ -968,6 +995,19 @@ public final class AudioBlockRegistry {
                 343000.0d, 300000.0d, 360000.0d, 1000.0d));
         params.add(AudioParameterDescriptor.text("channelWeights", "Channel weights (comma-separated)", ""));
         params.add(AudioParameterDescriptor.decimal("outputGainDb", "Output gain (dB)", 0.0d, -24.0d, 24.0d, 0.5d));
+        params.add(AudioParameterDescriptor.bool("tracking", "Track a moving speaker", false));
+        params.add(AudioParameterDescriptor.integer("trackingBlockFrames", "Tracking block (samples)",
+                512, 64, 16384));
+        params.add(AudioParameterDescriptor.integer("maxLagSamples", "Max inter-mic lag (samples)", 32, 1, 512));
+        params.add(AudioParameterDescriptor.decimal("directionSmoothing", "Direction smoothing",
+                0.7d, 0.0d, 1.0d, 0.05d));
+        params.add(AudioParameterDescriptor.decimal("maxAngularSpeedDegPerBlock", "Max angular speed (deg/block)",
+                15.0d, 0.0d, 180.0d, 1.0d));
+        params.add(AudioParameterDescriptor.decimal("minConfidence", "Minimum confidence", 0.2d, 0.0d, 1.0d, 0.05d));
+        params.add(AudioParameterDescriptor.integer("holdBlocks", "Hold blocks", 3, 0, 100));
+        params.add(AudioParameterDescriptor.decimal("fallbackAzimuthDeg", "Fallback azimuth (deg)",
+                90.0d, -180.0d, 180.0d, 1.0d));
+        params.add(AudioParameterDescriptor.bool("updateDuringSilence", "Update during silence", false));
         AudioBlockCapabilities capabilities = StaticBlockCapabilities.builder()
                 .preservesChannelCount(false)
                 .requiresSynchronizedChannels(true)

@@ -1,5 +1,6 @@
 package com.aresstack.audio.pipeline;
 
+import com.aresstack.audio.dsp.DirectionEstimate;
 import com.aresstack.audio.dsp.NoiseProfile;
 import com.aresstack.audio.dsp.RoomProfile;
 import com.aresstack.audio.dsp.SpeechActivityTrack;
@@ -22,6 +23,7 @@ public final class AudioProcessingContext {
     private RoomProfile roomProfile;
     private Double channelCorrelation;
     private String channelHealthSummary;
+    private DirectionEstimate directionEstimate;
 
     /** Store the per-frame speech-activity track produced by the voice-activity block (typed, no string key). */
     public void setSpeechActivity(SpeechActivityTrack track) {
@@ -71,6 +73,16 @@ public final class AudioProcessingContext {
     /** @return the channel health summary for this run, or null if no analyzer ran. */
     public String getChannelHealthSummary() {
         return channelHealthSummary;
+    }
+
+    /** Store the estimated direction of arrival produced by a Direction of Arrival Analyzer. */
+    public void setDirectionEstimate(DirectionEstimate estimate) {
+        this.directionEstimate = estimate;
+    }
+
+    /** @return the estimated direction of arrival for this run, or null if no analyzer ran. */
+    public DirectionEstimate getDirectionEstimate() {
+        return directionEstimate;
     }
 
     public void put(String key, Object value) {

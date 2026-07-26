@@ -213,6 +213,9 @@ public final class AudioProfileValidator {
                 case DELAY_AND_SUM_BEAMFORMER:
                     validateBeamformer(issues, block, enabled, currentChannels);
                     break;
+                case DIRECTION_OF_ARRIVAL_ANALYZER:
+                    validateDirectionOfArrival(issues, block, enabled, currentChannels);
+                    break;
                 case ADAPTIVE_NOISE_SUPPRESSION:
                     validateNoiseSuppression(issues, block, enabled, sawEnabledVad, sawEnabledNoiseProfiler);
                     break;
@@ -512,6 +515,23 @@ public final class AudioProfileValidator {
             add(issues, block, enabled, AudioValidationSeverity.ERROR, "micPositionsMm",
                     name + ": the geometry has " + array.getMicrophoneCount() + " microphones but the signal "
                             + "has " + currentChannels + " channel(s) here.");
+        }
+        if (currentChannels != 0 && currentChannels < 2) {
+            add(issues, block, enabled, AudioValidationSeverity.ERROR, null,
+                    name + ": needs at least two synchronized channels; the signal is mono at this point.");
+        }
+        positiveError(issues, block, enabled, name, "speedOfSoundMmPerS", "Speed of sound");
+    }
+
+    private void validateDirectionOfArrival(List<AudioProfileValidationIssue> issues, AudioBlockDefinition block,
+                                            boolean enabled, int currentChannels) {
+        String name = block.getType().getDisplayName();
+        com.aresstack.audio.dsp.MicrophoneArrayProfile array =
+                com.aresstack.audio.dsp.MicrophoneArrayProfile.parse(block.getId(), "inline",
+                        block.getParameter("micPositionsMm", ""));
+        if (array == null) {
+            add(issues, block, enabled, AudioValidationSeverity.ERROR, "micPositionsMm",
+                    name + ": needs a valid microphone-array geometry to estimate a direction.");
         }
         if (currentChannels != 0 && currentChannels < 2) {
             add(issues, block, enabled, AudioValidationSeverity.ERROR, null,

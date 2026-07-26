@@ -14,6 +14,9 @@ import com.aresstack.audio.dsp.LowShelfEqualizerProcessor;
 import com.aresstack.audio.dsp.ChannelAligner;
 import com.aresstack.audio.dsp.ChannelDiagnostics;
 import com.aresstack.audio.dsp.DelayAndSumBeamformer;
+import com.aresstack.audio.dsp.DirectionEstimate;
+import com.aresstack.audio.dsp.DirectionOfArrivalEstimator;
+import com.aresstack.audio.dsp.DirectionTracker;
 import com.aresstack.audio.dsp.MicrophoneArrayProfile;
 import com.aresstack.audio.dsp.MultichannelOps;
 import com.aresstack.audio.dsp.ParametricEqualizerProcessor;
@@ -740,12 +743,72 @@ final class AudioBlockProcessors {
                 }
                 double[] weights = parseDoubles(block.getParameter("channelWeights", ""));
                 double gain = Math.pow(10.0d, block.getDoubleParameter("outputGainDb", 0.0d) / 20.0d);
+                double elevation = block.getDoubleParameter("targetElevationDeg", 0.0d);
+                double c = block.getDoubleParameter("speedOfSoundMmPerS", 343000.0d);
+                int rate = format.getSampleRateHz();
+                int frames = input.getSamples().length / channels;
+                if (block.getBooleanParameter("tracking", false)) {
+                    short[] mono = beamformTracking(input.getSamples(), frames, channels, format, array,
+                            block, weights, gain, elevation, c, rate);
+                    return new AudioBuffer(mono, new PcmAudioFormat(rate, 1, format.getBitsPerSample()));
+                }
                 short[] mono = DelayAndSumBeamformer.beamform(input.getSamples(), input.getSamples().length,
                         format, array, block.getDoubleParameter("targetAzimuthDeg", 90.0d),
-                        block.getDoubleParameter("targetElevationDeg", 0.0d),
-                        block.getDoubleParameter("speedOfSoundMmPerS", 343000.0d), weights, gain);
-                return new AudioBuffer(mono, new PcmAudioFormat(format.getSampleRateHz(), 1,
-                        format.getBitsPerSample()));
+                        elevation, c, weights, gain);
+                return new AudioBuffer(mono, new PcmAudioFormat(rate, 1, format.getBitsPerSample()));
+            }
+        };
+    }
+
+    /** Beamform per block toward a tracked direction so the beam follows a moving speaker. */
+    private static short[] beamformTracking(short[] samples, int frames, int channels, PcmAudioFormat format,
+                                            MicrophoneArrayProfile array, AudioBlockDefinition block,
+                                            double[] weights, double gain, double elevation, double c, int rate) {
+        int blockFrames = Math.max(64, block.getIntParameter("trackingBlockFrames", 512));
+        int maxLag = Math.max(1, block.getIntParameter("maxLagSamples", 32));
+        DirectionTracker tracker = new DirectionTracker(
+                block.getDoubleParameter("directionSmoothing", 0.7d),
+                block.getDoubleParameter("maxAngularSpeedDegPerBlock", 15.0d),
+                block.getDoubleParameter("minConfidence", 0.2d),
+                block.getIntParameter("holdBlocks", 3),
+                block.getDoubleParameter("fallbackAzimuthDeg", 90.0d),
+                block.getBooleanParameter("updateDuringSilence", false));
+        short[] mono = new short[frames];
+        for (int start = 0; start < frames; start += blockFrames) {
+            int end = Math.min(frames, start + blockFrames);
+            DirectionEstimate est = DirectionOfArrivalEstimator.estimate(samples, start, end, channels,
+                    array, rate, c, maxLag);
+            double azimuth = tracker.update(est);
+            int blkLen = (end - start) * channels;
+            short[] blk = new short[blkLen];
+            System.arraycopy(samples, start * channels, blk, 0, blkLen);
+            short[] monoBlk = DelayAndSumBeamformer.beamform(blk, blkLen, format, array, azimuth, elevation,
+                    c, weights, gain);
+            System.arraycopy(monoBlk, 0, mono, start, end - start);
+        }
+        return mono;
+    }
+
+    /**
+     * Direction of Arrival Analyzer: estimate the source azimuth from the array geometry and publish a
+     * {@link DirectionEstimate} into the context. Analysis only — the audio is unchanged.
+     */
+    static AudioBlockProcessor directionOfArrivalAnalyzer() {
+        return new AudioBlockProcessor() {
+            public AudioBuffer process(AudioBuffer input, AudioBlockDefinition block, AudioProcessingContext context) {
+                int channels = input.getFormat().getChannels();
+                MicrophoneArrayProfile array = MicrophoneArrayProfile.parse(block.getId(), "inline",
+                        block.getParameter("micPositionsMm", ""));
+                if (array == null || channels < 2 || array.getMicrophoneCount() != channels) {
+                    return input;
+                }
+                int frames = input.getSamples().length / channels;
+                DirectionEstimate estimate = DirectionOfArrivalEstimator.estimate(input.getSamples(), 0, frames,
+                        channels, array, input.getFormat().getSampleRateHz(),
+                        block.getDoubleParameter("speedOfSoundMmPerS", 343000.0d),
+                        Math.max(1, block.getIntParameter("maxLagSamples", 32)));
+                context.setDirectionEstimate(estimate);
+                return input;
             }
         };
     }
