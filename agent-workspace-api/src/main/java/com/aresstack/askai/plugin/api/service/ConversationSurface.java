@@ -6,6 +6,13 @@ import javax.swing.JComponent;
  * A host-provided conversation/activity surface backed by the existing bubble, thinking and tool-activity
  * components. Everything is addressed by stable ids so updates target the right bubble. Raw tool arguments
  * and results must not be pushed unfiltered into public tool bubbles.
+ *
+ * <p>This surface stays deliberately generic: it must not gain domain methods such as {@code addFinding} or
+ * {@code changeResearchPhase} — those belong in the plugin's own panels.</p>
+ *
+ * <p>Ownership &amp; threading: the {@link ConversationSurfaceFactory} creates it, the workspace owns it and
+ * must call {@link #dispose()} exactly once. Every method must be called on the EDT. After {@code dispose()}
+ * the surface accepts no further updates.</p>
  */
 public interface ConversationSurface {
 

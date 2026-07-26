@@ -1,10 +1,20 @@
 package com.aresstack.askai.plugin.api;
 
+import java.util.regex.Pattern;
+
 /**
  * Immutable, framework-free description of a workspace plugin. Carries no Swing component and no PF4J or
  * classloader type — only the metadata the host needs to list, order and validate a plugin.
+ *
+ * <p>All string fields are trimmed. {@code id} must be a stable, whitespace-free, reverse-domain-style id
+ * and {@code pluginApiVersion} must be &ge; 1. {@code displayOrder} may be negative (to sort a plugin to the
+ * front).</p>
  */
 public final class WorkspacePluginDescriptor {
+
+    /** Alphanumeric segments joined by {@code . _ -}, at least two segments (e.g. com.aresstack.askai.research). */
+    private static final Pattern ID_PATTERN =
+            Pattern.compile("^[a-zA-Z0-9]+(?:[._-][a-zA-Z0-9]+)+$");
 
     private final String id;
     private final String displayName;
@@ -16,13 +26,16 @@ public final class WorkspacePluginDescriptor {
     private final int displayOrder;
 
     private WorkspacePluginDescriptor(Builder builder) {
-        this.id = require(builder.id, "id");
+        this.id = requireId(builder.id);
         this.displayName = require(builder.displayName, "displayName");
-        this.description = builder.description == null ? "" : builder.description;
+        this.description = trimOrEmpty(builder.description);
         this.version = require(builder.version, "version");
+        if (builder.pluginApiVersion < 1) {
+            throw new IllegalArgumentException("pluginApiVersion must be >= 1, was " + builder.pluginApiVersion);
+        }
         this.pluginApiVersion = builder.pluginApiVersion;
-        this.provider = builder.provider == null ? "" : builder.provider;
-        this.iconKey = builder.iconKey == null ? "" : builder.iconKey;
+        this.provider = trimOrEmpty(builder.provider);
+        this.iconKey = trimOrEmpty(builder.iconKey);
         this.displayOrder = builder.displayOrder;
     }
 
@@ -66,7 +79,20 @@ public final class WorkspacePluginDescriptor {
         if (value == null || value.trim().isEmpty()) {
             throw new IllegalArgumentException(field + " must not be empty");
         }
-        return value;
+        return value.trim();
+    }
+
+    private static String requireId(String value) {
+        String id = require(value, "id");
+        if (!ID_PATTERN.matcher(id).matches()) {
+            throw new IllegalArgumentException("id must be a stable reverse-domain-style identifier "
+                    + "(alphanumeric segments joined by . _ -), was: " + id);
+        }
+        return id;
+    }
+
+    private static String trimOrEmpty(String value) {
+        return value == null ? "" : value.trim();
     }
 
     /** Fluent builder; keeps the descriptor immutable while allowing optional fields. */
