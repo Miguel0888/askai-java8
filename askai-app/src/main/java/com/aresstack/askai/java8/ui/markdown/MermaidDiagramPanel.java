@@ -1,26 +1,41 @@
 package com.aresstack.askai.java8.ui.markdown;
 
 import javax.swing.BorderFactory;
+import javax.swing.Icon;
+import javax.swing.JButton;
+import javax.swing.JComponent;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.SwingWorker;
+import java.awt.BorderLayout;
 import java.awt.Color;
+import java.awt.Component;
 import java.awt.Dimension;
+import java.awt.FlowLayout;
 import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
+import java.awt.Toolkit;
+import java.awt.datatransfer.Clipboard;
+import java.awt.datatransfer.DataFlavor;
+import java.awt.datatransfer.StringSelection;
+import java.awt.datatransfer.Transferable;
+import java.awt.datatransfer.UnsupportedFlavorException;
 import java.awt.image.BufferedImage;
 
-/** Render Mermaid off the EDT and paint the result with Java2D. */
+/** Render Mermaid off the EDT and paint the result with Java2D, with copy-image/copy-code controls. */
 public final class MermaidDiagramPanel extends JPanel {
 
     private static final int PADDING = 12;
-    private static final int MIN_RENDER_WIDTH = 480;
-    private static final int MAX_RENDER_WIDTH = 1800;
+    private static final int MIN_RENDER_WIDTH = 640;
+    private static final int MAX_RENDER_WIDTH = 2400;
 
     private final String diagramCode;
     private final MarkdownTheme theme;
     private final MermaidImageRenderer imageRenderer;
+    private final DiagramCanvas canvas;
+    private final JButton copyImageButton;
     private BufferedImage image;
     private String errorMessage;
     private boolean rendering;
@@ -30,12 +45,56 @@ public final class MermaidDiagramPanel extends JPanel {
         this.diagramCode = diagramCode == null ? "" : diagramCode;
         this.theme = theme;
         this.imageRenderer = imageRenderer;
+        this.canvas = new DiagramCanvas();
+        this.copyImageButton = squareButton(new CopyImageIcon(theme.getMutedForeground()),
+                "Copy diagram as image", new Runnable() {
+                    public void run() {
+                        copyImageToClipboard();
+                    }
+                });
+        this.copyImageButton.setEnabled(false);
+
         setOpaque(false);
+        setLayout(new BorderLayout(0, 4));
         setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(theme.getSeparatorColor()),
                 BorderFactory.createEmptyBorder(PADDING, PADDING, PADDING, PADDING)));
-        setPreferredSize(new Dimension(600, 140));
+        add(buildToolbar(), BorderLayout.NORTH);
+        add(canvas, BorderLayout.CENTER);
         renderAsync();
+    }
+
+    /** @return the raw Mermaid source of this diagram. */
+    public String getDiagramCode() {
+        return diagramCode;
+    }
+
+    private JComponent buildToolbar() {
+        JButton copyCodeButton = squareButton(new CopyCodeIcon(theme.getMutedForeground()),
+                "Copy Mermaid code", new Runnable() {
+                    public void run() {
+                        copyCodeToClipboard();
+                    }
+                });
+        copyCodeButton.setEnabled(diagramCode.trim().length() > 0);
+
+        JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+        toolbar.setOpaque(false);
+        toolbar.add(copyImageButton);
+        toolbar.add(copyCodeButton);
+        return toolbar;
+    }
+
+    private static JButton squareButton(Icon icon, String tooltip, final Runnable action) {
+        JButton button = new JButton(icon);
+        button.setToolTipText(tooltip);
+        button.setPreferredSize(new Dimension(22, 22));
+        button.setFocusable(false);
+        button.setMargin(new java.awt.Insets(0, 0, 0, 0));
+        button.setContentAreaFilled(false);
+        button.setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
+        button.addActionListener(event -> action.run());
+        return button;
     }
 
     private void renderAsync() {
@@ -44,11 +103,11 @@ public final class MermaidDiagramPanel extends JPanel {
         }
         if (diagramCode.trim().isEmpty()) {
             errorMessage = "Mermaid diagram is empty.";
-            repaint();
+            canvas.repaint();
             return;
         }
         rendering = true;
-        int availableWidth = Math.max(1, getWidth() - PADDING * 2);
+        int availableWidth = Math.max(1, canvas.getWidth());
         final int targetWidth = Math.max(MIN_RENDER_WIDTH,
                 Math.min(MAX_RENDER_WIDTH, availableWidth * 2));
         new SwingWorker<BufferedImage, Void>() {
@@ -68,68 +127,191 @@ public final class MermaidDiagramPanel extends JPanel {
                     errorMessage = "Mermaid error: " + ex.getMessage();
                 } finally {
                     rendering = false;
-                    updatePreferredSize();
-                    revalidate();
-                    repaint();
+                    copyImageButton.setEnabled(image != null);
+                    canvas.updatePreferredSize();
+                    canvas.revalidate();
+                    canvas.repaint();
                 }
             }
         }.execute();
     }
 
-    private void updatePreferredSize() {
+    private void copyImageToClipboard() {
         if (image == null) {
-            setPreferredSize(new Dimension(600, 140));
             return;
         }
-        int width = Math.max(1, getWidth() - PADDING * 2);
-        if (width <= 1) {
-            width = Math.min(900, image.getWidth());
+        try {
+            Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
+            clipboard.setContents(imageTransferable(image), null);
+        } catch (RuntimeException ex) {
+            JOptionPane.showMessageDialog(this, "Could not copy the diagram image: " + ex.getMessage(),
+                    "Copy failed", JOptionPane.WARNING_MESSAGE);
         }
-        double scale = Math.min(1.0d, width / (double) image.getWidth());
-        int height = (int) Math.ceil(image.getHeight() * scale) + PADDING * 2;
-        setPreferredSize(new Dimension(width + PADDING * 2, Math.max(80, height)));
-        setMaximumSize(new Dimension(Integer.MAX_VALUE, Math.max(80, height)));
     }
 
-    @Override
-    protected void paintComponent(Graphics graphics) {
-        super.paintComponent(graphics);
-        Graphics2D g2 = (Graphics2D) graphics.create();
+    private void copyCodeToClipboard() {
         try {
-            g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
-            g2.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
-            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
+            clipboard.setContents(new StringSelection(diagramCode), null);
+        } catch (RuntimeException ex) {
+            JOptionPane.showMessageDialog(this, "Could not copy the Mermaid code: " + ex.getMessage(),
+                    "Copy failed", JOptionPane.WARNING_MESSAGE);
+        }
+    }
 
-            if (image != null) {
-                paintImage(g2);
+    /** A clipboard transferable that exposes a rendered diagram as an image (visible for tests). */
+    static Transferable imageTransferable(final BufferedImage image) {
+        return new Transferable() {
+            @Override
+            public DataFlavor[] getTransferDataFlavors() {
+                return new DataFlavor[] {DataFlavor.imageFlavor};
+            }
+
+            @Override
+            public boolean isDataFlavorSupported(DataFlavor flavor) {
+                return DataFlavor.imageFlavor.equals(flavor);
+            }
+
+            @Override
+            public Object getTransferData(DataFlavor flavor) throws UnsupportedFlavorException {
+                if (!DataFlavor.imageFlavor.equals(flavor)) {
+                    throw new UnsupportedFlavorException(flavor);
+                }
+                return image;
+            }
+        };
+    }
+
+    /** The area that paints the rendered diagram (or a status line) and drives the height from the image. */
+    private final class DiagramCanvas extends JComponent {
+
+        DiagramCanvas() {
+            setOpaque(false);
+            setPreferredSize(new Dimension(600, 140));
+        }
+
+        void updatePreferredSize() {
+            if (image == null) {
+                setPreferredSize(new Dimension(600, 140));
                 return;
             }
-            paintStatus(g2, errorMessage == null ? "Rendering Mermaid…" : errorMessage,
-                    errorMessage == null ? theme.getMutedForeground() : theme.getErrorForeground());
-        } finally {
-            g2.dispose();
+            int width = Math.max(1, getWidth());
+            if (width <= 1) {
+                width = Math.min(900, image.getWidth());
+            }
+            // Never upscale past the native size, but otherwise fill the available width for a legible diagram.
+            double scale = Math.min(1.0d, width / (double) image.getWidth());
+            int height = (int) Math.ceil(image.getHeight() * scale);
+            setPreferredSize(new Dimension(width, Math.max(80, height)));
+            setMaximumSize(new Dimension(Integer.MAX_VALUE, Math.max(80, height)));
+        }
+
+        @Override
+        protected void paintComponent(Graphics graphics) {
+            super.paintComponent(graphics);
+            Graphics2D g2 = (Graphics2D) graphics.create();
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+                g2.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                if (image != null) {
+                    paintImage(g2);
+                    return;
+                }
+                paintStatus(g2, errorMessage == null ? "Rendering Mermaid…" : errorMessage,
+                        errorMessage == null ? theme.getMutedForeground() : theme.getErrorForeground());
+            } finally {
+                g2.dispose();
+            }
+        }
+
+        private void paintImage(Graphics2D graphics) {
+            double scale = Math.min(1.0d, getWidth() / (double) image.getWidth());
+            int drawWidth = Math.max(1, (int) Math.round(image.getWidth() * scale));
+            int drawHeight = Math.max(1, (int) Math.round(image.getHeight() * scale));
+            // Left-align the diagram; it fills the available width so it stays legible.
+            graphics.drawImage(image, 0, 0, drawWidth, drawHeight, null);
+        }
+
+        private void paintStatus(Graphics2D graphics, String text, Color color) {
+            graphics.setFont(theme.getBodyFont());
+            graphics.setColor(color);
+            FontMetrics metrics = graphics.getFontMetrics();
+            int y = Math.max(metrics.getAscent(), (getHeight() + metrics.getAscent()) / 2);
+            graphics.drawString(text, 0, y);
+        }
+
+        @Override
+        public Dimension getMaximumSize() {
+            Dimension preferred = getPreferredSize();
+            return new Dimension(Integer.MAX_VALUE, preferred.height);
         }
     }
 
-    private void paintImage(Graphics2D graphics) {
-        int availableWidth = Math.max(1, getWidth() - PADDING * 2);
-        int availableHeight = Math.max(1, getHeight() - PADDING * 2);
-        double scale = Math.min(1.0d, Math.min(
-                availableWidth / (double) image.getWidth(),
-                availableHeight / (double) image.getHeight()));
-        int drawWidth = Math.max(1, (int) Math.round(image.getWidth() * scale));
-        int drawHeight = Math.max(1, (int) Math.round(image.getHeight() * scale));
-        int x = Math.max(PADDING, (getWidth() - drawWidth) / 2);
-        int y = Math.max(PADDING, (getHeight() - drawHeight) / 2);
-        graphics.drawImage(image, x, y, drawWidth, drawHeight, null);
+    /** A minimal "copy" glyph: two offset rounded rectangles. */
+    private static final class CopyCodeIcon implements Icon {
+        private final Color color;
+
+        private CopyCodeIcon(Color color) {
+            this.color = color == null ? Color.GRAY : color;
+        }
+
+        @Override
+        public void paintIcon(Component c, Graphics g, int x, int y) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(color);
+                g2.drawRoundRect(x + 5, y + 2, 8, 10, 3, 3);
+                g2.drawRoundRect(x + 2, y + 5, 8, 10, 3, 3);
+            } finally {
+                g2.dispose();
+            }
+        }
+
+        @Override
+        public int getIconWidth() {
+            return 16;
+        }
+
+        @Override
+        public int getIconHeight() {
+            return 16;
+        }
     }
 
-    private void paintStatus(Graphics2D graphics, String text, Color color) {
-        graphics.setFont(theme.getBodyFont());
-        graphics.setColor(color);
-        FontMetrics metrics = graphics.getFontMetrics();
-        int x = Math.max(PADDING, (getWidth() - metrics.stringWidth(text)) / 2);
-        int y = Math.max(PADDING + metrics.getAscent(), (getHeight() + metrics.getAscent()) / 2);
-        graphics.drawString(text, x, y);
+    /** A minimal "image" glyph: a framed rectangle with a sun and a mountain. */
+    private static final class CopyImageIcon implements Icon {
+        private final Color color;
+
+        private CopyImageIcon(Color color) {
+            this.color = color == null ? Color.GRAY : color;
+        }
+
+        @Override
+        public void paintIcon(Component c, Graphics g, int x, int y) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(color);
+                g2.drawRoundRect(x + 2, y + 3, 12, 10, 2, 2);
+                g2.fillOval(x + 5, y + 5, 3, 3);
+                int[] px = {x + 3, x + 7, x + 13};
+                int[] py = {y + 12, y + 8, y + 12};
+                g2.fillPolygon(px, py, 3);
+            } finally {
+                g2.dispose();
+            }
+        }
+
+        @Override
+        public int getIconWidth() {
+            return 16;
+        }
+
+        @Override
+        public int getIconHeight() {
+            return 16;
+        }
     }
 }

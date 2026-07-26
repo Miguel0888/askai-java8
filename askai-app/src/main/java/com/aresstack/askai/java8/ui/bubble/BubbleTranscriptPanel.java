@@ -1,5 +1,7 @@
 package com.aresstack.askai.java8.ui.bubble;
 
+import com.aresstack.askai.java8.ui.markdown.MarkdownMessageView;
+
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
@@ -46,7 +48,9 @@ public final class BubbleTranscriptPanel extends JPanel {
     private final JScrollPane scrollPane;
     private final SummaryOverlay overlay;
     private final Map<AnimatedThoughtBubblePanel, BubbleMessageRow> activityRows;
-    private SpeechBubblePanel activeAssistantMessage;
+    // The streaming assistant answer renders as native Markdown (headings, lists, code, tables, links,
+    // Mermaid) inside a speech bubble. Thinking/tool/user messages keep the plain speech bubble.
+    private MarkdownMessageView activeAssistantView;
 
     public BubbleTranscriptPanel() {
         this(BubblePalette.windowsPhoneInspired());
@@ -90,7 +94,7 @@ public final class BubbleTranscriptPanel extends JPanel {
         stopAllActivityAnimations();
         messageList.removeAll();
         activityRows.clear();
-        activeAssistantMessage = null;
+        activeAssistantView = null;
         refreshTranscript();
     }
 
@@ -110,31 +114,34 @@ public final class BubbleTranscriptPanel extends JPanel {
         return bubble;
     }
 
-    public SpeechBubblePanel startAssistantMessage(String header) {
+    /**
+     * Starts a streaming assistant answer rendered as native Markdown inside a speech bubble. While
+     * streaming the text re-renders debounced; a Mermaid fence stays a code block until
+     * {@link #finishAssistantMessage()} turns it into a diagram.
+     */
+    public void startAssistantMessage(String header) {
         requireEventDispatchThread();
         finishAssistantMessage();
-        activeAssistantMessage = new SpeechBubblePanel(
-                BubbleSide.LEFT,
-                palette.getAssistantBackground(),
-                palette.getAssistantForeground(),
-                header,
-                "");
-        addBubbleRow(activeAssistantMessage, BubbleSide.LEFT);
-        return activeAssistantMessage;
+        activeAssistantView = new MarkdownMessageView();
+        activeAssistantView.startStreaming();
+        addAssistantMarkdownRow(header, activeAssistantView);
     }
 
     public void appendAssistantDelta(String delta) {
         requireEventDispatchThread();
-        if (activeAssistantMessage == null) {
+        if (activeAssistantView == null) {
             startAssistantMessage("Assistant");
         }
-        activeAssistantMessage.appendText(delta);
+        activeAssistantView.appendMarkdownDelta(delta);
         refreshTranscript();
     }
 
     public void finishAssistantMessage() {
         requireEventDispatchThread();
-        activeAssistantMessage = null;
+        if (activeAssistantView != null) {
+            activeAssistantView.finishStreaming();
+        }
+        activeAssistantView = null;
     }
 
     public void appendInfo(String text) {
@@ -334,6 +341,13 @@ public final class BubbleTranscriptPanel extends JPanel {
         messageList.add(Box.createVerticalStrut(2));
         refreshTranscript();
         return row;
+    }
+
+    /** Adds the assistant answer inside a left speech bubble, capped in width and reflowing on resize. */
+    private void addAssistantMarkdownRow(String header, MarkdownMessageView view) {
+        AssistantMarkdownBubble bubble = new AssistantMarkdownBubble(
+                palette, header == null || header.length() == 0 ? "Assistant" : header, view);
+        addBubbleRow(bubble, BubbleSide.LEFT);
     }
 
     private Runnable createActivityRemoval(final AnimatedThoughtBubblePanel activity) {
