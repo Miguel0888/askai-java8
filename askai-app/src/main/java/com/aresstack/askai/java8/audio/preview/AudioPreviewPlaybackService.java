@@ -17,4 +17,7 @@ public interface AudioPreviewPlaybackService {
     void stop();
 
     boolean isPlaying();
+
+    /** Select the output device by name; empty/null uses the system default line. */
+    void setOutputDeviceName(String deviceName);
 }

@@ -226,6 +226,10 @@ public class AudioProcessingTestControllerTest {
         public boolean isPlaying() {
             return playing;
         }
+
+        public void setOutputDeviceName(String deviceName) {
+            // no-op for the fake
+        }
     }
 
     private static final class ManualExecutor implements Executor {

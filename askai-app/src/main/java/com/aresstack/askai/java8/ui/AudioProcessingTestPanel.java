@@ -11,10 +11,14 @@ import com.aresstack.askai.java8.speech.RawRecording;
 import com.aresstack.audio.application.DefaultAudioProcessingPreviewService;
 import com.aresstack.audio.application.DefaultProcessedWaveExportService;
 import com.aresstack.audio.application.ProcessedAudioPreview;
+import com.aresstack.audio.dsp.AudioLevelMeter;
+import com.aresstack.audio.infrastructure.AvailableAudioDevices;
 import com.aresstack.audio.profile.AudioProcessingProfile;
 
 import javax.swing.BorderFactory;
+import javax.swing.BoxLayout;
 import javax.swing.JButton;
+import javax.swing.JComboBox;
 import javax.swing.JComponent;
 import javax.swing.JFileChooser;
 import javax.swing.JLabel;
@@ -24,8 +28,13 @@ import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.BorderLayout;
+import java.awt.Cursor;
+import java.awt.Desktop;
 import java.awt.FlowLayout;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.io.File;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
@@ -39,13 +48,19 @@ import java.util.function.Supplier;
  */
 public final class AudioProcessingTestPanel extends JPanel {
 
+    private static final String SYSTEM_DEFAULT = "System default";
+
     private final AudioProcessingTestController controller;
     private final AudioTestRecordingStore recordingStore = new AudioTestRecordingStore();
     private final MicrophoneRecorder recorder = new JavaSoundMicrophoneRecorder();
-    private final AudioPreviewPlaybackService rawPlayback = new JavaSoundAudioPreviewPlaybackService();
+    private final JavaSoundAudioPreviewPlaybackService playback = new JavaSoundAudioPreviewPlaybackService();
     private final File tempDir = new File(System.getProperty("java.io.tmpdir"), "askai-audio-tests-temp");
     private final ExecutorService executor;
 
+    private final JComboBox<String> micCombo = new JComboBox<String>();
+    private final JComboBox<String> outputCombo = new JComboBox<String>();
+    private final JButton testMicButton = new JButton("Test microphone");
+    private final JButton testOutputButton = new JButton("Test output");
     private final JLabel sourceLabel = new JLabel("No test file selected");
     private final JLabel statusLabel = new JLabel(" ");
     private final JButton processAndPlayButton = new JButton("Process and play");
@@ -56,6 +71,10 @@ public final class AudioProcessingTestPanel extends JPanel {
     private final JButton saveButton = new JButton("Save processed WAV…");
 
     private File lastDirectory;
+    private File currentSourceFile;
+    private String currentSourceText = "No test file selected";
+    private MicrophoneRecorder.Session micTestSession;
+    private Timer micTestTimer;
 
     public AudioProcessingTestPanel(Supplier<AudioProcessingProfile> snapshotSupplier) {
         this.executor = Executors.newSingleThreadExecutor(new ThreadFactory() {
@@ -67,10 +86,30 @@ public final class AudioProcessingTestPanel extends JPanel {
         });
         this.controller = new AudioProcessingTestController(
                 new DefaultAudioProcessingPreviewService(),
-                new JavaSoundAudioPreviewPlaybackService(),
+                playback,
                 new DefaultProcessedWaveExportService(),
                 snapshotSupplier, executor, new EdtListener());
+        playback.setErrorHandler(new java.util.function.Consumer<String>() {
+            public void accept(final String message) {
+                SwingUtilities.invokeLater(new Runnable() {
+                    public void run() {
+                        setStatus("Playback failed: " + message);
+                    }
+                });
+            }
+        });
+        playback.setInfoHandler(new java.util.function.Consumer<String>() {
+            public void accept(final String message) {
+                SwingUtilities.invokeLater(new Runnable() {
+                    public void run() {
+                        setStatus(message);
+                    }
+                });
+            }
+        });
         buildUserInterface();
+        refreshCaptureDevices();
+        refreshPlaybackDevices();
         refreshControls();
     }
 
@@ -90,7 +129,42 @@ public final class AudioProcessingTestPanel extends JPanel {
         record.addActionListener(event -> recordTestWave());
         sourceRow.add(selectFile);
         sourceRow.add(record);
+        sourceLabel.addMouseListener(new MouseAdapter() {
+            public void mouseClicked(MouseEvent event) {
+                openSourceLocation();
+            }
+
+            public void mouseEntered(MouseEvent event) {
+                renderSource(true);
+            }
+
+            public void mouseExited(MouseEvent event) {
+                renderSource(false);
+            }
+        });
         sourceRow.add(sourceLabel);
+
+        JPanel deviceRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
+        deviceRow.add(new JLabel("Microphone:"));
+        micCombo.setToolTipText("Capture device used for Record test wave.");
+        deviceRow.add(micCombo);
+        JButton micRefresh = new JButton("↻");
+        micRefresh.setToolTipText("Refresh microphone list");
+        micRefresh.addActionListener(event -> refreshCaptureDevices());
+        deviceRow.add(micRefresh);
+        testMicButton.addActionListener(event -> toggleMicTest());
+        deviceRow.add(testMicButton);
+        deviceRow.add(new JLabel("   Output:"));
+        outputCombo.setToolTipText("Playback device used for Play original / Play processed.");
+        outputCombo.addActionListener(event -> playback.setOutputDeviceName(selectedOutputDevice()));
+        deviceRow.add(outputCombo);
+        JButton outRefresh = new JButton("↻");
+        outRefresh.setToolTipText("Refresh output device list");
+        outRefresh.addActionListener(event -> refreshPlaybackDevices());
+        deviceRow.add(outRefresh);
+        testOutputButton.setToolTipText("Play a short beep through the selected output device.");
+        testOutputButton.addActionListener(event -> testOutput());
+        deviceRow.add(testOutputButton);
 
         JPanel actionRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
         processAndPlayButton.addActionListener(event -> controller.processAndPlay());
@@ -106,11 +180,130 @@ public final class AudioProcessingTestPanel extends JPanel {
         actionRow.add(stopButton);
         actionRow.add(saveButton);
 
-        JPanel top = new JPanel(new BorderLayout());
-        top.add(sourceRow, BorderLayout.NORTH);
-        top.add(actionRow, BorderLayout.CENTER);
+        JPanel top = new JPanel();
+        top.setLayout(new BoxLayout(top, BoxLayout.Y_AXIS));
+        top.add(sourceRow);
+        top.add(deviceRow);
+        top.add(actionRow);
         add(top, BorderLayout.CENTER);
         add(statusLabel, BorderLayout.SOUTH);
+    }
+
+    // ------------------------------------------------------------------ device selection
+
+    private void refreshCaptureDevices() {
+        fillCombo(micCombo, safeList(true));
+    }
+
+    private void refreshPlaybackDevices() {
+        fillCombo(outputCombo, safeList(false));
+        playback.setOutputDeviceName(selectedOutputDevice());
+    }
+
+    private static void fillCombo(JComboBox<String> combo, List<String> devices) {
+        Object previous = combo.getSelectedItem();
+        combo.removeAllItems();
+        combo.addItem(SYSTEM_DEFAULT);
+        for (String device : devices) {
+            combo.addItem(device);
+        }
+        if (previous != null && devices.contains(previous)) {
+            combo.setSelectedItem(previous);
+        } else {
+            combo.setSelectedItem(SYSTEM_DEFAULT);
+        }
+    }
+
+    private static List<String> safeList(boolean capture) {
+        try {
+            return capture ? AvailableAudioDevices.listCaptureDeviceNames()
+                    : AvailableAudioDevices.listPlaybackDeviceNames();
+        } catch (Exception ex) {
+            return java.util.Collections.<String>emptyList();
+        }
+    }
+
+    private String selectedMicDevice() {
+        Object selected = micCombo.getSelectedItem();
+        String value = selected == null ? "" : String.valueOf(selected);
+        return SYSTEM_DEFAULT.equals(value) ? "" : value;
+    }
+
+    private String selectedOutputDevice() {
+        Object selected = outputCombo.getSelectedItem();
+        String value = selected == null ? "" : String.valueOf(selected);
+        return SYSTEM_DEFAULT.equals(value) ? "" : value;
+    }
+
+    /** Open the selected microphone briefly and report whether a signal is detected; nothing is stored. */
+    private void toggleMicTest() {
+        if (micTestSession != null) {
+            stopMicTest("Microphone test stopped.");
+            return;
+        }
+        try {
+            if (!tempDir.isDirectory() && !tempDir.mkdirs()) {
+                throw new java.io.IOException("Cannot create the temp recording directory.");
+            }
+            micTestSession = recorder.start(selectedMicDevice(), tempDir);
+        } catch (Exception ex) {
+            micTestSession = null;
+            setStatus("Microphone test failed: " + message(ex));
+            return;
+        }
+        testMicButton.setText("Stop test");
+        final AudioLevelMeter meter = micTestSession.getMeter();
+        micTestTimer = new Timer(150, new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent event) {
+                boolean signal = meter.getPeak() > 500; // ~ -36 dBFS on the 16-bit scale
+                setStatus(signal ? "Microphone test: signal detected." : "Microphone test: listening…");
+            }
+        });
+        micTestTimer.start();
+    }
+
+    private void stopMicTest(String status) {
+        if (micTestTimer != null) {
+            micTestTimer.stop();
+            micTestTimer = null;
+        }
+        if (micTestSession != null) {
+            micTestSession.discard();
+            micTestSession = null;
+        }
+        testMicButton.setText("Test microphone");
+        setStatus(status);
+    }
+
+    /** Play a short beep through the selected output device so the user can confirm it is audible. */
+    private void testOutput() {
+        playback.setOutputDeviceName(selectedOutputDevice());
+        setStatus("Playing test beep…");
+        playback.play(generateBeep(), new com.aresstack.audio.domain.PcmAudioFormat(44100, 1, 16),
+                new Runnable() {
+                    public void run() {
+                        SwingUtilities.invokeLater(new Runnable() {
+                            public void run() {
+                                setStatus("Test beep finished.");
+                            }
+                        });
+                    }
+                });
+    }
+
+    /** A ~350 ms 880 Hz sine "bing" with a short fade-in and exponential decay, 44.1 kHz mono 16-bit. */
+    private static short[] generateBeep() {
+        int rate = 44100;
+        int length = rate * 350 / 1000;
+        double frequency = 880.0;
+        short[] samples = new short[length];
+        for (int i = 0; i < length; i++) {
+            double t = (double) i / rate;
+            double envelope = Math.min(1.0, i / (rate * 0.01)) * Math.exp(-3.5 * t); // fade-in + decay
+            double value = Math.sin(2.0 * Math.PI * frequency * t) * envelope * 0.6;
+            samples[i] = (short) Math.max(Short.MIN_VALUE, Math.min(Short.MAX_VALUE, value * Short.MAX_VALUE));
+        }
+        return samples;
     }
 
     private void selectTestFile() {
@@ -127,7 +320,7 @@ public final class AudioProcessingTestPanel extends JPanel {
         File file = chooser.getSelectedFile();
         lastDirectory = file.getParentFile();
         controller.setSource(new WavAudioTestSource(file, false));
-        sourceLabel.setText("Source: " + file.getName());
+        setSourceDisplay(file, "Source: " + file.getName());
     }
 
     private void saveProcessed() {
@@ -181,7 +374,7 @@ public final class AudioProcessingTestPanel extends JPanel {
             if (!tempDir.isDirectory() && !tempDir.mkdirs()) {
                 throw new java.io.IOException("Cannot create the temp recording directory.");
             }
-            session = recorder.start("", tempDir); // system default device
+            session = recorder.start(selectedMicDevice(), tempDir);
         } catch (Exception ex) {
             controller.noteRecording(false);
             JOptionPane.showMessageDialog(this, "Could not start recording:\n" + message(ex),
@@ -221,14 +414,16 @@ public final class AudioProcessingTestPanel extends JPanel {
             if (choice == 1) { // Play
                 try {
                     WavAudioTestSource temp = new WavAudioTestSource(raw.getFile(), true);
-                    rawPlayback.play(temp.readBuffer().getSamples(), temp.readBuffer().getFormat(), null);
+                    com.aresstack.audio.domain.AudioBuffer buffer = temp.readBuffer();
+                    playback.setOutputDeviceName(selectedOutputDevice());
+                    playback.play(buffer.getSamples(), buffer.getFormat(), null);
                 } catch (Exception ex) {
                     JOptionPane.showMessageDialog(this, "Could not play the recording:\n" + message(ex),
                             "Recording", JOptionPane.ERROR_MESSAGE);
                 }
                 continue;
             }
-            rawPlayback.stop();
+            playback.stop();
             if (choice == 0) { // Save and use
                 String name = JOptionPane.showInputDialog(this, "Name for this test recording:",
                         "dsp-test-recording");
@@ -238,7 +433,7 @@ public final class AudioProcessingTestPanel extends JPanel {
                 try {
                     File saved = recordingStore.saveConfirmed(raw.getFile(), name);
                     controller.setSource(new WavAudioTestSource(saved, true));
-                    sourceLabel.setText("Source: " + saved.getName() + " (recording)");
+                    setSourceDisplay(saved, "Source: " + saved.getName() + " (recording)");
                     setStatus("Saved test recording to " + saved.getAbsolutePath());
                 } catch (Exception ex) {
                     JOptionPane.showMessageDialog(this, "Could not save the recording:\n" + message(ex),
@@ -301,6 +496,55 @@ public final class AudioProcessingTestPanel extends JPanel {
         statusLabel.setText(text == null || text.isEmpty() ? " " : text);
     }
 
+    /** Remember the selected source file and render its label; a real file becomes a hover link. */
+    private void setSourceDisplay(File file, String text) {
+        this.currentSourceFile = file;
+        this.currentSourceText = text;
+        renderSource(false);
+    }
+
+    /** Plain text when idle; on hover a real source file shows as an underlined link with a hand cursor. */
+    private void renderSource(boolean hovered) {
+        boolean isLink = currentSourceFile != null;
+        if (isLink && hovered) {
+            sourceLabel.setText("<html><a href=''>" + escapeHtml(currentSourceText) + "</a></html>");
+            sourceLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            sourceLabel.setToolTipText("Open the file location: " + currentSourceFile.getAbsolutePath());
+        } else {
+            sourceLabel.setText(currentSourceText);
+            sourceLabel.setCursor(Cursor.getDefaultCursor());
+            sourceLabel.setToolTipText(isLink
+                    ? "Open the file location: " + currentSourceFile.getAbsolutePath() : null);
+        }
+    }
+
+    /** Open the source file's folder in the OS file manager, selecting the file on Windows. */
+    private void openSourceLocation() {
+        File file = currentSourceFile;
+        if (file == null) {
+            return;
+        }
+        try {
+            String os = System.getProperty("os.name", "").toLowerCase();
+            if (os.contains("win") && file.exists()) {
+                new ProcessBuilder("explorer.exe", "/select,", file.getAbsolutePath()).start();
+                return;
+            }
+            File dir = file.isDirectory() ? file : file.getParentFile();
+            if (dir != null && dir.exists() && Desktop.isDesktopSupported()) {
+                Desktop.getDesktop().open(dir);
+            } else {
+                setStatus("File location is not available: " + file.getAbsolutePath());
+            }
+        } catch (Exception ex) {
+            setStatus("Could not open the file location: " + message(ex));
+        }
+    }
+
+    private static String escapeHtml(String text) {
+        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+    }
+
     private static String describe(AudioProcessingTestController.State state) {
         switch (state) {
             case NO_SOURCE:
@@ -334,8 +578,9 @@ public final class AudioProcessingTestPanel extends JPanel {
 
     /** Stops playback and shuts down the background executor (call when the editor/app closes). */
     public void dispose() {
+        stopMicTest(" ");
         controller.stop();
-        rawPlayback.stop();
+        playback.stop();
         executor.shutdownNow();
     }
 
