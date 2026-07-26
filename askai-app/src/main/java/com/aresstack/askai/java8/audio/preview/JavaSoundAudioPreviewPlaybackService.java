@@ -2,224 +2,232 @@ package com.aresstack.askai.java8.audio.preview;
 
 import com.aresstack.audio.domain.PcmAudioFormat;
 
-import javax.sound.sampled.AudioFormat;
-import javax.sound.sampled.AudioInputStream;
-import javax.sound.sampled.AudioSystem;
-import javax.sound.sampled.DataLine;
-import javax.sound.sampled.Mixer;
-import javax.sound.sampled.SourceDataLine;
-import java.io.ByteArrayInputStream;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.function.Consumer;
 
 /**
- * Java Sound playback of 16-bit PCM preview audio on a daemon background thread, so the Swing EDT is never
- * blocked. A new {@link #play} stops any running playback first; {@link #stop()} suppresses the completion
- * callback.
- *
- * <p>Windows output lines are notoriously inconsistent: {@code isLineSupported} may claim a format works
- * while {@code open} then rejects it, and many endpoints refuse mono or non-44.1-kHz formats. So instead of
- * trusting the capability check, this service actually <em>tries to open</em> each (device, format)
- * combination — the requested format first, then stereo/44.1-kHz conversions — across the selected device
- * and, as a fallback, every playback device, and plays through the first that truly opens. Failures are
- * reported through an optional error handler instead of being swallowed.</p>
+ * Coordinate asynchronous Java Sound playback on exactly one explicitly selected output target.
  */
 public final class JavaSoundAudioPreviewPlaybackService implements AudioPreviewPlaybackService {
 
+    private final AudioPlaybackFormatPlanner formatPlanner;
+    private final List<JavaSoundPlaybackStrategy> strategies;
+
     private Thread thread;
-    private SourceDataLine line;
-    private volatile boolean stopped;
-    private volatile String outputDeviceName = "";
+    private JavaSoundPlaybackSession activeSession;
+    private long generation;
+    private volatile AudioOutputDevice outputDevice = AudioOutputDevice.systemDefault();
+    private volatile String unavailableOutputDeviceName;
     private volatile Consumer<String> errorHandler;
     private volatile Consumer<String> infoHandler;
 
-    public void setOutputDeviceName(String deviceName) {
-        this.outputDeviceName = deviceName == null ? "" : deviceName;
+    public JavaSoundAudioPreviewPlaybackService() {
+        this(new AudioPlaybackFormatPlanner(), Arrays.<JavaSoundPlaybackStrategy>asList(
+                new ClipPlaybackStrategy(),
+                SourceDataLinePlaybackStrategy.withBufferMillis(100),
+                SourceDataLinePlaybackStrategy.withBufferMillis(250),
+                SourceDataLinePlaybackStrategy.withBufferMillis(500),
+                SourceDataLinePlaybackStrategy.withDefaultBuffer()));
     }
 
-    /** Report playback errors (e.g. to the status line) instead of swallowing them; may be null. */
+    JavaSoundAudioPreviewPlaybackService(AudioPlaybackFormatPlanner formatPlanner,
+                                         List<JavaSoundPlaybackStrategy> strategies) {
+        if (formatPlanner == null) {
+            throw new IllegalArgumentException("Format planner must not be null.");
+        }
+        if (strategies == null || strategies.isEmpty()) {
+            throw new IllegalArgumentException("At least one playback strategy is required.");
+        }
+        this.formatPlanner = formatPlanner;
+        this.strategies = Collections.unmodifiableList(
+                new ArrayList<JavaSoundPlaybackStrategy>(strategies));
+    }
+
+    public void setOutputDevice(AudioOutputDevice device) {
+        this.outputDevice = device == null ? AudioOutputDevice.systemDefault() : device;
+        this.unavailableOutputDeviceName = null;
+    }
+
+    /** Keep the existing settings-panel contract while resolving one exact mixer without fallback. */
+    public void setOutputDeviceName(String deviceName) {
+        String requestedName = deviceName == null ? "" : deviceName.trim();
+        if (requestedName.length() == 0) {
+            setOutputDevice(AudioOutputDevice.systemDefault());
+            return;
+        }
+        for (AudioOutputDevice device : new AudioOutputDeviceCatalog().findAll()) {
+            if (!device.isSystemDefault()
+                    && (requestedName.equals(device.getDisplayName())
+                    || requestedName.equals(device.getMixerInfo().getName()))) {
+                setOutputDevice(device);
+                return;
+            }
+        }
+        this.unavailableOutputDeviceName = requestedName;
+    }
+
+    /** Report playback errors to the UI; accept null to disable reporting. */
     public void setErrorHandler(Consumer<String> handler) {
         this.errorHandler = handler;
     }
 
-    /** Report which device/format actually got opened (for diagnosing inaudible output); may be null. */
+    /** Report the exact device, backend, and format that completed playback. */
     public void setInfoHandler(Consumer<String> handler) {
         this.infoHandler = handler;
     }
 
     public synchronized void play(short[] samples, PcmAudioFormat format, final Runnable onFinished) {
-        stop();
-        stopped = false;
-        final AudioFormat sourceFormat = new AudioFormat(
-                format.getSampleRateHz(), 16, format.getChannels(), true, false); // signed, little-endian
-        final byte[] bytes = toLittleEndianBytes(samples);
-        thread = new Thread(new Runnable() {
+        validate(samples, format);
+        stopCurrentPlayback();
+        final long playbackGeneration = ++generation;
+        final AudioOutputDevice selectedDevice = outputDevice;
+        final String unavailableDevice = unavailableOutputDeviceName;
+        final short[] selectedSamples = samples;
+        final PcmAudioFormat selectedFormat = format;
+        Thread playbackThread = new Thread(new Runnable() {
             public void run() {
-                playBytes(sourceFormat, bytes, onFinished);
+                if (unavailableDevice != null) {
+                    reportError("Selected output \"" + unavailableDevice
+                            + "\" is no longer available. No other device was used.");
+                    clearThread(playbackGeneration);
+                    return;
+                }
+                playPreparedAudio(playbackGeneration, selectedDevice, selectedSamples,
+                        selectedFormat, onFinished);
             }
         }, "askai-audio-preview-playback");
-        thread.setDaemon(true);
-        thread.start();
+        playbackThread.setDaemon(true);
+        thread = playbackThread;
+        playbackThread.start();
     }
 
-    private void playBytes(AudioFormat sourceFormat, byte[] bytes, Runnable onFinished) {
-        Opened opened = openAnywhere(sourceFormat, bytes);
-        if (opened == null) {
-            reportError("No output device could play this audio (tried "
-                    + describe(sourceFormat) + " and stereo/44.1 kHz conversions).");
-            return;
-        }
-        SourceDataLine local = opened.line;
-        boolean failed = false;
+    private void playPreparedAudio(final long playbackGeneration, AudioOutputDevice selectedDevice,
+                                   short[] samples, PcmAudioFormat format, Runnable onFinished) {
+        List<String> failures = new ArrayList<String>();
+        PlaybackSuccess success = null;
         try {
-            synchronized (this) {
-                line = local;
-            }
-            reportInfo(opened);
-            local.start();
-            byte[] buffer = new byte[4096];
-            int read;
-            while (!stopped && (read = opened.stream.read(buffer)) > 0) {
-                local.write(buffer, 0, read);
-            }
-            if (!stopped) {
-                local.drain();
-            }
-        } catch (Exception ex) {
-            failed = true;
-            reportError(ex.getMessage() == null ? ex.toString() : ex.getMessage());
-        } finally {
-            closeQuietly(opened.stream);
-            closeQuietly(local);
-            synchronized (this) {
-                if (line == local) {
-                    line = null;
+            AudioPlaybackPlan plan = formatPlanner.createPlan(samples, format);
+            failures.addAll(plan.getFailures());
+            PlaybackCancellation cancellation = new PlaybackCancellation() {
+                public boolean isCancelled() {
+                    return !isCurrent(playbackGeneration);
                 }
+            };
+            success = tryStrategies(playbackGeneration, selectedDevice, plan, cancellation, failures);
+            if (!isCurrent(playbackGeneration)) {
+                return;
             }
-            if (!stopped && !failed && onFinished != null) {
-                onFinished.run(); // completion callback only on a clean finish, never masking an error
+            if (success == null) {
+                reportError(AudioPlaybackMessages.buildFailure(selectedDevice, format, failures));
+                return;
             }
+            if (onFinished != null) {
+                onFinished.run();
+            }
+            reportInfo(success);
+        } catch (Exception ex) {
+            if (isCurrent(playbackGeneration)) {
+                reportError(AudioPlaybackMessages.compact(ex));
+            }
+        } finally {
+            clearThread(playbackGeneration);
         }
     }
 
-    /** An opened, ready-to-start line together with the stream to read and a label of what got opened. */
-    private static final class Opened {
-        final SourceDataLine line;
-        final AudioInputStream stream;
-        final String deviceName;
-        final AudioFormat format;
-        final boolean converted;
-
-        Opened(SourceDataLine line, AudioInputStream stream, String deviceName, AudioFormat format,
-               boolean converted) {
-            this.line = line;
-            this.stream = stream;
-            this.deviceName = deviceName;
-            this.format = format;
-            this.converted = converted;
-        }
-    }
-
-    /** Try the selected device first, then every playback device; the requested format first, then conversions. */
-    private Opened openAnywhere(AudioFormat source, byte[] bytes) {
-        for (Mixer mixer : candidateMixers()) {
-            for (AudioFormat target : candidateFormats(source)) {
-                Opened opened = tryOpen(mixer, source, target, bytes);
-                if (opened != null) {
-                    return opened;
+    private PlaybackSuccess tryStrategies(long playbackGeneration, AudioOutputDevice selectedDevice,
+                                          AudioPlaybackPlan plan, PlaybackCancellation cancellation,
+                                          List<String> failures) {
+        for (PreparedAudio candidate : plan.getCandidates()) {
+            for (JavaSoundPlaybackStrategy strategy : strategies) {
+                if (!isCurrent(playbackGeneration)) {
+                    return null;
+                }
+                JavaSoundPlaybackSession session = null;
+                try {
+                    session = strategy.open(selectedDevice, candidate);
+                    if (!activateSession(playbackGeneration, session)) {
+                        return null;
+                    }
+                    PlaybackMetrics metrics = session.play(cancellation);
+                    if (!isCurrent(playbackGeneration)) {
+                        return null;
+                    }
+                    return new PlaybackSuccess(selectedDevice, strategy.getName(), candidate, metrics);
+                } catch (Exception ex) {
+                    failures.add(AudioPlaybackMessages.describeAttempt(
+                            strategy, candidate.getFormat(), ex));
+                } finally {
+                    deactivateAndClose(playbackGeneration, session);
                 }
             }
         }
         return null;
     }
 
-    /** Actually acquire and open a line for {@code target}, converting from {@code source} if needed. */
-    private Opened tryOpen(Mixer mixer, AudioFormat source, AudioFormat target, byte[] bytes) {
-        SourceDataLine acquired = null;
-        AudioInputStream stream = null;
-        try {
-            AudioInputStream sourceStream = new AudioInputStream(
-                    new ByteArrayInputStream(bytes), source, bytes.length / source.getFrameSize());
-            boolean converted = !target.matches(source);
-            if (converted) {
-                if (!AudioSystem.isConversionSupported(target, source)) {
-                    sourceStream.close();
-                    return null;
-                }
-                stream = AudioSystem.getAudioInputStream(target, sourceStream);
-            } else {
-                stream = sourceStream;
-            }
-            DataLine.Info info = new DataLine.Info(SourceDataLine.class, target);
-            acquired = (SourceDataLine) (mixer == null ? AudioSystem.getLine(info) : mixer.getLine(info));
-            acquired.open(target); // the real test — may throw even when isLineSupported claimed support
-            String device = mixer == null ? "system default" : mixer.getMixerInfo().getName();
-            return new Opened(acquired, stream, device, target, converted);
-        } catch (Exception ex) {
-            closeQuietly(acquired);
-            closeQuietly(stream);
-            return null;
+    private synchronized boolean activateSession(long playbackGeneration,
+                                                 JavaSoundPlaybackSession session) {
+        if (playbackGeneration != generation || Thread.currentThread().isInterrupted()) {
+            closeQuietly(session);
+            return false;
+        }
+        activeSession = session;
+        return true;
+    }
+
+    private synchronized void deactivateAndClose(long playbackGeneration,
+                                                  JavaSoundPlaybackSession session) {
+        if (playbackGeneration == generation && activeSession == session) {
+            activeSession = null;
+        }
+        closeQuietly(session);
+    }
+
+    private synchronized boolean isCurrent(long playbackGeneration) {
+        return playbackGeneration == generation && !Thread.currentThread().isInterrupted();
+    }
+
+    private synchronized void clearThread(long playbackGeneration) {
+        if (playbackGeneration == generation && Thread.currentThread() == thread) {
+            thread = null;
+            activeSession = null;
         }
     }
 
-    /** The selected device (if any) first, then the system default and every playback-capable device. */
-    private List<Mixer> candidateMixers() {
-        List<Mixer> mixers = new ArrayList<Mixer>();
-        String wanted = outputDeviceName == null ? "" : outputDeviceName.trim();
-        Mixer[] playback = playbackMixers();
-        if (wanted.length() > 0) {
-            for (int i = 0; i < playback.length; i++) {
-                Mixer.Info info = playback[i].getMixerInfo();
-                if (info.getName().equals(wanted) || info.getName().toLowerCase().contains(wanted.toLowerCase())) {
-                    mixers.add(playback[i]);
-                }
-            }
-        }
-        mixers.add(null); // system default line
-        for (int i = 0; i < playback.length; i++) {
-            mixers.add(playback[i]);
-        }
-        return mixers;
+    public synchronized void stop() {
+        ++generation;
+        stopCurrentPlayback();
     }
 
-    private static Mixer[] playbackMixers() {
-        List<Mixer> list = new ArrayList<Mixer>();
-        Mixer.Info[] infos = AudioSystem.getMixerInfo();
-        DataLine.Info sourceLine = new DataLine.Info(SourceDataLine.class, null);
-        for (int i = 0; i < infos.length; i++) {
-            Mixer mixer = AudioSystem.getMixer(infos[i]);
-            if (mixer.isLineSupported(sourceLine)) {
-                list.add(mixer);
-            }
+    private void stopCurrentPlayback() {
+        JavaSoundPlaybackSession session = activeSession;
+        activeSession = null;
+        if (session != null) {
+            stopQuietly(session);
         }
-        return list.toArray(new Mixer[0]);
+        Thread current = thread;
+        thread = null;
+        if (current != null && current != Thread.currentThread()) {
+            current.interrupt();
+        }
     }
 
-    /** The requested format first, then widely-supported stereo / 44.1-kHz conversions. */
-    private static List<AudioFormat> candidateFormats(AudioFormat source) {
-        float rate = source.getSampleRate();
-        List<AudioFormat> formats = new ArrayList<AudioFormat>();
-        formats.add(source);
-        formats.add(new AudioFormat(rate, 16, 2, true, false));    // same rate, stereo (mono often refused)
-        formats.add(new AudioFormat(44100f, 16, 2, true, false));  // CD stereo — the safest bet
-        formats.add(new AudioFormat(48000f, 16, 2, true, false));
-        formats.add(new AudioFormat(44100f, 16, 1, true, false));
-        return formats;
+    public synchronized boolean isPlaying() {
+        return thread != null && thread.isAlive();
     }
 
-    private void reportInfo(Opened opened) {
+    private void reportInfo(PlaybackSuccess success) {
         Consumer<String> handler = infoHandler;
         if (handler == null) {
             return;
         }
-        String wanted = outputDeviceName == null ? "" : outputDeviceName.trim();
-        String fellBack = "";
-        if (wanted.length() > 0 && !wanted.equalsIgnoreCase(opened.deviceName)) {
-            fellBack = " — \"" + wanted + "\" could not be opened (driver), using this device instead";
-        }
-        handler.accept("Output: " + opened.deviceName + " @ " + describe(opened.format)
-                + (opened.converted ? " (converted)" : "") + fellBack);
+        handler.accept("Played on " + success.device.getDisplayName() + " via " + success.backend
+                + " @ " + AudioPlaybackMessages.describe(success.audio.getFormat())
+                + (success.audio.isConverted() ? " (converted)" : "")
+                + "; accepted " + succsess.metrics.getByteCount() + " bytes, position "
+                + success.metrics.getFramePosition() + " frames.");
     }
 
     private void reportError(String message) {
@@ -229,56 +237,46 @@ public final class JavaSoundAudioPreviewPlaybackService implements AudioPreviewP
         }
     }
 
-    private static String describe(AudioFormat format) {
-        return (int) format.getSampleRate() + " Hz, " + format.getChannels() + " ch";
-    }
-
-    public synchronized void stop() {
-        stopped = true;
-        if (line != null) {
-            closeQuietly(line);
-            line = null;
+    private static void validate(short[] samples, PcmAudioFormat format) {
+        if (samples == null) {
+            throw new IllegalArgumentException("Samples must not be null.");
         }
-        if (thread != null) {
-            thread.interrupt();
-            thread = null;
+        if (format == null) {
+            throw new IllegalArgumentException("Format must not be null.");
         }
     }
 
-    public synchronized boolean isPlaying() {
-        return thread != null && thread.isAlive();
+    private static void stopQuietly(JavaSoundPlaybackSession session) {
+        try {
+            session.stop();
+        } catch (Exception ignored) {
+            // Ignore cleanup failures.
+        }
     }
 
-    private static void closeQuietly(SourceDataLine line) {
-        if (line == null) {
+    private static void closeQuietly(JavaSoundPlaybackSession session) {
+        if (session == null) {
             return;
         }
         try {
-            line.stop();
-            line.flush();
-            line.close();
+            session.close();
         } catch (Exception ignored) {
-            // ignore
+            // Ignore cleanup failures.
         }
     }
 
-    private static void closeQuietly(AudioInputStream stream) {
-        if (stream == null) {
-            return;
-        }
-        try {
-            stream.close();
-        } catch (Exception ignored) {
-            // ignore
-        }
-    }
+    private static final class PlaybackSuccess {
+        private final AudioOutputDevice device;
+        private final String backend;
+        private final PreparedAudio audio;
+        private final PlaybackMetrics metrics;
 
-    private static byte[] toLittleEndianBytes(short[] samples) {
-        byte[] bytes = new byte[samples.length * 2];
-        for (int i = 0; i < samples.length; i++) {
-            bytes[i * 2] = (byte) (samples[i] & 0xFF);
-            bytes[i * 2 + 1] = (byte) ((samples[i] >> 8) & 0xFF);
+        private PlaybackSuccess(AudioOutputDevice device, String backend,
+                                PreparedAudio audio, PlaybackMetrics metrics) {
+            this.device = device;
+            this.backend = backend;
+            this.audio = audio;
+            this.metrics = metrics;
         }
-        return bytes;
     }
 }

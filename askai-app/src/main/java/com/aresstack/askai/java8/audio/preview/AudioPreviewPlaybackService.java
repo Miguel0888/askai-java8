@@ -3,21 +3,20 @@ package com.aresstack.askai.java8.audio.preview;
 import com.aresstack.audio.domain.PcmAudioFormat;
 
 /**
- * Plays raw or processed preview audio off the Swing EDT. Abstracted so the controller can be tested with a
- * fake and the real Java Sound implementation stays in the app/infrastructure layer.
+ * Play raw or processed preview audio away from the Swing event-dispatch thread.
  */
 public interface AudioPreviewPlaybackService {
 
     /**
-     * Start playing the given 16-bit PCM samples; a running playback is stopped first. {@code onFinished}
-     * runs when playback completes normally (not when explicitly stopped).
+     * Start the supplied 16-bit PCM samples and stop any previous playback first.
+     * Run {@code onFinished} only after normal completion.
      */
     void play(short[] samples, PcmAudioFormat format, Runnable onFinished);
+
+    /** Select one output device by its exact Java Sound mixer name; use empty text for the system default. */
+    void setOutputDeviceName(String deviceName);
 
     void stop();
 
     boolean isPlaying();
-
-    /** Select the output device by name; empty/null uses the system default line. */
-    void setOutputDeviceName(String deviceName);
 }
