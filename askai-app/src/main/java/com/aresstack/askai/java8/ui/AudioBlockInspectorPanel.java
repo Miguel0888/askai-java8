@@ -52,6 +52,7 @@ public final class AudioBlockInspectorPanel extends JPanel {
     private final JCheckBox enabledCheck = new JCheckBox("Enabled");
     private final JPanel parametersPanel = new JPanel();
     private final Map<String, JComponent> parameterEditors = new LinkedHashMap<String, JComponent>();
+    private final Map<String, String> parameterHelpTexts = new HashMap<String, String>();
     private final JButton applyButton = new JButton("Apply block");
     private final Map<String, Border> defaultBorders = new HashMap<String, Border>();
 
@@ -71,6 +72,8 @@ public final class AudioBlockInspectorPanel extends JPanel {
         parametersPanel.setLayout(new BoxLayout(parametersPanel, BoxLayout.Y_AXIS));
         parametersPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
         applyButton.setAlignmentX(Component.LEFT_ALIGNMENT);
+        enabledCheck.setToolTipText("Enable this block. Disable it to keep the block in the profile while bypassing its processing.");
+        applyButton.setToolTipText("Apply the edited block settings to the current pipeline.");
 
         add(functionCombo);
         add(Box.createVerticalStrut(4));
@@ -114,6 +117,7 @@ public final class AudioBlockInspectorPanel extends JPanel {
             }
             setControlsEnabled(true);
             functionCombo.setSelectedItem(block.getType());
+            functionCombo.setToolTipText(AudioTooltipText.blockType(block.getType()));
             enabledCheck.setSelected(block.isEnabled());
             rebuildParameterEditors(block);
         } finally {
@@ -129,7 +133,7 @@ public final class AudioBlockInspectorPanel extends JPanel {
         functionCombo.setFont(base.deriveFont(Font.BOLD, base.getSize2D() + 1f));
         functionCombo.setAlignmentX(Component.LEFT_ALIGNMENT);
         functionCombo.setMaximumSize(new Dimension(Integer.MAX_VALUE, functionCombo.getPreferredSize().height));
-        functionCombo.setToolTipText("Change this block's function");
+        functionCombo.setToolTipText("Change this block's function.");
     }
 
     private void functionChanged() {
@@ -140,6 +144,7 @@ public final class AudioBlockInspectorPanel extends JPanel {
         if (type != null && type != block.getType()) {
             // Keep the stable block id, take the new type's default parameters (from its descriptor).
             block = registry.defaultDefinition(type, block.getId()).withEnabled(enabledCheck.isSelected());
+            functionCombo.setToolTipText(AudioTooltipText.blockType(type));
             rebuildParameterEditors(block);
         }
     }
@@ -162,6 +167,7 @@ public final class AudioBlockInspectorPanel extends JPanel {
     private void rebuildParameterEditors(AudioBlockDefinition selected) {
         parametersPanel.removeAll();
         parameterEditors.clear();
+        parameterHelpTexts.clear();
         defaultBorders.clear();
         List<AudioParameterDescriptor> parameters = registry.descriptor(selected.getType()).getParameters();
         if (parameters.isEmpty()) {
@@ -183,10 +189,10 @@ public final class AudioBlockInspectorPanel extends JPanel {
             String message = invalidParameters.get(entry.getKey());
             if (message != null) {
                 editor.setBorder(BorderFactory.createLineBorder(errorColor(), 2));
-                editor.setToolTipText(message);
+                editor.setToolTipText(AudioTooltipText.validation(message, parameterHelpTexts.get(entry.getKey())));
             } else {
                 editor.setBorder(defaultBorders.get(entry.getKey()));
-                editor.setToolTipText(null);
+                editor.setToolTipText(parameterHelpTexts.get(entry.getKey()));
             }
         }
         parametersPanel.repaint();
@@ -227,7 +233,8 @@ public final class AudioBlockInspectorPanel extends JPanel {
                 editor = buildChoice(parameter, selected);
                 break;
         }
-        addField(parameter.getKey(), parameter.getLabel(), editor);
+        addField(parameter.getKey(), parameter.getLabel(), editor,
+                AudioTooltipText.parameter(selected.getType(), parameter));
     }
 
     private JComboBox<AudioParameterChoice> buildChoice(AudioParameterDescriptor parameter,
@@ -259,8 +266,9 @@ public final class AudioBlockInspectorPanel extends JPanel {
     }
 
     /** Add one parameter as a small vertical group (caption over full-width editor). */
-    private void addField(String key, String label, JComponent editor) {
+    private void addField(String key, String label, JComponent editor, String helpText) {
         parameterEditors.put(key, editor);
+        parameterHelpTexts.put(key, helpText);
         defaultBorders.put(key, editor.getBorder());
 
         JPanel group = new JPanel();
@@ -271,7 +279,10 @@ public final class AudioBlockInspectorPanel extends JPanel {
 
         JLabel caption = new JLabel(label);
         caption.setAlignmentX(Component.LEFT_ALIGNMENT);
+        caption.setToolTipText(helpText);
         editor.setAlignmentX(Component.LEFT_ALIGNMENT);
+        editor.setToolTipText(helpText);
+        group.setToolTipText(helpText);
         int editorHeight = editor.getPreferredSize().height;
         editor.setPreferredSize(new Dimension(CONTENT_WIDTH, editorHeight));
         editor.setMaximumSize(new Dimension(CONTENT_WIDTH, editorHeight));
@@ -285,6 +296,8 @@ public final class AudioBlockInspectorPanel extends JPanel {
     private void showEmptyState() {
         parametersPanel.removeAll();
         parameterEditors.clear();
+        parameterHelpTexts.clear();
+        functionCombo.setToolTipText("Select a block in the pipeline.");
         addDescription("Select a block in the pipeline.");
         setControlsEnabled(false);
         parametersPanel.revalidate();
