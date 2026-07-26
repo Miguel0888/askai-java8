@@ -1,6 +1,8 @@
 package com.aresstack.askai.java8.ui;
 
 import com.aresstack.askai.java8.audio.FileAudioProfileRepository;
+import com.aresstack.askai.java8.state.ApplicationStateService;
+import com.aresstack.audio.pipeline.AudioProcessingProfiles;
 
 import org.junit.Rule;
 import org.junit.Test;
@@ -8,6 +10,10 @@ import org.junit.rules.TemporaryFolder;
 
 import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
+import java.io.File;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 /**
  * The redesigned audio-processing page (wide pipeline on top, inspector card below) must build and render
@@ -32,5 +38,32 @@ public class AudioProcessingPanelRenderTest {
         } finally {
             graphics.dispose();
         }
+    }
+
+    @Test
+    public void restoresTheRememberedProfileFromApplicationState() throws Exception {
+        File stateFile = new File(folder.newFolder("state"), "application-state.json");
+        ApplicationStateService state = new ApplicationStateService(stateFile);
+        state.putAndSave("audio.selectedProfileId", AudioProcessingProfiles.CRYSTAL_VOICE_PROFILE_ID);
+
+        AudioProcessingPanel panel = new AudioProcessingPanel(
+                new FileAudioProfileRepository(folder.newFolder("p")), state);
+
+        assertEquals(AudioProcessingProfiles.CRYSTAL_VOICE_PROFILE_ID, panel.selectedProfileId());
+    }
+
+    @Test
+    public void unknownRememberedProfileFallsBackToABuiltInAndIsRewritten() throws Exception {
+        File stateFile = new File(folder.newFolder("state"), "application-state.json");
+        ApplicationStateService state = new ApplicationStateService(stateFile);
+        state.putAndSave("audio.selectedProfileId", "no-such-profile");
+
+        AudioProcessingPanel panel = new AudioProcessingPanel(
+                new FileAudioProfileRepository(folder.newFolder("p")), state);
+
+        // Falls back to an existing profile and persists that choice, so it never stays dangling.
+        String fallback = panel.selectedProfileId();
+        assertTrue("fallback must be a real built-in id", AudioProcessingProfiles.isBuiltInId(fallback));
+        assertEquals(fallback, new ApplicationStateService(stateFile).get("audio.selectedProfileId", ""));
     }
 }

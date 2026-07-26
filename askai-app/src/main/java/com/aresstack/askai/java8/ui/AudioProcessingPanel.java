@@ -8,6 +8,8 @@ import com.aresstack.askai.java8.audio.transfer.AudioProfileImportService;
 import com.aresstack.askai.java8.audio.transfer.AudioProfileTransferException;
 import com.aresstack.askai.java8.audio.transfer.PlannedProfileImport;
 import com.aresstack.askai.java8.audio.transfer.RejectedProfileImport;
+import com.aresstack.askai.java8.state.ApplicationStateService;
+import com.aresstack.audio.pipeline.AudioProcessingProfiles;
 import com.aresstack.audio.pipeline.AudioProfileValidationIssue;
 import com.aresstack.audio.pipeline.AudioProfileValidationResult;
 import com.aresstack.audio.pipeline.AudioProfileValidator;
@@ -46,7 +48,11 @@ import java.util.UUID;
 /** Configure reusable audio profiles with a Java2D pipeline canvas and a type-specific inspector. */
 public final class AudioProcessingPanel extends JPanel {
 
+    /** Application-state key under which the last selected audio profile id is remembered. */
+    private static final String SELECTED_PROFILE_KEY = "audio.selectedProfileId";
+
     private final AudioProfileRepository repository;
+    private final ApplicationStateService applicationState;
     private final JComboBox<AudioProcessingProfile> profileCombo = new JComboBox<AudioProcessingProfile>();
     private final JButton saveButton = new JButton("Save");
     private final JButton saveAsButton = new JButton("Save as…");
@@ -82,19 +88,35 @@ public final class AudioProcessingPanel extends JPanel {
     private File lastTransferDirectory;
 
     public AudioProcessingPanel(AudioProfileRepository repository) {
+        this(repository, null);
+    }
+
+    public AudioProcessingPanel(AudioProfileRepository repository, ApplicationStateService applicationState) {
         if (repository == null) {
             throw new IllegalArgumentException("Repository must not be null.");
         }
         this.repository = repository;
+        this.applicationState = applicationState;
         this.importService = new AudioProfileImportService(repository);
         buildUserInterface();
         wireActions();
-        reloadProfiles(null);
+        reloadProfiles(rememberedProfileId());
+    }
+
+    private String rememberedProfileId() {
+        return applicationState == null
+                ? null
+                : applicationState.get(SELECTED_PROFILE_KEY, AudioProcessingProfiles.DEFAULT_PROFILE_ID);
     }
 
     public void refreshProfiles() {
         String selectedId = selectedProfile == null ? null : selectedProfile.getId();
         reloadProfiles(selectedId);
+    }
+
+    /** @return the id of the profile currently loaded into the editor (visible for tests). */
+    String selectedProfileId() {
+        return selectedProfile == null ? null : selectedProfile.getId();
     }
 
     private void buildUserInterface() {
@@ -240,6 +262,9 @@ public final class AudioProcessingPanel extends JPanel {
 
     private void loadWorkingCopy(AudioProcessingProfile profile) {
         selectedProfile = profile;
+        if (applicationState != null && profile.getId() != null) {
+            applicationState.putAndSave(SELECTED_PROFILE_KEY, profile.getId());
+        }
         workingBlocks = new ArrayList<AudioBlockDefinition>(profile.getBlocks());
         dirty = false;
         canvas.setBlocks(workingBlocks);

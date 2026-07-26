@@ -3,6 +3,7 @@ package com.aresstack.askai.java8.ui;
 import com.aresstack.askai.java8.AskAiModel;
 import com.aresstack.askai.java8.audio.AudioProfileRepository;
 import com.aresstack.askai.java8.audio.FileAudioProfileRepository;
+import com.aresstack.askai.java8.state.ApplicationStateService;
 import com.aresstack.askai.java8.config.AppConfigurationRepository;
 import com.aresstack.askai.java8.service.AskAiService;
 import com.aresstack.askai.java8.service.DefaultOllamaService;
@@ -53,6 +54,7 @@ public final class AskAiFrame extends JFrame {
     private final JPanel contentPanel;
     private final OllamaModelsPanel modelsPanel;
     private final AudioProfileRepository audioProfileRepository;
+    private final ApplicationStateService applicationState;
     private OllamaConfigPanel configPanel;
     private OllamaChatPanel chatPanel;
     private AudioProcessingPanel audioProcessingPanel;
@@ -75,6 +77,7 @@ public final class AskAiFrame extends JFrame {
         this.contentPanel = new JPanel(contentLayout);
         this.modelsPanel = new OllamaModelsPanel(model, ollamaService, askAiService, configurationRepository);
         this.audioProfileRepository = new FileAudioProfileRepository();
+        this.applicationState = new ApplicationStateService();
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
         addWindowListener(new WindowAdapter() {
             public void windowClosed(WindowEvent event) {
@@ -257,7 +260,7 @@ public final class AskAiFrame extends JFrame {
         contentPanel.add(new ProxyPanel(configurationRepository), NETWORK_VIEW);
         contentPanel.add(new OllamaAboutPanel(), ABOUT_VIEW);
         // Java2D pipeline editor for audio-processing profiles (shared repository instance).
-        this.audioProcessingPanel = new AudioProcessingPanel(audioProfileRepository);
+        this.audioProcessingPanel = new AudioProcessingPanel(audioProfileRepository, applicationState);
         contentPanel.add(audioProcessingPanel, AUDIO_PROCESSING_VIEW);
         return contentPanel;
     }
