@@ -59,11 +59,18 @@ public final class WpeDereverberation {
         int blockFrames = settings.getMode() == WpeDereverberationSettings.Mode.OFFLINE
                 ? frameCount : Math.min(frameCount, settings.getBlockSizeFrames());
 
+        boolean offline = settings.getMode() == WpeDereverberationSettings.Mode.OFFLINE;
+        double adapt = settings.getAdaptationSpeed();
+
         double[] xr = new double[frameCount];
         double[] xi = new double[frameCount];
         double[] dr = new double[frameCount];
         double[] di = new double[frameCount];
         double[] lambda = new double[frameCount];
+        double[] gRe = new double[taps];
+        double[] gIm = new double[taps];
+        double[] carryRe = new double[taps];
+        double[] carryIm = new double[taps];
 
         // Pre-compute per-frame speech flag once (bins share it).
         boolean[] speech = new boolean[frameCount];
@@ -77,9 +84,26 @@ public final class WpeDereverberation {
                 xr[t] = spec.realFrame(t)[k];
                 xi[t] = spec.imagFrame(t)[k];
             }
+            boolean haveCarry = false;
             for (int start = 0; start < frameCount; start += blockFrames) {
                 int end = Math.min(frameCount, start + blockFrames);
-                wpeSegment(xr, xi, start, end, delay, taps, iterations, lambda, dr, di);
+                if (estimateFilter(xr, xi, start, end, delay, taps, iterations, lambda, gRe, gIm)) {
+                    if (!offline && haveCarry) {
+                        for (int a = 0; a < taps; a++) {
+                            gRe[a] = (1.0d - adapt) * carryRe[a] + adapt * gRe[a];
+                            gIm[a] = (1.0d - adapt) * carryIm[a] + adapt * gIm[a];
+                        }
+                    }
+                    System.arraycopy(gRe, 0, carryRe, 0, taps);
+                    System.arraycopy(gIm, 0, carryIm, 0, taps);
+                    haveCarry = true;
+                    applyFilter(xr, xi, start, end, delay, taps, gRe, gIm, dr, di);
+                } else {
+                    for (int t = start; t < end; t++) {
+                        dr[t] = xr[t];
+                        di[t] = xi[t];
+                    }
+                }
             }
             // Blend, apply artifact floor and speech protection, write back (with conjugate mirror).
             for (int t = 0; t < frameCount; t++) {
@@ -106,18 +130,15 @@ public final class WpeDereverberation {
     }
 
     /**
-     * Run iterative WPE for one bin over the frame range {@code [from, to)}. Fills {@code dr/di[from..to)}
-     * with the dereverberated bin; {@code lambda} is scratch of length >= to.
+     * Estimate the WPE prediction filter for one bin over the frame range {@code [from, to)} by iterative
+     * reweighting. Fills {@code gRe/gIm} with the taps and returns true; returns false when the range is too
+     * short or the normal equations are singular. {@code lambda} is scratch of length >= to.
      */
-    private void wpeSegment(double[] xr, double[] xi, int from, int to, int delay, int taps, int iterations,
-                            double[] lambda, double[] dr, double[] di) {
+    private boolean estimateFilter(double[] xr, double[] xi, int from, int to, int delay, int taps,
+                                   int iterations, double[] lambda, double[] gRe, double[] gIm) {
         int n = to - from;
         if (n <= delay + taps) {
-            for (int t = from; t < to; t++) {
-                dr[t] = xr[t];
-                di[t] = xi[t];
-            }
-            return;
+            return false;
         }
         // Floor the power weights relative to the segment mean, so near-silent frames do not get an
         // astronomically large 1/lambda weight that makes the normal equations ill-conditioned.
@@ -129,16 +150,13 @@ public final class WpeDereverberation {
         double lambdaFloor = Math.max(EPS, 1.0e-4d * meanPower);
         for (int t = from; t < to; t++) {
             lambda[t] = Math.max(lambdaFloor, xr[t] * xr[t] + xi[t] * xi[t]);
-            dr[t] = xr[t];
-            di[t] = xi[t];
         }
         double[][] rRe = new double[taps][taps];
         double[][] rIm = new double[taps][taps];
         double[] pRe = new double[taps];
         double[] pIm = new double[taps];
-        double[] gRe = new double[taps];
-        double[] gIm = new double[taps];
         int first = from + delay + taps - 1; // first frame with a full history
+        boolean solved = false;
         for (int iter = 0; iter < iterations; iter++) {
             for (int a = 0; a < taps; a++) {
                 pRe[a] = 0.0d;
@@ -172,27 +190,48 @@ public final class WpeDereverberation {
                 rRe[a][a] += load;
             }
             if (!solveComplex(rRe, rIm, pRe, pIm, taps, gRe, gIm)) {
-                break; // singular: keep current estimate
+                break; // singular: keep the last good estimate (if any)
             }
-            for (int t = from; t < to; t++) {
-                if (t < first) {
-                    dr[t] = xr[t];
-                    di[t] = xi[t];
-                    continue;
-                }
+            solved = true;
+            // Update the power weights from the residual for the next iteration.
+            for (int t = first; t < to; t++) {
                 double prRe = 0.0d;
                 double prIm = 0.0d;
                 for (int a = 0; a < taps; a++) {
                     double uaRe = xr[t - delay - a];
                     double uaIm = xi[t - delay - a];
-                    // conj(g_a) * u_a
                     prRe += gRe[a] * uaRe + gIm[a] * uaIm;
                     prIm += gRe[a] * uaIm - gIm[a] * uaRe;
                 }
-                dr[t] = xr[t] - prRe;
-                di[t] = xi[t] - prIm;
-                lambda[t] = Math.max(lambdaFloor, dr[t] * dr[t] + di[t] * di[t]);
+                double residRe = xr[t] - prRe;
+                double residIm = xi[t] - prIm;
+                lambda[t] = Math.max(lambdaFloor, residRe * residRe + residIm * residIm);
             }
+        }
+        return solved;
+    }
+
+    /** Apply a WPE filter to one bin over {@code [from, to)}, writing the dereverberated bin to {@code dr/di}. */
+    private void applyFilter(double[] xr, double[] xi, int from, int to, int delay, int taps,
+                             double[] gRe, double[] gIm, double[] dr, double[] di) {
+        int first = from + delay + taps - 1;
+        for (int t = from; t < to; t++) {
+            if (t < first) {
+                dr[t] = xr[t];
+                di[t] = xi[t];
+                continue;
+            }
+            double prRe = 0.0d;
+            double prIm = 0.0d;
+            for (int a = 0; a < taps; a++) {
+                double uaRe = xr[t - delay - a];
+                double uaIm = xi[t - delay - a];
+                // conj(g_a) * u_a
+                prRe += gRe[a] * uaRe + gIm[a] * uaIm;
+                prIm += gRe[a] * uaIm - gIm[a] * uaRe;
+            }
+            dr[t] = xr[t] - prRe;
+            di[t] = xi[t] - prIm;
         }
     }
 

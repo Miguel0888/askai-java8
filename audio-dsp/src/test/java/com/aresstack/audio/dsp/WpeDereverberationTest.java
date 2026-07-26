@@ -57,6 +57,32 @@ public class WpeDereverberationTest {
         assertTrue("late tail reduced: before=" + before + " after=" + after, after < before * 0.85d);
     }
 
+    @Test
+    public void blockAdaptiveModeAlsoReducesTheTailAndDiffersFromOffline() {
+        short[] reverberant = reverberate(dryBursts(), 0.06d);
+        double before = tailToOnset(reverberant);
+
+        short[] blockAdaptive = reverberant.clone();
+        new WpeDereverberation(new WpeDereverberationSettings(
+                WpeDereverberationSettings.Mode.BLOCK_ADAPTIVE, 1.0d, 2, 10, 4, 0.0d, false, 0.05d, 0.3d, 48))
+                .process(blockAdaptive, blockAdaptive.length, MONO, SpeechGate.NEVER);
+        double after = tailToOnset(blockAdaptive);
+        assertTrue("block-adaptive reduces the tail: before=" + before + " after=" + after,
+                after < before * 0.9d);
+
+        short[] offline = reverberant.clone();
+        new WpeDereverberation(new WpeDereverberationSettings(
+                WpeDereverberationSettings.Mode.OFFLINE, 1.0d, 2, 10, 4, 0.0d, false, 0.05d, 0.3d, 48))
+                .process(offline, offline.length, MONO, SpeechGate.NEVER);
+        int diff = 0;
+        for (int i = 0; i < offline.length; i++) {
+            if (offline[i] != blockAdaptive[i]) {
+                diff++;
+            }
+        }
+        assertTrue("block-adaptive result differs from offline (diff=" + diff + ")", diff > 1000);
+    }
+
     private static short[] dryBursts() {
         short[] dry = new short[32000];
         int state = 97;

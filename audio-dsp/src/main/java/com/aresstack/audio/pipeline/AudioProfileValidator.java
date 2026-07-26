@@ -449,6 +449,11 @@ public final class AudioProfileValidator {
         rangeError(issues, block, enabled, name, "earlyReflectionPreservation",
                 "Early reflection preservation", 0.0d, 1.0d);
         rangeError(issues, block, enabled, name, "artifactProtection", "Artifact protection", 0.0d, 1.0d);
+        if ("BLOCK_ADAPTIVE".equals(block.getParameter("mode", "OFFLINE"))
+                || "STREAMING".equals(block.getParameter("mode", "OFFLINE"))) {
+            rangeError(issues, block, enabled, name, "adaptationSpeed", "Adaptation speed", 0.0d, 1.0d);
+            positiveError(issues, block, enabled, name, "blockSizeFrames", "Block size");
+        }
     }
 
     private void validateRoomReverbAnalyzer(List<AudioProfileValidationIssue> issues, AudioBlockDefinition block,
