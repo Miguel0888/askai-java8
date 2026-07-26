@@ -17,9 +17,14 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JSpinner;
 import javax.swing.SpinnerNumberModel;
+import javax.swing.UIManager;
+import javax.swing.border.Border;
+import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.Font;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -47,10 +52,12 @@ public final class AudioBlockInspectorPanel extends JPanel {
     private final JPanel parametersPanel = new JPanel();
     private final Map<String, JComponent> parameterEditors = new LinkedHashMap<String, JComponent>();
     private final JButton applyButton = new JButton("Apply block");
+    private final Map<String, Border> defaultBorders = new HashMap<String, Border>();
 
     private AudioBlockDefinition block;
     private Listener listener;
     private boolean updating;
+    private Map<String, String> invalidParameters = Collections.emptyMap();
 
     public AudioBlockInspectorPanel() {
         setOpaque(false);
@@ -79,6 +86,21 @@ public final class AudioBlockInspectorPanel extends JPanel {
 
     public void setListener(Listener listener) {
         this.listener = listener;
+    }
+
+    /** Mark the given parameter editors as invalid (red border + tooltip); pass an empty map to clear. */
+    public void setInvalidParameters(Map<String, String> invalid) {
+        this.invalidParameters = invalid == null ? Collections.<String, String>emptyMap()
+                : new HashMap<String, String>(invalid);
+        applyValidationMarks();
+    }
+
+    /** Move focus to the editor for {@code parameterKey}, if it is currently shown. */
+    public void focusParameter(String parameterKey) {
+        JComponent editor = parameterEditors.get(parameterKey);
+        if (editor != null) {
+            editor.requestFocusInWindow();
+        }
     }
 
     public void setBlock(AudioBlockDefinition block) {
@@ -139,6 +161,7 @@ public final class AudioBlockInspectorPanel extends JPanel {
     private void rebuildParameterEditors(AudioBlockDefinition selected) {
         parametersPanel.removeAll();
         parameterEditors.clear();
+        defaultBorders.clear();
         List<AudioParameterDescriptor> parameters = registry.descriptor(selected.getType()).getParameters();
         if (parameters.isEmpty()) {
             addDescription("This block adapts automatically and has no settings.");
@@ -147,8 +170,30 @@ public final class AudioBlockInspectorPanel extends JPanel {
                 addEditor(parameters.get(i), selected);
             }
         }
+        applyValidationMarks();
         parametersPanel.revalidate();
         parametersPanel.repaint();
+    }
+
+    /** Show a red border and tooltip on editors whose parameter is currently invalid; clear the rest. */
+    private void applyValidationMarks() {
+        for (Map.Entry<String, JComponent> entry : parameterEditors.entrySet()) {
+            JComponent editor = entry.getValue();
+            String message = invalidParameters.get(entry.getKey());
+            if (message != null) {
+                editor.setBorder(BorderFactory.createLineBorder(errorColor(), 2));
+                editor.setToolTipText(message);
+            } else {
+                editor.setBorder(defaultBorders.get(entry.getKey()));
+                editor.setToolTipText(null);
+            }
+        }
+        parametersPanel.repaint();
+    }
+
+    private static Color errorColor() {
+        Color color = UIManager.getColor("Actions.Red");
+        return color == null ? new Color(0xD3, 0x2F, 0x2F) : color;
     }
 
     /** Create the editor for one parameter from its descriptor and the block's current value. */
@@ -211,6 +256,7 @@ public final class AudioBlockInspectorPanel extends JPanel {
     /** Add one parameter as a small vertical group (caption over full-width editor). */
     private void addField(String key, String label, JComponent editor) {
         parameterEditors.put(key, editor);
+        defaultBorders.put(key, editor.getBorder());
 
         JPanel group = new JPanel();
         group.setOpaque(false);

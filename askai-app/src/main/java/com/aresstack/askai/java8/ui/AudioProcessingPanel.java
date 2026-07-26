@@ -8,26 +8,39 @@ import com.aresstack.askai.java8.audio.transfer.AudioProfileImportService;
 import com.aresstack.askai.java8.audio.transfer.AudioProfileTransferException;
 import com.aresstack.askai.java8.audio.transfer.PlannedProfileImport;
 import com.aresstack.askai.java8.audio.transfer.RejectedProfileImport;
+import com.aresstack.audio.pipeline.AudioProfileValidationIssue;
+import com.aresstack.audio.pipeline.AudioProfileValidationResult;
+import com.aresstack.audio.pipeline.AudioProfileValidator;
+import com.aresstack.audio.pipeline.AudioValidationSeverity;
 import com.aresstack.audio.profile.AudioBlockDefinition;
 import com.aresstack.audio.profile.AudioBlockType;
 import com.aresstack.audio.profile.AudioProcessingProfile;
 
 import javax.swing.BorderFactory;
+import javax.swing.DefaultListCellRenderer;
+import javax.swing.DefaultListModel;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
 import javax.swing.JFileChooser;
 import javax.swing.JLabel;
+import javax.swing.JList;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
+import javax.swing.ListSelectionModel;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.BorderLayout;
+import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /** Configure reusable audio profiles with a Java2D pipeline canvas and a type-specific inspector. */
@@ -46,6 +59,15 @@ public final class AudioProcessingPanel extends JPanel {
     private final JButton removeButton = new JButton("Remove block");
     private final AudioProfileExportService exportService = new AudioProfileExportService();
     private final AudioProfileImportService importService;
+    private final AudioProfileValidator validator = new AudioProfileValidator();
+    private final JLabel validationSummary = new JLabel(" ");
+    private final DefaultListModel<AudioProfileValidationIssue> issueModel =
+            new DefaultListModel<AudioProfileValidationIssue>();
+    private final JList<AudioProfileValidationIssue> issueList =
+            new JList<AudioProfileValidationIssue>(issueModel);
+    private AudioProfileValidationResult validation =
+            new AudioProfileValidationResult(Collections.<AudioProfileValidationIssue>emptyList());
+    private boolean updatingIssueSelection;
     private final JLabel statusLabel = new JLabel(" ");
     private final AudioPipelineCanvas canvas = new AudioPipelineCanvas();
     private final AudioBlockInspectorPanel inspector = new AudioBlockInspectorPanel();
@@ -78,7 +100,10 @@ public final class AudioProcessingPanel extends JPanel {
     private void buildUserInterface() {
         setLayout(new BorderLayout(8, 8));
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        add(buildToolbar(), BorderLayout.NORTH);
+        JPanel north = new JPanel(new BorderLayout(0, 6));
+        north.add(buildToolbar(), BorderLayout.NORTH);
+        north.add(buildValidationStrip(), BorderLayout.CENTER);
+        add(north, BorderLayout.NORTH);
         add(buildEditor(), BorderLayout.CENTER);
         // Test/preview area: process the CURRENT (possibly unsaved) pipeline snapshot on a test source.
         this.testPanel = new AudioProcessingTestPanel(new java.util.function.Supplier<AudioProcessingProfile>() {
@@ -122,6 +147,37 @@ public final class AudioProcessingPanel extends JPanel {
         return toolbar;
     }
 
+    private JPanel buildValidationStrip() {
+        JPanel strip = new JPanel(new BorderLayout(0, 2));
+        strip.setBorder(BorderFactory.createTitledBorder("Validation"));
+        validationSummary.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
+        strip.add(validationSummary, BorderLayout.NORTH);
+
+        issueList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        issueList.setVisibleRowCount(3);
+        issueList.setCellRenderer(new DefaultListCellRenderer() {
+            public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                                                          boolean selected, boolean focused) {
+                super.getListCellRendererComponent(list, value, index, selected, focused);
+                if (value instanceof AudioProfileValidationIssue) {
+                    AudioProfileValidationIssue issue = (AudioProfileValidationIssue) value;
+                    String tag = issue.getSeverity() == AudioValidationSeverity.ERROR ? "ERROR" : "warning";
+                    setText(tag + " · " + issue.getBlockType().getDisplayName() + ": " + issue.getMessage());
+                }
+                return this;
+            }
+        });
+        issueList.addListSelectionListener(event -> {
+            if (!event.getValueIsAdjusting()) {
+                onIssueSelected();
+            }
+        });
+        JScrollPane scroll = new JScrollPane(issueList);
+        scroll.setPreferredSize(new Dimension(100, 74));
+        strip.add(scroll, BorderLayout.CENTER);
+        return strip;
+    }
+
     private JPanel buildEditor() {
         JPanel editor = new JPanel(new BorderLayout(8, 8));
         // The settings card lives INSIDE the canvas, directly under the selected block, so the pipeline sits
@@ -151,6 +207,7 @@ public final class AudioProcessingPanel extends JPanel {
             public void selectionChanged(int selectedIndex) {
                 inspect(selectedIndex);
                 updateButtons();
+                refreshInspectorValidation();
             }
 
             public void orderChanged(List<AudioBlockDefinition> blocks, int selectedIndex) {
@@ -195,9 +252,13 @@ public final class AudioProcessingPanel extends JPanel {
         if (testPanel != null) {
             testPanel.pipelineChanged(); // a switched/loaded profile invalidates any existing preview
         }
+        validateNow();
     }
 
     private void saveCurrentProfile() {
+        if (blockedByErrors("save")) {
+            return;
+        }
         if (selectedProfile == null || selectedProfile.isBuiltIn()) {
             saveAsProfile();
             return;
@@ -216,6 +277,9 @@ public final class AudioProcessingPanel extends JPanel {
 
     private void saveAsProfile() {
         if (selectedProfile == null) {
+            return;
+        }
+        if (blockedByErrors("save")) {
             return;
         }
         String name = JOptionPane.showInputDialog(this, "Name for the new audio profile:",
@@ -267,6 +331,9 @@ public final class AudioProcessingPanel extends JPanel {
     private void exportSelectedProfile() {
         if (selectedProfile == null || selectedProfile.isBuiltIn()) {
             setStatus("The built-in default profile cannot be exported.");
+            return;
+        }
+        if (blockedByErrors("export")) {
             return;
         }
         File target = chooseJsonToSave(selectedProfile.getName());
@@ -532,6 +599,132 @@ public final class AudioProcessingPanel extends JPanel {
         if (testPanel != null) {
             testPanel.pipelineChanged(); // any block/param/order change invalidates the current preview
         }
+        validateNow();
+    }
+
+    // ------------------------------------------------------------------ validation
+
+    /** Validate the current (possibly unsaved) editor snapshot and reflect it in summary/list/canvas/inspector. */
+    private void validateNow() {
+        AudioProcessingProfile snapshot = currentPipelineSnapshot();
+        validation = snapshot == null
+                ? new AudioProfileValidationResult(Collections.<AudioProfileValidationIssue>emptyList())
+                : validator.validateResult(snapshot);
+        updateValidationSummary();
+        updateIssueList();
+        updateCanvasSeverities();
+        updateButtons();
+        refreshInspectorValidation();
+    }
+
+    private void updateValidationSummary() {
+        int errors = validation.errorCount();
+        int warnings = validation.warningCount();
+        if (errors == 0 && warnings == 0) {
+            validationSummary.setText("No problems.");
+        } else {
+            validationSummary.setText(errors + " error" + (errors == 1 ? "" : "s")
+                    + " · " + warnings + " warning" + (warnings == 1 ? "" : "s"));
+        }
+    }
+
+    private void updateIssueList() {
+        updatingIssueSelection = true;
+        try {
+            issueModel.clear();
+            for (AudioProfileValidationIssue issue : validation.getIssues()) {
+                issueModel.addElement(issue);
+            }
+        } finally {
+            updatingIssueSelection = false;
+        }
+    }
+
+    private void updateCanvasSeverities() {
+        Map<Integer, AudioValidationSeverity> severities = new HashMap<Integer, AudioValidationSeverity>();
+        for (int i = 0; i < workingBlocks.size(); i++) {
+            String blockId = workingBlocks.get(i).getId();
+            for (AudioProfileValidationIssue issue : validation.issuesForBlock(blockId)) {
+                AudioValidationSeverity current = severities.get(i);
+                if (current == AudioValidationSeverity.ERROR) {
+                    continue; // error already dominates this block
+                }
+                severities.put(i, issue.getSeverity());
+            }
+        }
+        canvas.setBlockSeverities(severities);
+    }
+
+    /** Mark the invalid parameters of the currently selected block in the inspector. */
+    private void refreshInspectorValidation() {
+        int index = canvas.getSelectedIndex();
+        if (index < 0 || index >= workingBlocks.size()) {
+            inspector.setInvalidParameters(Collections.<String, String>emptyMap());
+            return;
+        }
+        String blockId = workingBlocks.get(index).getId();
+        Map<String, String> invalid = new LinkedHashMap<String, String>();
+        for (AudioProfileValidationIssue issue : validation.issuesForBlock(blockId)) {
+            if (issue.getSeverity() == AudioValidationSeverity.ERROR && issue.getParameterKey() != null) {
+                invalid.put(issue.getParameterKey(), issue.getMessage());
+            }
+        }
+        inspector.setInvalidParameters(invalid);
+    }
+
+    private void onIssueSelected() {
+        if (updatingIssueSelection) {
+            return;
+        }
+        AudioProfileValidationIssue issue = issueList.getSelectedValue();
+        if (issue == null) {
+            return;
+        }
+        int index = indexOfBlock(issue.getBlockId());
+        if (index >= 0) {
+            canvas.setSelectedIndex(index);
+            inspect(index);
+            refreshInspectorValidation();
+            if (issue.getParameterKey() != null) {
+                inspector.focusParameter(issue.getParameterKey());
+            }
+            updateButtons();
+        }
+    }
+
+    private void selectFirstError() {
+        AudioProfileValidationIssue first = validation.firstError();
+        if (first == null) {
+            return;
+        }
+        for (int i = 0; i < issueModel.size(); i++) {
+            if (issueModel.get(i) == first) {
+                issueList.setSelectedIndex(i); // triggers onIssueSelected → selects the block + focuses the field
+                return;
+            }
+        }
+    }
+
+    private int indexOfBlock(String blockId) {
+        for (int i = 0; i < workingBlocks.size(); i++) {
+            if (workingBlocks.get(i).getId().equals(blockId)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /** @return true when the action must be blocked because the current pipeline has errors. */
+    private boolean blockedByErrors(String action) {
+        if (!validation.hasErrors()) {
+            return false;
+        }
+        JOptionPane.showMessageDialog(this,
+                "Fix the " + validation.errorCount() + " validation error(s) before you can " + action + ".",
+                "Validation", JOptionPane.WARNING_MESSAGE);
+        setStatus("Cannot " + action + " while the pipeline has errors.");
+        selectFirstError();
+        return true;
     }
 
     private void updateButtons() {

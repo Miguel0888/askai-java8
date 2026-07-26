@@ -4,6 +4,8 @@ import com.aresstack.audio.application.AudioProcessingPreviewService;
 import com.aresstack.audio.application.ProcessedAudioPreview;
 import com.aresstack.audio.application.ProcessedWaveExportService;
 import com.aresstack.audio.domain.AudioBuffer;
+import com.aresstack.audio.pipeline.AudioProfileValidationResult;
+import com.aresstack.audio.pipeline.AudioProfileValidator;
 import com.aresstack.audio.profile.AudioProcessingProfile;
 
 import java.io.File;
@@ -41,6 +43,7 @@ public final class AudioProcessingTestController {
     private final Supplier<AudioProcessingProfile> snapshotSupplier;
     private final Executor backgroundExecutor;
     private final Listener listener;
+    private final AudioProfileValidator validator = new AudioProfileValidator();
 
     private AudioTestSource source;
     private ProcessedAudioPreview lastPreview;
@@ -105,6 +108,15 @@ public final class AudioProcessingTestController {
         }
         final int gen = ++generation;
         final AudioProcessingProfile snapshot = snapshotSupplier.get(); // immutable snapshot captured now
+        // Runtime guard: never process an invalid pipeline, even for non-Swing callers. Errors block; the
+        // per-processor defensive bypass remains only as a last resort, not as a substitute for this check.
+        AudioProfileValidationResult validation = validator.validateResult(snapshot);
+        if (validation.hasErrors()) {
+            setState(State.FAILED);
+            listener.failed("Cannot process: fix " + validation.errorCount()
+                    + " validation error(s) in the pipeline first.");
+            return;
+        }
         final AudioTestSource current = source;
         setState(State.PROCESSING);
         backgroundExecutor.execute(new Runnable() {

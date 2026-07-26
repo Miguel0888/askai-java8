@@ -1,5 +1,6 @@
 package com.aresstack.askai.java8.ui;
 
+import com.aresstack.audio.pipeline.AudioValidationSeverity;
 import com.aresstack.audio.profile.AudioBlockDefinition;
 
 import javax.swing.JPanel;
@@ -15,7 +16,9 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Render and reorder a linear DSP pipeline as interactive Java2D blocks.
@@ -47,6 +50,7 @@ public final class AudioPipelineCanvas extends JPanel {
     private int selectedIndex = -1;
     private int dragIndex = -1;
     private Listener listener;
+    private Map<Integer, AudioValidationSeverity> blockSeverities = new HashMap<Integer, AudioValidationSeverity>();
 
     public AudioPipelineCanvas() {
         setOpaque(true);
@@ -56,6 +60,14 @@ public final class AudioPipelineCanvas extends JPanel {
 
     public void setListener(Listener listener) {
         this.listener = listener;
+    }
+
+    /** Mark blocks (by index) with a validation severity so the canvas shows a subtle status badge. */
+    public void setBlockSeverities(Map<Integer, AudioValidationSeverity> severities) {
+        this.blockSeverities = severities == null
+                ? new HashMap<Integer, AudioValidationSeverity>()
+                : new HashMap<Integer, AudioValidationSeverity>(severities);
+        repaint();
     }
 
     /** Hosts the settings card inside the canvas so it appears directly under the selected block. */
@@ -144,11 +156,20 @@ public final class AudioPipelineCanvas extends JPanel {
         Color accent = uiColor("Component.accentColor", new Color(70, 120, 190));
         Color disabled = uiColor("Label.disabledForeground", Color.GRAY);
 
+        AudioValidationSeverity severity = blockSeverities.get(index);
+
         g.setColor(background.brighter());
         g.fillRoundRect(x, y, BLOCK_WIDTH, BLOCK_HEIGHT, 18, 18);
-        g.setStroke(new BasicStroke(index == selectedIndex ? 3.0f : 1.5f));
-        g.setColor(index == selectedIndex ? accent : (block.isEnabled() ? foreground : disabled));
+        g.setStroke(new BasicStroke(index == selectedIndex ? 3.0f : (severity != null ? 2.0f : 1.5f)));
+        Color border = index == selectedIndex ? accent : (block.isEnabled() ? foreground : disabled);
+        if (severity != null && index != selectedIndex) {
+            border = severityColor(severity);
+        }
+        g.setColor(border);
         g.drawRoundRect(x, y, BLOCK_WIDTH, BLOCK_HEIGHT, 18, 18);
+        if (severity != null) {
+            paintSeverityBadge(g, x + BLOCK_WIDTH - 18, y + 10, severity);
+        }
 
         paintWaveIcon(g, x + 14, y + 16, block.isEnabled() ? accent : disabled);
         g.setColor(block.isEnabled() ? foreground : disabled);
@@ -161,6 +182,22 @@ public final class AudioPipelineCanvas extends JPanel {
         g.drawString(summary, x + 12, y + 58);
         g.setColor(block.isEnabled() ? accent : disabled);
         g.drawString(block.isEnabled() ? "Enabled" : "Bypassed", x + 12, y + 78);
+    }
+
+    private void paintSeverityBadge(Graphics2D g, int x, int y, AudioValidationSeverity severity) {
+        g.setColor(severityColor(severity));
+        g.fillOval(x, y, 10, 10);
+        g.setColor(uiColor("Panel.background", Color.WHITE));
+        g.setStroke(new BasicStroke(1.0f));
+        g.drawOval(x, y, 10, 10);
+    }
+
+    /** Theme-aware status colors (FlatLaf action colors when present), never hardcoded light-only tones. */
+    private static Color severityColor(AudioValidationSeverity severity) {
+        if (severity == AudioValidationSeverity.ERROR) {
+            return uiColor("Actions.Red", new Color(0xD3, 0x2F, 0x2F));
+        }
+        return uiColor("Actions.Yellow", new Color(0xF9, 0xA8, 0x25));
     }
 
     private void paintWaveIcon(Graphics2D g, int x, int y, Color color) {

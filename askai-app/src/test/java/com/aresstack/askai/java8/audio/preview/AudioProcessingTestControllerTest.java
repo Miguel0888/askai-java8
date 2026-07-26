@@ -129,6 +129,22 @@ public class AudioProcessingTestControllerTest {
         assertNull("no partial preview applied", f.controller.getPreview());
     }
 
+    @Test
+    public void anInvalidPipelineIsNotProcessed() {
+        Fixture f = new Fixture(SYNC);
+        java.util.List<AudioBlockDefinition> blocks = new ArrayList<AudioBlockDefinition>();
+        blocks.add(com.aresstack.audio.pipeline.AudioBlockRegistry.getInstance()
+                .defaultDefinition(com.aresstack.audio.profile.AudioBlockType.PARAMETRIC_EQ, "bad")
+                .withParameter("centerHz", "0")); // invalid → validation error
+        f.setProfile(new AudioProcessingProfile("x", "Invalid", false, blocks));
+        f.controller.setSource(source("a"));
+
+        f.controller.process();
+
+        assertEquals(AudioProcessingTestController.State.FAILED, f.controller.getState());
+        assertNull("the preview service must not run for an invalid pipeline", f.preview.received);
+    }
+
     // ------------------------------------------------------------------ helpers
 
     private static AudioProcessingProfile disableFirstBlock(AudioProcessingProfile profile) {
