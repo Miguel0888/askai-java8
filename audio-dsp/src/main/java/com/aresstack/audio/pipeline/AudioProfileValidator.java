@@ -154,6 +154,9 @@ public final class AudioProfileValidator {
                 case ADAPTIVE_NOISE_SUPPRESSION:
                     validateNoiseSuppression(issues, block, enabled, sawEnabledVad, sawEnabledNoiseProfiler);
                     break;
+                case SPEECH_LEVELER:
+                    validateSpeechLeveler(issues, block, enabled, sawEnabledVad);
+                    break;
                 default:
                     break;
             }
@@ -443,6 +446,30 @@ public final class AudioProfileValidator {
         if (block.getBooleanParameter("speechProtection", true) && !sawEnabledVad) {
             add(issues, block, enabled, AudioValidationSeverity.WARNING, "speechProtection",
                     name + ": speech protection needs a Voice Activity Detection block upstream.");
+        }
+    }
+
+    private void validateSpeechLeveler(List<AudioProfileValidationIssue> issues, AudioBlockDefinition block,
+                                       boolean enabled, boolean sawEnabledVad) {
+        String name = block.getType().getDisplayName();
+        finiteError(issues, block, enabled, name, "targetSpeechLevelDb", "Target speech level");
+        nonNegativeError(issues, block, enabled, name, "maxGainDb", "Maximum gain");
+        nonNegativeError(issues, block, enabled, name, "maxAttenuationDb", "Maximum attenuation");
+        positiveError(issues, block, enabled, name, "attackMs", "Attack");
+        positiveError(issues, block, enabled, name, "releaseMs", "Release");
+        nonNegativeError(issues, block, enabled, name, "holdMs", "Hold");
+        positiveError(issues, block, enabled, name, "maxGainChangePerSecond", "Maximum gain change per second");
+        rangeError(issues, block, enabled, name, "minSpeechProbability", "Minimum speech probability", 0.0d, 1.0d);
+        nonNegativeError(issues, block, enabled, name, "silenceGainLimitDb", "Silence gain limit");
+        double maxGain = block.getDoubleParameter("maxGainDb", 0.0d);
+        if (isFinite(maxGain) && maxGain > 30.0d) {
+            add(issues, block, enabled, AudioValidationSeverity.WARNING, "maxGainDb",
+                    name + ": a maximum gain above 30 dB will strongly amplify noise in quiet passages.");
+        }
+        if (!sawEnabledVad) {
+            add(issues, block, enabled, AudioValidationSeverity.WARNING, null,
+                    name + ": add a Voice Activity Detection block before it; without a speech probability "
+                            + "it levels purely by signal energy and may lift background noise.");
         }
     }
 

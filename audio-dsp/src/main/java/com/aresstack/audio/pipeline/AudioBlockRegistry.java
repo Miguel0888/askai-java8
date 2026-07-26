@@ -51,6 +51,7 @@ public final class AudioBlockRegistry {
         register(breathReductionFft());
         register(noiseProfiler());
         register(adaptiveNoiseSuppression());
+        register(speechLeveler());
     }
 
     public static AudioBlockRegistry getInstance() {
@@ -728,6 +729,43 @@ public final class AudioBlockRegistry {
                     public String summarize(AudioBlockDefinition block) {
                         return "-" + formatQ(block.getDoubleParameter("maxAttenuationDb", 0.0d))
                                 + " dB max · " + block.getParameter("mode", "AUTOMATIC");
+                    }
+                });
+    }
+
+    private static AudioBlockDescriptor speechLeveler() {
+        List<AudioParameterDescriptor> params = new ArrayList<AudioParameterDescriptor>();
+        params.add(AudioParameterDescriptor.decimal("targetSpeechLevelDb", "Target speech level (dBFS RMS)",
+                -20.0d, -40.0d, 0.0d, 1.0d));
+        params.add(AudioParameterDescriptor.decimal("maxGainDb", "Maximum gain (dB)", 18.0d, 0.0d, 48.0d, 1.0d));
+        params.add(AudioParameterDescriptor.decimal("maxAttenuationDb", "Maximum attenuation (dB)",
+                12.0d, 0.0d, 48.0d, 1.0d));
+        params.add(AudioParameterDescriptor.decimal("attackMs", "Attack (ms)", 120.0d, 1.0d, 2000.0d, 5.0d));
+        params.add(AudioParameterDescriptor.decimal("releaseMs", "Release (ms)", 1000.0d, 1.0d, 8000.0d, 10.0d));
+        params.add(AudioParameterDescriptor.decimal("holdMs", "Hold (ms)", 300.0d, 0.0d, 4000.0d, 10.0d));
+        params.add(AudioParameterDescriptor.decimal("maxGainChangePerSecond", "Max gain change (dB/s)",
+                9.0d, 0.1d, 60.0d, 0.5d));
+        params.add(AudioParameterDescriptor.decimal("minSpeechProbability", "Min speech probability",
+                0.5d, 0.0d, 1.0d, 0.05d));
+        params.add(AudioParameterDescriptor.decimal("silenceGainLimitDb", "Silence gain limit (dB)",
+                6.0d, 0.0d, 24.0d, 1.0d));
+        params.add(AudioParameterDescriptor.bool("noiseProtection", "Noise protection", true));
+        params.add(AudioParameterDescriptor.bool("clippingProtection", "Clipping protection", true));
+        AudioBlockCapabilities capabilities = StaticBlockCapabilities.builder()
+                .framing(320, 0, 0)
+                .consumesSpeechMetadata(true)
+                .build();
+        return descriptor(AudioBlockType.SPEECH_LEVELER, AudioBlockCategory.DYNAMICS, params, capabilities,
+                new SimpleAudioBlockDescriptor.ProcessorFactory() {
+                    public AudioBlockProcessor create() {
+                        return AudioBlockProcessors.speechLeveler();
+                    }
+                },
+                new SimpleAudioBlockDescriptor.Summarizer() {
+                    public String summarize(AudioBlockDefinition block) {
+                        return formatQ(block.getDoubleParameter("targetSpeechLevelDb", 0.0d)) + " dBFS · +"
+                                + formatQ(block.getDoubleParameter("maxGainDb", 0.0d)) + "/-"
+                                + formatQ(block.getDoubleParameter("maxAttenuationDb", 0.0d)) + " dB";
                     }
                 });
     }

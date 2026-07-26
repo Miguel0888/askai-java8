@@ -28,7 +28,8 @@ public enum AudioBlockType {
     PLOSIVE_REDUCTION_FFT("Plosive Reduction (FFT)"),
     BREATH_REDUCTION_FFT("Breath Reduction (FFT)"),
     NOISE_PROFILER("Noise Profiler"),
-    ADAPTIVE_NOISE_SUPPRESSION("Adaptive Noise Suppression");
+    ADAPTIVE_NOISE_SUPPRESSION("Adaptive Noise Suppression"),
+    SPEECH_LEVELER("Speech Leveler");
 
     private final String displayName;
 

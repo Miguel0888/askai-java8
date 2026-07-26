@@ -26,6 +26,9 @@ import com.aresstack.audio.dsp.NoiseProfile;
 import com.aresstack.audio.dsp.NoiseProfileEstimator;
 import com.aresstack.audio.dsp.NoiseSuppressionSettings;
 import com.aresstack.audio.dsp.SpectralNoiseSuppressor;
+import com.aresstack.audio.dsp.SpeechLevelerProcessor;
+import com.aresstack.audio.dsp.SpeechLevelerSettings;
+import com.aresstack.audio.dsp.SpeechLevelerState;
 import com.aresstack.audio.dsp.ExpanderProcessor;
 import com.aresstack.audio.dsp.ExpanderSettings;
 import com.aresstack.audio.dsp.ExpanderState;
@@ -564,6 +567,33 @@ final class AudioBlockProcessors {
                                 return new SpectralNoiseSuppressor(settings, fixed, gate);
                             }
                         });
+                return input;
+            }
+        };
+    }
+
+    /**
+     * Speech Leveler: speech-aware dynamic level control. Format-preserving; reads the upstream
+     * speech-activity track for speech-driven gain and silence protection (level-based fallback without one).
+     * A fresh {@link SpeechLevelerState} per run keeps results reproducible.
+     */
+    static AudioBlockProcessor speechLeveler() {
+        return new AudioBlockProcessor() {
+            public AudioBuffer process(AudioBuffer input, AudioBlockDefinition block, AudioProcessingContext context) {
+                SpeechLevelerSettings settings = new SpeechLevelerSettings(
+                        block.getDoubleParameter("targetSpeechLevelDb", -20.0d),
+                        block.getDoubleParameter("maxGainDb", 18.0d),
+                        block.getDoubleParameter("maxAttenuationDb", 12.0d),
+                        block.getDoubleParameter("attackMs", 120.0d),
+                        block.getDoubleParameter("releaseMs", 1000.0d),
+                        block.getDoubleParameter("holdMs", 300.0d),
+                        block.getDoubleParameter("maxGainChangePerSecond", 9.0d),
+                        block.getDoubleParameter("minSpeechProbability", 0.5d),
+                        block.getDoubleParameter("silenceGainLimitDb", 6.0d),
+                        block.getBooleanParameter("noiseProtection", true),
+                        block.getBooleanParameter("clippingProtection", true));
+                new SpeechLevelerProcessor(settings).process(input.getSamples(), input.getSamples().length,
+                        input.getFormat(), new SpeechLevelerState(), context.getSpeechActivity());
                 return input;
             }
         };
