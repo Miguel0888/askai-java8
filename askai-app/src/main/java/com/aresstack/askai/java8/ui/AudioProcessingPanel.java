@@ -36,6 +36,7 @@ public final class AudioProcessingPanel extends JPanel {
     private final AudioBlockInspectorPanel inspector = new AudioBlockInspectorPanel();
     private final AudioInspectorCard inspectorCard =
             new AudioInspectorCard(inspector, AudioPipelineCanvas.BLOCK_WIDTH);
+    private AudioProcessingTestPanel testPanel;
 
     private AudioProcessingProfile selectedProfile;
     private List<AudioBlockDefinition> workingBlocks = new ArrayList<AudioBlockDefinition>();
@@ -62,7 +63,24 @@ public final class AudioProcessingPanel extends JPanel {
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         add(buildToolbar(), BorderLayout.NORTH);
         add(buildEditor(), BorderLayout.CENTER);
-        add(statusLabel, BorderLayout.SOUTH);
+        // Test/preview area: process the CURRENT (possibly unsaved) pipeline snapshot on a test source.
+        this.testPanel = new AudioProcessingTestPanel(new java.util.function.Supplier<AudioProcessingProfile>() {
+            public AudioProcessingProfile get() {
+                return currentPipelineSnapshot();
+            }
+        });
+        JPanel south = new JPanel(new BorderLayout(0, 4));
+        south.add(testPanel, BorderLayout.CENTER);
+        south.add(statusLabel, BorderLayout.SOUTH);
+        add(south, BorderLayout.SOUTH);
+    }
+
+    /** @return an immutable snapshot of the current working pipeline (unsaved edits included), or null. */
+    private AudioProcessingProfile currentPipelineSnapshot() {
+        if (selectedProfile == null) {
+            return null;
+        }
+        return selectedProfile.withBlocks(new ArrayList<AudioBlockDefinition>(workingBlocks));
     }
 
     private JPanel buildToolbar() {
@@ -151,6 +169,9 @@ public final class AudioProcessingPanel extends JPanel {
                 ? "The default profile is editable here but can only be stored under a new name."
                 : "Profile loaded.");
         updateButtons();
+        if (testPanel != null) {
+            testPanel.pipelineChanged(); // a switched/loaded profile invalidates any existing preview
+        }
     }
 
     private void saveCurrentProfile() {
@@ -315,6 +336,9 @@ public final class AudioProcessingPanel extends JPanel {
         dirty = true;
         setStatus(message);
         updateButtons();
+        if (testPanel != null) {
+            testPanel.pipelineChanged(); // any block/param/order change invalidates the current preview
+        }
     }
 
     private void updateButtons() {
