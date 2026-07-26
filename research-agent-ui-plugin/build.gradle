@@ -20,3 +20,61 @@ dependencies {
 test {
     useJUnit()
 }
+
+// ---------------------------------------------------------------------------------------------------------
+// Commit 9: real PF4J plugin artifact + dev-install plumbing.
+//
+// The plugin JAR carries ONLY this module's own classes plus the generated META-INF/extensions.idx. The
+// shared APIs (agent-workspace-api, agent-plugin-pf4j-api) and PF4J are `compileOnly` above, so they are not
+// on this module's output and never enter the plugin JAR — they must come from the HOST classloader, or the
+// extension interface would have a second, incompatible identity across classloaders.
+// ---------------------------------------------------------------------------------------------------------
+
+ext.researchPluginId = 'com.aresstack.askai.research'
+ext.researchPluginClass = 'com.aresstack.askai.research.plugin.ResearchPlugin'
+// Stable file name so re-installing replaces exactly this plugin's artifact and leaves foreign plugin JARs.
+ext.devPluginFileName = 'research-agent-ui-plugin.jar'
+
+task pluginJar(type: Jar) {
+    group = 'build'
+    description = 'Assemble the external PF4J plugin JAR (plugin classes + extensions.idx only, PF4J manifest).'
+    dependsOn classes
+    archiveBaseName = 'research-agent-ui-plugin'
+    archiveClassifier = 'plugin'
+    archiveVersion = project.version.toString()
+    from sourceSets.main.output
+
+    manifest {
+        attributes(
+                'Plugin-Id': researchPluginId,
+                'Plugin-Class': researchPluginClass,
+                'Plugin-Version': project.version.toString(),
+                'Plugin-Provider': 'AresStack',
+                'Plugin-Description': 'AskAI Research Agent'
+                // Plugin-Requires deliberately omitted: the host does not yet publish/enforce a stable
+                // version binding. Compatibility is gated by the descriptor's pluginApiVersion instead.
+        )
+    }
+}
+
+task installDevPlugin {
+    group = 'application'
+    description = 'Install the research plugin JAR into the shared dev-plugins dir (leaves other plugins).'
+    dependsOn pluginJar
+    doLast {
+        def destDir = rootProject.layout.buildDirectory.dir('dev-plugins').get().asFile
+        destDir.mkdirs()
+        def source = pluginJar.archiveFile.get().asFile
+        def finalFile = new File(destDir, devPluginFileName)
+        def tmpFile = new File(destDir, devPluginFileName + '.tmp')
+        // Clear only THIS plugin's target artifact; foreign plugin JARs are untouched.
+        finalFile.delete()
+        tmpFile.delete()
+        java.nio.file.Files.copy(source.toPath(), tmpFile.toPath())
+        // Atomic swap so a concurrent scan never sees a half-written JAR.
+        java.nio.file.Files.move(tmpFile.toPath(), finalFile.toPath(),
+                java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        logger.lifecycle("Installed research plugin -> ${finalFile}")
+    }
+}

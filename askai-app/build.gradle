@@ -127,3 +127,59 @@ task fatJar(type: Jar) {
 }
 
 build.dependsOn fatJar
+
+// ---------------------------------------------------------------------------------------------------------
+// Commit 9: run AskAI with the research plugin installed into the shared dev-plugins dir, and prove the
+// research plugin never leaks into the fat jar.
+// ---------------------------------------------------------------------------------------------------------
+
+def devPluginsDir = rootProject.layout.buildDirectory.dir('dev-plugins')
+
+// Same runtime classpath, main class and (default) JVM options as the regular `run`, but pointed at the
+// shared dev-plugins directory so the externally-built research plugin is discovered by PF4J at runtime.
+task runWithDevPlugins(type: JavaExec) {
+    group = 'application'
+    description = 'Run AskAI with the research plugin installed into <root>/build/dev-plugins.'
+    dependsOn ':research-agent-ui-plugin:installDevPlugin'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = mainClassName
+    doFirst {
+        systemProperty 'askai.pluginsDir', devPluginsDir.get().asFile.absolutePath
+    }
+}
+
+task verifyFatJarExclusions {
+    group = 'verification'
+    description = 'Fail if the AskAI fat jar contains research classes, a research extensions.idx or a nested plugin JAR.'
+    dependsOn fatJar
+    doLast {
+        def jar = fatJar.archiveFile.get().asFile
+        def violations = []
+        def zip = new java.util.zip.ZipFile(jar)
+        try {
+            zip.entries().each { entry ->
+                def name = entry.name
+                if (name.startsWith('com/aresstack/askai/research/')) {
+                    violations << "research class: ${name}"
+                }
+                if (name.endsWith('.jar') && name.contains('research-agent-ui-plugin')) {
+                    violations << "nested plugin jar: ${name}"
+                }
+                if (name == 'META-INF/extensions.idx') {
+                    def content = zip.getInputStream(entry).getText('UTF-8')
+                    if (content.contains('com.aresstack.askai.research')) {
+                        violations << "research extensions.idx entry"
+                    }
+                }
+            }
+        } finally {
+            zip.close()
+        }
+        if (!violations.isEmpty()) {
+            throw new GradleException("Fat jar leaks research plugin content:\n  " + violations.join('\n  '))
+        }
+        logger.lifecycle("Fat jar exclusion check passed: no research classes / extensions.idx / nested plugin jar.")
+    }
+}
+
+check.dependsOn verifyFatJarExclusions
