@@ -29,4 +29,13 @@ public interface AudioBlockCapabilities {
     boolean supportsStreaming();
 
     boolean supportsOffline();
+
+    /**
+     * @return whether the block leaves the channel count unchanged. Default true (most blocks preserve it;
+     * format-changing blocks such as the channel mixer would return false). Declared as a default method so
+     * existing {@link AudioBlockCapabilities} implementations stay source- and binary-compatible.
+     */
+    default boolean preservesChannelCount() {
+        return true;
+    }
 }

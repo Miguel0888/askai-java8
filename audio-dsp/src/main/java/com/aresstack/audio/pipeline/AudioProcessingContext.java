@@ -1,5 +1,7 @@
 package com.aresstack.audio.pipeline;
 
+import com.aresstack.audio.dsp.SpeechActivityTrack;
+
 import java.util.HashMap;
 import java.util.Map;
 
@@ -13,6 +15,17 @@ import java.util.Map;
 public final class AudioProcessingContext {
 
     private final Map<String, Object> metadata = new HashMap<String, Object>();
+    private SpeechActivityTrack speechActivity;
+
+    /** Store the per-frame speech-activity track produced by the voice-activity block (typed, no string key). */
+    public void setSpeechActivity(SpeechActivityTrack track) {
+        this.speechActivity = track;
+    }
+
+    /** @return the speech-activity track for this run, or null if no voice-activity block ran. */
+    public SpeechActivityTrack getSpeechActivity() {
+        return speechActivity;
+    }
 
     public void put(String key, Object value) {
         metadata.put(key, value);

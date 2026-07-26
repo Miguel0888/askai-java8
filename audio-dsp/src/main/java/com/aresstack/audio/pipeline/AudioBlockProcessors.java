@@ -17,6 +17,10 @@ import com.aresstack.audio.dsp.Pcm16Resampler;
 import com.aresstack.audio.dsp.PcmChannelConverter;
 import com.aresstack.audio.dsp.ResamplingQuality;
 import com.aresstack.audio.dsp.SoftNoiseGateProcessor;
+import com.aresstack.audio.dsp.SpeechActivityTrack;
+import com.aresstack.audio.dsp.VoiceActivityDetector;
+import com.aresstack.audio.dsp.VoiceActivityDetectorSettings;
+import com.aresstack.audio.dsp.VoiceActivityDetectorState;
 import com.aresstack.audio.profile.AudioBlockDefinition;
 
 /**
@@ -195,6 +199,47 @@ final class AudioBlockProcessors {
                         block.getDoubleParameter("slope", 1.0d));
             }
         });
+    }
+
+    /**
+     * Voice-activity detection: an analysis block that never changes the audio. It frames the buffer
+     * (non-overlapping, frame size derived from the sample rate and configured duration, in order), runs the
+     * adaptive detector with fresh state, publishes a {@link SpeechActivityTrack} into the context for later
+     * blocks, and returns the input buffer unchanged (bit-identical PCM).
+     */
+    static AudioBlockProcessor voiceActivityDetection() {
+        return new AudioBlockProcessor() {
+            public AudioBuffer process(AudioBuffer input, AudioBlockDefinition block, AudioProcessingContext context) {
+                PcmAudioFormat format = input.getFormat();
+                int channels = Math.max(1, format.getChannels());
+                VoiceActivityDetectorSettings settings = new VoiceActivityDetectorSettings(
+                        block.getDoubleParameter("sensitivity", 0.5d),
+                        block.getDoubleParameter("minSpeechProbability", 0.5d),
+                        block.getIntParameter("frameDurationMs", 20),
+                        block.getDoubleParameter("attackMs", 50.0d),
+                        block.getDoubleParameter("releaseMs", 300.0d),
+                        block.getDoubleParameter("hangoverMs", 200.0d),
+                        block.getDoubleParameter("minSpeechMs", 80.0d),
+                        block.getDoubleParameter("minSilenceMs", 150.0d),
+                        block.getDoubleParameter("noiseAdaptationSpeed", 0.05d),
+                        block.getBooleanParameter("adaptNoiseDuringSpeech", false));
+                int framePerChannel = Math.max(1,
+                        (int) Math.round(format.getSampleRateHz() * settings.getFrameDurationMs() / 1000.0d));
+                int frameInterleaved = framePerChannel * channels;
+
+                VoiceActivityDetector detector = new VoiceActivityDetector();
+                VoiceActivityDetectorState state = new VoiceActivityDetectorState();
+                SpeechActivityTrack track = new SpeechActivityTrack();
+                short[] samples = input.getSamples();
+                for (int start = 0; start < samples.length; start += frameInterleaved) {
+                    int count = Math.min(frameInterleaved, samples.length - start);
+                    track.add(detector.analyzeFrame(samples, start, count, channels,
+                            format.getSampleRateHz(), settings, state));
+                }
+                context.setSpeechActivity(track);
+                return input; // analysis only — audio is passed through untouched
+            }
+        };
     }
 
     /** Wrap a per-block {@link Pcm16Processor} as an in-place, format-preserving buffer processor. */

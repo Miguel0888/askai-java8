@@ -38,6 +38,7 @@ public final class AudioBlockRegistry {
         register(parametricEqualizer());
         register(lowShelfEqualizer());
         register(highShelfEqualizer());
+        register(voiceActivityDetection());
     }
 
     public static AudioBlockRegistry getInstance() {
@@ -337,6 +338,46 @@ public final class AudioBlockRegistry {
                     public String summarize(AudioBlockDefinition block) {
                         return formatHz(block.getDoubleParameter("cutoffHz", 0.0d)) + " · "
                                 + formatDb(block.getDoubleParameter("gainDb", 0.0d));
+                    }
+                });
+    }
+
+    private static AudioBlockDescriptor voiceActivityDetection() {
+        List<AudioParameterDescriptor> params = new ArrayList<AudioParameterDescriptor>();
+        params.add(AudioParameterDescriptor.decimal("sensitivity", "Sensitivity", 0.5d, 0.0d, 1.0d, 0.05d));
+        params.add(AudioParameterDescriptor.decimal("minSpeechProbability", "Min speech probability",
+                0.5d, 0.3d, 0.9d, 0.05d));
+        params.add(AudioParameterDescriptor.integer("frameDurationMs", "Frame duration (ms)", 20, 10, 30));
+        params.add(AudioParameterDescriptor.decimal("attackMs", "Attack (ms)", 50.0d, 20.0d, 300.0d, 5.0d));
+        params.add(AudioParameterDescriptor.decimal("releaseMs", "Release (ms)", 300.0d, 100.0d, 1500.0d, 10.0d));
+        params.add(AudioParameterDescriptor.decimal("hangoverMs", "Hangover (ms)", 200.0d, 0.0d, 1000.0d, 10.0d));
+        params.add(AudioParameterDescriptor.decimal("minSpeechMs", "Min speech duration (ms)",
+                80.0d, 0.0d, 500.0d, 5.0d));
+        params.add(AudioParameterDescriptor.decimal("minSilenceMs", "Min silence duration (ms)",
+                150.0d, 0.0d, 1000.0d, 10.0d));
+        params.add(AudioParameterDescriptor.decimal("noiseAdaptationSpeed", "Noise adaptation speed",
+                0.05d, 0.001d, 0.2d, 0.001d));
+        params.add(AudioParameterDescriptor.bool("adaptNoiseDuringSpeech", "Adapt noise during speech", false));
+        AudioBlockCapabilities capabilities = StaticBlockCapabilities.builder()
+                .modifiesAudio(false)
+                .producesMetadata(true)
+                .framing(320, 0, 0) // requires framing; frame size is derived per rate at run time
+                .build();
+        return descriptor(AudioBlockType.VOICE_ACTIVITY_DETECTION, AudioBlockCategory.ANALYSIS, params,
+                capabilities,
+                new SimpleAudioBlockDescriptor.ProcessorFactory() {
+                    public AudioBlockProcessor create() {
+                        return AudioBlockProcessors.voiceActivityDetection();
+                    }
+                },
+                new SimpleAudioBlockDescriptor.Summarizer() {
+                    public String summarize(AudioBlockDefinition block) {
+                        return "Sensitivity "
+                                + String.format(java.util.Locale.ROOT, "%.2f",
+                                        block.getDoubleParameter("sensitivity", 0.5d))
+                                + " · threshold "
+                                + String.format(java.util.Locale.ROOT, "%.2f",
+                                        block.getDoubleParameter("minSpeechProbability", 0.5d));
                     }
                 });
     }

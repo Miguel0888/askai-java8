@@ -95,6 +95,9 @@ public final class AudioProfileValidator {
                 case HIGH_SHELF:
                     validateEqBand(messages, block, "cutoffHz", currentRate, false);
                     break;
+                case VOICE_ACTIVITY_DETECTION:
+                    validateVoiceActivity(messages, block);
+                    break;
                 default:
                     break;
             }
@@ -179,6 +182,45 @@ public final class AudioProfileValidator {
         } else if (Math.abs(gainDb) > 36.0d) {
             messages.add(new Message(Severity.WARNING, block.getId(),
                     name + ": " + gainDb + " dB is an extreme equalizer gain."));
+        }
+    }
+
+    private void validateVoiceActivity(List<Message> messages, AudioBlockDefinition block) {
+        String name = block.getType().getDisplayName();
+        rangeError(messages, block, name, "sensitivity", "Sensitivity", 0.0d, 1.0d);
+        rangeError(messages, block, name, "minSpeechProbability", "Minimum speech probability", 0.0d, 1.0d);
+        double frame = block.getDoubleParameter("frameDurationMs", 20.0d);
+        if (!isFinite(frame) || frame <= 0.0d) {
+            messages.add(new Message(Severity.ERROR, block.getId(),
+                    name + ": the frame duration must be a finite value above 0 ms."));
+        }
+        nonNegativeError(messages, block, name, "attackMs", "Attack");
+        nonNegativeError(messages, block, name, "releaseMs", "Release");
+        nonNegativeError(messages, block, name, "hangoverMs", "Hangover");
+        nonNegativeError(messages, block, name, "minSpeechMs", "Minimum speech duration");
+        nonNegativeError(messages, block, name, "minSilenceMs", "Minimum silence duration");
+        double adapt = block.getDoubleParameter("noiseAdaptationSpeed", 0.05d);
+        if (!isFinite(adapt) || adapt <= 0.0d || adapt > 0.5d) {
+            messages.add(new Message(Severity.ERROR, block.getId(),
+                    name + ": the noise adaptation speed must be a finite value in (0, 0.5]."));
+        }
+    }
+
+    private void rangeError(List<Message> messages, AudioBlockDefinition block, String name,
+                            String key, String label, double min, double max) {
+        double value = block.getDoubleParameter(key, Double.NaN);
+        if (!isFinite(value) || value < min || value > max) {
+            messages.add(new Message(Severity.ERROR, block.getId(),
+                    name + ": " + label + " must be a finite value between " + min + " and " + max + "."));
+        }
+    }
+
+    private void nonNegativeError(List<Message> messages, AudioBlockDefinition block, String name,
+                                  String key, String label) {
+        double value = block.getDoubleParameter(key, 0.0d);
+        if (!isFinite(value) || value < 0.0d) {
+            messages.add(new Message(Severity.ERROR, block.getId(),
+                    name + ": " + label + " must be a finite value of 0 ms or more."));
         }
     }
 
