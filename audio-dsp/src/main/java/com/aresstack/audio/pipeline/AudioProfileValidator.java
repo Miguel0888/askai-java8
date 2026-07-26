@@ -129,15 +129,19 @@ public final class AudioProfileValidator {
                             timeBaseChangedAfterVad, silenceTrimmerCount);
                     break;
                 case DE_ESSER:
+                case DE_ESSER_FFT:
                     validateDeEsser(issues, block, currentRate, enabled);
                     break;
                 case ADAPTIVE_HUM_REMOVAL:
+                case ADAPTIVE_HUM_REMOVAL_FFT:
                     validateAdaptiveHumRemoval(issues, block, currentRate, enabled, sawEnabledVad);
                     break;
                 case PLOSIVE_REDUCTION:
+                case PLOSIVE_REDUCTION_FFT:
                     validatePlosiveReduction(issues, block, currentRate, enabled);
                     break;
                 case BREATH_REDUCTION:
+                case BREATH_REDUCTION_FFT:
                     validateBreathReduction(issues, block, enabled, sawEnabledVad);
                     break;
                 default:

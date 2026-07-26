@@ -3,6 +3,8 @@
 
 dependencies {
     implementation 'uk.me.berndporr:iirj:1.7'
+    // Java 8 compatible FFT for the spectral (STFT) block variants; no runtime dependencies of its own.
+    implementation 'org.apache.commons:commons-math3:3.6.1'
     testImplementation 'junit:junit:4.13.2'
 }
 

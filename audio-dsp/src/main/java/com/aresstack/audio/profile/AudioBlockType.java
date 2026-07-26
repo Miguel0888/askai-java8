@@ -22,7 +22,11 @@ public enum AudioBlockType {
     DE_ESSER("De-Esser"),
     ADAPTIVE_HUM_REMOVAL("Adaptive Hum Removal"),
     PLOSIVE_REDUCTION("Plosive Reduction"),
-    BREATH_REDUCTION("Breath Reduction");
+    BREATH_REDUCTION("Breath Reduction"),
+    DE_ESSER_FFT("De-Esser (FFT)"),
+    ADAPTIVE_HUM_REMOVAL_FFT("Adaptive Hum Removal (FFT)"),
+    PLOSIVE_REDUCTION_FFT("Plosive Reduction (FFT)"),
+    BREATH_REDUCTION_FFT("Breath Reduction (FFT)");
 
     private final String displayName;
 

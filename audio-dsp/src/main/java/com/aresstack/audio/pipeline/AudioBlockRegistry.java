@@ -45,6 +45,10 @@ public final class AudioBlockRegistry {
         register(adaptiveHumRemoval());
         register(plosiveReduction());
         register(breathReduction());
+        register(deEsserFft());
+        register(adaptiveHumRemovalFft());
+        register(plosiveReductionFft());
+        register(breathReductionFft());
     }
 
     public static AudioBlockRegistry getInstance() {
@@ -557,6 +561,110 @@ public final class AudioBlockRegistry {
                                 + " · -" + formatQ(block.getDoubleParameter("maxAttenuationDb", 0.0d)) + " dB max";
                     }
                 });
+    }
+
+    // ------------------------------------------------------------------ FFT (STFT) variants
+
+    private static AudioBlockDescriptor deEsserFft() {
+        List<AudioParameterDescriptor> params = new ArrayList<AudioParameterDescriptor>();
+        params.add(AudioParameterDescriptor.decimal("targetFrequencyHz", "Target frequency (Hz)",
+                6500.0d, 1000.0d, 20000.0d, 100.0d));
+        params.add(AudioParameterDescriptor.decimal("bandwidthHz", "Bandwidth (Hz)",
+                3000.0d, 100.0d, 12000.0d, 100.0d));
+        params.add(AudioParameterDescriptor.decimal("thresholdDb", "Threshold (dBFS)", -30.0d, -80.0d, 0.0d, 1.0d));
+        params.add(AudioParameterDescriptor.decimal("reductionDb", "Reduction (dB)", 8.0d, 0.0d, 40.0d, 1.0d));
+        params.add(AudioParameterDescriptor.decimal("attackMs", "Attack (ms)", 5.0d, 0.0d, 200.0d, 1.0d));
+        params.add(AudioParameterDescriptor.decimal("releaseMs", "Release (ms)", 60.0d, 1.0d, 2000.0d, 5.0d));
+        return descriptor(AudioBlockType.DE_ESSER_FFT, AudioBlockCategory.SPEECH_ENHANCEMENT, params,
+                spectralCapabilities(false),
+                new SimpleAudioBlockDescriptor.ProcessorFactory() {
+                    public AudioBlockProcessor create() {
+                        return AudioBlockProcessors.deEsserFft();
+                    }
+                },
+                new SimpleAudioBlockDescriptor.Summarizer() {
+                    public String summarize(AudioBlockDefinition block) {
+                        return "FFT · " + formatHz0(block.getDoubleParameter("targetFrequencyHz", 0.0d))
+                                + " Hz · -" + formatQ(block.getDoubleParameter("reductionDb", 0.0d)) + " dB max";
+                    }
+                });
+    }
+
+    private static AudioBlockDescriptor adaptiveHumRemovalFft() {
+        List<AudioParameterDescriptor> params = new ArrayList<AudioParameterDescriptor>();
+        params.add(AudioParameterDescriptor.decimal("baseFrequencyHz", "Base frequency (Hz)",
+                50.0d, 20.0d, 500.0d, 1.0d));
+        params.add(AudioParameterDescriptor.decimal("searchRangeHz", "Search range (Hz)", 3.0d, 0.0d, 20.0d, 0.5d));
+        params.add(AudioParameterDescriptor.decimal("adaptationSpeed", "Adaptation speed", 0.1d, 0.0d, 1.0d, 0.01d));
+        params.add(AudioParameterDescriptor.integer("harmonics", "Harmonics", 3, 1, 12));
+        params.add(AudioParameterDescriptor.decimal("maxAttenuationDb", "Maximum attenuation (dB)",
+                24.0d, 0.0d, 80.0d, 1.0d));
+        params.add(AudioParameterDescriptor.bool("speechProtection", "Speech protection", false));
+        return descriptor(AudioBlockType.ADAPTIVE_HUM_REMOVAL_FFT, AudioBlockCategory.NOISE_REDUCTION, params,
+                spectralCapabilities(true),
+                new SimpleAudioBlockDescriptor.ProcessorFactory() {
+                    public AudioBlockProcessor create() {
+                        return AudioBlockProcessors.adaptiveHumRemovalFft();
+                    }
+                },
+                new SimpleAudioBlockDescriptor.Summarizer() {
+                    public String summarize(AudioBlockDefinition block) {
+                        return "FFT · " + formatHz0(block.getDoubleParameter("baseFrequencyHz", 0.0d))
+                                + " Hz · " + block.getIntParameter("harmonics", 3) + " harmonics";
+                    }
+                });
+    }
+
+    private static AudioBlockDescriptor plosiveReductionFft() {
+        List<AudioParameterDescriptor> params = new ArrayList<AudioParameterDescriptor>();
+        params.add(AudioParameterDescriptor.decimal("strength", "Strength", 0.6d, 0.0d, 1.0d, 0.05d));
+        params.add(AudioParameterDescriptor.decimal("targetFrequencyHz", "Target frequency (Hz)",
+                120.0d, 20.0d, 500.0d, 5.0d));
+        params.add(AudioParameterDescriptor.decimal("attackMs", "Attack (ms)", 5.0d, 0.0d, 200.0d, 1.0d));
+        params.add(AudioParameterDescriptor.decimal("releaseMs", "Release (ms)", 80.0d, 1.0d, 2000.0d, 5.0d));
+        return descriptor(AudioBlockType.PLOSIVE_REDUCTION_FFT, AudioBlockCategory.SPEECH_ENHANCEMENT, params,
+                spectralCapabilities(false),
+                new SimpleAudioBlockDescriptor.ProcessorFactory() {
+                    public AudioBlockProcessor create() {
+                        return AudioBlockProcessors.plosiveReductionFft();
+                    }
+                },
+                new SimpleAudioBlockDescriptor.Summarizer() {
+                    public String summarize(AudioBlockDefinition block) {
+                        return "FFT · < " + formatHz0(block.getDoubleParameter("targetFrequencyHz", 0.0d))
+                                + " Hz · strength " + formatQ(block.getDoubleParameter("strength", 0.0d));
+                    }
+                });
+    }
+
+    private static AudioBlockDescriptor breathReductionFft() {
+        List<AudioParameterDescriptor> params = new ArrayList<AudioParameterDescriptor>();
+        params.add(AudioParameterDescriptor.decimal("sensitivity", "Sensitivity", 0.5d, 0.0d, 1.0d, 0.05d));
+        params.add(AudioParameterDescriptor.decimal("maxAttenuationDb", "Maximum attenuation (dB)",
+                12.0d, 0.0d, 80.0d, 1.0d));
+        params.add(AudioParameterDescriptor.bool("speechProtection", "Speech protection", true));
+        params.add(AudioParameterDescriptor.decimal("attackMs", "Attack (ms)", 5.0d, 0.0d, 500.0d, 1.0d));
+        params.add(AudioParameterDescriptor.decimal("releaseMs", "Release (ms)", 120.0d, 1.0d, 5000.0d, 5.0d));
+        return descriptor(AudioBlockType.BREATH_REDUCTION_FFT, AudioBlockCategory.SPEECH_ENHANCEMENT, params,
+                spectralCapabilities(true),
+                new SimpleAudioBlockDescriptor.ProcessorFactory() {
+                    public AudioBlockProcessor create() {
+                        return AudioBlockProcessors.breathReductionFft();
+                    }
+                },
+                new SimpleAudioBlockDescriptor.Summarizer() {
+                    public String summarize(AudioBlockDefinition block) {
+                        return "FFT · sensitivity " + formatQ(block.getDoubleParameter("sensitivity", 0.0d))
+                                + " · -" + formatQ(block.getDoubleParameter("maxAttenuationDb", 0.0d)) + " dB max";
+                    }
+                });
+    }
+
+    private static AudioBlockCapabilities spectralCapabilities(boolean consumesSpeechMetadata) {
+        return StaticBlockCapabilities.builder()
+                .framing(1024, 0, 512)
+                .consumesSpeechMetadata(consumesSpeechMetadata)
+                .build();
     }
 
     private static String formatHz0(double value) {

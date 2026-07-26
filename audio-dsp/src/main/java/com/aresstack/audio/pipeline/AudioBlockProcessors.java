@@ -27,6 +27,13 @@ import com.aresstack.audio.dsp.ExpanderSettings;
 import com.aresstack.audio.dsp.ExpanderState;
 import com.aresstack.audio.dsp.PlosiveReductionProcessor;
 import com.aresstack.audio.dsp.PlosiveReductionSettings;
+import com.aresstack.audio.dsp.SpectralBlockRunner;
+import com.aresstack.audio.dsp.SpectralBreathReduction;
+import com.aresstack.audio.dsp.SpectralDeEsser;
+import com.aresstack.audio.dsp.SpectralHumRemoval;
+import com.aresstack.audio.dsp.SpectralModifier;
+import com.aresstack.audio.dsp.SpectralPlosiveReduction;
+import com.aresstack.audio.dsp.SpeechGate;
 import com.aresstack.audio.dsp.SilenceTrimNoSpeechBehavior;
 import com.aresstack.audio.dsp.SilenceTrimmer;
 import com.aresstack.audio.dsp.SilenceTrimmerSettings;
@@ -392,6 +399,116 @@ final class AudioBlockProcessors {
                 new BreathReductionProcessor(settings).process(input.getSamples(),
                         input.getSamples().length, input.getFormat(), context.getSpeechActivity());
                 return input;
+            }
+        };
+    }
+
+    private static final int FFT_SIZE = 1024;
+    private static final int FFT_HOP = 512;
+
+    /** De-Esser (FFT): attenuate the sibilance band in the STFT domain. */
+    static AudioBlockProcessor deEsserFft() {
+        return new AudioBlockProcessor() {
+            public AudioBuffer process(AudioBuffer input, AudioBlockDefinition block, AudioProcessingContext context) {
+                final DeEsserSettings settings = new DeEsserSettings(
+                        block.getDoubleParameter("targetFrequencyHz", 6500.0d),
+                        block.getDoubleParameter("bandwidthHz", 3000.0d),
+                        block.getDoubleParameter("thresholdDb", -30.0d),
+                        block.getDoubleParameter("reductionDb", 8.0d),
+                        block.getDoubleParameter("attackMs", 5.0d),
+                        block.getDoubleParameter("releaseMs", 60.0d));
+                SpectralBlockRunner.apply(input.getSamples(), input.getSamples().length, input.getFormat(),
+                        FFT_SIZE, FFT_HOP, new SpectralBlockRunner.ModifierFactory() {
+                            public SpectralModifier create() {
+                                return new SpectralDeEsser(settings, FFT_HOP);
+                            }
+                        });
+                return input;
+            }
+        };
+    }
+
+    /** Adaptive Hum Removal (FFT): spectral peak tracking of the mains fundamental and harmonic bin notches. */
+    static AudioBlockProcessor adaptiveHumRemovalFft() {
+        return new AudioBlockProcessor() {
+            public AudioBuffer process(AudioBuffer input, AudioBlockDefinition block, AudioProcessingContext context) {
+                final AdaptiveHumRemovalSettings settings = new AdaptiveHumRemovalSettings(
+                        block.getDoubleParameter("baseFrequencyHz", 50.0d),
+                        block.getDoubleParameter("searchRangeHz", 3.0d),
+                        block.getDoubleParameter("adaptationSpeed", 0.1d),
+                        block.getIntParameter("harmonics", 3),
+                        block.getDoubleParameter("maxAttenuationDb", 24.0d),
+                        block.getBooleanParameter("speechProtection", false));
+                final SpeechGate gate = speechGate(settings.isSpeechProtection() ? context.getSpeechActivity()
+                        : null, input.getFormat().getChannels());
+                SpectralBlockRunner.apply(input.getSamples(), input.getSamples().length, input.getFormat(),
+                        FFT_SIZE, FFT_HOP, new SpectralBlockRunner.ModifierFactory() {
+                            public SpectralModifier create() {
+                                return new SpectralHumRemoval(settings, gate);
+                            }
+                        });
+                return input;
+            }
+        };
+    }
+
+    /** Plosive Reduction (FFT): duck the low band on a spectral low-frequency transient. */
+    static AudioBlockProcessor plosiveReductionFft() {
+        return new AudioBlockProcessor() {
+            public AudioBuffer process(AudioBuffer input, AudioBlockDefinition block, AudioProcessingContext context) {
+                final PlosiveReductionSettings settings = new PlosiveReductionSettings(
+                        block.getDoubleParameter("strength", 0.6d),
+                        block.getDoubleParameter("targetFrequencyHz", 120.0d),
+                        block.getDoubleParameter("attackMs", 5.0d),
+                        block.getDoubleParameter("releaseMs", 80.0d));
+                SpectralBlockRunner.apply(input.getSamples(), input.getSamples().length, input.getFormat(),
+                        FFT_SIZE, FFT_HOP, new SpectralBlockRunner.ModifierFactory() {
+                            public SpectralModifier create() {
+                                return new SpectralPlosiveReduction(settings, FFT_HOP);
+                            }
+                        });
+                return input;
+            }
+        };
+    }
+
+    /** Breath Reduction (FFT): attenuate noise-like non-speech frames judged by spectral flatness + VAD. */
+    static AudioBlockProcessor breathReductionFft() {
+        return new AudioBlockProcessor() {
+            public AudioBuffer process(AudioBuffer input, AudioBlockDefinition block, AudioProcessingContext context) {
+                final BreathReductionSettings settings = new BreathReductionSettings(
+                        block.getDoubleParameter("sensitivity", 0.5d),
+                        block.getDoubleParameter("maxAttenuationDb", 12.0d),
+                        block.getBooleanParameter("speechProtection", true),
+                        block.getDoubleParameter("attackMs", 5.0d),
+                        block.getDoubleParameter("releaseMs", 120.0d));
+                final SpeechGate gate = speechGate(context.getSpeechActivity(),
+                        input.getFormat().getChannels());
+                SpectralBlockRunner.apply(input.getSamples(), input.getSamples().length, input.getFormat(),
+                        FFT_SIZE, FFT_HOP, new SpectralBlockRunner.ModifierFactory() {
+                            public SpectralModifier create() {
+                                return new SpectralBreathReduction(settings, FFT_HOP, gate);
+                            }
+                        });
+                return input;
+            }
+        };
+    }
+
+    /** Bridge a mono STFT sample index to the interleaved speech-activity track, or NEVER without a track. */
+    private static SpeechGate speechGate(final SpeechActivityTrack track, final int channels) {
+        if (track == null) {
+            return SpeechGate.NEVER;
+        }
+        final int ch = Math.max(1, channels);
+        return new SpeechGate() {
+            public boolean isSpeech(int monoSampleIndex) {
+                if (monoSampleIndex < 0) {
+                    return false;
+                }
+                com.aresstack.audio.dsp.SpeechActivityMetadata frame =
+                        track.frameForInterleavedIndex(monoSampleIndex * ch);
+                return frame != null && frame.isSpeechActive();
             }
         };
     }
