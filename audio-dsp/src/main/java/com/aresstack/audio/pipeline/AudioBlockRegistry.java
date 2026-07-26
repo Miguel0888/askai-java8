@@ -838,7 +838,8 @@ public final class AudioBlockRegistry {
         List<AudioParameterDescriptor> params = new ArrayList<AudioParameterDescriptor>();
         params.add(AudioParameterDescriptor.choice("mode", "Processing mode", "OFFLINE",
                 Arrays.asList(new AudioParameterChoice("OFFLINE", "Offline (whole recording)"),
-                        new AudioParameterChoice("BLOCK_ADAPTIVE", "Block-adaptive"))));
+                        new AudioParameterChoice("BLOCK_ADAPTIVE", "Block-adaptive"),
+                        new AudioParameterChoice("STREAMING", "Streaming adaptive"))));
         params.add(AudioParameterDescriptor.decimal("strength", "Strength", 0.7d, 0.0d, 1.0d, 0.05d));
         params.add(AudioParameterDescriptor.integer("predictionDelay", "Prediction delay (frames)", 2, 1, 32));
         params.add(AudioParameterDescriptor.integer("filterLength", "Filter length (taps)", 8, 1, 32));
@@ -852,8 +853,7 @@ public final class AudioBlockRegistry {
         params.add(AudioParameterDescriptor.decimal("artifactProtection", "Artifact protection",
                 0.2d, 0.0d, 1.0d, 0.05d));
         AudioBlockCapabilities capabilities = StaticBlockCapabilities.builder()
-                .framing(512, 0, 128)
-                .requiresCompleteSignal(true)
+                .framing(512, 1024, 8192) // streaming mode uses ~8 frames look-ahead, ~64 frames history
                 .consumesSpeechMetadata(true)
                 .build();
         return descriptor(AudioBlockType.DEREVERBERATION, AudioBlockCategory.DEREVERBERATION, params,

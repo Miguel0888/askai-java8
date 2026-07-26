@@ -25,3 +25,20 @@ with slice, affected function, concrete blocker, tried approaches, impact and po
 - **Possible later solution:** Mirror the JSON profile-transfer infrastructure (versioned envelope, atomic
   write) for `NoiseProfile`/`RoomProfile`/`MicrophoneArrayProfile` in one artifact-persistence slice.
 
+## Slice 9D — Streaming WPE runs inside the batch pipeline, not a true real-time stream
+
+- **Slice:** 9D
+- **Affected function:** Streaming-adaptive WPE dereverberation.
+- **Status:** Implemented and functional. The STREAMING mode uses a sliding, bounded-history window
+  (~64 frames) with a short look-ahead (~8 frames) and a continuously carried, EMA-smoothed prediction
+  filter, so it is causal-with-look-ahead and never needs the whole signal. It measurably reduces the late
+  reverberant tail (verified by test), but intentionally more gently than the offline pass because it only
+  sees bounded history.
+- **Honest limitation:** The whole DSP pipeline is still a batch adapter — a block receives one complete
+  `AudioBuffer` per run. STREAMING here means the *algorithm's* causality/state model, not a frame-by-frame
+  real-time transport through the block. A genuine real-time streaming transport (push frames in, pull
+  frames out with a fixed latency) would require a streaming pipeline runner, which is out of scope of the
+  current buffer-in/buffer-out architecture and is not required by any later slice.
+- **Possible later solution:** Add a streaming pipeline runner that feeds frames through stateful processors
+  incrementally; the WPE STREAMING core already keeps bounded state and would slot into it.
+

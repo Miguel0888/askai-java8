@@ -60,7 +60,11 @@ public final class WpeDereverberation {
                 ? frameCount : Math.min(frameCount, settings.getBlockSizeFrames());
 
         boolean offline = settings.getMode() == WpeDereverberationSettings.Mode.OFFLINE;
+        boolean streaming = settings.getMode() == WpeDereverberationSettings.Mode.STREAMING;
         double adapt = settings.getAdaptationSpeed();
+        int history = blockFrames;
+        int lookAhead = streaming ? Math.min(8, Math.max(1, blockFrames / 2)) : 0;
+        int step = streaming ? Math.max(1, blockFrames / 4) : blockFrames;
 
         double[] xr = new double[frameCount];
         double[] xi = new double[frameCount];
@@ -85,9 +89,11 @@ public final class WpeDereverberation {
                 xi[t] = spec.imagFrame(t)[k];
             }
             boolean haveCarry = false;
-            for (int start = 0; start < frameCount; start += blockFrames) {
-                int end = Math.min(frameCount, start + blockFrames);
-                if (estimateFilter(xr, xi, start, end, delay, taps, iterations, lambda, gRe, gIm)) {
+            for (int pos = 0; pos < frameCount; pos += step) {
+                int applyEnd = Math.min(frameCount, pos + step);
+                int estStart = streaming ? Math.max(0, pos - history) : pos;
+                int estEnd = streaming ? Math.min(frameCount, applyEnd + lookAhead) : applyEnd;
+                if (estimateFilter(xr, xi, estStart, estEnd, delay, taps, iterations, lambda, gRe, gIm)) {
                     if (!offline && haveCarry) {
                         for (int a = 0; a < taps; a++) {
                             gRe[a] = (1.0d - adapt) * carryRe[a] + adapt * gRe[a];
@@ -97,9 +103,11 @@ public final class WpeDereverberation {
                     System.arraycopy(gRe, 0, carryRe, 0, taps);
                     System.arraycopy(gIm, 0, carryIm, 0, taps);
                     haveCarry = true;
-                    applyFilter(xr, xi, start, end, delay, taps, gRe, gIm, dr, di);
+                    applyFilter(xr, xi, pos, applyEnd, delay, taps, carryRe, carryIm, dr, di);
+                } else if (haveCarry) {
+                    applyFilter(xr, xi, pos, applyEnd, delay, taps, carryRe, carryIm, dr, di);
                 } else {
-                    for (int t = start; t < end; t++) {
+                    for (int t = pos; t < applyEnd; t++) {
                         dr[t] = xr[t];
                         di[t] = xi[t];
                     }

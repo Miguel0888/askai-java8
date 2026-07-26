@@ -83,6 +83,21 @@ public class WpeDereverberationTest {
         assertTrue("block-adaptive result differs from offline (diff=" + diff + ")", diff > 1000);
     }
 
+    @Test
+    public void streamingModeReducesTheTailWithBoundedHistory() {
+        short[] reverberant = reverberate(dryBursts(), 0.06d);
+        double before = tailToOnset(reverberant);
+        short[] work = reverberant.clone();
+        new WpeDereverberation(new WpeDereverberationSettings(
+                WpeDereverberationSettings.Mode.STREAMING, 1.0d, 2, 10, 3, 0.0d, false, 0.05d, 0.4d, 48))
+                .process(work, work.length, MONO, SpeechGate.NEVER);
+        double after = tailToOnset(work);
+        // Streaming uses only bounded history + a short look-ahead, so it is intentionally gentler than the
+        // offline pass; it still removes a clear part of the late tail.
+        assertTrue("streaming reduces the tail: before=" + before + " after=" + after,
+                after < before * 0.95d);
+    }
+
     private static short[] dryBursts() {
         short[] dry = new short[32000];
         int state = 97;
