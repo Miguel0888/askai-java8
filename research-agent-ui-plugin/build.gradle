@@ -1,0 +1,22 @@
+// External PF4J plugin: research workspace clickdummy (domain + state machine + UI + fake backend).
+// It is NOT on askai-app's classpath and NOT packed into the AskAI fat jar — it is built as a separate
+// plugin artifact and loaded from a plugin directory.
+//
+// The shared APIs and PF4J are provided by the HOST classloader, so they are `compileOnly` here and must
+// not be bundled into the plugin jar (that would break extension class identity across classloaders).
+dependencies {
+    compileOnly project(':agent-workspace-api')
+    compileOnly project(':agent-plugin-pf4j-api')
+    compileOnly 'org.pf4j:pf4j:3.15.0'
+    // Generates META-INF/extensions.idx from @Extension so PF4J can discover the extension.
+    annotationProcessor 'org.pf4j:pf4j:3.15.0'
+
+    testImplementation project(':agent-workspace-api')
+    testImplementation project(':agent-plugin-pf4j-api')
+    testImplementation 'org.pf4j:pf4j:3.15.0'
+    testImplementation 'junit:junit:4.13.2'
+}
+
+test {
+    useJUnit()
+}

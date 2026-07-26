@@ -1,0 +1,15 @@
+apply plugin: 'java-library'
+
+// The PF4J-backed plugin host: catalog, compatibility checks, workspace lifecycle, generic workspace host,
+// mode selector, plugin state/error handling. Contains NO research-specific classes.
+dependencies {
+    api project(':agent-workspace-api')
+    api project(':agent-plugin-pf4j-api')
+    implementation 'org.pf4j:pf4j:3.15.0'
+
+    testImplementation 'junit:junit:4.13.2'
+}
+
+test {
+    useJUnit()
+}

@@ -1,0 +1,10 @@
+// Generic, framework-free workspace + host-service contracts shared by the host and every workspace
+// plugin. Java 8 + Swing/AWT only — NO PF4J, Gson, Solon, ACP, MCP or askai-app dependency. This jar is
+// provided by the host classloader at runtime, so plugins must depend on it as `compileOnly`.
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
+}
+
+test {
+    useJUnit()
+}
