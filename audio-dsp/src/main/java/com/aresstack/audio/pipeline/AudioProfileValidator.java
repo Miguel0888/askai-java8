@@ -192,6 +192,24 @@ public final class AudioProfileValidator {
                                 "Best Channel Selector: the input is already mono at this point.");
                     }
                     break;
+                case MID_SIDE_PROCESSOR:
+                case STEREO_WIDTH_CONTROL:
+                    if (currentChannels != 0 && currentChannels != 2) {
+                        add(issues, block, enabled, AudioValidationSeverity.WARNING, null,
+                                block.getType().getDisplayName() + ": works on stereo only; the signal has "
+                                        + currentChannels + " channel(s) here.");
+                    }
+                    break;
+                case CENTER_SPEECH_EXTRACTOR:
+                    if (currentChannels != 0 && currentChannels != 2) {
+                        add(issues, block, enabled, AudioValidationSeverity.WARNING, null,
+                                "Center Speech Extractor: works on stereo only; the signal has "
+                                        + currentChannels + " channel(s) here.");
+                    }
+                    add(issues, block, enabled, AudioValidationSeverity.WARNING, null,
+                            "Center Speech Extractor: only for suitable stereo sources — it can damage "
+                                    + "off-centre speech and is not a replacement for voice isolation.");
+                    break;
                 case ADAPTIVE_NOISE_SUPPRESSION:
                     validateNoiseSuppression(issues, block, enabled, sawEnabledVad, sawEnabledNoiseProfiler);
                     break;

@@ -39,7 +39,10 @@ public enum AudioBlockType {
     PHASE_CORRELATION_ANALYZER("Phase and Correlation Analyzer"),
     CHANNEL_DELAY_ALIGNMENT("Channel Delay Alignment"),
     BEST_CHANNEL_SELECTOR("Best Channel Selector"),
-    CHANNEL_HEALTH_ANALYZER("Channel Health Analyzer");
+    CHANNEL_HEALTH_ANALYZER("Channel Health Analyzer"),
+    MID_SIDE_PROCESSOR("Mid/Side Processor"),
+    CENTER_SPEECH_EXTRACTOR("Center Speech Extractor"),
+    STEREO_WIDTH_CONTROL("Stereo Width Control");
 
     private final String displayName;
 

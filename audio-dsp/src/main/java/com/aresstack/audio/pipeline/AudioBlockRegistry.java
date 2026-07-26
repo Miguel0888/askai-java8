@@ -62,6 +62,9 @@ public final class AudioBlockRegistry {
         register(channelDelayAlignment());
         register(bestChannelSelector());
         register(channelHealthAnalyzer());
+        register(midSideProcessor());
+        register(centerSpeechExtractor());
+        register(stereoWidthControl());
     }
 
     public static AudioBlockRegistry getInstance() {
@@ -888,6 +891,66 @@ public final class AudioBlockRegistry {
                 new SimpleAudioBlockDescriptor.Summarizer() {
                     public String summarize(AudioBlockDefinition block) {
                         return "Detects silent/clipping/DC channels";
+                    }
+                });
+    }
+
+    private static AudioBlockDescriptor midSideProcessor() {
+        List<AudioParameterDescriptor> params = new ArrayList<AudioParameterDescriptor>();
+        params.add(AudioParameterDescriptor.decimal("midGainDb", "Mid gain (dB)", 0.0d, -24.0d, 24.0d, 0.5d));
+        params.add(AudioParameterDescriptor.decimal("sideGainDb", "Side gain (dB)", 0.0d, -24.0d, 24.0d, 0.5d));
+        params.add(AudioParameterDescriptor.decimal("sideReduction", "Side reduction", 0.0d, 0.0d, 1.0d, 0.05d));
+        params.add(AudioParameterDescriptor.bool("monoCompatibilityProtection",
+                "Mono compatibility protection", true));
+        return descriptor(AudioBlockType.MID_SIDE_PROCESSOR, AudioBlockCategory.INPUT_CHANNEL, params,
+                StaticBlockCapabilities.audioEffect(),
+                new SimpleAudioBlockDescriptor.ProcessorFactory() {
+                    public AudioBlockProcessor create() {
+                        return AudioBlockProcessors.midSideProcessor();
+                    }
+                },
+                new SimpleAudioBlockDescriptor.Summarizer() {
+                    public String summarize(AudioBlockDefinition block) {
+                        return "Mid " + formatDb(block.getDoubleParameter("midGainDb", 0.0d)) + " · Side "
+                                + formatDb(block.getDoubleParameter("sideGainDb", 0.0d));
+                    }
+                });
+    }
+
+    private static AudioBlockDescriptor centerSpeechExtractor() {
+        List<AudioParameterDescriptor> params = new ArrayList<AudioParameterDescriptor>();
+        params.add(AudioParameterDescriptor.decimal("centerAmount", "Center amount", 0.6d, 0.0d, 1.0d, 0.05d));
+        params.add(AudioParameterDescriptor.decimal("centerBoostDb", "Center boost (dB)", 0.0d, 0.0d, 12.0d, 0.5d));
+        return descriptor(AudioBlockType.CENTER_SPEECH_EXTRACTOR, AudioBlockCategory.SPEECH_ENHANCEMENT, params,
+                StaticBlockCapabilities.audioEffect(),
+                new SimpleAudioBlockDescriptor.ProcessorFactory() {
+                    public AudioBlockProcessor create() {
+                        return AudioBlockProcessors.centerSpeechExtractor();
+                    }
+                },
+                new SimpleAudioBlockDescriptor.Summarizer() {
+                    public String summarize(AudioBlockDefinition block) {
+                        return "Center " + formatQ(block.getDoubleParameter("centerAmount", 0.0d))
+                                + " (stereo only)";
+                    }
+                });
+    }
+
+    private static AudioBlockDescriptor stereoWidthControl() {
+        List<AudioParameterDescriptor> params = new ArrayList<AudioParameterDescriptor>();
+        params.add(AudioParameterDescriptor.decimal("width", "Width", 1.0d, 0.0d, 2.0d, 0.05d));
+        params.add(AudioParameterDescriptor.bool("monoCompatibilityProtection",
+                "Mono compatibility protection", true));
+        return descriptor(AudioBlockType.STEREO_WIDTH_CONTROL, AudioBlockCategory.INPUT_CHANNEL, params,
+                StaticBlockCapabilities.audioEffect(),
+                new SimpleAudioBlockDescriptor.ProcessorFactory() {
+                    public AudioBlockProcessor create() {
+                        return AudioBlockProcessors.stereoWidthControl();
+                    }
+                },
+                new SimpleAudioBlockDescriptor.Summarizer() {
+                    public String summarize(AudioBlockDefinition block) {
+                        return "Width " + formatQ(block.getDoubleParameter("width", 1.0d));
                     }
                 });
     }

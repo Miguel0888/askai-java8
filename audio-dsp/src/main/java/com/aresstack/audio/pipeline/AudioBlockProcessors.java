@@ -32,6 +32,7 @@ import com.aresstack.audio.dsp.SpectralNoiseSuppressor;
 import com.aresstack.audio.dsp.SpeechLevelerProcessor;
 import com.aresstack.audio.dsp.SpeechLevelerSettings;
 import com.aresstack.audio.dsp.SpeechLevelerState;
+import com.aresstack.audio.dsp.StereoOps;
 import com.aresstack.audio.dsp.WpeDereverberation;
 import com.aresstack.audio.dsp.WpeDereverberationSettings;
 import com.aresstack.audio.dsp.ExpanderProcessor;
@@ -718,6 +719,62 @@ final class AudioBlockProcessors {
                 return input;
             }
         };
+    }
+
+    /** Mid/Side Processor: independent mid/side gains with mono-compatibility protection. Stereo only. */
+    static AudioBlockProcessor midSideProcessor() {
+        return new AudioBlockProcessor() {
+            public AudioBuffer process(AudioBuffer input, AudioBlockDefinition block, AudioProcessingContext context) {
+                if (input.getFormat().getChannels() != 2) {
+                    return input;
+                }
+                double midGain = Math.pow(10.0d, block.getDoubleParameter("midGainDb", 0.0d) / 20.0d);
+                double sideGain = Math.pow(10.0d, block.getDoubleParameter("sideGainDb", 0.0d) / 20.0d);
+                double sideReduction = block.getDoubleParameter("sideReduction", 0.0d);
+                sideGain *= Math.max(0.0d, 1.0d - sideReduction);
+                StereoOps.applyMidSide(input.getSamples(), input.getSamples().length, midGain, sideGain,
+                        block.getBooleanParameter("monoCompatibilityProtection", true));
+                return input;
+            }
+        };
+    }
+
+    /** Center Speech Extractor: emphasize centred (mid) speech and reduce lateral (side) content. Stereo only. */
+    static AudioBlockProcessor centerSpeechExtractor() {
+        return new AudioBlockProcessor() {
+            public AudioBuffer process(AudioBuffer input, AudioBlockDefinition block, AudioProcessingContext context) {
+                if (input.getFormat().getChannels() != 2) {
+                    return input;
+                }
+                double centerAmount = clamp01(block.getDoubleParameter("centerAmount", 0.6d));
+                double midGain = Math.pow(10.0d, block.getDoubleParameter("centerBoostDb", 0.0d) / 20.0d);
+                StereoOps.applyMidSide(input.getSamples(), input.getSamples().length, midGain,
+                        1.0d - centerAmount, true);
+                return input;
+            }
+        };
+    }
+
+    /** Stereo Width Control: scale the side signal to narrow/widen, keeping the centre. Stereo only. */
+    static AudioBlockProcessor stereoWidthControl() {
+        return new AudioBlockProcessor() {
+            public AudioBuffer process(AudioBuffer input, AudioBlockDefinition block, AudioProcessingContext context) {
+                if (input.getFormat().getChannels() != 2) {
+                    return input;
+                }
+                double width = block.getDoubleParameter("width", 1.0d);
+                StereoOps.applyMidSide(input.getSamples(), input.getSamples().length, 1.0d, width,
+                        block.getBooleanParameter("monoCompatibilityProtection", true));
+                return input;
+            }
+        };
+    }
+
+    private static double clamp01(double value) {
+        if (Double.isNaN(value) || value < 0.0d) {
+            return 0.0d;
+        }
+        return value > 1.0d ? 1.0d : value;
     }
 
     /** Channel Delay Alignment: time-align channels to a reference (auto cross-correlation or manual). */
