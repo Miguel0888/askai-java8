@@ -58,3 +58,23 @@ with slice, affected function, concrete blocker, tried approaches, impact and po
   `NoiseProfile`/`RoomProfile`/`MicrophoneArrayProfile` (versioned JSON envelope, atomic write, id
   resolver placed into the processing context before a run).
 
+## Slice 13A — RNNoise native runtime not bundled
+
+- **Slice:** 13A
+- **Affected function:** Running RNNoise as a Speech Enhancer backend.
+- **Blocker:** RNNoise is a native (C) library and needs a JNI binding + the native `.dll/.so/.dylib` at
+  runtime. Neither the native library nor a Java 8 JNI binding is bundled in this repository (and the core
+  fat JAR must stay free of native binaries). There is no vetted, license-clean, Java-8-compatible RNNoise
+  binding available to embed here without shipping platform binaries.
+- **What is implemented:** The full backend abstraction (`SpeechEnhancementBackend` SPI +
+  `SpeechEnhancementBackends` registry with ServiceLoader discovery), an always-available pure-Java backend
+  (adaptive spectral suppression) that makes the Speech Enhancer block functional, and an `RnnoiseSpeechEnhancer`
+  adapter that probes a runtime system property (`askai.audio.rnnoise.runtime`) and reports `NOT_INSTALLED`.
+  When the backend is unavailable the block passes audio through unchanged and the validator shows the status;
+  the core never depends on the native backend.
+- **Impact:** No live RNNoise processing in this environment. Everything around it (selection, availability,
+  graceful-missing, editability) works.
+- **Possible later solution:** Add a separate optional Gradle module `audio-dsp-rnnoise` that ships the JNI
+  binding + downloads/loads the native library on explicit user opt-in (like the OpenAL add-on) and registers
+  a real backend through the ServiceLoader. The core needs no change.
+

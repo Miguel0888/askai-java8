@@ -2,6 +2,8 @@ package com.aresstack.audio.pipeline;
 
 import com.aresstack.audio.domain.AudioBuffer;
 import com.aresstack.audio.domain.PcmAudioFormat;
+import com.aresstack.audio.enhance.SpeechEnhancementBackend;
+import com.aresstack.audio.enhance.SpeechEnhancementBackends;
 import com.aresstack.audio.dsp.ButterworthFilterProcessor;
 import com.aresstack.audio.dsp.CompressorProcessor;
 import com.aresstack.audio.dsp.DcOffsetRemovalProcessor;
@@ -651,6 +653,29 @@ final class AudioBlockProcessors {
                         .analyze(input.getSamples(), input.getSamples().length, input.getFormat());
                 context.setRoomProfile(profile);
                 return input; // analysis only — audio is passed through untouched
+            }
+        };
+    }
+
+    /**
+     * Speech Enhancer: a general block that runs a selectable speech-enhancement backend. The pure-Java
+     * backend always works; optional native/model backends run only when available. When the selected
+     * backend is missing (or its runtime/model is absent), the audio passes through unchanged so the profile
+     * stays editable and never crashes — the validator surfaces the status.
+     */
+    static AudioBlockProcessor speechEnhancer() {
+        return new AudioBlockProcessor() {
+            public AudioBuffer process(AudioBuffer input, AudioBlockDefinition block, AudioProcessingContext context) {
+                SpeechEnhancementBackend backend = SpeechEnhancementBackends.resolve(
+                        block.getParameter("backend", "PURE_JAVA_DSP"));
+                if (backend == null || !backend.availability(input.getFormat()).isRunnable()) {
+                    return input; // missing/uninstalled backend: pass through, never fail
+                }
+                backend.enhance(input.getSamples(), input.getSamples().length, input.getFormat(),
+                        block.getDoubleParameter("strength", 0.6d),
+                        block.getBooleanParameter("speechProtection", true),
+                        block.getDoubleParameter("artifactProtection", 0.4d));
+                return input;
             }
         };
     }

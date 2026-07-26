@@ -67,6 +67,7 @@ public final class AudioBlockRegistry {
         register(stereoWidthControl());
         register(delayAndSumBeamformer());
         register(directionOfArrivalAnalyzer());
+        register(speechEnhancer());
     }
 
     public static AudioBlockRegistry getInstance() {
@@ -953,6 +954,39 @@ public final class AudioBlockRegistry {
                 new SimpleAudioBlockDescriptor.Summarizer() {
                     public String summarize(AudioBlockDefinition block) {
                         return "Width " + formatQ(block.getDoubleParameter("width", 1.0d));
+                    }
+                });
+    }
+
+    private static AudioBlockDescriptor speechEnhancer() {
+        List<AudioParameterChoice> backends = new ArrayList<AudioParameterChoice>();
+        for (com.aresstack.audio.enhance.SpeechEnhancementBackend backend
+                : com.aresstack.audio.enhance.SpeechEnhancementBackends.all()) {
+            backends.add(new AudioParameterChoice(backend.id(), backend.displayName()));
+        }
+        List<AudioParameterDescriptor> params = new ArrayList<AudioParameterDescriptor>();
+        params.add(AudioParameterDescriptor.choice("backend", "Backend", "PURE_JAVA_DSP", backends));
+        params.add(AudioParameterDescriptor.decimal("strength", "Strength", 0.6d, 0.0d, 1.0d, 0.05d));
+        params.add(AudioParameterDescriptor.bool("speechProtection", "Speech protection", true));
+        params.add(AudioParameterDescriptor.decimal("artifactProtection", "Artifact protection",
+                0.4d, 0.0d, 1.0d, 0.05d));
+        params.add(AudioParameterDescriptor.integer("targetSampleRate", "Target sample rate (Hz, 0 = any)",
+                0, 0, 192000));
+        params.add(AudioParameterDescriptor.text("modelId", "Model / profile id", ""));
+        AudioBlockCapabilities capabilities = StaticBlockCapabilities.builder()
+                .consumesSpeechMetadata(true)
+                .build();
+        return descriptor(AudioBlockType.SPEECH_ENHANCER, AudioBlockCategory.SPEECH_ENHANCEMENT, params,
+                capabilities,
+                new SimpleAudioBlockDescriptor.ProcessorFactory() {
+                    public AudioBlockProcessor create() {
+                        return AudioBlockProcessors.speechEnhancer();
+                    }
+                },
+                new SimpleAudioBlockDescriptor.Summarizer() {
+                    public String summarize(AudioBlockDefinition block) {
+                        return block.getParameter("backend", "PURE_JAVA_DSP") + " · strength "
+                                + formatQ(block.getDoubleParameter("strength", 0.0d));
                     }
                 });
     }

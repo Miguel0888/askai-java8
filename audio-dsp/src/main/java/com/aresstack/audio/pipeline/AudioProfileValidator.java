@@ -216,6 +216,9 @@ public final class AudioProfileValidator {
                 case DIRECTION_OF_ARRIVAL_ANALYZER:
                     validateDirectionOfArrival(issues, block, enabled, currentChannels);
                     break;
+                case SPEECH_ENHANCER:
+                    validateSpeechEnhancer(issues, block, enabled, inputFormat);
+                    break;
                 case ADAPTIVE_NOISE_SUPPRESSION:
                     validateNoiseSuppression(issues, block, enabled, sawEnabledVad, sawEnabledNoiseProfiler);
                     break;
@@ -521,6 +524,21 @@ public final class AudioProfileValidator {
                     name + ": needs at least two synchronized channels; the signal is mono at this point.");
         }
         positiveError(issues, block, enabled, name, "speedOfSoundMmPerS", "Speed of sound");
+    }
+
+    private void validateSpeechEnhancer(List<AudioProfileValidationIssue> issues, AudioBlockDefinition block,
+                                        boolean enabled, PcmAudioFormat inputFormat) {
+        String name = block.getType().getDisplayName();
+        rangeError(issues, block, enabled, name, "strength", "Strength", 0.0d, 1.0d);
+        rangeError(issues, block, enabled, name, "artifactProtection", "Artifact protection", 0.0d, 1.0d);
+        String backendId = block.getParameter("backend", "PURE_JAVA_DSP");
+        com.aresstack.audio.enhance.BackendAvailability availability =
+                com.aresstack.audio.enhance.SpeechEnhancementBackends.availability(backendId, inputFormat);
+        if (!availability.isRunnable()) {
+            add(issues, block, enabled, AudioValidationSeverity.WARNING, "backend",
+                    name + ": the \"" + backendId + "\" backend is " + availability.getDisplayName().toLowerCase()
+                            + "; the block passes the audio through unchanged until it is available.");
+        }
     }
 
     private void validateDirectionOfArrival(List<AudioProfileValidationIssue> issues, AudioBlockDefinition block,
