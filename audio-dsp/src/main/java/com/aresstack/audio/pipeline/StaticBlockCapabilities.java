@@ -18,6 +18,12 @@ public final class StaticBlockCapabilities implements AudioBlockCapabilities {
     private final boolean requiresRoomProfile;
     private final boolean supportsStreaming;
     private final boolean supportsOffline;
+    private final boolean preservesChannelCount;
+    private final boolean consumesSpeechMetadata;
+    private final boolean requiresSpeechActivityTrack;
+    private final boolean changesDuration;
+    private final boolean changesSampleCount;
+    private final boolean requiresCompleteSignal;
 
     private StaticBlockCapabilities(Builder builder) {
         this.requiresFraming = builder.requiresFraming;
@@ -31,6 +37,12 @@ public final class StaticBlockCapabilities implements AudioBlockCapabilities {
         this.requiresRoomProfile = builder.requiresRoomProfile;
         this.supportsStreaming = builder.supportsStreaming;
         this.supportsOffline = builder.supportsOffline;
+        this.preservesChannelCount = builder.preservesChannelCount;
+        this.consumesSpeechMetadata = builder.consumesSpeechMetadata;
+        this.requiresSpeechActivityTrack = builder.requiresSpeechActivityTrack;
+        this.changesDuration = builder.changesDuration;
+        this.changesSampleCount = builder.changesSampleCount;
+        this.requiresCompleteSignal = builder.requiresCompleteSignal;
     }
 
     /** @return capabilities for a plain audio effect: modifies audio, any rate, no framing, offline+streaming. */
@@ -86,6 +98,30 @@ public final class StaticBlockCapabilities implements AudioBlockCapabilities {
         return supportsOffline;
     }
 
+    public boolean preservesChannelCount() {
+        return preservesChannelCount;
+    }
+
+    public boolean consumesSpeechMetadata() {
+        return consumesSpeechMetadata;
+    }
+
+    public boolean requiresSpeechActivityTrack() {
+        return requiresSpeechActivityTrack;
+    }
+
+    public boolean changesDuration() {
+        return changesDuration;
+    }
+
+    public boolean changesSampleCount() {
+        return changesSampleCount;
+    }
+
+    public boolean requiresCompleteSignal() {
+        return requiresCompleteSignal;
+    }
+
     public static final class Builder {
         private boolean requiresFraming;
         private int preferredFrameSize;
@@ -98,6 +134,12 @@ public final class StaticBlockCapabilities implements AudioBlockCapabilities {
         private boolean requiresRoomProfile;
         private boolean supportsStreaming = true;
         private boolean supportsOffline = true;
+        private boolean preservesChannelCount = true;
+        private boolean consumesSpeechMetadata;
+        private boolean requiresSpeechActivityTrack;
+        private boolean changesDuration;
+        private boolean changesSampleCount;
+        private boolean requiresCompleteSignal;
 
         public Builder framing(int frameSize, int lookAhead, int history) {
             this.requiresFraming = true;
@@ -139,6 +181,36 @@ public final class StaticBlockCapabilities implements AudioBlockCapabilities {
 
         public Builder offline(boolean value) {
             this.supportsOffline = value;
+            return this;
+        }
+
+        public Builder preservesChannelCount(boolean value) {
+            this.preservesChannelCount = value;
+            return this;
+        }
+
+        public Builder consumesSpeechMetadata(boolean value) {
+            this.consumesSpeechMetadata = value;
+            return this;
+        }
+
+        public Builder requiresSpeechActivityTrack(boolean value) {
+            this.requiresSpeechActivityTrack = value;
+            return this;
+        }
+
+        public Builder changesDuration(boolean value) {
+            this.changesDuration = value;
+            return this;
+        }
+
+        public Builder changesSampleCount(boolean value) {
+            this.changesSampleCount = value;
+            return this;
+        }
+
+        public Builder requiresCompleteSignal(boolean value) {
+            this.requiresCompleteSignal = value;
             return this;
         }
 

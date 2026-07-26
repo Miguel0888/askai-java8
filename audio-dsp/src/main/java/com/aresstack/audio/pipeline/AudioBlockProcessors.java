@@ -16,6 +16,12 @@ import com.aresstack.audio.dsp.Pcm16Processor;
 import com.aresstack.audio.dsp.Pcm16Resampler;
 import com.aresstack.audio.dsp.PcmChannelConverter;
 import com.aresstack.audio.dsp.ResamplingQuality;
+import com.aresstack.audio.dsp.ExpanderProcessor;
+import com.aresstack.audio.dsp.ExpanderSettings;
+import com.aresstack.audio.dsp.ExpanderState;
+import com.aresstack.audio.dsp.SilenceTrimNoSpeechBehavior;
+import com.aresstack.audio.dsp.SilenceTrimmer;
+import com.aresstack.audio.dsp.SilenceTrimmerSettings;
 import com.aresstack.audio.dsp.SoftNoiseGateProcessor;
 import com.aresstack.audio.dsp.SpeechActivityTrack;
 import com.aresstack.audio.dsp.VoiceActivityDetector;
@@ -229,7 +235,8 @@ final class AudioBlockProcessors {
 
                 VoiceActivityDetector detector = new VoiceActivityDetector();
                 VoiceActivityDetectorState state = new VoiceActivityDetectorState();
-                SpeechActivityTrack track = new SpeechActivityTrack();
+                SpeechActivityTrack track = new SpeechActivityTrack(
+                        format.getSampleRateHz(), channels, framePerChannel);
                 short[] samples = input.getSamples();
                 for (int start = 0; start < samples.length; start += frameInterleaved) {
                     int count = Math.min(frameInterleaved, samples.length - start);
@@ -240,6 +247,83 @@ final class AudioBlockProcessors {
                 return input; // analysis only — audio is passed through untouched
             }
         };
+    }
+
+    /**
+     * Soft downward expander. Format-preserving; reads the optional upstream speech-activity track from the
+     * context for speech protection (never duplicating a detector), and runs level-based when none is present.
+     */
+    static AudioBlockProcessor expander() {
+        return new AudioBlockProcessor() {
+            public AudioBuffer process(AudioBuffer input, AudioBlockDefinition block, AudioProcessingContext context) {
+                ExpanderSettings settings = new ExpanderSettings(
+                        block.getDoubleParameter("thresholdDb", -45.0d),
+                        block.getDoubleParameter("ratio", 2.0d),
+                        block.getDoubleParameter("kneeDb", 6.0d),
+                        block.getDoubleParameter("attackMs", 10.0d),
+                        block.getDoubleParameter("releaseMs", 200.0d),
+                        block.getDoubleParameter("holdMs", 50.0d),
+                        block.getDoubleParameter("maxAttenuationDb", 18.0d),
+                        block.getDoubleParameter("detectorWindowMs", 20.0d),
+                        block.getBooleanParameter("speechProtection", false),
+                        block.getDoubleParameter("minSpeechProbability", 0.5d));
+                SpeechActivityTrack track = settings.isSpeechProtection() ? context.getSpeechActivity() : null;
+                new ExpanderProcessor(settings).process(input.getSamples(), input.getSamples().length,
+                        input.getFormat(), new ExpanderState(), track);
+                return input;
+            }
+        };
+    }
+
+    /**
+     * Leading/trailing silence trimmer. Uses the upstream speech-activity track only; without one it passes
+     * the audio through unchanged (the validator blocks that configuration). Trimming changes the sample
+     * count, so a new buffer is returned and the now-stale speech track is invalidated for later blocks.
+     */
+    static AudioBlockProcessor silenceTrimmer() {
+        return new AudioBlockProcessor() {
+            public AudioBuffer process(AudioBuffer input, AudioBlockDefinition block, AudioProcessingContext context) {
+                SpeechActivityTrack track = context.getSpeechActivity();
+                if (track == null) {
+                    return input; // no usable track: never fall back to a hidden energy detector
+                }
+                SilenceTrimmerSettings settings = new SilenceTrimmerSettings(
+                        block.getBooleanParameter("trimLeading", true),
+                        block.getBooleanParameter("trimTrailing", true),
+                        block.getDoubleParameter("minSpeechProbability", 0.5d),
+                        block.getDoubleParameter("preRollMs", 200.0d),
+                        block.getDoubleParameter("postRollMs", 350.0d),
+                        block.getDoubleParameter("minRetainedMs", 400.0d),
+                        parseNoSpeech(block.getParameter("noSpeechBehavior", "KEEP_ORIGINAL")),
+                        block.getBooleanParameter("zeroCrossingAlignment", true),
+                        block.getDoubleParameter("zeroCrossingSearchMs", 5.0d));
+                SilenceTrimmer.TrimBounds bounds = new SilenceTrimmer()
+                        .computeBounds(input.getSamples(), input.getFormat(), track, settings);
+                if (bounds.noSpeech) {
+                    if (settings.getNoSpeechBehavior() == SilenceTrimNoSpeechBehavior.FAIL) {
+                        throw new IllegalStateException(
+                                "Silence Trimmer: no speech detected in the recording.");
+                    }
+                    return input; // KEEP_ORIGINAL
+                }
+                if (!bounds.trimmed) {
+                    return input;
+                }
+                int length = bounds.endInterleaved - bounds.startInterleaved;
+                short[] trimmed = new short[length];
+                System.arraycopy(input.getSamples(), bounds.startInterleaved, trimmed, 0, length);
+                context.setSpeechActivity(null); // the track no longer matches the trimmed time base
+                return new AudioBuffer(trimmed, input.getFormat());
+            }
+        };
+    }
+
+    private static SilenceTrimNoSpeechBehavior parseNoSpeech(String value) {
+        try {
+            return SilenceTrimNoSpeechBehavior.valueOf(value);
+        } catch (RuntimeException ex) {
+            return SilenceTrimNoSpeechBehavior.KEEP_ORIGINAL;
+        }
     }
 
     /** Wrap a per-block {@link Pcm16Processor} as an in-place, format-preserving buffer processor. */

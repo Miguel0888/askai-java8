@@ -12,6 +12,56 @@ import java.util.List;
 public final class SpeechActivityTrack {
 
     private final List<SpeechActivityMetadata> frames = new ArrayList<SpeechActivityMetadata>();
+    private final int sampleRateHz;
+    private final int channels;
+    private final int frameSampleCountPerChannel;
+
+    public SpeechActivityTrack() {
+        this(0, 0, 0);
+    }
+
+    /**
+     * Create a track that also records the time base it was measured on, so later blocks can map a sample
+     * position to its frame without guessing the framing.
+     */
+    public SpeechActivityTrack(int sampleRateHz, int channels, int frameSampleCountPerChannel) {
+        this.sampleRateHz = sampleRateHz;
+        this.channels = channels;
+        this.frameSampleCountPerChannel = frameSampleCountPerChannel;
+    }
+
+    public int getSampleRateHz() {
+        return sampleRateHz;
+    }
+
+    public int getChannels() {
+        return channels;
+    }
+
+    public int getFrameSampleCountPerChannel() {
+        return frameSampleCountPerChannel;
+    }
+
+    /** @return the number of interleaved samples per frame, or 0 when the time base is unknown. */
+    public int getFrameSampleCountInterleaved() {
+        return frameSampleCountPerChannel * channels;
+    }
+
+    /** @return the metadata for the frame that contains the given interleaved sample index, or null. */
+    public SpeechActivityMetadata frameForInterleavedIndex(int interleavedIndex) {
+        int frameInterleaved = getFrameSampleCountInterleaved();
+        if (frameInterleaved <= 0 || frames.isEmpty()) {
+            return null;
+        }
+        int frame = interleavedIndex / frameInterleaved;
+        if (frame < 0) {
+            frame = 0;
+        }
+        if (frame >= frames.size()) {
+            frame = frames.size() - 1;
+        }
+        return frames.get(frame);
+    }
 
     public void add(SpeechActivityMetadata metadata) {
         if (metadata != null) {

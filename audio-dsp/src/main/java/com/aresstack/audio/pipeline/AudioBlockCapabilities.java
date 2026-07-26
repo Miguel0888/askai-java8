@@ -38,4 +38,29 @@ public interface AudioBlockCapabilities {
     default boolean preservesChannelCount() {
         return true;
     }
+
+    /** @return whether the block reads speech-activity metadata produced upstream (optional consumer). */
+    default boolean consumesSpeechMetadata() {
+        return false;
+    }
+
+    /** @return whether the block requires an upstream speech-activity track to function at all. */
+    default boolean requiresSpeechActivityTrack() {
+        return false;
+    }
+
+    /** @return whether the block changes the signal duration (and therefore the time base of later blocks). */
+    default boolean changesDuration() {
+        return false;
+    }
+
+    /** @return whether the block changes the sample count. */
+    default boolean changesSampleCount() {
+        return false;
+    }
+
+    /** @return whether the block needs the complete signal at once (i.e. is inherently offline, not streaming). */
+    default boolean requiresCompleteSignal() {
+        return false;
+    }
 }

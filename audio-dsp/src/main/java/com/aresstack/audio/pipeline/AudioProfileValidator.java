@@ -77,6 +77,9 @@ public final class AudioProfileValidator {
         }
         int currentRate = inputFormat == null ? 0 : inputFormat.getSampleRateHz();
         boolean sawChannelMixer = false;
+        boolean sawEnabledVad = false;
+        boolean timeBaseChangedAfterVad = false;
+        int silenceTrimmerCount = 0;
         List<AudioBlockDefinition> blocks = profile.getBlocks();
         for (int i = 0; i < blocks.size(); i++) {
             AudioBlockDefinition block = blocks.get(i);
@@ -84,6 +87,9 @@ public final class AudioProfileValidator {
             boolean enabled = block.isEnabled();
             if (type == AudioBlockType.CHANNEL_MIXER) {
                 sawChannelMixer = true;
+            }
+            if (type == AudioBlockType.VOICE_ACTIVITY_DETECTION && enabled) {
+                sawEnabledVad = true;
             }
             validateParseable(issues, block, enabled);
             switch (type) {
@@ -114,8 +120,20 @@ public final class AudioProfileValidator {
                 case VOICE_ACTIVITY_DETECTION:
                     validateVoiceActivity(issues, block, enabled);
                     break;
+                case EXPANDER:
+                    validateExpander(issues, block, enabled, sawEnabledVad);
+                    break;
+                case SILENCE_TRIMMER:
+                    silenceTrimmerCount++;
+                    validateSilenceTrimmer(issues, block, enabled, sawEnabledVad,
+                            timeBaseChangedAfterVad, silenceTrimmerCount);
+                    break;
                 default:
                     break;
+            }
+            // After validating this block, note whether it shifts the time base for anything downstream.
+            if (enabled && sawEnabledVad && isTimeBaseChanger(type)) {
+                timeBaseChangedAfterVad = true;
             }
         }
         return new AudioProfileValidationResult(issues);
@@ -265,6 +283,70 @@ public final class AudioProfileValidator {
         if (!isFinite(adapt) || adapt <= 0.0d || adapt > 0.5d) {
             add(issues, block, enabled, AudioValidationSeverity.ERROR, "noiseAdaptationSpeed",
                     name + ": the noise adaptation speed must be a finite value in (0, 0.5].");
+        }
+    }
+
+    private void validateExpander(List<AudioProfileValidationIssue> issues, AudioBlockDefinition block,
+                                  boolean enabled, boolean sawEnabledVad) {
+        String name = block.getType().getDisplayName();
+        double ratio = block.getDoubleParameter("ratio", 2.0d);
+        if (!isFinite(ratio) || ratio < 1.0d) {
+            add(issues, block, enabled, AudioValidationSeverity.ERROR, "ratio",
+                    name + ": the ratio must be a finite value of 1.0 or greater.");
+        }
+        double maxAtt = block.getDoubleParameter("maxAttenuationDb", 0.0d);
+        if (!isFinite(maxAtt) || maxAtt < 0.0d) {
+            add(issues, block, enabled, AudioValidationSeverity.ERROR, "maxAttenuationDb",
+                    name + ": the maximum attenuation must be a finite value of 0 dB or more.");
+        }
+        finiteError(issues, block, enabled, name, "thresholdDb", "Threshold");
+        nonNegativeError(issues, block, enabled, name, "attackMs", "Attack");
+        nonNegativeError(issues, block, enabled, name, "releaseMs", "Release");
+        nonNegativeError(issues, block, enabled, name, "holdMs", "Hold");
+        nonNegativeError(issues, block, enabled, name, "kneeDb", "Knee");
+        rangeError(issues, block, enabled, name, "minSpeechProbability", "Minimum speech probability",
+                0.0d, 1.0d);
+        if (block.getBooleanParameter("speechProtection", false) && !sawEnabledVad) {
+            add(issues, block, enabled, AudioValidationSeverity.WARNING, "speechProtection",
+                    name + ": speech protection needs a Voice Activity Detection block upstream; "
+                            + "it runs level-based only until then.");
+        }
+    }
+
+    private void validateSilenceTrimmer(List<AudioProfileValidationIssue> issues, AudioBlockDefinition block,
+                                        boolean enabled, boolean sawEnabledVad,
+                                        boolean timeBaseChangedAfterVad, int occurrence) {
+        String name = block.getType().getDisplayName();
+        if (!sawEnabledVad) {
+            add(issues, block, enabled, AudioValidationSeverity.ERROR, null,
+                    name + ": requires a Voice Activity Detection block before it.");
+        } else if (timeBaseChangedAfterVad) {
+            add(issues, block, enabled, AudioValidationSeverity.ERROR, null,
+                    name + ": a block that changes the time base (e.g. Resampler) must not sit between "
+                            + "Voice Activity Detection and Silence Trimmer.");
+        }
+        if (occurrence > 1) {
+            add(issues, block, enabled, AudioValidationSeverity.WARNING, null,
+                    name + ": a second silence trimmer has no additional defined effect.");
+        }
+        nonNegativeError(issues, block, enabled, name, "preRollMs", "Pre-roll");
+        nonNegativeError(issues, block, enabled, name, "postRollMs", "Post-roll");
+        nonNegativeError(issues, block, enabled, name, "minRetainedMs", "Minimum retained duration");
+        nonNegativeError(issues, block, enabled, name, "zeroCrossingSearchMs", "Zero-crossing search window");
+        rangeError(issues, block, enabled, name, "minSpeechProbability", "Minimum speech probability",
+                0.0d, 1.0d);
+    }
+
+    private static boolean isTimeBaseChanger(AudioBlockType type) {
+        return type == AudioBlockType.RESAMPLER || type == AudioBlockType.SILENCE_TRIMMER;
+    }
+
+    private void finiteError(List<AudioProfileValidationIssue> issues, AudioBlockDefinition block,
+                             boolean enabled, String name, String key, String label) {
+        double value = block.getDoubleParameter(key, 0.0d);
+        if (!isFinite(value)) {
+            add(issues, block, enabled, AudioValidationSeverity.ERROR, key,
+                    name + ": " + label + " must be a finite value.");
         }
     }
 

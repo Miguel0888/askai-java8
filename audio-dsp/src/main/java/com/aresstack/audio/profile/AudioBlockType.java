@@ -16,7 +16,9 @@ public enum AudioBlockType {
     PARAMETRIC_EQ("Parametric Equalizer"),
     LOW_SHELF("Low-Shelf Equalizer"),
     HIGH_SHELF("High-Shelf Equalizer"),
-    VOICE_ACTIVITY_DETECTION("Voice Activity Detection");
+    VOICE_ACTIVITY_DETECTION("Voice Activity Detection"),
+    EXPANDER("Expander"),
+    SILENCE_TRIMMER("Silence Trimmer");
 
     private final String displayName;
 

@@ -39,6 +39,8 @@ public final class AudioBlockRegistry {
         register(lowShelfEqualizer());
         register(highShelfEqualizer());
         register(voiceActivityDetection());
+        register(expander());
+        register(silenceTrimmer());
     }
 
     public static AudioBlockRegistry getInstance() {
@@ -380,6 +382,86 @@ public final class AudioBlockRegistry {
                                         block.getDoubleParameter("minSpeechProbability", 0.5d));
                     }
                 });
+    }
+
+    private static AudioBlockDescriptor expander() {
+        List<AudioParameterDescriptor> params = new ArrayList<AudioParameterDescriptor>();
+        params.add(AudioParameterDescriptor.decimal("thresholdDb", "Threshold (dBFS)", -45.0d, -80.0d, 0.0d, 1.0d));
+        params.add(AudioParameterDescriptor.decimal("ratio", "Ratio", 2.0d, 1.0d, 20.0d, 0.5d));
+        params.add(AudioParameterDescriptor.decimal("kneeDb", "Knee (dB)", 6.0d, 0.0d, 24.0d, 1.0d));
+        params.add(AudioParameterDescriptor.decimal("attackMs", "Attack (ms)", 10.0d, 0.0d, 500.0d, 1.0d));
+        params.add(AudioParameterDescriptor.decimal("releaseMs", "Release (ms)", 200.0d, 10.0d, 5000.0d, 10.0d));
+        params.add(AudioParameterDescriptor.decimal("holdMs", "Hold (ms)", 50.0d, 0.0d, 2000.0d, 10.0d));
+        params.add(AudioParameterDescriptor.decimal("maxAttenuationDb", "Maximum attenuation (dB)",
+                18.0d, 0.0d, 80.0d, 1.0d));
+        params.add(AudioParameterDescriptor.decimal("detectorWindowMs", "Detector window (ms)",
+                20.0d, 5.0d, 100.0d, 1.0d));
+        params.add(AudioParameterDescriptor.bool("speechProtection", "Speech protection", false));
+        params.add(AudioParameterDescriptor.decimal("minSpeechProbability", "Min speech probability",
+                0.5d, 0.0d, 1.0d, 0.05d));
+        AudioBlockCapabilities capabilities = StaticBlockCapabilities.builder()
+                .framing(320, 0, 0)
+                .consumesSpeechMetadata(true)
+                .build();
+        return descriptor(AudioBlockType.EXPANDER, AudioBlockCategory.DYNAMICS, params, capabilities,
+                new SimpleAudioBlockDescriptor.ProcessorFactory() {
+                    public AudioBlockProcessor create() {
+                        return AudioBlockProcessors.expander();
+                    }
+                },
+                new SimpleAudioBlockDescriptor.Summarizer() {
+                    public String summarize(AudioBlockDefinition block) {
+                        return formatHz0(block.getDoubleParameter("thresholdDb", 0.0d)) + " dB · "
+                                + formatQ(block.getDoubleParameter("ratio", 1.0d)) + ":1 · max -"
+                                + formatQ(block.getDoubleParameter("maxAttenuationDb", 0.0d)) + " dB";
+                    }
+                });
+    }
+
+    private static AudioBlockDescriptor silenceTrimmer() {
+        List<AudioParameterDescriptor> params = new ArrayList<AudioParameterDescriptor>();
+        params.add(AudioParameterDescriptor.bool("trimLeading", "Trim leading silence", true));
+        params.add(AudioParameterDescriptor.bool("trimTrailing", "Trim trailing silence", true));
+        params.add(AudioParameterDescriptor.decimal("minSpeechProbability", "Min speech probability",
+                0.5d, 0.0d, 1.0d, 0.05d));
+        params.add(AudioParameterDescriptor.decimal("preRollMs", "Pre-roll (ms)", 200.0d, 0.0d, 5000.0d, 10.0d));
+        params.add(AudioParameterDescriptor.decimal("postRollMs", "Post-roll (ms)", 350.0d, 0.0d, 5000.0d, 10.0d));
+        params.add(AudioParameterDescriptor.decimal("minRetainedMs", "Minimum retained (ms)",
+                400.0d, 0.0d, 60000.0d, 50.0d));
+        params.add(AudioParameterDescriptor.choice("noSpeechBehavior", "No-speech behavior", "KEEP_ORIGINAL",
+                Arrays.asList(new AudioParameterChoice("KEEP_ORIGINAL", "Keep original"),
+                        new AudioParameterChoice("FAIL", "Fail"))));
+        params.add(AudioParameterDescriptor.bool("zeroCrossingAlignment", "Zero-crossing alignment", true));
+        params.add(AudioParameterDescriptor.decimal("zeroCrossingSearchMs", "Zero-crossing search (ms)",
+                5.0d, 0.0d, 100.0d, 1.0d));
+        AudioBlockCapabilities capabilities = StaticBlockCapabilities.builder()
+                .streaming(false)
+                .requiresCompleteSignal(true)
+                .requiresSpeechActivityTrack(true)
+                .consumesSpeechMetadata(true)
+                .changesDuration(true)
+                .changesSampleCount(true)
+                .build();
+        return descriptor(AudioBlockType.SILENCE_TRIMMER, AudioBlockCategory.OUTPUT, params, capabilities,
+                new SimpleAudioBlockDescriptor.ProcessorFactory() {
+                    public AudioBlockProcessor create() {
+                        return AudioBlockProcessors.silenceTrimmer();
+                    }
+                },
+                new SimpleAudioBlockDescriptor.Summarizer() {
+                    public String summarize(AudioBlockDefinition block) {
+                        boolean lead = block.getBooleanParameter("trimLeading", true);
+                        boolean trail = block.getBooleanParameter("trimTrailing", true);
+                        String scope = lead && trail ? "Leading + trailing"
+                                : lead ? "Leading" : trail ? "Trailing" : "Off";
+                        return scope + " · " + formatHz0(block.getDoubleParameter("preRollMs", 0.0d)) + "/"
+                                + formatHz0(block.getDoubleParameter("postRollMs", 0.0d)) + " ms";
+                    }
+                });
+    }
+
+    private static String formatHz0(double value) {
+        return String.format(java.util.Locale.ROOT, "%.0f", value);
     }
 
     private static String formatDb(double value) {
