@@ -84,7 +84,9 @@ public final class MarkdownMessageView extends JPanel {
 
     private void renderNow() {
         removeAll();
-        add(renderer.render(markdown.toString(), !streaming), BorderLayout.CENTER);
+        boolean complete = !streaming;
+        String normalized = MarkdownResponseNormalizer.normalize(markdown.toString(), complete);
+        add(renderer.render(normalized, complete), BorderLayout.CENTER);
         revalidate();
         repaint();
     }

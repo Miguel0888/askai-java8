@@ -81,7 +81,8 @@ final class FlexmarkSwingRenderer {
             return renderFencedCode((FencedCodeBlock) node, renderMermaid);
         }
         if (node instanceof IndentedCodeBlock) {
-            return new CodeBlockPanel("", ((IndentedCodeBlock) node).getContentChars().toString(), theme);
+            String code = ((IndentedCodeBlock) node).getContentChars().toString();
+            return code.trim().isEmpty() ? null : new CodeBlockPanel("", code, theme);
         }
         if (node instanceof BulletList) {
             return renderList(node, false, 1, renderMermaid);
@@ -122,6 +123,9 @@ final class FlexmarkSwingRenderer {
         String code = block.getContentChars().toString();
         if ("mermaid".equalsIgnoreCase(language) && renderMermaid) {
             return new MermaidDiagramPanel(code, theme, mermaidImageRenderer);
+        }
+        if (code.trim().isEmpty()) {
+            return null; // don't paint a big empty box for a blank fence
         }
         return new CodeBlockPanel(language, code, theme);
     }
