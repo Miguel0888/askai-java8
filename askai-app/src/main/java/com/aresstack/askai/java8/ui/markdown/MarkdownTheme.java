@@ -56,6 +56,31 @@ public final class MarkdownTheme {
                 quoteBorder, separator, error);
     }
 
+    /**
+     * Builds a theme that blends into a colored chat bubble: the text uses the bubble's own foreground and
+     * every shaded surface (inline/code background, quote border, separators) is derived from the bubble's
+     * background instead of the global light look-and-feel — so answers never show black text or a white box
+     * on a colored bubble.
+     */
+    public static MarkdownTheme forBubble(Color background, Color foreground) {
+        Font labelFont = UIManager.getFont("Label.font");
+        Font textFont = UIManager.getFont("TextArea.font");
+        Color fg = foreground == null ? color("Label.foreground", Color.DARK_GRAY) : foreground;
+        Color bg = background == null ? color("TextArea.background", Color.WHITE) : background;
+        Color muted = blend(bg, fg, 0.55f);
+        Color link = color("Component.linkColor", new Color(0x1565C0));
+        Color codeBackground = blend(bg, fg, 0.10f);
+        Color quoteBorder = blend(bg, fg, 0.28f);
+        Color separator = blend(bg, fg, 0.20f);
+        Color error = color("Actions.Red", new Color(0xC62828));
+        Font body = labelFont == null ? new Font(Font.SANS_SERIF, Font.PLAIN, 13) : labelFont;
+        Font code = textFont == null
+                ? new Font(Font.MONOSPACED, Font.PLAIN, body.getSize())
+                : new Font(Font.MONOSPACED, Font.PLAIN, textFont.getSize());
+        return new MarkdownTheme(body, code, fg, muted, link, codeBackground,
+                quoteBorder, separator, error);
+    }
+
     private static Color color(String key, Color fallback) {
         Color value = UIManager.getColor(key);
         return value == null ? fallback : value;

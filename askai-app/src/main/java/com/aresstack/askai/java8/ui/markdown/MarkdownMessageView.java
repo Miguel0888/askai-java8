@@ -21,6 +21,10 @@ public final class MarkdownMessageView extends JPanel {
                 CachingMermaidImageRenderer.shared());
     }
 
+    public MarkdownMessageView(MarkdownTheme theme) {
+        this(theme, DesktopLinkOpener.systemDefault(), CachingMermaidImageRenderer.shared());
+    }
+
     public MarkdownMessageView(MarkdownTheme theme, DesktopLinkOpener linkOpener) {
         this(theme, linkOpener, CachingMermaidImageRenderer.shared());
     }

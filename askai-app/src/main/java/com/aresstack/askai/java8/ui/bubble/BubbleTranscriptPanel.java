@@ -1,6 +1,7 @@
 package com.aresstack.askai.java8.ui.bubble;
 
 import com.aresstack.askai.java8.ui.markdown.MarkdownMessageView;
+import com.aresstack.askai.java8.ui.markdown.MarkdownTheme;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -122,7 +123,9 @@ public final class BubbleTranscriptPanel extends JPanel {
     public void startAssistantMessage(String header) {
         requireEventDispatchThread();
         finishAssistantMessage();
-        activeAssistantView = new MarkdownMessageView();
+        MarkdownTheme theme = MarkdownTheme.forBubble(
+                palette.getAssistantBackground(), palette.getAssistantForeground());
+        activeAssistantView = new MarkdownMessageView(theme);
         activeAssistantView.startStreaming();
         addAssistantMarkdownRow(header, activeAssistantView);
     }
@@ -347,7 +350,49 @@ public final class BubbleTranscriptPanel extends JPanel {
     private void addAssistantMarkdownRow(String header, MarkdownMessageView view) {
         AssistantMarkdownBubble bubble = new AssistantMarkdownBubble(
                 palette, header == null || header.length() == 0 ? "Assistant" : header, view);
-        addBubbleRow(bubble, BubbleSide.LEFT);
+        MarkdownAnswerRow row = new MarkdownAnswerRow(bubble);
+        row.setAlignmentX(LEFT_ALIGNMENT);
+        messageList.add(row);
+        messageList.add(Box.createVerticalStrut(2));
+        refreshTranscript();
+    }
+
+    /**
+     * Hosts the assistant Markdown bubble at a generous, viewport-relative width (not the content's own
+     * preferred width, which for wrapped Markdown collapses to something narrow). The width follows the
+     * transcript width, so the bubble uses the available horizontal space and reflows on resize.
+     */
+    private static final class MarkdownAnswerRow extends JPanel {
+
+        private static final int LEFT_MARGIN = 14;
+        private static final int RIGHT_GAP = 64;
+        private static final double MAX_WIDTH_RATIO = 0.86d;
+
+        private MarkdownAnswerRow(JComponent bubble) {
+            super(new BorderLayout());
+            setOpaque(false);
+            setBorder(BorderFactory.createEmptyBorder(0, LEFT_MARGIN, 0, 0));
+            add(bubble, BorderLayout.CENTER);
+        }
+
+        private int targetWidth() {
+            int available = getParent() != null && getParent().getWidth() > 0
+                    ? getParent().getWidth() : 720;
+            int byGap = available - LEFT_MARGIN - RIGHT_GAP;
+            int byRatio = (int) Math.round((available - LEFT_MARGIN) * MAX_WIDTH_RATIO);
+            return Math.max(160, Math.min(byGap, byRatio));
+        }
+
+        @Override
+        public Dimension getMaximumSize() {
+            return new Dimension(LEFT_MARGIN + targetWidth(), getPreferredSize().height);
+        }
+
+        @Override
+        public Dimension getPreferredSize() {
+            Dimension preferred = super.getPreferredSize();
+            return new Dimension(LEFT_MARGIN + targetWidth(), preferred.height);
+        }
     }
 
     private Runnable createActivityRemoval(final AnimatedThoughtBubblePanel activity) {
