@@ -5,6 +5,7 @@ import com.aresstack.audio.profile.AudioBlockDefinition;
 
 import javax.swing.JPanel;
 import javax.swing.UIManager;
+import javax.swing.ToolTipManager;
 import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Dimension;
@@ -55,6 +56,7 @@ public final class AudioPipelineCanvas extends JPanel {
     public AudioPipelineCanvas() {
         setOpaque(true);
         setLayout(null); // the settings card is positioned manually under the selected block
+        ToolTipManager.sharedInstance().registerComponent(this);
         installMouseInteraction();
     }
 
@@ -215,6 +217,13 @@ public final class AudioPipelineCanvas extends JPanel {
         // The one-line summary comes from the block's descriptor in the registry, not a per-type switch.
         return com.aresstack.audio.pipeline.AudioBlockRegistry.getInstance()
                 .descriptor(block.getType()).summarize(block);
+    }
+
+    /** Return contextual help for the block under the mouse pointer. */
+    @Override
+    public String getToolTipText(MouseEvent event) {
+        int index = event == null ? -1 : indexAt(event.getX(), event.getY());
+        return index < 0 || index >= blocks.size() ? null : AudioTooltipText.block(blocks.get(index));
     }
 
     private void installMouseInteraction() {
