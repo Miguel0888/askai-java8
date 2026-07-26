@@ -4,7 +4,14 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-/** Store one configurable block without coupling profile persistence to concrete DSP classes. */
+/**
+ * Store one configurable block without coupling profile persistence to concrete DSP classes.
+ *
+ * <p>This is a pure persistent definition: it must not depend on the {@code pipeline} package or the
+ * {@link com.aresstack.audio.profile.AudioBlockType} registry. Default definitions and default parameters
+ * are created through the registry / descriptor (see {@code AudioBlockRegistry.createDefaultDefinition}),
+ * so the dependency direction stays {@code pipeline → profile} only.</p>
+ */
 public final class AudioBlockDefinition {
 
     private final String id;
@@ -28,10 +35,6 @@ public final class AudioBlockDefinition {
             copy.putAll(parameters);
         }
         this.parameters = Collections.unmodifiableMap(copy);
-    }
-
-    public static AudioBlockDefinition of(String id, AudioBlockType type) {
-        return new AudioBlockDefinition(id, type, true, defaultParameters(type));
     }
 
     public String getId() {
@@ -86,10 +89,6 @@ public final class AudioBlockDefinition {
         return new AudioBlockDefinition(id, type, value, parameters);
     }
 
-    public AudioBlockDefinition withType(AudioBlockType value) {
-        return new AudioBlockDefinition(id, value, enabled, defaultParameters(value));
-    }
-
     public AudioBlockDefinition withParameter(String key, String value) {
         Map<String, String> changed = new LinkedHashMap<String, String>(parameters);
         if (value == null) {
@@ -98,14 +97,5 @@ public final class AudioBlockDefinition {
             changed.put(key, value.trim());
         }
         return new AudioBlockDefinition(id, type, enabled, changed);
-    }
-
-    /**
-     * @return the default parameters for a block type. The values come from the single source of truth —
-     *         the block's descriptor in {@link com.aresstack.audio.pipeline.AudioBlockRegistry} — so there
-     *         is no second per-type parameter switch to keep in sync.
-     */
-    public static Map<String, String> defaultParameters(AudioBlockType type) {
-        return com.aresstack.audio.pipeline.AudioBlockRegistry.getInstance().defaultParameters(type);
     }
 }

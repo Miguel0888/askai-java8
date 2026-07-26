@@ -7,7 +7,7 @@ import com.aresstack.audio.pipeline.AudioProfileProcessor;
 import com.aresstack.audio.infrastructure.WavFileAudioSink;
 import com.aresstack.audio.infrastructure.WavFileReader;
 import com.aresstack.audio.profile.AudioProcessingProfile;
-import com.aresstack.audio.profile.AudioProcessingProfiles;
+import com.aresstack.audio.pipeline.AudioProcessingProfiles;
 
 import java.io.File;
 import java.io.IOException;

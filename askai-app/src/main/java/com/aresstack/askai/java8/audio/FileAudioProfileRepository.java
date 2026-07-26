@@ -4,7 +4,7 @@ import com.aresstack.askai.java8.settings.AskAiPaths;
 import com.aresstack.audio.profile.AudioBlockDefinition;
 import com.aresstack.audio.profile.AudioBlockType;
 import com.aresstack.audio.profile.AudioProcessingProfile;
-import com.aresstack.audio.profile.AudioProcessingProfiles;
+import com.aresstack.audio.pipeline.AudioProcessingProfiles;
 
 import java.io.File;
 import java.io.FileInputStream;

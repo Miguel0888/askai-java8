@@ -1,6 +1,6 @@
 package com.aresstack.askai.java8.ui;
 
-import com.aresstack.audio.profile.AudioProcessingProfiles;
+import com.aresstack.audio.pipeline.AudioProcessingProfiles;
 
 import org.junit.Test;
 

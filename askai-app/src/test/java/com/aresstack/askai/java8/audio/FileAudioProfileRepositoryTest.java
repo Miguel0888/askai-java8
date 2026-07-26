@@ -1,7 +1,7 @@
 package com.aresstack.askai.java8.audio;
 
 import com.aresstack.audio.profile.AudioProcessingProfile;
-import com.aresstack.audio.profile.AudioProcessingProfiles;
+import com.aresstack.audio.pipeline.AudioProcessingProfiles;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;

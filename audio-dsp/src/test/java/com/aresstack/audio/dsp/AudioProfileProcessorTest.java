@@ -5,6 +5,7 @@ import com.aresstack.audio.domain.PcmAudioFormat;
 import com.aresstack.audio.profile.AudioBlockDefinition;
 import com.aresstack.audio.profile.AudioBlockType;
 import com.aresstack.audio.profile.AudioProcessingProfile;
+import com.aresstack.audio.pipeline.AudioBlockRegistry;
 import org.junit.Test;
 
 import java.util.ArrayList;
@@ -17,8 +18,8 @@ public final class AudioProfileProcessorTest {
     @Test
     public void structuralBlocksConvertStereoAndResampleInConfiguredOrder() {
         List<AudioBlockDefinition> blocks = new ArrayList<AudioBlockDefinition>();
-        blocks.add(AudioBlockDefinition.of("mix", AudioBlockType.CHANNEL_MIXER));
-        blocks.add(AudioBlockDefinition.of("resample", AudioBlockType.RESAMPLER)
+        blocks.add(AudioBlockRegistry.getInstance().defaultDefinition(AudioBlockType.CHANNEL_MIXER, "mix"));
+        blocks.add(AudioBlockRegistry.getInstance().defaultDefinition(AudioBlockType.RESAMPLER, "resample")
                 .withParameter("targetRateHz", "16000")
                 .withParameter("quality", "BALANCED"));
         AudioProcessingProfile profile = new AudioProcessingProfile("test", "Test", false, blocks);
@@ -35,8 +36,8 @@ public final class AudioProfileProcessorTest {
     @Test(expected = IllegalArgumentException.class)
     public void resamplerRejectsStereoWhenMixerIsPlacedAfterIt() {
         List<AudioBlockDefinition> blocks = new ArrayList<AudioBlockDefinition>();
-        blocks.add(AudioBlockDefinition.of("resample", AudioBlockType.RESAMPLER));
-        blocks.add(AudioBlockDefinition.of("mix", AudioBlockType.CHANNEL_MIXER));
+        blocks.add(AudioBlockRegistry.getInstance().defaultDefinition(AudioBlockType.RESAMPLER, "resample"));
+        blocks.add(AudioBlockRegistry.getInstance().defaultDefinition(AudioBlockType.CHANNEL_MIXER, "mix"));
         AudioProcessingProfile profile = new AudioProcessingProfile("invalid", "Invalid", false, blocks);
 
         new com.aresstack.audio.pipeline.AudioProfileProcessor().process(

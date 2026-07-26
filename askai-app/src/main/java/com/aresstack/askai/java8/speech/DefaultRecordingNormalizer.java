@@ -3,7 +3,7 @@ package com.aresstack.askai.java8.speech;
 import com.aresstack.audio.application.NormalizationResult;
 import com.aresstack.audio.application.SpeechAudioNormalizer;
 import com.aresstack.audio.profile.AudioProcessingProfile;
-import com.aresstack.audio.profile.AudioProcessingProfiles;
+import com.aresstack.audio.pipeline.AudioProcessingProfiles;
 
 import java.io.File;
 import java.util.function.Supplier;

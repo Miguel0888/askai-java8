@@ -1,5 +1,7 @@
 package com.aresstack.audio.profile;
 
+import com.aresstack.audio.pipeline.AudioProcessingProfiles;
+
 import org.junit.Test;
 
 import java.util.List;

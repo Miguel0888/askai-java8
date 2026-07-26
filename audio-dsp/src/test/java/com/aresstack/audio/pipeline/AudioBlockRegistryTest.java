@@ -35,12 +35,13 @@ public class AudioBlockRegistryTest {
 
     @Test
     public void defaultParametersComeFromTheDescriptor() {
-        // AudioBlockDefinition.defaultParameters delegates to the registry — one source of truth.
-        Map<String, String> viaDefinition = AudioBlockDefinition.defaultParameters(AudioBlockType.LOW_PASS);
+        // The registry is the single source of default parameters; a created default definition carries them.
         Map<String, String> viaRegistry = registry.defaultParameters(AudioBlockType.LOW_PASS);
+        Map<String, String> viaDefinition =
+                registry.defaultDefinition(AudioBlockType.LOW_PASS, "low").getParameters();
         assertEquals(viaRegistry, viaDefinition);
-        assertEquals("7200", viaDefinition.get("cutoffHz")); // integer-valued default stays clean
-        assertEquals("FIR_65", viaDefinition.get("implementation"));
+        assertEquals("7200", viaRegistry.get("cutoffHz")); // integer-valued default stays clean
+        assertEquals("FIR_65", viaRegistry.get("implementation"));
     }
 
     @Test

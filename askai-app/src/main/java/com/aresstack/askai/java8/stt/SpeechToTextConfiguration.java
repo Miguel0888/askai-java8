@@ -1,6 +1,6 @@
 package com.aresstack.askai.java8.stt;
 
-import com.aresstack.audio.profile.AudioProcessingProfiles;
+import com.aresstack.audio.pipeline.AudioProcessingProfiles;
 
 /**
  * Persisted speech-to-text settings. The backend is an extension point: only

@@ -82,6 +82,11 @@ public final class AudioBlockRegistry {
         return descriptor(type).createDefaultDefinition(id);
     }
 
+    /** @return a default definition of the type with a freshly generated block id (for "add block"). */
+    public AudioBlockDefinition createDefaultDefinition(AudioBlockType type) {
+        return descriptor(type).createDefaultDefinition("block-" + java.util.UUID.randomUUID().toString());
+    }
+
     // ------------------------------------------------------------------ descriptor declarations
 
     private static AudioBlockDescriptor channelMixer() {
