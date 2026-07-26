@@ -11,7 +11,11 @@ public enum AudioBlockType {
     DC_OFFSET_REMOVAL("DC offset removal"),
     NOISE_GATE("Noise gate"),
     COMPRESSOR("Compressor"),
-    LIMITER("Limiter");
+    LIMITER("Limiter"),
+    GAIN("Gain"),
+    PARAMETRIC_EQ("Parametric Equalizer"),
+    LOW_SHELF("Low-Shelf Equalizer"),
+    HIGH_SHELF("High-Shelf Equalizer");
 
     private final String displayName;
 

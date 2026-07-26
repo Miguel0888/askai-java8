@@ -34,6 +34,10 @@ public final class AudioBlockRegistry {
         register(noiseGate());
         register(compressor());
         register(limiter());
+        register(gain());
+        register(parametricEqualizer());
+        register(lowShelfEqualizer());
+        register(highShelfEqualizer());
     }
 
     public static AudioBlockRegistry getInstance() {
@@ -263,6 +267,90 @@ public final class AudioBlockRegistry {
                         return "Ceiling " + block.getParameter("ceiling", "");
                     }
                 });
+    }
+
+    private static AudioBlockDescriptor gain() {
+        List<AudioParameterDescriptor> params = new ArrayList<AudioParameterDescriptor>();
+        params.add(AudioParameterDescriptor.decimal("gainDb", "Gain (dB)", 0.0d, -60.0d, 24.0d, 0.5d));
+        return descriptor(AudioBlockType.GAIN, AudioBlockCategory.DYNAMICS, params,
+                StaticBlockCapabilities.audioEffect(),
+                new SimpleAudioBlockDescriptor.ProcessorFactory() {
+                    public AudioBlockProcessor create() {
+                        return AudioBlockProcessors.gain();
+                    }
+                },
+                new SimpleAudioBlockDescriptor.Summarizer() {
+                    public String summarize(AudioBlockDefinition block) {
+                        return formatDb(block.getDoubleParameter("gainDb", 0.0d));
+                    }
+                });
+    }
+
+    private static AudioBlockDescriptor parametricEqualizer() {
+        List<AudioParameterDescriptor> params = new ArrayList<AudioParameterDescriptor>();
+        params.add(AudioParameterDescriptor.decimal("centerHz", "Center (Hz)", 1000.0d, 1.0d, 96000.0d, 10.0d));
+        params.add(AudioParameterDescriptor.decimal("gainDb", "Gain (dB)", 0.0d, -24.0d, 24.0d, 0.5d));
+        params.add(AudioParameterDescriptor.decimal("q", "Q factor", 1.0d, 0.1d, 24.0d, 0.1d));
+        return descriptor(AudioBlockType.PARAMETRIC_EQ, AudioBlockCategory.FILTERS_EQ, params,
+                StaticBlockCapabilities.audioEffect(),
+                new SimpleAudioBlockDescriptor.ProcessorFactory() {
+                    public AudioBlockProcessor create() {
+                        return AudioBlockProcessors.parametricEqualizer();
+                    }
+                },
+                new SimpleAudioBlockDescriptor.Summarizer() {
+                    public String summarize(AudioBlockDefinition block) {
+                        return formatHz(block.getDoubleParameter("centerHz", 0.0d)) + " · "
+                                + formatDb(block.getDoubleParameter("gainDb", 0.0d)) + " · Q "
+                                + formatQ(block.getDoubleParameter("q", 1.0d));
+                    }
+                });
+    }
+
+    private static AudioBlockDescriptor lowShelfEqualizer() {
+        return shelfDescriptor(AudioBlockType.LOW_SHELF, 200.0d,
+                new SimpleAudioBlockDescriptor.ProcessorFactory() {
+                    public AudioBlockProcessor create() {
+                        return AudioBlockProcessors.lowShelfEqualizer();
+                    }
+                });
+    }
+
+    private static AudioBlockDescriptor highShelfEqualizer() {
+        return shelfDescriptor(AudioBlockType.HIGH_SHELF, 6000.0d,
+                new SimpleAudioBlockDescriptor.ProcessorFactory() {
+                    public AudioBlockProcessor create() {
+                        return AudioBlockProcessors.highShelfEqualizer();
+                    }
+                });
+    }
+
+    private static AudioBlockDescriptor shelfDescriptor(AudioBlockType type, double defaultCutoffHz,
+                                                        SimpleAudioBlockDescriptor.ProcessorFactory factory) {
+        List<AudioParameterDescriptor> params = new ArrayList<AudioParameterDescriptor>();
+        params.add(AudioParameterDescriptor.decimal("cutoffHz", "Cutoff (Hz)", defaultCutoffHz, 1.0d, 96000.0d, 10.0d));
+        params.add(AudioParameterDescriptor.decimal("gainDb", "Gain (dB)", 0.0d, -24.0d, 24.0d, 0.5d));
+        params.add(AudioParameterDescriptor.decimal("slope", "Shelf slope", 1.0d, 0.1d, 2.0d, 0.1d));
+        return descriptor(type, AudioBlockCategory.FILTERS_EQ, params, StaticBlockCapabilities.audioEffect(),
+                factory,
+                new SimpleAudioBlockDescriptor.Summarizer() {
+                    public String summarize(AudioBlockDefinition block) {
+                        return formatHz(block.getDoubleParameter("cutoffHz", 0.0d)) + " · "
+                                + formatDb(block.getDoubleParameter("gainDb", 0.0d));
+                    }
+                });
+    }
+
+    private static String formatDb(double value) {
+        return (value >= 0.0d ? "+" : "") + String.format(java.util.Locale.ROOT, "%.1f", value) + " dB";
+    }
+
+    private static String formatHz(double value) {
+        return String.format(java.util.Locale.ROOT, "%.0f", value) + " Hz";
+    }
+
+    private static String formatQ(double value) {
+        return String.format(java.util.Locale.ROOT, "%.1f", value);
     }
 
     private static SimpleAudioBlockDescriptor.Summarizer filterSummary() {

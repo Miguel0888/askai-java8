@@ -6,8 +6,12 @@ import com.aresstack.audio.dsp.ButterworthFilterProcessor;
 import com.aresstack.audio.dsp.CompressorProcessor;
 import com.aresstack.audio.dsp.DcOffsetRemovalProcessor;
 import com.aresstack.audio.dsp.FirLowPassProcessor;
+import com.aresstack.audio.dsp.GainProcessor;
 import com.aresstack.audio.dsp.HighPassFilterProcessor;
+import com.aresstack.audio.dsp.HighShelfEqualizerProcessor;
 import com.aresstack.audio.dsp.LimiterProcessor;
+import com.aresstack.audio.dsp.LowShelfEqualizerProcessor;
+import com.aresstack.audio.dsp.ParametricEqualizerProcessor;
 import com.aresstack.audio.dsp.Pcm16Processor;
 import com.aresstack.audio.dsp.Pcm16Resampler;
 import com.aresstack.audio.dsp.PcmChannelConverter;
@@ -148,6 +152,47 @@ final class AudioBlockProcessors {
         return inPlace(new Pcm16Factory() {
             public Pcm16Processor create(AudioBlockDefinition block) {
                 return new LimiterProcessor(block.getIntParameter("ceiling", 30000));
+            }
+        });
+    }
+
+    static AudioBlockProcessor gain() {
+        return inPlace(new Pcm16Factory() {
+            public Pcm16Processor create(AudioBlockDefinition block) {
+                return new GainProcessor(block.getDoubleParameter("gainDb", 0.0d));
+            }
+        });
+    }
+
+    static AudioBlockProcessor parametricEqualizer() {
+        return inPlace(new Pcm16Factory() {
+            public Pcm16Processor create(AudioBlockDefinition block) {
+                return new ParametricEqualizerProcessor(
+                        block.getDoubleParameter("centerHz", 1000.0d),
+                        block.getDoubleParameter("gainDb", 0.0d),
+                        block.getDoubleParameter("q", 1.0d));
+            }
+        });
+    }
+
+    static AudioBlockProcessor lowShelfEqualizer() {
+        return inPlace(new Pcm16Factory() {
+            public Pcm16Processor create(AudioBlockDefinition block) {
+                return new LowShelfEqualizerProcessor(
+                        block.getDoubleParameter("cutoffHz", 200.0d),
+                        block.getDoubleParameter("gainDb", 0.0d),
+                        block.getDoubleParameter("slope", 1.0d));
+            }
+        });
+    }
+
+    static AudioBlockProcessor highShelfEqualizer() {
+        return inPlace(new Pcm16Factory() {
+            public Pcm16Processor create(AudioBlockDefinition block) {
+                return new HighShelfEqualizerProcessor(
+                        block.getDoubleParameter("cutoffHz", 6000.0d),
+                        block.getDoubleParameter("gainDb", 0.0d),
+                        block.getDoubleParameter("slope", 1.0d));
             }
         });
     }
