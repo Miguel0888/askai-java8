@@ -293,10 +293,18 @@ public final class AgentSessionCoordinator
         listeners.remove(listener);
     }
 
-    /** Public so the host can nudge the composer to re-read availability as a run progresses. */
+    /**
+     * Public so the host can nudge the composer to re-read availability as a run progresses. Each listener is
+     * isolated: a throwing UI listener must never abort an already-performed lifecycle step (e.g. a detach that
+     * already cleared the session map) nor prevent the other listeners from running.
+     */
     public void fireChange() {
         for (Runnable listener : listeners) {
-            listener.run();
+            try {
+                listener.run();
+            } catch (RuntimeException | Error ignored) {
+                // a broken listener must not corrupt the lifecycle step that notified it
+            }
         }
     }
 

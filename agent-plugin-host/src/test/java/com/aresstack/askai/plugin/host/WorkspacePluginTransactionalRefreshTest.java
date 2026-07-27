@@ -193,6 +193,7 @@ public class WorkspacePluginTransactionalRefreshTest {
         Catcher catcher = attach(service);
         catcher.refreshAndAwait(service);
         service.shutdown();
+        assertTrue("shutdown work must complete", service.awaitShutdownForTest(15_000));
 
         // After retirement the classloader/JAR lock must be released so the file can be deleted (Windows-sensitive).
         boolean deleted = jar.delete();

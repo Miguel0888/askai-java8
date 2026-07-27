@@ -23,6 +23,7 @@ import java.util.List;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 /**
@@ -72,6 +73,34 @@ public class AgentSessionCoordinatorSwapTest {
         c.shutdown();
         assertEquals("shutdown retries the retained session", 2, first.closeAttempts);
         assertEquals(0, c.getUnclosedSessionCount());
+    }
+
+    @Test
+    public void aBrokenChangeListenerDoesNotAbortDetachOrLoseSessions() {
+        FakeExtension ext = new FakeExtension("agent.a");
+        AgentSessionCoordinator c = coordinator(ext);
+        final int[] goodListenerCalls = {0};
+        c.addChangeListener(new Runnable() {
+            public void run() {
+                throw new RuntimeException("broken UI listener");
+            }
+        });
+        c.addChangeListener(new Runnable() {
+            public void run() {
+                goodListenerCalls[0]++;
+            }
+        });
+        c.setActiveAgent("agent.a");
+        FakeSession session = ext.lastSession;
+
+        // detach fires a change (the broken listener throws): it must still return a handle and keep the session.
+        GenerationSwapHook.OutgoingSessions outgoing = c.detachOutgoing();
+        assertNotNull("detach must not be turned into a failure by a broken listener", outgoing);
+        SessionCloseResult result = outgoing.closeAll();
+        assertTrue(result.isSuccessful());
+        assertEquals(1, session.closeAttempts);
+        assertEquals(0, c.getUnclosedSessionCount());
+        assertTrue("the other listener still ran despite the broken one", goodListenerCalls[0] >= 1);
     }
 
     private static AgentSessionCoordinator coordinator(final FakeExtension ext) {

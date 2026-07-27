@@ -247,6 +247,27 @@ Katalog).
 `AgentSessionCoordinatorSwapTest` (fehlgeschlagener Close bleibt referenziert + Retry bei Detach/Shutdown),
 `WorkspacePluginRetirementTest#detachFailureAbortsSwapAndKeepsPreviousGeneration`. `clean build` grün, 753.
 
+### Nachhärtung 2 (Korrekturcommit 21c)
+Vier weitere Lifecycle-Sicherheitsfehler behoben: (1) `runOnEdtAndWait` ist jetzt cancel-sicher — ein
+EDT-Runnable mutiert nur nach atomarem `PENDING→RUNNING`; bei Timeout setzt der Lifecycle-Thread
+`PENDING→CANCELLED`, sodass ein spät laufender Runnable nichts mehr tut (keine „Geister“-Detach/-Publish);
+ein abgebrochener Publish verwirft den Candidate und behält die vorherige Generation; Timeout injizierbar.
+(2) `PluginRuntimeGeneration.retire()` arbeitet pro Plugin: ein gestartetes Plugin wird erst nach
+bestätigtem Stop entladen (Stop-Fehler ⇒ kein Unload), der `unloadPlugin`-Boolean wird geprüft, und
+`complete=true` gilt nur, wenn der Manager für jedes ursprünglich geladene Plugin „nicht gestartet und nicht
+geladen“ bestätigt. (3) Einziger produktiver Shutdown-Pfad: `ChatWorkspaceHostPanel.shutdown()` schließt
+keine Sessions mehr selbst; `WorkspacePluginService.shutdown()` detachiert auf dem EDT und schließt/stoppt/
+entlädt off-EDT auf einem dedizierten Non-Daemon-Thread (kein `join` auf dem EDT); ein fehlgeschlagener
+Session-Close verhindert das Unload. (4) `fireChange()` isoliert jeden Listenerfehler, sodass ein kaputter
+UI-Listener einen bereits ausgeführten Detach nicht in einen Fehler verwandelt oder Session-Referenzen verliert.
+
+### Verifikation (Nachhärtung 2)
+`EdtCancelSafetyTest` (timed-out Runnable mutiert nicht; rechtzeitig gepumpt läuft),
+`PluginRuntimeGenerationRetireTest` (Stop-Fehler ⇒ kein Unload; `unload`-false/unbestätigt ⇒ incomplete;
+Retry nur Rest; complete nur bei Manager-Bestätigung), `ShutdownOrderingTest` (Shutdown detachiert auf EDT,
+schließt off-EDT via Coordinator), `AgentSessionCoordinatorSwapTest#aBrokenChangeListener…`. `clean build`
+grün, 766 Tests.
+
 ### Restwirkung
 Bei jeder erfolgreichen Generation werden alle AgentSessions geschlossen und lazy neu erzeugt
 (bewusst einfach + sicher, RA-P010/RA-P002 liefern später den Restore aus dem Project Store).
@@ -328,6 +349,18 @@ Approval-/Reject-IDs werden erst nach akzeptierter Transition als `processed` ma
 ### Verifikation (Nachhärtung)
 `BackendHardeningTest` (identische Läufe deterministisch; `canExecute` verbraucht keine IDs; No-op-Reject
 lässt das Gate aktionierbar). `clean build` grün, 753 Tests.
+
+### Nachhärtung 2 (Korrekturcommit 21c) — strikte Approval-Mementos
+`ResearchStateFactory` ist jetzt streng: `WAITING_APPROVAL` verlangt zwingend eine nichtleere
+`pendingApprovalId`, ebenso eine Interruption, deren `continuationStateId == WAITING_APPROVAL` ist; sonst
+Ablehnung. `continueInto()` erzeugt im nativen Pfad keine neue ID mehr (die Interruption trägt die
+Original-ID per Invariante). Die Reparatur alter Legacy-Daten (legacy phase/run-state ohne Approval-ID)
+liegt ausschließlich im ausdrücklichen `LegacyResearchStateMigration`, das eine synthetische ID erzeugt;
+`DefaultResearchStateMachine` nutzt dieses Adapter statt die Factory mit `null` aufzurufen.
+
+### Verifikation (Nachhärtung 2)
+`ApprovalMementoStrictnessTest` (Approval-Gate/Interruption ohne ID abgelehnt; Restore erfindet nie eine ID;
+exakter Round-Trip; Migration synthetisiert ID für Legacy-Daten). `clean build` grün, 766 Tests.
 
 ### Restwirkung
 `problemCode`/`publicProblemMessage` werden derzeit noch über Backend-Events (BLOCKED/ERROR) transportiert,

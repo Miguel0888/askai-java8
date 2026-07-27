@@ -435,15 +435,16 @@ public final class ChatWorkspaceHostPanel extends JPanel implements WorkspaceMod
      * instances alive; only this tears them down.
      */
     public void shutdown() {
-        if (agentCoordinator != null) {
-            agentCoordinator.shutdown();
-        }
+        // Do NOT close agent sessions here: the plugin service owns the single teardown path. Its shutdown()
+        // detaches the outgoing generation's sessions on the EDT (via the coordinator swap hook) and then closes
+        // them off the EDT before stopping/unloading the plugins, so nothing blocks the EDT and a failed session
+        // close is not followed by a classloader unload.
         deactivateActiveWorkspace();
         for (WorkspaceLifecycleController controller : openWorkspaces.values()) {
             try {
                 controller.dispose();
             } catch (RuntimeException ignored) {
-                // best-effort
+                // best-effort (legacy standalone workspaces only)
             }
         }
         openWorkspaces.clear();

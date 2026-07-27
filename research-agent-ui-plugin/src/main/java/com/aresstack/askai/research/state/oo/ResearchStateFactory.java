@@ -49,7 +49,7 @@ public final class ResearchStateFactory {
         }
         if (ResearchStateIds.WAITING_APPROVAL.equals(stateId)) {
             requireCombo(phaseId, stateId);
-            return new ResearchStates.WaitingApprovalState(phaseId, pendingApprovalId);
+            return new ResearchStates.WaitingApprovalState(phaseId, requireApprovalId(pendingApprovalId));
         }
         if (ResearchStateIds.PAUSED.equals(stateId)) {
             String continuation = requireContinuation(phaseId, continuationStateId);
@@ -123,14 +123,28 @@ public final class ResearchStateFactory {
         }
     }
 
-    /** An interruption may carry an approval id only when its continuation is the approval gate. */
+    /** An approval gate must carry a non-empty approval id — never a null/blank one. */
+    private static String requireApprovalId(String pendingApprovalId) {
+        if (pendingApprovalId == null || pendingApprovalId.trim().isEmpty()) {
+            throw new IllegalArgumentException("WAITING_APPROVAL requires a non-empty pendingApprovalId");
+        }
+        return pendingApprovalId;
+    }
+
+    /**
+     * An interruption carries an approval id if and only if it continues into an approval gate: continuing into
+     * WAITING_APPROVAL <em>requires</em> a non-empty id (so resuming restores exactly the same approval), and any
+     * other continuation must have none.
+     */
     private static String validInterruptApproval(String continuationStateId, String pendingApprovalId) {
-        if (pendingApprovalId != null
-                && !ResearchStateIds.WAITING_APPROVAL.equals(continuationStateId)) {
+        if (ResearchStateIds.WAITING_APPROVAL.equals(continuationStateId)) {
+            return requireApprovalId(pendingApprovalId);
+        }
+        if (pendingApprovalId != null) {
             throw new IllegalArgumentException(
                     "pendingApprovalId is only valid when the interruption continues into an approval gate");
         }
-        return pendingApprovalId;
+        return null;
     }
 
     private static String requireContinuation(String phaseId, String continuationStateId) {

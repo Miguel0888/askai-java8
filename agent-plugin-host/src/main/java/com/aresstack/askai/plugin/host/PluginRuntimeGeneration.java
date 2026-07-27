@@ -8,9 +8,11 @@ import org.pf4j.PluginWrapper;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * One immutable, fully-built PF4J runtime generation: its {@link AskAiPluginManager}, the validated catalog it
@@ -100,47 +102,103 @@ final class PluginRuntimeGeneration {
 
         void stop(String pluginId);
 
-        void unload(String pluginId);
+        /** @return whether the manager confirms the plugin was unloaded. */
+        boolean unload(String pluginId);
     }
 
+    /**
+     * Retire per plugin, not in two independent passes: a started plugin is stopped and the stop <em>confirmed</em>
+     * (no longer among the started ids) before it is unloaded — so a plugin whose {@code stop()} failed and whose
+     * threads/objects may still be live never has its classloader unloaded; it is kept for a retry instead. Unload
+     * checks the manager's boolean return and re-confirms the plugin is no longer loaded. The generation is only
+     * {@code complete} when every originally-loaded plugin is confirmed neither started nor loaded — not merely
+     * "no exception was thrown this attempt".
+     */
     static GenerationRetirementResult retire(RetireOps ops) {
         List<String> stopped = new ArrayList<String>();
         List<String> unloaded = new ArrayList<String>();
         java.util.LinkedHashMap<String, String> stopFailures = new java.util.LinkedHashMap<String, String>();
         java.util.LinkedHashMap<String, String> unloadFailures = new java.util.LinkedHashMap<String, String>();
 
-        List<String> startedIds;
+        List<String> originallyLoaded;
         try {
-            startedIds = new ArrayList<String>(ops.startedIds());
+            originallyLoaded = new ArrayList<String>(ops.loadedIds());
         } catch (RuntimeException | Error ex) {
-            startedIds = new ArrayList<String>();
+            unloadFailures.put("<enumerate-loaded>", message(ex));
+            return new GenerationRetirementResult(stopped, unloaded, stopFailures, unloadFailures, false);
+        }
+        Set<String> started;
+        try {
+            started = new HashSet<String>(ops.startedIds());
+        } catch (RuntimeException | Error ex) {
+            started = new HashSet<String>(originallyLoaded); // assume the worst: treat all as still started
             stopFailures.put("<enumerate-started>", message(ex));
         }
-        for (String id : startedIds) {
-            try {
-                ops.stop(id);
+
+        for (String id : originallyLoaded) {
+            if (started.contains(id)) {
+                try {
+                    ops.stop(id);
+                } catch (RuntimeException | Error ex) {
+                    stopFailures.put(id, message(ex));
+                    continue; // NEVER unload a plugin whose stop failed
+                }
+                if (isStillStarted(ops, id)) {
+                    stopFailures.put(id, "stop not confirmed");
+                    continue; // stop unconfirmed → keep the classloader loaded, retry later
+                }
                 stopped.add(id);
-            } catch (RuntimeException | Error ex) {
-                stopFailures.put(id, message(ex)); // isolate a misbehaving plugin; keep stopping the rest
             }
-        }
-        List<String> loadedIds;
-        try {
-            loadedIds = new ArrayList<String>(ops.loadedIds());
-        } catch (RuntimeException | Error ex) {
-            loadedIds = new ArrayList<String>();
-            unloadFailures.put("<enumerate-loaded>", message(ex));
-        }
-        for (String id : loadedIds) {
             try {
-                ops.unload(id);
-                unloaded.add(id);
+                if (!ops.unload(id)) {
+                    unloadFailures.put(id, "unloadPlugin returned false");
+                    continue;
+                }
             } catch (RuntimeException | Error ex) {
-                unloadFailures.put(id, message(ex)); // isolate; keep unloading the rest
+                unloadFailures.put(id, message(ex));
+                continue;
+            }
+            if (isStillLoaded(ops, id)) {
+                unloadFailures.put(id, "unload not confirmed");
+            } else {
+                unloaded.add(id);
             }
         }
-        boolean complete = stopFailures.isEmpty() && unloadFailures.isEmpty();
+
+        boolean complete = true;
+        Set<String> finalStarted = safeSet(ops, true, originallyLoaded);
+        Set<String> finalLoaded = safeSet(ops, false, originallyLoaded);
+        for (String id : originallyLoaded) {
+            if (finalStarted.contains(id) || finalLoaded.contains(id)) {
+                complete = false;
+                break;
+            }
+        }
         return new GenerationRetirementResult(stopped, unloaded, stopFailures, unloadFailures, complete);
+    }
+
+    private static boolean isStillStarted(RetireOps ops, String id) {
+        try {
+            return ops.startedIds().contains(id);
+        } catch (RuntimeException | Error ex) {
+            return true; // cannot confirm → assume still started
+        }
+    }
+
+    private static boolean isStillLoaded(RetireOps ops, String id) {
+        try {
+            return ops.loadedIds().contains(id);
+        } catch (RuntimeException | Error ex) {
+            return true; // cannot confirm → assume still loaded
+        }
+    }
+
+    private static Set<String> safeSet(RetireOps ops, boolean started, List<String> fallback) {
+        try {
+            return new HashSet<String>(started ? ops.startedIds() : ops.loadedIds());
+        } catch (RuntimeException | Error ex) {
+            return new HashSet<String>(fallback); // cannot confirm → assume everything is still present
+        }
     }
 
     private static RetireOps opsFor(final AskAiPluginManager manager) {
@@ -169,8 +227,8 @@ final class PluginRuntimeGeneration {
                 manager.stopPlugin(pluginId);
             }
 
-            public void unload(String pluginId) {
-                manager.unloadPlugin(pluginId);
+            public boolean unload(String pluginId) {
+                return manager.unloadPlugin(pluginId);
             }
         };
     }

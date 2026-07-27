@@ -1,5 +1,6 @@
 package com.aresstack.askai.research.state;
 
+import com.aresstack.askai.research.state.oo.LegacyResearchStateMigration;
 import com.aresstack.askai.research.state.oo.OoTransition;
 import com.aresstack.askai.research.state.oo.ResearchPhaseState;
 import com.aresstack.askai.research.state.oo.ResearchStateContext;
@@ -87,6 +88,15 @@ public final class DefaultResearchStateMachine implements ResearchStateMachine {
                 || ResearchStateIds.FAILED.equals(stateId)) {
             continuation = factory.defaultContinuationStateId(phaseId);
         }
-        return factory.phase(phaseId, factory.state(phaseId, stateId, continuation, null));
+        // The legacy pair has no approval id; the strict factory requires one for an approval gate, so legacy
+        // reconstruction goes through the explicit migration adapter (which synthesizes one) — never the factory
+        // directly with a null id.
+        LegacyResearchStateMigration migration = new LegacyResearchStateMigration(factory,
+                new LegacyResearchStateMigration.IdGenerator() {
+                    public String newId() {
+                        return idGenerator.newId();
+                    }
+                });
+        return migration.reconstruct(phaseId, stateId, continuation, null);
     }
 }

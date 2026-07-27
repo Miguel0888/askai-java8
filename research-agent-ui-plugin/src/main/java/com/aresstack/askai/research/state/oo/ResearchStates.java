@@ -146,11 +146,10 @@ final class ResearchStates {
      */
     private static OoTransition continueInto(ResearchStateContext ctx, ResearchPhaseState phase,
                                              String continuationStateId) {
-        String approvalId = null;
-        if (ResearchStateIds.WAITING_APPROVAL.equals(continuationStateId)) {
-            String preserved = phase.getCurrentState().getPendingApprovalId();
-            approvalId = preserved != null ? preserved : ctx.newApprovalId();
-        }
+        // Native path: never fabricate. The interruption memento is required (by the factory) to carry the
+        // original approval id when its continuation is an approval gate, so we restore exactly that id.
+        String approvalId = ResearchStateIds.WAITING_APPROVAL.equals(continuationStateId)
+                ? phase.getCurrentState().getPendingApprovalId() : null;
         return OoTransition.accepted(phase.withState(
                 ctx.getFactory().state(phase.getPhaseId(), continuationStateId, null, approvalId)));
     }

@@ -75,7 +75,11 @@ public final class WorkspacePluginService {
 
     /** Bounded waits so a broken/hung EDT can never wedge a refresh or shutdown forever. */
     private static final long EDT_WAIT_TIMEOUT_MS = 30_000L;
-    private static final long SHUTDOWN_TIMEOUT_MS = 15_000L;
+    /** Injectable for tests so cancel-safety can be exercised without a real 30s wait. */
+    private volatile long edtWaitTimeoutMs = EDT_WAIT_TIMEOUT_MS;
+
+    /** The lifecycle of one bounded EDT round-trip; a runnable mutates only after CAS {@code PENDING→RUNNING}. */
+    private enum EdtCallState { PENDING, RUNNING, COMPLETED, CANCELLED, FAILED }
 
     /**
      * Coordinates the session side of a generation swap across the EDT boundary (detach on EDT, close off-EDT).
@@ -213,9 +217,10 @@ public final class WorkspacePluginService {
             return;
         }
 
-        // EDT: atomically publish the new generation. The activeGeneration write cannot throw; delivery to
-        // listeners is guarded so a misbehaving listener cannot abort a completed swap. Only an EDT timeout
-        // yields ok == false, which is surfaced as a lifecycle failure (the generation is already active).
+        // EDT: atomically publish the new generation. The activeGeneration write cannot throw and delivery to
+        // listeners is guarded, so the runnable only mutates once it wins PENDING→RUNNING. If it was cancelled
+        // (this thread timed out first), it performs no swap at all — the candidate never becomes active — so we
+        // discard the candidate and keep the previous generation. No "ghost publish" can activate it later.
         final PluginRuntimeGeneration[] previous = new PluginRuntimeGeneration[1];
         UiCallResult publishResult = runOnEdtAndWait(new Runnable() {
             public void run() {
@@ -231,20 +236,28 @@ public final class WorkspacePluginService {
                 }
             }
         });
+        if (!publishResult.ok) {
+            trackIfIncomplete(cand, cand.retire()); // candidate never became active: discard it, keep previous
+            publishOnEdt(generation, keptSnapshot(generation,
+                    Collections.singletonList(lifecycleFailure(PluginFailurePhase.SESSION_CLOSE,
+                            "Publishing the new plugin generation did not complete; refresh aborted. "
+                                    + publishResult.describe())), true));
+            return;
+        }
 
         // Off-EDT: retire the previous generation (and retry any earlier incomplete retirements).
         sweepRetiringGenerations();
         if (previous[0] != null) {
             trackIfIncomplete(previous[0], previous[0].retire());
         }
-        if (!publishResult.ok || getPendingRetirementCount() > 0) {
+        if (getPendingRetirementCount() > 0) {
             publishLifecycleUpdate(generation, cand);
         }
     }
 
     /** The outcome of a bounded EDT round-trip: completed cleanly, or failed (task threw) / timed out. */
-    private static final class UiCallResult {
-        private final boolean ok;
+    static final class UiCallResult {
+        final boolean ok;
         private final Throwable failure;
         private final boolean timedOut;
 
@@ -266,46 +279,80 @@ public final class WorkspacePluginService {
         }
     }
 
+    /** For tests: shorten the EDT wait so cancel-safety can be exercised without a real 30-second timeout. */
+    void setEdtWaitTimeoutMillisForTest(long millis) {
+        this.edtWaitTimeoutMs = millis;
+    }
+
     /**
-     * Run {@code task} on the EDT and wait for it (bounded), without blocking the EDT itself. An exception thrown
-     * by the task on the EDT is propagated back to this lifecycle thread as a non-ok result, and an unresponsive
-     * EDT is bounded by {@link #EDT_WAIT_TIMEOUT_MS} so a swap/shutdown can never hang forever.
+     * Run {@code task} on the EDT and wait for it (bounded), without blocking the EDT itself. The task mutates
+     * only after atomically moving {@code PENDING→RUNNING}; if this lifecycle thread times out first it atomically
+     * moves {@code PENDING→CANCELLED}, after which the queued runnable — should it ever run — finds the CAS failed
+     * and performs no mutation. This makes a timed-out detach/publish genuinely inert (no late "ghost" mutation).
+     * If the task is already {@code RUNNING} at the timeout it is <em>not</em> treated as cancelled: we wait for
+     * its true final state. An exception thrown by the task is propagated back as a non-ok result.
      */
-    private UiCallResult runOnEdtAndWait(final Runnable task) {
-        final Throwable[] thrown = new Throwable[1];
+    UiCallResult runOnEdtAndWait(final Runnable task) {
         if (uiExecutor.isUiThread()) {
             try {
                 task.run();
+                return new UiCallResult(true, null, false);
             } catch (RuntimeException | Error ex) {
-                thrown[0] = ex;
+                return new UiCallResult(false, ex, false);
             }
-            return new UiCallResult(thrown[0] == null, thrown[0], false);
         }
+        final java.util.concurrent.atomic.AtomicReference<EdtCallState> status =
+                new java.util.concurrent.atomic.AtomicReference<EdtCallState>(EdtCallState.PENDING);
+        final Throwable[] thrown = new Throwable[1];
         final CountDownLatch done = new CountDownLatch(1);
         try {
             uiExecutor.execute(new Runnable() {
                 public void run() {
+                    if (!status.compareAndSet(EdtCallState.PENDING, EdtCallState.RUNNING)) {
+                        return; // cancelled before we started: must NOT mutate
+                    }
                     try {
                         task.run();
+                        status.set(EdtCallState.COMPLETED);
                     } catch (RuntimeException | Error ex) {
                         thrown[0] = ex;
+                        status.set(EdtCallState.FAILED);
                     } finally {
                         done.countDown();
                     }
                 }
             });
         } catch (RuntimeException ex) {
+            status.set(EdtCallState.FAILED);
             return new UiCallResult(false, ex, false);
         }
+        boolean finishedInTime;
         try {
-            if (!done.await(EDT_WAIT_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
-                return new UiCallResult(false, null, true);
-            }
+            finishedInTime = done.await(edtWaitTimeoutMs, TimeUnit.MILLISECONDS);
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
             return new UiCallResult(false, ex, false);
         }
-        return new UiCallResult(thrown[0] == null, thrown[0], false);
+        if (!finishedInTime) {
+            if (status.compareAndSet(EdtCallState.PENDING, EdtCallState.CANCELLED)) {
+                return new UiCallResult(false, null, true); // safely cancelled; the runnable will no-op
+            }
+            // Already RUNNING: the mutation is in flight; wait for its real final state rather than guessing.
+            try {
+                done.await();
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                return new UiCallResult(false, ex, false);
+            }
+        }
+        EdtCallState finalState = status.get();
+        if (finalState == EdtCallState.COMPLETED) {
+            return new UiCallResult(true, null, false);
+        }
+        if (finalState == EdtCallState.CANCELLED) {
+            return new UiCallResult(false, null, true);
+        }
+        return new UiCallResult(false, thrown[0], false); // FAILED
     }
 
     private void publishOnEdt(final long generation, final PluginCatalogSnapshot snapshot) {
@@ -485,12 +532,16 @@ public final class WorkspacePluginService {
         }
     }
 
+    private volatile CountDownLatch shutdownComplete;
+
     /**
-     * Serialized, idempotent shutdown. Two-stage so the EDT is not blocked by close/stop/unload: the caller
-     * thread (which may be the EDT at window close) only detaches routing and sessions — cheap, non-blocking —
-     * while the actual session close and plugin stop/unload run off the EDT, bounded by
-     * {@link #SHUTDOWN_TIMEOUT_MS} so a hung plugin cannot wedge application exit. Retiring one-by-one avoids
-     * PF4J's {@code stopPlugins()} CME; a plugin that still cannot be retired stays tracked rather than forgotten.
+     * Serialized, idempotent shutdown, and the single production teardown path (the host must not close sessions
+     * itself first). Two-stage so the EDT is never blocked: the caller thread (the EDT at window close) only
+     * detaches routing and sessions — cheap, non-blocking — while the actual session close and plugin stop/unload
+     * run <em>off</em> the EDT on a dedicated non-daemon lifecycle thread (which keeps the JVM alive to finish,
+     * without a blocking {@code join} on the EDT). A session close failure is honoured: the generation is then
+     * <em>not</em> unloaded (that would strand live objects behind a dead classloader) but kept tracked. Retiring
+     * one-by-one avoids PF4J's {@code stopPlugins()} CME.
      */
     public void shutdown() {
         if (!shuttingDown.compareAndSet(false, true)) {
@@ -498,6 +549,8 @@ public final class WorkspacePluginService {
         }
         discoveryExecutor.shutdownNow();
         listeners.clear();
+        final CountDownLatch complete = new CountDownLatch(1);
+        shutdownComplete = complete;
         // Stage 1 (caller thread, EDT-safe): detach the outgoing sessions from routing.
         GenerationSwapHook hook = generationSwapHook;
         GenerationSwapHook.OutgoingSessions detached = null;
@@ -511,34 +564,42 @@ public final class WorkspacePluginService {
         final GenerationSwapHook.OutgoingSessions outgoing = detached;
         final PluginRuntimeGeneration generation = activeGeneration;
         activeGeneration = null;
-        // Stage 2 (off the EDT, bounded): close the detached sessions, then stop/unload the plugins.
-        runOffEdtBounded(new Runnable() {
+        // Stage 2 (off the EDT): close the detached sessions, then stop/unload the plugins.
+        Runnable work = new Runnable() {
             public void run() {
-                if (outgoing != null) {
-                    outgoing.closeAll();
+                try {
+                    SessionCloseResult close = outgoing == null
+                            ? SessionCloseResult.ok() : outgoing.closeAll();
+                    if (generation != null) {
+                        if (close.isSuccessful()) {
+                            trackIfIncomplete(generation, generation.retire());
+                            sweepRetiringGenerations();
+                        } else {
+                            // A failed session close must NOT be followed by a classloader unload; keep the
+                            // generation tracked (the JVM exit reclaims it) rather than stranding live objects.
+                            trackIfIncomplete(generation, null);
+                        }
+                    } else {
+                        sweepRetiringGenerations();
+                    }
+                } finally {
+                    complete.countDown();
                 }
-                if (generation != null) {
-                    trackIfIncomplete(generation, generation.retire());
-                }
-                sweepRetiringGenerations();
             }
-        }, SHUTDOWN_TIMEOUT_MS);
+        };
+        if (!uiExecutor.isUiThread()) {
+            work.run(); // already off the EDT (tests, background callers): synchronous
+        } else {
+            Thread worker = new Thread(work, "askai-plugin-shutdown");
+            worker.setDaemon(false); // keep the JVM alive to finish; do NOT block the EDT with a join
+            worker.start();
+        }
     }
 
-    /** Run bounded off-EDT work: inline if already off the EDT, else on a daemon thread joined with a timeout. */
-    private void runOffEdtBounded(Runnable work, long timeoutMs) {
-        if (!uiExecutor.isUiThread()) {
-            work.run(); // already off the EDT (tests, background callers)
-            return;
-        }
-        Thread worker = new Thread(work, "askai-plugin-shutdown");
-        worker.setDaemon(true);
-        worker.start();
-        try {
-            worker.join(timeoutMs); // do not block window close forever on a hung plugin
-        } catch (InterruptedException ex) {
-            Thread.currentThread().interrupt();
-        }
+    /** For tests: await the off-EDT shutdown work. @return true if it completed within the timeout. */
+    boolean awaitShutdownForTest(long millis) throws InterruptedException {
+        CountDownLatch complete = shutdownComplete;
+        return complete == null || complete.await(millis, TimeUnit.MILLISECONDS);
     }
 
     // ------------------------------------------------------------------ discovery (off-EDT)
