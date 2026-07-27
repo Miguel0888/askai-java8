@@ -498,18 +498,102 @@ public final class OllamaChatPanel extends JPanel {
         return techScroll;
     }
 
-    /** The chat settings (system prompt, keep-alive, audio model, microphone) shown in the gear dialog. */
+    /** The category names shown in the Outlook-style navigation list, in display order. */
+    private static final String[] SETTINGS_CATEGORIES = {
+            "General", "Audio & Dictation", "Party: Identity & Room", "Party: Network", "Party: Bot"};
+
+    /**
+     * The chat settings dialog content, Outlook-style: a category list on the left selects one
+     * card on the right.
+     */
     private JComponent buildSettingsContent() {
-        JPanel params = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
+        final java.awt.CardLayout cardLayout = new java.awt.CardLayout();
+        final JPanel cards = new JPanel(cardLayout);
+        JComponent[] partyCards = buildPartyCards();
+        cards.add(settingsCard(buildGeneralCard()), SETTINGS_CATEGORIES[0]);
+        cards.add(settingsCard(buildAudioCard()), SETTINGS_CATEGORIES[1]);
+        cards.add(settingsCard(partyCards[0]), SETTINGS_CATEGORIES[2]);
+        cards.add(settingsCard(partyCards[1]), SETTINGS_CATEGORIES[3]);
+        cards.add(settingsCard(partyCards[2]), SETTINGS_CATEGORIES[4]);
+
+        final javax.swing.JList<String> navigation =
+                new javax.swing.JList<String>(SETTINGS_CATEGORIES);
+        navigation.setSelectionMode(javax.swing.ListSelectionModel.SINGLE_SELECTION);
+        navigation.setSelectedIndex(0);
+        navigation.setFixedCellHeight(30);
+        navigation.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
+        navigation.addListSelectionListener(event -> {
+            String selected = navigation.getSelectedValue();
+            if (selected != null) {
+                cardLayout.show(cards, selected);
+            }
+        });
+
+        JScrollPane navigationScroll = new JScrollPane(navigation);
+        navigationScroll.setPreferredSize(new Dimension(180, 10));
+
+        JPanel root = new JPanel(new BorderLayout(8, 0));
+        root.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        root.add(navigationScroll, BorderLayout.WEST);
+        root.add(cards, BorderLayout.CENTER);
+        return root;
+    }
+
+    /** Wraps a card in a scroll pane so long cards stay usable at small dialog sizes. */
+    private static JComponent settingsCard(JComponent card) {
+        JScrollPane scroll = new JScrollPane(card);
+        scroll.setBorder(BorderFactory.createEmptyBorder());
+        scroll.getVerticalScrollBar().setUnitIncrement(14);
+        return scroll;
+    }
+
+    /** A vertical card container with a consistent inner margin. */
+    private static JPanel settingsColumn() {
+        JPanel column = new JPanel();
+        column.setLayout(new javax.swing.BoxLayout(column, javax.swing.BoxLayout.Y_AXIS));
+        column.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        return column;
+    }
+
+    /** General: chat request parameters, the system prompt and the transcript colors. */
+    private JComponent buildGeneralCard() {
+        JPanel card = settingsColumn();
+
+        JPanel params = partySettingsRow();
         params.add(new JLabel("keep_alive"));
         params.add(keepAliveField);
-        params.add(new JLabel("Audio model"));
+        card.add(params);
+
+        JPanel system = new JPanel(new BorderLayout(6, 2));
+        system.setBorder(BorderFactory.createTitledBorder("System prompt"));
+        systemPromptArea.setLineWrap(true);
+        systemPromptArea.setWrapStyleWord(true);
+        JScrollPane systemScroll = new JScrollPane(systemPromptArea);
+        systemScroll.setPreferredSize(new Dimension(440, 120));
+        system.add(systemScroll, BorderLayout.CENTER);
+        system.setAlignmentX(Component.LEFT_ALIGNMENT);
+        system.setMaximumSize(new Dimension(Integer.MAX_VALUE, 170));
+        card.add(system);
+
+        JComponent colors = (JComponent) buildColorSettings();
+        colors.setAlignmentX(Component.LEFT_ALIGNMENT);
+        card.add(colors);
+        return card;
+    }
+
+    /** Audio & Dictation: the audio model, the transcription profile and the microphone. */
+    private JComponent buildAudioCard() {
+        JPanel card = settingsColumn();
+
+        JPanel modelRow = partySettingsRow();
+        modelRow.add(new JLabel("Audio model"));
         audioModelCombo.setEditable(false); // only /api/show-verified models, never free text
         audioModelCombo.setPreferredSize(new Dimension(200, audioModelCombo.getPreferredSize().height));
         audioModelCombo.addActionListener(event -> persistAudioModelSelection());
-        params.add(audioModelCombo);
+        modelRow.add(audioModelCombo);
+        card.add(modelRow);
 
-        JPanel profileRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
+        JPanel profileRow = partySettingsRow();
         profileRow.add(new JLabel("Transcription profile"));
         audioProfileCombo.setPreferredSize(new Dimension(240, audioProfileCombo.getPreferredSize().height));
         audioProfileCombo.setToolTipText("Choose the audio-processing profile used for microphone transcription.");
@@ -518,8 +602,9 @@ public final class OllamaChatPanel extends JPanel {
         JButton editProfilesButton = new JButton("Edit profiles…");
         editProfilesButton.addActionListener(event -> openAudioProcessingSettings());
         profileRow.add(editProfilesButton);
+        card.add(profileRow);
 
-        JPanel micRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
+        JPanel micRow = partySettingsRow();
         micRow.add(new JLabel("Microphone"));
         micCombo.setPreferredSize(new Dimension(240, micCombo.getPreferredSize().height));
         micCombo.addActionListener(event -> persistMicrophoneSelection());
@@ -528,50 +613,21 @@ public final class OllamaChatPanel extends JPanel {
         micRow.add(micRefreshButton);
         testMicButton.addActionListener(event -> testMicrophone());
         micRow.add(testMicButton);
-
-        JPanel system = new JPanel(new BorderLayout(6, 2));
-        system.setBorder(BorderFactory.createTitledBorder("System prompt"));
-        systemPromptArea.setLineWrap(true);
-        systemPromptArea.setWrapStyleWord(true);
-        system.add(new JScrollPane(systemPromptArea), BorderLayout.CENTER);
-
-        JPanel top = new JPanel();
-        top.setLayout(new javax.swing.BoxLayout(top, javax.swing.BoxLayout.Y_AXIS));
-        params.setAlignmentX(Component.LEFT_ALIGNMENT);
-        profileRow.setAlignmentX(Component.LEFT_ALIGNMENT);
-        micRow.setAlignmentX(Component.LEFT_ALIGNMENT);
-        top.add(params);
-        top.add(profileRow);
-        top.add(micRow);
-
-        JPanel settings = new JPanel(new BorderLayout(4, 4));
-        settings.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        settings.add(top, BorderLayout.NORTH);
-        settings.add(system, BorderLayout.CENTER);
-        JPanel south = new JPanel();
-        south.setLayout(new javax.swing.BoxLayout(south, javax.swing.BoxLayout.Y_AXIS));
-        JComponent colorSection = (JComponent) buildColorSettings();
-        colorSection.setAlignmentX(Component.LEFT_ALIGNMENT);
-        south.add(colorSection);
-        JComponent partySection = buildPartySettings();
-        partySection.setAlignmentX(Component.LEFT_ALIGNMENT);
-        south.add(partySection);
-        settings.add(south, BorderLayout.SOUTH);
-        return settings;
+        card.add(micRow);
+        return card;
     }
 
     /** No preferred participant color — the deterministic assignment picks a free one. */
     private static final String PARTY_COLOR_AUTOMATIC = "(automatic)";
 
     /**
-     * The Partying settings: identity, preferred color, discovery/network options, bot policy,
-     * room identity/secret and the local history location.  Values apply on the next join.
+     * The Partying settings, split over three cards: identity &amp; room, network, and bot.
+     * All cards share one "Apply party settings" action; values apply on the next join except
+     * the bot options, which are read live.
+     *
+     * @return the three cards in navigation order: identity &amp; room, network, bot
      */
-    private JComponent buildPartySettings() {
-        JPanel party = new JPanel();
-        party.setLayout(new javax.swing.BoxLayout(party, javax.swing.BoxLayout.Y_AXIS));
-        party.setBorder(BorderFactory.createTitledBorder("Partying (LAN group chat)"));
-
+    private JComponent[] buildPartyCards() {
         final JTextField nameField = new JTextField(partySettings.displayName(), 12);
         final JComboBox<String> colorCombo = new JComboBox<String>();
         colorCombo.addItem(PARTY_COLOR_AUTOMATIC);
@@ -580,31 +636,15 @@ public final class OllamaChatPanel extends JPanel {
         }
         String preferred = partySettings.preferredColor();
         colorCombo.setSelectedItem(preferred != null ? preferred : PARTY_COLOR_AUTOMATIC);
-        JPanel identityRow = partySettingsRow();
-        identityRow.add(new JLabel("Display name"));
-        identityRow.add(nameField);
-        identityRow.add(new JLabel("Preferred color"));
-        identityRow.add(colorCombo);
-        party.add(identityRow);
 
         final javax.swing.JCheckBox discoveryBox = new javax.swing.JCheckBox(
                 "Automatic LAN discovery (UDP multicast)", partySettings.discoveryEnabled());
         final JTextField interfaceField = new JTextField(
                 partySettings.networkInterface() == null ? "" : partySettings.networkInterface(), 8);
         interfaceField.setToolTipText("Network interface to bind, empty for automatic selection");
-        JPanel networkRow = partySettingsRow();
-        networkRow.add(discoveryBox);
-        networkRow.add(new JLabel("Interface"));
-        networkRow.add(interfaceField);
-        party.add(networkRow);
-
         final JTextField peersField = new JTextField(partySettings.manualPeersText(), 24);
         peersField.setToolTipText(
                 "Manual peer addresses (host or host:port, comma-separated) when multicast is blocked");
-        JPanel peersRow = partySettingsRow();
-        peersRow.add(new JLabel("Manual peers"));
-        peersRow.add(peersField);
-        party.add(peersRow);
 
         final JComboBox<String> botPolicyCombo = new JComboBox<String>();
         botPolicyCombo.addItem("Answer only when @AskAI is mentioned");
@@ -617,21 +657,17 @@ public final class OllamaChatPanel extends JPanel {
                 "Allow @modelname mentions", partySettings.modelMentionsEnabled());
         modelMentionsBox.setToolTipText(
                 "Address a specific installed model directly, e.g. @gemma4:e2b — loaded models are highlighted in the completion");
-        JPanel botRow = partySettingsRow();
-        botRow.add(new JLabel("Bot"));
-        botRow.add(botPolicyCombo);
-        botRow.add(modelMentionsBox);
-        party.add(botRow);
-
+        final javax.swing.JCheckBox gateBox = new javax.swing.JCheckBox(
+                "Pre-check unprompted replies with a YES/NO gate", partySettings.chimeInGateEnabled());
+        gateBox.setToolTipText(
+                "Extra short model call deciding whether to chime in under the \"always\" policy. "
+                        + "Recommended for small models; large models that follow the [SILENT] contract "
+                        + "reliably can disable it and save the call.");
         final JComboBox<String> contextModeCombo = new JComboBox<String>();
         contextModeCombo.addItem("Answer the mentioning message (transcript as context)");
         contextModeCombo.addItem("Full conversation as chat turns (model draws its own conclusions)");
         contextModeCombo.setSelectedIndex(
                 PartySettings.BOT_CONTEXT_CONVERSATION.equals(partySettings.botContextMode()) ? 1 : 0);
-        JPanel contextRow = partySettingsRow();
-        contextRow.add(new JLabel("Bot context"));
-        contextRow.add(contextModeCombo);
-        party.add(contextRow);
 
         String customPrompt = partySettings.botSystemPrompt();
         final JTextArea botPromptArea = new JTextArea(customPrompt != null ? customPrompt : "", 3, 40);
@@ -640,15 +676,6 @@ public final class OllamaChatPanel extends JPanel {
         botPromptArea.setToolTipText(
                 "Custom system prompt for the party bot. Leave empty for the built-in default:\n"
                         + com.aresstack.askai.java8.party.OllamaBotResponder.DEFAULT_SYSTEM_PROMPT);
-        JPanel promptRow = partySettingsRow();
-        promptRow.add(new JLabel("Bot system prompt (empty = default)"));
-        party.add(promptRow);
-        JScrollPane promptScroll = new JScrollPane(botPromptArea);
-        promptScroll.setAlignmentX(Component.LEFT_ALIGNMENT);
-        JPanel promptFieldRow = partySettingsRow();
-        promptFieldRow.add(promptScroll);
-        party.add(promptFieldRow);
-
         String customAlwaysPrompt = partySettings.botAlwaysPrompt();
         final JTextArea alwaysPromptArea = new JTextArea(
                 customAlwaysPrompt != null ? customAlwaysPrompt : "", 3, 40);
@@ -658,42 +685,15 @@ public final class OllamaChatPanel extends JPanel {
                 "Used with the \"always\" policy: explains when the bot should chime in unprompted. "
                         + "Leave empty for the built-in default:\n"
                         + com.aresstack.askai.java8.party.OllamaBotResponder.DEFAULT_ALWAYS_PROMPT);
-        JPanel alwaysLabelRow = partySettingsRow();
-        alwaysLabelRow.add(new JLabel("When to chime in — always policy (empty = default)"));
-        party.add(alwaysLabelRow);
-        JScrollPane alwaysScroll = new JScrollPane(alwaysPromptArea);
-        alwaysScroll.setAlignmentX(Component.LEFT_ALIGNMENT);
-        JPanel alwaysFieldRow = partySettingsRow();
-        alwaysFieldRow.add(alwaysScroll);
-        party.add(alwaysFieldRow);
 
         final JTextField roomField = new JTextField(partySettings.roomId(), 10);
         final JTextField secretField = new JTextField(partySettings.roomSecret(), 10);
         secretField.setToolTipText("Room invitation secret: authenticates the join and encrypts traffic");
-        JPanel roomRow = partySettingsRow();
-        roomRow.add(new JLabel("Room"));
-        roomRow.add(roomField);
-        roomRow.add(new JLabel("Secret"));
-        roomRow.add(secretField);
-        party.add(roomRow);
-
         final JTextField historyField = new JTextField(
                 partySettings.historyDirectory().getAbsolutePath(), 24);
-        JPanel historyRow = partySettingsRow();
-        historyRow.add(new JLabel("History folder"));
-        historyRow.add(historyField);
-        party.add(historyRow);
 
-        JLabel historyNote = new JLabel(
-                "History lives on the participants' machines. Messages no reachable peer remembers cannot be restored.");
-        historyNote.setFont(historyNote.getFont().deriveFont(historyNote.getFont().getSize2D() - 2f));
-        JPanel noteRow = partySettingsRow();
-        noteRow.add(historyNote);
-        party.add(noteRow);
-
-        JButton applyButton = new JButton("Apply party settings");
-        applyButton.setToolTipText("Saved immediately; network changes take effect on the next join");
-        applyButton.addActionListener(event -> {
+        // One shared apply action; each card carries its own button for it.
+        final java.awt.event.ActionListener applyAction = event -> {
             partySettings.setDisplayName(nameField.getText());
             Object color = colorCombo.getSelectedItem();
             partySettings.setPreferredColor(
@@ -706,10 +706,14 @@ public final class OllamaChatPanel extends JPanel {
                     : policyIndex == 1 ? PartySettings.BOT_POLICY_ALWAYS
                     : PartySettings.BOT_POLICY_MENTION);
             partySettings.setModelMentionsEnabled(modelMentionsBox.isSelected());
+            partySettings.setChimeInGateEnabled(gateBox.isSelected());
             partySettings.setBotContextMode(contextModeCombo.getSelectedIndex() == 1
                     ? PartySettings.BOT_CONTEXT_CONVERSATION : PartySettings.BOT_CONTEXT_TRANSCRIPT);
             partySettings.setBotSystemPrompt(botPromptArea.getText());
             partySettings.setBotAlwaysPrompt(alwaysPromptArea.getText());
+            partySettings.setRoomId(roomField.getText());
+            partySettings.setRoomSecret(secretField.getText());
+            partySettings.setHistoryDirectory(historyField.getText());
             refreshMentionCompletionHandles();
             // A policy change flips this peer's bot capability; announce it to the room.
             final PartySession session = partySession;
@@ -723,22 +727,101 @@ public final class OllamaChatPanel extends JPanel {
                     }
                 });
             }
-            partySettings.setRoomId(roomField.getText());
-            partySettings.setRoomSecret(secretField.getText());
-            partySettings.setHistoryDirectory(historyField.getText());
-            setStatus("Party settings saved — they apply on the next join.");
-        });
+            setStatus("Party settings saved — network changes apply on the next join.");
+        };
+
+        // ---- Card 1: identity & room
+        JPanel identityCard = settingsColumn();
+        JPanel identityRow = partySettingsRow();
+        identityRow.add(new JLabel("Display name"));
+        identityRow.add(nameField);
+        identityRow.add(new JLabel("Preferred color"));
+        identityRow.add(colorCombo);
+        identityCard.add(identityRow);
+        JPanel roomRow = partySettingsRow();
+        roomRow.add(new JLabel("Room"));
+        roomRow.add(roomField);
+        roomRow.add(new JLabel("Secret"));
+        roomRow.add(secretField);
+        identityCard.add(roomRow);
+        JPanel historyRow = partySettingsRow();
+        historyRow.add(new JLabel("History folder"));
+        historyRow.add(historyField);
+        identityCard.add(historyRow);
+        JLabel historyNote = new JLabel(
+                "History lives on the participants' machines. Messages no reachable peer remembers cannot be restored.");
+        historyNote.setFont(historyNote.getFont().deriveFont(historyNote.getFont().getSize2D() - 2f));
+        JPanel noteRow = partySettingsRow();
+        noteRow.add(historyNote);
+        identityCard.add(noteRow);
+        identityCard.add(partyApplyRow(applyAction));
+
+        // ---- Card 2: network
+        JPanel networkCard = settingsColumn();
+        JPanel discoveryRow = partySettingsRow();
+        discoveryRow.add(discoveryBox);
+        discoveryRow.add(new JLabel("Interface"));
+        discoveryRow.add(interfaceField);
+        networkCard.add(discoveryRow);
+        JPanel peersRow = partySettingsRow();
+        peersRow.add(new JLabel("Manual peers"));
+        peersRow.add(peersField);
+        networkCard.add(peersRow);
         JButton diagnosticsButton = new JButton("Network diagnostics");
         diagnosticsButton.setToolTipText("Check multicast/firewall readiness of the local network interfaces");
         diagnosticsButton.addActionListener(event -> {
             appendTech(JGroupsGroupChatTransport.diagnoseMulticast());
             setStatus("Network diagnostics written to Technical details.");
         });
-        JPanel actionsRow = partySettingsRow();
-        actionsRow.add(applyButton);
-        actionsRow.add(diagnosticsButton);
-        party.add(actionsRow);
-        return party;
+        JPanel networkActions = partyApplyRow(applyAction);
+        networkActions.add(diagnosticsButton);
+        networkCard.add(networkActions);
+
+        // ---- Card 3: bot
+        JPanel botCard = settingsColumn();
+        JPanel botRow = partySettingsRow();
+        botRow.add(new JLabel("Bot"));
+        botRow.add(botPolicyCombo);
+        botCard.add(botRow);
+        JPanel mentionsRow = partySettingsRow();
+        mentionsRow.add(modelMentionsBox);
+        botCard.add(mentionsRow);
+        JPanel gateRow = partySettingsRow();
+        gateRow.add(gateBox);
+        botCard.add(gateRow);
+        JPanel contextRow = partySettingsRow();
+        contextRow.add(new JLabel("Bot context"));
+        contextRow.add(contextModeCombo);
+        botCard.add(contextRow);
+        JPanel promptRow = partySettingsRow();
+        promptRow.add(new JLabel("Bot system prompt (empty = default)"));
+        botCard.add(promptRow);
+        JScrollPane promptScroll = new JScrollPane(botPromptArea);
+        promptScroll.setAlignmentX(Component.LEFT_ALIGNMENT);
+        JPanel promptFieldRow = partySettingsRow();
+        promptFieldRow.add(promptScroll);
+        botCard.add(promptFieldRow);
+        JPanel alwaysLabelRow = partySettingsRow();
+        alwaysLabelRow.add(new JLabel("When to chime in — always policy (empty = default)"));
+        botCard.add(alwaysLabelRow);
+        JScrollPane alwaysScroll = new JScrollPane(alwaysPromptArea);
+        alwaysScroll.setAlignmentX(Component.LEFT_ALIGNMENT);
+        JPanel alwaysFieldRow = partySettingsRow();
+        alwaysFieldRow.add(alwaysScroll);
+        botCard.add(alwaysFieldRow);
+        botCard.add(partyApplyRow(applyAction));
+
+        return new JComponent[] {identityCard, networkCard, botCard};
+    }
+
+    /** A row with an "Apply party settings" button wired to the shared apply action. */
+    private static JPanel partyApplyRow(java.awt.event.ActionListener applyAction) {
+        JButton applyButton = new JButton("Apply party settings");
+        applyButton.setToolTipText("Saved immediately; network changes take effect on the next join");
+        applyButton.addActionListener(applyAction);
+        JPanel row = partySettingsRow();
+        row.add(applyButton);
+        return row;
     }
 
     private static JPanel partySettingsRow() {
@@ -832,9 +915,9 @@ public final class OllamaChatPanel extends JPanel {
             settingsDialog = new javax.swing.JDialog(
                     owner instanceof java.awt.Frame ? (java.awt.Frame) owner : null, "Chat settings", false);
             JComponent content = buildSettingsContent();
-            settingsDialog.setContentPane(new JScrollPane(content));
+            settingsDialog.setContentPane(content); // cards scroll individually, no outer scroll
             settingsDialog.pack();
-            settingsDialog.setSize(new Dimension(Math.max(460, settingsDialog.getWidth()), 360));
+            settingsDialog.setSize(new Dimension(Math.max(760, settingsDialog.getWidth()), 520));
             settingsDialog.setLocationRelativeTo(this);
         }
         settingsDialog.setVisible(true);

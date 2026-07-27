@@ -119,9 +119,11 @@ public final class OllamaBotResponder implements BotResponder {
         }
         boolean mentioned = requestedModel != null
                 || com.aresstack.askai.java8.groupchat.MentionParser.mentionsBot(addressed.getMarkdown());
-        if (alwaysPolicy() && !mentioned) {
+        if (alwaysPolicy() && !mentioned
+                && (settings == null || settings.chimeInGateEnabled())) {
             // Small models don't reliably honor a free-form silence marker, so unprompted
-            // messages first pass a strictly binary should-I-reply gate.
+            // messages first pass a strictly binary should-I-reply gate. Large models that
+            // follow the [SILENT] contract can disable the gate in Settings.
             runChimeInGate(model, context, addressed, profiles, callback);
             return;
         }

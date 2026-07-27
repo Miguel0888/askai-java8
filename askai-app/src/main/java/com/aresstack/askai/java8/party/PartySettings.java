@@ -36,6 +36,7 @@ public final class PartySettings {
     private static final String KEY_MODEL_MENTIONS = "party.modelMentions";
     private static final String KEY_BOT_SYSTEM_PROMPT = "party.botSystemPrompt";
     private static final String KEY_BOT_ALWAYS_PROMPT = "party.botAlwaysPrompt";
+    private static final String KEY_BOT_CHIME_GATE = "party.botChimeGate";
     private static final String KEY_BOT_CONTEXT_MODE = "party.botContextMode";
 
     /** Bot context modes: transcript-as-context (answer the mention) or full chat turns. */
@@ -180,6 +181,19 @@ public final class PartySettings {
 
     public void setBotAlwaysPrompt(String prompt) {
         put(KEY_BOT_ALWAYS_PROMPT, prompt);
+    }
+
+    /**
+     * Whether unprompted always-policy replies first run the binary YES/NO chime-in gate.
+     * Recommended (and default) for small models; large models that follow the silence contract
+     * reliably can disable it and save the extra model call.
+     */
+    public boolean chimeInGateEnabled() {
+        return state == null || state.getBoolean(KEY_BOT_CHIME_GATE, true);
+    }
+
+    public void setChimeInGateEnabled(boolean enabled) {
+        put(KEY_BOT_CHIME_GATE, String.valueOf(enabled));
     }
 
     /**
