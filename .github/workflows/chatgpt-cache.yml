@@ -1,0 +1,84 @@
+name: ChatGPT offline Gradle cache
+
+# On every push, prime a self-contained project-local Gradle home (all dependencies + the Gradle 7.6.4
+# wrapper distribution) by running a full build once with network access, then publish that primed home as a
+# ZIP. Unzipped into the repo root, it lets a ChatGPT-like sandbox (no internet) build/test offline:
+#
+#   unzip askai-java8-chatgpt-gradle-home.zip        # recreates .chatgpt/gradle-home
+#   GRADLE_USER_HOME=.chatgpt/gradle-home ./gradlew --offline build
+#
+# The single "chatgpt-compatible" pre-release is overwritten on each push (rolling, like the snapshot job).
+
+on:
+  push:
+    branches:
+      - '**'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: askai-java8-chatgpt-cache-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-cache:
+    name: Prime and publish offline Gradle cache
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 8
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '8'
+
+      - name: Prime project-local Gradle home (deps + wrapper distribution)
+        env:
+          # The wrapper downloads the Gradle 7.6.4 distribution AND all module/dependency caches here, so the
+          # zipped folder is fully self-contained for an offline `--offline` build.
+          GRADLE_USER_HOME: ${{ github.workspace }}/.chatgpt/gradle-home
+        run: |
+          chmod +x ./gradlew
+          # A full build resolves every compile + test dependency and the plugin/fat-jar/dev-plugin task graphs.
+          ./gradlew --no-daemon build :askai-app:fatJar :research-agent-ui-plugin:installDevPlugin
+
+      - name: Trim volatile cache files
+        run: |
+          # Drop locks, daemon state and journals that must not travel into the offline sandbox.
+          find .chatgpt/gradle-home -name '*.lock' -delete 2>/dev/null || true
+          rm -rf .chatgpt/gradle-home/daemon .chatgpt/gradle-home/caches/journal-1 2>/dev/null || true
+
+      - name: Write usage note
+        run: |
+          cat > .chatgpt/README-chatgpt.md <<NOTE
+          # Offline Gradle home for ChatGPT-like sandboxes
+
+          This folder (`.chatgpt/gradle-home`) is a primed Gradle user home containing the Gradle 7.6.4
+          distribution and every dependency this repo needs, so the project builds without internet.
+
+          Usage (from the repo root, after unzipping this at the repo root):
+
+              GRADLE_USER_HOME=.chatgpt/gradle-home ./gradlew --offline build
+
+          Requires a Java 8 JDK on PATH. Built from commit ${GITHUB_SHA} on branch ${GITHUB_REF_NAME}.
+          NOTE
+
+      - name: Zip the primed Gradle home
+        run: |
+          zip -q -r askai-java8-chatgpt-gradle-home.zip .chatgpt/gradle-home .chatgpt/README-chatgpt.md
+          ls -lh askai-java8-chatgpt-gradle-home.zip
+
+      - name: Overwrite rolling chatgpt-compatible pre-release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete chatgpt-compatible --yes --cleanup-tag || true
+          gh release create chatgpt-compatible \
+            askai-java8-chatgpt-gradle-home.zip \
+            --prerelease \
+            --target "${GITHUB_SHA}" \
+            --title "ChatGPT-compatible offline Gradle cache" \
+            --notes "This ZIP contains a prepared \`.chatgpt/gradle-home\` cache (Gradle 7.6.4 + all dependencies) for offline Gradle execution in ChatGPT-like environments. Unzip at the repo root, then run \`GRADLE_USER_HOME=.chatgpt/gradle-home ./gradlew --offline build\` with a Java 8 JDK. Rolling artifact, overwritten on every push (from \`${GITHUB_REF_NAME}\` @ ${GITHUB_SHA})."
