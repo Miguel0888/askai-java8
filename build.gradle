@@ -10,8 +10,12 @@ allprojects {
 subprojects {
     apply plugin: 'java'
 
-    sourceCompatibility = JavaVersion.VERSION_1_8
-    targetCompatibility = JavaVersion.VERSION_1_8
+    // The browser MCP sidecar is the one deliberate Java-21 process (playwright4j is major 65). Everything
+    // else stays strictly Java 8; the Java-8 host never compiles against or loads sidecar classes.
+    if (name != 'browser-mcp-server-java21') {
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
+    }
 
     tasks.withType(JavaCompile) {
         options.encoding = 'UTF-8'

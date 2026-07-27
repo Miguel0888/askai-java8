@@ -588,3 +588,30 @@ API: `McpServerEndpointProvider.builder().name().version().channel("streamable")
 `:mcp-solon-runtime` mit obigen Koordinaten hinter `McpServerRegistry` umsetzen (Loopback-Bind, Token im
 Endpoint-Pfad, Round-trip-Test mit echtem Solon-Client). `InProcessMcpServerRegistry` bleibt deterministische
 Testimplementierung, ist aber nicht die produktive Runtime.
+
+## MCP-P005 — Playwright-Treiber-Orchestrierung im Sidecar noch nicht implementiert
+
+**Erkannt in:** Commit 32 (browser MCP sidecar)
+**Status:** OPEN
+**Schweregrad:** HIGH
+**Betroffene Module:** browser-mcp-server-java21
+
+### Erwartung
+Der Java-21-Sidecar bedient `web_*` real über Playwright (JS-Navigation, dynamische Seiten).
+
+### Beobachtung
+`playwright4j:0.1.0` ist **kein** High-Level-Port der Playwright-Java-API, sondern eine GraalJS-Runtime, die
+den rohen Playwright-**JS-Driver** hostet (`GraalPlaywrightRuntime.evaluate(...)`, polyglot `Value`,
+`drainTransports()`/`runDueTimers()`-Eventloop). Es gibt keine `Browser`/`Page`-Fassade; zusätzlich braucht
+die Laufzeit die Browser-Binaries des `driver-bundle`.
+
+### Gewähltes Zwischenverhalten
+Sidecar vollständig baubar + paketierbar (`sidecarJar`, 252 MB, Main major 65): Solon-MCP-Endpoint (loopback,
+Token im Pfad) mit exakt `web_search/web_open/web_read/web_links/web_follow/web_back`; die Playwright-Session
+meldet jede Tool-Ausführung als lesbaren NOT_INSTALLED-artigen Fehler. Kein Build-Bruch bei fehlendem Driver.
+`STATIC_HTTP` existiert als separates, sichtbar limitiertes Backend hinter demselben `BrowserSession`-Port
+(kein stiller Fallback, kein zweiter Tool-Satz) und ist voll getestet.
+
+### Spätere Entscheidung
+Treiber-Orchestrierung über `GraalPlaywrightRuntime` implementieren (Driver-JS laden, Connection/Transport
+über `drainTransports`, Browser-Launch, Page-Navigation) + Live-Test, sofern Browser-Binaries vorhanden.

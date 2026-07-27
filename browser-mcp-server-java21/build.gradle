@@ -1,0 +1,58 @@
+// Java-21 Browser-MCP sidecar: the ONLY module that touches playwright4j (major 65). It runs as a separate
+// process and serves the flat web_* tools over Solon MCP (streamable HTTP, loopback, token in path). The
+// Java-8 host never compiles against it and never loads its classes — it only talks MCP to it. Not packed
+// into the AskAI fat jar.
+//
+// The Java-8 :browser-api sources are compiled INTO this module (source-level reuse, no Java-8 jar on the
+// Java-21 classpath confusion): same BrowserSession port, same UrlSafetyPolicy.
+apply plugin: 'application'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+// Reuse the browser port sources; keep the module self-contained as a runnable artifact.
+sourceSets {
+    main {
+        java {
+            srcDir project(':browser-api').file('src/main/java')
+        }
+    }
+}
+
+dependencies {
+    implementation 'com.aresstack:playwright4j:0.1.0'
+    implementation 'org.noear:solon:3.10.1'
+    implementation 'org.noear:solon-boot-jdkhttp:3.10.1'
+    implementation 'org.noear:solon-ai-mcp:3.10.1'
+}
+
+mainClassName = 'com.aresstack.askai.browser.sidecar.BrowserMcpSidecarMain'
+
+jar {
+    manifest {
+        attributes('Main-Class': mainClassName)
+    }
+}
+
+// Runnable fat jar for the sidecar so the host can spawn it with a plain `java -jar`.
+task sidecarJar(type: Jar) {
+    group = 'build'
+    description = 'Build the runnable Java-21 browser MCP sidecar jar.'
+    archiveBaseName = 'browser-mcp-sidecar'
+    archiveClassifier = 'all'
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    dependsOn classes
+    from sourceSets.main.output
+    from {
+        // graalvm publishes pom-only platform artifacts on the classpath; only expand real jars.
+        configurations.runtimeClasspath
+                .filter { it.isDirectory() || it.name.endsWith('.jar') }
+                .collect { it.isDirectory() ? it : zipTree(it) }
+    }
+    manifest {
+        attributes('Main-Class': mainClassName)
+    }
+}
