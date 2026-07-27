@@ -13,10 +13,11 @@ dependencies {
     // introduce Jackson in parallel.
     implementation 'com.google.code.gson:gson:2.10.1'
 
-    // Decode every audio format accepted by file transcription through Java Sound. Runtime-only:
-    // the app codes against the Java Sound API, these providers are discovered via META-INF/services
-    // (kept in the fat jar by mergeServiceFiles below). Requires one online build to populate the cache.
-    runtimeOnly 'com.tianscar.javasound:javasound-mp3:1.9.7'
+    // Decode audio formats accepted by file transcription. vorbis/flac/aac are discovered via Java Sound
+    // SPI (META-INF/services, kept in the fat jar by mergeServiceFiles below), so they stay runtime-only.
+    // MP3 is compiled against directly: the mp3spi conversion stream yields 0 PCM bytes for some
+    // ffmpeg/Lavf MP3s (e.g. Common Voice), so Mp3AudioFileDecoder uses the JLayer core in this jar.
+    implementation 'com.tianscar.javasound:javasound-mp3:1.9.7'
     runtimeOnly 'com.tianscar.javasound:javasound-vorbis:2.1.0'
     runtimeOnly 'com.tianscar.javasound:javasound-flac:1.4.1'
     runtimeOnly 'com.tianscar.javasound:javasound-aac:0.9.8'

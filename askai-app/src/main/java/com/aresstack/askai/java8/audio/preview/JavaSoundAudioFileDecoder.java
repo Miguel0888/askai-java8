@@ -13,7 +13,8 @@ import java.io.File;
 import java.io.IOException;
 
 /**
- * Decode WAV, MP3, M4A/AAC, OGG and FLAC through the installed Java Sound providers.
+ * Decode WAV, M4A/AAC, OGG and FLAC through the installed Java Sound providers, and MP3 through the JLayer
+ * core (see {@link Mp3AudioFileDecoder} for why the Java Sound mp3 conversion is bypassed).
  *
  * <p>This separates the <b>container format</b> (the file: wav/mp3/m4a/ogg/flac) from the <b>internal
  * sample format</b> the DSP pipeline works on (signed 16-bit little-endian PCM). Only the sample encoding
@@ -25,8 +26,14 @@ public final class JavaSoundAudioFileDecoder implements AudioFileDecoder {
 
     private static final int BUFFER_SIZE = 16384;
 
+    private final Mp3AudioFileDecoder mp3Decoder = new Mp3AudioFileDecoder();
+
     public AudioBuffer decode(File file) throws IOException {
         requireSupportedFile(file);
+        if ("mp3".equals(SupportedAudioFormats.extensionOf(file.getName()))) {
+            // The mp3spi conversion yields 0 bytes for some ffmpeg/Lavf MP3s; decode via JLayer directly.
+            return mp3Decoder.decode(file);
+        }
         AudioInputStream source = null;
         AudioInputStream pcm = null;
         try {
