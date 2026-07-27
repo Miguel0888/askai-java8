@@ -117,10 +117,80 @@ public final class OllamaBotResponder implements BotResponder {
             callback.onFailure(new IllegalStateException("No model selected for the party bot."));
             return;
         }
+        boolean mentioned = requestedModel != null
+                || com.aresstack.askai.java8.groupchat.MentionParser.mentionsBot(addressed.getMarkdown());
+        if (alwaysPolicy() && !mentioned) {
+            // Small models don't reliably honor a free-form silence marker, so unprompted
+            // messages first pass a strictly binary should-I-reply gate.
+            runChimeInGate(model, context, addressed, profiles, callback);
+            return;
+        }
+        answer(model, context, addressed, profiles, callback);
+    }
+
+    private void answer(String model, List<GroupChatMessage> context, GroupChatMessage addressed,
+                        Map<String, Participant> profiles, Callback callback) {
         List<OllamaChatTurn> conversation = buildConversation(context, addressed, profiles);
         ThinkingOption thinking = thinkingOption != null ? thinkingOption.get() : null;
         execute(model, conversation,
                 thinking != null ? thinking : ThinkingOption.defaultOption(), true, callback);
+    }
+
+    /**
+     * Always-policy gate: a separate model call that must answer exactly YES or NO according to
+     * the chime-in rules.  Only YES proceeds to the real answer; NO, silence and gate failures
+     * all stay quiet (the always policy is opportunistic by design).  Gate thinking is not
+     * visualized — only the real answer opens the thought bubble.
+     */
+    private void runChimeInGate(final String model, final List<GroupChatMessage> context,
+                                final GroupChatMessage addressed,
+                                final Map<String, Participant> profiles, final Callback callback) {
+        String system = configuredSystemPrompt()
+                + "\n\nRules for when you should join the conversation:\n" + configuredAlwaysPrompt()
+                + "\n\nDecide whether these rules ask you to reply to the latest message. "
+                + "Respond with exactly YES or NO — nothing else.";
+        List<OllamaChatTurn> gate = new ArrayList<OllamaChatTurn>();
+        StringBuilder transcript = new StringBuilder();
+        int from = Math.max(0, context.size() - CONTEXT_MESSAGES);
+        for (int i = from; i < context.size(); i++) {
+            GroupChatMessage message = context.get(i);
+            if (message.getMessageId().equals(addressed.getMessageId())) {
+                continue;
+            }
+            String handle = message.isBotMessage()
+                    ? GroupChatBot.DISPLAY_NAME
+                    : handleOf(message.getSenderParticipantId(), profiles);
+            transcript.append(handle).append(": ").append(message.getMarkdown()).append('\n');
+        }
+        if (transcript.length() > 0) {
+            system += "\n\nRecent room transcript:\n" + transcript;
+        }
+        gate.add(OllamaChatTurn.system(system));
+        gate.add(OllamaChatTurn.user("Latest message — "
+                + handleOf(addressed.getSenderParticipantId(), profiles)
+                + ": " + addressed.getMarkdown()));
+        execute(model, gate, ThinkingOption.defaultOption(), true, new Callback() {
+            public void onThinkingDelta(String delta) {
+                // Gate deliberation stays invisible; only a real answer shows the bubble.
+            }
+
+            public void onResponse(String text) {
+                String normalized = text.trim().toUpperCase(java.util.Locale.ROOT);
+                if (normalized.startsWith("YES")) {
+                    answer(model, context, addressed, profiles, callback);
+                } else {
+                    callback.onNoAnswer();
+                }
+            }
+
+            public void onNoAnswer() {
+                callback.onNoAnswer();
+            }
+
+            public void onFailure(Exception error) {
+                callback.onNoAnswer(); // fail quiet: unprompted chiming in must never nag
+            }
+        });
     }
 
     /**
