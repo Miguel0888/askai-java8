@@ -12,7 +12,15 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 
-/** Decode WAV, MP3, M4A/AAC, OGG and FLAC through the installed Java Sound providers. */
+/**
+ * Decode WAV, MP3, M4A/AAC, OGG and FLAC through the installed Java Sound providers.
+ *
+ * <p>This separates the <b>container format</b> (the file: wav/mp3/m4a/ogg/flac) from the <b>internal
+ * sample format</b> the DSP pipeline works on (signed 16-bit little-endian PCM). Only the sample encoding
+ * is normalized: the original <b>sample rate</b> and <b>channel count</b> of the source are preserved as
+ * they are. The decoder performs no downmix to mono and no resampling — any such change is an explicit DSP
+ * block or a final transport step, never a side effect of decoding.</p>
+ */
 public final class JavaSoundAudioFileDecoder implements AudioFileDecoder {
 
     private static final int BUFFER_SIZE = 16384;
@@ -41,6 +49,10 @@ public final class JavaSoundAudioFileDecoder implements AudioFileDecoder {
         }
     }
 
+    /**
+     * Build the decode target: 16-bit signed little-endian PCM at the source's own sample rate and channel
+     * count. Only the sample encoding is fixed; rate and channels are carried over from the source.
+     */
     private static AudioFormat targetFormat(AudioFormat sourceFormat) {
         float sampleRate = sourceFormat.getSampleRate();
         if (sampleRate <= 0.0f) {
