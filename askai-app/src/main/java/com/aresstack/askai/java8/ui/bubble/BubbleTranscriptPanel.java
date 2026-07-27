@@ -349,7 +349,7 @@ public final class BubbleTranscriptPanel extends JPanel {
     /** Adds the assistant answer inside a left speech bubble, capped in width and reflowing on resize. */
     private void addAssistantMarkdownRow(String header, MarkdownMessageView view) {
         AssistantMarkdownBubble bubble = new AssistantMarkdownBubble(
-                palette, header == null || header.length() == 0 ? "Assistant" : header, view);
+                BubbleSide.LEFT, palette, header == null || header.length() == 0 ? "Assistant" : header, view);
         MarkdownAnswerRow row = new MarkdownAnswerRow(bubble);
         row.setAlignmentX(LEFT_ALIGNMENT);
         messageList.add(row);

@@ -17,10 +17,15 @@ import java.awt.geom.Path2D;
 import java.awt.geom.RoundRectangle2D;
 
 /**
- * A left-pointing assistant speech bubble whose body is a native {@link MarkdownMessageView}
- * (headings, lists, code, tables, links, Mermaid). Unlike {@link SpeechBubblePanel} it does not
- * drive its own width from a text area: it lays out inside the transcript's vertical box so the
- * Markdown content wraps at the real available width. Only the bubble chrome is painted here.
+ * An assistant speech bubble whose body is a native {@link MarkdownMessageView} (headings, lists, code,
+ * tables, links, Mermaid). Unlike {@link SpeechBubblePanel} it does not drive its own width from a text
+ * area: it lays out inside the transcript's vertical box so the Markdown content wraps at the real
+ * available width. Only the bubble chrome is painted here.
+ *
+ * <p>The tail direction follows the {@link BubbleSide} contract — it always points toward the transcript
+ * center (a left-side bubble points right, a right-side bubble points left) — instead of being hardcoded.
+ * The reserved padding and the body position mirror {@link SpeechBubblePanel} so both bubble styles line
+ * up identically.</p>
  */
 final class AssistantMarkdownBubble extends JPanel {
 
@@ -29,22 +34,30 @@ final class AssistantMarkdownBubble extends JPanel {
     private static final int HORIZONTAL_PADDING = 15;
     private static final int VERTICAL_PADDING = 11;
 
+    private final BubbleSide side;
     private final Color bubbleColor;
 
-    AssistantMarkdownBubble(BubblePalette palette, String header, MarkdownMessageView body) {
+    AssistantMarkdownBubble(BubbleSide side, BubblePalette palette, String header, MarkdownMessageView body) {
+        if (side == null) {
+            throw new IllegalArgumentException("side must not be null");
+        }
+        this.side = side;
         this.bubbleColor = palette.getAssistantBackground();
         setOpaque(false);
         setLayout(new BorderLayout(0, 3));
-        setBorder(new EmptyBorder(
-                VERTICAL_PADDING,
-                HORIZONTAL_PADDING + TAIL_WIDTH,
-                VERTICAL_PADDING,
-                HORIZONTAL_PADDING));
+        // Reserve the tail's width on the side that carries the tail (the center-facing inner edge).
+        int left = HORIZONTAL_PADDING + (side.pointsLeft() ? TAIL_WIDTH : 0);
+        int right = HORIZONTAL_PADDING + (side.pointsRight() ? TAIL_WIDTH : 0);
+        setBorder(new EmptyBorder(VERTICAL_PADDING, left, VERTICAL_PADDING, right));
         JLabel headerLabel = createHeaderLabel(header, palette.getAssistantForeground());
         if (headerLabel.getText().length() > 0) {
             add(headerLabel, BorderLayout.NORTH);
         }
         add(body, BorderLayout.CENTER);
+    }
+
+    BubbleSide getSide() {
+        return side;
     }
 
     private static JLabel createHeaderLabel(String header, Color foreground) {
@@ -74,21 +87,37 @@ final class AssistantMarkdownBubble extends JPanel {
     }
 
     private java.awt.Shape createBubbleShape() {
+        int bodyX = side.pointsLeft() ? TAIL_WIDTH : 0;
         int bodyWidth = Math.max(1, getWidth() - TAIL_WIDTH);
         int bodyHeight = Math.max(1, getHeight());
-        RoundRectangle2D body = new RoundRectangle2D.Float(TAIL_WIDTH, 0, bodyWidth, bodyHeight, ARC, ARC);
-
-        int centerY = Math.max(VERTICAL_PADDING + 13, getHeight() - 22);
-        Path2D tail = new Path2D.Float();
-        int baseX = TAIL_WIDTH + 2;
-        tail.moveTo(baseX, centerY - 8);
-        tail.lineTo(1, centerY);
-        tail.lineTo(baseX, centerY + 8);
-        tail.closePath();
+        RoundRectangle2D body = new RoundRectangle2D.Float(bodyX, 0, bodyWidth, bodyHeight, ARC, ARC);
 
         java.awt.geom.Area shape = new java.awt.geom.Area(body);
-        shape.add(new java.awt.geom.Area(tail));
+        shape.add(new java.awt.geom.Area(buildTail(side, getWidth(), getHeight())));
         return shape;
+    }
+
+    /**
+     * Build the tail triangle for the given side, pointing toward the transcript center: a left-side bubble
+     * ({@link BubbleSide#pointsRight()}) has its tip on the right inner edge, a right-side bubble on the
+     * left. Package-private and static so the geometry is unit-testable without painting.
+     */
+    static Path2D buildTail(BubbleSide side, int width, int height) {
+        int centerY = Math.max(VERTICAL_PADDING + 13, height - 22);
+        Path2D tail = new Path2D.Float();
+        if (side.pointsRight()) {
+            int baseX = width - TAIL_WIDTH - 2;
+            tail.moveTo(baseX, centerY - 8);
+            tail.lineTo(width - 1, centerY);
+            tail.lineTo(baseX, centerY + 8);
+        } else {
+            int baseX = TAIL_WIDTH + 2;
+            tail.moveTo(baseX, centerY - 8);
+            tail.lineTo(1, centerY);
+            tail.lineTo(baseX, centerY + 8);
+        }
+        tail.closePath();
+        return tail;
     }
 
     private static Color withAlpha(Color color, int alpha) {
