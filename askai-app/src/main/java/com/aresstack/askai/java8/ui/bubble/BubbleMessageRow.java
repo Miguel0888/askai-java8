@@ -68,6 +68,12 @@ final class BubbleMessageRow extends JPanel {
     }
 
     private Dimension getBubblePreferredSize(int bubbleWidth) {
+        if (bubble instanceof com.aresstack.askai.java8.ui.markdown.WidthAwareHeight) {
+            // Deterministic: ask for the height at exactly this width, no size-then-hope-for-a-second-pass.
+            int height = ((com.aresstack.askai.java8.ui.markdown.WidthAwareHeight) bubble)
+                    .preferredHeightForWidth(bubbleWidth);
+            return new Dimension(bubbleWidth, height);
+        }
         bubble.setSize(new Dimension(bubbleWidth, Short.MAX_VALUE));
         Dimension preferred = bubble.getPreferredSize();
         return new Dimension(bubbleWidth, preferred.height);

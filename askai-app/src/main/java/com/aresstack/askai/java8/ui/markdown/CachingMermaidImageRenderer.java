@@ -8,8 +8,12 @@ import java.util.Map;
 public final class CachingMermaidImageRenderer implements MermaidImageRenderer {
 
     private static final int DEFAULT_CACHE_SIZE = 32;
+    // Cache sits above the normalizer: it keys on the original diagram code and stores only successful
+    // renders, while the fault-tolerant normalization happens on a cache miss inside the delegate.
     private static final CachingMermaidImageRenderer SHARED = new CachingMermaidImageRenderer(
-            new AresStackMermaidImageRenderer(), DEFAULT_CACHE_SIZE);
+            new NormalizingMermaidImageRenderer(
+                    new AresStackMermaidImageRenderer(), new MermaidRenderingSourceNormalizer()),
+            DEFAULT_CACHE_SIZE);
 
     private final MermaidImageRenderer delegate;
     private final Map<CacheKey, BufferedImage> cache;

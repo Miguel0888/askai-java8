@@ -44,6 +44,12 @@ public class VlcInstallation {
         return resolve() != null;
     }
 
+    /** @return the persisted VLC executable path, or "" when none is configured (automatic detection). */
+    public String getConfiguredPath() {
+        String configured = prefs.get(KEY_PATH, null);
+        return configured == null ? "" : configured.trim();
+    }
+
     /** Persist a user-chosen executable so future launches reuse it. */
     public void setExecutable(File executable) {
         if (executable == null) {
@@ -51,6 +57,32 @@ public class VlcInstallation {
         } else {
             prefs.put(KEY_PATH, executable.getAbsolutePath());
         }
+    }
+
+    /** Remove the manually configured path so resolution falls back to automatic detection. */
+    public void clearExecutable() {
+        prefs.remove(KEY_PATH);
+    }
+
+    /**
+     * Map a chosen file to the real {@code vlc.exe} to persist. A {@code VLCPortable.exe} resolves to the
+     * bundled {@code App\vlc\vlc.exe} next to it (the actual engine); a {@code vlc.exe} is taken as is.
+     *
+     * @return the real executable to store, or {@code null} when the choice is not a usable VLC executable.
+     */
+    public static File resolveChosenExecutable(File chosen) {
+        if (chosen == null || !chosen.isFile()) {
+            return null;
+        }
+        String name = chosen.getName();
+        if (name.equalsIgnoreCase("VLCPortable.exe")) {
+            File engine = new File(new File(new File(chosen.getParentFile(), "App"), "vlc"), "vlc.exe");
+            return engine.isFile() ? engine : null;
+        }
+        if (name.equalsIgnoreCase("vlc.exe")) {
+            return chosen;
+        }
+        return null;
     }
 
     private static File[] commonLocations() {

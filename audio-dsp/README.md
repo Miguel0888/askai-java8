@@ -18,7 +18,17 @@ Microphone
   → later: remote hand-off to Ollama/STT
 ```
 
-Default format: **16 kHz, mono, 16-bit PCM**, 20 ms frames.
+Capture default format: **16 kHz, mono, 16-bit PCM**, 20 ms frames.
+
+**Format neutrality of the DSP pipeline.** The profile pipeline
+(`AudioProfileProcessor` / `AudioBlockRegistry`) is container- and rate-agnostic. It carries the input's
+own `PcmAudioFormat` and **preserves the sample rate and channel count** unless an explicit block changes
+them: only the **Resampler** block (`targetRateHz`) changes the rate, and only channel blocks
+(**Channel mixer** / selector / matrix mixer / beamformer) reduce the channel count. An empty ("Off")
+profile is a pass-through. There is no implicit 16 kHz / mono normalization inside the pipeline; the
+16 kHz-mono capture default above applies to microphone capture, not to file-based DSP. The internal
+sample encoding (16-bit signed LE PCM) is separate from the source container (wav/mp3/m4a/ogg/flac),
+which is decoded upstream in `askai-app`'s `JavaSoundAudioFileDecoder`.
 
 ## Architecture
 
@@ -78,7 +88,8 @@ java -cp audio-dsp/build/classes/java/main com.aresstack.audio.demo.RecordSpeech
 ```
 
 If the device does not support 16 kHz/mono/16-bit, the recorder aborts with a clear error instead
-of silently recording a different format (a resampling processor can be added later).
+of silently recording a different format. (Resampling in the DSP pipeline exists as an explicit
+**Resampler** block; the capture stage itself does not resample.)
 
 ## Notes
 

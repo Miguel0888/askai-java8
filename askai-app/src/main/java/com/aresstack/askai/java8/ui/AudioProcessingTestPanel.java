@@ -27,6 +27,7 @@ import javax.swing.JFileChooser;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 import javax.swing.filechooser.FileNameExtensionFilter;
@@ -65,7 +66,7 @@ public final class AudioProcessingTestPanel extends JPanel {
     private final JButton testMicButton = new JButton("Test microphone");
     private final JButton testOutputButton = new JButton("Test output");
     private final JButton testBeepButton = new JButton("Test beep");
-    private final JButton locateVlcButton = new JButton("Locate VLC…");
+    private final JTextField vlcPathField = new JTextField(30);
     private final VlcInstallation vlcInstallation = new VlcInstallation();
     private final JLabel sourceLabel = new JLabel("No test file selected");
     private final JLabel statusLabel = new JLabel(" ");
@@ -175,9 +176,21 @@ public final class AudioProcessingTestPanel extends JPanel {
         testBeepButton.setToolTipText("Play a short beep through the selected output device.");
         testBeepButton.addActionListener(event -> testBeep());
         deviceRow.add(testBeepButton);
-        locateVlcButton.setToolTipText("Point AskAI at an installed vlc.exe to enable the VLC output backend.");
-        locateVlcButton.addActionListener(event -> locateVlc());
-        deviceRow.add(locateVlcButton);
+
+        JPanel vlcRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
+        vlcRow.add(new JLabel("VLC executable:"));
+        vlcPathField.setEditable(false);
+        vlcPathField.setToolTipText("The vlc.exe used for the VLC output backend. Empty = automatic detection.");
+        vlcRow.add(vlcPathField);
+        JButton vlcBrowse = new JButton("Browse…");
+        vlcBrowse.setToolTipText("Select vlc.exe (or a VLCPortable.exe) to enable the VLC output backend.");
+        vlcBrowse.addActionListener(event -> browseVlcExecutable());
+        vlcRow.add(vlcBrowse);
+        JButton vlcClear = new JButton("Clear");
+        vlcClear.setToolTipText("Remove the manual path and fall back to automatic detection.");
+        vlcClear.addActionListener(event -> clearVlcExecutable());
+        vlcRow.add(vlcClear);
+        updateVlcPathField();
 
         JPanel actionRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
         processAndPlayButton.addActionListener(event -> controller.processAndPlay());
@@ -197,6 +210,7 @@ public final class AudioProcessingTestPanel extends JPanel {
         top.setLayout(new BoxLayout(top, BoxLayout.Y_AXIS));
         top.add(sourceRow);
         top.add(deviceRow);
+        top.add(vlcRow);
         top.add(actionRow);
         add(top, BorderLayout.CENTER);
         add(statusLabel, BorderLayout.SOUTH);
@@ -355,21 +369,45 @@ public final class AudioProcessingTestPanel extends JPanel {
         return samples;
     }
 
-    /** Let the user point AskAI at an installed vlc.exe, then refresh so the VLC backend becomes selectable. */
-    private void locateVlc() {
+    /** Show the currently configured VLC path, or a hint that automatic detection is in effect. */
+    private void updateVlcPathField() {
+        String configured = vlcInstallation.getConfiguredPath();
+        vlcPathField.setText(configured.length() == 0 ? "(automatic detection)" : configured);
+        vlcPathField.setCaretPosition(0);
+    }
+
+    /**
+     * Let the user pick a vlc.exe (or VLCPortable.exe, resolved to its bundled vlc.exe), persist it via the
+     * existing {@link VlcInstallation} preferences, then reload the output devices so VLC becomes selectable.
+     */
+    private void browseVlcExecutable() {
         JFileChooser chooser = new JFileChooser();
-        chooser.setDialogTitle("Locate vlc.exe");
+        chooser.setDialogTitle("Select vlc.exe (or VLCPortable.exe)");
+        chooser.setAcceptAllFileFilterUsed(false);
+        chooser.setFileFilter(new FileNameExtensionFilter("VLC executable (vlc.exe, VLCPortable.exe)", "exe"));
         if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) {
             return;
         }
-        File file = chooser.getSelectedFile();
-        if (file == null || !file.isFile()) {
-            setStatus("That is not a file — VLC was not set.");
+        File executable = VlcInstallation.resolveChosenExecutable(chooser.getSelectedFile());
+        if (executable == null) {
+            JOptionPane.showMessageDialog(this,
+                    "That is not a usable VLC executable.\n"
+                            + "Select vlc.exe, or a VLCPortable.exe with App\\vlc\\vlc.exe beside it.",
+                    "Invalid VLC executable", JOptionPane.WARNING_MESSAGE);
             return;
         }
-        vlcInstallation.setExecutable(file);
+        vlcInstallation.setExecutable(executable);
+        updateVlcPathField();
         refreshPlaybackDevices();
-        setStatus("VLC set: " + file.getAbsolutePath());
+        setStatus("VLC set: " + executable.getAbsolutePath());
+    }
+
+    /** Remove the manual VLC path and fall back to automatic detection, then reload the output devices. */
+    private void clearVlcExecutable() {
+        vlcInstallation.clearExecutable();
+        updateVlcPathField();
+        refreshPlaybackDevices();
+        setStatus("VLC path cleared — using automatic detection.");
     }
 
     private void selectTestFile() {

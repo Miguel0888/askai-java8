@@ -19,7 +19,6 @@ import com.vladsch.flexmark.util.data.MutableDataSet;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
-import javax.swing.BoxLayout;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -71,6 +70,12 @@ final class FlexmarkSwingRenderer {
     }
 
     private JComponent renderBlock(Node node, boolean renderMermaid, boolean allowUnwrap) {
+        if (node instanceof com.vladsch.flexmark.ast.HtmlCommentBlock) {
+            // Internal metadata such as <!-- askai:model-id=... --> stays in the Markdown source but must
+            // not paint a visible component. No HTML is rendered or executed; only comments are hidden —
+            // every other unknown node keeps the generic fallback below.
+            return null;
+        }
         if (node instanceof Heading) {
             return renderHeading((Heading) node);
         }
@@ -192,10 +197,9 @@ final class FlexmarkSwingRenderer {
     }
 
     private JPanel verticalPanel() {
-        JPanel panel = new JPanel();
-        panel.setOpaque(false);
-        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
-        return panel;
+        // A deterministic vertical stack (not BoxLayout): each block is measured at the real width during
+        // layout, so wrapping paragraphs get their correct height on the first pass. See MarkdownStackPanel.
+        return new MarkdownStackPanel();
     }
 
     private int blockGap(Node node) {

@@ -88,6 +88,8 @@ public final class ChatComposerPanel extends JPanel {
         void installAudioModel();
 
         void transcribeAudioFile();
+
+        void attachImages();
     }
 
     /** Carry the complete dictation presentation in one immutable value. */
@@ -132,6 +134,8 @@ public final class ChatComposerPanel extends JPanel {
     private final JButton settingsButton;
     private final JButton recordButton;
     private final JButton audioFileButton;
+    private final JButton attachButton;
+    private final ChatAttachmentStrip attachmentStrip;
     private final JButton discardButton;
     private final JButton retryButton;
     private final JButton saveButton;
@@ -160,6 +164,12 @@ public final class ChatComposerPanel extends JPanel {
         this.settingsButton = createIconButton(new GearIcon(), "Chat settings");
         this.recordButton = createIconButton(new MicrophoneIcon(), "Record or stop dictation");
         this.audioFileButton = createIconButton(new AudioFileIcon(), "Transcribe audio file");
+        this.attachButton = createIconButton(new PaperclipIcon(), "Attach images");
+        this.attachmentStrip = new ChatAttachmentStrip(new ChatAttachmentStrip.ChangeListener() {
+            public void onAttachmentsChanged() {
+                refreshAttachmentState();
+            }
+        });
         this.discardButton = createIconButton(new CloseIcon(), "Discard or cancel dictation");
         this.retryButton = createSecondaryButton(new RetryIcon(), "Retry", "Retry transcription");
         this.saveButton = createSecondaryButton(new SaveIcon(), "Save", "Save recording");
@@ -181,6 +191,7 @@ public final class ChatComposerPanel extends JPanel {
         setLayout(new BorderLayout(0, 0));
         setBorder(new EmptyBorder(9, 11, 8, 8));
 
+        add(attachmentStrip, BorderLayout.NORTH);
         add(editorScroll, BorderLayout.CENTER);
         add(buildFooter(), BorderLayout.SOUTH);
 
@@ -207,7 +218,6 @@ public final class ChatComposerPanel extends JPanel {
         JPanel actionsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 0));
         actionsPanel.setOpaque(false);
         actionsPanel.add(settingsButton);
-        actionsPanel.add(audioFileButton);
         actionsPanel.add(discardButton);
         actionsPanel.add(retryButton);
         actionsPanel.add(saveButton);
@@ -227,6 +237,10 @@ public final class ChatComposerPanel extends JPanel {
         actionsPanel.setLayout(new BoxLayout(actionsPanel, BoxLayout.X_AXIS));
         actionsPanel.add(Box.createHorizontalGlue());
         actionsPanel.add(levelBar);
+        actionsPanel.add(Box.createHorizontalStrut(4));
+        actionsPanel.add(attachButton);   // image attachments, left of the transcribe-file button
+        actionsPanel.add(Box.createHorizontalStrut(4));
+        actionsPanel.add(audioFileButton);   // transcribe-file, just left of the mic
         actionsPanel.add(Box.createHorizontalStrut(4));
         actionsPanel.add(recordButton);   // mic sits just left of Send, ChatGPT-style
         actionsPanel.add(Box.createHorizontalStrut(4));
@@ -387,6 +401,11 @@ public final class ChatComposerPanel extends JPanel {
                 actions.transcribeAudioFile();
             }
         });
+        attachButton.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent event) {
+                actions.attachImages();
+            }
+        });
         editor.getDocument().addDocumentListener(new DocumentListener() {
             public void insertUpdate(DocumentEvent event) {
                 updateMessageAvailability();
@@ -515,6 +534,36 @@ public final class ChatComposerPanel extends JPanel {
         editor.setText("");
     }
 
+    /** The full outgoing draft: the editor text plus any queued image attachments. */
+    public com.aresstack.askai.java8.vision.ChatDraft getDraft() {
+        return new com.aresstack.askai.java8.vision.ChatDraft(editor.getText(), attachmentStrip.getAttachments());
+    }
+
+    /** Queue image attachments for the next message (already-queued files are ignored). */
+    public void addAttachments(java.util.List<com.aresstack.askai.java8.vision.ImageAttachment> attachments) {
+        attachmentStrip.addAttachments(attachments);
+    }
+
+    /** The currently queued attachments. */
+    public java.util.List<com.aresstack.askai.java8.vision.ImageAttachment> getAttachments() {
+        return attachmentStrip.getAttachments();
+    }
+
+    /** Clear both the message text and the queued attachments (after a successful send). */
+    public void clearDraft() {
+        editor.setText("");
+        attachmentStrip.clear();
+    }
+
+    private void refreshAttachmentState() {
+        int count = attachmentStrip.count();
+        attachButton.setText(count > 0 ? String.valueOf(count) : null);
+        attachButton.setToolTipText(count > 0 ? "Attach images (" + count + " attached)" : "Attach images");
+        updateMessageAvailability();
+        revalidate();
+        repaint();
+    }
+
     /** Focus the message editor. */
     public void focusEditor() {
         editor.requestFocusInWindow();
@@ -598,8 +647,8 @@ public final class ChatComposerPanel extends JPanel {
     }
 
     private void updateMessageAvailability() {
-        sendButton.setEnabled(!chatBusy && !dictationActive
-                && editor.isEnabled() && editor.getText().trim().length() > 0);
+        boolean hasContent = editor.getText().trim().length() > 0 || !attachmentStrip.isEmpty();
+        sendButton.setEnabled(!chatBusy && !dictationActive && editor.isEnabled() && hasContent);
     }
 
     @Override
@@ -818,6 +867,16 @@ public final class ChatComposerPanel extends JPanel {
             g2.drawLine(6, 7, 10, 6);
             g2.fillOval(4, 10, 3, 3);
             g2.fillOval(8, 9, 3, 3);
+        }
+    }
+
+    private static final class PaperclipIcon extends StrokeIcon {
+        protected void paint(Graphics2D g2) {
+            // A simple paperclip: an open hook curving up on the left and back down on the right.
+            g2.drawLine(4, 4, 4, 11);
+            g2.drawArc(4, 2, 6, 5, 90, 180);
+            g2.drawLine(10, 4, 10, 12);
+            g2.drawArc(3, 9, 7, 6, 0, -180);
         }
     }
 

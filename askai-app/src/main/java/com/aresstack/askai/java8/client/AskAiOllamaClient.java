@@ -232,6 +232,9 @@ public final class AskAiOllamaClient {
             }
             return ChatMessage.assistant(turn.getThinking(), turn.getContent(), calls);
         }
+        if (!turn.getImages().isEmpty()) {
+            return ChatMessage.user(turn.getContent(), turn.getImages());
+        }
         return ChatMessage.user(turn.getContent());
     }
 

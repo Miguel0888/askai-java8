@@ -356,6 +356,10 @@ public final class Ollama {
             if (!message.getToolCalls().isEmpty()) {
                 map.put("tool_calls", toolCallMaps(message.getToolCalls()));
             }
+            // Ollama's /api/chat expects images as an array of raw base64 strings on the message.
+            if (!message.getImages().isEmpty()) {
+                map.put("images", new ArrayList<String>(message.getImages()));
+            }
             result.add(map);
         }
         return result;

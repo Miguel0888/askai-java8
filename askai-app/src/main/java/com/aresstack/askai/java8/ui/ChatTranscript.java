@@ -66,6 +66,17 @@ final class ChatTranscript {
         panel.appendUserMessage(text);
     }
 
+    /** Appends a finished user message followed by a preview row of the images that were sent. */
+    void appendUser(String text, java.util.List<com.aresstack.askai.java8.vision.ImageAttachment> attachments) {
+        panel.appendUserMessage(text);
+        panel.appendUserImages(attachments);
+    }
+
+    /** Appends only a preview row of sent images (for an image-only message with no text). */
+    void appendUserImages(java.util.List<com.aresstack.askai.java8.vision.ImageAttachment> attachments) {
+        panel.appendUserImages(attachments);
+    }
+
     /**
      * Appends a Partying-mode message from another participant.
      *
