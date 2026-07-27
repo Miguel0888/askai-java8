@@ -23,6 +23,9 @@ import com.aresstack.askai.java8.batch.service.BatchTranscriptionService;
 import com.aresstack.askai.java8.batch.ui.BatchSelectionRefresher;
 import com.aresstack.askai.java8.batch.ui.BatchTranscriptionController;
 import com.aresstack.askai.java8.batch.ui.BatchTranscriptionPanel;
+import com.aresstack.askai.java8.ui.chat.ChatSessionComponent;
+import com.aresstack.askai.java8.ui.chat.ChatSessionId;
+import com.aresstack.askai.java8.ui.chat.ChatWorkspacePanel;
 import com.aresstack.audio.profile.AudioProcessingProfile;
 import com.aresstack.audio.application.DefaultAudioProcessingPreviewService;
 
@@ -75,7 +78,7 @@ public final class AskAiFrame extends JFrame {
     private final AudioProfileRepository audioProfileRepository;
     private final ApplicationStateService applicationState;
     private OllamaConfigPanel configPanel;
-    private OllamaChatPanel chatPanel;
+    private ChatWorkspacePanel chatWorkspace;
     private AudioProcessingPanel audioProcessingPanel;
     private ModelSearchPanel installSearchPanel;
     private BatchTranscriptionPanel batchPanel;
@@ -101,8 +104,10 @@ public final class AskAiFrame extends JFrame {
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
         addWindowListener(new WindowAdapter() {
             public void windowClosed(WindowEvent event) {
-                if (chatPanel != null) {
-                    chatPanel.shutdownDictation();
+                if (chatWorkspace != null) {
+                    for (ChatSessionComponent session : chatWorkspace.sessions()) {
+                        session.disposeSession();
+                    }
                 }
                 if (batchPanel != null) {
                     batchPanel.dispose();
@@ -233,20 +238,30 @@ public final class AskAiFrame extends JFrame {
     }
 
     private JPanel createContentPanel() {
-        this.chatPanel = new OllamaChatPanel(model, ollamaService, speechToTextService,
-                audioProfileRepository, applicationState);
-        chatPanel.setInstallAudioModelHandler(new OllamaChatPanel.InstallAudioModelHandler() {
-            public void openInstall() {
-                showScreen(INSTALL_VIEW);
-            }
-        });
+        final OllamaChatPanel.InstallAudioModelHandler installHandler =
+                new OllamaChatPanel.InstallAudioModelHandler() {
+                    public void openInstall() {
+                        showScreen(INSTALL_VIEW);
+                    }
+                };
         // "Edit profiles…" from the chat settings opens the Audio processing editor page.
-        chatPanel.setAudioProcessingSettingsHandler(new OllamaChatPanel.AudioProcessingSettingsHandler() {
-            public void openAudioProcessing() {
-                showScreen(AUDIO_PROCESSING_VIEW);
+        final OllamaChatPanel.AudioProcessingSettingsHandler audioHandler =
+                new OllamaChatPanel.AudioProcessingSettingsHandler() {
+                    public void openAudioProcessing() {
+                        showScreen(AUDIO_PROCESSING_VIEW);
+                    }
+                };
+        // Each tab is an independent chat session, created on demand by the workspace's "+" tab.
+        this.chatWorkspace = new ChatWorkspacePanel(new ChatWorkspacePanel.ChatSessionFactory() {
+            public ChatSessionComponent create(ChatSessionId id) {
+                OllamaChatPanel chat = new OllamaChatPanel(id, model, ollamaService, speechToTextService,
+                        audioProfileRepository, applicationState);
+                chat.setInstallAudioModelHandler(installHandler);
+                chat.setAudioProcessingSettingsHandler(audioHandler);
+                return chat;
             }
         });
-        contentPanel.add(chatPanel, CHAT_VIEW);
+        contentPanel.add(chatWorkspace, CHAT_VIEW);
         // One-click "Use in chat" from an installed model card: switch to Chat and select the model.
         modelsPanel.setUseInChatHandler(new OllamaModelsPanel.UseInChatHandler() {
             public void useInChat(String modelName) {
@@ -352,12 +367,22 @@ public final class AskAiFrame extends JFrame {
         });
     }
 
-    /** Switches to the Chat view and selects the given model there, keeping the conversation intact. */
+    /** Switches to the Chat view and selects the given model in the active chat, keeping its conversation. */
     private void useModelInChat(String modelName) {
         showScreen(CHAT_VIEW);
-        if (chatPanel != null) {
-            chatPanel.useModel(modelName);
+        OllamaChatPanel chat = activeChat();
+        if (chat != null) {
+            chat.useModel(modelName);
         }
+    }
+
+    /** @return the OllamaChatPanel of the currently selected chat tab, or null. */
+    private OllamaChatPanel activeChat() {
+        if (chatWorkspace == null) {
+            return null;
+        }
+        ChatSessionComponent session = chatWorkspace.activeSession();
+        return session instanceof OllamaChatPanel ? (OllamaChatPanel) session : null;
     }
 
     private void showScreen(String screenName) {
@@ -369,8 +394,11 @@ public final class AskAiFrame extends JFrame {
         contentLayout.show(contentPanel, screenName);
         refreshConnectionStatus();
         // Re-check speech-to-text readiness when returning to the chat (server/model may have changed).
-        if (CHAT_VIEW.equals(screenName) && chatPanel != null) {
-            chatPanel.invalidateSpeechReadiness();
+        if (CHAT_VIEW.equals(screenName)) {
+            OllamaChatPanel chat = activeChat();
+            if (chat != null) {
+                chat.invalidateSpeechReadiness();
+            }
         }
     }
 

@@ -3,6 +3,8 @@ package com.aresstack.askai.java8.ui;
 import com.aresstack.askai.java8.AskAiModel;
 import com.aresstack.askai.java8.audio.AudioProfileRepository;
 import com.aresstack.askai.java8.audio.format.SupportedAudioFormats;
+import com.aresstack.askai.java8.ui.chat.ChatSessionComponent;
+import com.aresstack.askai.java8.ui.chat.ChatSessionId;
 import com.aresstack.askai.java8.audio.FileAudioProfileRepository;
 import com.aresstack.askai.java8.state.ApplicationStateService;
 import com.aresstack.askai.java8.client.OllamaChatTurn;
@@ -83,7 +85,7 @@ import java.util.function.Supplier;
  * {@link ComposerInserter}. There is no second microphone path; capture format is negotiated by the
  * service, not forced to 16 kHz here.</p>
  */
-public final class OllamaChatPanel extends JPanel {
+public final class OllamaChatPanel extends JPanel implements ChatSessionComponent {
 
     private static final String MIC_SYSTEM_DEFAULT = "System default";
     private static final String AUDIO_MODEL_AUTOMATIC = "Automatic";
@@ -96,6 +98,7 @@ public final class OllamaChatPanel extends JPanel {
     private static final String STATE_AGENT = "chat.agent";
     private static final String STATE_REASONING = "chat.reasoningEffort";
 
+    private final ChatSessionId sessionId;
     private final AskAiModel model;
     private final OllamaService ollamaService;
     private final SpeechToTextService speechToTextService;
@@ -192,6 +195,15 @@ public final class OllamaChatPanel extends JPanel {
                            SpeechToTextService speechToTextService,
                            AudioProfileRepository audioProfileRepository,
                            ApplicationStateService applicationState) {
+        this(ChatSessionId.create(), model, ollamaService, speechToTextService,
+                audioProfileRepository, applicationState);
+    }
+
+    public OllamaChatPanel(ChatSessionId sessionId, AskAiModel model, OllamaService ollamaService,
+                           SpeechToTextService speechToTextService,
+                           AudioProfileRepository audioProfileRepository,
+                           ApplicationStateService applicationState) {
+        this.sessionId = sessionId == null ? ChatSessionId.create() : sessionId;
         this.model = model;
         this.ollamaService = ollamaService;
         this.speechToTextService = speechToTextService;
@@ -427,14 +439,9 @@ public final class OllamaChatPanel extends JPanel {
     }
 
     private JComponent buildToolbar() {
-        // The model is now chosen from the ChatGPT-style selector inside the composer; the top row only
-        // keeps New chat + a refresh. (modelCombo lives on as the off-screen data model / selection.)
-        JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
-        JButton newChatButton = new JButton("New chat");
-        newChatButton.addActionListener(event -> newChat());
-        toolbar.add(newChatButton);
-
-        int refreshSize = newChatButton.getPreferredSize().height;
+        // New chat is now the workspace's fixed "+" tab; the model is chosen from the composer selector.
+        // The top row keeps only a model refresh. (modelCombo lives on as the off-screen selection.)
+        int refreshSize = 26;
         JButton refreshButton = new JButton(new RefreshIcon(refreshSize - 6));
         refreshButton.setToolTipText("Refresh models");
         refreshButton.setFocusPainted(false);
@@ -445,7 +452,6 @@ public final class OllamaChatPanel extends JPanel {
         rightControls.add(refreshButton);
 
         JPanel toolbarRow = new JPanel(new BorderLayout());
-        toolbarRow.add(toolbar, BorderLayout.CENTER);
         toolbarRow.add(rightControls, BorderLayout.EAST);
 
         JPanel header = new JPanel(new BorderLayout(4, 4));
@@ -453,6 +459,22 @@ public final class OllamaChatPanel extends JPanel {
         // Chat settings moved behind the composer's gear; only Technical details stays here (collapsed).
         header.add(new CollapsiblePanel("Technical details", buildTechnicalDetails(), false), BorderLayout.CENTER);
         return header;
+    }
+
+    // ------------------------------------------------------------------ ChatSessionComponent
+
+    public ChatSessionId getSessionId() {
+        return sessionId;
+    }
+
+    public java.awt.Component getComponent() {
+        return this;
+    }
+
+    /** Release this session's resources when its tab closes: abort the chat, dictation and file work. */
+    public void disposeSession() {
+        stopChat();
+        shutdownDictation();
     }
 
     /** The always-available (collapsed) technical log shown in the header. */
@@ -657,16 +679,6 @@ public final class OllamaChatPanel extends JPanel {
                 });
             }
         });
-    }
-
-    private void newChat() {
-        if (chatTask != null) {
-            return;
-        }
-        history.clear();
-        transcript.clear();
-        showEmptyState();
-        setStatus("Started a new chat.");
     }
 
     /** Selects {@code modelName} as the active chat model without touching the conversation. */
