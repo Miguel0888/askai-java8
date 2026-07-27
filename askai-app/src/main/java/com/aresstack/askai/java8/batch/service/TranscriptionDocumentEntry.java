@@ -15,8 +15,17 @@ public final class TranscriptionDocumentEntry {
 
     public TranscriptionDocumentEntry(String modelId, String profileId, String profileName,
                                       String transcription) {
-        this.modelId = modelId == null ? "" : modelId.trim();
-        this.profileId = profileId == null ? "" : profileId.trim();
+        if (modelId == null || modelId.trim().isEmpty()) {
+            throw new IllegalArgumentException("modelId must not be null or blank");
+        }
+        // The writer must never serialize a corrupt identity: null, blank, or the literal "null"
+        // (all three have been observed in legacy documents written by older versions).
+        if (!AudioProfileIdentityResolver.isValidId(profileId)) {
+            throw new IllegalArgumentException(
+                    "profileId must be a stable non-blank id, got: '" + profileId + "'");
+        }
+        this.modelId = modelId.trim();
+        this.profileId = profileId.trim();
         this.profileName = profileName == null ? "" : profileName.trim();
         this.transcription = transcription == null ? "" : transcription;
     }

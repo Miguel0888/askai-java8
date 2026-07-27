@@ -28,6 +28,7 @@ public final class MarkdownBatchTranscriptionDocumentEditor implements BatchTran
             throw new IllegalArgumentException("entry must not be null");
         }
         Document document = parse(markdown == null ? "" : markdown);
+        document.normalize();
         document.upsert(entry);
         return document.render();
     }
@@ -76,10 +77,23 @@ public final class MarkdownBatchTranscriptionDocumentEditor implements BatchTran
         for (int i = 0; i < rest.size(); i++) {
             String id = match(rest.get(i), PROFILE_ID);
             if (id != null) {
-                profile.profileId = id;
-                profile.hasIdComment = true;
+                if (AudioProfileIdentityResolver.isValidId(id)) {
+                    profile.profileId = id;
+                    profile.hasIdComment = true;
+                }
+                // an invalid id (empty / "null") is dropped here and migrated below
                 rest.remove(i);
                 break;
+            }
+        }
+        if (!profile.hasIdComment) {
+            // Legacy migration: resolve built-in profiles unambiguously by their visible heading
+            // (Off -> off, Default speech -> default-speech, ...). User profiles are never guessed;
+            // they stay id-less and are matched by their exact heading on the next upsert.
+            String resolved = AudioProfileIdentityResolver.resolveLegacyProfileId(profile.profileName);
+            if (resolved != null) {
+                profile.profileId = resolved;
+                profile.hasIdComment = true;
             }
         }
         profile.body = joinTrimmed(rest);
@@ -172,6 +186,39 @@ public final class MarkdownBatchTranscriptionDocumentEditor implements BatchTran
         private String preamble = "";
         private final List<ModelSection> models = new ArrayList<ModelSection>();
 
+        /**
+         * Bring a parsed (possibly legacy-corrupted) document into canonical shape:
+         * per stable model id exactly one model section — duplicates created by the old append-only writer
+         * are merged into the first occurrence, their profiles carried over in order. Within a model,
+         * duplicate profiles collapse deterministically: the LAST fully read section wins (its name and
+         * body), while keeping the FIRST occurrence's position; distinct profiles keep their order.
+         * Merging without an id comment happens only via the parse fallback (visible heading), which is
+         * exact and therefore unambiguous. No transcription body of a surviving section is dropped.
+         */
+        private void normalize() {
+            List<ModelSection> canonical = new ArrayList<ModelSection>();
+            for (ModelSection model : models) {
+                ModelSection existing = null;
+                for (ModelSection candidate : canonical) {
+                    if (candidate.modelId.equals(model.modelId)) {
+                        existing = candidate;
+                        break;
+                    }
+                }
+                if (existing == null) {
+                    canonical.add(model);
+                } else {
+                    existing.hasIdComment |= model.hasIdComment;
+                    existing.profiles.addAll(model.profiles);
+                }
+            }
+            for (ModelSection model : canonical) {
+                model.dedupProfiles();
+            }
+            models.clear();
+            models.addAll(canonical);
+        }
+
         private void upsert(TranscriptionDocumentEntry entry) {
             ModelSection model = findModel(entry.getModelId());
             if (model == null) {
@@ -233,6 +280,41 @@ public final class MarkdownBatchTranscriptionDocumentEditor implements BatchTran
             profile.body = entry.getTranscription().trim();
         }
 
+        /** Collapse duplicate profiles: same identity → last section wins, first position kept. */
+        private void dedupProfiles() {
+            List<ProfileSection> canonical = new ArrayList<ProfileSection>();
+            for (ProfileSection profile : profiles) {
+                ProfileSection existing = null;
+                for (ProfileSection candidate : canonical) {
+                    if (sameIdentity(candidate, profile)) {
+                        existing = candidate;
+                        break;
+                    }
+                }
+                if (existing == null) {
+                    canonical.add(profile);
+                } else {
+                    existing.profileId = profile.profileId;
+                    existing.profileName = profile.profileName;
+                    existing.hasIdComment = profile.hasIdComment;
+                    existing.body = profile.body;
+                }
+            }
+            profiles.clear();
+            profiles.addAll(canonical);
+        }
+
+        /** Same stable id, or — for id-less legacy sections — the same exact visible heading. */
+        private static boolean sameIdentity(ProfileSection a, ProfileSection b) {
+            if (a.hasIdComment && b.hasIdComment) {
+                return a.profileId.equals(b.profileId);
+            }
+            if (!a.hasIdComment && !b.hasIdComment) {
+                return a.profileName.equals(b.profileName);
+            }
+            return false;
+        }
+
         private ProfileSection findProfile(TranscriptionDocumentEntry entry) {
             for (ProfileSection profile : profiles) { // stable id first
                 if (profile.hasIdComment && profile.profileId != null
@@ -250,8 +332,10 @@ public final class MarkdownBatchTranscriptionDocumentEditor implements BatchTran
 
         private String render() {
             StringBuilder builder = new StringBuilder();
-            builder.append(MODEL_HEADING_PREFIX).append(modelName)
-                    .append("\n\n<!-- askai:model-id=").append(modelId).append(" -->");
+            builder.append(MODEL_HEADING_PREFIX).append(modelName);
+            if (AudioProfileIdentityResolver.isValidId(modelId)) {
+                builder.append("\n\n<!-- askai:model-id=").append(modelId.trim()).append(" -->");
+            }
             for (ProfileSection profile : profiles) {
                 builder.append("\n\n").append(profile.render());
             }
@@ -267,8 +351,13 @@ public final class MarkdownBatchTranscriptionDocumentEditor implements BatchTran
 
         private String render() {
             StringBuilder builder = new StringBuilder();
-            builder.append(PROFILE_HEADING_PREFIX).append(' ').append(profileName)
-                    .append("\n\n<!-- askai:profile-id=").append(profileId).append(" -->");
+            builder.append(PROFILE_HEADING_PREFIX).append(' ').append(profileName);
+            // Only a valid stable id is ever serialized. An id-less legacy section keeps no comment (it
+            // is matched by its heading on the next upsert) — previously a null id was string-concatenated
+            // here, writing the literal "profile-id=null" into the document.
+            if (AudioProfileIdentityResolver.isValidId(profileId)) {
+                builder.append("\n\n<!-- askai:profile-id=").append(profileId.trim()).append(" -->");
+            }
             if (!body.isEmpty()) {
                 builder.append("\n\n").append(body);
             }
