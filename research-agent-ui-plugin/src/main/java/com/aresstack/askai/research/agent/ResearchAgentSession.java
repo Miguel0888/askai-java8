@@ -47,8 +47,14 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     private ResearchPhase phase = ResearchPhase.SCOPING;
     private ResearchRunState runState = ResearchRunState.NEW;
     private String pendingApprovalId;
+    private String problemMessage = "";
     private long revision;
     private long lastSequence = -1L;
+
+    private final java.util.concurrent.CopyOnWriteArrayList<Runnable> stateListeners =
+            new java.util.concurrent.CopyOnWriteArrayList<Runnable>();
+    private final com.aresstack.askai.research.state.oo.ResearchStateFactory stateFactory =
+            com.aresstack.askai.research.state.oo.ResearchStateFactory.getInstance();
 
     private ResearchSessionHandle handle;
     private boolean started;
@@ -210,6 +216,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 if (runState != ResearchRunState.WAITING_FOR_USER) {
                     pendingApprovalId = null;
                 }
+                if (runState != ResearchRunState.BLOCKED && runState != ResearchRunState.FAILED) {
+                    problemMessage = "";
+                }
                 break;
             case APPROVAL_REQUESTED:
                 pendingApprovalId = event.getApprovalId();
@@ -227,11 +236,46 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 break;
             case BLOCKED:
             case ERROR:
+                problemMessage = event.getPublicMessage();
                 sink.showProblem(event.getEventId(), event.getPublicMessage());
                 break;
             default:
                 break; // SOURCE_ADDED/FINDING_ADDED/OUTLINE_CHANGED/PROBLEM_REPORTED handled by artifact views
         }
+        fireStateChanged(); // the State visualization re-reads the domain snapshot
+    }
+
+    // ------------------------------------------------------------------ state visualization support
+
+    public void addStateListener(Runnable listener) {
+        if (listener != null) {
+            stateListeners.addIfAbsent(listener);
+        }
+    }
+
+    public void removeStateListener(Runnable listener) {
+        stateListeners.remove(listener);
+    }
+
+    private void fireStateChanged() {
+        for (Runnable listener : stateListeners) {
+            listener.run();
+        }
+    }
+
+    /** A read-only snapshot of the hierarchical state, derived from the OO domain model (not UI flags). */
+    public ResearchStateSnapshot currentResearchSnapshot() {
+        String phaseId = com.aresstack.askai.research.state.oo.ResearchStateIds.phaseId(phase);
+        String stateId = com.aresstack.askai.research.state.oo.ResearchStateIds.stateId(phaseId, runState);
+        String continuation = null;
+        if (com.aresstack.askai.research.state.oo.ResearchStateIds.PAUSED.equals(stateId)
+                || com.aresstack.askai.research.state.oo.ResearchStateIds.BLOCKED.equals(stateId)
+                || com.aresstack.askai.research.state.oo.ResearchStateIds.FAILED.equals(stateId)) {
+            continuation = stateFactory.defaultContinuationStateId(phaseId);
+        }
+        com.aresstack.askai.research.state.oo.ResearchPhaseState oo = stateFactory.phase(phaseId,
+                stateFactory.state(phaseId, stateId, continuation, pendingApprovalId));
+        return ResearchStateSnapshot.of(oo, revision, problemMessage);
     }
 
     private void applyActivity(ResearchBackendEvent event) {

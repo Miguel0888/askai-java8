@@ -177,6 +177,28 @@ public class ResearchAgentSessionTest {
         assertEquals(CommandExecutionResult.Status.REJECTED, bad.getStatus());
     }
 
+    @Test
+    public void researchSnapshotReflectsDomainAndStateListenerFires() {
+        Fixture f = new Fixture();
+        final int[] stateChanges = {0};
+        f.session.addStateListener(new Runnable() {
+            public void run() {
+                stateChanges[0]++;
+            }
+        });
+        f.session.activate();
+        f.scheduler.runUntilIdle(); // → OUTLINE / waiting_approval
+        com.aresstack.askai.research.agent.ResearchStateSnapshot snapshot =
+                f.session.currentResearchSnapshot();
+        assertEquals(com.aresstack.askai.research.state.oo.ResearchStateIds.OUTLINE,
+                snapshot.getCurrentPhaseId());
+        assertEquals(com.aresstack.askai.research.state.oo.ResearchStateIds.WAITING_APPROVAL,
+                snapshot.getCurrentStateId());
+        assertTrue(snapshot.getAllowedCommands().contains(
+                com.aresstack.askai.research.state.ResearchCommandType.APPROVE_OUTLINE));
+        assertTrue("state listener should have fired", stateChanges[0] > 0);
+    }
+
     private static ChatCommandContribution command(String name) {
         for (ChatCommandContribution c : ResearchChatCommands.all()) {
             if (c.getDescriptor().getName().equals(name)) {
