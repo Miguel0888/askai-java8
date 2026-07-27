@@ -8,6 +8,7 @@ dependencies {
     compileOnly project(':agent-workspace-api')
     compileOnly project(':agent-plugin-pf4j-api')
     compileOnly project(':mcp-runtime-api')      // host-provided, like the other shared APIs
+    compileOnly project(':acp-client-api')       // neutral ACP port, host-provided; NO acp-sdk types here
     compileOnly 'org.pf4j:pf4j:3.15.0'
     // Generates META-INF/extensions.idx from @Extension so PF4J can discover the extension.
     annotationProcessor 'org.pf4j:pf4j:3.15.0'
@@ -15,6 +16,7 @@ dependencies {
     testImplementation project(':agent-workspace-api')
     testImplementation project(':agent-plugin-pf4j-api')
     testImplementation project(':mcp-runtime-api')
+    testImplementation project(':acp-client-api')
     testImplementation 'org.pf4j:pf4j:3.15.0'
     testImplementation 'junit:junit:4.13.2'
 }
