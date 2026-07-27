@@ -2,12 +2,23 @@ package com.aresstack.askai.plugin.host;
 
 import com.aresstack.askai.plugin.api.agent.AgentHostContext;
 import com.aresstack.askai.plugin.api.agent.AgentSession;
+import com.aresstack.askai.plugin.api.agent.AgentSessionContext;
 import com.aresstack.askai.plugin.api.agent.AgentSessionCreationRequest;
 import com.aresstack.askai.plugin.api.agent.SubmissionAvailability;
+import com.aresstack.askai.plugin.api.agent.command.ChatCommandContribution;
+import com.aresstack.askai.plugin.api.agent.command.ChatCommandDescriptor;
+import com.aresstack.askai.plugin.api.agent.command.CommandCompletion;
+import com.aresstack.askai.plugin.api.agent.command.CommandCompletionRequest;
+import com.aresstack.askai.plugin.api.agent.command.CommandCompletionResult;
+import com.aresstack.askai.plugin.api.agent.command.CommandExecutionResult;
+import com.aresstack.askai.plugin.api.agent.command.CommandInvocation;
+import com.aresstack.askai.plugin.api.agent.command.CompletionKind;
+import com.aresstack.askai.plugin.api.service.UiExecutor;
 import com.aresstack.askai.plugin.pf4j.api.AgentPluginExtension;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -22,7 +33,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * it. A session is closed only when its plugin is disabled/removed, or on shutdown. The active session is the
  * single routing target; {@code null} means "route to Yapping / no agent".</p>
  */
-public final class AgentSessionCoordinator implements ChatSubmissionRouter {
+public final class AgentSessionCoordinator implements ChatSubmissionRouter, ActiveAgentCommandRegistry {
 
     /** Resolves an agent id to its (selectable) extension, or {@code null} if not available. */
     public interface AgentExtensionResolver {
@@ -34,18 +45,33 @@ public final class AgentSessionCoordinator implements ChatSubmissionRouter {
         AgentHostContext create(String agentId, String sessionInstanceId);
     }
 
+    /** Host hook to reveal an artifact tab (wired to the artifact area in Commit 13; no-op before that). */
+    public interface ArtifactOpener {
+        void open(String artifactId);
+    }
+
     private final AgentExtensionResolver resolver;
     private final AgentHostContextProvider hostContextProvider;
+    private final UiExecutor uiExecutor;
     private final Map<String, AgentSession> sessions = new LinkedHashMap<String, AgentSession>();
     private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<Runnable>();
+    private final AgentSessionContext commandContext = new ActiveContext();
 
     private String activeAgentId;
     private AgentSession activeSession;
+    private AgentPluginExtension activeExtension;
+    private ArtifactOpener artifactOpener;
 
     public AgentSessionCoordinator(AgentExtensionResolver resolver,
-                                   AgentHostContextProvider hostContextProvider) {
+                                   AgentHostContextProvider hostContextProvider, UiExecutor uiExecutor) {
         this.resolver = resolver;
         this.hostContextProvider = hostContextProvider;
+        this.uiExecutor = uiExecutor;
+    }
+
+    /** Set (or replace) the host hook invoked by {@code /open <artifact>}; may be null (no-op). */
+    public void setArtifactOpener(ArtifactOpener opener) {
+        this.artifactOpener = opener;
     }
 
     /** @return whether an agent id currently resolves to a usable agent extension. */
@@ -85,6 +111,7 @@ public final class AgentSessionCoordinator implements ChatSubmissionRouter {
         session.activate();
         activeAgentId = agentId;
         activeSession = session;
+        activeExtension = extension;
         fireChange();
     }
 
@@ -95,6 +122,7 @@ public final class AgentSessionCoordinator implements ChatSubmissionRouter {
         }
         activeSession = null;
         activeAgentId = null;
+        activeExtension = null;
         fireChange();
     }
 
@@ -105,6 +133,7 @@ public final class AgentSessionCoordinator implements ChatSubmissionRouter {
             if (session == activeSession) {
                 activeSession = null;
                 activeAgentId = null;
+                activeExtension = null;
             }
             session.close();
             fireChange();
@@ -131,6 +160,7 @@ public final class AgentSessionCoordinator implements ChatSubmissionRouter {
     public void shutdown() {
         activeSession = null;
         activeAgentId = null;
+        activeExtension = null;
         for (AgentSession session : sessions.values()) {
             try {
                 session.close();
@@ -191,6 +221,194 @@ public final class AgentSessionCoordinator implements ChatSubmissionRouter {
     public void fireChange() {
         for (Runnable listener : listeners) {
             listener.run();
+        }
+    }
+
+    // ------------------------------------------------------------------ ActiveAgentCommandRegistry
+
+    @Override
+    public List<ChatCommandDescriptor> getCommands() {
+        if (activeExtension == null) {
+            return Collections.emptyList();
+        }
+        List<ChatCommandDescriptor> descriptors = new ArrayList<ChatCommandDescriptor>();
+        for (ChatCommandContribution contribution : chatContributions()) {
+            descriptors.add(contribution.getDescriptor());
+        }
+        return descriptors;
+    }
+
+    @Override
+    public boolean isCommandLine(String input) {
+        return activeSession != null && activeExtension != null
+                && !chatContributions().isEmpty() && Parsed.looksLikeCommand(input);
+    }
+
+    @Override
+    public CommandCompletionResult complete(String input, int caretPosition) {
+        if (activeExtension == null || activeSession == null) {
+            return CommandCompletionResult.empty();
+        }
+        String effective = clampToCaret(input, caretPosition);
+        if (!Parsed.looksLikeCommand(effective)) {
+            return CommandCompletionResult.empty();
+        }
+        Parsed parsed = Parsed.of(effective);
+        if (parsed.nameStage) {
+            List<CommandCompletion> out = new ArrayList<CommandCompletion>();
+            for (ChatCommandContribution contribution : chatContributions()) {
+                ChatCommandDescriptor descriptor = contribution.getDescriptor();
+                if (descriptor.getName().startsWith(parsed.partial)) {
+                    boolean takesArgs = !descriptor.getArguments().isEmpty();
+                    String insertion = "/" + descriptor.getName() + (takesArgs ? " " : "");
+                    out.add(new CommandCompletion(insertion, "/" + descriptor.getName(),
+                            descriptor.getDescription(), CompletionKind.COMMAND));
+                }
+            }
+            return new CommandCompletionResult(out);
+        }
+        ChatCommandContribution contribution = find(parsed.command);
+        if (contribution == null) {
+            return CommandCompletionResult.empty();
+        }
+        CommandCompletionRequest request =
+                new CommandCompletionRequest(parsed.command, parsed.args, parsed.partial);
+        CommandCompletionResult raw = contribution.complete(request, commandContext);
+        // Reconstruct each suggestion into a FULL replacement line so the composer just replaces its text.
+        List<CommandCompletion> out = new ArrayList<CommandCompletion>();
+        String prefix = "/" + parsed.command + " "
+                + (parsed.args.isEmpty() ? "" : join(parsed.args) + " ");
+        for (CommandCompletion completion : raw.getCompletions()) {
+            out.add(new CommandCompletion(prefix + completion.getInsertionText(),
+                    completion.getDisplayText(), completion.getDescription(), completion.getKind()));
+        }
+        return new CommandCompletionResult(out);
+    }
+
+    @Override
+    public CommandExecutionResult execute(String input) {
+        if (activeExtension == null || activeSession == null || !Parsed.looksLikeCommand(input)) {
+            return CommandExecutionResult.unknown();
+        }
+        Parsed parsed = Parsed.of(input);
+        String name = parsed.nameStage ? parsed.partial : parsed.command;
+        ChatCommandContribution contribution = find(name);
+        if (contribution == null) {
+            return CommandExecutionResult.unknown();
+        }
+        List<String> args = parsed.executionArgs();
+        return contribution.execute(new CommandInvocation(name, args, input), commandContext);
+    }
+
+    private List<ChatCommandContribution> chatContributions() {
+        List<ChatCommandContribution> contributions =
+                activeExtension == null ? null : activeExtension.getChatCommands();
+        return contributions == null ? Collections.<ChatCommandContribution>emptyList() : contributions;
+    }
+
+    private ChatCommandContribution find(String name) {
+        for (ChatCommandContribution contribution : chatContributions()) {
+            if (contribution.getDescriptor().getName().equals(name)) {
+                return contribution;
+            }
+        }
+        return null;
+    }
+
+    private static String clampToCaret(String input, int caret) {
+        if (input == null) {
+            return "";
+        }
+        if (caret < 0 || caret > input.length()) {
+            return input;
+        }
+        return input.substring(0, caret);
+    }
+
+    private static String join(List<String> parts) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < parts.size(); i++) {
+            if (i > 0) {
+                sb.append(' ');
+            }
+            sb.append(parts.get(i));
+        }
+        return sb.toString();
+    }
+
+    /** One reused context; reads the current active session so late execute() calls stay consistent. */
+    private final class ActiveContext implements AgentSessionContext {
+        public AgentSession getSession() {
+            return activeSession;
+        }
+
+        public void openArtifact(String artifactId) {
+            if (artifactOpener != null) {
+                artifactOpener.open(artifactId);
+            }
+        }
+
+        public UiExecutor getUiExecutor() {
+            return uiExecutor;
+        }
+    }
+
+    /** Minimal slash-command parse: command-name stage vs argument stage, with the fragment being typed. */
+    static final class Parsed {
+        final boolean nameStage;
+        final String command;
+        final List<String> args; // completed args before the fragment (completion) or all args (execution)
+        final String partial;    // fragment currently being typed
+
+        private Parsed(boolean nameStage, String command, List<String> args, String partial) {
+            this.nameStage = nameStage;
+            this.command = command;
+            this.args = args;
+            this.partial = partial;
+        }
+
+        static boolean looksLikeCommand(String input) {
+            return input != null && input.trim().startsWith("/");
+        }
+
+        static Parsed of(String input) {
+            String trimmedLeading = input == null ? "" : input.replaceAll("^\\s+", "");
+            String body = trimmedLeading.startsWith("/") ? trimmedLeading.substring(1) : trimmedLeading;
+            boolean endsWithSpace = body.length() > 0 && Character.isWhitespace(body.charAt(body.length() - 1));
+            String[] tokens = body.trim().isEmpty() ? new String[0] : body.trim().split("\\s+");
+            if (tokens.length == 0) {
+                return new Parsed(true, "", Collections.<String>emptyList(), "");
+            }
+            if (tokens.length == 1 && !endsWithSpace) {
+                return new Parsed(true, "", Collections.<String>emptyList(), tokens[0]);
+            }
+            String command = tokens[0];
+            List<String> args = new ArrayList<String>();
+            String partial;
+            if (endsWithSpace) {
+                for (int i = 1; i < tokens.length; i++) {
+                    args.add(tokens[i]);
+                }
+                partial = "";
+            } else {
+                for (int i = 1; i < tokens.length - 1; i++) {
+                    args.add(tokens[i]);
+                }
+                partial = tokens[tokens.length - 1];
+            }
+            return new Parsed(false, command, args, partial);
+        }
+
+        /** All typed arguments (fragment included) for execution. */
+        List<String> executionArgs() {
+            if (nameStage) {
+                return Collections.emptyList();
+            }
+            List<String> all = new ArrayList<String>(args);
+            if (!partial.isEmpty()) {
+                all.add(partial);
+            }
+            return all;
         }
     }
 }

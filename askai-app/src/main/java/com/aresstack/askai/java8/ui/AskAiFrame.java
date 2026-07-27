@@ -302,9 +302,18 @@ public final class AskAiFrame extends JFrame {
                     }
                 };
         com.aresstack.askai.plugin.host.AgentSessionCoordinator agentCoordinator =
-                new com.aresstack.askai.plugin.host.AgentSessionCoordinator(agentResolver, agentHostProvider);
+                new com.aresstack.askai.plugin.host.AgentSessionCoordinator(
+                        agentResolver, agentHostProvider, uiExecutor);
+        // /open reveals an artifact tab; the artifact area lands in Commit 13, so for now just acknowledge.
+        agentCoordinator.setArtifactOpener(new com.aresstack.askai.plugin.host.AgentSessionCoordinator
+                .ArtifactOpener() {
+            public void open(String artifactId) {
+                normalChat.notifyArtifactOpenRequested(artifactId);
+            }
+        });
         host.setAgentSessionCoordinator(agentCoordinator);
         normalChat.setChatSubmissionRouter(agentCoordinator);
+        normalChat.setAgentCommandRegistry(agentCoordinator);
         return host;
     }
 

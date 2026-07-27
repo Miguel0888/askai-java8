@@ -11,6 +11,8 @@ import com.aresstack.askai.plugin.api.agent.ChatSubmissionTarget;
 import com.aresstack.askai.plugin.api.agent.SubmissionAvailability;
 import com.aresstack.askai.plugin.api.agent.artifact.ArtifactViewContribution;
 import com.aresstack.askai.plugin.api.agent.command.ChatCommandContribution;
+import com.aresstack.askai.plugin.api.agent.command.CommandCompletionResult;
+import com.aresstack.askai.plugin.api.agent.command.CommandExecutionResult;
 import com.aresstack.askai.plugin.pf4j.api.AgentPluginExtension;
 
 import org.junit.Test;
@@ -47,7 +49,21 @@ public class AgentSessionCoordinatorTest {
                         return null; // the fake session ignores its host context
                     }
                 };
-        return new AgentSessionCoordinator(resolver, provider);
+        return new AgentSessionCoordinator(resolver, provider, new InlineUiExecutor());
+    }
+
+    private static final class InlineUiExecutor
+            implements com.aresstack.askai.plugin.api.service.UiExecutor {
+        public boolean isUiThread() {
+            return true;
+        }
+
+        public void execute(Runnable runnable) {
+            runnable.run();
+        }
+
+        public void assertUiThread() {
+        }
     }
 
     @Test
@@ -183,6 +199,101 @@ public class AgentSessionCoordinatorTest {
         assertTrue(count[0] >= 2);
     }
 
+    // ------------------------------------------------------------------ command registry
+
+    @Test
+    public void noAgentMeansNoCommandsAndSlashIsPlainText() {
+        AgentSessionCoordinator c = coordinator();
+        assertTrue(c.getCommands().isEmpty());
+        assertFalse(c.isCommandLine("/status"));
+        assertEquals(CommandExecutionResult.Status.UNKNOWN, c.execute("/status").getStatus());
+    }
+
+    @Test
+    public void activeAgentExposesItsCommands() {
+        AgentSessionCoordinator c = coordinator();
+        c.setActiveAgent("agent.a");
+        assertEquals(2, c.getCommands().size());
+        assertTrue(c.isCommandLine("/status"));
+    }
+
+    @Test
+    public void nameStageCompletionFiltersByPrefix() {
+        AgentSessionCoordinator c = coordinator();
+        c.setActiveAgent("agent.a");
+        CommandCompletionResult all = c.complete("/", 1);
+        assertEquals(2, all.getCompletions().size());
+        CommandCompletionResult filtered = c.complete("/st", 3);
+        assertEquals(1, filtered.getCompletions().size());
+        assertEquals("/status", filtered.getCompletions().get(0).getDisplayText());
+        assertEquals("/status", filtered.getCompletions().get(0).getInsertionText());
+    }
+
+    @Test
+    public void executeStatusReturnsHandledWithoutTouchingTheChatTarget() {
+        AgentSessionCoordinator c = coordinator();
+        c.setActiveAgent("agent.a");
+        CommandExecutionResult result = c.execute("/status");
+        assertEquals(CommandExecutionResult.Status.HANDLED, result.getStatus());
+        assertEquals("status:ok", result.getMessage());
+        // A slash command must NOT be submitted as a normal prompt.
+        assertTrue(registry.get("agent.a").lastSession.target.submitted.isEmpty());
+    }
+
+    @Test
+    public void unknownCommandIsReported() {
+        AgentSessionCoordinator c = coordinator();
+        c.setActiveAgent("agent.a");
+        assertEquals(CommandExecutionResult.Status.UNKNOWN, c.execute("/nope").getStatus());
+    }
+
+    @Test
+    public void openCommandCompletesArtifactIdsAsFullLines() {
+        AgentSessionCoordinator c = coordinator();
+        c.setActiveAgent("agent.a");
+        CommandCompletionResult result = c.complete("/open out", 9);
+        assertEquals(1, result.getCompletions().size());
+        // Reconstructed to a full replacement line.
+        assertEquals("/open outline", result.getCompletions().get(0).getInsertionText());
+        assertEquals("outline", result.getCompletions().get(0).getDisplayText());
+    }
+
+    @Test
+    public void openCommandInvokesArtifactOpener() {
+        AgentSessionCoordinator c = coordinator();
+        final String[] opened = {null};
+        c.setArtifactOpener(new AgentSessionCoordinator.ArtifactOpener() {
+            public void open(String artifactId) {
+                opened[0] = artifactId;
+            }
+        });
+        c.setActiveAgent("agent.a");
+        CommandExecutionResult result = c.execute("/open outline");
+        assertEquals(CommandExecutionResult.Status.HANDLED, result.getStatus());
+        assertEquals("outline", opened[0]);
+    }
+
+    @Test
+    public void switchingAgentReplacesTheCommandContext() {
+        AgentSessionCoordinator c = coordinator();
+        c.setActiveAgent("agent.a");
+        FakeSession a = registry.get("agent.a").lastSession;
+        c.setActiveAgent("agent.b");
+        // Execution now targets agent.b's session, not agent.a's.
+        c.execute("/status");
+        assertTrue(a.target.submitted.isEmpty());
+        assertEquals("agent.b", c.getActiveAgentId());
+    }
+
+    @Test
+    public void deactivateClearsCommands() {
+        AgentSessionCoordinator c = coordinator();
+        c.setActiveAgent("agent.a");
+        c.deactivateActive();
+        assertTrue(c.getCommands().isEmpty());
+        assertFalse(c.isCommandLine("/status"));
+    }
+
     // ------------------------------------------------------------------ fakes
 
     private static final class FakeExtension implements AgentPluginExtension {
@@ -209,11 +320,67 @@ public class AgentSessionCoordinatorTest {
         }
 
         public List<ChatCommandContribution> getChatCommands() {
-            return Collections.emptyList();
+            return Arrays.<ChatCommandContribution>asList(new StatusCommand(), new OpenCommand());
         }
 
         public List<ArtifactViewContribution> getArtifactViews() {
             return Collections.emptyList();
+        }
+    }
+
+    /** Fake no-arg command: /status. */
+    private static final class StatusCommand implements ChatCommandContribution {
+        public com.aresstack.askai.plugin.api.agent.command.ChatCommandDescriptor getDescriptor() {
+            return com.aresstack.askai.plugin.api.agent.command.ChatCommandDescriptor.of(
+                    "status", "Show status");
+        }
+
+        public com.aresstack.askai.plugin.api.agent.command.CommandCompletionResult complete(
+                com.aresstack.askai.plugin.api.agent.command.CommandCompletionRequest request,
+                com.aresstack.askai.plugin.api.agent.AgentSessionContext context) {
+            return com.aresstack.askai.plugin.api.agent.command.CommandCompletionResult.empty();
+        }
+
+        public com.aresstack.askai.plugin.api.agent.command.CommandExecutionResult execute(
+                com.aresstack.askai.plugin.api.agent.command.CommandInvocation invocation,
+                com.aresstack.askai.plugin.api.agent.AgentSessionContext context) {
+            return com.aresstack.askai.plugin.api.agent.command.CommandExecutionResult.handled("status:ok");
+        }
+    }
+
+    /** Fake arg command: /open <artifact>, completes ids and calls context.openArtifact on execute. */
+    private static final class OpenCommand implements ChatCommandContribution {
+        public com.aresstack.askai.plugin.api.agent.command.ChatCommandDescriptor getDescriptor() {
+            return com.aresstack.askai.plugin.api.agent.command.ChatCommandDescriptor.of(
+                    "open", "Open artifact", "/open <artifact>",
+                    new com.aresstack.askai.plugin.api.agent.command.CommandArgumentDescriptor(
+                            "artifact", "id", true));
+        }
+
+        public com.aresstack.askai.plugin.api.agent.command.CommandCompletionResult complete(
+                com.aresstack.askai.plugin.api.agent.command.CommandCompletionRequest request,
+                com.aresstack.askai.plugin.api.agent.AgentSessionContext context) {
+            List<com.aresstack.askai.plugin.api.agent.command.CommandCompletion> out =
+                    new ArrayList<com.aresstack.askai.plugin.api.agent.command.CommandCompletion>();
+            for (String id : new String[]{"outline", "concept"}) {
+                if (id.startsWith(request.getPartialToken())) {
+                    out.add(new com.aresstack.askai.plugin.api.agent.command.CommandCompletion(
+                            id, id, "artifact",
+                            com.aresstack.askai.plugin.api.agent.command.CompletionKind.ARGUMENT_VALUE));
+                }
+            }
+            return new com.aresstack.askai.plugin.api.agent.command.CommandCompletionResult(out);
+        }
+
+        public com.aresstack.askai.plugin.api.agent.command.CommandExecutionResult execute(
+                com.aresstack.askai.plugin.api.agent.command.CommandInvocation invocation,
+                com.aresstack.askai.plugin.api.agent.AgentSessionContext context) {
+            String id = invocation.getArgument(0);
+            if (id.isEmpty()) {
+                return com.aresstack.askai.plugin.api.agent.command.CommandExecutionResult.rejected("usage");
+            }
+            context.openArtifact(id);
+            return com.aresstack.askai.plugin.api.agent.command.CommandExecutionResult.handled("opened " + id);
         }
     }
 

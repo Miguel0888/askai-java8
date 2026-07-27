@@ -117,11 +117,17 @@ public final class OllamaChatPanel extends JPanel {
     // Commit 11: when Questing routes to an agent session, plain prompts and stop go through this router
     // instead of the Ollama path. The chat component and composer stay physically the same.
     private com.aresstack.askai.plugin.host.ChatSubmissionRouter chatSubmissionRouter;
+    private com.aresstack.askai.plugin.host.ActiveAgentCommandRegistry agentCommandRegistry;
     private com.aresstack.askai.java8.ui.AskAiAgentConversationSink agentConversationSink;
+    private SlashCommandPopup slashPopup;
     private final Runnable routerChangeListener = new Runnable() {
         public void run() {
             onUi(new Runnable() {
                 public void run() {
+                    // An agent switch / deactivation must never leave stale commands offered.
+                    if (slashPopup != null) {
+                        slashPopup.hide();
+                    }
                     refreshAgentComposerState();
                 }
             });
@@ -265,6 +271,8 @@ public final class OllamaChatPanel extends JPanel {
                 onAudioFileAction();
             }
         });
+        // Slash-command completion for the shared composer; only active in Questing (empty registry in Yapping).
+        this.slashPopup = new SlashCommandPopup(composer.getEditor());
 
         this.dictationExecutor = Executors.newCachedThreadPool(new DaemonThreadFactory());
         this.workDir = new File(System.getProperty("java.io.tmpdir"), "askai-speech");
@@ -745,6 +753,27 @@ public final class OllamaChatPanel extends JPanel {
         refreshAgentComposerState();
     }
 
+    /** Binds the active-agent command registry that powers slash-command completion in the shared composer. */
+    public void setAgentCommandRegistry(com.aresstack.askai.plugin.host.ActiveAgentCommandRegistry registry) {
+        this.agentCommandRegistry = registry;
+        if (slashPopup != null) {
+            slashPopup.setRegistry(registry);
+        }
+    }
+
+    /**
+     * Placeholder host hook for {@code /open <artifact>} until the artifact area lands (Commit 13): confirm in
+     * the shared chat so the command path is already correct end-to-end.
+     */
+    public void notifyArtifactOpenRequested(String artifactId) {
+        onUi(new Runnable() {
+            public void run() {
+                transcript.appendInfo("Artifact requested: " + artifactId
+                        + " (the artifact panel arrives in a later slice).");
+            }
+        });
+    }
+
     /**
      * @return the shared conversation sink an agent session pushes its activity into — the SAME transcript as
      *         the normal chat. Created lazily; there is never a second conversation surface.
@@ -939,6 +968,11 @@ public final class OllamaChatPanel extends JPanel {
                 setStatus("Write a message before sending.");
                 return;
             }
+            // Slash line: run it as an agent command (never sent to the model, never a normal user message).
+            if (agentCommandRegistry != null && agentCommandRegistry.isCommandLine(prompt)) {
+                executeSlashCommand(prompt);
+                return;
+            }
             composer.clearMessage();
             chatSubmissionRouter.submitText(prompt);
             return;
@@ -1017,6 +1051,34 @@ public final class OllamaChatPanel extends JPanel {
                 });
             }
         });
+    }
+
+    /**
+     * Executes a slash command line against the active agent's registry and renders the outcome as a compact
+     * line in the shared chat. The command never reaches the model. Research commands are local/non-blocking,
+     * so this runs synchronously on the EDT; heavier future commands should marshal their result via UiExecutor.
+     */
+    private void executeSlashCommand(String input) {
+        if (slashPopup != null) {
+            slashPopup.hide();
+        }
+        composer.clearMessage();
+        com.aresstack.askai.plugin.api.agent.command.CommandExecutionResult result =
+                agentCommandRegistry.execute(input);
+        switch (result.getStatus()) {
+            case HANDLED:
+                if (!result.getMessage().isEmpty()) {
+                    transcript.appendInfo(result.getMessage());
+                }
+                break;
+            case REJECTED:
+                transcript.appendInfo("⚠ " + result.getMessage());
+                break;
+            case UNKNOWN:
+            default:
+                transcript.appendInfo("Unknown command: " + input.trim());
+                break;
+        }
     }
 
     /** First non-empty thinking delta opens the green thinking bubble; further deltas stream into it. */
