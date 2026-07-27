@@ -24,23 +24,19 @@ public final class OllamaBotResponder implements BotResponder {
 
     /**
      * The built-in system prompt, used when no custom prompt is configured in the Partying
-     * settings ("concisely" works well as a group-chat default; the settings field overrides it).
+     * settings.  Deliberately short — small models follow brief instructions best; the settings
+     * field overrides it.
      */
     public static final String DEFAULT_SYSTEM_PROMPT =
-            "You are @" + GroupChatBot.DISPLAY_NAME + ", the shared assistant in a local-network group chat "
-            + "with several human participants. Messages are prefixed with the sender's name and a colon. "
-            + "The participants mostly talk to each other and consult you when needed. "
-            + "Answer in the language of the message addressed to you, concisely and in normal Markdown, "
-            + "and do not prefix your answer with your own name.";
+            "You are @" + GroupChatBot.DISPLAY_NAME + ", a helpful assistant in a group chat. "
+            + "Reply briefly, in the language of the message you answer.";
 
     /**
-     * The built-in explanation of when to chime in for the "always answers" policy; the model
-     * declines with {@link #SILENT_MARKER} when it has nothing to add.
+     * The built-in explanation of when to chime in for the "always answers" policy; kept short and
+     * concrete because small models follow short instructions best.
      */
     public static final String DEFAULT_ALWAYS_PROMPT =
-            "Only correct obviously false factual statements — 'obviously' matters: do not interject "
-            + "for small talk, opinions, questions addressed to other people, or minor inaccuracies. "
-            + "When a message states an obviously wrong fact, reply with a short correction.";
+            "Only correct obviously false facts. Stay silent otherwise.";
 
     /** Exact reply the model uses to stay silent under the always policy. */
     public static final String SILENT_MARKER = "[SILENT]";
