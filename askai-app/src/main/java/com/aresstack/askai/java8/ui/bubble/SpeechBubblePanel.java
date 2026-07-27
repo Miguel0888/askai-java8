@@ -91,6 +91,15 @@ public final class SpeechBubblePanel extends JPanel {
         refreshLayout();
     }
 
+    /**
+     * Colors the header label (the sender name), used for per-participant colors in Partying
+     * mode.  {@code null} restores the default muted text color.
+     */
+    public void setHeaderColor(Color color) {
+        headerLabel.setForeground(color != null ? color : withAlpha(textColor, 220));
+        repaint();
+    }
+
     public void setMaximumBubbleWidth(int maximumBubbleWidth) {
         if (maximumBubbleWidth < MINIMUM_WIDTH) {
             throw new IllegalArgumentException("maximumBubbleWidth must be at least " + MINIMUM_WIDTH);

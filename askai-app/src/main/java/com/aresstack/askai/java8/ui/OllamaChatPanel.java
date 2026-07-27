@@ -4,15 +4,17 @@ import com.aresstack.askai.java8.AskAiModel;
 import com.aresstack.askai.java8.audio.AudioProfileRepository;
 import com.aresstack.askai.java8.audio.FileAudioProfileRepository;
 import com.aresstack.askai.java8.groupchat.GroupChatConnectionState;
-import com.aresstack.askai.java8.groupchat.GroupChatListener;
-import com.aresstack.askai.java8.groupchat.GroupChatMessage;
 import com.aresstack.askai.java8.groupchat.GroupChatMode;
 import com.aresstack.askai.java8.groupchat.GroupChatRoom;
-import com.aresstack.askai.java8.groupchat.GroupChatSubmissionTarget;
 import com.aresstack.askai.java8.groupchat.GroupChatTransport;
-import com.aresstack.askai.java8.groupchat.InMemoryGroupChatTransport;
 import com.aresstack.askai.java8.groupchat.MentionParser;
 import com.aresstack.askai.java8.groupchat.Participant;
+import com.aresstack.askai.java8.groupchat.ParticipantColorPalette;
+import com.aresstack.askai.java8.groupchat.jgroups.JGroupsGroupChatTransport;
+import com.aresstack.askai.java8.groupchat.jgroups.JGroupsTransportConfig;
+import com.aresstack.askai.java8.party.OllamaBotResponder;
+import com.aresstack.askai.java8.party.PartySession;
+import com.aresstack.askai.java8.party.PartySettings;
 import com.aresstack.askai.java8.state.ApplicationStateService;
 import com.aresstack.askai.java8.client.OllamaChatTurn;
 import com.aresstack.askai.java8.service.OllamaService;
@@ -123,11 +125,11 @@ public final class OllamaChatPanel extends JPanel {
     // default) or the name of the selected agent when in "Questing" mode. selectedAgent is null while yapping.
     private String chatMode = GroupChatMode.YAPPING;
     private String selectedAgent;
-    // Partying (LAN group-chat) state: the active transport and a derived GroupChatSubmissionTarget.
-    private GroupChatTransport partyTransport;
-    private GroupChatSubmissionTarget partySubmissionTarget;
-    // Sender-side sequence counter for messages sent in Partying mode.
-    private long partySequence = 0;
+    // Partying (LAN group-chat) state: the active session controller and the persisted settings.
+    private PartySession partySession;
+    private PartySettings partySettings;
+    private MentionCompletionSupport mentionCompletion;
+    private boolean partyJoinInFlight;
     // Thinking effort ("off"/"low"/"medium"/"high"), only sent when the selected model supports thinking.
     private String reasoningEffort = "off";
     private boolean modelSupportsThinking;
@@ -267,6 +269,8 @@ public final class OllamaChatPanel extends JPanel {
             }
         });
 
+        this.partySettings = new PartySettings(applicationState);
+        this.mentionCompletion = new MentionCompletionSupport(composer.getEditor());
         this.dictationExecutor = Executors.newCachedThreadPool(new DaemonThreadFactory());
         this.workDir = new File(System.getProperty("java.io.tmpdir"), "askai-speech");
         this.dictation = buildDictationService();
@@ -297,10 +301,12 @@ public final class OllamaChatPanel extends JPanel {
         String mode = applicationState.get(STATE_MODE, GroupChatMode.YAPPING);
         String agent = applicationState.get(STATE_AGENT, null);
         if (GroupChatMode.PARTYING.equals(mode)) {
-            // Restore into Partying mode; transport is not auto-started on restore.
+            // Restore into Partying mode; the transport is not auto-started on restore.
             chatMode = GroupChatMode.PARTYING;
             selectedAgent = null;
             composer.setModeName("Partying");
+            mentionCompletion.setActive(true);
+            refreshMentionCompletionHandles();
         } else if (GroupChatMode.YAPPING.equals(mode) || agent == null || agent.trim().isEmpty()) {
             chatMode = GroupChatMode.YAPPING;
             selectedAgent = null;
@@ -536,8 +542,132 @@ public final class OllamaChatPanel extends JPanel {
         settings.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         settings.add(top, BorderLayout.NORTH);
         settings.add(system, BorderLayout.CENTER);
-        settings.add(buildColorSettings(), BorderLayout.SOUTH);
+        JPanel south = new JPanel();
+        south.setLayout(new javax.swing.BoxLayout(south, javax.swing.BoxLayout.Y_AXIS));
+        JComponent colorSection = (JComponent) buildColorSettings();
+        colorSection.setAlignmentX(Component.LEFT_ALIGNMENT);
+        south.add(colorSection);
+        JComponent partySection = buildPartySettings();
+        partySection.setAlignmentX(Component.LEFT_ALIGNMENT);
+        south.add(partySection);
+        settings.add(south, BorderLayout.SOUTH);
         return settings;
+    }
+
+    /** No preferred participant color — the deterministic assignment picks a free one. */
+    private static final String PARTY_COLOR_AUTOMATIC = "(automatic)";
+
+    /**
+     * The Partying settings: identity, preferred color, discovery/network options, bot policy,
+     * room identity/secret and the local history location.  Values apply on the next join.
+     */
+    private JComponent buildPartySettings() {
+        JPanel party = new JPanel();
+        party.setLayout(new javax.swing.BoxLayout(party, javax.swing.BoxLayout.Y_AXIS));
+        party.setBorder(BorderFactory.createTitledBorder("Partying (LAN group chat)"));
+
+        final JTextField nameField = new JTextField(partySettings.displayName(), 12);
+        final JComboBox<String> colorCombo = new JComboBox<String>();
+        colorCombo.addItem(PARTY_COLOR_AUTOMATIC);
+        for (String token : ParticipantColorPalette.tokens()) {
+            colorCombo.addItem(token);
+        }
+        String preferred = partySettings.preferredColor();
+        colorCombo.setSelectedItem(preferred != null ? preferred : PARTY_COLOR_AUTOMATIC);
+        JPanel identityRow = partySettingsRow();
+        identityRow.add(new JLabel("Display name"));
+        identityRow.add(nameField);
+        identityRow.add(new JLabel("Preferred color"));
+        identityRow.add(colorCombo);
+        party.add(identityRow);
+
+        final javax.swing.JCheckBox discoveryBox = new javax.swing.JCheckBox(
+                "Automatic LAN discovery (UDP multicast)", partySettings.discoveryEnabled());
+        final JTextField interfaceField = new JTextField(
+                partySettings.networkInterface() == null ? "" : partySettings.networkInterface(), 8);
+        interfaceField.setToolTipText("Network interface to bind, empty for automatic selection");
+        JPanel networkRow = partySettingsRow();
+        networkRow.add(discoveryBox);
+        networkRow.add(new JLabel("Interface"));
+        networkRow.add(interfaceField);
+        party.add(networkRow);
+
+        final JTextField peersField = new JTextField(partySettings.manualPeersText(), 24);
+        peersField.setToolTipText(
+                "Manual peer addresses (host or host:port, comma-separated) when multicast is blocked");
+        JPanel peersRow = partySettingsRow();
+        peersRow.add(new JLabel("Manual peers"));
+        peersRow.add(peersField);
+        party.add(peersRow);
+
+        final JComboBox<String> botPolicyCombo = new JComboBox<String>();
+        botPolicyCombo.addItem("Answer only when @AskAI is mentioned");
+        botPolicyCombo.addItem("Never answer");
+        botPolicyCombo.setSelectedIndex(
+                PartySettings.BOT_POLICY_OFF.equals(partySettings.botPolicy()) ? 1 : 0);
+        JPanel botRow = partySettingsRow();
+        botRow.add(new JLabel("Bot"));
+        botRow.add(botPolicyCombo);
+        party.add(botRow);
+
+        final JTextField roomField = new JTextField(partySettings.roomId(), 10);
+        final JTextField secretField = new JTextField(partySettings.roomSecret(), 10);
+        secretField.setToolTipText("Room invitation secret: authenticates the join and encrypts traffic");
+        JPanel roomRow = partySettingsRow();
+        roomRow.add(new JLabel("Room"));
+        roomRow.add(roomField);
+        roomRow.add(new JLabel("Secret"));
+        roomRow.add(secretField);
+        party.add(roomRow);
+
+        final JTextField historyField = new JTextField(
+                partySettings.historyDirectory().getAbsolutePath(), 24);
+        JPanel historyRow = partySettingsRow();
+        historyRow.add(new JLabel("History folder"));
+        historyRow.add(historyField);
+        party.add(historyRow);
+
+        JLabel historyNote = new JLabel(
+                "History lives on the participants' machines. Messages no reachable peer remembers cannot be restored.");
+        historyNote.setFont(historyNote.getFont().deriveFont(historyNote.getFont().getSize2D() - 2f));
+        JPanel noteRow = partySettingsRow();
+        noteRow.add(historyNote);
+        party.add(noteRow);
+
+        JButton applyButton = new JButton("Apply party settings");
+        applyButton.setToolTipText("Saved immediately; network changes take effect on the next join");
+        applyButton.addActionListener(event -> {
+            partySettings.setDisplayName(nameField.getText());
+            Object color = colorCombo.getSelectedItem();
+            partySettings.setPreferredColor(
+                    PARTY_COLOR_AUTOMATIC.equals(color) ? null : String.valueOf(color));
+            partySettings.setDiscoveryEnabled(discoveryBox.isSelected());
+            partySettings.setNetworkInterface(interfaceField.getText());
+            partySettings.setManualPeers(peersField.getText());
+            partySettings.setBotPolicy(botPolicyCombo.getSelectedIndex() == 1
+                    ? PartySettings.BOT_POLICY_OFF : PartySettings.BOT_POLICY_MENTION);
+            partySettings.setRoomId(roomField.getText());
+            partySettings.setRoomSecret(secretField.getText());
+            partySettings.setHistoryDirectory(historyField.getText());
+            setStatus("Party settings saved — they apply on the next join.");
+        });
+        JButton diagnosticsButton = new JButton("Network diagnostics");
+        diagnosticsButton.setToolTipText("Check multicast/firewall readiness of the local network interfaces");
+        diagnosticsButton.addActionListener(event -> {
+            appendTech(JGroupsGroupChatTransport.diagnoseMulticast());
+            setStatus("Network diagnostics written to Technical details.");
+        });
+        JPanel actionsRow = partySettingsRow();
+        actionsRow.add(applyButton);
+        actionsRow.add(diagnosticsButton);
+        party.add(actionsRow);
+        return party;
+    }
+
+    private static JPanel partySettingsRow() {
+        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 2));
+        row.setAlignmentX(Component.LEFT_ALIGNMENT);
+        return row;
     }
 
     /** Color pickers for the chat bubble colors — persisted and applied to the transcript immediately. */
@@ -792,7 +922,8 @@ public final class OllamaChatPanel extends JPanel {
     }
 
     private void selectYappingMode() {
-        leavePartyTransport();
+        leavePartySession(false);
+        mentionCompletion.setActive(false);
         chatMode = GroupChatMode.YAPPING;
         selectedAgent = null;
         composer.setModeName("Yapping");
@@ -801,7 +932,8 @@ public final class OllamaChatPanel extends JPanel {
     }
 
     private void selectAgentMode(String agent) {
-        leavePartyTransport();
+        leavePartySession(false);
+        mentionCompletion.setActive(false);
         chatMode = agent;
         selectedAgent = agent;
         composer.setModeName(agent);
@@ -809,166 +941,208 @@ public final class OllamaChatPanel extends JPanel {
         rememberState(STATE_AGENT, agent);
     }
 
+    // ------------------------------------------------------------------ Partying (LAN group chat)
+
     /**
-     * Leaves the active party transport (if connected) and discards the submission target.
-     * Safe to call when not connected; always idempotent.
+     * Leaves the active party session; safe to call when not connected, always idempotent.
+     *
+     * @param synchronously {@code true} during shutdown (the executor is about to stop);
+     *                      {@code false} to leave in the background on a mode switch
      */
-    private void leavePartyTransport() {
-        if (partyTransport != null && partyTransport.isConnected()) {
-            partyTransport.leave();
+    private void leavePartySession(boolean synchronously) {
+        final PartySession session = partySession;
+        partySession = null;
+        partyJoinInFlight = false;
+        if (session == null) {
+            return;
         }
-        partySubmissionTarget = null;
+        Runnable leave = new Runnable() {
+            public void run() {
+                try {
+                    session.leave();
+                } catch (Exception ignored) {
+                }
+            }
+        };
+        if (synchronously) {
+            leave.run();
+        } else {
+            dictationExecutor.execute(leave);
+        }
     }
 
     private void selectPartyingMode() {
-        if (partyTransport == null) {
-            partyTransport = new InMemoryGroupChatTransport();
-        }
-        if (!partyTransport.isConnected()) {
-            // Use a simple default identity and room for G1; Settings will expose these in a later slice.
-            String participantId = loadOrCreateParticipantId();
-            Participant self = new Participant(participantId, loadDisplayName(participantId), null);
-            GroupChatRoom defaultRoom = new GroupChatRoom("askai.default", "AskAI Party", null);
-            final GroupChatTransport transport = partyTransport;
-            transport.join(defaultRoom, self, new GroupChatListener() {
-                public void onMessage(final GroupChatMessage message) {
-                    onUi(new Runnable() {
-                        public void run() {
-                            appendPartyMessage(message);
-                        }
-                    });
-                }
-
-                public void onParticipantJoined(final Participant participant) {
-                    onUi(new Runnable() {
-                        public void run() {
-                            if (GroupChatMode.PARTYING.equals(chatMode)) {
-                                transcript.appendInfo("@" + participant.getDisplayName() + " joined the party");
-                            }
-                        }
-                    });
-                }
-
-                public void onParticipantLeft(final Participant participant) {
-                    onUi(new Runnable() {
-                        public void run() {
-                            if (GroupChatMode.PARTYING.equals(chatMode)) {
-                                transcript.appendInfo("@" + participant.getDisplayName() + " left the party");
-                            }
-                        }
-                    });
-                }
-
-                public void onParticipantsChanged(java.util.List<Participant> participants) {
-                    // Party-member count is reflected via onConnectionStateChanged.
-                }
-
-                public void onConnectionStateChanged(final GroupChatConnectionState state) {
-                    onUi(new Runnable() {
-                        public void run() {
-                            if (!GroupChatMode.PARTYING.equals(chatMode)) {
-                                return;
-                            }
-                            if (state.isConnected()) {
-                                int count = state.getMemberCount();
-                                setStatus(count == 1
-                                        ? "1 party member (just you)"
-                                        : count + " party members");
-                            } else if (state.hasError()) {
-                                setStatus("Party disconnected: " + state.getErrorMessage());
-                            } else {
-                                setStatus("Not connected to party");
-                            }
-                        }
-                    });
-                }
-            });
-            // Status is set by the synchronous onConnectionStateChanged callback above; do not overwrite.
-        }
-
-        final String roomId = "askai.default";
-        final String participantId = loadOrCreateParticipantId();
-        partySubmissionTarget = new GroupChatSubmissionTarget() {
-            public boolean submitMessage(String markdown) {
-                if (partyTransport == null || !partyTransport.isConnected()) {
-                    return false;
-                }
-                partySequence++;
-                GroupChatMessage message = new GroupChatMessage.Builder()
-                        .messageId(UUID.randomUUID().toString())
-                        .roomId(roomId)
-                        .senderParticipantId(participantId)
-                        .senderSequence(partySequence)
-                        .mentionedParticipantIds(
-                                MentionParser.extractMentionedIds(markdown, partyTransport.getParticipants()))
-                        .markdown(markdown)
-                        .build();
-                partyTransport.send(message);
-                return true;
-            }
-
-            public boolean isReady() {
-                return partyTransport != null && partyTransport.isConnected();
-            }
-        };
-
         chatMode = GroupChatMode.PARTYING;
         selectedAgent = null;
         composer.setModeName("Partying");
         rememberState(STATE_MODE, GroupChatMode.PARTYING);
         rememberState(STATE_AGENT, null);
+        mentionCompletion.setActive(true);
         refreshMentionCompletionHandles();
+        startPartySessionIfNeeded();
     }
 
-    /**
-     * Appends a received group-chat message to the transcript using structured sender metadata.
-     * Ignored when not in Partying mode so events buffered before a mode switch don't bleed into
-     * a Yapping or Questing transcript.
-     */
-    private void appendPartyMessage(GroupChatMessage message) {
-        if (!GroupChatMode.PARTYING.equals(chatMode)) {
+    /** Builds and joins a party session in the background unless one is already connected. */
+    private void startPartySessionIfNeeded() {
+        if (partyJoinInFlight || (partySession != null && partySession.isConnected())) {
             return;
         }
-        String senderId = message.getSenderParticipantId();
-        String displayName = senderId;
-        if (partyTransport != null) {
-            for (Participant p : partyTransport.getParticipants()) {
-                if (p.getParticipantId().equals(senderId)) {
-                    displayName = p.getDisplayName();
-                    break;
+        partyJoinInFlight = true;
+        setStatus("Looking for a party…");
+        final PartySession session = buildPartySession();
+        dictationExecutor.execute(new Runnable() {
+            public void run() {
+                onUi(new Runnable() {
+                    public void run() {
+                        if (GroupChatMode.PARTYING.equals(chatMode)) {
+                            setStatus("Joining the party…");
+                        }
+                    }
+                });
+                try {
+                    session.join();
+                    onUi(new Runnable() {
+                        public void run() {
+                            partySession = session;
+                            partyJoinInFlight = false;
+                            refreshMentionCompletionHandles();
+                        }
+                    });
+                    session.updateBotReadiness();
+                } catch (final Exception ex) {
+                    onUi(new Runnable() {
+                        public void run() {
+                            partyJoinInFlight = false;
+                            if (GroupChatMode.PARTYING.equals(chatMode)) {
+                                setStatus("Party connection lost: " + messageOf(ex));
+                                transcript.appendInfo("Could not join the party: " + messageOf(ex));
+                            }
+                        }
+                    });
                 }
             }
+        });
+    }
+
+    /** Assembles the session from the persisted settings, the LAN transport and the bot port. */
+    private PartySession buildPartySession() {
+        String participantId = partySettings.participantId();
+        String displayName = partySettings.displayName();
+        String handle = MentionParser.computeUniqueHandle(
+                displayName, java.util.Collections.<String>emptyList());
+        Participant self = new Participant(participantId, displayName, handle,
+                partySettings.preferredColor(), true, modelCombo.getSelectedItem() != null);
+        GroupChatRoom room = new GroupChatRoom(
+                partySettings.roomId(), partySettings.roomName(), partySettings.roomSecret());
+        OllamaBotResponder responder = new OllamaBotResponder(ollamaService,
+                new Supplier<String>() {
+                    public String get() {
+                        return (String) modelCombo.getSelectedItem();
+                    }
+                },
+                new Supplier<String>() {
+                    public String get() {
+                        return keepAliveField.getText();
+                    }
+                });
+        return new PartySession(createPartyTransport(), room, self,
+                partySettings.botPolicy(), responder, new PanelPartyUi());
+    }
+
+    /** The real LAN transport (JGroups); discovery options come from the Partying settings. */
+    private GroupChatTransport createPartyTransport() {
+        JGroupsTransportConfig config = new JGroupsTransportConfig.Builder()
+                .multicastDiscovery(partySettings.discoveryEnabled())
+                .bindInterface(partySettings.networkInterface())
+                .manualPeers(partySettings.manualPeers())
+                .historyDirectory(partySettings.historyDirectory())
+                .build();
+        return new JGroupsGroupChatTransport(config);
+    }
+
+    /** Routes the session's callbacks (transport threads) onto the EDT and into the shared shell. */
+    private final class PanelPartyUi implements PartySession.Ui {
+        public void onPartyMessage(final PartySession.PartyMessageView view) {
+            onUi(new Runnable() {
+                public void run() {
+                    if (!GroupChatMode.PARTYING.equals(chatMode)) {
+                        return;
+                    }
+                    transcript.appendPartyMessage(
+                            view.getSenderDisplayName(),
+                            view.getMessage().getSenderParticipantId(),
+                            view.getMessage().getMarkdown(),
+                            partyColor(view.getColorToken()),
+                            view.isLocal());
+                }
+            });
         }
-        transcript.appendPartyMessage(displayName, senderId, message.getMarkdown());
+
+        public void onInfoLine(final String text) {
+            onUi(new Runnable() {
+                public void run() {
+                    if (GroupChatMode.PARTYING.equals(chatMode)) {
+                        transcript.appendInfo(text);
+                    }
+                }
+            });
+        }
+
+        public void onStatus(final GroupChatConnectionState state) {
+            onUi(new Runnable() {
+                public void run() {
+                    if (!GroupChatMode.PARTYING.equals(chatMode)) {
+                        return;
+                    }
+                    if (state.isConnected()) {
+                        int count = state.getMemberCount();
+                        setStatus(count == 1
+                                ? "1 party member (just you)"
+                                : count + " party members");
+                    } else if (state.hasError()) {
+                        setStatus("Party connection lost: " + state.getErrorMessage());
+                    } else {
+                        setStatus("Not connected to party");
+                    }
+                }
+            });
+        }
+
+        public void onHandlesChanged(final java.util.List<String> handles) {
+            onUi(new Runnable() {
+                public void run() {
+                    mentionCompletion.setHandles(handles);
+                }
+            });
+        }
+    }
+
+    /** Refreshes the {@code @}-completion handles from the current party membership. */
+    private void refreshMentionCompletionHandles() {
+        PartySession session = partySession;
+        mentionCompletion.setHandles(session != null
+                ? session.mentionHandles()
+                : java.util.Arrays.asList(MentionParser.BOT_HANDLE));
     }
 
     /**
-     * Returns a stable participant ID for this installation, creating one on first use and storing
-     * it in the application state.
+     * Maps a replicated palette color token to the theme-matched concrete color: the palette's
+     * dark variant on dark transcript backgrounds, the light variant otherwise.
      */
-    private String loadOrCreateParticipantId() {
-        if (applicationState == null) {
-            return "local";
+    private Color partyColor(String token) {
+        ParticipantColorPalette.Entry entry = ParticipantColorPalette.byToken(token);
+        if (entry == null) {
+            return null;
         }
-        String id = applicationState.get("party.participantId", null);
-        if (id == null || id.trim().isEmpty()) {
-            id = UUID.randomUUID().toString();
-            rememberState("party.participantId", id);
+        Color background = model.getChatColors().getTranscriptBackground();
+        boolean darkTheme = background != null
+                && (background.getRed() * 299 + background.getGreen() * 587
+                        + background.getBlue() * 114) / 1000 < 128;
+        try {
+            return Color.decode(darkTheme ? entry.getDarkHex() : entry.getLightHex());
+        } catch (NumberFormatException ex) {
+            return null;
         }
-        return id;
-    }
-
-    /** Returns the display name stored in settings, or a short fallback derived from the participant ID. */
-    private String loadDisplayName(String participantId) {
-        if (applicationState == null) {
-            return "Me";
-        }
-        String name = applicationState.get("party.displayName", null);
-        if (name == null || name.trim().isEmpty()) {
-            // Use a friendly abbreviation of the participant ID as the default.
-            name = "User-" + participantId.substring(0, Math.min(6, participantId.length()));
-        }
-        return name;
     }
 
     // ------------------------------------------------------------------ reasoning effort
@@ -1039,6 +1213,18 @@ public final class OllamaChatPanel extends JPanel {
         if (!supported) {
             reasoningEffort = "off";
             composer.setReasoningName(reasoningLabel("off"));
+        }
+        // A model change may flip this peer's ability to host the party bot; announce it.
+        final PartySession session = partySession;
+        if (session != null) {
+            dictationExecutor.execute(new Runnable() {
+                public void run() {
+                    try {
+                        session.updateBotReadiness();
+                    } catch (Exception ignored) {
+                    }
+                }
+            });
         }
     }
 
@@ -1146,14 +1332,13 @@ public final class OllamaChatPanel extends JPanel {
             setStatus("Write a message before sending.");
             return;
         }
-        if (partySubmissionTarget == null || !partySubmissionTarget.isReady()) {
-            // Auto-join if not yet connected.
-            selectPartyingMode();
-        }
-        if (partySubmissionTarget != null && partySubmissionTarget.submitMessage(userPrompt)) {
+        PartySession session = partySession;
+        if (session != null && session.submitMessage(userPrompt)) {
             composer.clearMessage();
         } else {
-            setStatus("Not connected to party — message not sent.");
+            // Lossless: the message stays in the composer until a join succeeds and Send is hit again.
+            startPartySessionIfNeeded();
+            setStatus("Not connected to party — your message stays in the composer.");
         }
     }
     private void handleThinkingDelta(String delta) {
@@ -1929,7 +2114,7 @@ public final class OllamaChatPanel extends JPanel {
             } catch (Exception ignored) {
             }
         }
-        leavePartyTransport();
+        leavePartySession(true);
         cleanupOldRecordings();
         dictationExecutor.shutdownNow();
     }

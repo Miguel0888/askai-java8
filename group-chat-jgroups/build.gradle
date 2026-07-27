@@ -1,0 +1,13 @@
+apply plugin: 'java-library'
+
+dependencies {
+    api project(':group-chat-api')
+    implementation 'org.jgroups:jgroups:4.2.30.Final'
+    testImplementation 'junit:junit:4.13.2'
+}
+
+test {
+    useJUnit()
+    systemProperty 'java.net.preferIPv4Stack', 'true'
+    systemProperty 'jgroups.use.jdk_logger', 'true'
+}

@@ -27,4 +27,32 @@ public interface GroupChatTransport {
 
     /** @return {@code true} when joined and the transport considers itself connected. */
     boolean isConnected();
+
+    /**
+     * Publish a bot claim to all peers ahead of executing the model request.
+     * The default implementation drops the claim (transport without bot support).
+     */
+    default void publishBotClaim(BotClaim claim) {
+    }
+
+    /**
+     * Replace this peer's own participant profile (display name, preferred color, bot flags) and
+     * announce the change to the room. The default implementation ignores the update.
+     */
+    default void updateSelf(Participant self) {
+    }
+
+    /** @return the latest replicated room color map; {@link ColorMap#EMPTY} when not joined. */
+    default ColorMap getColorMap() {
+        return ColorMap.EMPTY;
+    }
+
+    /**
+     * The locally stored room history (append-only log), oldest first.  Transports without
+     * persistence return an empty list.  The UI replays this after joining; live events continue
+     * seamlessly because duplicates are discarded by message ID.
+     */
+    default List<GroupChatMessage> localHistory() {
+        return java.util.Collections.emptyList();
+    }
 }

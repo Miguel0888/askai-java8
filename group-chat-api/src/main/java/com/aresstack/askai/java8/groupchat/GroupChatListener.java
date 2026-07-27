@@ -29,4 +29,18 @@ public interface GroupChatListener {
      * human-readable string supplied by the transport, keeping display policy in the UI layer.</p>
      */
     void onConnectionStateChanged(GroupChatConnectionState state);
+
+    /**
+     * The replicated room color map changed (membership change, preference update or a merge).
+     * The default implementation ignores the event.
+     */
+    default void onColorMapChanged(ColorMap colorMap) {
+    }
+
+    /**
+     * A peer published a claim to produce the bot response for an addressed message.
+     * The default implementation ignores the event.
+     */
+    default void onBotClaim(BotClaim claim) {
+    }
 }

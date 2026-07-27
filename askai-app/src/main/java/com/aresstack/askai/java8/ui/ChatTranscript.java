@@ -82,6 +82,15 @@ final class ChatTranscript {
         panel.appendPartyMessage(senderName, participantId, markdown);
     }
 
+    /**
+     * Appends a Partying-mode message with the sender's replicated participant color and
+     * alignment (own messages right, remote messages left).
+     */
+    void appendPartyMessage(String senderName, String participantId, String markdown,
+                            java.awt.Color headerColor, boolean local) {
+        panel.appendPartyMessage(senderName, participantId, markdown, headerColor, local);
+    }
+
     /** Appends a muted, centered info/system line. */
     void appendInfo(String text) {
         panel.appendInfo(text);

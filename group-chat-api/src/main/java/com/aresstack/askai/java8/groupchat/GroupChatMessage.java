@@ -20,6 +20,7 @@ public final class GroupChatMessage {
     private final String replyToMessageId;
     private final List<String> mentionedParticipantIds;
     private final String markdown;
+    private final String botHostParticipantId;
 
     private GroupChatMessage(Builder builder) {
         this.messageId = builder.messageId;
@@ -32,6 +33,7 @@ public final class GroupChatMessage {
                 ? Collections.unmodifiableList(new java.util.ArrayList<String>(builder.mentionedParticipantIds))
                 : Collections.<String>emptyList();
         this.markdown = builder.markdown != null ? builder.markdown : "";
+        this.botHostParticipantId = builder.botHostParticipantId;
     }
 
     public String getMessageId() { return messageId; }
@@ -49,6 +51,15 @@ public final class GroupChatMessage {
     /** Message body in Markdown. */
     public String getMarkdown() { return markdown; }
 
+    /**
+     * For messages authored by the logical room bot ({@link GroupChatBot#PARTICIPANT_ID}): the
+     * physical peer that executed the model request.  {@code null} for human messages.
+     */
+    public String getBotHostParticipantId() { return botHostParticipantId; }
+
+    /** @return {@code true} when this message was authored by the logical room bot. */
+    public boolean isBotMessage() { return GroupChatBot.PARTICIPANT_ID.equals(senderParticipantId); }
+
     @Override
     public String toString() {
         return "GroupChatMessage{id=" + messageId + ", sender=" + senderParticipantId + "}";
@@ -64,6 +75,7 @@ public final class GroupChatMessage {
         private String replyToMessageId;
         private List<String> mentionedParticipantIds;
         private String markdown;
+        private String botHostParticipantId;
 
         public Builder messageId(String messageId) { this.messageId = messageId; return this; }
         public Builder roomId(String roomId) { this.roomId = roomId; return this; }
@@ -73,6 +85,7 @@ public final class GroupChatMessage {
         public Builder replyToMessageId(String id) { this.replyToMessageId = id; return this; }
         public Builder mentionedParticipantIds(List<String> ids) { this.mentionedParticipantIds = ids; return this; }
         public Builder markdown(String md) { this.markdown = md; return this; }
+        public Builder botHostParticipantId(String id) { this.botHostParticipantId = id; return this; }
 
         public GroupChatMessage build() {
             if (messageId == null || messageId.trim().isEmpty()) {

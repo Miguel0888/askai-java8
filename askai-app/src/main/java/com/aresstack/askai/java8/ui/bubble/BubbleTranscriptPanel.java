@@ -128,15 +128,33 @@ public final class BubbleTranscriptPanel extends JPanel {
      * @param markdown      the message body as raw Markdown
      */
     public void appendPartyMessage(String senderName, String participantId, String markdown) {
+        appendPartyMessage(senderName, participantId, markdown, null, false);
+    }
+
+    /**
+     * Appends a Partying-mode group message with the sender's replicated participant color.
+     *
+     * @param senderName  the sender's display name shown as the bubble header
+     * @param participantId the sender's stable participant ID
+     * @param markdown    the message body as raw Markdown
+     * @param headerColor the sender's palette color (theme-matched variant), or {@code null}
+     * @param local       {@code true} for the local participant's own messages (right-aligned)
+     */
+    public void appendPartyMessage(String senderName, String participantId, String markdown,
+                                   java.awt.Color headerColor, boolean local) {
         requireEventDispatchThread();
         String header = senderName != null && !senderName.trim().isEmpty() ? senderName : "?";
+        BubbleSide side = local ? BubbleSide.RIGHT : BubbleSide.LEFT;
         SpeechBubblePanel bubble = new SpeechBubblePanel(
-                BubbleSide.LEFT,
-                palette.getAssistantBackground(),
-                palette.getAssistantForeground(),
+                side,
+                local ? palette.getUserBackground() : palette.getAssistantBackground(),
+                local ? palette.getUserForeground() : palette.getAssistantForeground(),
                 header,
                 markdown);
-        addBubbleRow(bubble, BubbleSide.LEFT);
+        if (headerColor != null) {
+            bubble.setHeaderColor(headerColor);
+        }
+        addBubbleRow(bubble, side);
     }
 
     /**

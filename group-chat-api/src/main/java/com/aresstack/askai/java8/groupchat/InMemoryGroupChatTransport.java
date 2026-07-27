@@ -51,6 +51,9 @@ public final class InMemoryGroupChatTransport implements GroupChatTransport {
         int count = bus.participantCount();
         listener.onConnectionStateChanged(GroupChatConnectionState.connected(count));
         listener.onParticipantsChanged(bus.participants());
+
+        // Recompute and (on change) broadcast the room color map.
+        bus.recomputeColorMap();
     }
 
     @Override
@@ -63,7 +66,10 @@ public final class InMemoryGroupChatTransport implements GroupChatTransport {
                     "Cross-room send rejected: expected roomId=" + currentRoom.getRoomId()
                             + " but message has roomId=" + message.getRoomId());
         }
-        if (self != null && !self.getParticipantId().equals(message.getSenderParticipantId())) {
+        boolean botMessageFromSelf = message.isBotMessage()
+                && self != null && self.getParticipantId().equals(message.getBotHostParticipantId());
+        if (self != null && !botMessageFromSelf
+                && !self.getParticipantId().equals(message.getSenderParticipantId())) {
             throw new IllegalArgumentException(
                     "Sender spoofing rejected: joined as participantId=" + self.getParticipantId()
                             + " but message claims senderParticipantId=" + message.getSenderParticipantId());
@@ -83,6 +89,7 @@ public final class InMemoryGroupChatTransport implements GroupChatTransport {
         if (bus != null) {
             bus.removeTransport(this);
             bus.broadcastLeave(self, this);
+            bus.recomputeColorMap();
         }
         connected = false;
         currentRoom = null;
@@ -102,6 +109,39 @@ public final class InMemoryGroupChatTransport implements GroupChatTransport {
     @Override
     public synchronized boolean isConnected() {
         return connected;
+    }
+
+    @Override
+    public synchronized void publishBotClaim(BotClaim claim) {
+        if (!connected || currentRoom == null || claim == null) {
+            return;
+        }
+        RoomBus bus = ROOMS.get(currentRoom.getRoomId());
+        if (bus != null) {
+            bus.broadcastBotClaim(claim);
+        }
+    }
+
+    @Override
+    public synchronized void updateSelf(Participant self) {
+        if (!connected || currentRoom == null || self == null) {
+            return;
+        }
+        this.self = self;
+        RoomBus bus = ROOMS.get(currentRoom.getRoomId());
+        if (bus != null) {
+            bus.broadcastParticipantsChanged();
+            bus.recomputeColorMap();
+        }
+    }
+
+    @Override
+    public synchronized ColorMap getColorMap() {
+        if (!connected || currentRoom == null) {
+            return ColorMap.EMPTY;
+        }
+        RoomBus bus = ROOMS.get(currentRoom.getRoomId());
+        return bus != null ? bus.colorMap() : ColorMap.EMPTY;
     }
 
     Participant getSelf() {
@@ -136,6 +176,8 @@ public final class InMemoryGroupChatTransport implements GroupChatTransport {
         private final String roomId;
         private final List<InMemoryGroupChatTransport> transports =
                 new CopyOnWriteArrayList<InMemoryGroupChatTransport>();
+        private final DuplicateFilter duplicates = new DuplicateFilter();
+        private volatile ColorMap colorMap = ColorMap.EMPTY;
 
         RoomBus(String roomId) {
             this.roomId = roomId;
@@ -153,12 +195,56 @@ public final class InMemoryGroupChatTransport implements GroupChatTransport {
         }
 
         void broadcast(GroupChatMessage message) {
+            if (!duplicates.firstTime(message.getMessageId())) {
+                return; // duplicate delivery (e.g. rebroadcast) — drop silently
+            }
             for (InMemoryGroupChatTransport t : transports) {
                 GroupChatListener l = t.getListener();
                 if (l != null) {
                     l.onMessage(message);
                 }
             }
+        }
+
+        /** Fan a bot claim out to every joined listener, including the publisher's own. */
+        void broadcastBotClaim(BotClaim claim) {
+            for (InMemoryGroupChatTransport t : transports) {
+                GroupChatListener l = t.getListener();
+                if (l != null) {
+                    l.onBotClaim(claim);
+                }
+            }
+        }
+
+        /** Notify every member of the current participant list (after a profile update). */
+        void broadcastParticipantsChanged() {
+            List<Participant> all = participants();
+            for (InMemoryGroupChatTransport t : transports) {
+                GroupChatListener l = t.getListener();
+                if (l != null) {
+                    l.onParticipantsChanged(all);
+                }
+            }
+        }
+
+        /** Recompute the color map for the current membership; broadcast when it changed. */
+        void recomputeColorMap() {
+            ColorMap updated = ColorAssignmentEngine.recompute(colorMap, participants(),
+                    System.currentTimeMillis());
+            if (updated.getVersion() == colorMap.getVersion()) {
+                return;
+            }
+            colorMap = updated;
+            for (InMemoryGroupChatTransport t : transports) {
+                GroupChatListener l = t.getListener();
+                if (l != null) {
+                    l.onColorMapChanged(updated);
+                }
+            }
+        }
+
+        ColorMap colorMap() {
+            return colorMap;
         }
 
         void broadcastJoin(Participant joined, InMemoryGroupChatTransport source) {
