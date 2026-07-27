@@ -1,0 +1,329 @@
+package com.aresstack.askai.research.agent;
+
+import com.aresstack.askai.plugin.api.agent.AgentConversationSink;
+import com.aresstack.askai.plugin.api.agent.AgentHostContext;
+import com.aresstack.askai.plugin.api.agent.AgentSession;
+import com.aresstack.askai.plugin.api.agent.AgentSessionContext;
+import com.aresstack.askai.plugin.api.agent.SubmissionAvailability;
+import com.aresstack.askai.plugin.api.agent.command.ChatCommandContribution;
+import com.aresstack.askai.plugin.api.agent.command.CommandCompletionRequest;
+import com.aresstack.askai.plugin.api.agent.command.CommandCompletionResult;
+import com.aresstack.askai.plugin.api.agent.command.CommandExecutionResult;
+import com.aresstack.askai.plugin.api.agent.command.CommandInvocation;
+import com.aresstack.askai.plugin.api.service.MarkdownViewFactory;
+import com.aresstack.askai.plugin.api.service.NotificationService;
+import com.aresstack.askai.plugin.api.service.PluginPathService;
+import com.aresstack.askai.plugin.api.service.ThemeService;
+import com.aresstack.askai.plugin.api.service.UiExecutor;
+import com.aresstack.askai.plugin.api.service.WorkspaceStateStore;
+import com.aresstack.askai.research.backend.FakeResearchSessionBackend;
+import com.aresstack.askai.research.backend.ManualResearchScheduler;
+import com.aresstack.askai.research.backend.ResearchClock;
+import com.aresstack.askai.research.backend.ResearchIdGenerator;
+
+import org.junit.Test;
+
+import java.awt.Color;
+import java.io.File;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertTrue;
+
+/**
+ * Deterministic tests for the new agent-model research session: it drives the existing backend, pushes activity
+ * to the shared conversation sink (never its own surface), and its slash commands translate to typed controls.
+ */
+public class ResearchAgentSessionTest {
+
+    private static ResearchIdGenerator ids() {
+        final AtomicInteger c = new AtomicInteger();
+        return new ResearchIdGenerator() {
+            public String newId() {
+                return "id-" + c.incrementAndGet();
+            }
+        };
+    }
+
+    private static ResearchClock clock() {
+        return new ResearchClock() {
+            public long now() {
+                return 1_000L;
+            }
+        };
+    }
+
+    private static final class Fixture {
+        final ManualResearchScheduler scheduler = new ManualResearchScheduler();
+        final FakeResearchSessionBackend backend =
+                new FakeResearchSessionBackend(scheduler, clock(), ids(), 10L);
+        final RecordingSink sink = new RecordingSink();
+        final ResearchAgentSession session =
+                new ResearchAgentSession(backend, null, new FakeHost(sink), "s1", "p1");
+    }
+
+    @Test
+    public void factoryCreatesIsolatedSessions() {
+        ResearchAgentSessionFactory factory = new ResearchAgentSessionFactory();
+        FakeHost host = new FakeHost(new RecordingSink());
+        AgentSession a = factory.create(
+                new com.aresstack.askai.plugin.api.agent.AgentSessionCreationRequest("a", "p", null), host);
+        AgentSession b = factory.create(
+                new com.aresstack.askai.plugin.api.agent.AgentSessionCreationRequest("b", "p", null), host);
+        assertNotSame(a, b);
+        assertNotSame(a.getChatTarget(), b.getChatTarget());
+        a.close();
+        b.close();
+    }
+
+    @Test
+    public void closeIsIdempotent() {
+        Fixture f = new Fixture();
+        f.session.activate();
+        f.session.close();
+        f.session.close(); // must not throw
+    }
+
+    @Test
+    public void submitTextRoutesUserAndAssistantToTheSharedSink() {
+        Fixture f = new Fixture();
+        f.session.activate();
+        f.sink.assistantMessages.clear();
+        f.session.getChatTarget().submitText("look into caching");
+        assertTrue(f.sink.userMessages.contains("look into caching"));
+        assertFalse(f.sink.assistantMessages.isEmpty());
+    }
+
+    @Test
+    public void runReachesApprovalGateAndStateReflectsIt() {
+        Fixture f = new Fixture();
+        f.session.activate();
+        f.scheduler.runUntilIdle(); // → OUTLINE / WAITING with a pending approval
+        assertEquals("OUTLINE", f.session.getState().getPhaseLabel());
+        assertTrue(f.session.getState().hasPendingApproval());
+        assertTrue(f.sink.approvals > 0);
+        assertTrue(f.session.getState().getAllowedCommandNames().contains("approve"));
+    }
+
+    @Test
+    public void chatTargetAvailabilityFollowsRunState() {
+        Fixture f = new Fixture();
+        assertEquals(SubmissionAvailability.UNAVAILABLE, f.session.getChatTarget().getAvailability());
+        f.session.activate(); // START → SCOPING/RUNNING
+        assertEquals(SubmissionAvailability.BUSY, f.session.getChatTarget().getAvailability());
+        f.scheduler.runUntilIdle(); // → WAITING for approval
+        assertEquals(SubmissionAvailability.AVAILABLE, f.session.getChatTarget().getAvailability());
+    }
+
+    @Test
+    public void approveCommandGatedThenAdvances() {
+        Fixture f = new Fixture();
+        f.session.activate();
+        AgentSessionContext ctx = new FixedContext(f.session);
+        ChatCommandContribution approve = command("approve");
+
+        // No gate is pending yet in SCOPING/RUNNING → /approve is REJECTED (state-machine gate honoured).
+        CommandExecutionResult early = approve.execute(new CommandInvocation("approve", null, "/approve"), ctx);
+        assertEquals(CommandExecutionResult.Status.REJECTED, early.getStatus());
+
+        // Once the run reaches the outline gate, approving is HANDLED and advances the run.
+        f.scheduler.runUntilIdle();
+        CommandExecutionResult ok = approve.execute(new CommandInvocation("approve", null, "/approve"), ctx);
+        assertEquals(CommandExecutionResult.Status.HANDLED, ok.getStatus());
+        f.scheduler.runUntilIdle();
+        assertEquals("EVIDENCE", f.session.getState().getPhaseLabel());
+    }
+
+    @Test
+    public void statusCommandReportsPhaseAndRunState() {
+        Fixture f = new Fixture();
+        f.session.activate();
+        CommandExecutionResult result =
+                command("status").execute(new CommandInvocation("status", null, "/status"),
+                        new FixedContext(f.session));
+        assertEquals(CommandExecutionResult.Status.HANDLED, result.getStatus());
+        assertTrue(result.getMessage().contains("SCOPING"));
+    }
+
+    @Test
+    public void openCommandCompletesArtifactIdsAndOpensTab() {
+        Fixture f = new Fixture();
+        f.session.activate();
+        FixedContext ctx = new FixedContext(f.session);
+        ChatCommandContribution open = command("open");
+
+        CommandCompletionResult completions =
+                open.complete(new CommandCompletionRequest("open", Collections.<String>emptyList(), "out"), ctx);
+        boolean suggestsOutline = false;
+        for (com.aresstack.askai.plugin.api.agent.command.CommandCompletion c : completions.getCompletions()) {
+            if ("outline".equals(c.getInsertionText())) {
+                suggestsOutline = true;
+            }
+        }
+        assertTrue("expected 'outline' completion", suggestsOutline);
+
+        CommandExecutionResult opened = open.execute(
+                new CommandInvocation("open", java.util.Arrays.asList("outline"), "/open outline"), ctx);
+        assertEquals(CommandExecutionResult.Status.HANDLED, opened.getStatus());
+        assertEquals("outline", ctx.openedArtifactId);
+
+        CommandExecutionResult bad = open.execute(
+                new CommandInvocation("open", java.util.Arrays.asList("nope"), "/open nope"), ctx);
+        assertEquals(CommandExecutionResult.Status.REJECTED, bad.getStatus());
+    }
+
+    private static ChatCommandContribution command(String name) {
+        for (ChatCommandContribution c : ResearchChatCommands.all()) {
+            if (c.getDescriptor().getName().equals(name)) {
+                return c;
+            }
+        }
+        throw new AssertionError("no such command: " + name);
+    }
+
+    // ------------------------------------------------------------------ fakes
+
+    private static final class FixedContext implements AgentSessionContext {
+        private final AgentSession session;
+        String openedArtifactId;
+
+        FixedContext(AgentSession session) {
+            this.session = session;
+        }
+
+        public AgentSession getSession() {
+            return session;
+        }
+
+        public void openArtifact(String artifactId) {
+            this.openedArtifactId = artifactId;
+        }
+
+        public UiExecutor getUiExecutor() {
+            return new InlineUi();
+        }
+    }
+
+    private static final class InlineUi implements UiExecutor {
+        public boolean isUiThread() {
+            return true;
+        }
+
+        public void execute(Runnable runnable) {
+            runnable.run();
+        }
+
+        public void assertUiThread() {
+        }
+    }
+
+    private static final class FakeHost implements AgentHostContext {
+        private final AgentConversationSink sink;
+
+        FakeHost(AgentConversationSink sink) {
+            this.sink = sink;
+        }
+
+        public UiExecutor getUiExecutor() {
+            return new InlineUi();
+        }
+
+        public ThemeService getThemeService() {
+            return new ThemeService() {
+                public Color color(String key, Color fallback) {
+                    return fallback;
+                }
+
+                public boolean isDark() {
+                    return false;
+                }
+
+                public void addThemeChangeListener(Runnable listener) {
+                }
+
+                public void removeThemeChangeListener(Runnable listener) {
+                }
+            };
+        }
+
+        public MarkdownViewFactory getMarkdownViewFactory() {
+            return null;
+        }
+
+        public NotificationService getNotificationService() {
+            return new NotificationService() {
+                public void notify(Severity severity, String message) {
+                }
+            };
+        }
+
+        public WorkspaceStateStore getStateStore() {
+            return null;
+        }
+
+        public PluginPathService getPluginPathService() {
+            return new PluginPathService() {
+                public File getPluginDataDirectory() {
+                    return new File(System.getProperty("java.io.tmpdir"));
+                }
+
+                public File getWorkspaceDirectory(String workspaceInstanceId) {
+                    return new File(System.getProperty("java.io.tmpdir"));
+                }
+            };
+        }
+
+        public AgentConversationSink getConversationSink() {
+            return sink;
+        }
+    }
+
+    private static final class RecordingSink implements AgentConversationSink {
+        final List<String> userMessages = new ArrayList<String>();
+        final List<String> assistantMessages = new ArrayList<String>();
+        int approvals;
+        int problems;
+
+        public void appendUserMessage(String messageId, String markdown) {
+            userMessages.add(markdown);
+        }
+
+        public void appendAssistantMessage(String messageId, String markdown) {
+            assistantMessages.add(markdown);
+        }
+
+        public void startThinking(String activityId, String title) {
+        }
+
+        public void updateThinking(String activityId, String text) {
+        }
+
+        public void finishThinking(String activityId, String summary) {
+        }
+
+        public void startToolActivity(String activityId, String title, String explanation) {
+        }
+
+        public void updateToolActivity(String activityId, String title, String explanation) {
+        }
+
+        public void completeToolActivity(String activityId, String summary) {
+        }
+
+        public void failToolActivity(String activityId, String summary) {
+        }
+
+        public void requestApproval(String approvalId, String prompt) {
+            approvals++;
+        }
+
+        public void showProblem(String problemId, String publicMessage) {
+            problems++;
+        }
+    }
+}

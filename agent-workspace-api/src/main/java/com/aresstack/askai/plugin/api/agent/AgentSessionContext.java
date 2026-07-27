@@ -1,0 +1,20 @@
+package com.aresstack.askai.plugin.api.agent;
+
+import com.aresstack.askai.plugin.api.service.UiExecutor;
+
+/**
+ * Passed to a {@link com.aresstack.askai.plugin.api.agent.command.ChatCommandContribution} when completing or
+ * executing a slash command. It gives the (stateless) command access to the currently active session and a
+ * host UI hook, so a command like {@code /approve} can steer the session and {@code /open outline} can reveal
+ * an artifact — without the generic API knowing any agent-specific type. A plugin's own commands may downcast
+ * {@link #getSession()} to their concrete session type (same plugin classloader).
+ */
+public interface AgentSessionContext {
+
+    AgentSession getSession();
+
+    /** Ask the host to reveal the artifact tab with this id in the shared artifact area. */
+    void openArtifact(String artifactId);
+
+    UiExecutor getUiExecutor();
+}

@@ -49,6 +49,7 @@ public final class ResearchWorkspaceController implements ResearchSessionListene
     private String activeSectionId = "";
 
     private ResearchSessionHandle handle;
+    private boolean started;
     private boolean disposed;
 
     public ResearchWorkspaceController(ResearchSessionBackend backend, UiExecutor uiExecutor,
@@ -61,9 +62,12 @@ public final class ResearchWorkspaceController implements ResearchSessionListene
 
     /** Opens the backend session and starts the simulated run. Idempotent. */
     public void start() {
-        if (disposed || handle != null) {
+        if (disposed || started) {
             return;
         }
+        // Mark started BEFORE createSession: the backend emits the initial START event synchronously, so the
+        // listener must already accept it even though the handle field is assigned only when the call returns.
+        started = true;
         handle = backend.createSession(request, this);
     }
 
@@ -79,7 +83,7 @@ public final class ResearchWorkspaceController implements ResearchSessionListene
 
     @Override
     public void onEvent(final ResearchBackendEvent event) {
-        if (disposed || handle == null || !handle.getSessionId().equals(event.getSessionId())) {
+        if (disposed || !started || !request.getSessionId().equals(event.getSessionId())) {
             return;
         }
         uiExecutor.execute(new Runnable() {
@@ -90,7 +94,7 @@ public final class ResearchWorkspaceController implements ResearchSessionListene
     }
 
     private void applyEvent(ResearchBackendEvent event) {
-        if (disposed || handle == null || !handle.getSessionId().equals(event.getSessionId())) {
+        if (disposed || !started || !request.getSessionId().equals(event.getSessionId())) {
             return; // workspace closed or a different session while queued
         }
         if (event.getSequenceNumber() <= lastSequence) {
