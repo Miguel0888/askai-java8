@@ -145,3 +145,39 @@ Datei-/Index-Store liefert.
 ### Spätere Entscheidung
 Commit 19: Projekt-Store (Markdown-Dateien + sources + state json, atomic write, Revisionen, Checksums);
 Lucene nur hinter Adapter, aus dem Projekt-Store rebuildbar.
+
+## RA-P002 — File-backed project store implemented and tested, not yet wired into the live session
+
+**Erkannt in:** Commit 19 (persist research sources and artifact metadata)
+**Status:** WORKAROUND
+**Schweregrad:** MEDIUM
+**Betroffene Module:** research-agent-ui-plugin (store, agent)
+
+### Erwartung
+Die laufende Research-Session schreibt Artefakte/Quellen/State in einen Projekt-Store und stellt
+sie nach einem Neustart wieder her.
+
+### Beobachtung
+Ein vollständiger, getesteter Datei-Store existiert (`ResearchProjectStore`: `FileArtifactStore`,
+`FileResearchSourceRepository`, `SessionStateFileStore`) mit atomarem Write (temp+rename), UTF-8,
+Revisionen, Checksums, Restart-Restore, Korruptions-Isolation und Projekt-Isolation. Die
+`ResearchAgentSession` nutzt jedoch weiterhin die In-Memory-Adapter.
+
+### Analyse
+Die deterministischen Session-Tests (und der `FakeHost`, dessen `getWorkspaceDirectory` denselben
+Temp-Pfad liefert) erwarten frisches, kollisionsfreies In-Memory-Verhalten pro Lauf. Ein Umschalten
+auf den Datei-Store erfordert eine per-Session/Projekt eindeutige Wurzel und Seed-if-empty-Logik, um
+diese Tests stabil zu halten.
+
+### Gewähltes Zwischenverhalten
+Store-Rahmen vollständig implementiert und über `ResearchProjectStoreTest` (Restart-Restore inkl.)
+abgesichert. Live-Session bleibt In-Memory (RA-P001).
+
+### Auswirkung
+Artefakt-/Quellen-/State-Änderungen der laufenden Session sind weiterhin flüchtig; die
+Persistenz-Bausteine sind aber vorhanden und produktiv anschließbar.
+
+### Spätere Entscheidung
+`ResearchAgentSession` an `ResearchProjectStore` verdrahten (Wurzel = host workspace dir + projectId,
+seed-if-empty, Memento bei jedem State-Change speichern, bei `activate()` wiederherstellen). Danach
+optionaler Lucene-Index als aus dem Store rebuildbare, abgeleitete Sicht.
