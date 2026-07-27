@@ -694,21 +694,17 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
                 PartySettings.BOT_CONTEXT_CONVERSATION.equals(partySettings.botContextMode()) ? 1 : 0);
 
         String customPrompt = partySettings.botSystemPrompt();
-        final JTextArea botPromptArea = new JTextArea(customPrompt != null ? customPrompt : "", 3, 40);
-        botPromptArea.setLineWrap(true);
-        botPromptArea.setWrapStyleWord(true);
+        final JTextArea botPromptArea = new GhostHintTextArea(customPrompt != null ? customPrompt : "",
+                com.aresstack.askai.java8.party.OllamaBotResponder.DEFAULT_SYSTEM_PROMPT, 6, 40);
         botPromptArea.setToolTipText(
-                "Custom system prompt for the party bot. Leave empty for the built-in default:\n"
-                        + com.aresstack.askai.java8.party.OllamaBotResponder.DEFAULT_SYSTEM_PROMPT);
+                "Custom system prompt for the party bot. Leave empty for the shown built-in default.");
         String customAlwaysPrompt = partySettings.botAlwaysPrompt();
-        final JTextArea alwaysPromptArea = new JTextArea(
-                customAlwaysPrompt != null ? customAlwaysPrompt : "", 3, 40);
-        alwaysPromptArea.setLineWrap(true);
-        alwaysPromptArea.setWrapStyleWord(true);
+        final JTextArea alwaysPromptArea = new GhostHintTextArea(
+                customAlwaysPrompt != null ? customAlwaysPrompt : "",
+                com.aresstack.askai.java8.party.OllamaBotResponder.DEFAULT_ALWAYS_PROMPT, 6, 40);
         alwaysPromptArea.setToolTipText(
                 "Used with the \"always\" policy: explains when the bot should chime in unprompted. "
-                        + "Leave empty for the built-in default:\n"
-                        + com.aresstack.askai.java8.party.OllamaBotResponder.DEFAULT_ALWAYS_PROMPT);
+                        + "Leave empty for the shown built-in default.");
 
         final JTextField roomField = new JTextField(partySettings.roomId(), 10);
         final JTextField secretField = new JTextField(partySettings.roomSecret(), 10);
@@ -852,6 +848,63 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 2));
         row.setAlignmentX(Component.LEFT_ALIGNMENT);
         return row;
+    }
+
+    /**
+     * A text area that shows the effective built-in default as muted, wrapped ghost text while it
+     * is empty and unfocused — clicking in makes the hint disappear; leaving it empty keeps the
+     * default active.
+     */
+    private static final class GhostHintTextArea extends JTextArea {
+        private final String hint;
+
+        GhostHintTextArea(String text, String hint, int rows, int columns) {
+            super(text, rows, columns);
+            this.hint = hint;
+            setLineWrap(true);
+            setWrapStyleWord(true);
+            addFocusListener(new java.awt.event.FocusAdapter() {
+                public void focusGained(java.awt.event.FocusEvent event) {
+                    repaint();
+                }
+
+                public void focusLost(java.awt.event.FocusEvent event) {
+                    repaint();
+                }
+            });
+        }
+
+        @Override
+        protected void paintComponent(Graphics graphics) {
+            super.paintComponent(graphics);
+            if (!getText().isEmpty() || isFocusOwner() || hint == null) {
+                return;
+            }
+            java.awt.Graphics2D g2 = (java.awt.Graphics2D) graphics.create();
+            g2.setRenderingHint(java.awt.RenderingHints.KEY_TEXT_ANTIALIASING,
+                    java.awt.RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+            g2.setColor(new Color(0x9AA0A6));
+            g2.setFont(getFont().deriveFont(java.awt.Font.ITALIC));
+            java.awt.FontMetrics metrics = g2.getFontMetrics();
+            java.awt.Insets insets = getInsets();
+            int available = Math.max(24, getWidth() - insets.left - insets.right);
+            int y = insets.top + metrics.getAscent();
+            StringBuilder line = new StringBuilder();
+            for (String word : hint.split(" ")) {
+                String candidate = line.length() == 0 ? word : line + " " + word;
+                if (metrics.stringWidth(candidate) > available && line.length() > 0) {
+                    g2.drawString(line.toString(), insets.left, y);
+                    y += metrics.getHeight();
+                    line = new StringBuilder(word);
+                } else {
+                    line = new StringBuilder(candidate);
+                }
+            }
+            if (line.length() > 0) {
+                g2.drawString(line.toString(), insets.left, y);
+            }
+            g2.dispose();
+        }
     }
 
     /** Color pickers for the chat bubble colors — persisted and applied to the transcript immediately. */
