@@ -270,6 +270,41 @@ public final class AskAiFrame extends JFrame {
                 new com.aresstack.askai.plugin.host.DefaultInteractionModeControlsFactory(host));
         // Controller = single source of truth: bind the existing chat composer selector to it.
         normalChat.setWorkspaceModeController(host);
+
+        // New agent model (Commit 11): Questing routes to an agent session over the SHARED chat/composer.
+        // The agent's activity is pushed into the same transcript via the panel's conversation sink; the
+        // composer routes plain prompts + stop to the active session. Yapping keeps the Ollama path.
+        final com.aresstack.askai.plugin.api.agent.AgentConversationSink agentSink =
+                normalChat.getAgentConversationSink();
+        final com.aresstack.askai.plugin.host.SwingUiExecutor agentUiExecutor = uiExecutor;
+        final com.aresstack.askai.java8.plugin.host.AskAiNotificationService agentNotify = notificationService;
+        final java.io.File agentDataDir = dataDir;
+        final com.aresstack.askai.plugin.host.WorkspacePluginService agentPluginService = pluginService;
+        com.aresstack.askai.plugin.host.AgentSessionCoordinator.AgentExtensionResolver agentResolver =
+                new com.aresstack.askai.plugin.host.AgentSessionCoordinator.AgentExtensionResolver() {
+                    public com.aresstack.askai.plugin.pf4j.api.AgentPluginExtension resolve(String agentId) {
+                        return agentPluginService.getSelectableAgentExtension(agentId);
+                    }
+                };
+        com.aresstack.askai.plugin.host.AgentSessionCoordinator.AgentHostContextProvider agentHostProvider =
+                new com.aresstack.askai.plugin.host.AgentSessionCoordinator.AgentHostContextProvider() {
+                    public com.aresstack.askai.plugin.api.agent.AgentHostContext create(
+                            String agentId, String sessionInstanceId) {
+                        return new com.aresstack.askai.plugin.host.DefaultAgentHostContext(
+                                agentUiExecutor,
+                                new com.aresstack.askai.java8.plugin.host.AskAiThemeService(),
+                                new com.aresstack.askai.java8.plugin.host.AskAiMarkdownViewFactory(),
+                                agentNotify,
+                                new com.aresstack.askai.java8.plugin.host.ApplicationStateWorkspaceStateStore(
+                                        applicationState, "agent." + agentId + "."),
+                                new com.aresstack.askai.plugin.host.ScopedPluginPathService(agentDataDir, agentId),
+                                agentSink);
+                    }
+                };
+        com.aresstack.askai.plugin.host.AgentSessionCoordinator agentCoordinator =
+                new com.aresstack.askai.plugin.host.AgentSessionCoordinator(agentResolver, agentHostProvider);
+        host.setAgentSessionCoordinator(agentCoordinator);
+        normalChat.setChatSubmissionRouter(agentCoordinator);
         return host;
     }
 

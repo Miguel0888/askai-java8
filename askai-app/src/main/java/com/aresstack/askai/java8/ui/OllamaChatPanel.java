@@ -114,6 +114,19 @@ public final class OllamaChatPanel extends JPanel {
             reflectMode();
         }
     };
+    // Commit 11: when Questing routes to an agent session, plain prompts and stop go through this router
+    // instead of the Ollama path. The chat component and composer stay physically the same.
+    private com.aresstack.askai.plugin.host.ChatSubmissionRouter chatSubmissionRouter;
+    private com.aresstack.askai.java8.ui.AskAiAgentConversationSink agentConversationSink;
+    private final Runnable routerChangeListener = new Runnable() {
+        public void run() {
+            onUi(new Runnable() {
+                public void run() {
+                    refreshAgentComposerState();
+                }
+            });
+        }
+    };
     // Thinking effort ("off"/"low"/"medium"/"high"), only sent when the selected model supports thinking.
     private String reasoningEffort = "off";
     private boolean modelSupportsThinking;
@@ -717,6 +730,47 @@ public final class OllamaChatPanel extends JPanel {
     /** The default, casual chat mode label (a gamified name for "just talking"). */
     private static final String YAPPING_MODE = "Yapping";
 
+    /**
+     * Binds the agent submission router. When an agent session is active (Questing), the same composer routes
+     * plain prompts and stop to the agent instead of Ollama. Yapping keeps the existing Ollama path untouched.
+     */
+    public void setChatSubmissionRouter(com.aresstack.askai.plugin.host.ChatSubmissionRouter router) {
+        if (this.chatSubmissionRouter != null) {
+            this.chatSubmissionRouter.removeChangeListener(routerChangeListener);
+        }
+        this.chatSubmissionRouter = router;
+        if (router != null) {
+            router.addChangeListener(routerChangeListener);
+        }
+        refreshAgentComposerState();
+    }
+
+    /**
+     * @return the shared conversation sink an agent session pushes its activity into — the SAME transcript as
+     *         the normal chat. Created lazily; there is never a second conversation surface.
+     */
+    public com.aresstack.askai.plugin.api.agent.AgentConversationSink getAgentConversationSink() {
+        if (agentConversationSink == null) {
+            agentConversationSink = new AskAiAgentConversationSink(transcript, new Runnable() {
+                public void run() {
+                    refreshAgentComposerState();
+                }
+            });
+        }
+        return agentConversationSink;
+    }
+
+    /** Reflects the active agent's availability onto the composer's busy (Send/Stop) state when routing to it. */
+    private void refreshAgentComposerState() {
+        if (chatSubmissionRouter != null && chatSubmissionRouter.isActive()) {
+            composer.setChatBusy(chatSubmissionRouter.getAvailability()
+                    == com.aresstack.askai.plugin.api.agent.SubmissionAvailability.BUSY);
+        } else {
+            // Not routing to an agent: the normal Ollama busy state governs Send/Stop again.
+            composer.setChatBusy(chatBusy);
+        }
+    }
+
     /** Binds the existing composer mode selector to the shared host controller (single source of truth). */
     public void setWorkspaceModeController(com.aresstack.askai.plugin.host.WorkspaceModeController controller) {
         if (this.modeController != null) {
@@ -875,6 +929,18 @@ public final class OllamaChatPanel extends JPanel {
 
     private void sendChat() {
         if (!composer.isSendEnabled()) {
+            return;
+        }
+        // Questing with an active agent: route the prompt to the agent session over the SHARED chat. The
+        // agent echoes the user + assistant bubbles through the conversation sink; no Ollama call happens.
+        if (chatSubmissionRouter != null && chatSubmissionRouter.isActive()) {
+            String prompt = composer.getMessage().trim();
+            if (prompt.isEmpty()) {
+                setStatus("Write a message before sending.");
+                return;
+            }
+            composer.clearMessage();
+            chatSubmissionRouter.submitText(prompt);
             return;
         }
         final String modelName = (String) modelCombo.getSelectedItem();
@@ -1041,6 +1107,11 @@ public final class OllamaChatPanel extends JPanel {
     }
 
     private void stopChat() {
+        // Questing with an active agent: stop routes to the agent session, not the Ollama task.
+        if (chatSubmissionRouter != null && chatSubmissionRouter.isActive()) {
+            chatSubmissionRouter.stop();
+            return;
+        }
         if (chatTask != null) {
             chatTask.cancel();
             chatTask = null;

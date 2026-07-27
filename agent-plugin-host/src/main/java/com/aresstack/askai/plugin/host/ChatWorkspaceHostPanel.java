@@ -60,6 +60,10 @@ public final class ChatWorkspaceHostPanel extends JPanel implements WorkspaceMod
     private String activeAgentId;
     private String activeWorkspaceAgentId;
     private boolean userSwitched;
+    // New agent model (Commit 11): when set, Questing keeps the SHARED chat and routes to an agent session
+    // instead of swapping to a standalone plugin workspace. The legacy workspace path stays as a fallback
+    // for plugins that expose only a WorkspacePluginExtension.
+    private AgentSessionCoordinator agentCoordinator;
 
     public ChatWorkspaceHostPanel(JComponent normalChatComponent, WorkspacePluginService pluginService,
                                   WorkspaceHostContextFactory hostContextFactory, UiExecutor uiExecutor,
@@ -80,6 +84,14 @@ public final class ChatWorkspaceHostPanel extends JPanel implements WorkspaceMod
         add(cardPanel, BorderLayout.CENTER);
         showNormalChat(); // always start on the chat; Questing is restored once agents are known
         startDiscovery();
+    }
+
+    /**
+     * Wire the new agent model. When set, Questing routes to an agent session over the shared chat instead of
+     * swapping to a standalone workspace. Must be called before the first Questing activation.
+     */
+    public void setAgentSessionCoordinator(AgentSessionCoordinator coordinator) {
+        this.agentCoordinator = coordinator;
     }
 
     // ------------------------------------------------------------------ controller surface (bound by app)
@@ -130,6 +142,9 @@ public final class ChatWorkspaceHostPanel extends JPanel implements WorkspaceMod
         } else {
             interactionMode = WorkspaceModeEntry.YAPPING_ID;
             persist(STATE_INTERACTION_MODE, interactionMode);
+            if (agentCoordinator != null) {
+                agentCoordinator.deactivateActive();
+            }
             deactivateActiveWorkspace();
             showNormalChat();
         }
@@ -161,13 +176,22 @@ public final class ChatWorkspaceHostPanel extends JPanel implements WorkspaceMod
 
     private void applyCatalog(List<PluginCatalogEntry> catalog) {
         agents = buildAgents(catalog);
+        // Close agent sessions whose plugin is no longer selectable (disabled/removed); survivors stay open.
+        if (agentCoordinator != null) {
+            List<String> ids = new ArrayList<String>();
+            for (WorkspaceModeEntry agent : agents) {
+                ids.add(agent.getId());
+            }
+            agentCoordinator.retainOnly(ids);
+        }
         fireChange();
         // Restore a persisted Questing selection once agents are known, unless the user already switched.
         if (WorkspaceModeEntry.QUESTING_ID.equals(interactionMode) && !userSwitched) {
             activateQuesting();
         } else if (WorkspaceModeEntry.QUESTING_ID.equals(interactionMode)
-                && activeWorkspaceAgentId != null && !containsAgent(agents, activeWorkspaceAgentId)) {
-            // The active agent disappeared from the catalog: re-resolve or fall back to Yapping.
+                && ((activeWorkspaceAgentId != null && !containsAgent(agents, activeWorkspaceAgentId))
+                    || (activeAgentId != null && !containsAgent(agents, activeAgentId)))) {
+            // The active agent (workspace or agent-model) disappeared: re-resolve or fall back to Yapping.
             activateQuesting();
         }
     }
@@ -210,6 +234,9 @@ public final class ChatWorkspaceHostPanel extends JPanel implements WorkspaceMod
         if (agentId == null) {
             notify(NotificationService.Severity.INFO,
                     "No agents installed. Install an agent plugin to use Questing.");
+            if (agentCoordinator != null) {
+                agentCoordinator.deactivateActive();
+            }
             deactivateActiveWorkspace();
             showNormalChat();
             return;
@@ -217,6 +244,14 @@ public final class ChatWorkspaceHostPanel extends JPanel implements WorkspaceMod
         if (!agentId.equals(activeAgentId)) {
             activeAgentId = agentId;
             persist(STATE_QUESTING_AGENT, agentId);
+        }
+        // New model: keep the shared chat and route to the agent session. Only fall back to the standalone
+        // workspace path for legacy plugins that have no agent extension.
+        if (agentCoordinator != null && agentCoordinator.canHandle(agentId)) {
+            deactivateActiveWorkspace();
+            showNormalChat();
+            agentCoordinator.setActiveAgent(agentId);
+            return;
         }
         openOrReactivate(agentId);
     }
@@ -334,6 +369,9 @@ public final class ChatWorkspaceHostPanel extends JPanel implements WorkspaceMod
      * instances alive; only this tears them down.
      */
     public void shutdown() {
+        if (agentCoordinator != null) {
+            agentCoordinator.shutdown();
+        }
         deactivateActiveWorkspace();
         for (WorkspaceLifecycleController controller : openWorkspaces.values()) {
             try {

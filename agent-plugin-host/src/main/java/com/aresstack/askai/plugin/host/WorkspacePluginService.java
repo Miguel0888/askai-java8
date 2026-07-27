@@ -2,6 +2,7 @@ package com.aresstack.askai.plugin.host;
 
 import com.aresstack.askai.plugin.api.WorkspacePluginDescriptor;
 import com.aresstack.askai.plugin.api.service.UiExecutor;
+import com.aresstack.askai.plugin.pf4j.api.AgentPluginExtension;
 import com.aresstack.askai.plugin.pf4j.api.WorkspacePluginExtension;
 
 import org.pf4j.PluginWrapper;
@@ -43,6 +44,8 @@ public final class WorkspacePluginService {
     private AskAiPluginManager pluginManager;
     private final Map<String, WorkspacePluginExtension> selectableById =
             new LinkedHashMap<String, WorkspacePluginExtension>();
+    private final Map<String, AgentPluginExtension> selectableAgentById =
+            new LinkedHashMap<String, AgentPluginExtension>();
     private volatile List<PluginCatalogEntry> catalog = Collections.emptyList();
 
     public WorkspacePluginService(Path pluginsRoot, String systemVersion, int supportedApiVersion,
@@ -88,12 +91,22 @@ public final class WorkspacePluginService {
         return descriptorId == null ? null : selectableById.get(descriptorId);
     }
 
+    /**
+     * @return the compatible, enabled <em>agent</em> extension for an agent id, or {@code null}. This is the
+     *         new-model entry point (agent extends the shared chat); the workspace extension above is the
+     *         legacy standalone-workspace path. Call after discovery.
+     */
+    public synchronized AgentPluginExtension getSelectableAgentExtension(String agentId) {
+        return agentId == null ? null : selectableAgentById.get(agentId);
+    }
+
     public List<PluginCatalogEntry> getCatalog() {
         return catalog;
     }
 
     public synchronized void shutdown() {
         selectableById.clear();
+        selectableAgentById.clear();
         listeners.clear();
         if (pluginManager != null) {
             try {
@@ -114,6 +127,7 @@ public final class WorkspacePluginService {
 
     private synchronized List<PluginCatalogEntry> discover(List<PluginLoadFailure> failures) {
         selectableById.clear();
+        selectableAgentById.clear();
         List<PluginCatalogEntry> entries = new ArrayList<PluginCatalogEntry>();
         try {
             pluginManager = new AskAiPluginManager(pluginsRoot, systemVersion);
@@ -176,6 +190,7 @@ public final class WorkspacePluginService {
         if (compatibility == PluginCompatibility.COMPATIBLE && descriptor != null && enabled) {
             seenIds.add(descriptor.getId());
             selectableById.put(descriptor.getId(), extensions.get(0));
+            mapAgentExtension(pluginId);
         }
 
         return PluginCatalogEntry.builder()
@@ -187,6 +202,25 @@ public final class WorkspacePluginService {
                 .sha256(sha256)
                 .enabled(enabled)
                 .build();
+    }
+
+    /**
+     * Maps the plugin's optional agent extension (new model) once its workspace side is validated as
+     * compatible + enabled. A plugin may ship only the legacy workspace extension; then this is a no-op. A
+     * broken agent extension is swallowed so the workspace/agent split degrades independently.
+     */
+    private void mapAgentExtension(String pluginId) {
+        try {
+            List<AgentPluginExtension> agentExtensions =
+                    pluginManager.getExtensions(AgentPluginExtension.class, pluginId);
+            if (agentExtensions != null && !agentExtensions.isEmpty()) {
+                AgentPluginExtension agent = agentExtensions.get(0);
+                String agentId = agent.getAgentDescriptor().getId();
+                selectableAgentById.put(agentId, agent);
+            }
+        } catch (RuntimeException | Error ignored) {
+            // A missing/broken agent extension must not break workspace discovery.
+        }
     }
 
     private static String sha256Of(Path path) {
