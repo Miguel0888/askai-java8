@@ -13,12 +13,18 @@ on:
   push:
     branches:
       - '**'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch/tag/SHA to cache (defaults to this workflow ref). Use to cache e.g. main.'
+        required: false
+        default: ''
 
 permissions:
   contents: write
 
 concurrency:
-  group: askai-java8-chatgpt-cache-${{ github.ref }}
+  group: askai-java8-chatgpt-cache-${{ github.event.inputs.ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -26,8 +32,14 @@ jobs:
     name: Prime and publish offline Gradle cache
     runs-on: ubuntu-latest
     steps:
+      - name: Resolve target ref
+        id: target
+        run: echo "ref=${{ github.event.inputs.ref || github.ref_name }}" >> "$GITHUB_OUTPUT"
+
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.target.outputs.ref }}
 
       - name: Set up Java 8
         uses: actions/setup-java@v4
@@ -42,8 +54,9 @@ jobs:
           GRADLE_USER_HOME: ${{ github.workspace }}/.chatgpt/gradle-home
         run: |
           chmod +x ./gradlew
-          # A full build resolves every compile + test dependency and the plugin/fat-jar/dev-plugin task graphs.
-          ./gradlew --no-daemon build :askai-app:fatJar :research-agent-ui-plugin:installDevPlugin
+          # A full build resolves every compile + test dependency and the plugin/fat-jar task graphs. Kept to
+          # `build` so it works on any ref (e.g. main) regardless of which optional modules/tasks exist there.
+          ./gradlew --no-daemon build
 
       - name: Trim volatile cache files
         run: |
@@ -75,10 +88,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          TARGET_REF="${{ steps.target.outputs.ref }}"
           gh release delete chatgpt-compatible --yes --cleanup-tag || true
           gh release create chatgpt-compatible \
             askai-java8-chatgpt-gradle-home.zip \
             --prerelease \
-            --target "${GITHUB_SHA}" \
+            --target "${TARGET_REF}" \
             --title "ChatGPT-compatible offline Gradle cache" \
-            --notes "This ZIP contains a prepared \`.chatgpt/gradle-home\` cache (Gradle 7.6.4 + all dependencies) for offline Gradle execution in ChatGPT-like environments. Unzip at the repo root, then run \`GRADLE_USER_HOME=.chatgpt/gradle-home ./gradlew --offline build\` with a Java 8 JDK. Rolling artifact, overwritten on every push (from \`${GITHUB_REF_NAME}\` @ ${GITHUB_SHA})."
+            --notes "This ZIP contains a prepared \`.chatgpt/gradle-home\` cache (Gradle 7.6.4 + all dependencies) for offline Gradle execution in ChatGPT-like environments. Unzip at the repo root, then run \`GRADLE_USER_HOME=.chatgpt/gradle-home ./gradlew --offline build\` with a Java 8 JDK. Rolling artifact, overwritten on every push (cached from \`${TARGET_REF}\`)."
