@@ -34,14 +34,17 @@ public final class ResearchStateFactory {
         }
         if (ResearchStateIds.NEW.equals(stateId)) {
             requireCombo(phaseId, stateId);
+            requireNoApprovalId(stateId, pendingApprovalId);
             return new ResearchStates.NewState(phaseId);
         }
         if (ResearchStateIds.RUNNING.equals(stateId)) {
             requireCombo(phaseId, stateId);
+            requireNoApprovalId(stateId, pendingApprovalId);
             return new ResearchStates.RunningState(phaseId);
         }
         if (ResearchStateIds.WAITING.equals(stateId)) {
             requireCombo(phaseId, stateId);
+            requireNoApprovalId(stateId, pendingApprovalId);
             return new ResearchStates.WaitingState(phaseId);
         }
         if (ResearchStateIds.WAITING_APPROVAL.equals(stateId)) {
@@ -49,19 +52,27 @@ public final class ResearchStateFactory {
             return new ResearchStates.WaitingApprovalState(phaseId, pendingApprovalId);
         }
         if (ResearchStateIds.PAUSED.equals(stateId)) {
-            return new ResearchStates.PausedState(phaseId, requireContinuation(phaseId, continuationStateId));
+            String continuation = requireContinuation(phaseId, continuationStateId);
+            return new ResearchStates.PausedState(phaseId, continuation,
+                    validInterruptApproval(continuation, pendingApprovalId));
         }
         if (ResearchStateIds.BLOCKED.equals(stateId)) {
-            return new ResearchStates.BlockedState(phaseId, requireContinuation(phaseId, continuationStateId));
+            String continuation = requireContinuation(phaseId, continuationStateId);
+            return new ResearchStates.BlockedState(phaseId, continuation,
+                    validInterruptApproval(continuation, pendingApprovalId));
         }
         if (ResearchStateIds.FAILED.equals(stateId)) {
-            return new ResearchStates.FailedState(phaseId, requireContinuation(phaseId, continuationStateId));
+            String continuation = requireContinuation(phaseId, continuationStateId);
+            return new ResearchStates.FailedState(phaseId, continuation,
+                    validInterruptApproval(continuation, pendingApprovalId));
         }
         if (ResearchStateIds.COMPLETED.equals(stateId)) {
             requireCombo(phaseId, stateId);
+            requireNoApprovalId(stateId, pendingApprovalId);
             return new ResearchStates.TerminalState(phaseId, ResearchStateIds.COMPLETED);
         }
         if (ResearchStateIds.CANCELLED.equals(stateId)) {
+            requireNoApprovalId(stateId, pendingApprovalId);
             return new ResearchStates.TerminalState(phaseId, ResearchStateIds.CANCELLED); // cancel valid anywhere
         }
         throw new IllegalArgumentException("unknown stateId: " + stateId);
@@ -103,6 +114,23 @@ public final class ResearchStateFactory {
         if (!ResearchStateGraph.isKnownCombo(phaseId, stateId)) {
             throw new IllegalArgumentException("illegal state for phase: " + phaseId + "/" + stateId);
         }
+    }
+
+    /** An approval id is only valid on the approval gate itself. */
+    private static void requireNoApprovalId(String stateId, String pendingApprovalId) {
+        if (pendingApprovalId != null) {
+            throw new IllegalArgumentException("pendingApprovalId is not valid for state " + stateId);
+        }
+    }
+
+    /** An interruption may carry an approval id only when its continuation is the approval gate. */
+    private static String validInterruptApproval(String continuationStateId, String pendingApprovalId) {
+        if (pendingApprovalId != null
+                && !ResearchStateIds.WAITING_APPROVAL.equals(continuationStateId)) {
+            throw new IllegalArgumentException(
+                    "pendingApprovalId is only valid when the interruption continues into an approval gate");
+        }
+        return pendingApprovalId;
     }
 
     private static String requireContinuation(String phaseId, String continuationStateId) {

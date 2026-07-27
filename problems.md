@@ -269,7 +269,7 @@ Keine.
 ## RA-P005 — Live backend still uses legacy phase/run-state pair
 
 **Erkannt in:** Audit nach Commit 20
-**Status:** OPEN (Ziel: Commit 22)
+**Status:** RESOLVED (Commit 22)
 **Schweregrad:** HIGH
 **Betroffene Module:** research-agent-ui-plugin (state, backend, agent)
 
@@ -278,11 +278,33 @@ Keine.
 `continuationStateId` und die Approval-ID.
 
 ### Beobachtung
-Der Live-Backend-State ist weiterhin `ResearchPhase + ResearchRunState`; vor jedem Dispatch wird ein
-OO-State rekonstruiert und der exakte Continuation-State durch einen Default ersetzt.
+Der Live-Backend-State war `ResearchPhase + ResearchRunState`; vor jedem Dispatch wurde ein OO-State
+rekonstruiert und der exakte Continuation-State durch `defaultContinuationStateId` ersetzt; die Approval-ID
+ging bei Unterbrechungen verloren (`interrupt` übergab `null`, `continueInto` erzeugte eine neue ID).
+
+### Ursache
+Kein memento-basierter Live-Port; die OO-Interruptions trugen die Approval-ID nicht durch.
 
 ### Korrektur
-Siehe Commit 22 (memento-basierter Port, Backend hält Memento, Events transportieren Snapshot).
+Neuer nativer Port `ResearchStateMachinePort` + `OoResearchStateMachine`
+(`dispatch(ResearchStateMemento) → ResearchStateTransitionResult{accepted,nextMemento,events,reason}`).
+Die OO-Interruptions (`PausedState/BlockedState/FailedState`) tragen jetzt die `pendingApprovalId`;
+`interrupt()` übernimmt sie vom unterbrochenen Approval-Gate, `continueInto()` stellt exakt dieselbe ID
+wieder her. `ResearchStateFactory.state()` validiert Approval-IDs (nur am Gate bzw. bei einem in ein Gate
+fortsetzenden Interrupt). `FakeResearchSessionBackend.FakeSession` hält ausschließlich ein
+`ResearchStateMemento`; `ResearchBackendEvent` transportiert das Memento (Legacy-Getter daraus abgeleitet);
+`ResearchAgentSession` leitet `AgentStateSnapshot`, State-View und Allowed-Commands allein aus dem Memento
+ab (kein Default-Continuation-Raten). `DefaultResearchStateMachine` ist `@Deprecated` (Legacy-Adapter, von
+keinem Live-Backend verwendet).
+
+### Verifikation
+`OoResearchStateMachineTest` (Block/Fail aus WAITING_APPROVAL → exakte Continuation + Approval-ID über
+Unblock/Retry erhalten; Pause/Resume; Snapshot-Round-Trip; ungültiges Memento abgelehnt; Revision nur bei
+Akzeptanz), `MementoBackendEventTest` (State-Events tragen konsistentes Memento; Approval-ID überlebt
+Block/Unblock im Live-Backend). `./gradlew clean build` grün, 747 Tests.
+
+### Restwirkung
+Keine. Persistenz/Restore des Mementos folgt in Commit 27 (RA-P002).
 
 ## RA-P006 — Store compare-and-write is not atomic under concurrency
 

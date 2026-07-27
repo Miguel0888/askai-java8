@@ -21,6 +21,15 @@ import java.util.UUID;
  * {@link ResearchStateFactory#defaultContinuationStateId}). The native OO model preserves the exact
  * continuation and is what the memento/visualization use.</p>
  */
+/**
+ * @deprecated Legacy phase/run-state adapter over the OO model. The live backend now uses the native
+ *     memento-based {@link com.aresstack.askai.research.state.oo.ResearchStateMachinePort}
+ *     ({@link com.aresstack.askai.research.state.oo.OoResearchStateMachine}), which preserves the exact
+ *     continuation and approval id. This adapter is retained only for backward compatibility and cannot carry a
+ *     precise interruption continuation (see {@link ResearchStateFactory#defaultContinuationStateId}); no live
+ *     backend uses it.
+ */
+@Deprecated
 public final class DefaultResearchStateMachine implements ResearchStateMachine {
 
     private final String sessionId;

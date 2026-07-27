@@ -121,11 +121,16 @@ final class ResearchStates {
                     ctx.getFactory().state(phase.getPhaseId(), ResearchStateIds.CANCELLED, null, null)));
         }
 
-        /** Interrupt into paused/blocked/failed, remembering the current state as the continuation. */
+        /**
+         * Interrupt into paused/blocked/failed, remembering the current state as the continuation AND preserving
+         * the pending approval id when interrupting an approval gate, so resuming restores the exact same gate.
+         */
         static OoTransition interrupt(ResearchStateContext ctx, ResearchPhaseState phase, String interruptId) {
-            String continuation = phase.getCurrentState().getStateId();
+            PhaseState current = phase.getCurrentState();
+            String continuation = current.getStateId();
+            String approvalId = current.getPendingApprovalId(); // non-null only when interrupting an approval gate
             return OoTransition.accepted(phase.withState(
-                    ctx.getFactory().state(phase.getPhaseId(), interruptId, continuation, null)));
+                    ctx.getFactory().state(phase.getPhaseId(), interruptId, continuation, approvalId)));
         }
 
         static OoTransition reject(ResearchCommand command, ResearchPhaseState phase) {
@@ -134,11 +139,18 @@ final class ResearchStates {
         }
     }
 
-    /** Resume/unblock/retry back into the stored continuation state. */
+    /**
+     * Resume/unblock/retry back into the stored continuation state. When the continuation is an approval gate the
+     * <em>original</em> approval id (carried on the interruption) is restored, not a freshly-generated one, so an
+     * approval that was blocked/paused/failed and then continued is exactly the same gate.
+     */
     private static OoTransition continueInto(ResearchStateContext ctx, ResearchPhaseState phase,
                                              String continuationStateId) {
-        String approvalId = ResearchStateIds.WAITING_APPROVAL.equals(continuationStateId)
-                ? ctx.newApprovalId() : null;
+        String approvalId = null;
+        if (ResearchStateIds.WAITING_APPROVAL.equals(continuationStateId)) {
+            String preserved = phase.getCurrentState().getPendingApprovalId();
+            approvalId = preserved != null ? preserved : ctx.newApprovalId();
+        }
         return OoTransition.accepted(phase.withState(
                 ctx.getFactory().state(phase.getPhaseId(), continuationStateId, null, approvalId)));
     }
@@ -247,10 +259,12 @@ final class ResearchStates {
 
     abstract static class Interruption extends Base implements InterruptingPhaseState {
         private final String continuationStateId;
+        private final String pendingApprovalId; // preserved when the continuation is an approval gate
 
-        Interruption(String phaseId, String stateId, String continuationStateId) {
+        Interruption(String phaseId, String stateId, String continuationStateId, String pendingApprovalId) {
             super(phaseId, stateId);
             this.continuationStateId = continuationStateId;
+            this.pendingApprovalId = pendingApprovalId;
         }
 
         @Override
@@ -258,14 +272,19 @@ final class ResearchStates {
             return continuationStateId;
         }
 
+        @Override
+        public String getPendingApprovalId() {
+            return pendingApprovalId;
+        }
+
         public PhaseState getContinuationState() {
-            return new FactoryHolder().factory.state(phaseId, continuationStateId, null, null);
+            return new FactoryHolder().factory.state(phaseId, continuationStateId, null, pendingApprovalId);
         }
     }
 
     static final class PausedState extends Interruption {
-        PausedState(String phaseId, String continuationStateId) {
-            super(phaseId, ResearchStateIds.PAUSED, continuationStateId);
+        PausedState(String phaseId, String continuationStateId, String pendingApprovalId) {
+            super(phaseId, ResearchStateIds.PAUSED, continuationStateId, pendingApprovalId);
         }
 
         Set<ResearchCommandType> intrinsicCommands() {
@@ -277,7 +296,7 @@ final class ResearchStates {
                 case RESUME: return continueInto(ctx, phase, getContinuationStateId());
                 case FAIL: return OoTransition.accepted(phase.withState(
                         ctx.getFactory().state(phase.getPhaseId(), ResearchStateIds.FAILED,
-                                getContinuationStateId(), null)));
+                                getContinuationStateId(), getPendingApprovalId())));
                 case CANCEL: return cancel(ctx, phase);
                 default: return reject(c, phase);
             }
@@ -285,8 +304,8 @@ final class ResearchStates {
     }
 
     static final class BlockedState extends Interruption {
-        BlockedState(String phaseId, String continuationStateId) {
-            super(phaseId, ResearchStateIds.BLOCKED, continuationStateId);
+        BlockedState(String phaseId, String continuationStateId, String pendingApprovalId) {
+            super(phaseId, ResearchStateIds.BLOCKED, continuationStateId, pendingApprovalId);
         }
 
         Set<ResearchCommandType> intrinsicCommands() {
@@ -298,7 +317,7 @@ final class ResearchStates {
                 case UNBLOCK: return continueInto(ctx, phase, getContinuationStateId());
                 case FAIL: return OoTransition.accepted(phase.withState(
                         ctx.getFactory().state(phase.getPhaseId(), ResearchStateIds.FAILED,
-                                getContinuationStateId(), null)));
+                                getContinuationStateId(), getPendingApprovalId())));
                 case CANCEL: return cancel(ctx, phase);
                 default: return reject(c, phase);
             }
@@ -306,8 +325,8 @@ final class ResearchStates {
     }
 
     static final class FailedState extends Interruption {
-        FailedState(String phaseId, String continuationStateId) {
-            super(phaseId, ResearchStateIds.FAILED, continuationStateId);
+        FailedState(String phaseId, String continuationStateId, String pendingApprovalId) {
+            super(phaseId, ResearchStateIds.FAILED, continuationStateId, pendingApprovalId);
         }
 
         Set<ResearchCommandType> intrinsicCommands() {

@@ -43,18 +43,18 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             new com.aresstack.askai.research.sources.InMemoryResearchSourceRepository();
     private final ChatSubmissionTarget chatTarget = new ResearchChatTarget();
 
-    // View-model (updated only on the UI thread from backend events).
-    private ResearchPhase phase = ResearchPhase.SCOPING;
-    private ResearchRunState runState = ResearchRunState.NEW;
-    private String pendingApprovalId;
+    // View-model (updated only on the UI thread from backend events). The hierarchical OO memento is the single
+    // source of truth: phase, exact state, precise continuation and the pending approval id all come from it.
+    private final com.aresstack.askai.research.state.oo.ResearchStateFactory stateFactory =
+            com.aresstack.askai.research.state.oo.ResearchStateFactory.getInstance();
+    private com.aresstack.askai.research.state.oo.ResearchStateMemento state =
+            stateFactory.snapshot(stateFactory.initialPhase(), 0L);
     private String problemMessage = "";
     private long revision;
     private long lastSequence = -1L;
 
     private final java.util.concurrent.CopyOnWriteArrayList<Runnable> stateListeners =
             new java.util.concurrent.CopyOnWriteArrayList<Runnable>();
-    private final com.aresstack.askai.research.state.oo.ResearchStateFactory stateFactory =
-            com.aresstack.askai.research.state.oo.ResearchStateFactory.getInstance();
 
     private ResearchSessionHandle handle;
     private boolean started;
@@ -128,14 +128,18 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
 
     @Override
     public AgentStateSnapshot getState() {
+        ResearchPhase phase = com.aresstack.askai.research.state.oo.ResearchStateIds.phase(state.getPhaseId());
+        ResearchRunState run =
+                com.aresstack.askai.research.state.oo.ResearchStateIds.runState(state.getStateId());
+        boolean busy = com.aresstack.askai.research.state.oo.ResearchStateIds.RUNNING.equals(state.getStateId());
         return AgentStateSnapshot.builder()
                 .phaseLabel(phase.name())
-                .runStateLabel(runState.name())
-                .busy(runState == ResearchRunState.RUNNING)
-                .pendingApproval(pendingApprovalId != null)
-                .pendingApprovalId(pendingApprovalId)
+                .runStateLabel(run.name())
+                .busy(busy)
+                .pendingApproval(state.getPendingApprovalId() != null)
+                .pendingApprovalId(state.getPendingApprovalId())
                 .revision(revision)
-                .statusLine(phase + " / " + runState)
+                .statusLine(phase + " / " + run)
                 .allowedCommandNames(allowedCommandNames())
                 .build();
     }
@@ -143,7 +147,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     // ------------------------------------------------------------------ typed controls (used by slash commands)
 
     public boolean hasPendingApproval() {
-        return pendingApprovalId != null;
+        return state.getPendingApprovalId() != null;
     }
 
     public void submitPrompt(String text, String activeSectionId) {
@@ -153,12 +157,14 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     }
 
     public void approveCurrent() {
+        String pendingApprovalId = state.getPendingApprovalId();
         if (handle != null && pendingApprovalId != null) {
             backend.approve(handle, pendingApprovalId);
         }
     }
 
     public void requestChanges(String reason) {
+        String pendingApprovalId = state.getPendingApprovalId();
         if (handle != null && pendingApprovalId != null) {
             backend.reject(handle, pendingApprovalId, reason);
         }
@@ -183,7 +189,8 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     }
 
     public boolean canDispatch(ResearchCommandType type) {
-        return handle != null && backend.canExecute(handle, type);
+        return handle != null
+                && stateFactory.restore(state).getCurrentState().getAllowedCommands().contains(type);
     }
 
     // ------------------------------------------------------------------ event intake (backend thread → UI)
@@ -211,17 +218,17 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         revision = event.getRevision();
         switch (event.getType()) {
             case SESSION_STATE_CHANGED:
-                phase = event.getPhase();
-                runState = event.getRunState();
-                if (runState != ResearchRunState.WAITING_FOR_USER) {
-                    pendingApprovalId = null;
+                if (event.getStateMemento() != null) {
+                    state = event.getStateMemento(); // the exact live truth: phase/state/continuation/approvalId
                 }
-                if (runState != ResearchRunState.BLOCKED && runState != ResearchRunState.FAILED) {
+                String stateId = state.getStateId();
+                if (!com.aresstack.askai.research.state.oo.ResearchStateIds.BLOCKED.equals(stateId)
+                        && !com.aresstack.askai.research.state.oo.ResearchStateIds.FAILED.equals(stateId)) {
                     problemMessage = "";
                 }
                 break;
             case APPROVAL_REQUESTED:
-                pendingApprovalId = event.getApprovalId();
+                // The pending approval id already lives in the memento; this only drives the chat approval bubble.
                 sink.requestApproval(event.getApprovalId(), event.getText());
                 break;
             case ACTIVITY:
@@ -263,19 +270,12 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         }
     }
 
-    /** A read-only snapshot of the hierarchical state, derived from the OO domain model (not UI flags). */
+    /**
+     * A read-only snapshot of the hierarchical state, rebuilt from the live {@link ResearchStateMemento} — the
+     * exact phase/state/continuation/approval id, never a defaulted continuation.
+     */
     public ResearchStateSnapshot currentResearchSnapshot() {
-        String phaseId = com.aresstack.askai.research.state.oo.ResearchStateIds.phaseId(phase);
-        String stateId = com.aresstack.askai.research.state.oo.ResearchStateIds.stateId(phaseId, runState);
-        String continuation = null;
-        if (com.aresstack.askai.research.state.oo.ResearchStateIds.PAUSED.equals(stateId)
-                || com.aresstack.askai.research.state.oo.ResearchStateIds.BLOCKED.equals(stateId)
-                || com.aresstack.askai.research.state.oo.ResearchStateIds.FAILED.equals(stateId)) {
-            continuation = stateFactory.defaultContinuationStateId(phaseId);
-        }
-        com.aresstack.askai.research.state.oo.ResearchPhaseState oo = stateFactory.phase(phaseId,
-                stateFactory.state(phaseId, stateId, continuation, pendingApprovalId));
-        return ResearchStateSnapshot.of(oo, revision, problemMessage);
+        return ResearchStateSnapshot.of(stateFactory.restore(state), revision, problemMessage);
     }
 
     private void applyActivity(ResearchBackendEvent event) {
@@ -310,20 +310,23 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         }
     }
 
+    /** Single source of command availability: the allowed set of the live memento's current state. */
     private List<String> allowedCommandNames() {
+        java.util.Set<ResearchCommandType> allowed =
+                stateFactory.restore(state).getCurrentState().getAllowedCommands();
         List<String> names = new ArrayList<String>();
         names.add("status");
         names.add("open");
-        if (canDispatch(ResearchCommandType.PAUSE)) {
+        if (allowed.contains(ResearchCommandType.PAUSE)) {
             names.add("pause");
         }
-        if (canDispatch(ResearchCommandType.RESUME)) {
+        if (allowed.contains(ResearchCommandType.RESUME)) {
             names.add("resume");
         }
-        if (canDispatch(ResearchCommandType.CANCEL)) {
+        if (allowed.contains(ResearchCommandType.CANCEL)) {
             names.add("cancel");
         }
-        if (pendingApprovalId != null) {
+        if (state.getPendingApprovalId() != null) {
             names.add("approve");
             names.add("request-changes");
         }
@@ -333,10 +336,12 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     /** The composer route: plain prompts go to the backend; stop pauses the run. */
     private final class ResearchChatTarget implements ChatSubmissionTarget {
         public SubmissionAvailability getAvailability() {
-            if (disposed || handle == null || runState.isTerminal()) {
+            String stateId = state.getStateId();
+            boolean terminal = com.aresstack.askai.research.state.oo.ResearchStateIds.isTerminal(stateId);
+            if (disposed || handle == null || terminal) {
                 return SubmissionAvailability.UNAVAILABLE;
             }
-            return runState == ResearchRunState.RUNNING
+            return com.aresstack.askai.research.state.oo.ResearchStateIds.RUNNING.equals(stateId)
                     ? SubmissionAvailability.BUSY : SubmissionAvailability.AVAILABLE;
         }
 

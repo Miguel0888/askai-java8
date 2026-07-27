@@ -1,13 +1,14 @@
 package com.aresstack.askai.research.backend;
 
-import com.aresstack.askai.research.state.DefaultResearchStateMachine;
 import com.aresstack.askai.research.state.ResearchCommand;
 import com.aresstack.askai.research.state.ResearchCommandType;
 import com.aresstack.askai.research.state.ResearchPhase;
 import com.aresstack.askai.research.state.ResearchRunState;
-import com.aresstack.askai.research.state.ResearchSessionState;
-import com.aresstack.askai.research.state.ResearchStateMachine;
-import com.aresstack.askai.research.state.ResearchTransitionResult;
+import com.aresstack.askai.research.state.oo.OoResearchStateMachine;
+import com.aresstack.askai.research.state.oo.ResearchStateIds;
+import com.aresstack.askai.research.state.oo.ResearchStateMachinePort;
+import com.aresstack.askai.research.state.oo.ResearchStateMemento;
+import com.aresstack.askai.research.state.oo.ResearchStateTransitionResult;
 
 import java.util.HashSet;
 import java.util.Map;
@@ -15,13 +16,14 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * A deterministic, event-driven simulation of a research agent behind {@link ResearchSessionBackend}. It
- * never invents functional states: every phase change goes through {@link DefaultResearchStateMachine}. The
- * run advances via the injected {@link ResearchScheduler}; per session, events are delivered serially with a
- * monotonic sequence number. Pause halts delivery (the logical progression resumes exactly where it stopped,
- * no duplicate scheduling), approvals are real wait states, cancel is a functional CANCEL, and close releases
- * resources so no listener call ever happens afterward. {@code simulateBlocked}/{@code simulateFailure} are
- * dev actions producing recoverable BLOCKED and technical FAILED states.
+ * A deterministic, event-driven simulation of a research agent behind {@link ResearchSessionBackend}. Its single
+ * source of truth is the hierarchical OO {@link ResearchStateMemento}, advanced only through the native
+ * {@link ResearchStateMachinePort} — never a legacy phase/run-state pair. The memento carries the exact
+ * continuation of any interruption and the pending approval id, so pausing/blocking/failing an approval gate and
+ * then resuming restores exactly the same gate with the same approval id. The run advances via the injected
+ * {@link ResearchScheduler}; per session, events are delivered serially with a monotonic sequence number and
+ * carry the state memento on every state change. {@code simulateBlocked}/{@code simulateFailure} are dev actions
+ * producing recoverable BLOCKED and technical FAILED states.
  */
 public final class FakeResearchSessionBackend implements ResearchSessionBackend {
 
@@ -58,7 +60,7 @@ public final class FakeResearchSessionBackend implements ResearchSessionBackend 
             return false;
         }
         synchronized (session) {
-            return session.stateMachine.dispatch(session.state, command(command)).isAccepted();
+            return session.machine.dispatch(session.state, command(command)).isAccepted();
         }
     }
 
@@ -84,7 +86,7 @@ public final class FakeResearchSessionBackend implements ResearchSessionBackend 
         synchronized (session) {
             emit(session, ResearchBackendEvent.builder(ResearchBackendEventType.USER_MESSAGE)
                     .text(prompt.getText()), null);
-            ResearchRunState run = session.state.getRunState();
+            ResearchRunState run = runOf(session);
             if (run == ResearchRunState.PAUSED || run == ResearchRunState.CANCELLED
                     || run == ResearchRunState.FAILED || run == ResearchRunState.COMPLETED) {
                 emit(session, ResearchBackendEvent.builder(ResearchBackendEventType.ASSISTANT_MESSAGE)
@@ -114,14 +116,14 @@ public final class FakeResearchSessionBackend implements ResearchSessionBackend 
             if (session.processedApprovals.contains(approvalId)) {
                 return; // idempotent
             }
-            if (session.pendingApprovalId == null || !session.pendingApprovalId.equals(approvalId)) {
+            String pending = session.state.getPendingApprovalId();
+            if (pending == null || !pending.equals(approvalId)) {
                 emit(session, ResearchBackendEvent.builder(ResearchBackendEventType.ERROR)
                         .messages("Unknown or stale approval.", "approvalId=" + approvalId), null);
                 return;
             }
-            ResearchCommandType approveCommand = approveCommandFor(session.state.getPhase());
+            ResearchCommandType approveCommand = approveCommandFor(phaseOf(session));
             session.processedApprovals.add(approvalId);
-            session.pendingApprovalId = null;
             if (approveCommand != null && dispatch(session, approveCommand, null)) {
                 scheduleAdvance(session);
             }
@@ -138,14 +140,14 @@ public final class FakeResearchSessionBackend implements ResearchSessionBackend 
             if (session.processedApprovals.contains(approvalId)) {
                 return;
             }
-            if (session.pendingApprovalId == null || !session.pendingApprovalId.equals(approvalId)) {
+            String pending = session.state.getPendingApprovalId();
+            if (pending == null || !pending.equals(approvalId)) {
                 emit(session, ResearchBackendEvent.builder(ResearchBackendEventType.ERROR)
                         .messages("Unknown or stale approval.", "approvalId=" + approvalId), null);
                 return;
             }
-            ResearchCommandType changesCommand = requestChangesCommandFor(session.state.getPhase());
+            ResearchCommandType changesCommand = requestChangesCommandFor(phaseOf(session));
             session.processedApprovals.add(approvalId);
-            session.pendingApprovalId = null;
             emit(session, ResearchBackendEvent.builder(ResearchBackendEventType.ASSISTANT_MESSAGE)
                     .text("Changes requested: " + (reason == null ? "" : reason)), null);
             if (changesCommand != null && dispatch(session, changesCommand, null)) {
@@ -272,19 +274,19 @@ public final class FakeResearchSessionBackend implements ResearchSessionBackend 
         if (session.closed) {
             return false;
         }
-        ResearchRunState run = session.state.getRunState();
+        ResearchRunState run = runOf(session);
         if (run == ResearchRunState.PAUSED || run == ResearchRunState.CANCELLED
                 || run == ResearchRunState.FAILED || run == ResearchRunState.BLOCKED
                 || run == ResearchRunState.COMPLETED) {
             return false;
         }
-        // An approval gate (WAITING with a pending approval) stops automatic progress.
-        return session.pendingApprovalId == null;
+        // An approval gate (WAITING_APPROVAL with a pending approval) stops automatic progress.
+        return session.state.getPendingApprovalId() == null;
     }
 
     private void advanceOneStep(FakeSession session) {
-        ResearchPhase phase = session.state.getPhase();
-        ResearchRunState run = session.state.getRunState();
+        ResearchPhase phase = phaseOf(session);
+        ResearchRunState run = runOf(session);
         switch (phase) {
             case SCOPING:
                 if (run == ResearchRunState.RUNNING) {
@@ -295,8 +297,7 @@ public final class FakeResearchSessionBackend implements ResearchSessionBackend 
             case OUTLINE:
                 if (run == ResearchRunState.RUNNING) {
                     toolRun(session, "Draft outline", "Proposing sections");
-                    dispatch(session, ResearchCommandType.PROPOSE_OUTLINE, null);
-                    raiseApproval(session, "Approve the proposed outline?");
+                    dispatch(session, ResearchCommandType.PROPOSE_OUTLINE, null); // → WAITING_APPROVAL, auto-raises
                 }
                 break;
             case RESEARCH:
@@ -308,41 +309,29 @@ public final class FakeResearchSessionBackend implements ResearchSessionBackend 
                             .title("Captured source"), null);
                     emit(session, ResearchBackendEvent.builder(ResearchBackendEventType.FINDING_ADDED)
                             .title("Extracted finding"), null);
-                    dispatch(session, ResearchCommandType.REQUEST_EVIDENCE_REVIEW, null);
-                    raiseApproval(session, "Approve the collected evidence?");
+                    dispatch(session, ResearchCommandType.REQUEST_EVIDENCE_REVIEW, null); // → WAITING_APPROVAL
                 }
                 break;
             case EVIDENCE:
-                // WAITING here is the approval gate (handled by raiseApproval); nothing automatic.
+                // WAITING_APPROVAL here is the approval gate (raised on entry); nothing automatic.
                 break;
             case DRAFT:
                 if (run == ResearchRunState.WAITING_FOR_USER) {
                     dispatch(session, ResearchCommandType.START_DRAFTING, null);
                 } else if (run == ResearchRunState.RUNNING) {
                     assistant(session, "Drafting the sections.");
-                    dispatch(session, ResearchCommandType.REQUEST_DRAFT_REVIEW, null);
-                    raiseApproval(session, "Approve the draft?");
+                    dispatch(session, ResearchCommandType.REQUEST_DRAFT_REVIEW, null); // → WAITING_APPROVAL
                 }
                 break;
             case REVIEW:
                 break;
             case FINALIZATION:
                 if (run == ResearchRunState.RUNNING) {
-                    dispatch(session, ResearchCommandType.REQUEST_FINAL_REVIEW, null);
-                    raiseApproval(session, "Approve the final document?");
+                    dispatch(session, ResearchCommandType.REQUEST_FINAL_REVIEW, null); // → WAITING_APPROVAL
                 }
                 break;
             default:
                 break;
-        }
-    }
-
-    private void raiseApproval(FakeSession session, String prompt) {
-        if (session.state.getRunState() == ResearchRunState.WAITING_FOR_USER
-                && isApprovalPhase(session.state.getPhase())) {
-            session.pendingApprovalId = idGenerator.newId();
-            emit(session, ResearchBackendEvent.builder(ResearchBackendEventType.APPROVAL_REQUESTED)
-                    .approval(session.pendingApprovalId, prompt), null);
         }
     }
 
@@ -369,17 +358,27 @@ public final class FakeResearchSessionBackend implements ResearchSessionBackend 
 
     // ------------------------------------------------------------------ state machine + emission
 
+    /**
+     * Dispatch a command through the native memento machine. On acceptance the session's memento advances, a
+     * SESSION_STATE_CHANGED event carrying the exact memento is emitted, and if the new state is an approval gate
+     * the matching APPROVAL_REQUESTED is raised (covering both fresh approvals and approvals restored after an
+     * interruption). A rejected command leaves the memento unchanged.
+     */
     private boolean dispatch(FakeSession session, ResearchCommandType type, String commandId) {
         ResearchCommand cmd = command(type);
-        ResearchTransitionResult result = session.stateMachine.dispatch(session.state, cmd);
+        ResearchStateTransitionResult result = session.machine.dispatch(session.state, cmd);
         if (!result.isAccepted()) {
             return false;
         }
-        session.state = result.getState();
+        session.state = result.getNextMemento();
         emit(session, ResearchBackendEvent.builder(ResearchBackendEventType.SESSION_STATE_CHANGED)
-                .state(session.state.getPhase(), session.state.getRunState()),
-                commandId == null ? cmd.getCommandId() : commandId);
-        if (session.state.getRunState() == ResearchRunState.COMPLETED) {
+                .stateMemento(session.state), commandId == null ? cmd.getCommandId() : commandId);
+        String pendingApprovalId = session.state.getPendingApprovalId();
+        if (ResearchStateIds.WAITING_APPROVAL.equals(session.state.getStateId()) && pendingApprovalId != null) {
+            emit(session, ResearchBackendEvent.builder(ResearchBackendEventType.APPROVAL_REQUESTED)
+                    .approval(pendingApprovalId, approvalPromptFor(session.state.getPhaseId())), null);
+        }
+        if (ResearchStateIds.COMPLETED.equals(session.state.getStateId())) {
             emit(session, ResearchBackendEvent.builder(ResearchBackendEventType.COMPLETED)
                     .text("Research completed."), null);
         }
@@ -414,9 +413,28 @@ public final class FakeResearchSessionBackend implements ResearchSessionBackend 
         return handle == null ? null : sessions.get(handle.getSessionId());
     }
 
-    private static boolean isApprovalPhase(ResearchPhase phase) {
-        return phase == ResearchPhase.OUTLINE || phase == ResearchPhase.EVIDENCE
-                || phase == ResearchPhase.REVIEW || phase == ResearchPhase.FINALIZATION;
+    private static ResearchPhase phaseOf(FakeSession session) {
+        return ResearchStateIds.phase(session.state.getPhaseId());
+    }
+
+    private static ResearchRunState runOf(FakeSession session) {
+        return ResearchStateIds.runState(session.state.getStateId());
+    }
+
+    private static String approvalPromptFor(String phaseId) {
+        if (ResearchStateIds.OUTLINE.equals(phaseId)) {
+            return "Approve the proposed outline?";
+        }
+        if (ResearchStateIds.EVIDENCE.equals(phaseId)) {
+            return "Approve the collected evidence?";
+        }
+        if (ResearchStateIds.REVIEW.equals(phaseId)) {
+            return "Approve the draft?";
+        }
+        if (ResearchStateIds.FINALIZATION.equals(phaseId)) {
+            return "Approve the final document?";
+        }
+        return "Approval required.";
     }
 
     private static ResearchCommandType approveCommandFor(ResearchPhase phase) {
@@ -446,16 +464,15 @@ public final class FakeResearchSessionBackend implements ResearchSessionBackend 
         }
     }
 
-    /** One isolated session: its own state machine, sequence, pending task and approval wait point. */
+    /** One isolated session: its own memento-based state machine, sequence, pending task and approvals. */
     private static final class FakeSession implements ResearchSessionHandle {
         private final String sessionId;
         private final String projectId;
         private ResearchSessionListener listener;
-        private final ResearchStateMachine stateMachine;
-        private ResearchSessionState state = ResearchSessionState.initial();
+        private final ResearchStateMachinePort machine;
+        private ResearchStateMemento state;
         private long sequence;
         private boolean closed;
-        private String pendingApprovalId;
         private final Set<String> processedApprovals = new HashSet<String>();
         private ResearchScheduler.Cancellable pending;
 
@@ -463,7 +480,9 @@ public final class FakeResearchSessionBackend implements ResearchSessionBackend 
             this.sessionId = sessionId;
             this.projectId = projectId;
             this.listener = listener;
-            this.stateMachine = new DefaultResearchStateMachine(sessionId);
+            OoResearchStateMachine machine = new OoResearchStateMachine(sessionId);
+            this.machine = machine;
+            this.state = machine.initialMemento();
         }
 
         public String getSessionId() {

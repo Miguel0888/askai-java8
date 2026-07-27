@@ -2,6 +2,8 @@ package com.aresstack.askai.research.backend;
 
 import com.aresstack.askai.research.state.ResearchPhase;
 import com.aresstack.askai.research.state.ResearchRunState;
+import com.aresstack.askai.research.state.oo.ResearchStateIds;
+import com.aresstack.askai.research.state.oo.ResearchStateMemento;
 
 /**
  * Immutable backend event with a stable envelope (eventId, sessionId, projectId, revision, timestamp, a
@@ -22,6 +24,7 @@ public final class ResearchBackendEvent {
 
     private final ResearchPhase phase;
     private final ResearchRunState runState;
+    private final ResearchStateMemento stateMemento;
     private final String activityId;
     private final ResearchActivityKind activityKind;
     private final String title;
@@ -39,8 +42,10 @@ public final class ResearchBackendEvent {
         this.sequenceNumber = b.sequenceNumber;
         this.commandId = b.commandId;
         this.type = b.type;
-        this.phase = b.phase;
-        this.runState = b.runState;
+        this.stateMemento = b.stateMemento;
+        this.phase = b.stateMemento != null ? ResearchStateIds.phase(b.stateMemento.getPhaseId()) : b.phase;
+        this.runState = b.stateMemento != null
+                ? ResearchStateIds.runState(b.stateMemento.getStateId()) : b.runState;
         this.activityId = b.activityId;
         this.activityKind = b.activityKind;
         this.title = b.title;
@@ -90,6 +95,11 @@ public final class ResearchBackendEvent {
         return runState;
     }
 
+    /** @return the exact state snapshot for a state-change event (the live truth), or {@code null}. */
+    public ResearchStateMemento getStateMemento() {
+        return stateMemento;
+    }
+
     public String getActivityId() {
         return activityId;
     }
@@ -133,6 +143,7 @@ public final class ResearchBackendEvent {
         private final ResearchBackendEventType type;
         private ResearchPhase phase;
         private ResearchRunState runState;
+        private ResearchStateMemento stateMemento;
         private String activityId;
         private ResearchActivityKind activityKind;
         private String title = "";
@@ -160,6 +171,12 @@ public final class ResearchBackendEvent {
         public Builder state(ResearchPhase phase, ResearchRunState runState) {
             this.phase = phase;
             this.runState = runState;
+            return this;
+        }
+
+        /** The exact state snapshot (the live truth); legacy phase/runState are derived from it. */
+        public Builder stateMemento(ResearchStateMemento stateMemento) {
+            this.stateMemento = stateMemento;
             return this;
         }
 
