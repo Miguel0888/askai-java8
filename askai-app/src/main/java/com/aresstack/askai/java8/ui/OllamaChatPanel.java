@@ -130,6 +130,8 @@ public final class OllamaChatPanel extends JPanel {
     private PartySettings partySettings;
     private MentionCompletionSupport mentionCompletion;
     private boolean partyJoinInFlight;
+    // Set when a send raced the join; the composer content is submitted once the join succeeds.
+    private boolean partySendPending;
     // Installed model names, cached on the model refresh so party threads can read them safely.
     private volatile List<String> installedModelNames = Collections.emptyList();
     // Thinking effort ("off"/"low"/"medium"/"high"), only sent when the selected model supports thinking.
@@ -303,12 +305,14 @@ public final class OllamaChatPanel extends JPanel {
         String mode = applicationState.get(STATE_MODE, GroupChatMode.YAPPING);
         String agent = applicationState.get(STATE_AGENT, null);
         if (GroupChatMode.PARTYING.equals(mode)) {
-            // Restore into Partying mode; the transport is not auto-started on restore.
+            // Restore into Partying mode and rejoin right away so the stored room history is
+            // replayed without requiring a first (swallowed) send.
             chatMode = GroupChatMode.PARTYING;
             selectedAgent = null;
             composer.setModeName("Partying");
             mentionCompletion.setActive(true);
             refreshMentionCompletionHandles();
+            startPartySessionIfNeeded();
         } else if (GroupChatMode.YAPPING.equals(mode) || agent == null || agent.trim().isEmpty()) {
             chatMode = GroupChatMode.YAPPING;
             selectedAgent = null;
@@ -1027,6 +1031,7 @@ public final class OllamaChatPanel extends JPanel {
         final PartySession session = partySession;
         partySession = null;
         partyJoinInFlight = false;
+        partySendPending = false;
         if (session == null) {
             return;
         }
@@ -1080,6 +1085,13 @@ public final class OllamaChatPanel extends JPanel {
                             partySession = session;
                             partyJoinInFlight = false;
                             refreshMentionCompletionHandles();
+                            if (partySendPending) {
+                                partySendPending = false;
+                                if (GroupChatMode.PARTYING.equals(chatMode)
+                                        && !composer.getMessage().trim().isEmpty()) {
+                                    sendPartyChat();
+                                }
+                            }
                         }
                     });
                     session.updateBotReadiness();
@@ -1502,9 +1514,10 @@ public final class OllamaChatPanel extends JPanel {
         if (session != null && session.submitMessage(userPrompt)) {
             composer.clearMessage();
         } else {
-            // Lossless: the message stays in the composer until a join succeeds and Send is hit again.
+            // Lossless: the text stays in the composer and is submitted once the join succeeds.
+            partySendPending = true;
             startPartySessionIfNeeded();
-            setStatus("Not connected to party — your message stays in the composer.");
+            setStatus("Joining the party — your message is sent as soon as you are connected.");
         }
     }
     private void handleThinkingDelta(String delta) {
