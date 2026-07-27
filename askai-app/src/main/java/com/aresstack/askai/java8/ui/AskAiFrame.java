@@ -12,6 +12,20 @@ import com.aresstack.askai.java8.service.OllamaFeatureActionService;
 import com.aresstack.askai.java8.service.OllamaService;
 import com.aresstack.askai.java8.stt.DefaultSpeechToTextService;
 import com.aresstack.askai.java8.stt.SpeechToTextService;
+import com.aresstack.askai.java8.batch.service.BatchAudioPreparationService;
+import com.aresstack.askai.java8.batch.service.BatchMarkdownResultWriter;
+import com.aresstack.askai.java8.batch.service.BatchSelectionCatalogLoadedEvent;
+import com.aresstack.askai.java8.batch.service.BatchSelectionCatalogService;
+import com.aresstack.askai.java8.batch.service.BatchTranscriptionEventPublisher;
+import com.aresstack.askai.java8.batch.service.BatchTranscriptionService;
+import com.aresstack.askai.java8.batch.ui.BatchTranscriptionController;
+import com.aresstack.askai.java8.batch.ui.BatchTranscriptionPanel;
+import com.aresstack.audio.application.DefaultAudioProcessingPreviewService;
+import com.aresstack.audio.application.DefaultProcessedWaveExportService;
+
+import java.util.Collections;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 import javax.swing.Box;
 import javax.swing.JFrame;
@@ -35,6 +49,7 @@ import java.awt.event.WindowEvent;
 public final class AskAiFrame extends JFrame {
 
     private static final String CHAT_VIEW = "chat";
+    private static final String BATCH_VIEW = "batch";
     private static final String MODELS_VIEW = "models";
     private static final String ACTIONS_VIEW = "actions";
     private static final String INSTALL_VIEW = "install";
@@ -59,6 +74,7 @@ public final class AskAiFrame extends JFrame {
     private OllamaChatPanel chatPanel;
     private AudioProcessingPanel audioProcessingPanel;
     private ModelSearchPanel installSearchPanel;
+    private BatchTranscriptionPanel batchPanel;
 
     public AskAiFrame(AppConfigurationRepository configurationRepository, final AskAiService askAiService) {
         super("AskAI");
@@ -84,6 +100,9 @@ public final class AskAiFrame extends JFrame {
                 if (chatPanel != null) {
                     chatPanel.shutdownDictation();
                 }
+                if (batchPanel != null) {
+                    batchPanel.dispose();
+                }
                 askAiService.shutdown();
             }
         });
@@ -108,6 +127,7 @@ public final class AskAiFrame extends JFrame {
     private JMenuBar createMenuBar() {
         JMenuBar menuBar = new JMenuBar();
         menuBar.add(createTopLevelMenu("Chat", CHAT_VIEW));
+        menuBar.add(createTopLevelMenu("Batch", BATCH_VIEW));
         menuBar.add(createModelsMenu());
         menuBar.add(createTopLevelMenu("Actions", ACTIONS_VIEW));
         menuBar.add(createConfigurationMenu());
@@ -263,7 +283,47 @@ public final class AskAiFrame extends JFrame {
         // Java2D pipeline editor for audio-processing profiles (shared repository instance).
         this.audioProcessingPanel = new AudioProcessingPanel(audioProfileRepository, applicationState);
         contentPanel.add(audioProcessingPanel, AUDIO_PROCESSING_VIEW);
+        wireBatchComponent();
         return contentPanel;
+    }
+
+    /**
+     * Wires the batch transcription card. Reuses the shared {@link SpeechToTextService} port and the
+     * audio-processing DSP services; the model list is filled asynchronously with only the audio-capable
+     * models reported by Ollama's {@code /api/show}, so the panel is built with an empty model list first.
+     */
+    private void wireBatchComponent() {
+        BatchTranscriptionEventPublisher batchEvents = new BatchTranscriptionEventPublisher();
+        BatchAudioPreparationService audioPreparation = new BatchAudioPreparationService(
+                new DefaultAudioProcessingPreviewService(),
+                new DefaultProcessedWaveExportService());
+        BatchTranscriptionService batchService = new BatchTranscriptionService(
+                speechToTextService,
+                audioPreparation,
+                new BatchMarkdownResultWriter(),
+                batchEvents);
+        BatchTranscriptionController batchController =
+                new BatchTranscriptionController(batchService, batchEvents);
+        this.batchPanel = new BatchTranscriptionPanel(
+                batchController,
+                Collections.<String>emptyList(),
+                audioProfileRepository.findAll());
+        contentPanel.add(batchPanel, BATCH_VIEW);
+
+        BatchSelectionCatalogService catalog = new BatchSelectionCatalogService(new Supplier<String>() {
+            public String get() {
+                return model.getOllamaBaseUrl();
+            }
+        });
+        catalog.loadAsync(new Consumer<BatchSelectionCatalogLoadedEvent>() {
+            public void accept(final BatchSelectionCatalogLoadedEvent event) {
+                onUi(new Runnable() {
+                    public void run() {
+                        batchPanel.setAvailableModels(event.getAudioModelNames());
+                    }
+                });
+            }
+        });
     }
 
     /** Switches to the Chat view and selects the given model there, keeping the conversation intact. */
