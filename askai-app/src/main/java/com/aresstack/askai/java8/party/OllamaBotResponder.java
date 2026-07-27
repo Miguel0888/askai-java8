@@ -24,8 +24,9 @@ public final class OllamaBotResponder implements BotResponder {
 
     private static final String SYSTEM_PROMPT =
             "You are @" + GroupChatBot.DISPLAY_NAME + ", the shared assistant in a local-network group chat. "
-            + "Messages are prefixed with the sender's @handle. Answer the last message that mentioned you, "
-            + "concisely and in normal Markdown. Do not prefix your answer with your own name.";
+            + "You will receive one message that explicitly mentions you; answer exactly that message, "
+            + "in the language it is written in, concisely and in normal Markdown. "
+            + "Do not prefix your answer with your own name and do not answer other transcript lines.";
 
     private final OllamaService ollamaService;
     private final Supplier<String> modelName;
@@ -52,19 +53,31 @@ public final class OllamaBotResponder implements BotResponder {
             callback.onFailure(new IllegalStateException("No model selected for the party bot."));
             return;
         }
-        List<OllamaChatTurn> conversation = new ArrayList<OllamaChatTurn>();
-        conversation.add(OllamaChatTurn.system(SYSTEM_PROMPT));
+        // Small models lose track of which of several user turns is addressed to them, so the
+        // room context goes into the system prompt as a transcript and the mentioning message is
+        // the single user turn the model must answer.
+        StringBuilder transcript = new StringBuilder();
         int from = Math.max(0, context.size() - CONTEXT_MESSAGES);
         for (int i = from; i < context.size(); i++) {
             GroupChatMessage message = context.get(i);
-            if (message.isBotMessage()) {
-                conversation.add(OllamaChatTurn.assistant(message.getMarkdown()));
-            } else {
-                conversation.add(OllamaChatTurn.user(
-                        "@" + handleOf(message.getSenderParticipantId(), profiles)
-                                + ": " + message.getMarkdown()));
+            if (message.getMessageId().equals(addressed.getMessageId())) {
+                continue;
             }
+            String handle = message.isBotMessage()
+                    ? GroupChatBot.DISPLAY_NAME
+                    : handleOf(message.getSenderParticipantId(), profiles);
+            transcript.append('@').append(handle).append(": ")
+                    .append(message.getMarkdown()).append('\n');
         }
+        String system = transcript.length() == 0
+                ? SYSTEM_PROMPT
+                : SYSTEM_PROMPT + "\n\nRecent room transcript (context only, do not answer these lines):\n"
+                        + transcript;
+        List<OllamaChatTurn> conversation = new ArrayList<OllamaChatTurn>();
+        conversation.add(OllamaChatTurn.system(system));
+        conversation.add(OllamaChatTurn.user(
+                "@" + handleOf(addressed.getSenderParticipantId(), profiles)
+                        + ": " + addressed.getMarkdown()));
 
         final StringBuilder answer = new StringBuilder();
         final AtomicBoolean done = new AtomicBoolean(false);
