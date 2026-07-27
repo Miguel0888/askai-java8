@@ -13,6 +13,14 @@ dependencies {
     // introduce Jackson in parallel.
     implementation 'com.google.code.gson:gson:2.10.1'
 
+    // Decode every audio format accepted by file transcription through Java Sound. Runtime-only:
+    // the app codes against the Java Sound API, these providers are discovered via META-INF/services
+    // (kept in the fat jar by mergeServiceFiles below). Requires one online build to populate the cache.
+    runtimeOnly 'com.tianscar.javasound:javasound-mp3:1.9.7'
+    runtimeOnly 'com.tianscar.javasound:javasound-vorbis:2.1.0'
+    runtimeOnly 'com.tianscar.javasound:javasound-flac:1.4.1'
+    runtimeOnly 'com.tianscar.javasound:javasound-aac:0.9.8'
+
     // Markdown parsing — last Java 8-compatible line (do NOT move to 0.64.x which needs Java 11).
     // Only the extensions actually used are added, not flexmark-all.
     implementation 'com.vladsch.flexmark:flexmark:0.62.2'

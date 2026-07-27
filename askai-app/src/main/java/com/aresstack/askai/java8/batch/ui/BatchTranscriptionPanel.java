@@ -1,5 +1,6 @@
 package com.aresstack.askai.java8.batch.ui;
 
+import com.aresstack.askai.java8.audio.format.SupportedAudioFormats;
 import com.aresstack.askai.java8.batch.service.BatchTranscriptionEvent;
 import com.aresstack.askai.java8.batch.service.BatchTranscriptionEventPublisher;
 import com.aresstack.askai.java8.batch.service.BatchTranscriptionRequest;
@@ -118,7 +119,8 @@ public final class BatchTranscriptionPanel extends JPanel {
     private void chooseAudioFiles() {
         JFileChooser chooser = new JFileChooser();
         chooser.setMultiSelectionEnabled(true);
-        chooser.setFileFilter(new FileNameExtensionFilter("Wave audio (*.wav)", "wav"));
+        chooser.setFileFilter(new FileNameExtensionFilter(SupportedAudioFormats.fileChooserDescription(),
+                SupportedAudioFormats.extensionArray()));
         if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
             for (File file : chooser.getSelectedFiles()) audioFiles.addElement(file);
         }

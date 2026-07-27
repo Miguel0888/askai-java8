@@ -1,10 +1,10 @@
 package com.aresstack.askai.java8.stt;
 
+import com.aresstack.askai.java8.audio.format.SupportedAudioFormats;
 import com.aresstack.askai.java8.config.AppConfiguration;
 import com.aresstack.askai.java8.config.AppConfigurationRepository;
 
 import java.io.File;
-import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -21,10 +21,6 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public final class DefaultSpeechToTextService implements SpeechToTextService {
 
-    /** Formats accepted by the MVP; anything else is rejected with a clear message before upload. */
-    private static final List<String> SUPPORTED_EXTENSIONS =
-            Arrays.asList("wav", "mp3", "m4a", "ogg", "flac");
-
     private final AppConfigurationRepository configurationRepository;
     private final ExecutorService executor;
 
@@ -35,7 +31,7 @@ public final class DefaultSpeechToTextService implements SpeechToTextService {
 
     /** @return the file-chooser extensions the MVP accepts. */
     public static String[] supportedExtensions() {
-        return SUPPORTED_EXTENSIONS.toArray(new String[SUPPORTED_EXTENSIONS.size()]);
+        return SupportedAudioFormats.extensionArray();
     }
 
     @Override
@@ -95,10 +91,10 @@ public final class DefaultSpeechToTextService implements SpeechToTextService {
         if (file == null || !file.isFile()) {
             throw new SpeechToTextException("The selected audio file does not exist.");
         }
-        String extension = extensionOf(file.getName());
-        if (!SUPPORTED_EXTENSIONS.contains(extension)) {
+        String extension = SupportedAudioFormats.extensionOf(file.getName());
+        if (!SupportedAudioFormats.extensions().contains(extension)) {
             throw new SpeechToTextException("Unsupported audio format \"" + extension + "\". "
-                    + "Supported formats: " + join(SUPPORTED_EXTENSIONS) + ".");
+                    + "Supported formats: " + join(SupportedAudioFormats.extensions()) + ".");
         }
         long maxBytes = configuration.getMaxFileSizeMb() * 1024L * 1024L;
         if (file.length() > maxBytes) {
@@ -110,11 +106,6 @@ public final class DefaultSpeechToTextService implements SpeechToTextService {
             throw new SpeechToTextException("No STT model configured and no chat model selected. "
                     + "Set a Speech-to-Text model under Configuration > Connections.");
         }
-    }
-
-    private static String extensionOf(String fileName) {
-        int dot = fileName.lastIndexOf('.');
-        return dot < 0 ? "" : fileName.substring(dot + 1).toLowerCase();
     }
 
     private static String join(List<String> values) {

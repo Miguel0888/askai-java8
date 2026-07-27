@@ -1,6 +1,7 @@
 package com.aresstack.askai.java8.batch.service;
 
-import com.aresstack.askai.java8.audio.preview.WavAudioTestSource;
+import com.aresstack.askai.java8.audio.preview.AudioFileDecoder;
+import com.aresstack.askai.java8.audio.preview.JavaSoundAudioFileDecoder;
 import com.aresstack.audio.application.AudioProcessingPreviewService;
 import com.aresstack.audio.application.ProcessedAudioPreview;
 import com.aresstack.audio.application.ProcessedWaveExportService;
@@ -24,18 +25,37 @@ public final class BatchAudioPreparationService {
 
     private final AudioProcessingPreviewService processingService;
     private final ProcessedWaveExportService exportService;
+    private final AudioFileDecoder audioFileDecoder;
 
     public BatchAudioPreparationService(AudioProcessingPreviewService processingService,
                                         ProcessedWaveExportService exportService) {
+        this(processingService, exportService, new JavaSoundAudioFileDecoder());
+    }
+
+    public BatchAudioPreparationService(AudioProcessingPreviewService processingService,
+                                        ProcessedWaveExportService exportService,
+                                        AudioFileDecoder audioFileDecoder) {
+        if (processingService == null) {
+            throw new IllegalArgumentException("Processing service must not be null.");
+        }
+        if (exportService == null) {
+            throw new IllegalArgumentException("Export service must not be null.");
+        }
+        if (audioFileDecoder == null) {
+            throw new IllegalArgumentException("Audio file decoder must not be null.");
+        }
         this.processingService = processingService;
         this.exportService = exportService;
+        this.audioFileDecoder = audioFileDecoder;
     }
 
     public PreparedBatchAudio prepare(File sourceFile, AudioProcessingProfile profile) throws IOException {
-        requireWaveFile(sourceFile);
-        WavAudioTestSource source = new WavAudioTestSource(sourceFile, false);
-        ProcessedAudioPreview preview = processingService.process(source.readBuffer(), profile, source.getId());
-        preview = ensureSpeechFormat(preview, source.getId());
+        // Decode the source through the shared decoder so batch accepts the same formats as chat
+        // (wav/mp3/m4a/ogg/flac) instead of WAV only — the DSP pipeline runs unchanged afterwards.
+        AudioBuffer source = audioFileDecoder.decode(sourceFile);
+        String sourceId = sourceId(sourceFile);
+        ProcessedAudioPreview preview = processingService.process(source, profile, sourceId);
+        preview = ensureSpeechFormat(preview, sourceId);
         File temporaryFile = File.createTempFile("askai-batch-", ".wav");
         boolean exported = false;
         try {
@@ -73,11 +93,11 @@ public final class BatchAudioPreparationService {
         return new AudioProcessingProfile("batch-speech-normalize", "Batch speech normalize", true, blocks);
     }
 
-    private void requireWaveFile(File sourceFile) {
-        String name = sourceFile == null ? "" : sourceFile.getName().toLowerCase();
-        if (!name.endsWith(".wav")) {
-            throw new IllegalArgumentException("DSP batch processing currently requires WAV input: " + name);
+    private static String sourceId(File sourceFile) {
+        if (sourceFile == null) {
+            return "missing-audio-file";
         }
+        return sourceFile.getAbsolutePath() + "@" + sourceFile.length() + "@" + sourceFile.lastModified();
     }
 
     public static final class PreparedBatchAudio implements AutoCloseable {

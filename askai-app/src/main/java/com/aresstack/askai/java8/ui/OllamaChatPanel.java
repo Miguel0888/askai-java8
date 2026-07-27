@@ -2,6 +2,7 @@ package com.aresstack.askai.java8.ui;
 
 import com.aresstack.askai.java8.AskAiModel;
 import com.aresstack.askai.java8.audio.AudioProfileRepository;
+import com.aresstack.askai.java8.audio.format.SupportedAudioFormats;
 import com.aresstack.askai.java8.audio.FileAudioProfileRepository;
 import com.aresstack.askai.java8.state.ApplicationStateService;
 import com.aresstack.askai.java8.client.OllamaChatTurn;
@@ -1599,7 +1600,7 @@ public final class OllamaChatPanel extends JPanel {
         JFileChooser chooser = new JFileChooser(lastAudioDirectory);
         chooser.setDialogTitle("Transcribe an audio file");
         chooser.setFileFilter(new FileNameExtensionFilter(
-                "Audio files (wav, mp3, m4a, ogg, flac)", DefaultSpeechToTextService.supportedExtensions()));
+                SupportedAudioFormats.fileChooserDescription(), SupportedAudioFormats.extensionArray()));
         if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) {
             return;
         }
