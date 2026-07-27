@@ -14,15 +14,21 @@ import com.aresstack.audio.profile.AudioProcessingProfile;
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListModel;
 import javax.swing.JButton;
+import javax.swing.JComponent;
 import javax.swing.JFileChooser;
 import javax.swing.JLabel;
 import javax.swing.JList;
+import javax.swing.JMenuItem;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import javax.swing.JProgressBar;
 import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
 import javax.swing.JTextArea;
+import javax.swing.ListSelectionModel;
 import javax.swing.SwingUtilities;
+import javax.swing.event.ListSelectionEvent;
+import javax.swing.event.ListSelectionListener;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.BorderLayout;
 import java.awt.Dimension;
@@ -41,14 +47,18 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 /** Swing view for selecting files, models and profiles and observing batch progress. */
 public final class BatchTranscriptionPanel extends JPanel {
 
     private final BatchTranscriptionController controller;
     private final BatchSelectionRefresher refresher;
+    private final Function<String, JComponent> markdownRenderer;
     private final DefaultListModel<File> audioFiles = new DefaultListModel<File>();
-    private final JList<File> fileList = new ToggleSelectionList<File>(audioFiles);
+    // Audio files use plain multi-interval selection (standard Ctrl/Shift): the batch set is the whole list
+    // model, list selection only drives the Markdown preview and the "remove" action — not what is processed.
+    private final JList<File> fileList = new JList<File>(audioFiles);
     private final DefaultListModel<String> models = new DefaultListModel<String>();
     private final JList<String> modelList = new ToggleSelectionList<String>(models);
     private final DefaultListModel<AudioProcessingProfile> profiles = new DefaultListModel<AudioProcessingProfile>();
@@ -59,7 +69,10 @@ public final class BatchTranscriptionPanel extends JPanel {
     private final JButton startButton = new JButton("Start batch");
     private final JButton cancelButton = new JButton("Cancel");
     private final JButton refreshButton = new JButton();
+    private final JPopupMenu fileContextMenu = new JPopupMenu();
+    private final JMenuItem removeSelectedItem = new JMenuItem("Remove selected audio files");
     private MarkdownPreviewTabs bottomTabs;
+    private File lastPreviewedFile;
     private final BatchTranscriptionEventPublisher.Subscription subscription;
 
     // Refresh state — all touched only on the EDT.
@@ -72,9 +85,18 @@ public final class BatchTranscriptionPanel extends JPanel {
                                    List<String> availableModels,
                                    List<AudioProcessingProfile> availableProfiles,
                                    BatchSelectionRefresher refresher) {
+        this(controller, availableModels, availableProfiles, refresher, MarkdownPreviewTabs.markdownRenderer());
+    }
+
+    BatchTranscriptionPanel(BatchTranscriptionController controller,
+                            List<String> availableModels,
+                            List<AudioProcessingProfile> availableProfiles,
+                            BatchSelectionRefresher refresher,
+                            Function<String, JComponent> markdownRenderer) {
         super(new BorderLayout(8, 8));
         this.controller = controller;
         this.refresher = refresher;
+        this.markdownRenderer = markdownRenderer;
         for (String model : availableModels) models.addElement(model);
         for (AudioProcessingProfile profile : availableProfiles) profiles.addElement(profile);
         this.subscription = controller.observe(new Consumer<BatchTranscriptionEvent>() {
@@ -89,10 +111,30 @@ public final class BatchTranscriptionPanel extends JPanel {
 
     private void buildUi() {
         setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
-        // Selection mode is set by ToggleSelectionList; single clicks toggle rows without Ctrl/Shift.
-        fileList.setToolTipText("Click a file to preview a matching .md; double-click to open it in a pinned tab.");
+        // Plain multi-select (Ctrl/Shift). A single click selects one file and previews its .md; a double
+        // click pins it; right-click offers "Remove selected audio files".
+        fileList.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
+        fileList.setToolTipText("Click to preview a matching .md; double-click to pin it; right-click to remove.");
+        removeSelectedItem.addActionListener(event -> removeSelectedAudioFiles());
+        fileContextMenu.add(removeSelectedItem);
+        fileList.getSelectionModel().addListSelectionListener(new ListSelectionListener() {
+            public void valueChanged(ListSelectionEvent event) {
+                if (!event.getValueIsAdjusting()) {
+                    previewLeadSelection();
+                }
+            }
+        });
         fileList.addMouseListener(new MouseAdapter() {
-            public void mouseClicked(MouseEvent event) { onFileListClick(event); }
+            public void mousePressed(MouseEvent event) { maybeShowFileContextMenu(event); }
+            public void mouseReleased(MouseEvent event) { maybeShowFileContextMenu(event); }
+            public void mouseClicked(MouseEvent event) {
+                if (event.getClickCount() >= 2) {
+                    int index = fileIndexAt(event.getPoint());
+                    if (index >= 0) {
+                        openMarkdownFor(audioFiles.get(index), true);
+                    }
+                }
+            }
         });
         JPanel selections = new JPanel(new GridLayout(1, 3, 8, 8));
         selections.add(section("Audio files", new JScrollPane(fileList)));
@@ -125,7 +167,7 @@ public final class BatchTranscriptionPanel extends JPanel {
         header.add(rightControls, BorderLayout.EAST);
 
         log.setEditable(false);
-        bottomTabs = new MarkdownPreviewTabs("Log", new JScrollPane(log), MarkdownPreviewTabs.markdownRenderer());
+        bottomTabs = new MarkdownPreviewTabs("Log", new JScrollPane(log), markdownRenderer);
         JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT, selections, bottomTabs);
         split.setResizeWeight(0.55d);
         add(header, BorderLayout.NORTH);
@@ -272,22 +314,82 @@ public final class BatchTranscriptionPanel extends JPanel {
         }
     }
 
-    /** Single click on a file previews its matching {@code .md}; a double click pins it in its own tab. */
-    private void onFileListClick(MouseEvent event) {
-        int index = fileList.locationToIndex(event.getPoint());
+    /** @return the list index under {@code point}, or -1 when it is not on an actual row. */
+    private int fileIndexAt(java.awt.Point point) {
+        int index = fileList.locationToIndex(point);
         if (index < 0 || index >= audioFiles.size()) {
-            return;
+            return -1;
         }
         Rectangle bounds = fileList.getCellBounds(index, index);
-        if (bounds == null || !bounds.contains(event.getPoint())) {
-            return; // click landed on empty space
+        return bounds != null && bounds.contains(point) ? index : -1;
+    }
+
+    /** Preview the active (lead) selected file's Markdown, falling back to the first selected, else clear. */
+    void previewLeadSelection() {
+        int lead = fileList.getSelectionModel().getLeadSelectionIndex();
+        int index = lead >= 0 && lead < audioFiles.size() && fileList.isSelectedIndex(lead)
+                ? lead : fileList.getMinSelectionIndex();
+        if (index < 0 || index >= audioFiles.size()) {
+            lastPreviewedFile = null;
+            bottomTabs.clearPreview();
+            return;
         }
-        openMarkdownFor(audioFiles.get(index), event.getClickCount() >= 2);
+        openMarkdownFor(audioFiles.get(index), false);
+    }
+
+    /** Right-click selection rules: keep a multi-selection if the row is already selected (just move the
+     *  lead there), otherwise select only the clicked row. Returns whether "remove" should be offered. */
+    boolean selectForContextMenu(int index) {
+        if (index < 0 || index >= audioFiles.size()) {
+            return false; // empty area: leave the selection untouched, no remove
+        }
+        if (fileList.isSelectedIndex(index)) {
+            fileList.addSelectionInterval(index, index); // keep selection, make this the lead
+        } else {
+            fileList.setSelectedIndex(index); // replace selection with this row
+        }
+        previewLeadSelection();
+        return true;
+    }
+
+    private void maybeShowFileContextMenu(MouseEvent event) {
+        if (!event.isPopupTrigger()) {
+            return;
+        }
+        removeSelectedItem.setEnabled(selectForContextMenu(fileIndexAt(event.getPoint())));
+        fileContextMenu.show(fileList, event.getX(), event.getY());
+    }
+
+    /** Remove the selected list entries from the batch input (never touches the file system), then select
+     *  a sensible neighbour and refresh the preview. */
+    void removeSelectedAudioFiles() {
+        int[] selected = fileList.getSelectedIndices();
+        if (selected.length == 0) {
+            return;
+        }
+        int firstRemoved = selected[0];
+        for (int i = selected.length - 1; i >= 0; i--) {
+            audioFiles.remove(selected[i]);
+        }
+        int size = audioFiles.size();
+        if (size == 0) {
+            fileList.clearSelection();
+            lastPreviewedFile = null;
+            bottomTabs.clearPreview();
+            return;
+        }
+        fileList.setSelectedIndex(firstRemoved < size ? firstRemoved : size - 1);
     }
 
     private void openMarkdownFor(File audio, boolean pinned) {
+        if (!pinned) {
+            lastPreviewedFile = audio;
+        }
         File markdown = markdownSiblingOf(audio);
         if (!markdown.isFile()) {
+            if (!pinned) {
+                bottomTabs.clearPreview();
+            }
             status.setText("No " + markdown.getName() + " found next to " + audio.getName() + ".");
             return;
         }
@@ -353,4 +455,23 @@ public final class BatchTranscriptionPanel extends JPanel {
     JList<String> modelListComponent() { return modelList; }
 
     JList<AudioProcessingProfile> profileListComponent() { return profileList; }
+
+    JList<File> audioFileListComponent() { return fileList; }
+
+    /** The batch input set — the whole list model, independent of Swing selection. */
+    List<File> inputFilesForTest() {
+        List<File> files = new ArrayList<File>();
+        for (int i = 0; i < audioFiles.size(); i++) {
+            files.add(audioFiles.get(i));
+        }
+        return files;
+    }
+
+    void addAudioFileForTest(File file) { audioFiles.addElement(file); }
+
+    File lastPreviewTargetForTest() { return lastPreviewedFile; }
+
+    boolean removeMenuEnabledForTest() { return removeSelectedItem.isEnabled(); }
+
+    MarkdownPreviewTabs bottomTabsForTest() { return bottomTabs; }
 }

@@ -83,6 +83,17 @@ public final class MarkdownPreviewTabs extends JPanel {
         tabs.setSelectedComponent(scroll);
     }
 
+    /** Remove the reused preview tab (if any); pinned tabs and the fixed tab are kept. */
+    public void clearPreview() {
+        if (previewScroll != null) {
+            int index = tabs.indexOfComponent(previewScroll);
+            if (index >= 0) {
+                tabs.removeTabAt(index);
+            }
+            previewScroll = null;
+        }
+    }
+
     /** @return the number of tabs, including the fixed first tab (for tests). */
     public int tabCount() {
         return tabs.getTabCount();
