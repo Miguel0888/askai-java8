@@ -130,6 +130,48 @@ public final class BubbleTranscriptPanel extends JPanel {
     }
 
     /**
+     * Appends a Partying-mode group message as a left-aligned bubble with the sender's display
+     * name as the header.
+     *
+     * <p>The message content is passed as plain text (not prefixed with {@code **@name**}) so that
+     * sender semantics are carried by the structured header, not baked into the Markdown body.
+     * This makes it possible to apply per-participant colors and metadata cleanly in later slices.</p>
+     *
+     * @param senderName    the sender's display name to show as the bubble header
+     * @param participantId the sender's stable participant ID (reserved for future color mapping)
+     * @param markdown      the message body as raw Markdown
+     */
+    public void appendPartyMessage(String senderName, String participantId, String markdown) {
+        appendPartyMessage(senderName, participantId, markdown, null, false);
+    }
+
+    /**
+     * Appends a Partying-mode group message with the sender's replicated participant color.
+     *
+     * @param senderName  the sender's display name shown as the bubble header
+     * @param participantId the sender's stable participant ID
+     * @param markdown    the message body as raw Markdown
+     * @param headerColor the sender's palette color (theme-matched variant), or {@code null}
+     * @param local       {@code true} for the local participant's own messages (right-aligned)
+     */
+    public void appendPartyMessage(String senderName, String participantId, String markdown,
+                                   java.awt.Color headerColor, boolean local) {
+        requireEventDispatchThread();
+        String header = senderName != null && !senderName.trim().isEmpty() ? senderName : "?";
+        BubbleSide side = local ? BubbleSide.RIGHT : BubbleSide.LEFT;
+        SpeechBubblePanel bubble = new SpeechBubblePanel(
+                side,
+                local ? palette.getUserBackground() : palette.getAssistantBackground(),
+                local ? palette.getUserForeground() : palette.getAssistantForeground(),
+                header,
+                markdown);
+        if (headerColor != null) {
+            bubble.setHeaderColor(headerColor);
+        }
+        addBubbleRow(bubble, side);
+    }
+
+    /**
      * Starts a streaming assistant answer rendered as native Markdown inside a speech bubble. While
      * streaming the text re-renders debounced; a Mermaid fence stays a code block until
      * {@link #finishAssistantMessage()} turns it into a diagram.

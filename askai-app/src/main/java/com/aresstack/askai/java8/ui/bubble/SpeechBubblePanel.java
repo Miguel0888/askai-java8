@@ -24,8 +24,13 @@ import java.awt.geom.RoundRectangle2D;
  *
  * <p>Keep the text as a real Swing text component so copy and selection continue to work. Paint
  * only the bubble chrome with {@link Graphics2D}.</p>
+ *
+ * <p>Implements {@link com.aresstack.askai.java8.ui.markdown.WidthAwareHeight} so the transcript
+ * rows can ask for the exact wrapped height at the final bubble width — before that, long
+ * unbroken texts were measured unwrapped once and rendered as a single clipped line.</p>
  */
-public final class SpeechBubblePanel extends JPanel {
+public final class SpeechBubblePanel extends JPanel
+        implements com.aresstack.askai.java8.ui.markdown.WidthAwareHeight {
 
     private static final int ARC = 22;
     private static final int TAIL_WIDTH = 16;
@@ -91,6 +96,15 @@ public final class SpeechBubblePanel extends JPanel {
         refreshLayout();
     }
 
+    /**
+     * Colors the header label (the sender name), used for per-participant colors in Partying
+     * mode.  {@code null} restores the default muted text color.
+     */
+    public void setHeaderColor(Color color) {
+        headerLabel.setForeground(color != null ? color : withAlpha(textColor, 220));
+        repaint();
+    }
+
     public void setMaximumBubbleWidth(int maximumBubbleWidth) {
         if (maximumBubbleWidth < MINIMUM_WIDTH) {
             throw new IllegalArgumentException("maximumBubbleWidth must be at least " + MINIMUM_WIDTH);
@@ -123,6 +137,61 @@ public final class SpeechBubblePanel extends JPanel {
             height += headerSize.height + 3;
         }
         return new Dimension(width, Math.max(48, height));
+    }
+
+    /**
+     * Deterministic height for a fixed bubble width: paddings + optional header + the text wrapped
+     * at exactly the inner width.  Uses the larger of the text view's measurement and a
+     * font-metrics greedy-wrap estimate, so a stale unwrapped view measurement can never produce
+     * a one-line bubble for a long text.
+     */
+    @Override
+    public int preferredHeightForWidth(int width) {
+        Insets insets = getInsets();
+        int innerWidth = Math.max(24, width - insets.left - insets.right);
+        textArea.setSize(new Dimension(innerWidth, Short.MAX_VALUE));
+        int viewHeight = textArea.getPreferredSize().height;
+        int metricsHeight = estimateWrappedTextHeight(innerWidth);
+        int height = insets.top + insets.bottom + Math.max(viewHeight, metricsHeight);
+        if (headerLabel.isVisible()) {
+            height += headerLabel.getPreferredSize().height + 3;
+        }
+        return Math.max(48, height);
+    }
+
+    /** Greedy word-wrap line count from font metrics — independent of the Swing view state. */
+    private int estimateWrappedTextHeight(int innerWidth) {
+        FontMetrics metrics = textArea.getFontMetrics(textArea.getFont());
+        int lineHeight = metrics.getHeight();
+        int lines = 0;
+        for (String paragraph : textArea.getText().split("\n", -1)) {
+            lines += countWrappedLines(paragraph, metrics, innerWidth);
+        }
+        return Math.max(1, lines) * lineHeight;
+    }
+
+    private static int countWrappedLines(String paragraph, FontMetrics metrics, int width) {
+        if (paragraph.isEmpty()) {
+            return 1;
+        }
+        int lines = 1;
+        int currentWidth = 0;
+        int spaceWidth = metrics.charWidth(' ');
+        for (String word : paragraph.split(" ")) {
+            int wordWidth = metrics.stringWidth(word);
+            if (currentWidth > 0 && currentWidth + spaceWidth + wordWidth > width) {
+                lines++;
+                currentWidth = 0;
+            }
+            if (wordWidth > width) {
+                // Overlong words wrap mid-word across additional lines.
+                lines += wordWidth / Math.max(1, width);
+                currentWidth = wordWidth % Math.max(1, width);
+            } else {
+                currentWidth += (currentWidth > 0 ? spaceWidth : 0) + wordWidth;
+            }
+        }
+        return lines;
     }
 
     @Override

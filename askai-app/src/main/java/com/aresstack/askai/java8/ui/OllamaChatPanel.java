@@ -7,6 +7,18 @@ import com.aresstack.askai.java8.catalog.GlobalCatalogSnapshot;
 import com.aresstack.askai.java8.ui.chat.ChatSessionComponent;
 import com.aresstack.askai.java8.ui.chat.ChatSessionId;
 import com.aresstack.askai.java8.audio.FileAudioProfileRepository;
+import com.aresstack.askai.java8.groupchat.GroupChatConnectionState;
+import com.aresstack.askai.java8.groupchat.GroupChatMode;
+import com.aresstack.askai.java8.groupchat.GroupChatRoom;
+import com.aresstack.askai.java8.groupchat.GroupChatTransport;
+import com.aresstack.askai.java8.groupchat.MentionParser;
+import com.aresstack.askai.java8.groupchat.Participant;
+import com.aresstack.askai.java8.groupchat.ParticipantColorPalette;
+import com.aresstack.askai.java8.groupchat.jgroups.JGroupsGroupChatTransport;
+import com.aresstack.askai.java8.groupchat.jgroups.JGroupsTransportConfig;
+import com.aresstack.askai.java8.party.OllamaBotResponder;
+import com.aresstack.askai.java8.party.PartySession;
+import com.aresstack.askai.java8.party.PartySettings;
 import com.aresstack.askai.java8.state.ApplicationStateService;
 import com.aresstack.askai.java8.client.OllamaChatTurn;
 import com.aresstack.askai.java8.client.OllamaModelInfoView;
@@ -77,6 +89,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
@@ -120,10 +133,19 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
     private final JTextArea systemPromptArea;
     private final ChatTranscript transcript;
     private final ChatComposerPanel composer;
-    // The interaction mode shown on the composer's mode selector: "Yapping" (casual chat, default) or the
-    // name of the selected agent when in "Questing" mode. selectedAgent is null while yapping.
-    private String chatMode = "Yapping";
+    // The interaction mode shown on the composer's mode selector: GroupChatMode.YAPPING (casual chat,
+    // default) or the name of the selected agent when in "Questing" mode. selectedAgent is null while yapping.
+    private String chatMode = GroupChatMode.YAPPING;
     private String selectedAgent;
+    // Partying (LAN group-chat) state: the active session controller and the persisted settings.
+    private PartySession partySession;
+    private PartySettings partySettings;
+    private MentionCompletionSupport mentionCompletion;
+    private boolean partyJoinInFlight;
+    // Set when a send raced the join; the composer content is submitted once the join succeeds.
+    private boolean partySendPending;
+    // Installed model names, cached on the model refresh so party threads can read them safely.
+    private volatile List<String> installedModelNames = Collections.emptyList();
     // Thinking effort ("off"/"low"/"medium"/"high"), only sent when the selected model supports thinking.
     private String reasoningEffort = "off";
     private boolean modelSupportsThinking;
@@ -277,6 +299,8 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
             }
         });
 
+        this.partySettings = new PartySettings(applicationState);
+        this.mentionCompletion = new MentionCompletionSupport(composer.getEditor());
         this.dictationExecutor = Executors.newCachedThreadPool(new DaemonThreadFactory());
         this.workDir = new File(System.getProperty("java.io.tmpdir"), "askai-speech");
         this.dictation = buildDictationService();
@@ -304,16 +328,26 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         if (applicationState == null) {
             return;
         }
-        String mode = applicationState.get(STATE_MODE, YAPPING_MODE);
+        String mode = applicationState.get(STATE_MODE, GroupChatMode.YAPPING);
         String agent = applicationState.get(STATE_AGENT, null);
-        if (YAPPING_MODE.equals(mode) || agent == null || agent.trim().isEmpty()) {
-            chatMode = YAPPING_MODE;
+        if (GroupChatMode.PARTYING.equals(mode)) {
+            // Restore into Partying mode and rejoin right away so the stored room history is
+            // replayed without requiring a first (swallowed) send.
+            chatMode = GroupChatMode.PARTYING;
             selectedAgent = null;
+            composer.setModeName("Partying");
+            mentionCompletion.setActive(true);
+            refreshMentionCompletionHandles();
+            startPartySessionIfNeeded();
+        } else if (GroupChatMode.YAPPING.equals(mode) || agent == null || agent.trim().isEmpty()) {
+            chatMode = GroupChatMode.YAPPING;
+            selectedAgent = null;
+            composer.setModeName("Yapping");
         } else {
             chatMode = mode;
             selectedAgent = agent;
+            composer.setModeName(agent);
         }
-        composer.setModeName(chatMode);
 
         String effort = applicationState.get(STATE_REASONING, "off");
         reasoningEffort = isKnownReasoningLevel(effort) ? effort : "off";
@@ -488,18 +522,102 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         return techScroll;
     }
 
-    /** The chat settings (system prompt, keep-alive, audio model, microphone) shown in the gear dialog. */
+    /** The category names shown in the Outlook-style navigation list, in display order. */
+    private static final String[] SETTINGS_CATEGORIES = {
+            "General", "Audio & Dictation", "Party: Identity & Room", "Party: Network", "Party: Bot"};
+
+    /**
+     * The chat settings dialog content, Outlook-style: a category list on the left selects one
+     * card on the right.
+     */
     private JComponent buildSettingsContent() {
-        JPanel params = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
+        final java.awt.CardLayout cardLayout = new java.awt.CardLayout();
+        final JPanel cards = new JPanel(cardLayout);
+        JComponent[] partyCards = buildPartyCards();
+        cards.add(settingsCard(buildGeneralCard()), SETTINGS_CATEGORIES[0]);
+        cards.add(settingsCard(buildAudioCard()), SETTINGS_CATEGORIES[1]);
+        cards.add(settingsCard(partyCards[0]), SETTINGS_CATEGORIES[2]);
+        cards.add(settingsCard(partyCards[1]), SETTINGS_CATEGORIES[3]);
+        cards.add(settingsCard(partyCards[2]), SETTINGS_CATEGORIES[4]);
+
+        final javax.swing.JList<String> navigation =
+                new javax.swing.JList<String>(SETTINGS_CATEGORIES);
+        navigation.setSelectionMode(javax.swing.ListSelectionModel.SINGLE_SELECTION);
+        navigation.setSelectedIndex(0);
+        navigation.setFixedCellHeight(30);
+        navigation.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
+        navigation.addListSelectionListener(event -> {
+            String selected = navigation.getSelectedValue();
+            if (selected != null) {
+                cardLayout.show(cards, selected);
+            }
+        });
+
+        JScrollPane navigationScroll = new JScrollPane(navigation);
+        navigationScroll.setPreferredSize(new Dimension(180, 10));
+
+        JPanel root = new JPanel(new BorderLayout(8, 0));
+        root.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        root.add(navigationScroll, BorderLayout.WEST);
+        root.add(cards, BorderLayout.CENTER);
+        return root;
+    }
+
+    /** Wraps a card in a scroll pane so long cards stay usable at small dialog sizes. */
+    private static JComponent settingsCard(JComponent card) {
+        JScrollPane scroll = new JScrollPane(card);
+        scroll.setBorder(BorderFactory.createEmptyBorder());
+        scroll.getVerticalScrollBar().setUnitIncrement(14);
+        return scroll;
+    }
+
+    /** A vertical card container with a consistent inner margin. */
+    private static JPanel settingsColumn() {
+        JPanel column = new JPanel();
+        column.setLayout(new javax.swing.BoxLayout(column, javax.swing.BoxLayout.Y_AXIS));
+        column.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        return column;
+    }
+
+    /** General: chat request parameters, the system prompt and the transcript colors. */
+    private JComponent buildGeneralCard() {
+        JPanel card = settingsColumn();
+
+        JPanel params = partySettingsRow();
         params.add(new JLabel("keep_alive"));
         params.add(keepAliveField);
-        params.add(new JLabel("Audio model"));
+        card.add(params);
+
+        JPanel system = new JPanel(new BorderLayout(6, 2));
+        system.setBorder(BorderFactory.createTitledBorder("System prompt"));
+        systemPromptArea.setLineWrap(true);
+        systemPromptArea.setWrapStyleWord(true);
+        JScrollPane systemScroll = new JScrollPane(systemPromptArea);
+        systemScroll.setPreferredSize(new Dimension(440, 120));
+        system.add(systemScroll, BorderLayout.CENTER);
+        system.setAlignmentX(Component.LEFT_ALIGNMENT);
+        system.setMaximumSize(new Dimension(Integer.MAX_VALUE, 170));
+        card.add(system);
+
+        JComponent colors = (JComponent) buildColorSettings();
+        colors.setAlignmentX(Component.LEFT_ALIGNMENT);
+        card.add(colors);
+        return card;
+    }
+
+    /** Audio & Dictation: the audio model, the transcription profile and the microphone. */
+    private JComponent buildAudioCard() {
+        JPanel card = settingsColumn();
+
+        JPanel modelRow = partySettingsRow();
+        modelRow.add(new JLabel("Audio model"));
         audioModelCombo.setEditable(false); // only /api/show-verified models, never free text
         audioModelCombo.setPreferredSize(new Dimension(200, audioModelCombo.getPreferredSize().height));
         audioModelCombo.addActionListener(event -> persistAudioModelSelection());
-        params.add(audioModelCombo);
+        modelRow.add(audioModelCombo);
+        card.add(modelRow);
 
-        JPanel profileRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
+        JPanel profileRow = partySettingsRow();
         profileRow.add(new JLabel("Transcription profile"));
         audioProfileCombo.setPreferredSize(new Dimension(240, audioProfileCombo.getPreferredSize().height));
         audioProfileCombo.setToolTipText("Choose the audio-processing profile used for microphone transcription.");
@@ -508,8 +626,9 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         JButton editProfilesButton = new JButton("Edit profiles…");
         editProfilesButton.addActionListener(event -> openAudioProcessingSettings());
         profileRow.add(editProfilesButton);
+        card.add(profileRow);
 
-        JPanel micRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
+        JPanel micRow = partySettingsRow();
         micRow.add(new JLabel("Microphone"));
         micCombo.setPreferredSize(new Dimension(240, micCombo.getPreferredSize().height));
         micCombo.addActionListener(event -> persistMicrophoneSelection());
@@ -518,28 +637,221 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         micRow.add(micRefreshButton);
         testMicButton.addActionListener(event -> testMicrophone());
         micRow.add(testMicButton);
+        card.add(micRow);
+        return card;
+    }
 
-        JPanel system = new JPanel(new BorderLayout(6, 2));
-        system.setBorder(BorderFactory.createTitledBorder("System prompt"));
-        systemPromptArea.setLineWrap(true);
-        systemPromptArea.setWrapStyleWord(true);
-        system.add(new JScrollPane(systemPromptArea), BorderLayout.CENTER);
+    /** No preferred participant color — the deterministic assignment picks a free one. */
+    private static final String PARTY_COLOR_AUTOMATIC = "(automatic)";
 
-        JPanel top = new JPanel();
-        top.setLayout(new javax.swing.BoxLayout(top, javax.swing.BoxLayout.Y_AXIS));
-        params.setAlignmentX(Component.LEFT_ALIGNMENT);
-        profileRow.setAlignmentX(Component.LEFT_ALIGNMENT);
-        micRow.setAlignmentX(Component.LEFT_ALIGNMENT);
-        top.add(params);
-        top.add(profileRow);
-        top.add(micRow);
+    /**
+     * The Partying settings, split over three cards: identity &amp; room, network, and bot.
+     * All cards share one "Apply party settings" action; values apply on the next join except
+     * the bot options, which are read live.
+     *
+     * @return the three cards in navigation order: identity &amp; room, network, bot
+     */
+    private JComponent[] buildPartyCards() {
+        final JTextField nameField = new JTextField(partySettings.displayName(), 12);
+        final JComboBox<String> colorCombo = new JComboBox<String>();
+        colorCombo.addItem(PARTY_COLOR_AUTOMATIC);
+        for (String token : ParticipantColorPalette.tokens()) {
+            colorCombo.addItem(token);
+        }
+        String preferred = partySettings.preferredColor();
+        colorCombo.setSelectedItem(preferred != null ? preferred : PARTY_COLOR_AUTOMATIC);
 
-        JPanel settings = new JPanel(new BorderLayout(4, 4));
-        settings.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        settings.add(top, BorderLayout.NORTH);
-        settings.add(system, BorderLayout.CENTER);
-        settings.add(buildColorSettings(), BorderLayout.SOUTH);
-        return settings;
+        final javax.swing.JCheckBox discoveryBox = new javax.swing.JCheckBox(
+                "Automatic LAN discovery (UDP multicast)", partySettings.discoveryEnabled());
+        final JTextField interfaceField = new JTextField(
+                partySettings.networkInterface() == null ? "" : partySettings.networkInterface(), 8);
+        interfaceField.setToolTipText("Network interface to bind, empty for automatic selection");
+        final JTextField peersField = new JTextField(partySettings.manualPeersText(), 24);
+        peersField.setToolTipText(
+                "Manual peer addresses (host or host:port, comma-separated) when multicast is blocked");
+
+        final JComboBox<String> botPolicyCombo = new JComboBox<String>();
+        botPolicyCombo.addItem("Answer only when @AskAI is mentioned");
+        botPolicyCombo.addItem("See every message and decide (always)");
+        botPolicyCombo.addItem("Never answer");
+        String policy = partySettings.botPolicy();
+        botPolicyCombo.setSelectedIndex(PartySettings.BOT_POLICY_OFF.equals(policy) ? 2
+                : PartySettings.BOT_POLICY_ALWAYS.equals(policy) ? 1 : 0);
+        final javax.swing.JCheckBox modelMentionsBox = new javax.swing.JCheckBox(
+                "Allow @modelname mentions", partySettings.modelMentionsEnabled());
+        modelMentionsBox.setToolTipText(
+                "Address a specific installed model directly, e.g. @gemma4:e2b — loaded models are highlighted in the completion");
+        final javax.swing.JCheckBox gateBox = new javax.swing.JCheckBox(
+                "Pre-check unprompted replies with a YES/NO gate", partySettings.chimeInGateEnabled());
+        gateBox.setToolTipText(
+                "Extra short model call deciding whether to chime in under the \"always\" policy. "
+                        + "Recommended for small models; large models that follow the [SILENT] contract "
+                        + "reliably can disable it and save the call.");
+        final JComboBox<String> contextModeCombo = new JComboBox<String>();
+        contextModeCombo.addItem("Answer the mentioning message (transcript as context)");
+        contextModeCombo.addItem("Full conversation as chat turns (model draws its own conclusions)");
+        contextModeCombo.setSelectedIndex(
+                PartySettings.BOT_CONTEXT_CONVERSATION.equals(partySettings.botContextMode()) ? 1 : 0);
+
+        String customPrompt = partySettings.botSystemPrompt();
+        final JTextArea botPromptArea = new JTextArea(customPrompt != null ? customPrompt : "", 3, 40);
+        botPromptArea.setLineWrap(true);
+        botPromptArea.setWrapStyleWord(true);
+        botPromptArea.setToolTipText(
+                "Custom system prompt for the party bot. Leave empty for the built-in default:\n"
+                        + com.aresstack.askai.java8.party.OllamaBotResponder.DEFAULT_SYSTEM_PROMPT);
+        String customAlwaysPrompt = partySettings.botAlwaysPrompt();
+        final JTextArea alwaysPromptArea = new JTextArea(
+                customAlwaysPrompt != null ? customAlwaysPrompt : "", 3, 40);
+        alwaysPromptArea.setLineWrap(true);
+        alwaysPromptArea.setWrapStyleWord(true);
+        alwaysPromptArea.setToolTipText(
+                "Used with the \"always\" policy: explains when the bot should chime in unprompted. "
+                        + "Leave empty for the built-in default:\n"
+                        + com.aresstack.askai.java8.party.OllamaBotResponder.DEFAULT_ALWAYS_PROMPT);
+
+        final JTextField roomField = new JTextField(partySettings.roomId(), 10);
+        final JTextField secretField = new JTextField(partySettings.roomSecret(), 10);
+        secretField.setToolTipText("Room invitation secret: authenticates the join and encrypts traffic");
+        final JTextField historyField = new JTextField(
+                partySettings.historyDirectory().getAbsolutePath(), 24);
+
+        // One shared apply action; each card carries its own button for it.
+        final java.awt.event.ActionListener applyAction = event -> {
+            partySettings.setDisplayName(nameField.getText());
+            Object color = colorCombo.getSelectedItem();
+            partySettings.setPreferredColor(
+                    PARTY_COLOR_AUTOMATIC.equals(color) ? null : String.valueOf(color));
+            partySettings.setDiscoveryEnabled(discoveryBox.isSelected());
+            partySettings.setNetworkInterface(interfaceField.getText());
+            partySettings.setManualPeers(peersField.getText());
+            int policyIndex = botPolicyCombo.getSelectedIndex();
+            partySettings.setBotPolicy(policyIndex == 2 ? PartySettings.BOT_POLICY_OFF
+                    : policyIndex == 1 ? PartySettings.BOT_POLICY_ALWAYS
+                    : PartySettings.BOT_POLICY_MENTION);
+            partySettings.setModelMentionsEnabled(modelMentionsBox.isSelected());
+            partySettings.setChimeInGateEnabled(gateBox.isSelected());
+            partySettings.setBotContextMode(contextModeCombo.getSelectedIndex() == 1
+                    ? PartySettings.BOT_CONTEXT_CONVERSATION : PartySettings.BOT_CONTEXT_TRANSCRIPT);
+            partySettings.setBotSystemPrompt(botPromptArea.getText());
+            partySettings.setBotAlwaysPrompt(alwaysPromptArea.getText());
+            partySettings.setRoomId(roomField.getText());
+            partySettings.setRoomSecret(secretField.getText());
+            partySettings.setHistoryDirectory(historyField.getText());
+            refreshMentionCompletionHandles();
+            // A policy change flips this peer's bot capability; announce it to the room.
+            final PartySession session = partySession;
+            if (session != null) {
+                dictationExecutor.execute(new Runnable() {
+                    public void run() {
+                        try {
+                            session.updateBotReadiness();
+                        } catch (Exception ignored) {
+                        }
+                    }
+                });
+            }
+            setStatus("Party settings saved — network changes apply on the next join.");
+        };
+
+        // ---- Card 1: identity & room
+        JPanel identityCard = settingsColumn();
+        JPanel identityRow = partySettingsRow();
+        identityRow.add(new JLabel("Display name"));
+        identityRow.add(nameField);
+        identityRow.add(new JLabel("Preferred color"));
+        identityRow.add(colorCombo);
+        identityCard.add(identityRow);
+        JPanel roomRow = partySettingsRow();
+        roomRow.add(new JLabel("Room"));
+        roomRow.add(roomField);
+        roomRow.add(new JLabel("Secret"));
+        roomRow.add(secretField);
+        identityCard.add(roomRow);
+        JPanel historyRow = partySettingsRow();
+        historyRow.add(new JLabel("History folder"));
+        historyRow.add(historyField);
+        identityCard.add(historyRow);
+        JLabel historyNote = new JLabel(
+                "History lives on the participants' machines. Messages no reachable peer remembers cannot be restored.");
+        historyNote.setFont(historyNote.getFont().deriveFont(historyNote.getFont().getSize2D() - 2f));
+        JPanel noteRow = partySettingsRow();
+        noteRow.add(historyNote);
+        identityCard.add(noteRow);
+        identityCard.add(partyApplyRow(applyAction));
+
+        // ---- Card 2: network
+        JPanel networkCard = settingsColumn();
+        JPanel discoveryRow = partySettingsRow();
+        discoveryRow.add(discoveryBox);
+        discoveryRow.add(new JLabel("Interface"));
+        discoveryRow.add(interfaceField);
+        networkCard.add(discoveryRow);
+        JPanel peersRow = partySettingsRow();
+        peersRow.add(new JLabel("Manual peers"));
+        peersRow.add(peersField);
+        networkCard.add(peersRow);
+        JButton diagnosticsButton = new JButton("Network diagnostics");
+        diagnosticsButton.setToolTipText("Check multicast/firewall readiness of the local network interfaces");
+        diagnosticsButton.addActionListener(event -> {
+            appendTech(JGroupsGroupChatTransport.diagnoseMulticast());
+            setStatus("Network diagnostics written to Technical details.");
+        });
+        JPanel networkActions = partyApplyRow(applyAction);
+        networkActions.add(diagnosticsButton);
+        networkCard.add(networkActions);
+
+        // ---- Card 3: bot
+        JPanel botCard = settingsColumn();
+        JPanel botRow = partySettingsRow();
+        botRow.add(new JLabel("Bot"));
+        botRow.add(botPolicyCombo);
+        botCard.add(botRow);
+        JPanel mentionsRow = partySettingsRow();
+        mentionsRow.add(modelMentionsBox);
+        botCard.add(mentionsRow);
+        JPanel gateRow = partySettingsRow();
+        gateRow.add(gateBox);
+        botCard.add(gateRow);
+        JPanel contextRow = partySettingsRow();
+        contextRow.add(new JLabel("Bot context"));
+        contextRow.add(contextModeCombo);
+        botCard.add(contextRow);
+        JPanel promptRow = partySettingsRow();
+        promptRow.add(new JLabel("Bot system prompt (empty = default)"));
+        botCard.add(promptRow);
+        JScrollPane promptScroll = new JScrollPane(botPromptArea);
+        promptScroll.setAlignmentX(Component.LEFT_ALIGNMENT);
+        JPanel promptFieldRow = partySettingsRow();
+        promptFieldRow.add(promptScroll);
+        botCard.add(promptFieldRow);
+        JPanel alwaysLabelRow = partySettingsRow();
+        alwaysLabelRow.add(new JLabel("When to chime in — always policy (empty = default)"));
+        botCard.add(alwaysLabelRow);
+        JScrollPane alwaysScroll = new JScrollPane(alwaysPromptArea);
+        alwaysScroll.setAlignmentX(Component.LEFT_ALIGNMENT);
+        JPanel alwaysFieldRow = partySettingsRow();
+        alwaysFieldRow.add(alwaysScroll);
+        botCard.add(alwaysFieldRow);
+        botCard.add(partyApplyRow(applyAction));
+
+        return new JComponent[] {identityCard, networkCard, botCard};
+    }
+
+    /** A row with an "Apply party settings" button wired to the shared apply action. */
+    private static JPanel partyApplyRow(java.awt.event.ActionListener applyAction) {
+        JButton applyButton = new JButton("Apply party settings");
+        applyButton.setToolTipText("Saved immediately; network changes take effect on the next join");
+        applyButton.addActionListener(applyAction);
+        JPanel row = partySettingsRow();
+        row.add(applyButton);
+        return row;
+    }
+
+    private static JPanel partySettingsRow() {
+        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 2));
+        row.setAlignmentX(Component.LEFT_ALIGNMENT);
+        return row;
     }
 
     /** Color pickers for the chat bubble colors — persisted and applied to the transcript immediately. */
@@ -627,9 +939,9 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
             settingsDialog = new javax.swing.JDialog(
                     owner instanceof java.awt.Frame ? (java.awt.Frame) owner : null, "Chat settings", false);
             JComponent content = buildSettingsContent();
-            settingsDialog.setContentPane(new JScrollPane(content));
+            settingsDialog.setContentPane(content); // cards scroll individually, no outer scroll
             settingsDialog.pack();
-            settingsDialog.setSize(new Dimension(Math.max(460, settingsDialog.getWidth()), 360));
+            settingsDialog.setSize(new Dimension(Math.max(760, settingsDialog.getWidth()), 520));
             settingsDialog.setLocationRelativeTo(this);
         }
         settingsDialog.setVisible(true);
@@ -679,6 +991,8 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
             modelCombo.setSelectedItem(previous);
         }
         composer.setModelName((String) modelCombo.getSelectedItem());
+        // Cached for the party threads (@modelname mention handles) — safe to read off the EDT.
+        installedModelNames = new ArrayList<String>(names);
     }
 
     // ------------------------------------------------------------------ chat (unchanged behaviour)
@@ -761,23 +1075,24 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         menu.show(anchor, 0, anchor.getHeight());
     }
 
-    /** The default, casual chat mode label (a gamified name for "just talking"). */
-    private static final String YAPPING_MODE = "Yapping";
-
     /**
-     * The in-composer mode selector: "Yapping" is the default casual chat; "Questing" is the agent mode
-     * and carries a submenu of installed agents (none yet). Selecting an agent switches into that mode.
+     * The in-composer mode selector: "Yapping" is the default casual chat; "Questing" is the agent
+     * mode and carries a submenu of installed agents (none yet); "Partying" is the decentralized LAN
+     * group-chat mode where people and bots collaborate.
+     *
+     * <p>Internal mode IDs are the stable constants from {@link GroupChatMode} (e.g.
+     * {@code "builtin.partying"}); display labels shown in the composer pill are derived here.</p>
      */
     private void openModePopup() {
         javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
 
         javax.swing.JRadioButtonMenuItem yapping =
-                new javax.swing.JRadioButtonMenuItem(YAPPING_MODE, YAPPING_MODE.equals(chatMode));
+                new javax.swing.JRadioButtonMenuItem("\uD83D\uDCAC Yapping", GroupChatMode.YAPPING.equals(chatMode));
         yapping.addActionListener(event -> selectYappingMode());
         menu.add(yapping);
 
         // "Questing" is a submenu (the arrow) listing the installed agents to run.
-        javax.swing.JMenu questing = new javax.swing.JMenu("Questing");
+        javax.swing.JMenu questing = new javax.swing.JMenu("\uD83D\uDDFA Questing");
         List<String> agents = installedAgentNames();
         if (agents.isEmpty()) {
             javax.swing.JMenuItem none = new javax.swing.JMenuItem("No agents installed");
@@ -793,6 +1108,12 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         }
         menu.add(questing);
 
+        javax.swing.JRadioButtonMenuItem partying =
+                new javax.swing.JRadioButtonMenuItem("\uD83D\uDC65 Partying", GroupChatMode.PARTYING.equals(chatMode));
+        partying.setToolTipText("Partying \u2014 Chat with people and bots on your local network");
+        partying.addActionListener(event -> selectPartyingMode());
+        menu.add(partying);
+
         JComponent anchor = composer.getModeButton();
         menu.show(anchor, 0, anchor.getHeight());
     }
@@ -803,19 +1124,327 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
     }
 
     private void selectYappingMode() {
-        chatMode = YAPPING_MODE;
+        leavePartySession(false);
+        mentionCompletion.setActive(false);
+        chatMode = GroupChatMode.YAPPING;
         selectedAgent = null;
-        composer.setModeName(YAPPING_MODE);
-        rememberState(STATE_MODE, YAPPING_MODE);
+        composer.setModeName("Yapping");
+        rememberState(STATE_MODE, GroupChatMode.YAPPING);
         rememberState(STATE_AGENT, null);
     }
 
     private void selectAgentMode(String agent) {
+        leavePartySession(false);
+        mentionCompletion.setActive(false);
         chatMode = agent;
         selectedAgent = agent;
         composer.setModeName(agent);
         rememberState(STATE_MODE, agent);
         rememberState(STATE_AGENT, agent);
+    }
+
+    // ------------------------------------------------------------------ Partying (LAN group chat)
+
+    /**
+     * Leaves the active party session; safe to call when not connected, always idempotent.
+     *
+     * @param synchronously {@code true} during shutdown (the executor is about to stop);
+     *                      {@code false} to leave in the background on a mode switch
+     */
+    private void leavePartySession(boolean synchronously) {
+        final PartySession session = partySession;
+        partySession = null;
+        partyJoinInFlight = false;
+        partySendPending = false;
+        if (session == null) {
+            return;
+        }
+        Runnable leave = new Runnable() {
+            public void run() {
+                try {
+                    session.leave();
+                } catch (Exception ignored) {
+                }
+            }
+        };
+        if (synchronously) {
+            leave.run();
+        } else {
+            dictationExecutor.execute(leave);
+        }
+    }
+
+    private void selectPartyingMode() {
+        chatMode = GroupChatMode.PARTYING;
+        selectedAgent = null;
+        composer.setModeName("Partying");
+        rememberState(STATE_MODE, GroupChatMode.PARTYING);
+        rememberState(STATE_AGENT, null);
+        mentionCompletion.setActive(true);
+        refreshMentionCompletionHandles();
+        startPartySessionIfNeeded();
+    }
+
+    /** Builds and joins a party session in the background unless one is already connected. */
+    private void startPartySessionIfNeeded() {
+        if (partyJoinInFlight || (partySession != null && partySession.isConnected())) {
+            return;
+        }
+        partyJoinInFlight = true;
+        setStatus("Looking for a party…");
+        final PartySession session = buildPartySession();
+        dictationExecutor.execute(new Runnable() {
+            public void run() {
+                onUi(new Runnable() {
+                    public void run() {
+                        if (GroupChatMode.PARTYING.equals(chatMode)) {
+                            setStatus("Joining the party…");
+                        }
+                    }
+                });
+                try {
+                    session.join();
+                    onUi(new Runnable() {
+                        public void run() {
+                            partySession = session;
+                            partyJoinInFlight = false;
+                            refreshMentionCompletionHandles();
+                            if (partySendPending) {
+                                partySendPending = false;
+                                if (GroupChatMode.PARTYING.equals(chatMode)
+                                        && !composer.getMessage().trim().isEmpty()) {
+                                    sendPartyChat();
+                                }
+                            }
+                        }
+                    });
+                    session.updateBotReadiness();
+                } catch (final Exception ex) {
+                    onUi(new Runnable() {
+                        public void run() {
+                            partyJoinInFlight = false;
+                            if (GroupChatMode.PARTYING.equals(chatMode)) {
+                                setStatus("Party connection lost: " + messageOf(ex));
+                                transcript.appendInfo("Could not join the party: " + messageOf(ex));
+                            }
+                        }
+                    });
+                }
+            }
+        });
+    }
+
+    /** Assembles the session from the persisted settings, the LAN transport and the bot port. */
+    private PartySession buildPartySession() {
+        String participantId = partySettings.participantId();
+        String displayName = partySettings.displayName();
+        String handle = MentionParser.computeUniqueHandle(
+                displayName, java.util.Collections.<String>emptyList());
+        Participant self = new Participant(participantId, displayName, handle,
+                partySettings.preferredColor(), true, modelCombo.getSelectedItem() != null);
+        GroupChatRoom room = new GroupChatRoom(
+                partySettings.roomId(), partySettings.roomName(), partySettings.roomSecret());
+        OllamaBotResponder responder = new OllamaBotResponder(ollamaService,
+                new Supplier<String>() {
+                    public String get() {
+                        return (String) modelCombo.getSelectedItem();
+                    }
+                },
+                new Supplier<String>() {
+                    public String get() {
+                        return keepAliveField.getText();
+                    }
+                },
+                new Supplier<List<String>>() {
+                    public List<String> get() {
+                        return partySettings.modelMentionsEnabled()
+                                ? installedModelNames
+                                : Collections.<String>emptyList();
+                    }
+                },
+                partySettings,
+                new Supplier<ThinkingOption>() {
+                    public ThinkingOption get() {
+                        // Mirror the composer's Think selector, exactly like a Yapping turn.
+                        return modelSupportsThinking && !"off".equals(reasoningEffort)
+                                ? ThinkingOption.ofLevel(reasoningEffort)
+                                : ThinkingOption.defaultOption();
+                    }
+                });
+        return new PartySession(createPartyTransport(), room, self,
+                new Supplier<String>() {
+                    public String get() {
+                        return partySettings.botPolicy();
+                    }
+                },
+                responder, new PanelPartyUi());
+    }
+
+    /** The real LAN transport (JGroups); discovery options come from the Partying settings. */
+    private GroupChatTransport createPartyTransport() {
+        JGroupsTransportConfig config = new JGroupsTransportConfig.Builder()
+                .multicastDiscovery(partySettings.discoveryEnabled())
+                .bindInterface(partySettings.networkInterface())
+                .manualPeers(partySettings.manualPeers())
+                .historyDirectory(partySettings.historyDirectory())
+                .build();
+        return new JGroupsGroupChatTransport(config);
+    }
+
+    // The bot host's local thought bubble (same visualization as a Yapping thinking turn).
+    private com.aresstack.askai.java8.ui.bubble.BubbleTranscriptPanel.ThinkingHandle partyThinking;
+    private final StringBuilder partyThinkingText = new StringBuilder();
+
+    /** Routes the session's callbacks (transport threads) onto the EDT and into the shared shell. */
+    private final class PanelPartyUi implements PartySession.Ui {
+        public void onPartyMessage(final PartySession.PartyMessageView view) {
+            onUi(new Runnable() {
+                public void run() {
+                    if (!GroupChatMode.PARTYING.equals(chatMode)) {
+                        return;
+                    }
+                    transcript.appendPartyMessage(
+                            view.getSenderDisplayName(),
+                            view.getMessage().getSenderParticipantId(),
+                            view.getMessage().getMarkdown(),
+                            partyColor(view.getColorToken()),
+                            view.isLocal());
+                }
+            });
+        }
+
+        public void onInfoLine(final String text) {
+            onUi(new Runnable() {
+                public void run() {
+                    if (GroupChatMode.PARTYING.equals(chatMode)) {
+                        transcript.appendInfo(text);
+                    }
+                }
+            });
+        }
+
+        public void onStatus(final GroupChatConnectionState state) {
+            onUi(new Runnable() {
+                public void run() {
+                    if (!GroupChatMode.PARTYING.equals(chatMode)) {
+                        return;
+                    }
+                    if (state.isConnected()) {
+                        int count = state.getMemberCount();
+                        setStatus(count == 1
+                                ? "1 party member (just you)"
+                                : count + " party members");
+                    } else if (state.hasError()) {
+                        setStatus("Party connection lost: " + state.getErrorMessage());
+                    } else {
+                        setStatus("Not connected to party");
+                    }
+                }
+            });
+        }
+
+        public void onHandlesChanged(final java.util.List<String> handles) {
+            onUi(new Runnable() {
+                public void run() {
+                    mentionCompletion.setHandles(handles);
+                }
+            });
+        }
+
+        public void onBotThinkingDelta(final String delta) {
+            onUi(new Runnable() {
+                public void run() {
+                    if (!GroupChatMode.PARTYING.equals(chatMode)) {
+                        return;
+                    }
+                    if (partyThinking == null) {
+                        partyThinkingText.setLength(0);
+                        partyThinking = transcript.startAssistantThinking(
+                                com.aresstack.askai.java8.groupchat.GroupChatBot.DISPLAY_NAME);
+                    }
+                    partyThinkingText.append(delta);
+                    transcript.appendAssistantThinkingDelta(partyThinking, delta);
+                }
+            });
+        }
+
+        public void onBotThinkingDone() {
+            onUi(new Runnable() {
+                public void run() {
+                    if (partyThinking != null) {
+                        transcript.completeAssistantThinking(partyThinking,
+                                thinkingSummaryProvider.createSummary(partyThinkingText.toString()));
+                        partyThinking = null;
+                        partyThinkingText.setLength(0);
+                    }
+                }
+            });
+        }
+    }
+
+    /** Refreshes the {@code @}-completion handles from the current party membership. */
+    private void refreshMentionCompletionHandles() {
+        PartySession session = partySession;
+        List<String> handles;
+        if (session != null) {
+            handles = session.mentionHandles();
+        } else {
+            handles = new ArrayList<String>();
+            handles.add(MentionParser.BOT_HANDLE);
+            if (partySettings.modelMentionsEnabled()) {
+                handles.addAll(installedModelNames);
+            }
+        }
+        mentionCompletion.setHandles(handles);
+        refreshRunningModelHighlight();
+    }
+
+    /**
+     * Highlights the currently loaded Ollama models in the completion popup — they answer
+     * quickly because no model load is needed.
+     */
+    private void refreshRunningModelHighlight() {
+        if (!partySettings.modelMentionsEnabled()) {
+            mentionCompletion.setHighlighted(Collections.<String>emptySet());
+            return;
+        }
+        ollamaService.listRunningModels(new OllamaService.RunningModelsListener() {
+            public void onRunningModels(final List<com.aresstack.askai.java8.client.OllamaRunningModelInfo> models) {
+                onUi(new Runnable() {
+                    public void run() {
+                        List<String> names = new ArrayList<String>();
+                        for (com.aresstack.askai.java8.client.OllamaRunningModelInfo info : models) {
+                            names.add(info.getDisplayName());
+                        }
+                        mentionCompletion.setHighlighted(names);
+                    }
+                });
+            }
+
+            public void onError(Exception ex) {
+                // Highlighting is a hint only; keep the previous state on failure.
+            }
+        });
+    }
+
+    /**
+     * Maps a replicated palette color token to the theme-matched concrete color: the palette's
+     * dark variant on dark transcript backgrounds, the light variant otherwise.
+     */
+    private Color partyColor(String token) {
+        ParticipantColorPalette.Entry entry = ParticipantColorPalette.byToken(token);
+        if (entry == null) {
+            return null;
+        }
+        Color background = model.getChatColors().getTranscriptBackground();
+        boolean darkTheme = background != null
+                && (background.getRed() * 299 + background.getGreen() * 587
+                        + background.getBlue() * 114) / 1000 < 128;
+        try {
+            return Color.decode(darkTheme ? entry.getDarkHex() : entry.getLightHex());
+        } catch (NumberFormatException ex) {
+            return null;
+        }
     }
 
     // ------------------------------------------------------------------ reasoning effort
@@ -887,6 +1516,18 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
             reasoningEffort = "off";
             composer.setReasoningName(reasoningLabel("off"));
         }
+        // A model change may flip this peer's ability to host the party bot; announce it.
+        final PartySession session = partySession;
+        if (session != null) {
+            dictationExecutor.execute(new Runnable() {
+                public void run() {
+                    try {
+                        session.updateBotReadiness();
+                    } catch (Exception ignored) {
+                    }
+                }
+            });
+        }
     }
 
     private void showEmptyState() {
@@ -897,6 +1538,13 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         if (!composer.isSendEnabled()) {
             return;
         }
+
+        // In Partying mode, route through the GroupChatSubmissionTarget instead of Ollama.
+        if (GroupChatMode.PARTYING.equals(chatMode)) {
+            sendPartyChat();
+            return;
+        }
+
         final String modelName = (String) modelCombo.getSelectedItem();
         if (modelName == null || modelName.trim().isEmpty()) {
             setStatus("No model selected. Open Models or Install first.");
@@ -1056,6 +1704,30 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
                 });
             }
         });
+    }
+
+    /**
+     * Routes a message submission in Partying mode through the party session, keeping the
+     * existing transcript and composer for the shared chat shell.
+     *
+     * <p>The composer is cleared only when submission is accepted (lossless: a rejected message
+     * stays in the composer so the user can retry or switch to a different mode).</p>
+     */
+    private void sendPartyChat() {
+        final String userPrompt = composer.getMessage().trim();
+        if (userPrompt.isEmpty()) {
+            setStatus("Write a message before sending.");
+            return;
+        }
+        PartySession session = partySession;
+        if (session != null && session.submitMessage(userPrompt)) {
+            composer.clearMessage();
+        } else {
+            // Lossless: the text stays in the composer and is submitted once the join succeeds.
+            partySendPending = true;
+            startPartySessionIfNeeded();
+            setStatus("Joining the party — your message is sent as soon as you are connected.");
+        }
     }
 
     /** Choose one or more images (PNG/JPEG/WebP) and queue them in the composer as attachments. */
@@ -1852,6 +2524,7 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
             } catch (Exception ignored) {
             }
         }
+        leavePartySession(true);
         cleanupOldRecordings();
         dictationExecutor.shutdownNow();
     }

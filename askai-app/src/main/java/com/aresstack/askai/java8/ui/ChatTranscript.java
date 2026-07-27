@@ -77,6 +77,31 @@ final class ChatTranscript {
         panel.appendUserImages(attachments);
     }
 
+    /**
+     * Appends a Partying-mode message from another participant.
+     *
+     * <p>The sender's display name becomes the bubble header; the message body is passed through
+     * verbatim (not prefixed with {@code **@name**}).  This preserves the distinction between
+     * local "your" messages and remote participant messages, and allows per-participant colors
+     * to be applied in a later slice without modifying the stored Markdown.</p>
+     *
+     * @param senderName    display name shown as the bubble header
+     * @param participantId sender's stable ID (reserved for future color support)
+     * @param markdown      message body
+     */
+    void appendPartyMessage(String senderName, String participantId, String markdown) {
+        panel.appendPartyMessage(senderName, participantId, markdown);
+    }
+
+    /**
+     * Appends a Partying-mode message with the sender's replicated participant color and
+     * alignment (own messages right, remote messages left).
+     */
+    void appendPartyMessage(String senderName, String participantId, String markdown,
+                            java.awt.Color headerColor, boolean local) {
+        panel.appendPartyMessage(senderName, participantId, markdown, headerColor, local);
+    }
+
     /** Appends a muted, centered info/system line. */
     void appendInfo(String text) {
         panel.appendInfo(text);
