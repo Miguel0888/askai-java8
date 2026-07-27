@@ -1,33 +1,38 @@
 package com.aresstack.askai.java8.batch.service;
 
-import java.io.BufferedWriter;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.OutputStreamWriter;
-import java.io.Writer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 
-/** Append one model/profile transcription section to the source-adjacent Markdown file. */
+/**
+ * Upsert one model/profile transcription into the source-adjacent Markdown file through the structured
+ * {@link BatchTranscriptionDocumentEditor} (no blind append, no string replace), then write the result
+ * atomically. Re-running the same model + profile replaces exactly that section; other sections are left
+ * untouched. On any failure the existing file stays unchanged.
+ */
 public final class BatchMarkdownResultWriter {
 
-    public synchronized File append(File audioFile, String modelName,
+    private final BatchTranscriptionDocumentEditor editor;
+
+    public BatchMarkdownResultWriter() {
+        this(new MarkdownBatchTranscriptionDocumentEditor());
+    }
+
+    public BatchMarkdownResultWriter(BatchTranscriptionDocumentEditor editor) {
+        this.editor = editor;
+    }
+
+    public synchronized File append(File audioFile, String modelName, String profileId,
                                     String profileName, String transcription) throws IOException {
         File markdownFile = markdownFileFor(audioFile);
-        boolean needsSeparator = markdownFile.isFile() && markdownFile.length() > 0L;
-        Writer writer = new BufferedWriter(new OutputStreamWriter(
-                new FileOutputStream(markdownFile, true), StandardCharsets.UTF_8));
-        try {
-            if (needsSeparator) writer.write(System.lineSeparator() + System.lineSeparator());
-            writer.write("# " + sanitizeHeading(modelName) + System.lineSeparator());
-            writer.write(System.lineSeparator());
-            writer.write("## Audio profile: " + sanitizeHeading(profileName) + System.lineSeparator());
-            writer.write(System.lineSeparator());
-            writer.write(transcription == null ? "" : transcription.trim());
-            writer.write(System.lineSeparator());
-        } finally {
-            writer.close();
-        }
+        String current = markdownFile.isFile()
+                ? new String(Files.readAllBytes(markdownFile.toPath()), StandardCharsets.UTF_8) : "";
+        String updated = editor.upsertTranscription(current,
+                new TranscriptionDocumentEntry(modelName, profileId, profileName, transcription));
+        writeAtomically(markdownFile, updated);
         return markdownFile;
     }
 
@@ -38,7 +43,25 @@ public final class BatchMarkdownResultWriter {
         return new File(audioFile.getParentFile(), baseName + ".md");
     }
 
-    private String sanitizeHeading(String value) {
-        return value == null ? "" : value.replace('\r', ' ').replace('\n', ' ').trim();
+    /** Write to a temp file in the same directory and atomically replace the target, so a crash mid-write
+     *  cannot corrupt or truncate the existing document. */
+    private static void writeAtomically(File target, String content) throws IOException {
+        File directory = target.getAbsoluteFile().getParentFile();
+        if (directory != null && !directory.isDirectory()) {
+            directory.mkdirs();
+        }
+        File temp = File.createTempFile("askai-md-", ".tmp", directory);
+        try {
+            Files.write(temp.toPath(), content.getBytes(StandardCharsets.UTF_8));
+            try {
+                Files.move(temp.toPath(), target.toPath(), StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException ex) {
+                Files.move(temp.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            }
+        } finally {
+            if (temp.exists()) {
+                temp.delete();
+            }
+        }
     }
 }
