@@ -9,7 +9,7 @@ import java.nio.file.Path;
  * with the host's system version set (so a plugin's {@code Plugin-Requires} can be checked). It only manages
  * PF4J plugin bundles; it creates no UI and knows no research-specific types.
  */
-public final class AskAiPluginManager extends DefaultPluginManager {
+public class AskAiPluginManager extends DefaultPluginManager {
 
     public AskAiPluginManager(Path pluginsRoot, String systemVersion) {
         super(pluginsRoot);

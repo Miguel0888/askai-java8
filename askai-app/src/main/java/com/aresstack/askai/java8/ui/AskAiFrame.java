@@ -301,9 +301,16 @@ public final class AskAiFrame extends JFrame {
                                 agentSink);
                     }
                 };
-        com.aresstack.askai.plugin.host.AgentSessionCoordinator agentCoordinator =
+        final com.aresstack.askai.plugin.host.AgentSessionCoordinator agentCoordinator =
                 new com.aresstack.askai.plugin.host.AgentSessionCoordinator(
                         agentResolver, agentHostProvider, uiExecutor);
+        // Transactional refresh: close the outgoing generation's sessions before its classloaders are retired,
+        // so no session survives a plugin-generation swap. Sessions are recreated lazily against the new one.
+        pluginService.setGenerationSwapHook(new Runnable() {
+            public void run() {
+                agentCoordinator.closeAllSessions();
+            }
+        });
         // The host owns the collapsible artifact area and wires /open to reveal a tab.
         host.setAgentSessionCoordinator(agentCoordinator,
                 new com.aresstack.askai.java8.plugin.host.AskAiThemeService(),

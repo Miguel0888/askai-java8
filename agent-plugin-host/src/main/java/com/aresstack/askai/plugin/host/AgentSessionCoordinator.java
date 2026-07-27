@@ -159,17 +159,29 @@ public final class AgentSessionCoordinator implements ChatSubmissionRouter, Acti
 
     /** Close all sessions (process shutdown). */
     public void shutdown() {
+        closeAllSessions();
+    }
+
+    /**
+     * Close and forget every session, routing back to Yapping / no agent. Used both at process shutdown and by
+     * the plugin runtime before a new generation is published: no session from an outgoing plugin generation may
+     * survive its classloader retirement, so all sessions are closed and recreated lazily against the new
+     * generation. The coordinator stays usable afterwards ({@link #setActiveAgent} recreates on demand).
+     */
+    public void closeAllSessions() {
         activeSession = null;
         activeAgentId = null;
         activeExtension = null;
-        for (AgentSession session : sessions.values()) {
+        List<AgentSession> toClose = new ArrayList<AgentSession>(sessions.values());
+        sessions.clear();
+        for (AgentSession session : toClose) {
             try {
                 session.close();
             } catch (RuntimeException ignored) {
                 // best-effort
             }
         }
-        sessions.clear();
+        fireChange();
     }
 
     public String getActiveAgentId() {

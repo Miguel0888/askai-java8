@@ -181,3 +181,191 @@ Persistenz-Bausteine sind aber vorhanden und produktiv anschließbar.
 `ResearchAgentSession` an `ResearchProjectStore` verdrahten (Wurzel = host workspace dir + projectId,
 seed-if-empty, Memento bei jedem State-Change speichern, bei `activate()` wiederherstellen). Danach
 optionaler Lucene-Index als aus dem Store rebuildbare, abgeleitete Sicht.
+
+---
+
+# Research Agent — Endaudit-Korrekturen (Commits 21–29) — problem log
+
+Fortlaufende IDs `RA-Pnnn`. Status: OPEN | WORKAROUND | PARTIALLY_RESOLVED | DEFERRED | RESOLVED.
+Diese IDs adressieren die beim Endaudit nach Commit 20 gefundenen Architektur- und
+Datenkonsistenzlücken. Reihenfolge und Zielinvarianten siehe Gesamtauftrag.
+
+## RA-P003 — Plugin refresh leaks previous runtime generation
+
+**Erkannt in:** Audit nach Commit 20
+**Status:** RESOLVED (Commit 21)
+**Schweregrad:** HIGH
+**Betroffene Module:** agent-plugin-host, askai-app
+
+### Erwartung
+Genau eine aktive PF4J-Runtime-Generation. Ein Refresh vergisst nie einen alten `AskAiPluginManager`;
+die alte Generation wird nach dem atomaren Umschalten gestoppt und entladen.
+
+### Beobachtung
+`WorkspacePluginService.discover()` überschrieb `pluginManager` mit einem neuen Manager, ohne den
+vorherigen beim normalen Refresh zu stoppen/entladen — Classloader-, JAR-Lock- und Session-Leak.
+
+### Ursache
+Kein gekapseltes Generationsobjekt; Discovery mutierte den geteilten Manager-State direkt.
+
+### Korrektur
+Neues immutables `PluginRuntimeGeneration` (Manager + Katalog + selectable Maps + globalFailures) mit
+`retire()` (einzeln stop/unload). `WorkspacePluginService` hält genau `activeGeneration`; ein Candidate
+wird off-EDT rein lokal aufgebaut, auf dem EDT atomar publiziert (Swap-Hook schließt zuvor die Sessions),
+und die vorherige Generation danach off-EDT retiriert. `PluginCatalogSnapshot` transportiert
+`generationId/entries/globalFailures/completedAt/generationFailed`.
+
+### Verifikation
+`WorkspacePluginTransactionalRefreshTest`: drei Refreshes → Generation-ID steigt monoton, genau ein
+selektierbarer Agent; JAR nach `shutdown()` löschbar (Windows). `./gradlew :agent-plugin-host:test` grün.
+
+### Restwirkung
+Bei jeder erfolgreichen Generation werden alle AgentSessions geschlossen und lazy neu erzeugt
+(bewusst einfach + sicher, RA-P010/RA-P002 liefern später den Restore aus dem Project Store).
+
+## RA-P004 — Disabled plugins are still started
+
+**Erkannt in:** Audit nach Commit 20
+**Status:** RESOLVED (Commit 21)
+**Schweregrad:** HIGH
+**Betroffene Module:** agent-plugin-host
+
+### Erwartung
+Ein deaktiviertes Plugin wird geladen, aber `Plugin.start()` wird nicht aufgerufen; es liefert keine
+selektierbare Extension; der Katalog zeigt `Enabled=false` und einen ehrlichen PF4J-State.
+
+### Beobachtung
+Zuvor wurden alle Plugins via `startPlugins()` gestartet und erst danach über den Enablement-Service
+aus dem auswählbaren Katalog gefiltert — die Plugin-Instanz lief also trotz „disabled“.
+
+### Ursache
+Start-Entscheidung erfolgte nach dem Start, nicht davor.
+
+### Korrektur
+Nach `loadPlugins()` wird pro geladenem Plugin anhand der stabilen PF4J-Plugin-ID die Aktivierung
+geprüft; nur aktivierte werden einzeln via `startPlugin(id)` gestartet. Deaktivierte bleiben RESOLVED,
+erhalten eine ehrliche `Enabled=false`-Zeile und erscheinen in keiner selectable Map.
+
+### Verifikation
+`WorkspacePluginTransactionalRefreshTest#disabledPluginIsLoadedButNotStartedAndNotSelectable`
+(Disable→RESOLVED+nicht selektierbar, Re-Enable→STARTED, Re-Disable→nicht selektierbar).
+
+### Restwirkung
+Keine.
+
+## RA-P005 — Live backend still uses legacy phase/run-state pair
+
+**Erkannt in:** Audit nach Commit 20
+**Status:** OPEN (Ziel: Commit 22)
+**Schweregrad:** HIGH
+**Betroffene Module:** research-agent-ui-plugin (state, backend, agent)
+
+### Erwartung
+`ResearchStateMemento` ist die einzige Live-Wahrheit; `PAUSED/BLOCKED/FAILED` erhalten den exakten
+`continuationStateId` und die Approval-ID.
+
+### Beobachtung
+Der Live-Backend-State ist weiterhin `ResearchPhase + ResearchRunState`; vor jedem Dispatch wird ein
+OO-State rekonstruiert und der exakte Continuation-State durch einen Default ersetzt.
+
+### Korrektur
+Siehe Commit 22 (memento-basierter Port, Backend hält Memento, Events transportieren Snapshot).
+
+## RA-P006 — Store compare-and-write is not atomic under concurrency
+
+**Erkannt in:** Audit nach Commit 20
+**Status:** OPEN (Ziel: Commit 25)
+**Schweregrad:** HIGH
+**Betroffene Module:** research-agent-ui-plugin (store)
+
+### Beobachtung
+Read→expectedRevision→write findet nicht durchgängig unter demselben Lock pro Ressource statt.
+
+### Korrektur
+Siehe Commit 25 (Lock über den gesamten CAS-Ablauf, JVM-weit + File-Lock soweit Java-8/Windows-tauglich).
+
+## RA-P007 — UTF-8/source persistence and error classification
+
+**Erkannt in:** Audit nach Commit 20
+**Status:** OPEN (Ziel: Commit 25)
+**Schweregrad:** MEDIUM
+**Betroffene Module:** research-agent-ui-plugin (store, sources)
+
+### Beobachtung
+Selbstgeschriebenes `.properties`-Format via `Properties.load(InputStream)` ist nicht Unicode-sicher;
+IO-Fehler können als Revisionskonflikt erscheinen.
+
+### Korrektur
+Siehe Commit 25 (versioniertes UTF-8-Format, deterministische Round-Trips, `ERROR`≠`CONFLICT`).
+
+## RA-P008 — Unsaved artifact/source drafts can be lost
+
+**Erkannt in:** Audit nach Commit 20
+**Status:** OPEN (Ziel: Commit 26)
+**Schweregrad:** MEDIUM
+**Betroffene Module:** agent-plugin-host (artifact area), research-agent-ui-plugin (views)
+
+### Beobachtung
+Bei Artifact-Rebuild, Moduswechsel oder Konflikt können lokale ungespeicherte Texte überschrieben werden;
+der Markdown-Konfliktpfad behauptet, lokal zu behalten, setzt aber den Store-Text in den Editor.
+
+### Korrektur
+Siehe Commit 26 (View-Identität, Draft-Cache, Konfliktoptionen ohne stille Überschreibung).
+
+## RA-P009 — Composer availability does not track session state correctly
+
+**Erkannt in:** Audit nach Commit 20
+**Status:** OPEN (Ziel: Commit 24)
+**Schweregrad:** MEDIUM
+**Betroffene Module:** agent-plugin-host, askai-app (composer)
+
+### Beobachtung
+`AgentSessionCoordinator` meldet nicht bei jedem Backend-State-Event; `setChatBusy(true)` deaktiviert den
+gesamten Editor, sodass Slash Commands (`/status`, `/pause`, `/cancel`) nicht zuverlässig eingebbar sind.
+
+### Korrektur
+Siehe Commit 24 (Session-Change-Listener; getrennte Prompt-/Command-Verfügbarkeit).
+
+## RA-P010 — Session identity and background-event routing are underspecified
+
+**Erkannt in:** Audit nach Commit 20
+**Status:** OPEN (Ziel: Commit 23, vollständig mit Commit 27)
+**Schweregrad:** MEDIUM
+**Betroffene Module:** agent-plugin-host, research-agent-ui-plugin
+
+### Beobachtung
+Sessions werden nur nach Agent-ID unterschieden; Hintergrundsessions können den sichtbaren Chat
+unmarkiert mit transienten Ereignissen überfluten.
+
+### Korrektur
+Siehe Commit 23 (`AgentSessionKey = agentId+conversationId+projectId`, sessionbezogene Puffer) und
+Commit 27 (Restore aus Project Store).
+
+## RA-P011 — Global discovery failures are not visible in Plugin Management
+
+**Erkannt in:** Audit nach Commit 20
+**Status:** RESOLVED (Commit 21)
+**Schweregrad:** MEDIUM
+**Betroffene Module:** agent-plugin-host
+
+### Erwartung
+`PluginManagementPanel` zeigt sowohl Plugin-Fehlerzeilen als auch globale Discovery-/Startfehler und bei
+globalem Refresh-Fehler „Refresh failed; previous plugin generation remains active.“
+
+### Korrektur
+`PluginCatalogSnapshot` trägt `globalFailures` + `generationFailed`; `PluginManagementPanel` rendert eine
+globale Statuszeile und die o. g. Meldung. `WorkspaceCatalogListener.onCatalogSnapshot` liefert den
+Snapshot (mit Default auf die Legacy-Form, damit bestehende Listener unverändert bleiben).
+
+### Verifikation
+`WorkspacePluginTransactionalRefreshTest#globalFailureKeepsPreviousGeneration` prüft das
+`generationFailed`-Flag und nicht-leere `globalFailures`; Panel-Rendering ist ein reiner Swing-View.
+
+### Restwirkung
+Keine.
+
+### Enablement-Key-Migration (RA-P004, Zusatz)
+Der Enablement-Key ist die stabile PF4J-Plugin-ID (`Plugin-Id` aus dem Manifest). Für kompatible Plugins
+erzwingt `PluginCompatibilityChecker` `manifestId == descriptor.getId()`, d. h. die bisher persistierten
+Keys (Descriptor-ID) sind bereits identisch mit der PF4J-ID — die Migration ist ein verifizierter No-op.
+Keine stillen Mehrdeutigkeiten.

@@ -47,6 +47,7 @@ public final class PluginManagementPanel extends JPanel {
     private final JButton enableButton = new JButton("Enable");
     private final JButton disableButton = new JButton("Disable");
     private final JButton detailsButton = new JButton("Show details");
+    private final javax.swing.JLabel globalStatusLabel = new javax.swing.JLabel(" ");
     private List<PluginCatalogEntry> entries = new ArrayList<PluginCatalogEntry>();
 
     public PluginManagementPanel(WorkspacePluginService pluginService, PluginEnablementService enablement,
@@ -59,12 +60,54 @@ public final class PluginManagementPanel extends JPanel {
 
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         table.getSelectionModel().addListSelectionListener(event -> updateButtons());
+        globalStatusLabel.setBorder(BorderFactory.createEmptyBorder(0, 2, 6, 2));
+        add(globalStatusLabel, BorderLayout.NORTH);
         add(new JScrollPane(table), BorderLayout.CENTER);
         add(buildToolbar(), BorderLayout.SOUTH);
 
-        pluginService.addCatalogListener((catalog, failures) -> setEntries(catalog));
+        pluginService.addCatalogListener(new WorkspaceCatalogListener() {
+            @Override
+            public void onCatalogReady(List<PluginCatalogEntry> catalog, List<PluginLoadFailure> failures) {
+                setEntries(catalog);
+            }
+
+            @Override
+            public void onCatalogSnapshot(PluginCatalogSnapshot snapshot) {
+                setEntries(snapshot.getEntries());
+                showGlobalStatus(snapshot);
+            }
+        });
         setEntries(pluginService.getCatalog());
+        showGlobalStatus(pluginService.getCatalogSnapshot());
         pluginService.refreshAsync();
+    }
+
+    /** Render global (non-plugin) discovery/start failures and the "previous generation kept" banner. */
+    private void showGlobalStatus(PluginCatalogSnapshot snapshot) {
+        if (snapshot == null || snapshot.getGlobalFailures().isEmpty()) {
+            globalStatusLabel.setText(" ");
+            globalStatusLabel.setForeground(java.awt.Color.DARK_GRAY);
+            return;
+        }
+        StringBuilder text = new StringBuilder("<html>");
+        if (snapshot.isGenerationFailed()) {
+            text.append("<b>Refresh failed; previous plugin generation remains active.</b><br>");
+        } else {
+            text.append("<b>Plugin discovery reported problems.</b><br>");
+        }
+        for (PluginLoadFailure failure : snapshot.getGlobalFailures()) {
+            text.append(escape(failure.getPublicMessage())).append("<br>");
+        }
+        text.append("</html>");
+        globalStatusLabel.setText(text.toString());
+        globalStatusLabel.setForeground(java.awt.Color.RED.darker());
+    }
+
+    private static String escape(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
     private JComponent buildToolbar() {
