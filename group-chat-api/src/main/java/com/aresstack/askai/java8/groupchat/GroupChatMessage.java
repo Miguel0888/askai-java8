@@ -29,7 +29,7 @@ public final class GroupChatMessage {
         this.createdAt = builder.createdAt;
         this.replyToMessageId = builder.replyToMessageId;
         this.mentionedParticipantIds = builder.mentionedParticipantIds != null
-                ? Collections.unmodifiableList(builder.mentionedParticipantIds)
+                ? Collections.unmodifiableList(new java.util.ArrayList<String>(builder.mentionedParticipantIds))
                 : Collections.<String>emptyList();
         this.markdown = builder.markdown != null ? builder.markdown : "";
     }

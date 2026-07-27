@@ -23,9 +23,10 @@ public interface GroupChatListener {
     void onParticipantsChanged(List<Participant> participants);
 
     /**
-     * The transport status has changed.
+     * The transport connection state has changed.
      *
-     * @param status a short human-readable description, e.g. {@code "3 party members"}
+     * <p>The UI derives the text it shows from the structured state rather than from a
+     * human-readable string supplied by the transport, keeping display policy in the UI layer.</p>
      */
-    void onStatusChanged(String status);
+    void onConnectionStateChanged(GroupChatConnectionState state);
 }

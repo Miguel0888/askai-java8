@@ -12,8 +12,11 @@ public interface GroupChatSubmissionTarget {
      * Submit a user-authored message to the current room.
      *
      * @param markdown the raw Markdown text as entered in the composer
+     * @return {@code true} when the message was accepted (queued or sent); {@code false} if the
+     *         target is not ready (e.g. not yet joined).  The composer must NOT be cleared unless
+     *         this method returns {@code true}.
      */
-    void submitMessage(String markdown);
+    boolean submitMessage(String markdown);
 
     /**
      * Returns {@code true} when this target is ready to accept messages (i.e. the participant has

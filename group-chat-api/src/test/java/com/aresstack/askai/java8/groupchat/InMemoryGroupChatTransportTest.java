@@ -2,7 +2,6 @@ package com.aresstack.askai.java8.groupchat;
 
 import org.junit.Test;
 
-import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -26,7 +25,7 @@ public final class InMemoryGroupChatTransportTest {
             public void onParticipantJoined(Participant participant) {}
             public void onParticipantLeft(Participant participant) {}
             public void onParticipantsChanged(List<Participant> participants) {}
-            public void onStatusChanged(String status) { statusRef.set(status); }
+            public void onConnectionStateChanged(GroupChatConnectionState state) { statusRef.set(state.getMemberCount() == 1 ? "1 party member" : state.getMemberCount() + " party members"); }
         });
 
         assertTrue(transport.isConnected());
@@ -69,7 +68,7 @@ public final class InMemoryGroupChatTransportTest {
             }
             public void onParticipantLeft(Participant p) {}
             public void onParticipantsChanged(List<Participant> ps) {}
-            public void onStatusChanged(String s) {}
+            public void onConnectionStateChanged(GroupChatConnectionState state) {}
         });
 
         t2.join(room, bob, new GroupChatListener() {
@@ -77,7 +76,7 @@ public final class InMemoryGroupChatTransportTest {
             public void onParticipantJoined(Participant p) {}
             public void onParticipantLeft(Participant p) {}
             public void onParticipantsChanged(List<Participant> ps) {}
-            public void onStatusChanged(String s) {}
+            public void onConnectionStateChanged(GroupChatConnectionState state) {}
         });
 
         assertTrue("Alice should have been notified of Bob joining",
@@ -126,7 +125,7 @@ public final class InMemoryGroupChatTransportTest {
             public void onParticipantJoined(Participant p) {}
             public void onParticipantLeft(Participant p) {}
             public void onParticipantsChanged(List<Participant> ps) {}
-            public void onStatusChanged(String s) {}
+            public void onConnectionStateChanged(GroupChatConnectionState state) {}
         };
     }
 }

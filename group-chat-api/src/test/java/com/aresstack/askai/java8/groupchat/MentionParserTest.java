@@ -78,4 +78,62 @@ public final class MentionParserTest {
         assertFalse(GroupChatMode.QUESTING.equals(GroupChatMode.PARTYING));
         assertEquals("builtin.partying", GroupChatMode.PARTYING);
     }
+
+    // ------------------------------------------------------------------ mentionHandle matching
+
+    @Test
+    public void matchesByMentionHandleForSpacedDisplayNames() {
+        // "Alice Smith" → handle "AliceSmith"
+        Participant alice = new Participant("alice-id", "Alice Smith", "AliceSmith", null);
+        List<Participant> participants = Collections.singletonList(alice);
+
+        // @AliceSmith is the handle — should resolve
+        List<String> matched = MentionParser.extractMentionedIds("@AliceSmith can you help?", participants);
+        assertEquals(1, matched.size());
+        assertEquals("alice-id", matched.get(0));
+
+        // @Alice alone should NOT match (display name has a space so fallback does not apply)
+        List<String> noMatch = MentionParser.extractMentionedIds("@Alice can you help?", participants);
+        assertTrue(noMatch.isEmpty());
+    }
+
+    @Test
+    public void matchIsCaseInsensitiveOnHandle() {
+        Participant alice = new Participant("alice-id", "Alice", "AliceSmith", null);
+        List<Participant> participants = Collections.singletonList(alice);
+
+        List<String> matched = MentionParser.extractMentionedIds("@alicesmith what do you think?", participants);
+        assertEquals(1, matched.size());
+        assertEquals("alice-id", matched.get(0));
+    }
+
+    // ------------------------------------------------------------------ computeUniqueHandle
+
+    @Test
+    public void computeUniqueHandleStripsSpaces() {
+        String handle = MentionParser.computeUniqueHandle("Alice Smith", Collections.<String>emptyList());
+        assertEquals("AliceSmith", handle);
+    }
+
+    @Test
+    public void computeUniqueHandleResolvesCollisions() {
+        List<String> existing = Arrays.asList("Alice", "Alice2");
+        String handle = MentionParser.computeUniqueHandle("Alice", existing);
+        assertEquals("Alice3", handle);
+    }
+
+    @Test
+    public void computeUniqueHandleNeverReturnsAskAI() {
+        // "AskAI" is reserved for the bot; a human participant named "AskAI" gets a suffix.
+        String handle = MentionParser.computeUniqueHandle("AskAI", Collections.<String>emptyList());
+        assertFalse("AskAI".equalsIgnoreCase(handle));
+        assertFalse(handle.isEmpty());
+    }
+
+    @Test
+    public void computeUniqueHandleFallsBackForAllNonAlphanumeric() {
+        String handle = MentionParser.computeUniqueHandle("!@#$", Collections.<String>emptyList());
+        assertFalse(handle.isEmpty());
+    }
 }
+

@@ -47,10 +47,9 @@ public final class InMemoryGroupChatTransport implements GroupChatTransport {
         // Notify all other participants that this peer joined.
         bus.broadcastJoin(self, this);
 
-        // Tell the joining client how many members are now in the room.
+        // Tell the joining client the current member count and full participant list.
         int count = bus.participantCount();
-        String status = count == 1 ? "1 party member" : count + " party members";
-        listener.onStatusChanged(status);
+        listener.onConnectionStateChanged(GroupChatConnectionState.connected(count));
         listener.onParticipantsChanged(bus.participants());
     }
 
@@ -58,6 +57,16 @@ public final class InMemoryGroupChatTransport implements GroupChatTransport {
     public synchronized void send(GroupChatMessage message) {
         if (!connected || currentRoom == null) {
             return;
+        }
+        if (!currentRoom.getRoomId().equals(message.getRoomId())) {
+            throw new IllegalArgumentException(
+                    "Cross-room send rejected: expected roomId=" + currentRoom.getRoomId()
+                            + " but message has roomId=" + message.getRoomId());
+        }
+        if (self != null && !self.getParticipantId().equals(message.getSenderParticipantId())) {
+            throw new IllegalArgumentException(
+                    "Sender spoofing rejected: joined as participantId=" + self.getParticipantId()
+                            + " but message claims senderParticipantId=" + message.getSenderParticipantId());
         }
         RoomBus bus = ROOMS.get(currentRoom.getRoomId());
         if (bus != null) {
@@ -154,25 +163,25 @@ public final class InMemoryGroupChatTransport implements GroupChatTransport {
 
         void broadcastJoin(Participant joined, InMemoryGroupChatTransport source) {
             List<Participant> all = participants();
+            int count = all.size();
             for (InMemoryGroupChatTransport t : transports) {
                 GroupChatListener l = t.getListener();
                 if (l == null) {
                     continue;
                 }
                 if (t == source) {
-                    // The joining peer gets the full participant list.
-                    l.onParticipantsChanged(all);
-                } else {
-                    l.onParticipantJoined(joined);
-                    l.onParticipantsChanged(all);
-                    int count = all.size();
-                    l.onStatusChanged(count == 1 ? "1 party member" : count + " party members");
+                    // The joining peer already received onConnectionStateChanged in join(); skip.
+                    continue;
                 }
+                l.onParticipantJoined(joined);
+                l.onParticipantsChanged(all);
+                l.onConnectionStateChanged(GroupChatConnectionState.connected(count));
             }
         }
 
         void broadcastLeave(Participant left, InMemoryGroupChatTransport source) {
             List<Participant> all = participants();
+            int count = all.size();
             for (InMemoryGroupChatTransport t : transports) {
                 if (t == source) {
                     continue;
@@ -183,8 +192,7 @@ public final class InMemoryGroupChatTransport implements GroupChatTransport {
                 }
                 l.onParticipantLeft(left);
                 l.onParticipantsChanged(all);
-                int count = all.size();
-                l.onStatusChanged(count == 1 ? "1 party member" : count + " party members");
+                l.onConnectionStateChanged(GroupChatConnectionState.connected(count));
             }
         }
 
