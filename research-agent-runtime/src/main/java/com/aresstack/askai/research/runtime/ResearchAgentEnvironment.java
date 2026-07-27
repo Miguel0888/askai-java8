@@ -1,0 +1,68 @@
+package com.aresstack.askai.research.runtime;
+
+import java.util.Map;
+
+/**
+ * The validated ASKAI_* launch contract of the external agent. The research endpoint is mandatory (URL +
+ * transport; token travels inside the URL path AND as a dedicated variable); browser variables are either
+ * fully present or fully absent — an absent browser is a visible, non-fatal condition. {@link #toString()}
+ * never contains tokens; error messages never dump the whole environment.
+ */
+final class ResearchAgentEnvironment {
+
+    final String sessionId;
+    final String projectId;
+    final String researchUrl;
+    final String researchTransport;
+    final String browserUrl;      // null when no browser backend is available
+    final String browserTransport;
+
+    private ResearchAgentEnvironment(String sessionId, String projectId, String researchUrl,
+                                     String researchTransport, String browserUrl, String browserTransport) {
+        this.sessionId = sessionId;
+        this.projectId = projectId;
+        this.researchUrl = researchUrl;
+        this.researchTransport = researchTransport;
+        this.browserUrl = browserUrl;
+        this.browserTransport = browserTransport;
+    }
+
+    static ResearchAgentEnvironment from(Map<String, String> env) {
+        String researchUrl = required(env, "ASKAI_RESEARCH_MCP_URL");
+        String researchTransport = orDefault(env.get("ASKAI_RESEARCH_MCP_TRANSPORT"), "streamable");
+        String browserUrl = blankToNull(env.get("ASKAI_BROWSER_MCP_URL"));
+        return new ResearchAgentEnvironment(
+                orDefault(env.get("ASKAI_SESSION_ID"), ""),
+                orDefault(env.get("ASKAI_PROJECT_ID"), ""),
+                researchUrl, researchTransport,
+                browserUrl,
+                browserUrl == null ? null : orDefault(env.get("ASKAI_BROWSER_MCP_TRANSPORT"), "streamable"));
+    }
+
+    boolean hasBrowser() {
+        return browserUrl != null;
+    }
+
+    private static String required(Map<String, String> env, String key) {
+        String value = blankToNull(env.get(key));
+        if (value == null) {
+            throw new IllegalStateException("Missing required launch variable: " + key);
+        }
+        return value;
+    }
+
+    private static String blankToNull(String v) {
+        return v == null || v.trim().isEmpty() ? null : v.trim();
+    }
+
+    private static String orDefault(String v, String fallback) {
+        return blankToNull(v) == null ? fallback : v.trim();
+    }
+
+    @Override
+    public String toString() {
+        // Tokens are embedded in the URLs; keep them out of any printable form.
+        return "ResearchAgentEnvironment{sessionId=" + sessionId + ", projectId=" + projectId
+                + ", research=<configured>, browser=" + (hasBrowser() ? "<configured>" : "absent") + "}";
+    }
+}

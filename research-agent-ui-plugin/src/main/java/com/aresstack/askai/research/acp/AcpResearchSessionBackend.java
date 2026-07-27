@@ -149,13 +149,20 @@ public final class AcpResearchSessionBackend implements ResearchSessionBackend {
          */
         void start() {
             try {
+                // Deliberately NOT the host's full environment: only the base spec's explicit vars plus the
+                // ASKAI_* contract below — the child never inherits arbitrary host secrets.
                 java.util.Map<String, String> env =
                         new java.util.LinkedHashMap<String, String>(baseSpec.getEnv());
+                env.put("ASKAI_SESSION_ID", request.getSessionId());
+                env.put("ASKAI_PROJECT_ID", request.getProjectId());
                 env.put("ASKAI_RESEARCH_MCP_URL", researchEndpoint.getUrl());
                 env.put("ASKAI_RESEARCH_MCP_TRANSPORT", researchEndpoint.getTransport());
+                putToken(env, "ASKAI_RESEARCH_MCP_TOKEN", researchEndpoint.getToken());
                 if (browserEndpoint != null) {
+                    // Browser vars are fully absent when no browser backend exists — never empty values.
                     env.put("ASKAI_BROWSER_MCP_URL", browserEndpoint.getUrl());
                     env.put("ASKAI_BROWSER_MCP_TRANSPORT", browserEndpoint.getTransport());
+                    putToken(env, "ASKAI_BROWSER_MCP_TOKEN", browserEndpoint.getToken());
                 }
                 AgentLaunchSpec spec = new AgentLaunchSpec(
                         baseSpec.getCommand(), baseSpec.getArgs(), env);
@@ -226,6 +233,13 @@ public final class AcpResearchSessionBackend implements ResearchSessionBackend {
             }
             acpSession = null;
             connection = null;
+        }
+
+        /** Never write an empty token value; absence must be distinguishable from a blank secret. */
+        private void putToken(java.util.Map<String, String> env, String key, String token) {
+            if (token != null && !token.trim().isEmpty()) {
+                env.put(key, token);
+            }
         }
 
         private void emit(ResearchBackendEvent.Builder builder) {

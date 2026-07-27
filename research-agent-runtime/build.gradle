@@ -1,0 +1,39 @@
+// External Solon research agent runtime (Java 8): a separate process speaking ACP to AskAI and MCP to the
+// research-control (and later browser) endpoints. Solon/ACP/MCP types are allowed HERE; the UI plugin never
+// sees them. Not part of the AskAI fat jar (no dependency from askai-app).
+apply plugin: 'application'
+
+dependencies {
+    implementation 'org.noear:acp-sdk:3.10.1'
+    implementation 'org.noear:solon-ai-mcp:3.10.1'
+    runtimeOnly 'org.slf4j:slf4j-nop:2.0.17'
+
+    testImplementation project(':acp-client-api')
+    testImplementation project(':acp-solon-client')
+    testImplementation project(':mcp-runtime-api')
+    testImplementation project(':mcp-solon-runtime')
+    testImplementation 'junit:junit:4.13.2'
+}
+
+mainClassName = 'com.aresstack.askai.research.runtime.ResearchAgentMain'
+
+task researchAgentJar(type: Jar) {
+    group = 'build'
+    description = 'Runnable external research agent jar (spawned by AskAI / the round-trip test).'
+    archiveBaseName = 'research-agent-runtime'
+    archiveClassifier = 'all'
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    dependsOn classes
+    from sourceSets.main.output
+    from { configurations.runtimeClasspath.filter { it.name.endsWith('.jar') }.collect { zipTree(it) } }
+    manifest { attributes('Main-Class': mainClassName) }
+}
+
+test {
+    useJUnit()
+    dependsOn researchAgentJar
+    doFirst {
+        systemProperty 'research.agent.jar', researchAgentJar.archiveFile.get().asFile.absolutePath
+        systemProperty 'acp.java.home', System.getProperty('java.home')
+    }
+}

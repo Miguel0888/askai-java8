@@ -182,6 +182,11 @@ Persistenz-Bausteine sind aber vorhanden und produktiv anschließbar.
 seed-if-empty, Memento bei jedem State-Change speichern, bei `activate()` wiederherstellen). Danach
 optionaler Lucene-Index als aus dem Store rebuildbare, abgeleitete Sicht.
 
+### Stand nach Commit 35b
+ACP runtime integration works (echter Prozess-Round-trip inkl. Research-MCP-Readiness). **Restart
+restoration remains incomplete until RA-P002 is resolved** — 35b liefert bewusst nur fresh sessions;
+`session/load`/Memento-Restore folgt mit der Store-Verdrahtung.
+
 ---
 
 # Research Agent — Endaudit-Korrekturen (Commits 21–29) — problem log

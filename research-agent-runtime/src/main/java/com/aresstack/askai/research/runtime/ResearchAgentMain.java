@@ -1,0 +1,122 @@
+package com.aresstack.askai.research.runtime;
+
+import com.agentclientprotocol.sdk.agent.SyncPromptContext;
+import com.agentclientprotocol.sdk.agent.support.AcpAgentSupport;
+import com.agentclientprotocol.sdk.agent.transport.StdioAcpAgentTransport;
+import com.agentclientprotocol.sdk.annotation.AcpAgent;
+import com.agentclientprotocol.sdk.annotation.Cancel;
+import com.agentclientprotocol.sdk.annotation.Initialize;
+import com.agentclientprotocol.sdk.annotation.NewSession;
+import com.agentclientprotocol.sdk.annotation.Prompt;
+import com.agentclientprotocol.sdk.spec.AcpSchema;
+
+import org.noear.solon.ai.chat.tool.FunctionTool;
+import org.noear.solon.ai.chat.tool.ToolResult;
+import org.noear.solon.ai.mcp.client.McpClientProvider;
+
+import java.time.Duration;
+import java.util.Collections;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+/**
+ * The external Solon research agent process. It mirrors host state and NEVER owns a research state machine —
+ * the plugin/host is the only transition authority; this process only calls the MCP tools it is offered.
+ *
+ * <p>Readiness is REAL, not configured: {@code session/new} connects the research-control MCP endpoint, runs
+ * {@code tools/list} and calls {@code research_status()}; only if that round-trip succeeds does session
+ * creation succeed (otherwise the host start fails atomically). The first prompt turn then reports
+ * {@code RESEARCH_MCP_READY} (and {@code BROWSER_NOT_AVAILABLE} when no browser endpoint exists — visible,
+ * never fatal, never a silent fallback). ACP carries prompt/streaming/status/errors; MCP carries the research
+ * tools — the same operations are never doubled as custom ACP requests. Logs go to STDERR only.</p>
+ */
+@AcpAgent(name = "askai-research-agent", version = "0.1")
+public final class ResearchAgentMain {
+
+    private final AtomicBoolean cancelled = new AtomicBoolean(false);
+    private ResearchAgentEnvironment environment;
+    private McpClientProvider researchMcp;
+    private volatile boolean readinessAnnounced;
+
+    public static void main(String[] args) {
+        System.err.println("[research-agent] starting");
+        AcpAgentSupport.create(new ResearchAgentMain())
+                .transport(new StdioAcpAgentTransport())
+                .build().run();
+        System.err.println("[research-agent] terminated");
+    }
+
+    @Initialize
+    public AcpSchema.InitializeResponse initialize() {
+        System.err.println("[research-agent] initialize");
+        environment = ResearchAgentEnvironment.from(System.getenv());
+        System.err.println("[research-agent] " + environment); // toString never contains tokens
+        return AcpSchema.InitializeResponse.ok();
+    }
+
+    @NewSession
+    public AcpSchema.NewSessionResponse newSession() {
+        // Real readiness check: connect research MCP, list tools, call research_status. A failure here fails
+        // session/new, so the host start is atomic (no half-started session).
+        researchMcp = McpClientProvider.builder()
+                .apiUrl(environment.researchUrl)
+                .channel(environment.researchTransport)
+                .cacheSeconds(0)
+                .initializationTimeout(Duration.ofSeconds(15))
+                .requestTimeout(Duration.ofSeconds(15))
+                .build();
+        boolean hasStatus = false;
+        for (FunctionTool tool : researchMcp.getTools()) {
+            if ("research_status".equals(tool.name())) {
+                hasStatus = true;
+            }
+        }
+        if (!hasStatus) {
+            throw new IllegalStateException("research_status is not offered by the research MCP endpoint");
+        }
+        ToolResult status = researchMcp.callTool("research_status",
+                Collections.<String, Object>emptyMap());
+        System.err.println("[research-agent] research_status ok: " + status);
+        return new AcpSchema.NewSessionResponse("research-acp-" + environment.sessionId, null, null);
+    }
+
+    @Cancel
+    public void cancel() {
+        System.err.println("[research-agent] cancel");
+        cancelled.set(true);
+    }
+
+    @Prompt
+    public AcpSchema.PromptResponse prompt(SyncPromptContext ctx, AcpSchema.PromptRequest request) {
+        cancelled.set(false);
+        if (!readinessAnnounced) {
+            readinessAnnounced = true;
+            ctx.sendMessage("RESEARCH_MCP_READY");
+            if (!environment.hasBrowser()) {
+                ctx.sendMessage("BROWSER_NOT_AVAILABLE");
+            }
+        }
+        String text = request.text() == null ? "" : request.text();
+        ctx.sendThought("planning: " + text);
+        if (cancelled.get()) {
+            return new AcpSchema.PromptResponse(AcpSchema.StopReason.CANCELLED);
+        }
+        // Mirror the host state via MCP (no own state machine): report the live research status.
+        try {
+            ToolResult status = researchMcp.callTool("research_status",
+                    Collections.<String, Object>emptyMap());
+            ctx.sendMessage("status: " + status);
+        } catch (RuntimeException ex) {
+            ctx.sendMessage("research MCP unavailable: " + ex.getMessage());
+        }
+        if (text.contains("slow")) {
+            for (int i = 0; i < 1_000_000 && !cancelled.get(); i++) {
+                ctx.sendMessage("working " + i);
+            }
+            if (cancelled.get()) {
+                return new AcpSchema.PromptResponse(AcpSchema.StopReason.CANCELLED);
+            }
+        }
+        ctx.sendMessage("turn done for: " + text);
+        return AcpSchema.PromptResponse.endTurn();
+    }
+}
