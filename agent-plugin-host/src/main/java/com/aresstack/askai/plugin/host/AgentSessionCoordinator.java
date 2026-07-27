@@ -5,6 +5,7 @@ import com.aresstack.askai.plugin.api.agent.AgentSession;
 import com.aresstack.askai.plugin.api.agent.AgentSessionContext;
 import com.aresstack.askai.plugin.api.agent.AgentSessionCreationRequest;
 import com.aresstack.askai.plugin.api.agent.SubmissionAvailability;
+import com.aresstack.askai.plugin.api.agent.artifact.ArtifactViewContribution;
 import com.aresstack.askai.plugin.api.agent.command.ChatCommandContribution;
 import com.aresstack.askai.plugin.api.agent.command.ChatCommandDescriptor;
 import com.aresstack.askai.plugin.api.agent.command.CommandCompletion;
@@ -173,6 +174,18 @@ public final class AgentSessionCoordinator implements ChatSubmissionRouter, Acti
 
     public String getActiveAgentId() {
         return activeAgentId;
+    }
+
+    /** @return the active session, or {@code null} when routing to Yapping / no agent. */
+    public AgentSession getActiveSession() {
+        return activeSession;
+    }
+
+    /** @return the active agent's specialized artifact-view contributions (empty when no agent is active). */
+    public List<ArtifactViewContribution> getActiveArtifactViews() {
+        List<ArtifactViewContribution> views =
+                activeExtension == null ? null : activeExtension.getArtifactViews();
+        return views == null ? Collections.<ArtifactViewContribution>emptyList() : views;
     }
 
     // ------------------------------------------------------------------ ChatSubmissionRouter

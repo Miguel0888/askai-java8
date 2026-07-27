@@ -1,5 +1,7 @@
 package com.aresstack.askai.plugin.api.agent;
 
+import com.aresstack.askai.plugin.api.agent.artifact.AgentArtifactStore;
+
 import java.util.List;
 
 /**
@@ -16,6 +18,9 @@ public interface AgentSession {
     ChatSubmissionTarget getChatTarget();
 
     List<AgentArtifact> getArtifacts();
+
+    /** @return the store the shared artifact views read/write Markdown through, or {@code null} if none. */
+    AgentArtifactStore getArtifactStore();
 
     AgentStateSnapshot getState();
 

@@ -762,19 +762,6 @@ public final class OllamaChatPanel extends JPanel {
     }
 
     /**
-     * Placeholder host hook for {@code /open <artifact>} until the artifact area lands (Commit 13): confirm in
-     * the shared chat so the command path is already correct end-to-end.
-     */
-    public void notifyArtifactOpenRequested(String artifactId) {
-        onUi(new Runnable() {
-            public void run() {
-                transcript.appendInfo("Artifact requested: " + artifactId
-                        + " (the artifact panel arrives in a later slice).");
-            }
-        });
-    }
-
-    /**
      * @return the shared conversation sink an agent session pushes its activity into — the SAME transcript as
      *         the normal chat. Created lazily; there is never a second conversation surface.
      */

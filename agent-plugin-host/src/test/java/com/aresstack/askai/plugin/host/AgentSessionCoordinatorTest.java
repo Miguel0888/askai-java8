@@ -398,6 +398,10 @@ public class AgentSessionCoordinatorTest {
             return Collections.emptyList();
         }
 
+        public com.aresstack.askai.plugin.api.agent.artifact.AgentArtifactStore getArtifactStore() {
+            return null;
+        }
+
         public AgentStateSnapshot getState() {
             return AgentStateSnapshot.builder().build();
         }

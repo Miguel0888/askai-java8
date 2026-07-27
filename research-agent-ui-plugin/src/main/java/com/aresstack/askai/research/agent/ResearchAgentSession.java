@@ -7,6 +7,7 @@ import com.aresstack.askai.plugin.api.agent.AgentSession;
 import com.aresstack.askai.plugin.api.agent.AgentStateSnapshot;
 import com.aresstack.askai.plugin.api.agent.ChatSubmissionTarget;
 import com.aresstack.askai.plugin.api.agent.SubmissionAvailability;
+import com.aresstack.askai.plugin.api.agent.artifact.AgentArtifactStore;
 import com.aresstack.askai.plugin.api.service.UiExecutor;
 import com.aresstack.askai.research.backend.ResearchBackendEvent;
 import com.aresstack.askai.research.backend.ResearchProjectRequest;
@@ -37,6 +38,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     private final UiExecutor uiExecutor;
     private final ResearchProjectRequest request;
     private final List<AgentArtifact> artifacts = ResearchArtifacts.all();
+    private final AgentArtifactStore artifactStore = new ResearchArtifactStore();
     private final ChatSubmissionTarget chatTarget = new ResearchChatTarget();
 
     // View-model (updated only on the UI thread from backend events).
@@ -104,6 +106,11 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     @Override
     public List<AgentArtifact> getArtifacts() {
         return artifacts;
+    }
+
+    @Override
+    public AgentArtifactStore getArtifactStore() {
+        return artifactStore;
     }
 
     @Override

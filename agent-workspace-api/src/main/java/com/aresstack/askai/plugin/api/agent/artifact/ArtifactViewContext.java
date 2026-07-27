@@ -19,4 +19,7 @@ public interface ArtifactViewContext {
 
     /** Host Markdown editor/viewer factory for building the default Markdown artifact view. */
     MarkdownViewFactory getMarkdownViewFactory();
+
+    /** The store to read/write artifact content through, or {@code null} if the session has none. */
+    AgentArtifactStore getArtifactStore();
 }
