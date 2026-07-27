@@ -266,13 +266,17 @@ public final class OllamaBotResponder implements BotResponder {
     /**
      * Builds the model conversation according to the configured context mode.
      *
-     * <p><b>Transcript mode</b> (default): the room context goes into the system prompt as a
-     * labelled transcript and the mentioning message is the single user turn — robust for small
-     * models that lose track of which of several user turns is addressed to them.</p>
+     * <p><b>Collective mode</b> (default): all human participants act as ONE dialogue partner —
+     * consecutive human messages merge into a single user turn whose lines are prefixed with
+     * {@code Name: }, bot answers are assistant turns. The model sees a clean alternating
+     * two-party chat, the structure it is trained on, while the prefixes preserve who said what.</p>
      *
-     * <p><b>Conversation mode</b>: every room message becomes a chat turn (bot messages as
-     * assistant turns, everything else as user turns prefixed {@code Name: }), so the model sees
-     * the full flow and draws its own conclusions.</p>
+     * <p><b>Transcript mode</b>: the room context goes into the system prompt as a labelled
+     * transcript and the mentioning message is the single user turn — precise for answering
+     * exactly the addressed message.</p>
+     *
+     * <p><b>Conversation mode</b>: every room message becomes its own chat turn, so the model
+     * sees the raw multi-user flow and draws its own conclusions.</p>
      */
     private List<OllamaChatTurn> buildConversation(List<GroupChatMessage> context,
                                                    GroupChatMessage addressed,
@@ -285,8 +289,37 @@ public final class OllamaBotResponder implements BotResponder {
         }
         int from = Math.max(0, context.size() - CONTEXT_MESSAGES);
         List<OllamaChatTurn> conversation = new ArrayList<OllamaChatTurn>();
+        String mode = configuredContextMode();
 
-        if (PartySettings.BOT_CONTEXT_CONVERSATION.equals(configuredContextMode())) {
+        if (PartySettings.BOT_CONTEXT_COLLECTIVE.equals(mode)) {
+            conversation.add(OllamaChatTurn.system(base));
+            StringBuilder pendingCollective = new StringBuilder();
+            boolean addressedIncluded = false;
+            for (int i = from; i < context.size(); i++) {
+                GroupChatMessage message = context.get(i);
+                if (message.isBotMessage()) {
+                    if (pendingCollective.length() > 0) {
+                        conversation.add(OllamaChatTurn.user(pendingCollective.toString().trim()));
+                        pendingCollective.setLength(0);
+                    }
+                    conversation.add(OllamaChatTurn.assistant(message.getMarkdown()));
+                } else {
+                    pendingCollective.append(handleOf(message.getSenderParticipantId(), profiles))
+                            .append(": ").append(message.getMarkdown()).append('\n');
+                }
+                addressedIncluded |= message.getMessageId().equals(addressed.getMessageId());
+            }
+            if (!addressedIncluded) {
+                pendingCollective.append(handleOf(addressed.getSenderParticipantId(), profiles))
+                        .append(": ").append(addressed.getMarkdown()).append('\n');
+            }
+            if (pendingCollective.length() > 0) {
+                conversation.add(OllamaChatTurn.user(pendingCollective.toString().trim()));
+            }
+            return conversation;
+        }
+
+        if (PartySettings.BOT_CONTEXT_CONVERSATION.equals(mode)) {
             conversation.add(OllamaChatTurn.system(base));
             boolean addressedIncluded = false;
             for (int i = from; i < context.size(); i++) {
@@ -342,7 +375,7 @@ public final class OllamaBotResponder implements BotResponder {
     }
 
     private String configuredContextMode() {
-        return settings != null ? settings.botContextMode() : PartySettings.BOT_CONTEXT_TRANSCRIPT;
+        return settings != null ? settings.botContextMode() : PartySettings.BOT_CONTEXT_COLLECTIVE;
     }
 
     private boolean alwaysPolicy() {

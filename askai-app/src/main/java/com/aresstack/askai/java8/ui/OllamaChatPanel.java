@@ -688,10 +688,13 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
                         + "Recommended for small models; large models that follow the [SILENT] contract "
                         + "reliably can disable it and save the call.");
         final JComboBox<String> contextModeCombo = new JComboBox<String>();
+        contextModeCombo.addItem("Users as one collective (merged chat turns)");
         contextModeCombo.addItem("Answer the mentioning message (transcript as context)");
-        contextModeCombo.addItem("Full conversation as chat turns (model draws its own conclusions)");
+        contextModeCombo.addItem("Every message as its own chat turn");
+        String contextMode = partySettings.botContextMode();
         contextModeCombo.setSelectedIndex(
-                PartySettings.BOT_CONTEXT_CONVERSATION.equals(partySettings.botContextMode()) ? 1 : 0);
+                PartySettings.BOT_CONTEXT_TRANSCRIPT.equals(contextMode) ? 1
+                        : PartySettings.BOT_CONTEXT_CONVERSATION.equals(contextMode) ? 2 : 0);
 
         String customPrompt = partySettings.botSystemPrompt();
         final JTextArea botPromptArea = new GhostHintTextArea(customPrompt != null ? customPrompt : "",
@@ -727,8 +730,10 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
                     : PartySettings.BOT_POLICY_MENTION);
             partySettings.setModelMentionsEnabled(modelMentionsBox.isSelected());
             partySettings.setChimeInGateEnabled(gateBox.isSelected());
-            partySettings.setBotContextMode(contextModeCombo.getSelectedIndex() == 1
-                    ? PartySettings.BOT_CONTEXT_CONVERSATION : PartySettings.BOT_CONTEXT_TRANSCRIPT);
+            int contextIndex = contextModeCombo.getSelectedIndex();
+            partySettings.setBotContextMode(contextIndex == 1 ? PartySettings.BOT_CONTEXT_TRANSCRIPT
+                    : contextIndex == 2 ? PartySettings.BOT_CONTEXT_CONVERSATION
+                    : PartySettings.BOT_CONTEXT_COLLECTIVE);
             partySettings.setBotSystemPrompt(botPromptArea.getText());
             partySettings.setBotAlwaysPrompt(alwaysPromptArea.getText());
             partySettings.setRoomId(roomField.getText());

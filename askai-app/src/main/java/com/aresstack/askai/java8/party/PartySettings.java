@@ -39,7 +39,11 @@ public final class PartySettings {
     private static final String KEY_BOT_CHIME_GATE = "party.botChimeGate";
     private static final String KEY_BOT_CONTEXT_MODE = "party.botContextMode";
 
-    /** Bot context modes: transcript-as-context (answer the mention) or full chat turns. */
+    /**
+     * Bot context modes: the users appear as one collective dialogue partner (merged chat turns,
+     * default), transcript-as-context (answer the mention), or one chat turn per message.
+     */
+    public static final String BOT_CONTEXT_COLLECTIVE = "collective";
     public static final String BOT_CONTEXT_TRANSCRIPT = "transcript";
     public static final String BOT_CONTEXT_CONVERSATION = "conversation";
     private static final String KEY_ROOM_ID = "party.roomId";
@@ -200,15 +204,21 @@ public final class PartySettings {
     }
 
     /**
-     * How the room context reaches the bot: {@link #BOT_CONTEXT_TRANSCRIPT} (default; the
-     * transcript goes into the system prompt and the bot answers exactly the mentioning message)
-     * or {@link #BOT_CONTEXT_CONVERSATION} (every room message becomes a chat turn prefixed with
-     * the sender's name, and the model draws its own conclusions).
+     * How the room context reaches the bot:
+     * {@link #BOT_CONTEXT_COLLECTIVE} (default) merges consecutive human messages into one user
+     * turn with {@code Name: } prefixes, so the whole group talks to the bot as one collective
+     * dialogue partner in clean alternating turns;
+     * {@link #BOT_CONTEXT_TRANSCRIPT} puts the room history into the system prompt and the
+     * mentioning message as the single user turn;
+     * {@link #BOT_CONTEXT_CONVERSATION} turns every room message into its own chat turn.
      */
     public String botContextMode() {
-        String mode = state == null ? BOT_CONTEXT_TRANSCRIPT
-                : state.get(KEY_BOT_CONTEXT_MODE, BOT_CONTEXT_TRANSCRIPT);
-        return BOT_CONTEXT_CONVERSATION.equals(mode) ? BOT_CONTEXT_CONVERSATION : BOT_CONTEXT_TRANSCRIPT;
+        String mode = state == null ? BOT_CONTEXT_COLLECTIVE
+                : state.get(KEY_BOT_CONTEXT_MODE, BOT_CONTEXT_COLLECTIVE);
+        if (BOT_CONTEXT_TRANSCRIPT.equals(mode)) {
+            return BOT_CONTEXT_TRANSCRIPT;
+        }
+        return BOT_CONTEXT_CONVERSATION.equals(mode) ? BOT_CONTEXT_CONVERSATION : BOT_CONTEXT_COLLECTIVE;
     }
 
     public void setBotContextMode(String mode) {
