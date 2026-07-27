@@ -10,5 +10,11 @@ public enum PluginFailurePhase {
     WORKSPACE_CREATION,
     WORKSPACE_ACTIVATION,
     WORKSPACE_DEACTIVATION,
-    WORKSPACE_DISPOSAL
+    WORKSPACE_DISPOSAL,
+    /** A plugin start threw during a candidate build. */
+    PLUGIN_START,
+    /** Closing the outgoing generation's sessions failed, so the swap was aborted. */
+    SESSION_CLOSE,
+    /** Stopping/unloading a retiring generation failed; it is kept for a later retry. */
+    GENERATION_RETIREMENT
 }

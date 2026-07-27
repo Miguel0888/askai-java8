@@ -135,7 +135,8 @@ public final class PluginManagementPanel extends JPanel {
         for (PluginCatalogEntry entry : entries) {
             WorkspacePluginDescriptor d = entry.getDescriptor();
             tableModel.addRow(new Object[] {
-                d == null ? "(unreadable)" : d.getDisplayName(),
+                d != null ? d.getDisplayName()
+                        : (entry.getPluginId().isEmpty() ? "(unreadable)" : entry.getPluginId()),
                 stableId(entry),
                 d == null ? "" : d.getVersion(),
                 d == null ? "" : d.getProvider(),

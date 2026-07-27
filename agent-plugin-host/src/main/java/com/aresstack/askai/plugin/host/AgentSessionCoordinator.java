@@ -34,7 +34,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * it. A session is closed only when its plugin is disabled/removed, or on shutdown. The active session is the
  * single routing target; {@code null} means "route to Yapping / no agent".</p>
  */
-public final class AgentSessionCoordinator implements ChatSubmissionRouter, ActiveAgentCommandRegistry {
+public final class AgentSessionCoordinator
+        implements ChatSubmissionRouter, ActiveAgentCommandRegistry, GenerationSwapHook {
 
     /** Resolves an agent id to its (selectable) extension, or {@code null} if not available. */
     public interface AgentExtensionResolver {
@@ -157,31 +158,58 @@ public final class AgentSessionCoordinator implements ChatSubmissionRouter, Acti
         }
     }
 
-    /** Close all sessions (process shutdown). */
+    /** Close all sessions (process shutdown, on the EDT). */
     public void shutdown() {
-        closeAllSessions();
-    }
-
-    /**
-     * Close and forget every session, routing back to Yapping / no agent. Used both at process shutdown and by
-     * the plugin runtime before a new generation is published: no session from an outgoing plugin generation may
-     * survive its classloader retirement, so all sessions are closed and recreated lazily against the new
-     * generation. The coordinator stays usable afterwards ({@link #setActiveAgent} recreates on demand).
-     */
-    public void closeAllSessions() {
-        activeSession = null;
-        activeAgentId = null;
-        activeExtension = null;
-        List<AgentSession> toClose = new ArrayList<AgentSession>(sessions.values());
-        sessions.clear();
+        List<AgentSession> toClose = detachAllInternal();
         for (AgentSession session : toClose) {
             try {
                 session.close();
-            } catch (RuntimeException ignored) {
-                // best-effort
+            } catch (RuntimeException | Error ignored) {
+                // process exit: best-effort
             }
         }
+    }
+
+    // ------------------------------------------------------------------ GenerationSwapHook
+
+    /**
+     * EDT: atomically detach every session of the outgoing plugin generation from routing and return a handle
+     * that closes them <em>off</em> the EDT. No classloader-crossing session survives a generation swap; the
+     * old generation is retired by the caller only if {@link OutgoingSessions#closeAll()} succeeds, so a session
+     * that fails to close leaves the old classloader loaded rather than dangling. Sessions are recreated lazily
+     * against the new generation.
+     */
+    @Override
+    public OutgoingSessions detachOutgoing() {
+        final List<AgentSession> detached = detachAllInternal();
+        return new OutgoingSessions() {
+            public SessionCloseResult closeAll() {
+                List<String> failures = new ArrayList<String>();
+                for (AgentSession session : detached) {
+                    try {
+                        session.close();
+                    } catch (RuntimeException | Error ex) {
+                        String message = ex.getClass().getSimpleName();
+                        if (ex.getMessage() != null) {
+                            message += ": " + ex.getMessage();
+                        }
+                        failures.add(message);
+                    }
+                }
+                return SessionCloseResult.of(failures);
+            }
+        };
+    }
+
+    /** EDT: clear routing + the session map, returning the detached sessions to be closed elsewhere. */
+    private List<AgentSession> detachAllInternal() {
+        activeSession = null;
+        activeAgentId = null;
+        activeExtension = null;
+        List<AgentSession> detached = new ArrayList<AgentSession>(sessions.values());
+        sessions.clear();
         fireChange();
+        return detached;
     }
 
     public String getActiveAgentId() {

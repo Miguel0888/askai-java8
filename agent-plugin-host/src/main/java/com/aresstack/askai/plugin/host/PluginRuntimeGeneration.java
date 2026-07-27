@@ -76,45 +76,108 @@ final class PluginRuntimeGeneration {
     }
 
     /**
-     * Stop and unload every plugin of this generation individually over a stable copy of the id list, then drop
-     * the manager. Stopping one-by-one avoids PF4J {@code stopPlugins()} iterating its own started-plugins list
-     * while mutating it (the {@link java.util.ConcurrentModificationException} seen previously); an error in one
-     * plugin is isolated so the rest are still retired and the classloaders/JAR locks are released.
+     * Stop and unload every plugin of this generation individually over a stable copy of the id list. Stopping
+     * one-by-one avoids PF4J {@code stopPlugins()} iterating its own started-plugins list while mutating it (the
+     * {@link java.util.ConcurrentModificationException} seen previously); an error in one plugin is isolated so
+     * the rest are still retired and their classloaders/JAR locks are released. The returned
+     * {@link GenerationRetirementResult} reports exactly what succeeded and what failed, so an incomplete
+     * retirement can be retried instead of being silently forgotten.
      */
-    void retire() {
-        if (pluginManager == null) {
-            return;
-        }
-        List<String> startedIds = new ArrayList<String>();
+    GenerationRetirementResult retire() {
+        return retire(opsFor(pluginManager));
+    }
+
+    /** Retire a raw (possibly half-built) manager — used to clean up a candidate whose build failed. */
+    static GenerationRetirementResult retireManager(AskAiPluginManager manager) {
+        return retire(opsFor(manager));
+    }
+
+    /** The stop/unload steps expressed over a small seam so the result logic is unit-testable without PF4J. */
+    interface RetireOps {
+        List<String> startedIds();
+
+        List<String> loadedIds();
+
+        void stop(String pluginId);
+
+        void unload(String pluginId);
+    }
+
+    static GenerationRetirementResult retire(RetireOps ops) {
+        List<String> stopped = new ArrayList<String>();
+        List<String> unloaded = new ArrayList<String>();
+        java.util.LinkedHashMap<String, String> stopFailures = new java.util.LinkedHashMap<String, String>();
+        java.util.LinkedHashMap<String, String> unloadFailures = new java.util.LinkedHashMap<String, String>();
+
+        List<String> startedIds;
         try {
-            for (PluginWrapper wrapper : pluginManager.getStartedPlugins()) {
-                startedIds.add(wrapper.getPluginId());
-            }
-        } catch (RuntimeException | Error ignored) {
-            // nothing reliable to stop
+            startedIds = new ArrayList<String>(ops.startedIds());
+        } catch (RuntimeException | Error ex) {
+            startedIds = new ArrayList<String>();
+            stopFailures.put("<enumerate-started>", message(ex));
         }
         for (String id : startedIds) {
             try {
-                pluginManager.stopPlugin(id);
-            } catch (RuntimeException | Error ignored) {
-                // isolate a misbehaving plugin; keep stopping the rest
+                ops.stop(id);
+                stopped.add(id);
+            } catch (RuntimeException | Error ex) {
+                stopFailures.put(id, message(ex)); // isolate a misbehaving plugin; keep stopping the rest
             }
         }
-        List<String> loadedIds = new ArrayList<String>();
+        List<String> loadedIds;
         try {
-            for (PluginWrapper wrapper : pluginManager.getPlugins()) {
-                loadedIds.add(wrapper.getPluginId());
-            }
-        } catch (RuntimeException | Error ignored) {
-            // fall through
+            loadedIds = new ArrayList<String>(ops.loadedIds());
+        } catch (RuntimeException | Error ex) {
+            loadedIds = new ArrayList<String>();
+            unloadFailures.put("<enumerate-loaded>", message(ex));
         }
         for (String id : loadedIds) {
             try {
-                pluginManager.unloadPlugin(id);
-            } catch (RuntimeException | Error ignored) {
-                // isolate; keep unloading the rest
+                ops.unload(id);
+                unloaded.add(id);
+            } catch (RuntimeException | Error ex) {
+                unloadFailures.put(id, message(ex)); // isolate; keep unloading the rest
             }
         }
+        boolean complete = stopFailures.isEmpty() && unloadFailures.isEmpty();
+        return new GenerationRetirementResult(stopped, unloaded, stopFailures, unloadFailures, complete);
+    }
+
+    private static RetireOps opsFor(final AskAiPluginManager manager) {
+        return new RetireOps() {
+            public List<String> startedIds() {
+                List<String> ids = new ArrayList<String>();
+                if (manager != null) {
+                    for (PluginWrapper wrapper : manager.getStartedPlugins()) {
+                        ids.add(wrapper.getPluginId());
+                    }
+                }
+                return ids;
+            }
+
+            public List<String> loadedIds() {
+                List<String> ids = new ArrayList<String>();
+                if (manager != null) {
+                    for (PluginWrapper wrapper : manager.getPlugins()) {
+                        ids.add(wrapper.getPluginId());
+                    }
+                }
+                return ids;
+            }
+
+            public void stop(String pluginId) {
+                manager.stopPlugin(pluginId);
+            }
+
+            public void unload(String pluginId) {
+                manager.unloadPlugin(pluginId);
+            }
+        };
+    }
+
+    private static String message(Throwable ex) {
+        String m = ex.getMessage();
+        return ex.getClass().getSimpleName() + (m == null ? "" : ": " + m);
     }
 
     static Builder builder(long generationId, AskAiPluginManager pluginManager) {

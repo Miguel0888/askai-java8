@@ -103,6 +103,8 @@ public class WorkspacePluginTransactionalRefreshTest {
                 service.getSelectableAgentDescriptors().isEmpty());
         assertFalse("disabled plugin must not be STARTED", "STARTED".equals(stateOf(service, pluginId)));
         assertFalse("catalog row must report Enabled=false", enabledRowOf(service, pluginId));
+        assertEquals("disabled plugin must show NOT_EVALUATED, never a fabricated COMPATIBLE",
+                PluginCompatibility.NOT_EVALUATED, compatibilityOf(service, pluginId));
 
         // Re-enable: started and selectable again.
         enablement.setEnabled(pluginId, true);
@@ -162,16 +164,21 @@ public class WorkspacePluginTransactionalRefreshTest {
     public void swapHookFiresOnEverySuccessfulGeneration() throws Exception {
         WorkspacePluginService service =
                 new WorkspacePluginService(pluginsDirWithJar(), "0.1.0", 1, new InlineUi(), enablement());
-        final AtomicInteger hookCalls = new AtomicInteger();
-        service.setGenerationSwapHook(new Runnable() {
-            public void run() {
-                hookCalls.incrementAndGet();
+        final AtomicInteger detachCalls = new AtomicInteger();
+        service.setGenerationSwapHook(new GenerationSwapHook() {
+            public OutgoingSessions detachOutgoing() {
+                detachCalls.incrementAndGet();
+                return new OutgoingSessions() {
+                    public SessionCloseResult closeAll() {
+                        return SessionCloseResult.ok();
+                    }
+                };
             }
         });
         Catcher catcher = attach(service);
         catcher.refreshAndAwait(service);
         catcher.refreshAndAwait(service);
-        assertEquals("hook fires once per successful generation swap", 2, hookCalls.get());
+        assertEquals("swap hook detaches once per successful generation swap", 2, detachCalls.get());
         service.shutdown();
     }
 
@@ -229,6 +236,15 @@ public class WorkspacePluginTransactionalRefreshTest {
             }
         }
         return "";
+    }
+
+    private static PluginCompatibility compatibilityOf(WorkspacePluginService service, String pluginId) {
+        for (PluginCatalogEntry entry : service.getCatalog()) {
+            if (pluginId.equals(entry.getPluginId())) {
+                return entry.getCompatibility();
+            }
+        }
+        return null;
     }
 
     private static boolean enabledRowOf(WorkspacePluginService service, String pluginId) {

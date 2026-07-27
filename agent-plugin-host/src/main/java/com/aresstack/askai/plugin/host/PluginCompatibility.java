@@ -14,5 +14,9 @@ public enum PluginCompatibility {
     VERSION_MISMATCH,
     MISSING_EXTENSION,
     MULTIPLE_EXTENSIONS,
-    DESCRIPTOR_INVALID
+    DESCRIPTOR_INVALID,
+    /** The plugin was loaded but deliberately not started (disabled), so its extension/API was never evaluated. */
+    NOT_EVALUATED,
+    /** The plugin is enabled but its {@code Plugin.start()} threw; distinct from a missing extension. */
+    START_FAILED
 }

@@ -193,31 +193,44 @@ Datenkonsistenzlücken. Reihenfolge und Zielinvarianten siehe Gesamtauftrag.
 ## RA-P003 — Plugin refresh leaks previous runtime generation
 
 **Erkannt in:** Audit nach Commit 20
-**Status:** RESOLVED (Commit 21)
+**Status:** RESOLVED (Commit 21 + Korrekturcommit 21b)
 **Schweregrad:** HIGH
 **Betroffene Module:** agent-plugin-host, askai-app
 
 ### Erwartung
 Genau eine aktive PF4J-Runtime-Generation. Ein Refresh vergisst nie einen alten `AskAiPluginManager`;
-die alte Generation wird nach dem atomaren Umschalten gestoppt und entladen.
+die alte Generation wird erst nach nachweislich geschlossenen Sessions gestoppt und entladen; jeder
+Teilfehler ist sichtbar und wird erneut versucht.
 
 ### Beobachtung
-`WorkspacePluginService.discover()` überschrieb `pluginManager` mit einem neuen Manager, ohne den
-vorherigen beim normalen Refresh zu stoppen/entladen — Classloader-, JAR-Lock- und Session-Leak.
+`WorkspacePluginService.discover()` überschrieb `pluginManager` mit einem neuen Manager ohne Stop/Unload
+des vorherigen (Commit 21 behob das grundsätzlich). Ein Nachaudit fand jedoch verbleibende
+Lifecycle-Lücken: (a) ein nach `managerFactory.create()` teilweise geladener Manager wurde bei einem
+`loadPlugins()`-Fehler nicht bereinigt; (b) Session-Close und Stop-/Unload-Fehler wurden per
+Best-Effort verschluckt, sodass die alte Generation trotz fehlgeschlagenem Session-Close entladen werden
+konnte; (c) Close/Stop/Unload liefen teils auf dem EDT.
 
 ### Ursache
-Kein gekapseltes Generationsobjekt; Discovery mutierte den geteilten Manager-State direkt.
+Best-Effort-Exception-Schlucken an sicherheitskritischen Stellen; kein strukturiertes Ergebnis für
+Retirement/Session-Close; kein Tracking unvollständig retirierter Generationen.
 
 ### Korrektur
-Neues immutables `PluginRuntimeGeneration` (Manager + Katalog + selectable Maps + globalFailures) mit
-`retire()` (einzeln stop/unload). `WorkspacePluginService` hält genau `activeGeneration`; ein Candidate
-wird off-EDT rein lokal aufgebaut, auf dem EDT atomar publiziert (Swap-Hook schließt zuvor die Sessions),
-und die vorherige Generation danach off-EDT retiriert. `PluginCatalogSnapshot` transportiert
-`generationId/entries/globalFailures/completedAt/generationFailed`.
+Commit 21: immutables `PluginRuntimeGeneration` + `activeGeneration`, off-EDT-Candidate, atomarer Swap,
+`PluginCatalogSnapshot`. Korrekturcommit 21b: (a) `buildCandidate` bereinigt einen halbfertigen Manager
+bei jedem Fehler (`cleanUpHalfBuilt`); (b) Generationswechsel über `GenerationSwapHook` — EDT detachiert
+nur die Sessions, off-EDT werden sie geschlossen; die alte Generation wird **nur** bei erfolgreichem
+Session-Close (`SessionCloseResult.isSuccessful()`) retiriert, sonst wird der Candidate verworfen und die
+vorherige Generation aktiv gelassen; (c) `retire()` liefert `GenerationRetirementResult`
+(stopped/unloaded/stop-/unload-Fehler/complete); unvollständige Generationen bleiben in
+`retiringGenerations` und werden bei Refresh und Shutdown erneut retiriert; Fehler erscheinen als globale
+Lifecycle-Fehler im Snapshot. Alle blockierenden Schritte laufen über `runOnEdtAndWait` außerhalb des EDT.
 
 ### Verifikation
-`WorkspacePluginTransactionalRefreshTest`: drei Refreshes → Generation-ID steigt monoton, genau ein
-selektierbarer Agent; JAR nach `shutdown()` löschbar (Windows). `./gradlew :agent-plugin-host:test` grün.
+`WorkspacePluginTransactionalRefreshTest` (Generation-Monotonie/Single-Active, JAR-Release),
+`WorkspacePluginRetirementTest` (halbfertiger Manager bereinigt + vorherige Generation behalten;
+fehlgeschlagener Session-Close bricht Swap ab und lässt alte Generation geladen; Close läuft off-EDT;
+Startfehler → `START_FAILED`), `PluginRuntimeGenerationRetireTest` (Stop-/Unload-Fehler isoliert,
+gemeldet, `complete=false` für Retry). `./gradlew clean build` grün.
 
 ### Restwirkung
 Bei jeder erfolgreichen Generation werden alle AgentSessions geschlossen und lazy neu erzeugt
