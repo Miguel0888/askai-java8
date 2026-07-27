@@ -163,7 +163,9 @@ public final class OllamaBotResponder implements BotResponder {
                 if (text.isEmpty() && result != null && !result.getFallbackText().isEmpty()) {
                     text = result.getFallbackText().trim();
                 }
-                if (isSilent(text)) {
+                // The silence contract only exists under the always policy; on an explicit
+                // mention a literal [SILENT] would just be a (strange) answer, not a decline.
+                if (alwaysPolicy() && isSilent(text)) {
                     callback.onNoAnswer();
                 } else if (!text.isEmpty()) {
                     callback.onResponse(text);
@@ -263,6 +265,10 @@ public final class OllamaBotResponder implements BotResponder {
 
     private String configuredContextMode() {
         return settings != null ? settings.botContextMode() : PartySettings.BOT_CONTEXT_TRANSCRIPT;
+    }
+
+    private boolean alwaysPolicy() {
+        return settings != null && PartySettings.BOT_POLICY_ALWAYS.equals(settings.botPolicy());
     }
 
     /** The model declines by answering exactly (or starting with) the silent marker. */
