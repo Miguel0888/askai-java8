@@ -49,6 +49,12 @@ public final class WorkspacePluginService {
     private final Map<String, com.aresstack.askai.plugin.api.agent.AgentPluginDescriptor> agentDescriptors =
             new LinkedHashMap<String, com.aresstack.askai.plugin.api.agent.AgentPluginDescriptor>();
     private volatile List<PluginCatalogEntry> catalog = Collections.emptyList();
+    // Lifecycle hardening: once shutting down, no new refresh is accepted or delivered; only the newest
+    // refresh generation is applied so a stale off-EDT result can never overwrite a newer catalog.
+    private final java.util.concurrent.atomic.AtomicBoolean shuttingDown =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
+    private final java.util.concurrent.atomic.AtomicLong refreshGeneration =
+            new java.util.concurrent.atomic.AtomicLong(0L);
 
     public WorkspacePluginService(Path pluginsRoot, String systemVersion, int supportedApiVersion,
                                   UiExecutor uiExecutor, PluginEnablementService enablement) {
@@ -70,22 +76,43 @@ public final class WorkspacePluginService {
         listeners.remove(listener);
     }
 
-    /** Re-discovers and validates plugins off-EDT; delivers the catalog to every listener on the EDT. */
+    /**
+     * Re-discovers and validates plugins off-EDT; delivers the catalog to every listener on the EDT. Rejected
+     * once shutdown has begun. Concurrent refreshes are serialized on a single-thread executor and only the
+     * newest generation is applied, so a slow discovery cannot overwrite a newer catalog or fire after shutdown.
+     */
     public void refreshAsync() {
-        discoveryExecutor.execute(new Runnable() {
-            public void run() {
-                final List<PluginLoadFailure> failures = new ArrayList<PluginLoadFailure>();
-                final List<PluginCatalogEntry> built = discover(failures);
-                catalog = built;
-                uiExecutor.execute(new Runnable() {
-                    public void run() {
-                        for (WorkspaceCatalogListener listener : listeners) {
-                            listener.onCatalogReady(built, failures);
-                        }
+        if (shuttingDown.get()) {
+            return;
+        }
+        final long generation = refreshGeneration.incrementAndGet();
+        try {
+            discoveryExecutor.execute(new Runnable() {
+                public void run() {
+                    if (shuttingDown.get() || generation != refreshGeneration.get()) {
+                        return;
                     }
-                });
-            }
-        });
+                    final List<PluginLoadFailure> failures = new ArrayList<PluginLoadFailure>();
+                    final List<PluginCatalogEntry> built = discover(failures);
+                    if (shuttingDown.get() || generation != refreshGeneration.get()) {
+                        return; // a newer refresh started, or shutdown began: drop this stale result
+                    }
+                    catalog = built;
+                    uiExecutor.execute(new Runnable() {
+                        public void run() {
+                            if (shuttingDown.get() || generation != refreshGeneration.get()) {
+                                return;
+                            }
+                            for (WorkspaceCatalogListener listener : listeners) {
+                                listener.onCatalogReady(built, failures);
+                            }
+                        }
+                    });
+                }
+            });
+        } catch (java.util.concurrent.RejectedExecutionException ignored) {
+            // The executor was already shut down; nothing to deliver.
+        }
     }
 
     /** @return the compatible, enabled extension for a descriptor id, or {@code null}. Call after discovery. */
@@ -113,24 +140,62 @@ public final class WorkspacePluginService {
         return catalog;
     }
 
-    public synchronized void shutdown() {
-        selectableById.clear();
-        selectableAgentById.clear();
-        agentDescriptors.clear();
-        listeners.clear();
-        if (pluginManager != null) {
-            try {
-                pluginManager.stopPlugins();
-            } catch (RuntimeException ignored) {
-                // best-effort shutdown
-            }
-            try {
-                pluginManager.unloadPlugins();
-            } catch (RuntimeException ignored) {
-                // best-effort shutdown
-            }
+    /**
+     * Serialized, idempotent shutdown. Order: mark shutting-down (so no refresh is accepted or delivered) →
+     * stop the discovery executor → release extension maps and listeners → stop and unload each plugin
+     * individually over a stable copy → drop the manager. Stopping plugins one-by-one over a copied id list
+     * avoids PF4J {@code stopPlugins()} iterating its own started-plugins list while it mutates it (the
+     * {@link java.util.ConcurrentModificationException} seen previously); an error in one plugin is isolated
+     * and does not stop the others.
+     */
+    public void shutdown() {
+        if (!shuttingDown.compareAndSet(false, true)) {
+            return; // idempotent
         }
         discoveryExecutor.shutdownNow();
+        synchronized (this) {
+            selectableById.clear();
+            selectableAgentById.clear();
+            agentDescriptors.clear();
+            listeners.clear();
+            if (pluginManager != null) {
+                stopAndUnloadIndividually(pluginManager);
+                pluginManager = null;
+            }
+        }
+    }
+
+    private static void stopAndUnloadIndividually(AskAiPluginManager manager) {
+        List<String> startedIds = new ArrayList<String>();
+        try {
+            for (PluginWrapper wrapper : manager.getStartedPlugins()) {
+                startedIds.add(wrapper.getPluginId());
+            }
+        } catch (RuntimeException | Error ignored) {
+            // fall through: nothing reliable to stop
+        }
+        for (String id : startedIds) {
+            try {
+                manager.stopPlugin(id);
+            } catch (RuntimeException | Error ignored) {
+                // isolate a misbehaving plugin; keep stopping the rest
+            }
+        }
+        List<String> loadedIds = new ArrayList<String>();
+        try {
+            for (PluginWrapper wrapper : manager.getPlugins()) {
+                loadedIds.add(wrapper.getPluginId());
+            }
+        } catch (RuntimeException | Error ignored) {
+            // fall through
+        }
+        for (String id : loadedIds) {
+            try {
+                manager.unloadPlugin(id);
+            } catch (RuntimeException | Error ignored) {
+                // isolate; keep unloading the rest
+            }
+        }
     }
 
     // ------------------------------------------------------------------ discovery (off-EDT)
