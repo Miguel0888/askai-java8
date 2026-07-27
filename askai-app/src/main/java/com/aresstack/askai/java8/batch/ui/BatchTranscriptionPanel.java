@@ -2,10 +2,10 @@ package com.aresstack.askai.java8.batch.ui;
 
 import com.aresstack.askai.java8.audio.format.SupportedAudioFormats;
 import com.aresstack.askai.java8.batch.service.BatchProfileCatalogLoadedEvent;
-import com.aresstack.askai.java8.batch.service.BatchSelectionCatalogLoadedEvent;
 import com.aresstack.askai.java8.batch.service.BatchTranscriptionEvent;
 import com.aresstack.askai.java8.batch.service.BatchTranscriptionEventPublisher;
 import com.aresstack.askai.java8.batch.service.BatchTranscriptionRequest;
+import com.aresstack.askai.java8.catalog.GlobalCatalogSnapshot;
 import com.aresstack.askai.java8.ui.MarkdownPreviewTabs;
 import com.aresstack.askai.java8.ui.RefreshIcon;
 import com.aresstack.askai.java8.ui.ToggleSelectionList;
@@ -53,7 +53,7 @@ import java.util.function.Function;
 public final class BatchTranscriptionPanel extends JPanel {
 
     private final BatchTranscriptionController controller;
-    private final BatchSelectionRefresher refresher;
+    private final BatchProfileRefresher profileRefresher;
     private final Function<String, JComponent> markdownRenderer;
     private final DefaultListModel<File> audioFiles = new DefaultListModel<File>();
     // Audio files use plain multi-interval selection (standard Ctrl/Shift): the batch set is the whole list
@@ -75,27 +75,25 @@ public final class BatchTranscriptionPanel extends JPanel {
     private File lastPreviewedFile;
     private final BatchTranscriptionEventPublisher.Subscription subscription;
 
-    // Refresh state — all touched only on the EDT.
+    // Refresh state — touched only on the EDT.
     private boolean refreshing;
-    private int pendingRefreshLoads;
-    private String modelRefreshError;
-    private String profileRefreshError;
 
     public BatchTranscriptionPanel(BatchTranscriptionController controller,
                                    List<String> availableModels,
                                    List<AudioProcessingProfile> availableProfiles,
-                                   BatchSelectionRefresher refresher) {
-        this(controller, availableModels, availableProfiles, refresher, MarkdownPreviewTabs.markdownRenderer());
+                                   BatchProfileRefresher profileRefresher) {
+        this(controller, availableModels, availableProfiles, profileRefresher,
+                MarkdownPreviewTabs.markdownRenderer());
     }
 
     BatchTranscriptionPanel(BatchTranscriptionController controller,
                             List<String> availableModels,
                             List<AudioProcessingProfile> availableProfiles,
-                            BatchSelectionRefresher refresher,
+                            BatchProfileRefresher profileRefresher,
                             Function<String, JComponent> markdownRenderer) {
         super(new BorderLayout(8, 8));
         this.controller = controller;
-        this.refresher = refresher;
+        this.profileRefresher = profileRefresher;
         this.markdownRenderer = markdownRenderer;
         for (String model : availableModels) models.addElement(model);
         for (AudioProcessingProfile profile : availableProfiles) profiles.addElement(profile);
@@ -154,7 +152,7 @@ public final class BatchTranscriptionPanel extends JPanel {
         // Refresh control, top-right, matching the Chat panel's refresh button.
         int refreshSize = startButton.getPreferredSize().height;
         refreshButton.setIcon(new RefreshIcon(refreshSize - 6));
-        refreshButton.setToolTipText("Refresh models and profiles");
+        refreshButton.setToolTipText("Refresh audio profiles");
         refreshButton.setFocusPainted(false);
         refreshButton.setMargin(new Insets(0, 0, 0, 0));
         refreshButton.setPreferredSize(new Dimension(refreshSize, refreshSize));
@@ -221,28 +219,33 @@ public final class BatchTranscriptionPanel extends JPanel {
     }
 
     /**
-     * Reload the audio models and profiles from their live sources so background changes (installed or
-     * removed models, added/renamed/deleted profiles) become visible. The two loads are independent: one
-     * failing still applies the other. A refresh already in progress is ignored (no second parallel run).
+     * Apply a globally-refreshed catalog: audio models and audio profiles, each only when it loaded, keeping
+     * this panel's own multi-selection (models by name, profiles by stable id). Must run on the EDT.
+     */
+    public void applyCatalogSnapshot(GlobalCatalogSnapshot snapshot) {
+        if (snapshot == null) {
+            return;
+        }
+        if (snapshot.isAudioModelsLoaded()) {
+            setAvailableModels(snapshot.getAudioModels());
+        }
+        if (snapshot.isProfilesLoaded()) {
+            setAvailableProfiles(snapshot.getAudioProfiles());
+        }
+    }
+
+    /**
+     * Reload only the audio profiles (a local source) from their live source; models come from the global
+     * refresh. A refresh already in progress is ignored (no second parallel run).
      */
     public void refresh() {
         if (refreshing) {
             return;
         }
         refreshing = true;
-        modelRefreshError = null;
-        profileRefreshError = null;
-        pendingRefreshLoads = 2;
         refreshButton.setEnabled(false);
-        status.setText("Refreshing models and profiles...");
-        refresher.loadModels(new Consumer<BatchSelectionCatalogLoadedEvent>() {
-            public void accept(final BatchSelectionCatalogLoadedEvent event) {
-                onUi(new Runnable() {
-                    public void run() { applyModelRefresh(event); }
-                });
-            }
-        });
-        refresher.loadProfiles(new Consumer<BatchProfileCatalogLoadedEvent>() {
+        status.setText("Refreshing audio profiles...");
+        profileRefresher.loadProfiles(new Consumer<BatchProfileCatalogLoadedEvent>() {
             public void accept(final BatchProfileCatalogLoadedEvent event) {
                 onUi(new Runnable() {
                     public void run() { applyProfileRefresh(event); }
@@ -251,43 +254,15 @@ public final class BatchTranscriptionPanel extends JPanel {
         });
     }
 
-    private void applyModelRefresh(BatchSelectionCatalogLoadedEvent event) {
-        if (event.isSuccessful()) {
-            setAvailableModels(event.getAudioModelNames());
-        } else {
-            modelRefreshError = event.getMessage();
-        }
-        finishOneRefreshLoad();
-    }
-
     private void applyProfileRefresh(BatchProfileCatalogLoadedEvent event) {
         if (event.isSuccessful()) {
             setAvailableProfiles(event.getProfiles());
+            status.setText("Audio profiles refreshed.");
         } else {
-            profileRefreshError = event.getMessage();
-        }
-        finishOneRefreshLoad();
-    }
-
-    private void finishOneRefreshLoad() {
-        if (--pendingRefreshLoads > 0) {
-            return;
+            status.setText("Profile refresh failed: " + event.getMessage());
         }
         refreshing = false;
         refreshButton.setEnabled(true);
-        status.setText(refreshSummary());
-    }
-
-    private String refreshSummary() {
-        StringBuilder text = new StringBuilder();
-        if (modelRefreshError != null) {
-            text.append("Model refresh failed: ").append(modelRefreshError);
-        }
-        if (profileRefreshError != null) {
-            if (text.length() > 0) text.append(" | ");
-            text.append("Profile refresh failed: ").append(profileRefreshError);
-        }
-        return text.length() > 0 ? text.toString() : "Models and profiles refreshed.";
     }
 
     private void onUi(Runnable runnable) {

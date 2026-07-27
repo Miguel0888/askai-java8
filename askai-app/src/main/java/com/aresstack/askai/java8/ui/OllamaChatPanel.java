@@ -3,6 +3,7 @@ package com.aresstack.askai.java8.ui;
 import com.aresstack.askai.java8.AskAiModel;
 import com.aresstack.askai.java8.audio.AudioProfileRepository;
 import com.aresstack.askai.java8.audio.format.SupportedAudioFormats;
+import com.aresstack.askai.java8.catalog.GlobalCatalogSnapshot;
 import com.aresstack.askai.java8.ui.chat.ChatSessionComponent;
 import com.aresstack.askai.java8.ui.chat.ChatSessionId;
 import com.aresstack.askai.java8.audio.FileAudioProfileRepository;
@@ -630,6 +631,44 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         return composer;
     }
 
+    // ------------------------------------------------------------------ global catalog snapshot
+
+    /**
+     * Apply a globally-refreshed catalog to this chat without re-querying Ollama, preserving this tab's own
+     * selection (model by name, audio model / profile by their persisted ids). Only parts that loaded
+     * successfully are applied, so a partial failure never clears a working list.
+     */
+    public void applyCatalogSnapshot(GlobalCatalogSnapshot snapshot) {
+        if (snapshot == null) {
+            return;
+        }
+        if (snapshot.isModelsLoaded()) {
+            applyModelNames(snapshot.getChatModels());
+        }
+        if (snapshot.isAudioModelsLoaded()) {
+            setAudioModelItems(snapshot.getAudioModels());
+        }
+        if (snapshot.isProfilesLoaded()) {
+            refreshAudioProfiles(); // profiles are local; re-read the (just-refreshed) repository
+        }
+    }
+
+    /** Repopulate the (off-screen) model selector, keeping the current model selected when it survives. */
+    private void applyModelNames(List<String> names) {
+        Object previous = modelCombo.getSelectedItem();
+        modelCombo.removeAllItems();
+        for (String name : names) {
+            modelCombo.addItem(name);
+        }
+        String restored = consumePendingRestoreModel(names);
+        if (restored != null) {
+            modelCombo.setSelectedItem(restored);
+        } else if (previous != null) {
+            modelCombo.setSelectedItem(previous);
+        }
+        composer.setModelName((String) modelCombo.getSelectedItem());
+    }
+
     // ------------------------------------------------------------------ chat (unchanged behaviour)
 
     private void refreshModels() {
@@ -638,20 +677,8 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
             public void onModelNames(final List<String> names) {
                 onUi(new Runnable() {
                     public void run() {
-                        Object previous = modelCombo.getSelectedItem();
-                        modelCombo.removeAllItems();
-                        for (String name : names) {
-                            modelCombo.addItem(name);
-                        }
-                        String restored = consumePendingRestoreModel(names);
-                        if (restored != null) {
-                            modelCombo.setSelectedItem(restored);
-                        } else if (previous != null) {
-                            modelCombo.setSelectedItem(previous);
-                        }
+                        applyModelNames(names);
                         refreshAudioModels(names);
-                        // The in-composer selector shows the current model; keep the status line quiet.
-                        composer.setModelName((String) modelCombo.getSelectedItem());
                         refreshReasoningForModel((String) modelCombo.getSelectedItem());
                         setStatus(names.isEmpty() ? "No models installed. Open Install to add one." : " ");
                     }

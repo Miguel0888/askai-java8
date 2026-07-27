@@ -1,7 +1,6 @@
 package com.aresstack.askai.java8.batch.ui;
 
 import com.aresstack.askai.java8.batch.service.BatchProfileCatalogLoadedEvent;
-import com.aresstack.askai.java8.batch.service.BatchSelectionCatalogLoadedEvent;
 import com.aresstack.askai.java8.batch.service.BatchTranscriptionEventPublisher;
 import com.aresstack.askai.java8.ui.ToggleSelectionList;
 import com.aresstack.audio.profile.AudioProcessingProfile;
@@ -248,8 +247,7 @@ public class BatchTranscriptionPanelSelectionTest {
         return file;
     }
 
-    private static final class NoRefresh implements BatchSelectionRefresher {
-        public void loadModels(Consumer<BatchSelectionCatalogLoadedEvent> callback) { }
+    private static final class NoRefresh implements BatchProfileRefresher {
         public void loadProfiles(Consumer<BatchProfileCatalogLoadedEvent> callback) { }
     }
 

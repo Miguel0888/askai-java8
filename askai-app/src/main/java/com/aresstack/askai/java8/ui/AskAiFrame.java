@@ -10,17 +10,20 @@ import com.aresstack.askai.java8.service.DefaultOllamaService;
 import com.aresstack.askai.java8.service.FeatureActionService;
 import com.aresstack.askai.java8.service.OllamaFeatureActionService;
 import com.aresstack.askai.java8.service.OllamaService;
+import com.aresstack.askai.java8.stt.AudioCapability;
 import com.aresstack.askai.java8.stt.DefaultSpeechToTextService;
 import com.aresstack.askai.java8.stt.SpeechToTextService;
+import com.aresstack.askai.java8.catalog.GlobalCatalogRefreshService;
+import com.aresstack.askai.java8.catalog.GlobalCatalogSnapshot;
+import com.aresstack.askai.java8.client.AskAiOllamaClient;
+import com.aresstack.askai.java8.client.OllamaModelInfo;
 import com.aresstack.askai.java8.batch.service.BatchAudioPreparationService;
 import com.aresstack.askai.java8.batch.service.BatchMarkdownResultWriter;
 import com.aresstack.askai.java8.batch.service.BatchProfileCatalogLoadedEvent;
 import com.aresstack.askai.java8.batch.service.BatchProfileCatalogService;
-import com.aresstack.askai.java8.batch.service.BatchSelectionCatalogLoadedEvent;
-import com.aresstack.askai.java8.batch.service.BatchSelectionCatalogService;
 import com.aresstack.askai.java8.batch.service.BatchTranscriptionEventPublisher;
 import com.aresstack.askai.java8.batch.service.BatchTranscriptionService;
-import com.aresstack.askai.java8.batch.ui.BatchSelectionRefresher;
+import com.aresstack.askai.java8.batch.ui.BatchProfileRefresher;
 import com.aresstack.askai.java8.batch.ui.BatchTranscriptionController;
 import com.aresstack.askai.java8.batch.ui.BatchTranscriptionPanel;
 import com.aresstack.askai.java8.ui.chat.ChatSessionComponent;
@@ -29,12 +32,14 @@ import com.aresstack.askai.java8.ui.chat.ChatWorkspacePanel;
 import com.aresstack.audio.profile.AudioProcessingProfile;
 import com.aresstack.audio.application.DefaultAudioProcessingPreviewService;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 import javax.swing.Box;
+import javax.swing.JButton;
 import javax.swing.JFrame;
 import javax.swing.JMenu;
 import javax.swing.JMenuBar;
@@ -43,6 +48,9 @@ import javax.swing.JPanel;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
 import java.awt.Dimension;
+import java.awt.Insets;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.WindowAdapter;
@@ -82,6 +90,8 @@ public final class AskAiFrame extends JFrame {
     private AudioProcessingPanel audioProcessingPanel;
     private ModelSearchPanel installSearchPanel;
     private BatchTranscriptionPanel batchPanel;
+    private final GlobalCatalogRefreshService catalogRefreshService;
+    private final JButton globalRefreshButton;
 
     public AskAiFrame(AppConfigurationRepository configurationRepository, final AskAiService askAiService) {
         super("AskAI");
@@ -99,6 +109,24 @@ public final class AskAiFrame extends JFrame {
         this.contentLayout = new CardLayout();
         this.contentPanel = new JPanel(contentLayout);
         this.modelsPanel = new OllamaModelsPanel(model, ollamaService, askAiService, configurationRepository);
+        this.catalogRefreshService = new GlobalCatalogRefreshService(
+                new GlobalCatalogRefreshService.CatalogLoader<String>() {
+                    public List<String> load() throws Exception { return loadInstalledModelNames(); }
+                },
+                new GlobalCatalogRefreshService.CatalogLoader<String>() {
+                    public List<String> load() throws Exception { return loadAudioCapableModelNames(); }
+                },
+                new GlobalCatalogRefreshService.CatalogLoader<AudioProcessingProfile>() {
+                    public List<AudioProcessingProfile> load() { return audioProfileRepository.findAll(); }
+                },
+                new Consumer<Runnable>() {
+                    public void accept(Runnable runnable) { onUi(runnable); }
+                });
+        this.globalRefreshButton = createGlobalRefreshButton();
+        this.catalogRefreshService.subscribe(new GlobalCatalogRefreshService.Listener() {
+            public void onRefreshStarted() { globalRefreshButton.setEnabled(false); }
+            public void onCatalogRefreshed(GlobalCatalogSnapshot snapshot) { applyGlobalSnapshot(snapshot); }
+        });
         this.audioProfileRepository = new FileAudioProfileRepository();
         this.applicationState = new ApplicationStateService();
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
@@ -120,6 +148,7 @@ public final class AskAiFrame extends JFrame {
         setLocationRelativeTo(null);
         buildUserInterface();
         showScreen(CHAT_VIEW);
+        catalogRefreshService.refresh(); // initial catalog load, distributed to the chat + batch panels
     }
 
     /** Kept for the existing launcher: builds the frame and makes it visible. */
@@ -142,7 +171,64 @@ public final class AskAiFrame extends JFrame {
         menuBar.add(createHelpMenu());
         menuBar.add(Box.createHorizontalGlue());
         menuBar.add(connectionStatusView);
+        menuBar.add(globalRefreshButton); // one refresh for connection, models and audio profiles
         return menuBar;
+    }
+
+    private JButton createGlobalRefreshButton() {
+        JButton button = new JButton(new RefreshIcon(14));
+        button.setToolTipText("Refresh connection, models and audio profiles");
+        button.setFocusPainted(false);
+        button.setMargin(new Insets(0, 6, 0, 10));
+        button.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent event) {
+                catalogRefreshService.refresh(); // no-op if one is already running
+            }
+        });
+        return button;
+    }
+
+    /** Load installed model names for the chat model list (blocking; runs off the EDT in the refresh service). */
+    private List<String> loadInstalledModelNames() throws Exception {
+        AskAiOllamaClient client = new AskAiOllamaClient(model.getOllamaBaseUrl());
+        List<String> names = new ArrayList<String>();
+        for (OllamaModelInfo installed : client.getInstalledModels()) {
+            names.add(installed.getDisplayName());
+        }
+        return names;
+    }
+
+    /** Load only the audio-capable model names (exact {@code audio} capability), same rule as the batch list. */
+    private List<String> loadAudioCapableModelNames() throws Exception {
+        AskAiOllamaClient client = new AskAiOllamaClient(model.getOllamaBaseUrl());
+        List<String> audioModels = new ArrayList<String>();
+        for (OllamaModelInfo installed : client.getInstalledModels()) {
+            String name = installed.getDisplayName();
+            try {
+                if (AudioCapability.isAudioCapable(client.getModelInfo(name).getCapabilities())) {
+                    audioModels.add(name);
+                }
+            } catch (Exception ignored) {
+                // Skip a model we cannot query; UNKNOWN capabilities never count as audio.
+            }
+        }
+        return audioModels;
+    }
+
+    /** Distribute a global catalog snapshot to every open chat tab and the batch panel (on the EDT). */
+    private void applyGlobalSnapshot(GlobalCatalogSnapshot snapshot) {
+        globalRefreshButton.setEnabled(true);
+        if (chatWorkspace != null) {
+            for (ChatSessionComponent session : chatWorkspace.sessions()) {
+                if (session instanceof OllamaChatPanel) {
+                    ((OllamaChatPanel) session).applyCatalogSnapshot(snapshot);
+                }
+            }
+        }
+        if (batchPanel != null) {
+            batchPanel.applyCatalogSnapshot(snapshot);
+        }
+        refreshConnectionStatus();
     }
 
     /** Shows the Connections view and puts the cursor in its Base URL field, selected for overwrite. */
@@ -324,24 +410,15 @@ public final class AskAiFrame extends JFrame {
         BatchTranscriptionController batchController =
                 new BatchTranscriptionController(batchService, batchEvents);
 
-        // The two selection catalogs the Batch view reloads on Refresh. Same audio-capability rule as the
-        // Chat model list (via BatchSelectionCatalogService); profiles come from the shared repository.
-        final BatchSelectionCatalogService modelCatalog =
-                new BatchSelectionCatalogService(new Supplier<String>() {
-                    public String get() {
-                        return model.getOllamaBaseUrl();
-                    }
-                });
+        // The batch local refresh only reloads audio profiles (a local source); audio models arrive via the
+        // global catalog refresh below, distributed through applyCatalogSnapshot(...).
         final BatchProfileCatalogService profileCatalog =
                 new BatchProfileCatalogService(new Supplier<List<AudioProcessingProfile>>() {
                     public List<AudioProcessingProfile> get() {
                         return audioProfileRepository.findAll();
                     }
                 });
-        BatchSelectionRefresher refresher = new BatchSelectionRefresher() {
-            public void loadModels(Consumer<BatchSelectionCatalogLoadedEvent> callback) {
-                modelCatalog.loadAsync(callback);
-            }
+        BatchProfileRefresher profileRefresher = new BatchProfileRefresher() {
             public void loadProfiles(Consumer<BatchProfileCatalogLoadedEvent> callback) {
                 profileCatalog.loadAsync(callback);
             }
@@ -351,21 +428,8 @@ public final class AskAiFrame extends JFrame {
                 batchController,
                 Collections.<String>emptyList(),
                 audioProfileRepository.findAll(),
-                refresher);
+                profileRefresher);
         contentPanel.add(batchPanel, BATCH_VIEW);
-
-        // Initial async model load (profiles are already shown from the constructor list above).
-        modelCatalog.loadAsync(new Consumer<BatchSelectionCatalogLoadedEvent>() {
-            public void accept(final BatchSelectionCatalogLoadedEvent event) {
-                onUi(new Runnable() {
-                    public void run() {
-                        if (event.isSuccessful()) {
-                            batchPanel.setAvailableModels(event.getAudioModelNames());
-                        }
-                    }
-                });
-            }
-        });
     }
 
     /** Switches to the Chat view and selects the given model in the active chat, keeping its conversation. */
