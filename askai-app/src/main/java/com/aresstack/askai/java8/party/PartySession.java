@@ -82,7 +82,7 @@ public final class PartySession implements GroupChatSubmissionTarget {
     private final GroupChatTransport transport;
     private final GroupChatRoom room;
     private final Ui ui;
-    private final String botPolicy;
+    private final java.util.function.Supplier<String> botPolicy;
     private final BotResponder botResponder;
     private final BotResponseArbiter arbiter = new BotResponseArbiter();
     private final List<GroupChatMessage> recentMessages = new ArrayList<GroupChatMessage>();
@@ -94,7 +94,7 @@ public final class PartySession implements GroupChatSubmissionTarget {
     private boolean joined;
 
     public PartySession(GroupChatTransport transport, GroupChatRoom room, Participant self,
-                        String botPolicy, BotResponder botResponder, Ui ui) {
+                        java.util.function.Supplier<String> botPolicy, BotResponder botResponder, Ui ui) {
         this.transport = transport;
         this.room = room;
         this.self = self;
@@ -137,7 +137,7 @@ public final class PartySession implements GroupChatSubmissionTarget {
 
     /** Update this peer's bot readiness (model became available/unavailable) and announce it. */
     public synchronized void updateBotReadiness() {
-        boolean capable = botResponder != null && PartySettings.BOT_POLICY_MENTION.equals(botPolicy);
+        boolean capable = botResponder != null && !PartySettings.BOT_POLICY_OFF.equals(botPolicy.get());
         boolean ready = capable && botResponder.isReady();
         if (self.isBotCapable() == capable && self.isBotReady() == ready) {
             return;
@@ -272,11 +272,14 @@ public final class PartySession implements GroupChatSubmissionTarget {
     // ------------------------------------------------------------------ bot hosting
 
     private void maybeHostBot(GroupChatMessage message) {
-        if (botResponder == null || !PartySettings.BOT_POLICY_MENTION.equals(botPolicy)) {
-            return; // default policy: the bot only answers explicit mentions; "off" never answers
+        if (botResponder == null || PartySettings.BOT_POLICY_OFF.equals(botPolicy.get())) {
+            return; // "off" never answers
         }
         String requestedModel = mentionedModel(message.getMarkdown());
-        if (!MentionParser.mentionsBot(message.getMarkdown()) && requestedModel == null) {
+        boolean always = PartySettings.BOT_POLICY_ALWAYS.equals(botPolicy.get());
+        // Default policy: only explicit mentions; "always" sees every message and the model
+        // itself decides (it may decline with the silent marker → onNoAnswer).
+        if (!always && !MentionParser.mentionsBot(message.getMarkdown()) && requestedModel == null) {
             return;
         }
         List<Participant> members = transport.getParticipants();
@@ -351,6 +354,14 @@ public final class PartySession implements GroupChatSubmissionTarget {
                         .markdown(markdown)
                         .build();
                 transport.send(response);
+            }
+
+            public void onNoAnswer() {
+                // The model deliberately stayed silent (always policy); nothing to broadcast and
+                // no failover retry needed.
+                synchronized (PartySession.this) {
+                    pendingBotWork.remove(addressed.getMessageId());
+                }
             }
 
             public void onFailure(Exception error) {

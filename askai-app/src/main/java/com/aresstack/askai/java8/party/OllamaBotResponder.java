@@ -24,50 +24,61 @@ public final class OllamaBotResponder implements BotResponder {
 
     /**
      * The built-in system prompt, used when no custom prompt is configured in the Partying
-     * settings.  Deliberately without a brevity instruction — answer length is the model's (or
-     * the custom prompt's) choice.
+     * settings ("concisely" works well as a group-chat default; the settings field overrides it).
      */
     public static final String DEFAULT_SYSTEM_PROMPT =
             "You are @" + GroupChatBot.DISPLAY_NAME + ", the shared assistant in a local-network group chat "
             + "with several human participants. Messages are prefixed with the sender's name and a colon. "
-            + "The participants mostly talk to each other and consult you when mentioned. "
-            + "Answer in the language of the message addressed to you, in normal Markdown, "
+            + "The participants mostly talk to each other and consult you when needed. "
+            + "Answer in the language of the message addressed to you, concisely and in normal Markdown, "
             + "and do not prefix your answer with your own name.";
+
+    /**
+     * The built-in explanation of when to chime in for the "always answers" policy; the model
+     * declines with {@link #SILENT_MARKER} when it has nothing to add.
+     */
+    public static final String DEFAULT_ALWAYS_PROMPT =
+            "You see every message in the room, not only mentions. Decide yourself whether a reply "
+            + "from you adds value: answer direct questions, correct important factual errors, and "
+            + "help when the participants seem stuck or ask for ideas. When the participants are "
+            + "just talking to each other and you have nothing essential to add, reply with exactly "
+            + "[SILENT] and nothing else.";
+
+    /** Exact reply the model uses to stay silent under the always policy. */
+    public static final String SILENT_MARKER = "[SILENT]";
 
     private static final String TRANSCRIPT_MODE_INSTRUCTION =
             "You will receive one message that explicitly mentions you; answer exactly that message "
             + "and do not answer other transcript lines.";
 
+    private static final String TRANSCRIPT_MODE_ALWAYS_INSTRUCTION =
+            "You will receive the latest room message.";
+
     private final OllamaService ollamaService;
     private final Supplier<String> modelName;
     private final Supplier<String> keepAlive;
     private final Supplier<List<String>> mentionableModels;
-    private final Supplier<String> systemPrompt;
-    private final Supplier<String> contextMode;
+    private final PartySettings settings;
 
     public OllamaBotResponder(OllamaService ollamaService, Supplier<String> modelName,
                               Supplier<String> keepAlive) {
-        this(ollamaService, modelName, keepAlive, null, null, null);
+        this(ollamaService, modelName, keepAlive, null, null);
     }
 
     /**
      * @param mentionableModels supplies the installed model names that may be @-mentioned
      *                          directly, or {@code null} when model mentions are disabled
-     * @param systemPrompt      supplies a custom bot system prompt; {@code null}/empty result
-     *                          falls back to {@link #DEFAULT_SYSTEM_PROMPT}
-     * @param contextMode       supplies {@link PartySettings#BOT_CONTEXT_TRANSCRIPT} or
-     *                          {@link PartySettings#BOT_CONTEXT_CONVERSATION}; {@code null}
-     *                          defaults to transcript mode
+     * @param settings          Partying settings supplying the bot prompts, context mode and
+     *                          policy; {@code null} uses the built-in defaults
      */
     public OllamaBotResponder(OllamaService ollamaService, Supplier<String> modelName,
                               Supplier<String> keepAlive, Supplier<List<String>> mentionableModels,
-                              Supplier<String> systemPrompt, Supplier<String> contextMode) {
+                              PartySettings settings) {
         this.ollamaService = ollamaService;
         this.modelName = modelName;
         this.keepAlive = keepAlive;
         this.mentionableModels = mentionableModels;
-        this.systemPrompt = systemPrompt;
-        this.contextMode = contextMode;
+        this.settings = settings;
     }
 
     @Override
@@ -124,7 +135,9 @@ public final class OllamaBotResponder implements BotResponder {
                 if (text.isEmpty() && result != null && !result.getFallbackText().isEmpty()) {
                     text = result.getFallbackText().trim();
                 }
-                if (text.isEmpty()) {
+                if (isSilent(text)) {
+                    callback.onNoAnswer();
+                } else if (text.isEmpty()) {
                     callback.onFailure(new IllegalStateException("The model returned no answer."));
                 } else {
                     callback.onResponse(text);
@@ -153,7 +166,12 @@ public final class OllamaBotResponder implements BotResponder {
     private List<OllamaChatTurn> buildConversation(List<GroupChatMessage> context,
                                                    GroupChatMessage addressed,
                                                    Map<String, Participant> profiles) {
+        boolean always = settings != null
+                && PartySettings.BOT_POLICY_ALWAYS.equals(settings.botPolicy());
         String base = configuredSystemPrompt();
+        if (always) {
+            base += "\n\n" + configuredAlwaysPrompt();
+        }
         int from = Math.max(0, context.size() - CONTEXT_MESSAGES);
         List<OllamaChatTurn> conversation = new ArrayList<OllamaChatTurn>();
 
@@ -190,7 +208,8 @@ public final class OllamaBotResponder implements BotResponder {
                     : handleOf(message.getSenderParticipantId(), profiles);
             transcript.append(handle).append(": ").append(message.getMarkdown()).append('\n');
         }
-        String system = base + "\n\n" + TRANSCRIPT_MODE_INSTRUCTION;
+        String system = base + "\n\n"
+                + (always ? TRANSCRIPT_MODE_ALWAYS_INSTRUCTION : TRANSCRIPT_MODE_INSTRUCTION);
         if (transcript.length() > 0) {
             system += "\n\nRecent room transcript (context only, do not answer these lines):\n" + transcript;
         }
@@ -202,15 +221,24 @@ public final class OllamaBotResponder implements BotResponder {
     }
 
     private String configuredSystemPrompt() {
-        String custom = systemPrompt != null ? systemPrompt.get() : null;
-        return custom != null && !custom.trim().isEmpty() ? custom.trim() : DEFAULT_SYSTEM_PROMPT;
+        String custom = settings != null ? settings.botSystemPrompt() : null;
+        return custom != null ? custom.trim() : DEFAULT_SYSTEM_PROMPT;
+    }
+
+    private String configuredAlwaysPrompt() {
+        String custom = settings != null ? settings.botAlwaysPrompt() : null;
+        return custom != null ? custom.trim() : DEFAULT_ALWAYS_PROMPT;
     }
 
     private String configuredContextMode() {
-        String mode = contextMode != null ? contextMode.get() : null;
-        return PartySettings.BOT_CONTEXT_CONVERSATION.equals(mode)
-                ? PartySettings.BOT_CONTEXT_CONVERSATION
-                : PartySettings.BOT_CONTEXT_TRANSCRIPT;
+        return settings != null ? settings.botContextMode() : PartySettings.BOT_CONTEXT_TRANSCRIPT;
+    }
+
+    /** The model declines by answering exactly (or starting with) the silent marker. */
+    private static boolean isSilent(String text) {
+        String normalized = text.trim();
+        return normalized.equalsIgnoreCase(SILENT_MARKER)
+                || normalized.toUpperCase(java.util.Locale.ROOT).startsWith(SILENT_MARKER);
     }
 
     private static String handleOf(String participantId, Map<String, Participant> profiles) {

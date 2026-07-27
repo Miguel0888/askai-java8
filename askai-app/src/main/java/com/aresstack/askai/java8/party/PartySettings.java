@@ -18,8 +18,12 @@ import java.util.UUID;
  */
 public final class PartySettings {
 
-    /** Bot participation policies: answer only on explicit mention, or never. */
+    /**
+     * Bot participation policies: answer only on explicit mention (default), consider every
+     * message and decide itself (paired with the always-prompt), or never answer.
+     */
     public static final String BOT_POLICY_MENTION = "mention";
+    public static final String BOT_POLICY_ALWAYS = "always";
     public static final String BOT_POLICY_OFF = "off";
 
     private static final String KEY_PARTICIPANT_ID = "party.participantId";
@@ -31,6 +35,7 @@ public final class PartySettings {
     private static final String KEY_BOT_POLICY = "party.botPolicy";
     private static final String KEY_MODEL_MENTIONS = "party.modelMentions";
     private static final String KEY_BOT_SYSTEM_PROMPT = "party.botSystemPrompt";
+    private static final String KEY_BOT_ALWAYS_PROMPT = "party.botAlwaysPrompt";
     private static final String KEY_BOT_CONTEXT_MODE = "party.botContextMode";
 
     /** Bot context modes: transcript-as-context (answer the mention) or full chat turns. */
@@ -130,7 +135,10 @@ public final class PartySettings {
     /** The bot participation policy; default: answer only when explicitly mentioned. */
     public String botPolicy() {
         String policy = state == null ? BOT_POLICY_MENTION : state.get(KEY_BOT_POLICY, BOT_POLICY_MENTION);
-        return BOT_POLICY_OFF.equals(policy) ? BOT_POLICY_OFF : BOT_POLICY_MENTION;
+        if (BOT_POLICY_OFF.equals(policy)) {
+            return BOT_POLICY_OFF;
+        }
+        return BOT_POLICY_ALWAYS.equals(policy) ? BOT_POLICY_ALWAYS : BOT_POLICY_MENTION;
     }
 
     public void setBotPolicy(String policy) {
@@ -159,6 +167,19 @@ public final class PartySettings {
 
     public void setBotSystemPrompt(String prompt) {
         put(KEY_BOT_SYSTEM_PROMPT, prompt);
+    }
+
+    /**
+     * The prompt paired with {@link #BOT_POLICY_ALWAYS} that explains when the bot should chime
+     * in unprompted; empty/{@code null} means the built-in default.
+     */
+    public String botAlwaysPrompt() {
+        String prompt = state == null ? null : state.get(KEY_BOT_ALWAYS_PROMPT, null);
+        return prompt == null || prompt.trim().isEmpty() ? null : prompt;
+    }
+
+    public void setBotAlwaysPrompt(String prompt) {
+        put(KEY_BOT_ALWAYS_PROMPT, prompt);
     }
 
     /**

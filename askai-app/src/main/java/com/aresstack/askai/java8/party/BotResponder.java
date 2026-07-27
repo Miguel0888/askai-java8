@@ -17,6 +17,9 @@ public interface BotResponder {
     interface Callback {
         void onResponse(String markdown);
 
+        /** The model deliberately chose not to answer (always-policy silence). */
+        void onNoAnswer();
+
         void onFailure(Exception error);
     }
 

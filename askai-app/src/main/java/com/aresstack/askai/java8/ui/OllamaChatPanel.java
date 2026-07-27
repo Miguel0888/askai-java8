@@ -604,9 +604,11 @@ public final class OllamaChatPanel extends JPanel {
 
         final JComboBox<String> botPolicyCombo = new JComboBox<String>();
         botPolicyCombo.addItem("Answer only when @AskAI is mentioned");
+        botPolicyCombo.addItem("See every message and decide (always)");
         botPolicyCombo.addItem("Never answer");
-        botPolicyCombo.setSelectedIndex(
-                PartySettings.BOT_POLICY_OFF.equals(partySettings.botPolicy()) ? 1 : 0);
+        String policy = partySettings.botPolicy();
+        botPolicyCombo.setSelectedIndex(PartySettings.BOT_POLICY_OFF.equals(policy) ? 2
+                : PartySettings.BOT_POLICY_ALWAYS.equals(policy) ? 1 : 0);
         final javax.swing.JCheckBox modelMentionsBox = new javax.swing.JCheckBox(
                 "Allow @modelname mentions", partySettings.modelMentionsEnabled());
         modelMentionsBox.setToolTipText(
@@ -643,6 +645,24 @@ public final class OllamaChatPanel extends JPanel {
         promptFieldRow.add(promptScroll);
         party.add(promptFieldRow);
 
+        String customAlwaysPrompt = partySettings.botAlwaysPrompt();
+        final JTextArea alwaysPromptArea = new JTextArea(
+                customAlwaysPrompt != null ? customAlwaysPrompt : "", 3, 40);
+        alwaysPromptArea.setLineWrap(true);
+        alwaysPromptArea.setWrapStyleWord(true);
+        alwaysPromptArea.setToolTipText(
+                "Used with the \"always\" policy: explains when the bot should chime in unprompted. "
+                        + "Leave empty for the built-in default:\n"
+                        + com.aresstack.askai.java8.party.OllamaBotResponder.DEFAULT_ALWAYS_PROMPT);
+        JPanel alwaysLabelRow = partySettingsRow();
+        alwaysLabelRow.add(new JLabel("When to chime in — always policy (empty = default)"));
+        party.add(alwaysLabelRow);
+        JScrollPane alwaysScroll = new JScrollPane(alwaysPromptArea);
+        alwaysScroll.setAlignmentX(Component.LEFT_ALIGNMENT);
+        JPanel alwaysFieldRow = partySettingsRow();
+        alwaysFieldRow.add(alwaysScroll);
+        party.add(alwaysFieldRow);
+
         final JTextField roomField = new JTextField(partySettings.roomId(), 10);
         final JTextField secretField = new JTextField(partySettings.roomSecret(), 10);
         secretField.setToolTipText("Room invitation secret: authenticates the join and encrypts traffic");
@@ -677,12 +697,15 @@ public final class OllamaChatPanel extends JPanel {
             partySettings.setDiscoveryEnabled(discoveryBox.isSelected());
             partySettings.setNetworkInterface(interfaceField.getText());
             partySettings.setManualPeers(peersField.getText());
-            partySettings.setBotPolicy(botPolicyCombo.getSelectedIndex() == 1
-                    ? PartySettings.BOT_POLICY_OFF : PartySettings.BOT_POLICY_MENTION);
+            int policyIndex = botPolicyCombo.getSelectedIndex();
+            partySettings.setBotPolicy(policyIndex == 2 ? PartySettings.BOT_POLICY_OFF
+                    : policyIndex == 1 ? PartySettings.BOT_POLICY_ALWAYS
+                    : PartySettings.BOT_POLICY_MENTION);
             partySettings.setModelMentionsEnabled(modelMentionsBox.isSelected());
             partySettings.setBotContextMode(contextModeCombo.getSelectedIndex() == 1
                     ? PartySettings.BOT_CONTEXT_CONVERSATION : PartySettings.BOT_CONTEXT_TRANSCRIPT);
             partySettings.setBotSystemPrompt(botPromptArea.getText());
+            partySettings.setBotAlwaysPrompt(alwaysPromptArea.getText());
             refreshMentionCompletionHandles();
             partySettings.setRoomId(roomField.getText());
             partySettings.setRoomSecret(secretField.getText());
@@ -1091,18 +1114,14 @@ public final class OllamaChatPanel extends JPanel {
                                 : Collections.<String>emptyList();
                     }
                 },
+                partySettings);
+        return new PartySession(createPartyTransport(), room, self,
                 new Supplier<String>() {
                     public String get() {
-                        return partySettings.botSystemPrompt();
+                        return partySettings.botPolicy();
                     }
                 },
-                new Supplier<String>() {
-                    public String get() {
-                        return partySettings.botContextMode();
-                    }
-                });
-        return new PartySession(createPartyTransport(), room, self,
-                partySettings.botPolicy(), responder, new PanelPartyUi());
+                responder, new PanelPartyUi());
     }
 
     /** The real LAN transport (JGroups); discovery options come from the Partying settings. */

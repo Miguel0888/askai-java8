@@ -79,6 +79,7 @@ public class PartySessionTest {
     private static final class FakeResponder implements BotResponder {
         volatile boolean ready = true;
         volatile boolean answer = true;
+        volatile boolean silent;
         volatile int calls;
         volatile String lastRequestedModel;
         volatile List<String> models = Collections.emptyList();
@@ -96,7 +97,9 @@ public class PartySessionTest {
                             Callback callback) {
             calls++;
             lastRequestedModel = requestedModel;
-            if (answer) {
+            if (silent) {
+                callback.onNoAnswer();
+            } else if (answer) {
                 callback.onResponse("Answer to: " + addressed.getMarkdown());
             }
         }
@@ -111,7 +114,7 @@ public class PartySessionTest {
                 responder != null, responder != null && responder.isReady());
         GroupChatRoom room = new GroupChatRoom(roomId, roomId, "secret");
         PartySession session = new PartySession(new InMemoryGroupChatTransport(), room, self,
-                PartySettings.BOT_POLICY_MENTION, responder, ui);
+                () -> PartySettings.BOT_POLICY_MENTION, responder, ui);
         sessions.add(session);
         return session;
     }
@@ -227,13 +230,38 @@ public class PartySessionTest {
         Participant self = new Participant("aaa", "Alice", "Alice", null, true, true);
         PartySession session = new PartySession(new InMemoryGroupChatTransport(),
                 new GroupChatRoom(roomId, roomId, "secret"), self,
-                PartySettings.BOT_POLICY_OFF, responder, ui);
+                () -> PartySettings.BOT_POLICY_OFF, responder, ui);
         sessions.add(session);
         session.join();
 
         assertTrue(session.submitMessage("@AskAI hello?"));
 
         assertEquals(0, responder.calls);
+    }
+
+    @Test
+    public void alwaysPolicySeesUnmentionedMessagesAndCanStaySilent() {
+        RecordingUi ui = new RecordingUi();
+        FakeResponder responder = new FakeResponder();
+        String roomId = "room.always";
+        roomsToClear.add(roomId);
+        Participant self = new Participant("aaa", "Alice", "Alice", null, true, true);
+        PartySession session = new PartySession(new InMemoryGroupChatTransport(),
+                new GroupChatRoom(roomId, roomId, "secret"), self,
+                () -> PartySettings.BOT_POLICY_ALWAYS, responder, ui);
+        sessions.add(session);
+        session.join();
+
+        assertTrue(session.submitMessage("no mention here"));
+        assertEquals("always policy considers every message", 1, responder.calls);
+        assertEquals(1, ui.botMessageCount());
+
+        responder.answer = false;
+        responder.silent = true; // the model declines with the silent marker
+        assertTrue(session.submitMessage("just chatting"));
+        assertEquals(2, responder.calls);
+        assertEquals("silent decline broadcasts nothing", 1, ui.botMessageCount());
+        assertTrue("silence is not an error", ui.infoLines.isEmpty());
     }
 
     @Test
