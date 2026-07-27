@@ -7,6 +7,7 @@ import com.aresstack.askai.java8.batch.service.BatchTranscriptionEvent;
 import com.aresstack.askai.java8.batch.service.BatchTranscriptionEventPublisher;
 import com.aresstack.askai.java8.batch.service.BatchTranscriptionRequest;
 import com.aresstack.askai.java8.ui.RefreshIcon;
+import com.aresstack.askai.java8.ui.ToggleSelectionList;
 import com.aresstack.audio.profile.AudioProcessingProfile;
 
 import javax.swing.BorderFactory;
@@ -20,7 +21,6 @@ import javax.swing.JProgressBar;
 import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
 import javax.swing.JTextArea;
-import javax.swing.ListSelectionModel;
 import javax.swing.SwingUtilities;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.BorderLayout;
@@ -42,9 +42,9 @@ public final class BatchTranscriptionPanel extends JPanel {
     private final BatchSelectionRefresher refresher;
     private final DefaultListModel<File> audioFiles = new DefaultListModel<File>();
     private final DefaultListModel<String> models = new DefaultListModel<String>();
-    private final JList<String> modelList = new JList<String>(models);
+    private final JList<String> modelList = new ToggleSelectionList<String>(models);
     private final DefaultListModel<AudioProcessingProfile> profiles = new DefaultListModel<AudioProcessingProfile>();
-    private final JList<AudioProcessingProfile> profileList = new JList<AudioProcessingProfile>(profiles);
+    private final JList<AudioProcessingProfile> profileList = new ToggleSelectionList<AudioProcessingProfile>(profiles);
     private final JProgressBar progress = new JProgressBar();
     private final JLabel status = new JLabel("Ready");
     private final JTextArea log = new JTextArea();
@@ -80,9 +80,8 @@ public final class BatchTranscriptionPanel extends JPanel {
 
     private void buildUi() {
         setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
-        JList<File> fileList = new JList<File>(audioFiles);
-        modelList.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
-        profileList.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
+        JList<File> fileList = new ToggleSelectionList<File>(audioFiles);
+        // Selection mode is set by ToggleSelectionList; single clicks toggle rows without Ctrl/Shift.
         JPanel selections = new JPanel(new GridLayout(1, 3, 8, 8));
         selections.add(section("Audio files", new JScrollPane(fileList)));
         selections.add(section("Audio AI models", new JScrollPane(modelList)));
