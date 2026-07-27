@@ -465,3 +465,110 @@ Der Enablement-Key ist die stabile PF4J-Plugin-ID (`Plugin-Id` aus dem Manifest)
 erzwingt `PluginCompatibilityChecker` `manifestId == descriptor.getId()`, d. h. die bisher persistierten
 Keys (Descriptor-ID) sind bereits identisch mit der PF4J-ID — die Migration ist ein verifizierter No-op.
 Keine stillen Mehrdeutigkeiten.
+# Research MVP (Solon MCP / ACP / Playwright4j, Commits 30–39) — problem log
+
+Fortlaufende IDs `MCP-Pnnn`. Feasibility probes gegen Maven Central durchgeführt.
+
+## MCP-P001 — playwright4j:0.1.0 ist Java-21-Bytecode, unvereinbar mit Java-8-Pflicht
+
+**Erkannt in:** Commit 32 (browser MCP) — Vorab-Feasibility
+**Status:** BLOCKING
+**Schweregrad:** BLOCKING
+**Betroffene Module:** browser-playwright4j, browser-mcp
+
+### Erwartung
+`com.aresstack:playwright4j:0.1.0` als Java-8-taugliche Browser-Bibliothek hinter einem Browser-Port nutzen.
+
+### Beobachtung
+Das Artefakt löst zwar auf, ist aber auf **Bytecode-Major 65 (Java 21)** kompiliert. Der gesamte Build
+verlangt `sourceCompatibility=1.8`; ein JDK-8-`javac` kann nicht gegen Klassen mit Major 65 kompilieren.
+Zusätzlich zieht es `com.microsoft.playwright:driver-bundle:1.59.0` (Node + Browser-Binaries), die zur
+Laufzeit installiert sein müssen.
+
+### Analyse
+Harte Inkompatibilität zwischen Pflicht-Baseline (Java 8) und der Abhängigkeit (Java 21). Kein Workaround
+ohne (a) einen Java-8-Build von playwright4j oder (b) einen alternativen headless-Fetch/Clean-Ansatz.
+
+### Gewähltes Zwischenverhalten
+Browser-MCP nicht implementiert. Kein Java-21-Artefakt in den Java-8-Build aufgenommen (das würde den Branch
+unbaubar machen).
+
+### Auswirkung
+Kein realer Web-Research-Loop (Commits 32, 36 und der reale Teil von 37/38).
+
+### Spätere Entscheidung
+Entweder playwright4j als Java-8-Artefakt bereitstellen, oder den Browser-Port mit einem Java-8-fähigen
+Backend (z. B. HttpURLConnection-Fetch + jsoup-Clean für statische Seiten) implementieren; erst dann
+Browser-MCP. `org.jsoup:jsoup:1.17.2` ist verfügbar und Java-8-tauglich.
+
+## MCP-P002 — Kein auflösbares ACP-SDK (Solon-ACP) auf Maven Central
+
+**Erkannt in:** Commit 34 (ACP adapter) — Vorab-Feasibility
+**Status:** BLOCKING
+**Schweregrad:** BLOCKING
+**Betroffene Module:** acp-solon-client, research-agent-runtime, E2E
+
+### Erwartung
+`org.noear:acp-sdk` bzw. Solon-ACP hinter einem eigenen ACP-Adapter kapseln (der Auftrag verbietet eine
+eigene ACP-Protokollimplementierung).
+
+### Beobachtung
+Keine der geprüften Koordinaten löst auf: `org.noear:acp-sdk:{0.1.0,0.9.0,1.0.0}`, `org.noear:solon-ai-acp`,
+`org.noear:acp`. Auf Maven Central nicht gefunden.
+
+### Analyse
+Ohne ACP-SDK kann der externe Agentenprozess nicht über ACP mit AskAI sprechen; eine Eigenimplementierung ist
+laut Auftrag ausgeschlossen.
+
+### Gewähltes Zwischenverhalten
+ACP-Adapter, Demo-Agent, externer Research-Agent, autonomer Loop und der ACP-Teil des E2E nicht implementiert.
+
+### Spätere Entscheidung
+Korrekte, veröffentlichte ACP-SDK-Koordinaten/Version für Java 8 bereitstellen; dann `:acp-client-api` +
+`:acp-solon-client` (gekapselt) + Demo-Agent umsetzen.
+
+## MCP-P003 — Marketplace-Quelle (mcp-marketplace-swing-java8.zip) nicht im Repo
+
+**Erkannt in:** Commit 31 (marketplace) 
+**Status:** DEFERRED
+**Schweregrad:** MEDIUM
+**Betroffene Module:** mcp-marketplace
+
+### Erwartung
+Die vorhandene Marketplace-Implementierung aus `mcp-marketplace-swing-java8.zip` übernehmen/adaptieren
+(ausdrücklich „nicht neu schreiben").
+
+### Beobachtung
+Die ZIP liegt dem Branch nicht bei; es gibt keine zu adaptierende Quelle.
+
+### Gewähltes Zwischenverhalten
+Nicht neu geschrieben (Auftrag verbietet es). Das neutrale `McpServerConfiguration`-Modell kann nachgezogen
+werden, sobald die Quelle vorliegt.
+
+### Spätere Entscheidung
+Marketplace-ZIP bereitstellen; dann Modell + Ports adaptieren.
+
+## MCP-P004 — Solon streamable-HTTP MCP-Transport noch nicht angebunden
+
+**Erkannt in:** Commit 30 (mcp runtime foundation)
+**Status:** WORKAROUND
+**Schweregrad:** MEDIUM
+**Betroffene Module:** mcp-solon-runtime
+
+### Erwartung
+Ein Solon-basierter streamable-HTTP-MCP-Server (Loopback, zufälliger Port, per-Endpoint-Token,
+tools/list_changed) implementiert `McpServerRegistry`.
+
+### Beobachtung
+`org.noear:solon-ai-mcp:4.0.3` ist verfügbar und **Java-8-Bytecode (Major 52)** — verifiziert. Der reale
+HTTP-Transport wird jedoch nur vom externen Agenten benötigt, der über MCP-P001/MCP-P002 blockiert ist.
+
+### Gewähltes Zwischenverhalten
+Generischer `McpServerRegistry`-Port + transportfreie `InProcessMcpServerRegistry`-Referenzimplementierung
+(Endpoints, Token, dynamische Tools, `ping`/`echo`, idempotenter Shutdown) geliefert und getestet. Kein
+Wire-Protokoll selbst gebaut (Auftrag verbietet es); der Solon-Transport ist der nächste Schritt, sobald ein
+Consumer (externer Agent) existiert.
+
+### Spätere Entscheidung
+`:mcp-solon-runtime` mit solon-ai-mcp:4.0.3 (Loopback-Bind, Token-Header, list_changed) hinter demselben
+Port umsetzen, sobald MCP-P001/MCP-P002 gelöst sind.
