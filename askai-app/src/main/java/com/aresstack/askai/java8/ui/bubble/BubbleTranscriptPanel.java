@@ -115,6 +115,20 @@ public final class BubbleTranscriptPanel extends JPanel {
         return bubble;
     }
 
+    /** Add a right-aligned row of image previews under the user's message (the images just sent). */
+    public void appendUserImages(java.util.List<com.aresstack.askai.java8.vision.ImageAttachment> attachments) {
+        requireEventDispatchThread();
+        if (attachments == null || attachments.isEmpty()) {
+            return;
+        }
+        JPanel thumbs = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.RIGHT, 6, 0));
+        thumbs.setOpaque(false);
+        for (com.aresstack.askai.java8.vision.ImageAttachment attachment : attachments) {
+            thumbs.add(new com.aresstack.askai.java8.ui.ImageThumbnail(attachment, 72));
+        }
+        addBubbleRow(thumbs, BubbleSide.RIGHT);
+    }
+
     /**
      * Starts a streaming assistant answer rendered as native Markdown inside a speech bubble. While
      * streaming the text re-renders debounced; a Mermaid fence stays a code block until

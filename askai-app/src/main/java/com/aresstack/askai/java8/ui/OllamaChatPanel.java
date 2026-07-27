@@ -9,6 +9,12 @@ import com.aresstack.askai.java8.ui.chat.ChatSessionId;
 import com.aresstack.askai.java8.audio.FileAudioProfileRepository;
 import com.aresstack.askai.java8.state.ApplicationStateService;
 import com.aresstack.askai.java8.client.OllamaChatTurn;
+import com.aresstack.askai.java8.client.OllamaModelInfoView;
+import com.aresstack.askai.java8.vision.ChatDraft;
+import com.aresstack.askai.java8.vision.ImageAttachment;
+import com.aresstack.askai.java8.vision.ImageAttachmentContentLoader;
+import com.aresstack.askai.java8.vision.ImageAttachmentException;
+import com.aresstack.askai.java8.vision.VisionCapability;
 import com.aresstack.askai.java8.service.OllamaService;
 import com.aresstack.askai.java8.service.ThinkingOption;
 import com.aresstack.askai.java8.speech.AudioModelResolver;
@@ -54,6 +60,7 @@ import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
+import javax.swing.SwingWorker;
 import javax.swing.Timer;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.BorderLayout;
@@ -138,6 +145,7 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
     private final JTextArea techDetails = new JTextArea(6, 40);
 
     private final List<OllamaChatTurn> history = new ArrayList<OllamaChatTurn>();
+    private final ImageAttachmentContentLoader imageContentLoader = new ImageAttachmentContentLoader();
     private final StringBuilder streamingAssistant = new StringBuilder();
     private OllamaService.Task chatTask;
     // The UI's chat-busy state, decoupled from the technical chatTask handle so the dictation controls
@@ -262,6 +270,10 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
 
             public void transcribeAudioFile() {
                 onAudioFileAction();
+            }
+
+            public void attachImages() {
+                onAttachImagesAction();
             }
         });
 
@@ -890,18 +902,103 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
             setStatus("No model selected. Open Models or Install first.");
             return;
         }
-        final String userPrompt = composer.getMessage().trim();
-        if (userPrompt.isEmpty()) {
-            setStatus("Write a message before sending.");
+        final ChatDraft draft = composer.getDraft();
+        if (draft.isEmpty()) {
+            setStatus("Write a message or attach an image before sending.");
             return;
         }
 
+        if (draft.hasAttachments()) {
+            // Images may only go to a vision model, verified via /api/show. Keep the draft until it works.
+            gateVisionThenSend(modelName, draft);
+        } else {
+            dispatchChat(modelName, draft.getText().trim(),
+                    java.util.Collections.<String>emptyList(), java.util.Collections.<ImageAttachment>emptyList());
+        }
+    }
+
+    /** Probe the model's capabilities; only a model reporting the exact "vision" capability may get images. */
+    private void gateVisionThenSend(final String modelName, final ChatDraft draft) {
+        setStatus("Checking vision support…");
+        ollamaService.getModelInfo(modelName, new OllamaService.ModelInfoListener() {
+            public void onModelInfo(final OllamaModelInfoView info) {
+                onUi(new Runnable() {
+                    public void run() {
+                        if (VisionCapability.isVisionCapable(info.getCapabilities())) {
+                            encodeThenSend(modelName, draft);
+                        } else {
+                            setStatus("\"" + modelName + "\" is a text-only model — switch to a vision model"
+                                    + " or remove the images. Your message and images are kept.");
+                        }
+                    }
+                });
+            }
+
+            public void onError(final Exception ex) {
+                onUi(new Runnable() {
+                    public void run() {
+                        setStatus("Could not verify vision support (" + ex.getMessage()
+                                + "). Images were not sent; your draft is kept.");
+                    }
+                });
+            }
+        });
+    }
+
+    /** Read + base64-encode the images off the EDT, then dispatch. On any image error the draft is kept. */
+    private void encodeThenSend(final String modelName, final ChatDraft draft) {
+        final java.util.List<ImageAttachment> attachments = draft.getAttachments();
+        setStatus("Preparing " + attachments.size() + (attachments.size() == 1 ? " image…" : " images…"));
+        new SwingWorker<List<String>, Void>() {
+            private ImageAttachmentException failure;
+
+            protected List<String> doInBackground() {
+                try {
+                    return imageContentLoader.encodeAll(attachments);
+                } catch (ImageAttachmentException ex) {
+                    failure = ex;
+                    return null;
+                }
+            }
+
+            protected void done() {
+                if (failure != null) {
+                    setStatus("Could not attach " + failure.getAttachment().getDisplayName() + ": "
+                            + failure.getReason().getDescription() + ". Your draft is kept.");
+                    return;
+                }
+                List<String> images;
+                try {
+                    images = get();
+                } catch (Exception ex) {
+                    setStatus("Could not read the attached images. Your draft is kept.");
+                    return;
+                }
+                if (images == null) {
+                    return;
+                }
+                dispatchChat(modelName, draft.getText().trim(), images, attachments);
+            }
+        }.execute();
+    }
+
+    private void dispatchChat(final String modelName, final String userPrompt,
+                              List<String> images, java.util.List<ImageAttachment> attachments) {
         if (transcript.isEmpty() || history.isEmpty()) {
             transcript.clear();
         }
-        composer.clearMessage();
-        transcript.appendUser(userPrompt);
-        history.add(OllamaChatTurn.user(userPrompt));
+        // Success path: only now is the draft consumed, so any earlier failure left it fully intact.
+        composer.clearDraft();
+        if (attachments.isEmpty()) {
+            transcript.appendUser(userPrompt);
+        } else if (userPrompt.isEmpty()) {
+            transcript.appendUserImages(attachments);
+        } else {
+            transcript.appendUser(userPrompt, attachments);
+        }
+        history.add(images.isEmpty()
+                ? OllamaChatTurn.user(userPrompt)
+                : OllamaChatTurn.user(userPrompt, images));
 
         // Do not open an assistant bubble yet: thinking (if any) opens a green thinking bubble first, and
         // the answer bubble only appears when real content arrives.
@@ -959,6 +1056,26 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
                 });
             }
         });
+    }
+
+    /** Choose one or more images (PNG/JPEG/WebP) and queue them in the composer as attachments. */
+    private void onAttachImagesAction() {
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Attach images");
+        chooser.setMultiSelectionEnabled(true);
+        chooser.setAcceptAllFileFilterUsed(false);
+        chooser.setFileFilter(new FileNameExtensionFilter("Images (PNG, JPEG, WebP)", "png", "jpg", "jpeg", "webp"));
+        if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) {
+            return;
+        }
+        List<ImageAttachment> chosen = new ArrayList<ImageAttachment>();
+        for (File file : chooser.getSelectedFiles()) {
+            chosen.add(ImageAttachment.of(file));
+        }
+        composer.addAttachments(chosen);
+        if (!chosen.isEmpty()) {
+            setStatus(chosen.size() == 1 ? "1 image attached." : chosen.size() + " images attached.");
+        }
     }
 
     /** First non-empty thinking delta opens the green thinking bubble; further deltas stream into it. */
