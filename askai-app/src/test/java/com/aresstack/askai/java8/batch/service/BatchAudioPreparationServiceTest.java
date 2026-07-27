@@ -2,7 +2,6 @@ package com.aresstack.askai.java8.batch.service;
 
 import com.aresstack.askai.java8.batch.service.BatchAudioPreparationService.PreparedBatchAudio;
 import com.aresstack.audio.application.DefaultAudioProcessingPreviewService;
-import com.aresstack.audio.application.DefaultProcessedWaveExportService;
 import com.aresstack.audio.domain.PcmAudioFormat;
 import com.aresstack.audio.infrastructure.WavFileAudioSink;
 import com.aresstack.audio.infrastructure.WavFileReader;
@@ -23,75 +22,60 @@ import java.util.List;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
-import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 /**
- * Batch preparation: pass-through hands back the untouched original; a DSP profile exports the RESULT
- * format without any forced 16 kHz / mono normalization; temp files are owned and cleaned up.
+ * Batch preparation always ends at the proven STT transport format (16 kHz mono PCM16 WAV) via the shared
+ * SpeechToTextAudioPreparer — for a pass-through "Off" profile and for an active DSP profile alike. The DSP
+ * stage stays format-neutral; only the final preparation forces 16 kHz mono. Temp files are cleaned up.
  */
 public class BatchAudioPreparationServiceTest {
 
     @Rule
     public final TemporaryFolder folder = new TemporaryFolder();
 
-    private final BatchAudioPreparationService service = new BatchAudioPreparationService(
-            new DefaultAudioProcessingPreviewService(), new DefaultProcessedWaveExportService());
+    private final BatchAudioPreparationService service =
+            new BatchAudioPreparationService(new DefaultAudioProcessingPreviewService());
 
     @Test
-    public void passThroughReturnsTheOriginalFileUntouched() throws Exception {
-        File source = writeWav("source.wav", new PcmAudioFormat(48000, 2, 16), stereoTone(48000));
+    public void offProfileStillDecodesAndProducesSixteenKMonoWav() throws Exception {
+        File source = writeWav("source48stereo.wav", new PcmAudioFormat(48000, 2, 16), stereoTone(48000));
 
         PreparedBatchAudio prepared = service.prepare(source, AudioProcessingProfiles.off());
-
-        assertSame("pass-through must reuse the original file", source, prepared.getFile());
-        prepared.close();
-        assertTrue("the user's original file must never be deleted", source.isFile());
-    }
-
-    @Test
-    public void passThroughIgnoresProfilesWhereEveryBlockIsDisabled() throws Exception {
-        File source = writeWav("disabled.wav", new PcmAudioFormat(44100, 2, 16), stereoTone(44100));
-        AudioBlockDefinition disabledGain =
-                block(AudioBlockType.GAIN, "g").withEnabled(false);
-
-        PreparedBatchAudio prepared = service.prepare(source, profile("all-off", disabledGain));
-
-        assertSame(source, prepared.getFile());
-        prepared.close();
-    }
-
-    @Test
-    public void dspProfileExportsTheResultFormatWithoutForcing16kMono() throws Exception {
-        File source = writeWav("stereo48.wav", new PcmAudioFormat(48000, 2, 16), stereoTone(48000));
-
-        PreparedBatchAudio prepared = service.prepare(source, profile("gain", block(AudioBlockType.GAIN, "g")));
         File temp = prepared.getFile();
 
-        assertNotEquals("a processed file must not be the original", source, temp);
-        assertTrue(temp.isFile());
-        WavFileReader.WavData out = WavFileReader.read(temp);
-        assertEquals("sample rate preserved after gain", 48000, out.getFormat().getSampleRateHz());
-        assertEquals("channel count preserved after gain", 2, out.getFormat().getChannels());
-
-        prepared.close();
-        assertFalse("the temp file is owned and deleted on close", temp.exists());
-    }
-
-    @Test
-    public void explicitResamplerAndMixerProduceTheirConfiguredFormat() throws Exception {
-        File source = writeWav("stereo44.wav", new PcmAudioFormat(44100, 2, 16), stereoTone(44100));
-        AudioBlockDefinition mixer = block(AudioBlockType.CHANNEL_MIXER, "m");
-        AudioBlockDefinition resampler = block(AudioBlockType.RESAMPLER, "r").withParameter("targetRateHz", "16000");
-
-        PreparedBatchAudio prepared = service.prepare(source, profile("speech", mixer, resampler));
-        File temp = prepared.getFile();
-
+        assertNotEquals("Off must not return the original file", source, temp);
         WavFileReader.WavData out = WavFileReader.read(temp);
         assertEquals(16000, out.getFormat().getSampleRateHz());
         assertEquals(1, out.getFormat().getChannels());
+
         prepared.close();
-        assertFalse(temp.exists());
+        assertFalse("temp STT file deleted on close", temp.exists());
+        assertTrue("the user's original file is never touched", source.isFile());
+    }
+
+    @Test
+    public void dspProfileResultIsPreparedToSixteenKMonoNotItsOwnFormat() throws Exception {
+        File source = writeWav("stereo48.wav", new PcmAudioFormat(48000, 2, 16), stereoTone(48000));
+
+        PreparedBatchAudio prepared = service.prepare(source, profile("gain", block(AudioBlockType.GAIN, "g")));
+        WavFileReader.WavData out = WavFileReader.read(prepared.getFile());
+
+        assertEquals("48 kHz stereo DSP result is finalized to 16 kHz", 16000, out.getFormat().getSampleRateHz());
+        assertEquals("finalized to mono", 1, out.getFormat().getChannels());
+        prepared.close();
+    }
+
+    @Test
+    public void alreadySixteenKMonoSourcePassesThroughTheFormat() throws Exception {
+        File source = writeWav("mono16.wav", new PcmAudioFormat(16000, 1, 16), monoTone(16000));
+
+        PreparedBatchAudio prepared = service.prepare(source, AudioProcessingProfiles.off());
+        WavFileReader.WavData out = WavFileReader.read(prepared.getFile());
+
+        assertEquals(16000, out.getFormat().getSampleRateHz());
+        assertEquals(1, out.getFormat().getChannels());
+        prepared.close();
     }
 
     private File writeWav(String name, PcmAudioFormat format, short[] samples) throws Exception {
@@ -113,6 +97,14 @@ public class BatchAudioPreparationServiceTest {
             list.add(block);
         }
         return new AudioProcessingProfile(id, id, false, list);
+    }
+
+    private static short[] monoTone(int frames) {
+        short[] samples = new short[frames];
+        for (int i = 0; i < frames; i++) {
+            samples[i] = (short) Math.round(6000.0d * Math.sin(2.0d * Math.PI * 200.0d * i / 16000.0d));
+        }
+        return samples;
     }
 
     private static short[] stereoTone(int frames) {

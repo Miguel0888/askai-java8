@@ -4,7 +4,6 @@ import com.aresstack.audio.domain.AudioBuffer;
 import com.aresstack.audio.domain.PcmAudioFormat;
 import com.aresstack.audio.dsp.AudioLevelMeter;
 import com.aresstack.audio.pipeline.AudioProfileProcessor;
-import com.aresstack.audio.infrastructure.WavFileAudioSink;
 import com.aresstack.audio.infrastructure.WavFileReader;
 import com.aresstack.audio.profile.AudioProcessingProfile;
 import com.aresstack.audio.pipeline.AudioProcessingProfiles;
@@ -12,13 +11,19 @@ import com.aresstack.audio.pipeline.AudioProcessingProfiles;
 import java.io.File;
 import java.io.IOException;
 
-/** Convert a raw recording WAV through the selected reusable audio-processing profile. */
+/**
+ * Run a raw recording WAV through the selected reusable audio-processing profile (the DSP stage, which is
+ * format-neutral) and then hand the result to a {@link SpeechToTextAudioPreparer} for the final, explicit
+ * STT transport format. Separating the two means the recorded audio always reaches the model as the proven
+ * {@link #TARGET_FORMAT} regardless of which profile the user selected — even a pass-through "Off" profile.
+ */
 public final class SpeechAudioNormalizer {
 
-    public static final PcmAudioFormat TARGET_FORMAT = new PcmAudioFormat(16000, 1, 16);
+    public static final PcmAudioFormat TARGET_FORMAT = Pcm16MonoWavSpeechPreparer.STT_FORMAT;
 
     private final AudioProcessingProfile profile;
     private final AudioProfileProcessor processor;
+    private final SpeechToTextAudioPreparer preparer;
 
     /** Use the immutable built-in speech profile. */
     public SpeechAudioNormalizer() {
@@ -26,11 +31,19 @@ public final class SpeechAudioNormalizer {
     }
 
     public SpeechAudioNormalizer(AudioProcessingProfile profile) {
+        this(profile, new Pcm16MonoWavSpeechPreparer());
+    }
+
+    public SpeechAudioNormalizer(AudioProcessingProfile profile, SpeechToTextAudioPreparer preparer) {
         if (profile == null) {
             throw new IllegalArgumentException("Profile must not be null.");
         }
+        if (preparer == null) {
+            throw new IllegalArgumentException("Preparer must not be null.");
+        }
         this.profile = profile;
         this.processor = new AudioProfileProcessor();
+        this.preparer = preparer;
     }
 
     public AudioProcessingProfile getProfile() {
@@ -55,17 +68,12 @@ public final class SpeechAudioNormalizer {
         long durationMillis = sourceFormat.getSampleRateHz() > 0
                 ? frames * 1000L / sourceFormat.getSampleRateHz() : 0L;
 
+        // DSP stage: apply the selected profile, format-neutral (rate/channels change only via blocks).
         AudioBuffer processed = processor.process(new AudioBuffer(rawSamples, sourceFormat), profile);
+        // Final STT transport stage: always produce the proven 16 kHz mono PCM16 WAV, whatever the profile did.
+        File written = preparer.prepare(processed, targetWav);
 
-        WavFileAudioSink sink = new WavFileAudioSink(targetWav);
-        sink.open(processed.getFormat());
-        try {
-            sink.write(processed.getSamples(), processed.getSamples().length);
-        } finally {
-            sink.close();
-        }
-
-        return new NormalizationResult(targetWav, sourceFormat, processed.getFormat(), durationMillis,
+        return new NormalizationResult(written, sourceFormat, TARGET_FORMAT, durationMillis,
                 rawMeter.getOverallRms(), rawMeter.getPeak(), rawMeter.getClippedSampleCount(),
                 rawMeter.getTotalSampleCount());
     }

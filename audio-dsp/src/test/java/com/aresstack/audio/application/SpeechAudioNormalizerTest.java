@@ -3,6 +3,7 @@ package com.aresstack.audio.application;
 import com.aresstack.audio.domain.PcmAudioFormat;
 import com.aresstack.audio.infrastructure.WavFileAudioSink;
 import com.aresstack.audio.infrastructure.WavFileReader;
+import com.aresstack.audio.pipeline.AudioProcessingProfiles;
 
 import org.junit.Test;
 
@@ -38,6 +39,25 @@ public class SpeechAudioNormalizerTest {
         assertEquals(1, written.getFormat().getChannels());
         assertTrue("samples=" + written.getSamples().length,
                 Math.abs(written.getSamples().length - 8000) <= 4);
+    }
+
+    @Test
+    public void offProfileStillYieldsCanonical16kMono() throws Exception {
+        // Regression: the microphone path used to depend on the selected profile to down-mix/resample.
+        // With a pass-through "Off" profile the final STT preparation must still deliver 16 kHz mono, or a
+        // raw 48 kHz stereo recording reaches the model and it degenerates ("lo lo lo ...").
+        SpeechAudioNormalizer offNormalizer = new SpeechAudioNormalizer(AudioProcessingProfiles.off());
+        File raw = writeRawWav(new PcmAudioFormat(48000, 2, 16), 24000, 8000);
+        File target = File.createTempFile("askai-norm-off-", ".wav");
+        target.deleteOnExit();
+
+        NormalizationResult result = offNormalizer.normalize(raw, target);
+
+        assertEquals(16000, result.getTargetFormat().getSampleRateHz());
+        assertEquals(1, result.getTargetFormat().getChannels());
+        WavFileReader.WavData written = WavFileReader.read(target);
+        assertEquals(16000, written.getFormat().getSampleRateHz());
+        assertEquals(1, written.getFormat().getChannels());
     }
 
     @Test

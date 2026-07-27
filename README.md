@@ -47,14 +47,15 @@ in one deterministic run.
 - **Audio profiles** – the DSP profiles from the *Audio processing* editor. Multiple profiles can
   be selected. The **Off** profile (no enabled block) is a true pass-through.
 
-**How a file reaches the model.** When the selected profile has no enabled block, the **original file
-is sent to the STT backend untouched** — no decode, resample or downmix (the Ollama STT client uploads
-the bytes verbatim). When a profile *is* active, the file is decoded to PCM **preserving its original
-sample rate and channel count**, the DSP profile runs, and the result is written to a temporary WAV **in
-the format the pipeline produced**. A 48 kHz stereo recording therefore stays 48 kHz stereo unless an
-explicit **Resampler** or **channel** block changes it — there is no implicit 16 kHz / mono conversion.
-Reducing to 16 kHz mono for a model that needs it is done only by adding those blocks to a profile. A
-stuck model (100 % GPU, no reply) is bounded per item by a wall-clock timeout, not by a forced format.
+**How a file reaches the model.** The source is decoded to PCM **preserving its original sample rate and
+channel count**. When the profile has enabled blocks the DSP pipeline runs **format-neutral** (48 kHz
+stereo stays 48 kHz stereo unless an explicit **Resampler**/**channel** block changes it). Then — always,
+for **Off** and for an active profile alike — a final, shared *speech-to-text audio preparation* stage
+produces the format the STT model actually expects (**16 kHz mono PCM16 WAV**). "Off" means *no DSP
+effects*, not "no technical input preparation": DSP neutrality is kept separate from the STT transport
+format, so a recording is never sent to the model in a rate/layout it cannot handle. This is the same
+`SpeechToTextAudioPreparer` the microphone dictation path uses, so both routes end in the identical proven
+format. A stuck model (100 % GPU, no reply) is additionally bounded per item by a wall-clock timeout.
 
 *Start batch* processes the selections strictly as `model → file → profile`; a model stays loaded
 while all of its files and profiles are handled. Each result is appended to a Markdown file named

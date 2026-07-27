@@ -25,7 +25,6 @@ import com.aresstack.askai.java8.batch.ui.BatchTranscriptionController;
 import com.aresstack.askai.java8.batch.ui.BatchTranscriptionPanel;
 import com.aresstack.audio.profile.AudioProcessingProfile;
 import com.aresstack.audio.application.DefaultAudioProcessingPreviewService;
-import com.aresstack.audio.application.DefaultProcessedWaveExportService;
 
 import java.util.Collections;
 import java.util.List;
@@ -300,8 +299,7 @@ public final class AskAiFrame extends JFrame {
     private void wireBatchComponent() {
         BatchTranscriptionEventPublisher batchEvents = new BatchTranscriptionEventPublisher();
         BatchAudioPreparationService audioPreparation = new BatchAudioPreparationService(
-                new DefaultAudioProcessingPreviewService(),
-                new DefaultProcessedWaveExportService());
+                new DefaultAudioProcessingPreviewService());
         BatchTranscriptionService batchService = new BatchTranscriptionService(
                 speechToTextService,
                 audioPreparation,
