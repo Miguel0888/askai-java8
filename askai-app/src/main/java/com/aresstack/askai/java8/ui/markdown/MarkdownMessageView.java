@@ -7,7 +7,7 @@ import javax.swing.Timer;
 import java.awt.BorderLayout;
 
 /** Provide a reusable assistant-message component with debounced streaming updates. */
-public final class MarkdownMessageView extends JPanel {
+public final class MarkdownMessageView extends JPanel implements WidthAwareHeight {
 
     private static final int STREAM_RENDER_DELAY_MILLIS = 90;
 
@@ -80,6 +80,19 @@ public final class MarkdownMessageView extends JPanel {
 
     public String getMarkdown() {
         return markdown.toString();
+    }
+
+    /**
+     * Deterministically compute the height this view needs at the given width, so a host that knows the
+     * target width (a chat bubble/row) gets the correct height on the first measurement — no reliance on a
+     * later Swing layout pass to correct a wrapped paragraph.
+     */
+    @Override
+    public int preferredHeightForWidth(int width) {
+        java.awt.Insets insets = getInsets();
+        java.awt.Component content = ((BorderLayout) getLayout()).getLayoutComponent(BorderLayout.CENTER);
+        int contentHeight = MarkdownHeights.forWidth(content, width - insets.left - insets.right);
+        return contentHeight + insets.top + insets.bottom;
     }
 
     private void renderNow() {

@@ -12,6 +12,7 @@ import java.awt.Color;
 import java.awt.Font;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.Insets;
 import java.awt.RenderingHints;
 import java.awt.geom.Path2D;
 import java.awt.geom.RoundRectangle2D;
@@ -27,15 +28,20 @@ import java.awt.geom.RoundRectangle2D;
  * The reserved padding and the body position mirror {@link SpeechBubblePanel} so both bubble styles line
  * up identically.</p>
  */
-final class AssistantMarkdownBubble extends JPanel {
+final class AssistantMarkdownBubble extends JPanel
+        implements com.aresstack.askai.java8.ui.markdown.WidthAwareHeight {
 
     private static final int ARC = 22;
     private static final int TAIL_WIDTH = 16;
     private static final int HORIZONTAL_PADDING = 15;
     private static final int VERTICAL_PADDING = 11;
+    private static final int BODY_GAP = 3;
 
     private final BubbleSide side;
     private final Color bubbleColor;
+    private final MarkdownMessageView body;
+    private final JLabel headerLabel;
+    private final boolean headerShown;
 
     AssistantMarkdownBubble(BubbleSide side, BubblePalette palette, String header, MarkdownMessageView body) {
         if (side == null) {
@@ -43,17 +49,31 @@ final class AssistantMarkdownBubble extends JPanel {
         }
         this.side = side;
         this.bubbleColor = palette.getAssistantBackground();
+        this.body = body;
         setOpaque(false);
-        setLayout(new BorderLayout(0, 3));
+        setLayout(new BorderLayout(0, BODY_GAP));
         // Reserve the tail's width on the side that carries the tail (the center-facing inner edge).
         int left = HORIZONTAL_PADDING + (side.pointsLeft() ? TAIL_WIDTH : 0);
         int right = HORIZONTAL_PADDING + (side.pointsRight() ? TAIL_WIDTH : 0);
         setBorder(new EmptyBorder(VERTICAL_PADDING, left, VERTICAL_PADDING, right));
-        JLabel headerLabel = createHeaderLabel(header, palette.getAssistantForeground());
-        if (headerLabel.getText().length() > 0) {
+        this.headerLabel = createHeaderLabel(header, palette.getAssistantForeground());
+        this.headerShown = headerLabel.getText().length() > 0;
+        if (headerShown) {
             add(headerLabel, BorderLayout.NORTH);
         }
         add(body, BorderLayout.CENTER);
+    }
+
+    /** Correct height for a fixed bubble width: chrome + optional header + the Markdown body at that width. */
+    @Override
+    public int preferredHeightForWidth(int width) {
+        Insets insets = getInsets();
+        int innerWidth = Math.max(1, width - insets.left - insets.right);
+        int height = insets.top + insets.bottom + body.preferredHeightForWidth(innerWidth);
+        if (headerShown) {
+            height += headerLabel.getPreferredSize().height + BODY_GAP;
+        }
+        return height;
     }
 
     BubbleSide getSide() {

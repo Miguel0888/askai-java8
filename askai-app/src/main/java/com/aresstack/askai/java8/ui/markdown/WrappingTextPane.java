@@ -1,13 +1,12 @@
 package com.aresstack.askai.java8.ui.markdown;
 
 import javax.swing.JTextPane;
+import javax.swing.text.View;
 import java.awt.Dimension;
+import java.awt.Insets;
 
 /** Keep a text pane at its natural wrapped height when placed in a vertical Swing layout. */
 final class WrappingTextPane extends JTextPane {
-
-    /** Guards the transient setSize() done while measuring so it does not look like a real width change. */
-    private boolean measuring;
 
     WrappingTextPane() {
         setEditable(false);
@@ -23,38 +22,38 @@ final class WrappingTextPane extends JTextPane {
 
     @Override
     public Dimension getPreferredSize() {
-        // Measure the wrapped height at the width the layout has actually assigned us. Only before the
-        // first real layout (width still 0) do we fall back to the parent's width as a best guess.
+        // Measure at the width the layout has assigned us (getWidth); before the first real layout fall
+        // back to the parent's width. The height is derived from the text View at that width without
+        // resizing this component, so a single normal layout pass already yields the correct height.
         int width = getWidth();
         if (width <= 0 && getParent() != null) {
             width = getParent().getWidth();
         }
-        if (width > 0 && width < Integer.MAX_VALUE) {
-            measuring = true;
-            try {
-                setSize(new Dimension(width, Short.MAX_VALUE));
-            } finally {
-                measuring = false;
-            }
+        if (width <= 0) {
+            return super.getPreferredSize();
         }
-        Dimension preferred = super.getPreferredSize();
-        return new Dimension(Math.max(1, width), preferred.height);
+        return new Dimension(Math.max(1, width), heightForWidth(width));
     }
 
     @Override
     public Dimension getMaximumSize() {
-        Dimension preferred = getPreferredSize();
-        return new Dimension(Integer.MAX_VALUE, preferred.height);
+        return new Dimension(Integer.MAX_VALUE, getPreferredSize().height);
     }
 
-    @Override
-    public void setBounds(int x, int y, int width, int height) {
-        // When the layout assigns a new width the text re-wraps, so the height computed for the old width
-        // is stale. Ask the ancestors to lay out again; the next getPreferredSize() measures at this width.
-        boolean widthChanged = !measuring && width != getWidth();
-        super.setBounds(x, y, width, height);
-        if (widthChanged) {
-            revalidate();
+    /**
+     * Compute the wrapped height for an exact component width by laying out the text root View at that
+     * width. This mutates the View's cached span, not this component's bounds, so it is safe to call from
+     * {@code getPreferredSize()} and from a host that measures ahead of layout (see {@link MarkdownHeights}).
+     */
+    int heightForWidth(int width) {
+        View root = getUI().getRootView(this);
+        if (root == null) {
+            return super.getPreferredSize().height;
         }
+        Insets insets = getInsets();
+        float textWidth = Math.max(1f, width - insets.left - insets.right);
+        root.setSize(textWidth, Integer.MAX_VALUE);
+        int textHeight = (int) Math.ceil(root.getPreferredSpan(View.Y_AXIS));
+        return textHeight + insets.top + insets.bottom;
     }
 }
