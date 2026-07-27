@@ -42,10 +42,9 @@ public class SpeechAudioNormalizerTest {
     }
 
     @Test
-    public void offProfileStillYieldsCanonical16kMono() throws Exception {
-        // Regression: the microphone path used to depend on the selected profile to down-mix/resample.
-        // With a pass-through "Off" profile the final STT preparation must still deliver 16 kHz mono, or a
-        // raw 48 kHz stereo recording reaches the model and it degenerates ("lo lo lo ...").
+    public void offProfilePreservesTheSourceFormat() throws Exception {
+        // "Off" applies no DSP and no forced conversion: a 48 kHz stereo recording must stay 48 kHz stereo
+        // so the audio reaches the model unaltered (only an explicit resampler/channel block may change it).
         SpeechAudioNormalizer offNormalizer = new SpeechAudioNormalizer(AudioProcessingProfiles.off());
         File raw = writeRawWav(new PcmAudioFormat(48000, 2, 16), 24000, 8000);
         File target = File.createTempFile("askai-norm-off-", ".wav");
@@ -53,11 +52,11 @@ public class SpeechAudioNormalizerTest {
 
         NormalizationResult result = offNormalizer.normalize(raw, target);
 
-        assertEquals(16000, result.getTargetFormat().getSampleRateHz());
-        assertEquals(1, result.getTargetFormat().getChannels());
+        assertEquals(48000, result.getTargetFormat().getSampleRateHz());
+        assertEquals(2, result.getTargetFormat().getChannels());
         WavFileReader.WavData written = WavFileReader.read(target);
-        assertEquals(16000, written.getFormat().getSampleRateHz());
-        assertEquals(1, written.getFormat().getChannels());
+        assertEquals(48000, written.getFormat().getSampleRateHz());
+        assertEquals(2, written.getFormat().getChannels());
     }
 
     @Test

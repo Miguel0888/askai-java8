@@ -13,13 +13,12 @@ import java.io.IOException;
 
 /**
  * Run a raw recording WAV through the selected reusable audio-processing profile (the DSP stage, which is
- * format-neutral) and then hand the result to a {@link SpeechToTextAudioPreparer} for the final, explicit
- * STT transport format. Separating the two means the recorded audio always reaches the model as the proven
- * {@link #TARGET_FORMAT} regardless of which profile the user selected — even a pass-through "Off" profile.
+ * format-neutral) and then hand the result to a {@link SpeechToTextAudioPreparer} that writes the STT
+ * transport WAV. The recording reaches the model as unaltered as the pipeline left it: rate and channels
+ * change <b>only</b> through explicit DSP blocks (e.g. a resampler/channel mixer in a cleaning profile),
+ * never through a forced final conversion. A pass-through "Off" profile therefore keeps the source format.
  */
 public final class SpeechAudioNormalizer {
-
-    public static final PcmAudioFormat TARGET_FORMAT = Pcm16MonoWavSpeechPreparer.STT_FORMAT;
 
     private final AudioProcessingProfile profile;
     private final AudioProfileProcessor processor;
@@ -31,7 +30,7 @@ public final class SpeechAudioNormalizer {
     }
 
     public SpeechAudioNormalizer(AudioProcessingProfile profile) {
-        this(profile, new Pcm16MonoWavSpeechPreparer());
+        this(profile, new WavSpeechAudioPreparer());
     }
 
     public SpeechAudioNormalizer(AudioProcessingProfile profile, SpeechToTextAudioPreparer preparer) {
@@ -70,10 +69,10 @@ public final class SpeechAudioNormalizer {
 
         // DSP stage: apply the selected profile, format-neutral (rate/channels change only via blocks).
         AudioBuffer processed = processor.process(new AudioBuffer(rawSamples, sourceFormat), profile);
-        // Final STT transport stage: always produce the proven 16 kHz mono PCM16 WAV, whatever the profile did.
+        // Final STT transport stage: write the result as WAV, preserving its (source or block-changed) format.
         File written = preparer.prepare(processed, targetWav);
 
-        return new NormalizationResult(written, sourceFormat, TARGET_FORMAT, durationMillis,
+        return new NormalizationResult(written, sourceFormat, processed.getFormat(), durationMillis,
                 rawMeter.getOverallRms(), rawMeter.getPeak(), rawMeter.getClippedSampleCount(),
                 rawMeter.getTotalSampleCount());
     }

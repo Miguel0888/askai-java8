@@ -3,9 +3,9 @@ package com.aresstack.askai.java8.batch.service;
 import com.aresstack.askai.java8.audio.preview.AudioFileDecoder;
 import com.aresstack.askai.java8.audio.preview.JavaSoundAudioFileDecoder;
 import com.aresstack.audio.application.AudioProcessingPreviewService;
-import com.aresstack.audio.application.Pcm16MonoWavSpeechPreparer;
 import com.aresstack.audio.application.ProcessedAudioPreview;
 import com.aresstack.audio.application.SpeechToTextAudioPreparer;
+import com.aresstack.audio.application.WavSpeechAudioPreparer;
 import com.aresstack.audio.domain.AudioBuffer;
 import com.aresstack.audio.profile.AudioBlockDefinition;
 import com.aresstack.audio.profile.AudioProcessingProfile;
@@ -18,13 +18,13 @@ import java.io.IOException;
  *
  * <p>The container is decoded to PCM preserving the source sample rate and channel count. When the profile
  * has enabled blocks the DSP pipeline runs (format-neutral: 48&nbsp;kHz stereo stays 48&nbsp;kHz stereo
- * unless a resampler/channel block changes it). Then — always — the shared
- * {@link SpeechToTextAudioPreparer} produces the proven STT transport file (16&nbsp;kHz mono PCM16 WAV).</p>
+ * unless a resampler/channel block changes it). Then the shared {@link SpeechToTextAudioPreparer} writes the
+ * STT transport WAV <b>in that same format</b> — the audio reaches the model as unaltered as the pipeline
+ * left it, with no forced down-mix or resampling.</p>
  *
- * <p>"Off" (no enabled block) means <b>no DSP effects</b>, not "no technical input preparation": the source
- * is still decoded and run through the final STT preparation, exactly like the microphone path. This is the
- * same guarantee the removed {@code ensureSpeechFormat} used to give, now as an explicit, shared final
- * stage rather than a hidden step inside batch.</p>
+ * <p>"Off" (no enabled block) means <b>no DSP effects</b>: the source is decoded and written straight to the
+ * transport WAV in its original rate/channels. Reducing to 16&nbsp;kHz mono (or any other target) only
+ * happens when the selected profile explicitly contains a resampler/channel block.</p>
  */
 public final class BatchAudioPreparationService {
 
@@ -33,7 +33,7 @@ public final class BatchAudioPreparationService {
     private final SpeechToTextAudioPreparer sttPreparer;
 
     public BatchAudioPreparationService(AudioProcessingPreviewService processingService) {
-        this(processingService, new JavaSoundAudioFileDecoder(), new Pcm16MonoWavSpeechPreparer());
+        this(processingService, new JavaSoundAudioFileDecoder(), new WavSpeechAudioPreparer());
     }
 
     public BatchAudioPreparationService(AudioProcessingPreviewService processingService,
@@ -61,7 +61,7 @@ public final class BatchAudioPreparationService {
             ProcessedAudioPreview preview = processingService.process(decoded, profile, sourceId);
             forStt = new AudioBuffer(preview.getSamples(), preview.getFormat());
         } else {
-            // "Off": no DSP effects, but still the final STT transport preparation below.
+            // "Off": no DSP effects — send the decoded audio in its original format below.
             forStt = decoded;
         }
         File temporaryFile = File.createTempFile("askai-batch-", ".wav");

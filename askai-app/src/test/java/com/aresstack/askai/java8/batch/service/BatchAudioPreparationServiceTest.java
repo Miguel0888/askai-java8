@@ -25,9 +25,9 @@ import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertTrue;
 
 /**
- * Batch preparation always ends at the proven STT transport format (16 kHz mono PCM16 WAV) via the shared
- * SpeechToTextAudioPreparer — for a pass-through "Off" profile and for an active DSP profile alike. The DSP
- * stage stays format-neutral; only the final preparation forces 16 kHz mono. Temp files are cleaned up.
+ * Batch preparation writes the STT transport WAV preserving the source format: "Off" and a format-neutral
+ * DSP profile keep 48 kHz stereo as-is, and only an explicit resampler/channel block converts. Temp files
+ * are cleaned up.
  */
 public class BatchAudioPreparationServiceTest {
 
@@ -38,7 +38,7 @@ public class BatchAudioPreparationServiceTest {
             new BatchAudioPreparationService(new DefaultAudioProcessingPreviewService());
 
     @Test
-    public void offProfileStillDecodesAndProducesSixteenKMonoWav() throws Exception {
+    public void offProfilePreservesTheSourceFormat() throws Exception {
         File source = writeWav("source48stereo.wav", new PcmAudioFormat(48000, 2, 16), stereoTone(48000));
 
         PreparedBatchAudio prepared = service.prepare(source, AudioProcessingProfiles.off());
@@ -46,8 +46,8 @@ public class BatchAudioPreparationServiceTest {
 
         assertNotEquals("Off must not return the original file", source, temp);
         WavFileReader.WavData out = WavFileReader.read(temp);
-        assertEquals(16000, out.getFormat().getSampleRateHz());
-        assertEquals(1, out.getFormat().getChannels());
+        assertEquals("Off keeps the source rate — no forced 16 kHz", 48000, out.getFormat().getSampleRateHz());
+        assertEquals("Off keeps the source channels — no forced mono", 2, out.getFormat().getChannels());
 
         prepared.close();
         assertFalse("temp STT file deleted on close", temp.exists());
@@ -55,14 +55,28 @@ public class BatchAudioPreparationServiceTest {
     }
 
     @Test
-    public void dspProfileResultIsPreparedToSixteenKMonoNotItsOwnFormat() throws Exception {
+    public void formatNeutralDspKeepsTheSourceFormat() throws Exception {
         File source = writeWav("stereo48.wav", new PcmAudioFormat(48000, 2, 16), stereoTone(48000));
 
         PreparedBatchAudio prepared = service.prepare(source, profile("gain", block(AudioBlockType.GAIN, "g")));
         WavFileReader.WavData out = WavFileReader.read(prepared.getFile());
 
-        assertEquals("48 kHz stereo DSP result is finalized to 16 kHz", 16000, out.getFormat().getSampleRateHz());
-        assertEquals("finalized to mono", 1, out.getFormat().getChannels());
+        assertEquals("gain does not change the rate", 48000, out.getFormat().getSampleRateHz());
+        assertEquals("gain does not change the channels", 2, out.getFormat().getChannels());
+        prepared.close();
+    }
+
+    @Test
+    public void anExplicitResamplerAndMixerProfileStillConverts() throws Exception {
+        File source = writeWav("stereo44.wav", new PcmAudioFormat(44100, 2, 16), stereoTone(44100));
+        AudioBlockDefinition mixer = block(AudioBlockType.CHANNEL_MIXER, "m");
+        AudioBlockDefinition resampler = block(AudioBlockType.RESAMPLER, "r").withParameter("targetRateHz", "16000");
+
+        PreparedBatchAudio prepared = service.prepare(source, profile("speech", mixer, resampler));
+        WavFileReader.WavData out = WavFileReader.read(prepared.getFile());
+
+        assertEquals("explicit resampler still converts", 16000, out.getFormat().getSampleRateHz());
+        assertEquals("explicit mixer still down-mixes", 1, out.getFormat().getChannels());
         prepared.close();
     }
 

@@ -49,13 +49,14 @@ in one deterministic run.
 
 **How a file reaches the model.** The source is decoded to PCM **preserving its original sample rate and
 channel count**. When the profile has enabled blocks the DSP pipeline runs **format-neutral** (48 kHz
-stereo stays 48 kHz stereo unless an explicit **Resampler**/**channel** block changes it). Then — always,
-for **Off** and for an active profile alike — a final, shared *speech-to-text audio preparation* stage
-produces the format the STT model actually expects (**16 kHz mono PCM16 WAV**). "Off" means *no DSP
-effects*, not "no technical input preparation": DSP neutrality is kept separate from the STT transport
-format, so a recording is never sent to the model in a rate/layout it cannot handle. This is the same
-`SpeechToTextAudioPreparer` the microphone dictation path uses, so both routes end in the identical proven
-format. A stuck model (100 % GPU, no reply) is additionally bounded per item by a wall-clock timeout.
+stereo stays 48 kHz stereo unless an explicit **Resampler**/**channel** block changes it). Then a shared
+*speech-to-text audio preparation* stage writes the transport WAV **in that same format** — the audio
+reaches the model **as unaltered as the pipeline left it**, with no forced down-mix or resampling. The
+same `SpeechToTextAudioPreparer` is used by the microphone dictation path, so both routes behave
+identically. "Off" means *no DSP effects*: the recording is sent in its original rate/channels. Reducing
+to 16 kHz mono (or any other target) only happens if the selected profile explicitly contains a
+resampler/channel block (the built-in **Default speech** profile does; **Off** does not). A stuck model
+(100 % GPU, no reply) is bounded per item by a wall-clock timeout.
 
 *Start batch* processes the selections strictly as `model → file → profile`; a model stays loaded
 while all of its files and profiles are handled. Each result is appended to a Markdown file named
