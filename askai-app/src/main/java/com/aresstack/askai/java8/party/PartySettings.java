@@ -30,6 +30,12 @@ public final class PartySettings {
     private static final String KEY_MANUAL_PEERS = "party.manualPeers";
     private static final String KEY_BOT_POLICY = "party.botPolicy";
     private static final String KEY_MODEL_MENTIONS = "party.modelMentions";
+    private static final String KEY_BOT_SYSTEM_PROMPT = "party.botSystemPrompt";
+    private static final String KEY_BOT_CONTEXT_MODE = "party.botContextMode";
+
+    /** Bot context modes: transcript-as-context (answer the mention) or full chat turns. */
+    public static final String BOT_CONTEXT_TRANSCRIPT = "transcript";
+    public static final String BOT_CONTEXT_CONVERSATION = "conversation";
     private static final String KEY_ROOM_ID = "party.roomId";
     private static final String KEY_ROOM_NAME = "party.roomName";
     private static final String KEY_ROOM_SECRET = "party.roomSecret";
@@ -141,6 +147,34 @@ public final class PartySettings {
 
     public void setModelMentionsEnabled(boolean enabled) {
         put(KEY_MODEL_MENTIONS, String.valueOf(enabled));
+    }
+
+    /**
+     * Custom system prompt for the party bot; empty/{@code null} means the built-in default.
+     */
+    public String botSystemPrompt() {
+        String prompt = state == null ? null : state.get(KEY_BOT_SYSTEM_PROMPT, null);
+        return prompt == null || prompt.trim().isEmpty() ? null : prompt;
+    }
+
+    public void setBotSystemPrompt(String prompt) {
+        put(KEY_BOT_SYSTEM_PROMPT, prompt);
+    }
+
+    /**
+     * How the room context reaches the bot: {@link #BOT_CONTEXT_TRANSCRIPT} (default; the
+     * transcript goes into the system prompt and the bot answers exactly the mentioning message)
+     * or {@link #BOT_CONTEXT_CONVERSATION} (every room message becomes a chat turn prefixed with
+     * the sender's name, and the model draws its own conclusions).
+     */
+    public String botContextMode() {
+        String mode = state == null ? BOT_CONTEXT_TRANSCRIPT
+                : state.get(KEY_BOT_CONTEXT_MODE, BOT_CONTEXT_TRANSCRIPT);
+        return BOT_CONTEXT_CONVERSATION.equals(mode) ? BOT_CONTEXT_CONVERSATION : BOT_CONTEXT_TRANSCRIPT;
+    }
+
+    public void setBotContextMode(String mode) {
+        put(KEY_BOT_CONTEXT_MODE, mode);
     }
 
     /** Stable room identifier (defaults to the shared default room). */

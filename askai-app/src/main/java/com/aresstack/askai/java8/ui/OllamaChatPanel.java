@@ -617,6 +617,32 @@ public final class OllamaChatPanel extends JPanel {
         botRow.add(modelMentionsBox);
         party.add(botRow);
 
+        final JComboBox<String> contextModeCombo = new JComboBox<String>();
+        contextModeCombo.addItem("Answer the mentioning message (transcript as context)");
+        contextModeCombo.addItem("Full conversation as chat turns (model draws its own conclusions)");
+        contextModeCombo.setSelectedIndex(
+                PartySettings.BOT_CONTEXT_CONVERSATION.equals(partySettings.botContextMode()) ? 1 : 0);
+        JPanel contextRow = partySettingsRow();
+        contextRow.add(new JLabel("Bot context"));
+        contextRow.add(contextModeCombo);
+        party.add(contextRow);
+
+        String customPrompt = partySettings.botSystemPrompt();
+        final JTextArea botPromptArea = new JTextArea(customPrompt != null ? customPrompt : "", 3, 40);
+        botPromptArea.setLineWrap(true);
+        botPromptArea.setWrapStyleWord(true);
+        botPromptArea.setToolTipText(
+                "Custom system prompt for the party bot. Leave empty for the built-in default:\n"
+                        + com.aresstack.askai.java8.party.OllamaBotResponder.DEFAULT_SYSTEM_PROMPT);
+        JPanel promptRow = partySettingsRow();
+        promptRow.add(new JLabel("Bot system prompt (empty = default)"));
+        party.add(promptRow);
+        JScrollPane promptScroll = new JScrollPane(botPromptArea);
+        promptScroll.setAlignmentX(Component.LEFT_ALIGNMENT);
+        JPanel promptFieldRow = partySettingsRow();
+        promptFieldRow.add(promptScroll);
+        party.add(promptFieldRow);
+
         final JTextField roomField = new JTextField(partySettings.roomId(), 10);
         final JTextField secretField = new JTextField(partySettings.roomSecret(), 10);
         secretField.setToolTipText("Room invitation secret: authenticates the join and encrypts traffic");
@@ -654,6 +680,9 @@ public final class OllamaChatPanel extends JPanel {
             partySettings.setBotPolicy(botPolicyCombo.getSelectedIndex() == 1
                     ? PartySettings.BOT_POLICY_OFF : PartySettings.BOT_POLICY_MENTION);
             partySettings.setModelMentionsEnabled(modelMentionsBox.isSelected());
+            partySettings.setBotContextMode(contextModeCombo.getSelectedIndex() == 1
+                    ? PartySettings.BOT_CONTEXT_CONVERSATION : PartySettings.BOT_CONTEXT_TRANSCRIPT);
+            partySettings.setBotSystemPrompt(botPromptArea.getText());
             refreshMentionCompletionHandles();
             partySettings.setRoomId(roomField.getText());
             partySettings.setRoomSecret(secretField.getText());
@@ -1060,6 +1089,16 @@ public final class OllamaChatPanel extends JPanel {
                         return partySettings.modelMentionsEnabled()
                                 ? installedModelNames
                                 : Collections.<String>emptyList();
+                    }
+                },
+                new Supplier<String>() {
+                    public String get() {
+                        return partySettings.botSystemPrompt();
+                    }
+                },
+                new Supplier<String>() {
+                    public String get() {
+                        return partySettings.botContextMode();
                     }
                 });
         return new PartySession(createPartyTransport(), room, self,
