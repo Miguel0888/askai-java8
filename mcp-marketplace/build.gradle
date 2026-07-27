@@ -1,0 +1,17 @@
+// MCP marketplace: search, registry sources, cache, GitHub/Copilot import, install options and the Swing
+// browser — adopted verbatim from mcp-marketplace-swing-java8.zip (NOT rewritten). This module only produces
+// saved configurations; it never starts a process or opens a runtime connection. Installation and runtime
+// activation are strictly separated: Search → Select → Preview → Save Configuration → explicit Enable →
+// Runtime Connection (the last two live outside this module).
+//
+// No Solon dependency here, and no marketplace dependency in :mcp-runtime-api (checked by tests).
+apply plugin: 'java-library'
+
+dependencies {
+    api 'com.google.code.gson:gson:2.10.1'
+    testImplementation 'junit:junit:4.13.2'
+}
+
+test {
+    useJUnit()
+}
