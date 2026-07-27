@@ -153,10 +153,15 @@ public final class OllamaBotResponder implements BotResponder {
     private void runChimeInGate(final String model, final List<GroupChatMessage> context,
                                 final GroupChatMessage addressed,
                                 final Map<String, Participant> profiles, final Callback callback) {
-        String system = configuredSystemPrompt()
-                + "\n\nRules for when you should join the conversation:\n" + configuredAlwaysPrompt()
-                + "\n\nDecide whether these rules ask you to reply to the latest message. "
-                + "Respond with exactly YES or NO — nothing else.";
+        String system = "You are the reply filter for @" + GroupChatBot.DISPLAY_NAME
+                + ", an assistant in a group chat.\n\nReply rules:\n" + configuredAlwaysPrompt()
+                + "\n\nDecide whether the rules ask " + GroupChatBot.DISPLAY_NAME
+                + " to reply to the LATEST message. Answer with a single word: YES or NO.\n"
+                + "Examples: \"dogs lay eggs\" -> YES (obviously false). "
+                + "\"cows give milk\" -> NO (true). "
+                + "\"hi\" -> NO (small talk). "
+                + "\"what's your favourite colour?\" -> NO (opinion/not addressed to you).\n"
+                + "Answer YES or NO now.";
         List<OllamaChatTurn> gate = new ArrayList<OllamaChatTurn>();
         StringBuilder transcript = new StringBuilder();
         int from = Math.max(0, context.size() - CONTEXT_MESSAGES);
@@ -183,8 +188,7 @@ public final class OllamaBotResponder implements BotResponder {
             }
 
             public void onResponse(String text) {
-                String normalized = text.trim().toUpperCase(java.util.Locale.ROOT);
-                if (normalized.startsWith("YES")) {
+                if (isAffirmative(text)) {
                     answer(model, context, addressed, profiles, false, callback);
                 } else {
                     callback.onNoAnswer();
@@ -380,6 +384,26 @@ public final class OllamaBotResponder implements BotResponder {
 
     private boolean alwaysPolicy() {
         return settings != null && PartySettings.BOT_POLICY_ALWAYS.equals(settings.botPolicy());
+    }
+
+    /**
+     * Tolerant YES/NO verdict parsing for the chime-in gate.  Small models rarely answer with a
+     * bare "YES": they wrap it in markdown, punctuation, reasoning or German ("Ja"/"Nein").  We
+     * scan for the last standalone affirmative/negative token so "the statement is false, so YES"
+     * and "**NO**" are both read correctly; ties break to the last token, no token stays silent.
+     */
+    static boolean isAffirmative(String text) {
+        if (text == null) {
+            return false;
+        }
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("(?i)\\b(yes|ja|nope|no|nein)\\b")
+                .matcher(text);
+        String last = null;
+        while (matcher.find()) {
+            last = matcher.group(1).toLowerCase(java.util.Locale.ROOT);
+        }
+        return "yes".equals(last) || "ja".equals(last);
     }
 
     /** The model declines by answering exactly (or starting with) the silent marker. */
