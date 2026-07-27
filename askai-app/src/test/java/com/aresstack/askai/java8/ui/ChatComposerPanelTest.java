@@ -1,5 +1,8 @@
 package com.aresstack.askai.java8.ui;
 
+import com.aresstack.askai.java8.vision.ChatDraft;
+import com.aresstack.askai.java8.vision.ImageAttachment;
+
 import org.junit.Test;
 
 import javax.swing.JButton;
@@ -7,6 +10,9 @@ import javax.swing.JComponent;
 import javax.swing.SwingUtilities;
 import java.awt.Component;
 import java.awt.Container;
+import java.io.File;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -110,6 +116,44 @@ public final class ChatComposerPanelTest {
         });
     }
 
+    @Test
+    public void imageAttachmentsRouteEnableSendSurviveModelSwitchAndClear() throws Exception {
+        SwingUtilities.invokeAndWait(new Runnable() {
+            public void run() {
+                ActionCounter actions = new ActionCounter();
+                ChatComposerPanel composer = new ChatComposerPanel(actions);
+
+                findButton(composer, "Attach images").doClick();
+                assertEquals(1, actions.count("attach"));
+
+                assertFalse("empty composer cannot send", composer.isSendEnabled());
+                ImageAttachment a = ImageAttachment.of(new File("a.png"));
+                ImageAttachment b = ImageAttachment.of(new File("b.png"));
+                composer.addAttachments(Arrays.asList(a, b));
+
+                assertTrue("an image-only draft is sendable", composer.isSendEnabled());
+                assertEquals(2, composer.getAttachments().size());
+
+                // Attachments must survive a model switch (they are not silently dropped).
+                composer.setModelName("llava");
+                assertEquals(2, composer.getAttachments().size());
+
+                // Duplicates by file are ignored.
+                composer.addAttachments(Collections.singletonList(a));
+                assertEquals(2, composer.getAttachments().size());
+
+                ChatDraft draft = composer.getDraft();
+                assertEquals(2, draft.getAttachments().size());
+                assertFalse(draft.hasText());
+                assertTrue(draft.hasAttachments());
+
+                composer.clearDraft();
+                assertEquals(0, composer.getAttachments().size());
+                assertFalse("cleared draft cannot send", composer.isSendEnabled());
+            }
+        });
+    }
+
     private static JButton findButton(Container root, String accessibleName) {
         for (Component component : root.getComponents()) {
             if (component instanceof JButton) {
@@ -195,6 +239,10 @@ public final class ChatComposerPanelTest {
 
         public void transcribeAudioFile() {
             increment("file");
+        }
+
+        public void attachImages() {
+            increment("attach");
         }
 
         private void increment(String action) {

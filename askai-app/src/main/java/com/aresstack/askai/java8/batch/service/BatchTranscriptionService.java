@@ -81,7 +81,8 @@ public final class BatchTranscriptionService {
                                 profileName, audioFile, null, "Processing " + audioFile.getName() + ".");
                         try {
                             String transcription = transcribe(audioFile, modelName, profile, request, cancellation);
-                            File markdown = resultWriter.append(audioFile, modelName, profileName, transcription);
+                            File markdown = resultWriter.append(audioFile, modelName, profile.getId(),
+                                    profileName, transcription);
                             completed++;
                             publish(BatchTranscriptionEvent.Type.ITEM_COMPLETED, completed, request, modelName,
                                     profileName, audioFile, markdown, "Transcription appended.");

@@ -38,12 +38,25 @@ in one deterministic run.
 
 ![Batch audio transcription view](doc/images/batch-view.png)
 
-- **Audio files** – add one or more `.wav` recordings via *Add audio files…* (WAV only; the DSP
-  pipeline decodes via `WavFileReader`).
+- **Audio files** – add one or more recordings via *Add audio files…*. The same formats as Chat are
+  accepted (WAV, MP3, M4A/AAC, OGG, FLAC), from the single [`SupportedAudioFormats`](askai-app/src/main/java/com/aresstack/askai/java8/audio/format/SupportedAudioFormats.java)
+  catalog. Compressed containers are decoded to PCM through Java Sound providers bundled in the fat
+  jar (see below).
 - **Audio AI models** – the list contains only models whose Ollama `/api/show` capabilities report
   the exact `audio` capability. Multiple models can be selected.
 - **Audio profiles** – the DSP profiles from the *Audio processing* editor. Multiple profiles can
-  be selected.
+  be selected. The **Off** profile (no enabled block) is a true pass-through.
+
+**How a file reaches the model.** The source is decoded to PCM **preserving its original sample rate and
+channel count**. When the profile has enabled blocks the DSP pipeline runs **format-neutral** (48 kHz
+stereo stays 48 kHz stereo unless an explicit **Resampler**/**channel** block changes it). Then a shared
+*speech-to-text audio preparation* stage writes the transport WAV **in that same format** — the audio
+reaches the model **as unaltered as the pipeline left it**, with no forced down-mix or resampling. The
+same `SpeechToTextAudioPreparer` is used by the microphone dictation path, so both routes behave
+identically. "Off" means *no DSP effects*: the recording is sent in its original rate/channels. Reducing
+to 16 kHz mono (or any other target) only happens if the selected profile explicitly contains a
+resampler/channel block (the built-in **Default speech** profile does; **Off** does not). A stuck model
+(100 % GPU, no reply) is bounded per item by a wall-clock timeout.
 
 *Start batch* processes the selections strictly as `model → file → profile`; a model stays loaded
 while all of its files and profiles are handled. Each result is appended to a Markdown file named
@@ -91,6 +104,16 @@ The runnable jar is written to:
 ```text
 askai-app/build/libs/askai-java8-0.1.0.jar
 ```
+
+### Audio codec providers in the fat jar
+
+MP3, M4A/AAC, OGG and FLAC are decoded through Java Sound service providers added as `runtimeOnly`
+dependencies in `askai-app/build.gradle` (`javasound-mp3`, `javasound-vorbis`, `javasound-flac`,
+`javasound-aac`). Java Sound discovers them via `META-INF/services` files, which the `mergeServiceFiles`
+Gradle task concatenates and de-duplicates into the fat jar so every provider survives
+`DuplicatesStrategy.EXCLUDE`. If those merged descriptors are lost, `AudioSystem` silently loses the
+codecs and only WAV decodes. WAV needs no extra provider (built into the JDK). The first build must run
+online once (or with `--refresh-dependencies`) to populate the Gradle cache with these artifacts.
 
 ## Runtime
 

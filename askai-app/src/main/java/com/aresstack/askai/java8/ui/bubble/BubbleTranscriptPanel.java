@@ -115,6 +115,20 @@ public final class BubbleTranscriptPanel extends JPanel {
         return bubble;
     }
 
+    /** Add a right-aligned row of image previews under the user's message (the images just sent). */
+    public void appendUserImages(java.util.List<com.aresstack.askai.java8.vision.ImageAttachment> attachments) {
+        requireEventDispatchThread();
+        if (attachments == null || attachments.isEmpty()) {
+            return;
+        }
+        JPanel thumbs = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.RIGHT, 6, 0));
+        thumbs.setOpaque(false);
+        for (com.aresstack.askai.java8.vision.ImageAttachment attachment : attachments) {
+            thumbs.add(new com.aresstack.askai.java8.ui.ImageThumbnail(attachment, 72));
+        }
+        addBubbleRow(thumbs, BubbleSide.RIGHT);
+    }
+
     /**
      * Starts a streaming assistant answer rendered as native Markdown inside a speech bubble. While
      * streaming the text re-renders debounced; a Mermaid fence stays a code block until
@@ -349,7 +363,7 @@ public final class BubbleTranscriptPanel extends JPanel {
     /** Adds the assistant answer inside a left speech bubble, capped in width and reflowing on resize. */
     private void addAssistantMarkdownRow(String header, MarkdownMessageView view) {
         AssistantMarkdownBubble bubble = new AssistantMarkdownBubble(
-                palette, header == null || header.length() == 0 ? "Assistant" : header, view);
+                BubbleSide.LEFT, palette, header == null || header.length() == 0 ? "Assistant" : header, view);
         MarkdownAnswerRow row = new MarkdownAnswerRow(bubble);
         row.setAlignmentX(LEFT_ALIGNMENT);
         messageList.add(row);
@@ -368,8 +382,11 @@ public final class BubbleTranscriptPanel extends JPanel {
         private static final int RIGHT_GAP = 64;
         private static final double MAX_WIDTH_RATIO = 0.86d;
 
+        private final JComponent bubble;
+
         private MarkdownAnswerRow(JComponent bubble) {
             super(new BorderLayout());
+            this.bubble = bubble;
             setOpaque(false);
             setBorder(BorderFactory.createEmptyBorder(0, LEFT_MARGIN, 0, 0));
             add(bubble, BorderLayout.CENTER);
@@ -390,8 +407,13 @@ public final class BubbleTranscriptPanel extends JPanel {
 
         @Override
         public Dimension getPreferredSize() {
-            Dimension preferred = super.getPreferredSize();
-            return new Dimension(LEFT_MARGIN + targetWidth(), preferred.height);
+            int width = targetWidth();
+            // Measure the bubble's Markdown height at exactly the width it will get (the BorderLayout CENTER
+            // occupies the row width minus the left margin), so the first layout is already correct.
+            int height = bubble instanceof com.aresstack.askai.java8.ui.markdown.WidthAwareHeight
+                    ? ((com.aresstack.askai.java8.ui.markdown.WidthAwareHeight) bubble).preferredHeightForWidth(width)
+                    : super.getPreferredSize().height;
+            return new Dimension(LEFT_MARGIN + width, height);
         }
     }
 

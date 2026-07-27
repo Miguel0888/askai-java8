@@ -220,6 +220,30 @@ public class OllamaChatStreamTest {
         assertFalse(plain.containsKey("tool_calls"));
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    public void userMessageCarriesBase64Images() throws Exception {
+        ndjson.set(done(1, 100));
+        stream(Collections.singletonList(
+                ChatMessage.user("what is this", Arrays.asList("QUJD", "ZEVG"))), null, null);
+        List<Object> messages = (List<Object>) sentBody().get("messages");
+        Map<String, Object> user = (Map<String, Object>) messages.get(0);
+        assertEquals("user", user.get("role"));
+        assertEquals("what is this", user.get("content"));
+        assertTrue(user.get("images") instanceof List);
+        assertEquals(Arrays.asList("QUJD", "ZEVG"), user.get("images"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    public void textOnlyUserMessageOmitsImages() throws Exception {
+        ndjson.set(done(1, 100));
+        streamUser("hi");
+        List<Object> messages = (List<Object>) sentBody().get("messages");
+        Map<String, Object> user = (Map<String, Object>) messages.get(0);
+        assertFalse(user.containsKey("images"));
+    }
+
     // ------------------------------------------------------------------ helpers
 
     /** One NDJSON chat chunk. {@code toolCallsJson} is a raw JSON array string, or null for none. */

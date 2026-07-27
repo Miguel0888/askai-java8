@@ -3,9 +3,18 @@ package com.aresstack.askai.java8.ui;
 import com.aresstack.askai.java8.AskAiModel;
 import com.aresstack.askai.java8.audio.AudioProfileRepository;
 import com.aresstack.askai.java8.audio.format.SupportedAudioFormats;
+import com.aresstack.askai.java8.catalog.GlobalCatalogSnapshot;
+import com.aresstack.askai.java8.ui.chat.ChatSessionComponent;
+import com.aresstack.askai.java8.ui.chat.ChatSessionId;
 import com.aresstack.askai.java8.audio.FileAudioProfileRepository;
 import com.aresstack.askai.java8.state.ApplicationStateService;
 import com.aresstack.askai.java8.client.OllamaChatTurn;
+import com.aresstack.askai.java8.client.OllamaModelInfoView;
+import com.aresstack.askai.java8.vision.ChatDraft;
+import com.aresstack.askai.java8.vision.ImageAttachment;
+import com.aresstack.askai.java8.vision.ImageAttachmentContentLoader;
+import com.aresstack.askai.java8.vision.ImageAttachmentException;
+import com.aresstack.askai.java8.vision.VisionCapability;
 import com.aresstack.askai.java8.service.OllamaService;
 import com.aresstack.askai.java8.service.ThinkingOption;
 import com.aresstack.askai.java8.speech.AudioModelResolver;
@@ -51,6 +60,7 @@ import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
+import javax.swing.SwingWorker;
 import javax.swing.Timer;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.BorderLayout;
@@ -83,7 +93,7 @@ import java.util.function.Supplier;
  * {@link ComposerInserter}. There is no second microphone path; capture format is negotiated by the
  * service, not forced to 16 kHz here.</p>
  */
-public final class OllamaChatPanel extends JPanel {
+public final class OllamaChatPanel extends JPanel implements ChatSessionComponent {
 
     private static final String MIC_SYSTEM_DEFAULT = "System default";
     private static final String AUDIO_MODEL_AUTOMATIC = "Automatic";
@@ -96,6 +106,7 @@ public final class OllamaChatPanel extends JPanel {
     private static final String STATE_AGENT = "chat.agent";
     private static final String STATE_REASONING = "chat.reasoningEffort";
 
+    private final ChatSessionId sessionId;
     private final AskAiModel model;
     private final OllamaService ollamaService;
     private final SpeechToTextService speechToTextService;
@@ -134,6 +145,7 @@ public final class OllamaChatPanel extends JPanel {
     private final JTextArea techDetails = new JTextArea(6, 40);
 
     private final List<OllamaChatTurn> history = new ArrayList<OllamaChatTurn>();
+    private final ImageAttachmentContentLoader imageContentLoader = new ImageAttachmentContentLoader();
     private final StringBuilder streamingAssistant = new StringBuilder();
     private OllamaService.Task chatTask;
     // The UI's chat-busy state, decoupled from the technical chatTask handle so the dictation controls
@@ -192,6 +204,15 @@ public final class OllamaChatPanel extends JPanel {
                            SpeechToTextService speechToTextService,
                            AudioProfileRepository audioProfileRepository,
                            ApplicationStateService applicationState) {
+        this(ChatSessionId.create(), model, ollamaService, speechToTextService,
+                audioProfileRepository, applicationState);
+    }
+
+    public OllamaChatPanel(ChatSessionId sessionId, AskAiModel model, OllamaService ollamaService,
+                           SpeechToTextService speechToTextService,
+                           AudioProfileRepository audioProfileRepository,
+                           ApplicationStateService applicationState) {
+        this.sessionId = sessionId == null ? ChatSessionId.create() : sessionId;
         this.model = model;
         this.ollamaService = ollamaService;
         this.speechToTextService = speechToTextService;
@@ -249,6 +270,10 @@ public final class OllamaChatPanel extends JPanel {
 
             public void transcribeAudioFile() {
                 onAudioFileAction();
+            }
+
+            public void attachImages() {
+                onAttachImagesAction();
             }
         });
 
@@ -421,38 +446,36 @@ public final class OllamaChatPanel extends JPanel {
     private void buildUserInterface() {
         setLayout(new BorderLayout(8, 8));
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        add(buildToolbar(), BorderLayout.NORTH);
         add(transcript.getComponent(), BorderLayout.CENTER);
-        add(buildComposer(), BorderLayout.SOUTH);
+        add(buildBottomArea(), BorderLayout.SOUTH);
     }
 
-    private JComponent buildToolbar() {
-        // The model is now chosen from the ChatGPT-style selector inside the composer; the top row only
-        // keeps New chat + a refresh. (modelCombo lives on as the off-screen data model / selection.)
-        JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
-        JButton newChatButton = new JButton("New chat");
-        newChatButton.addActionListener(event -> newChat());
-        toolbar.add(newChatButton);
+    /**
+     * The bottom area of a chat: the composer, with the (collapsed) Technical details directly below it,
+     * both full width. There is no top toolbar anymore — New chat is the workspace's "+" tab and model
+     * refresh is the global button in the menu bar.
+     */
+    private JComponent buildBottomArea() {
+        JPanel bottom = new JPanel(new BorderLayout());
+        bottom.add(buildComposer(), BorderLayout.NORTH);
+        bottom.add(new CollapsiblePanel("Technical details", buildTechnicalDetails(), false), BorderLayout.SOUTH);
+        return bottom;
+    }
 
-        int refreshSize = newChatButton.getPreferredSize().height;
-        JButton refreshButton = new JButton(new RefreshIcon(refreshSize - 6));
-        refreshButton.setToolTipText("Refresh models");
-        refreshButton.setFocusPainted(false);
-        refreshButton.setMargin(new java.awt.Insets(0, 0, 0, 0));
-        refreshButton.setPreferredSize(new Dimension(refreshSize, refreshSize));
-        refreshButton.addActionListener(event -> refreshModels());
-        JPanel rightControls = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 4));
-        rightControls.add(refreshButton);
+    // ------------------------------------------------------------------ ChatSessionComponent
 
-        JPanel toolbarRow = new JPanel(new BorderLayout());
-        toolbarRow.add(toolbar, BorderLayout.CENTER);
-        toolbarRow.add(rightControls, BorderLayout.EAST);
+    public ChatSessionId getSessionId() {
+        return sessionId;
+    }
 
-        JPanel header = new JPanel(new BorderLayout(4, 4));
-        header.add(toolbarRow, BorderLayout.NORTH);
-        // Chat settings moved behind the composer's gear; only Technical details stays here (collapsed).
-        header.add(new CollapsiblePanel("Technical details", buildTechnicalDetails(), false), BorderLayout.CENTER);
-        return header;
+    public java.awt.Component getComponent() {
+        return this;
+    }
+
+    /** Release this session's resources when its tab closes: abort the chat, dictation and file work. */
+    public void disposeSession() {
+        stopChat();
+        shutdownDictation();
     }
 
     /** The always-available (collapsed) technical log shown in the header. */
@@ -620,6 +643,44 @@ public final class OllamaChatPanel extends JPanel {
         return composer;
     }
 
+    // ------------------------------------------------------------------ global catalog snapshot
+
+    /**
+     * Apply a globally-refreshed catalog to this chat without re-querying Ollama, preserving this tab's own
+     * selection (model by name, audio model / profile by their persisted ids). Only parts that loaded
+     * successfully are applied, so a partial failure never clears a working list.
+     */
+    public void applyCatalogSnapshot(GlobalCatalogSnapshot snapshot) {
+        if (snapshot == null) {
+            return;
+        }
+        if (snapshot.isModelsLoaded()) {
+            applyModelNames(snapshot.getChatModels());
+        }
+        if (snapshot.isAudioModelsLoaded()) {
+            setAudioModelItems(snapshot.getAudioModels());
+        }
+        if (snapshot.isProfilesLoaded()) {
+            refreshAudioProfiles(); // profiles are local; re-read the (just-refreshed) repository
+        }
+    }
+
+    /** Repopulate the (off-screen) model selector, keeping the current model selected when it survives. */
+    private void applyModelNames(List<String> names) {
+        Object previous = modelCombo.getSelectedItem();
+        modelCombo.removeAllItems();
+        for (String name : names) {
+            modelCombo.addItem(name);
+        }
+        String restored = consumePendingRestoreModel(names);
+        if (restored != null) {
+            modelCombo.setSelectedItem(restored);
+        } else if (previous != null) {
+            modelCombo.setSelectedItem(previous);
+        }
+        composer.setModelName((String) modelCombo.getSelectedItem());
+    }
+
     // ------------------------------------------------------------------ chat (unchanged behaviour)
 
     private void refreshModels() {
@@ -628,20 +689,8 @@ public final class OllamaChatPanel extends JPanel {
             public void onModelNames(final List<String> names) {
                 onUi(new Runnable() {
                     public void run() {
-                        Object previous = modelCombo.getSelectedItem();
-                        modelCombo.removeAllItems();
-                        for (String name : names) {
-                            modelCombo.addItem(name);
-                        }
-                        String restored = consumePendingRestoreModel(names);
-                        if (restored != null) {
-                            modelCombo.setSelectedItem(restored);
-                        } else if (previous != null) {
-                            modelCombo.setSelectedItem(previous);
-                        }
+                        applyModelNames(names);
                         refreshAudioModels(names);
-                        // The in-composer selector shows the current model; keep the status line quiet.
-                        composer.setModelName((String) modelCombo.getSelectedItem());
                         refreshReasoningForModel((String) modelCombo.getSelectedItem());
                         setStatus(names.isEmpty() ? "No models installed. Open Install to add one." : " ");
                     }
@@ -657,16 +706,6 @@ public final class OllamaChatPanel extends JPanel {
                 });
             }
         });
-    }
-
-    private void newChat() {
-        if (chatTask != null) {
-            return;
-        }
-        history.clear();
-        transcript.clear();
-        showEmptyState();
-        setStatus("Started a new chat.");
     }
 
     /** Selects {@code modelName} as the active chat model without touching the conversation. */
@@ -863,18 +902,103 @@ public final class OllamaChatPanel extends JPanel {
             setStatus("No model selected. Open Models or Install first.");
             return;
         }
-        final String userPrompt = composer.getMessage().trim();
-        if (userPrompt.isEmpty()) {
-            setStatus("Write a message before sending.");
+        final ChatDraft draft = composer.getDraft();
+        if (draft.isEmpty()) {
+            setStatus("Write a message or attach an image before sending.");
             return;
         }
 
+        if (draft.hasAttachments()) {
+            // Images may only go to a vision model, verified via /api/show. Keep the draft until it works.
+            gateVisionThenSend(modelName, draft);
+        } else {
+            dispatchChat(modelName, draft.getText().trim(),
+                    java.util.Collections.<String>emptyList(), java.util.Collections.<ImageAttachment>emptyList());
+        }
+    }
+
+    /** Probe the model's capabilities; only a model reporting the exact "vision" capability may get images. */
+    private void gateVisionThenSend(final String modelName, final ChatDraft draft) {
+        setStatus("Checking vision support…");
+        ollamaService.getModelInfo(modelName, new OllamaService.ModelInfoListener() {
+            public void onModelInfo(final OllamaModelInfoView info) {
+                onUi(new Runnable() {
+                    public void run() {
+                        if (VisionCapability.isVisionCapable(info.getCapabilities())) {
+                            encodeThenSend(modelName, draft);
+                        } else {
+                            setStatus("\"" + modelName + "\" is a text-only model — switch to a vision model"
+                                    + " or remove the images. Your message and images are kept.");
+                        }
+                    }
+                });
+            }
+
+            public void onError(final Exception ex) {
+                onUi(new Runnable() {
+                    public void run() {
+                        setStatus("Could not verify vision support (" + ex.getMessage()
+                                + "). Images were not sent; your draft is kept.");
+                    }
+                });
+            }
+        });
+    }
+
+    /** Read + base64-encode the images off the EDT, then dispatch. On any image error the draft is kept. */
+    private void encodeThenSend(final String modelName, final ChatDraft draft) {
+        final java.util.List<ImageAttachment> attachments = draft.getAttachments();
+        setStatus("Preparing " + attachments.size() + (attachments.size() == 1 ? " image…" : " images…"));
+        new SwingWorker<List<String>, Void>() {
+            private ImageAttachmentException failure;
+
+            protected List<String> doInBackground() {
+                try {
+                    return imageContentLoader.encodeAll(attachments);
+                } catch (ImageAttachmentException ex) {
+                    failure = ex;
+                    return null;
+                }
+            }
+
+            protected void done() {
+                if (failure != null) {
+                    setStatus("Could not attach " + failure.getAttachment().getDisplayName() + ": "
+                            + failure.getReason().getDescription() + ". Your draft is kept.");
+                    return;
+                }
+                List<String> images;
+                try {
+                    images = get();
+                } catch (Exception ex) {
+                    setStatus("Could not read the attached images. Your draft is kept.");
+                    return;
+                }
+                if (images == null) {
+                    return;
+                }
+                dispatchChat(modelName, draft.getText().trim(), images, attachments);
+            }
+        }.execute();
+    }
+
+    private void dispatchChat(final String modelName, final String userPrompt,
+                              List<String> images, java.util.List<ImageAttachment> attachments) {
         if (transcript.isEmpty() || history.isEmpty()) {
             transcript.clear();
         }
-        composer.clearMessage();
-        transcript.appendUser(userPrompt);
-        history.add(OllamaChatTurn.user(userPrompt));
+        // Success path: only now is the draft consumed, so any earlier failure left it fully intact.
+        composer.clearDraft();
+        if (attachments.isEmpty()) {
+            transcript.appendUser(userPrompt);
+        } else if (userPrompt.isEmpty()) {
+            transcript.appendUserImages(attachments);
+        } else {
+            transcript.appendUser(userPrompt, attachments);
+        }
+        history.add(images.isEmpty()
+                ? OllamaChatTurn.user(userPrompt)
+                : OllamaChatTurn.user(userPrompt, images));
 
         // Do not open an assistant bubble yet: thinking (if any) opens a green thinking bubble first, and
         // the answer bubble only appears when real content arrives.
@@ -932,6 +1056,26 @@ public final class OllamaChatPanel extends JPanel {
                 });
             }
         });
+    }
+
+    /** Choose one or more images (PNG/JPEG/WebP) and queue them in the composer as attachments. */
+    private void onAttachImagesAction() {
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("Attach images");
+        chooser.setMultiSelectionEnabled(true);
+        chooser.setAcceptAllFileFilterUsed(false);
+        chooser.setFileFilter(new FileNameExtensionFilter("Images (PNG, JPEG, WebP)", "png", "jpg", "jpeg", "webp"));
+        if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) {
+            return;
+        }
+        List<ImageAttachment> chosen = new ArrayList<ImageAttachment>();
+        for (File file : chooser.getSelectedFiles()) {
+            chosen.add(ImageAttachment.of(file));
+        }
+        composer.addAttachments(chosen);
+        if (!chosen.isEmpty()) {
+            setStatus(chosen.size() == 1 ? "1 image attached." : chosen.size() + " images attached.");
+        }
     }
 
     /** First non-empty thinking delta opens the green thinking bubble; further deltas stream into it. */
@@ -1778,57 +1922,4 @@ public final class OllamaChatPanel extends JPanel {
         }
     }
 
-    /** A refresh glyph: two circular arrows chasing each other, painted with Java2D (no asset). */
-    private static final class RefreshIcon implements javax.swing.Icon {
-        private final int size;
-
-        RefreshIcon(int size) {
-            this.size = size;
-        }
-
-        public int getIconWidth() {
-            return size;
-        }
-
-        public int getIconHeight() {
-            return size;
-        }
-
-        public void paintIcon(java.awt.Component component, java.awt.Graphics graphics, int x, int y) {
-            java.awt.Graphics2D g = (java.awt.Graphics2D) graphics.create();
-            try {
-                g.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING,
-                        java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
-                g.setColor(component.isEnabled() ? new Color(0x42, 0x60, 0x77) : new Color(0x9E, 0x9E, 0x9E));
-                float stroke = Math.max(1.6f, size / 9f);
-                g.setStroke(new java.awt.BasicStroke(stroke, java.awt.BasicStroke.CAP_ROUND,
-                        java.awt.BasicStroke.JOIN_ROUND));
-                double pad = stroke + 1;
-                double diameter = size - 2 * pad;
-                double cx = x + size / 2.0;
-                double cy = y + size / 2.0;
-                double radius = diameter / 2.0;
-                g.draw(new java.awt.geom.Arc2D.Double(x + pad, y + pad, diameter, diameter, 30, 140, java.awt.geom.Arc2D.OPEN));
-                g.draw(new java.awt.geom.Arc2D.Double(x + pad, y + pad, diameter, diameter, 210, 140, java.awt.geom.Arc2D.OPEN));
-                drawArrowHead(g, cx, cy, radius, 170);
-                drawArrowHead(g, cx, cy, radius, 350);
-            } finally {
-                g.dispose();
-            }
-        }
-
-        private void drawArrowHead(java.awt.Graphics2D g, double cx, double cy, double radius, double angleDeg) {
-            double a = Math.toRadians(angleDeg);
-            double tipX = cx + radius * Math.cos(a);
-            double tipY = cy - radius * Math.sin(a);
-            double travel = a + Math.PI / 2.0;
-            double length = Math.max(3.0, radius * 0.75);
-            for (int side = -1; side <= 1; side += 2) {
-                double barb = travel + side * Math.toRadians(150);
-                double bx = tipX + length * Math.cos(barb);
-                double by = tipY - length * Math.sin(barb);
-                g.draw(new java.awt.geom.Line2D.Double(tipX, tipY, bx, by));
-            }
-        }
-    }
 }
