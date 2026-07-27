@@ -13,8 +13,11 @@ import java.util.Map;
  */
 public interface BotResponder {
 
-    /** Delivered exactly once per {@link #respond} call. */
+    /** Delivered exactly once per {@link #respond} call (thinking deltas may precede it). */
     interface Callback {
+        /** Streaming thinking output from the model, for local visualization on the bot host. */
+        void onThinkingDelta(String delta);
+
         void onResponse(String markdown);
 
         /** The model deliberately chose not to answer (always-policy silence). */

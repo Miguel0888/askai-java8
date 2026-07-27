@@ -62,6 +62,12 @@ public class PartySessionTest {
             this.handles = handles;
         }
 
+        public void onBotThinkingDelta(String delta) {
+        }
+
+        public void onBotThinkingDone() {
+        }
+
         int botMessageCount() {
             int count = 0;
             synchronized (messages) {

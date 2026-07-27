@@ -48,6 +48,15 @@ public final class PartySession implements GroupChatSubmissionTarget {
 
         /** The set of completable mention handles changed. */
         void onHandlesChanged(List<String> handles);
+
+        /**
+         * Streaming thinking output while this peer hosts a bot answer — for the same
+         * disappearing thought-bubble visualization as in the normal chat.
+         */
+        void onBotThinkingDelta(String delta);
+
+        /** The bot attempt finished (answer, silence or failure); close the thought bubble. */
+        void onBotThinkingDone();
     }
 
     /** One message prepared for rendering, with resolved sender metadata and color token. */
@@ -340,7 +349,12 @@ public final class PartySession implements GroupChatSubmissionTarget {
             profiles.put(participant.getParticipantId(), participant);
         }
         botResponder.respond(context, addressed, profiles, requestedModel, new BotResponder.Callback() {
+            public void onThinkingDelta(String delta) {
+                ui.onBotThinkingDelta(delta);
+            }
+
             public void onResponse(String markdown) {
+                ui.onBotThinkingDone();
                 if (arbiter.hasResponse(addressed.getMessageId())) {
                     return; // a merge delivered another host's answer first
                 }
@@ -359,12 +373,14 @@ public final class PartySession implements GroupChatSubmissionTarget {
             public void onNoAnswer() {
                 // The model deliberately stayed silent (always policy); nothing to broadcast and
                 // no failover retry needed.
+                ui.onBotThinkingDone();
                 synchronized (PartySession.this) {
                     pendingBotWork.remove(addressed.getMessageId());
                 }
             }
 
             public void onFailure(Exception error) {
+                ui.onBotThinkingDone();
                 ui.onInfoLine("@" + GroupChatBot.DISPLAY_NAME + " could not answer: "
                         + (error.getMessage() == null ? error.toString() : error.getMessage()));
             }

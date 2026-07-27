@@ -41,11 +41,17 @@ public final class OllamaBotResponder implements BotResponder {
             "You see every message in the room, not only mentions. Decide yourself whether a reply "
             + "from you adds value: answer direct questions, correct important factual errors, and "
             + "help when the participants seem stuck or ask for ideas. When the participants are "
-            + "just talking to each other and you have nothing essential to add, reply with exactly "
-            + "[SILENT] and nothing else.";
+            + "just talking to each other and you have nothing essential to add, stay silent.";
 
     /** Exact reply the model uses to stay silent under the always policy. */
     public static final String SILENT_MARKER = "[SILENT]";
+
+    /**
+     * Appended by code in always mode — never part of the editable prompt, so a custom chime-in
+     * prompt cannot accidentally remove the silence contract.
+     */
+    private static final String SILENT_INSTRUCTION =
+            "When you decide not to reply, respond with exactly " + SILENT_MARKER + " and nothing else.";
 
     private static final String TRANSCRIPT_MODE_INSTRUCTION =
             "You will receive one message that explicitly mentions you; answer exactly that message "
@@ -59,10 +65,11 @@ public final class OllamaBotResponder implements BotResponder {
     private final Supplier<String> keepAlive;
     private final Supplier<List<String>> mentionableModels;
     private final PartySettings settings;
+    private final Supplier<ThinkingOption> thinkingOption;
 
     public OllamaBotResponder(OllamaService ollamaService, Supplier<String> modelName,
                               Supplier<String> keepAlive) {
-        this(ollamaService, modelName, keepAlive, null, null);
+        this(ollamaService, modelName, keepAlive, null, null, null);
     }
 
     /**
@@ -70,15 +77,18 @@ public final class OllamaBotResponder implements BotResponder {
      *                          directly, or {@code null} when model mentions are disabled
      * @param settings          Partying settings supplying the bot prompts, context mode and
      *                          policy; {@code null} uses the built-in defaults
+     * @param thinkingOption    supplies the thinking effort for bot requests (mirrors the
+     *                          composer's Think selector); {@code null} leaves it to the model
      */
     public OllamaBotResponder(OllamaService ollamaService, Supplier<String> modelName,
                               Supplier<String> keepAlive, Supplier<List<String>> mentionableModels,
-                              PartySettings settings) {
+                              PartySettings settings, Supplier<ThinkingOption> thinkingOption) {
         this.ollamaService = ollamaService;
         this.modelName = modelName;
         this.keepAlive = keepAlive;
         this.mentionableModels = mentionableModels;
         this.settings = settings;
+        this.thinkingOption = thinkingOption;
     }
 
     @Override
@@ -108,7 +118,9 @@ public final class OllamaBotResponder implements BotResponder {
             return;
         }
         List<OllamaChatTurn> conversation = buildConversation(context, addressed, profiles);
-        execute(model, conversation, ThinkingOption.defaultOption(), true, callback);
+        ThinkingOption thinking = thinkingOption != null ? thinkingOption.get() : null;
+        execute(model, conversation,
+                thinking != null ? thinking : ThinkingOption.defaultOption(), true, callback);
     }
 
     /**
@@ -126,10 +138,11 @@ public final class OllamaBotResponder implements BotResponder {
                 model, keepAlive.get(), conversation, thinking);
         ollamaService.streamChat(request, new OllamaService.ChatListener() {
             public void onThinkingDelta(String delta) {
-                // The bot never publishes thinking, but its presence tells us an empty answer
-                // means "everything went into the thinking channel" rather than a dead model.
-                if (delta != null) {
+                // Streamed to the host UI for the thought bubble; the accumulated text also tells
+                // us an empty answer means "everything went into the thinking channel".
+                if (delta != null && !delta.isEmpty()) {
                     thinkingText.append(delta);
+                    callback.onThinkingDelta(delta);
                 }
             }
 
@@ -188,7 +201,7 @@ public final class OllamaBotResponder implements BotResponder {
                 && PartySettings.BOT_POLICY_ALWAYS.equals(settings.botPolicy());
         String base = configuredSystemPrompt();
         if (always) {
-            base += "\n\n" + configuredAlwaysPrompt();
+            base += "\n\n" + configuredAlwaysPrompt() + "\n" + SILENT_INSTRUCTION;
         }
         int from = Math.max(0, context.size() - CONTEXT_MESSAGES);
         List<OllamaChatTurn> conversation = new ArrayList<OllamaChatTurn>();

@@ -707,6 +707,18 @@ public final class OllamaChatPanel extends JPanel {
             partySettings.setBotSystemPrompt(botPromptArea.getText());
             partySettings.setBotAlwaysPrompt(alwaysPromptArea.getText());
             refreshMentionCompletionHandles();
+            // A policy change flips this peer's bot capability; announce it to the room.
+            final PartySession session = partySession;
+            if (session != null) {
+                dictationExecutor.execute(new Runnable() {
+                    public void run() {
+                        try {
+                            session.updateBotReadiness();
+                        } catch (Exception ignored) {
+                        }
+                    }
+                });
+            }
             partySettings.setRoomId(roomField.getText());
             partySettings.setRoomSecret(secretField.getText());
             partySettings.setHistoryDirectory(historyField.getText());
@@ -1114,7 +1126,15 @@ public final class OllamaChatPanel extends JPanel {
                                 : Collections.<String>emptyList();
                     }
                 },
-                partySettings);
+                partySettings,
+                new Supplier<ThinkingOption>() {
+                    public ThinkingOption get() {
+                        // Mirror the composer's Think selector, exactly like a Yapping turn.
+                        return modelSupportsThinking && !"off".equals(reasoningEffort)
+                                ? ThinkingOption.ofLevel(reasoningEffort)
+                                : ThinkingOption.defaultOption();
+                    }
+                });
         return new PartySession(createPartyTransport(), room, self,
                 new Supplier<String>() {
                     public String get() {
@@ -1134,6 +1154,10 @@ public final class OllamaChatPanel extends JPanel {
                 .build();
         return new JGroupsGroupChatTransport(config);
     }
+
+    // The bot host's local thought bubble (same visualization as a Yapping thinking turn).
+    private com.aresstack.askai.java8.ui.bubble.BubbleTranscriptPanel.ThinkingHandle partyThinking;
+    private final StringBuilder partyThinkingText = new StringBuilder();
 
     /** Routes the session's callbacks (transport threads) onto the EDT and into the shared shell. */
     private final class PanelPartyUi implements PartySession.Ui {
@@ -1187,6 +1211,36 @@ public final class OllamaChatPanel extends JPanel {
             onUi(new Runnable() {
                 public void run() {
                     mentionCompletion.setHandles(handles);
+                }
+            });
+        }
+
+        public void onBotThinkingDelta(final String delta) {
+            onUi(new Runnable() {
+                public void run() {
+                    if (!GroupChatMode.PARTYING.equals(chatMode)) {
+                        return;
+                    }
+                    if (partyThinking == null) {
+                        partyThinkingText.setLength(0);
+                        partyThinking = transcript.startAssistantThinking(
+                                com.aresstack.askai.java8.groupchat.GroupChatBot.DISPLAY_NAME);
+                    }
+                    partyThinkingText.append(delta);
+                    transcript.appendAssistantThinkingDelta(partyThinking, delta);
+                }
+            });
+        }
+
+        public void onBotThinkingDone() {
+            onUi(new Runnable() {
+                public void run() {
+                    if (partyThinking != null) {
+                        transcript.completeAssistantThinking(partyThinking,
+                                thinkingSummaryProvider.createSummary(partyThinkingText.toString()));
+                        partyThinking = null;
+                        partyThinkingText.setLength(0);
+                    }
                 }
             });
         }
