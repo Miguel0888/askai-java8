@@ -6,6 +6,7 @@ import com.aresstack.askai.java8.batch.service.BatchSelectionCatalogLoadedEvent;
 import com.aresstack.askai.java8.batch.service.BatchTranscriptionEvent;
 import com.aresstack.askai.java8.batch.service.BatchTranscriptionEventPublisher;
 import com.aresstack.askai.java8.batch.service.BatchTranscriptionRequest;
+import com.aresstack.askai.java8.ui.MarkdownPreviewTabs;
 import com.aresstack.askai.java8.ui.RefreshIcon;
 import com.aresstack.askai.java8.ui.ToggleSelectionList;
 import com.aresstack.audio.profile.AudioProcessingProfile;
@@ -28,7 +29,13 @@ import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.GridLayout;
 import java.awt.Insets;
+import java.awt.Rectangle;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.io.File;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -41,6 +48,7 @@ public final class BatchTranscriptionPanel extends JPanel {
     private final BatchTranscriptionController controller;
     private final BatchSelectionRefresher refresher;
     private final DefaultListModel<File> audioFiles = new DefaultListModel<File>();
+    private final JList<File> fileList = new ToggleSelectionList<File>(audioFiles);
     private final DefaultListModel<String> models = new DefaultListModel<String>();
     private final JList<String> modelList = new ToggleSelectionList<String>(models);
     private final DefaultListModel<AudioProcessingProfile> profiles = new DefaultListModel<AudioProcessingProfile>();
@@ -51,6 +59,7 @@ public final class BatchTranscriptionPanel extends JPanel {
     private final JButton startButton = new JButton("Start batch");
     private final JButton cancelButton = new JButton("Cancel");
     private final JButton refreshButton = new JButton();
+    private MarkdownPreviewTabs bottomTabs;
     private final BatchTranscriptionEventPublisher.Subscription subscription;
 
     // Refresh state — all touched only on the EDT.
@@ -80,8 +89,11 @@ public final class BatchTranscriptionPanel extends JPanel {
 
     private void buildUi() {
         setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
-        JList<File> fileList = new ToggleSelectionList<File>(audioFiles);
         // Selection mode is set by ToggleSelectionList; single clicks toggle rows without Ctrl/Shift.
+        fileList.setToolTipText("Click a file to preview a matching .md; double-click to open it in a pinned tab.");
+        fileList.addMouseListener(new MouseAdapter() {
+            public void mouseClicked(MouseEvent event) { onFileListClick(event); }
+        });
         JPanel selections = new JPanel(new GridLayout(1, 3, 8, 8));
         selections.add(section("Audio files", new JScrollPane(fileList)));
         selections.add(section("Audio AI models", new JScrollPane(modelList)));
@@ -113,7 +125,8 @@ public final class BatchTranscriptionPanel extends JPanel {
         header.add(rightControls, BorderLayout.EAST);
 
         log.setEditable(false);
-        JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT, selections, new JScrollPane(log));
+        bottomTabs = new MarkdownPreviewTabs("Log", new JScrollPane(log), MarkdownPreviewTabs.markdownRenderer());
+        JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT, selections, bottomTabs);
         split.setResizeWeight(0.55d);
         add(header, BorderLayout.NORTH);
         add(split, BorderLayout.CENTER);
@@ -256,6 +269,49 @@ public final class BatchTranscriptionPanel extends JPanel {
                 SupportedAudioFormats.extensionArray()));
         if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
             for (File file : chooser.getSelectedFiles()) audioFiles.addElement(file);
+        }
+    }
+
+    /** Single click on a file previews its matching {@code .md}; a double click pins it in its own tab. */
+    private void onFileListClick(MouseEvent event) {
+        int index = fileList.locationToIndex(event.getPoint());
+        if (index < 0 || index >= audioFiles.size()) {
+            return;
+        }
+        Rectangle bounds = fileList.getCellBounds(index, index);
+        if (bounds == null || !bounds.contains(event.getPoint())) {
+            return; // click landed on empty space
+        }
+        openMarkdownFor(audioFiles.get(index), event.getClickCount() >= 2);
+    }
+
+    private void openMarkdownFor(File audio, boolean pinned) {
+        File markdown = markdownSiblingOf(audio);
+        if (!markdown.isFile()) {
+            status.setText("No " + markdown.getName() + " found next to " + audio.getName() + ".");
+            return;
+        }
+        String content = readMarkdown(markdown);
+        if (pinned) {
+            bottomTabs.pin(markdown.getAbsolutePath(), markdown.getName(), content);
+        } else {
+            bottomTabs.preview(markdown.getName(), content);
+        }
+    }
+
+    /** The sibling Markdown file with the same base name (e.g. {@code sample-001.wav -> sample-001.md}). */
+    static File markdownSiblingOf(File audio) {
+        String name = audio.getName();
+        int dot = name.lastIndexOf('.');
+        String base = dot > 0 ? name.substring(0, dot) : name;
+        return new File(audio.getParentFile(), base + ".md");
+    }
+
+    private static String readMarkdown(File markdown) {
+        try {
+            return new String(Files.readAllBytes(markdown.toPath()), StandardCharsets.UTF_8);
+        } catch (IOException ex) {
+            return "Could not read `" + markdown.getName() + "`: " + ex.getMessage();
         }
     }
 
