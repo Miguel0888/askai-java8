@@ -1,6 +1,9 @@
 package com.aresstack.askai.research.state.oo;
 
 import com.aresstack.askai.research.state.ResearchCommand;
+import com.aresstack.askai.research.state.ResearchCommandType;
+
+import java.util.Set;
 
 /**
  * The native, memento-based research state machine: the single source of functional truth for the session
@@ -12,4 +15,10 @@ import com.aresstack.askai.research.state.ResearchCommand;
 public interface ResearchStateMachinePort {
 
     ResearchStateTransitionResult dispatch(ResearchStateMemento current, ResearchCommand command);
+
+    /**
+     * @return the commands allowed in the given memento's current state. This is a <em>pure</em> query — it never
+     *     runs a probe transition and never consumes an id — so it is the correct source for enablement checks.
+     */
+    Set<ResearchCommandType> allowedCommands(ResearchStateMemento current);
 }

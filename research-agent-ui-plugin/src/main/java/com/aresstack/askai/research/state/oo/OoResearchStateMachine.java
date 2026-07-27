@@ -1,10 +1,12 @@
 package com.aresstack.askai.research.state.oo;
 
 import com.aresstack.askai.research.state.ResearchCommand;
+import com.aresstack.askai.research.state.ResearchCommandType;
 import com.aresstack.askai.research.state.ResearchEvent;
 import com.aresstack.askai.research.state.ResearchEventType;
 
 import java.util.Collections;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -52,6 +54,11 @@ public final class OoResearchStateMachine implements ResearchStateMachinePort {
     /** @return the initial memento of a new session: SCOPING / new at revision 0. */
     public ResearchStateMemento initialMemento() {
         return factory.snapshot(factory.initialPhase(), 0L);
+    }
+
+    @Override
+    public Set<ResearchCommandType> allowedCommands(ResearchStateMemento current) {
+        return factory.restore(current).getCurrentState().getAllowedCommands();
     }
 
     @Override

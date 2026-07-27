@@ -232,6 +232,21 @@ fehlgeschlagener Session-Close bricht Swap ab und lässt alte Generation geladen
 Startfehler → `START_FAILED`), `PluginRuntimeGenerationRetireTest` (Stop-/Unload-Fehler isoliert,
 gemeldet, `complete=false` für Retry). `./gradlew clean build` grün.
 
+### Nachhärtung (Korrekturcommit 22b)
+Ein Nachaudit fand Restrisiken im Swap/Shutdown: (a) fehlgeschlagene `session.close()` verloren die
+Session-Referenz (nur `List<String>`); (b) `runOnEdtAndWait` schluckte EDT-Task-Exceptions und hatte kein
+Timeout; (c) `shutdown()` retirierte auf dem EDT; (d) `retiringGenerations` ohne Dedup. Behoben:
+`AgentSessionCoordinator` hält fehlgeschlagene Sessions in `unclosed` und schließt sie bei nächstem Detach
+und bei Shutdown erneut; `runOnEdtAndWait` liefert `UiCallResult` (propagiert Exceptions, `EDT_WAIT_TIMEOUT`),
+fehlgeschlagener Detach bricht den Swap ab (vorherige Generation bleibt); `shutdown()` ist zweistufig
+(EDT-Detach → off-EDT Close/Stop/Unload, `SHUTDOWN_TIMEOUT`-begrenzt); `retiringGenerations` ist nach
+Generation-ID dedupliziert mit letztem `GenerationRetirementResult` (Plugin-ID + Stop/Unload-Phase im
+Katalog).
+
+### Verifikation (Nachhärtung)
+`AgentSessionCoordinatorSwapTest` (fehlgeschlagener Close bleibt referenziert + Retry bei Detach/Shutdown),
+`WorkspacePluginRetirementTest#detachFailureAbortsSwapAndKeepsPreviousGeneration`. `clean build` grün, 753.
+
 ### Restwirkung
 Bei jeder erfolgreichen Generation werden alle AgentSessions geschlossen und lazy neu erzeugt
 (bewusst einfach + sicher, RA-P010/RA-P002 liefern später den Restore aus dem Project Store).
@@ -303,8 +318,21 @@ Unblock/Retry erhalten; Pause/Resume; Snapshot-Round-Trip; ungültiges Memento a
 Akzeptanz), `MementoBackendEventTest` (State-Events tragen konsistentes Memento; Approval-ID überlebt
 Block/Unblock im Live-Backend). `./gradlew clean build` grün, 747 Tests.
 
+### Nachhärtung (Korrekturcommit 22b)
+Nachaudit-Punkte behoben: die OO-State-Machine erhält jetzt den injizierten `ResearchIdGenerator`/
+`ResearchClock` des Backends (deterministische Approval-IDs/Mementos); `canExecute()` ist rein
+(`ResearchStateMachinePort.allowedCommands(memento)`, keine Probe-Transition, kein ID-Verbrauch);
+Approval-/Reject-IDs werden erst nach akzeptierter Transition als `processed` markiert und die
+„Changes requested“-Meldung erst danach ausgegeben (ein No-op-Reject blockiert das Gate nicht mehr).
+
+### Verifikation (Nachhärtung)
+`BackendHardeningTest` (identische Läufe deterministisch; `canExecute` verbraucht keine IDs; No-op-Reject
+lässt das Gate aktionierbar). `clean build` grün, 753 Tests.
+
 ### Restwirkung
-Keine. Persistenz/Restore des Mementos folgt in Commit 27 (RA-P002).
+`problemCode`/`publicProblemMessage` werden derzeit noch über Backend-Events (BLOCKED/ERROR) transportiert,
+nicht im Memento. Die vollständig atomare Persistenz von State + Problem folgt in Commit 27 (RA-P002).
+Persistenz/Restore des Mementos folgt ebenfalls in Commit 27.
 
 ## RA-P006 — Store compare-and-write is not atomic under concurrency
 

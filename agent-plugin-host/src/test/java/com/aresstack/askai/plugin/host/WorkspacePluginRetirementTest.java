@@ -126,6 +126,38 @@ public class WorkspacePluginRetirementTest {
         service.shutdown();
     }
 
+    // ------------------------------------------------------------------ detach failure aborts the swap
+
+    @Test
+    public void detachFailureAbortsSwapAndKeepsPreviousGeneration() throws Exception {
+        WorkspacePluginService service =
+                new WorkspacePluginService(pluginsDirWithJar(), "0.1.0", 1, new InlineUi(), enablement());
+        final AtomicInteger detaches = new AtomicInteger();
+        service.setGenerationSwapHook(new GenerationSwapHook() {
+            public OutgoingSessions detachOutgoing() {
+                if (detaches.incrementAndGet() >= 2) {
+                    throw new RuntimeException("EDT detach blew up");
+                }
+                return new OutgoingSessions() {
+                    public SessionCloseResult closeAll() {
+                        return SessionCloseResult.ok();
+                    }
+                };
+            }
+        });
+        Catcher catcher = attach(service);
+        catcher.refreshAndAwait(service);
+        long gen1 = service.getActiveGenerationId();
+        String agentId = firstAgentId(service);
+
+        catcher.refreshAndAwait(service); // detach throws → swap must abort
+        assertTrue("aborted swap must be flagged failed", catcher.snapshot().isGenerationFailed());
+        assertEquals("previous generation kept when detach fails", gen1, service.getActiveGenerationId());
+        assertNotNull(service.getSelectableAgentExtension(agentId));
+        assertEquals(0, service.getPendingRetirementCount());
+        service.shutdown();
+    }
+
     // ------------------------------------------------------------------ #7 close runs off the EDT
 
     @Test

@@ -44,7 +44,8 @@ public final class FakeResearchSessionBackend implements ResearchSessionBackend 
     @Override
     public ResearchSessionHandle createSession(ResearchProjectRequest request,
                                                ResearchSessionListener listener) {
-        FakeSession session = new FakeSession(request.getSessionId(), request.getProjectId(), listener);
+        FakeSession session = new FakeSession(request.getSessionId(), request.getProjectId(), listener,
+                idGenerator, clock);
         sessions.put(session.sessionId, session);
         synchronized (session) {
             dispatch(session, ResearchCommandType.START, null);
@@ -60,7 +61,8 @@ public final class FakeResearchSessionBackend implements ResearchSessionBackend 
             return false;
         }
         synchronized (session) {
-            return session.machine.dispatch(session.state, command(command)).isAccepted();
+            // Pure enablement check: no probe transition, so no id is consumed by merely asking.
+            return session.machine.allowedCommands(session.state).contains(command);
         }
     }
 
@@ -123,8 +125,9 @@ public final class FakeResearchSessionBackend implements ResearchSessionBackend 
                 return;
             }
             ResearchCommandType approveCommand = approveCommandFor(phaseOf(session));
-            session.processedApprovals.add(approvalId);
+            // Mark processed ONLY after the transition is accepted, so a rejected dispatch does not wedge the gate.
             if (approveCommand != null && dispatch(session, approveCommand, null)) {
+                session.processedApprovals.add(approvalId);
                 scheduleAdvance(session);
             }
         }
@@ -147,10 +150,11 @@ public final class FakeResearchSessionBackend implements ResearchSessionBackend 
                 return;
             }
             ResearchCommandType changesCommand = requestChangesCommandFor(phaseOf(session));
-            session.processedApprovals.add(approvalId);
-            emit(session, ResearchBackendEvent.builder(ResearchBackendEventType.ASSISTANT_MESSAGE)
-                    .text("Changes requested: " + (reason == null ? "" : reason)), null);
+            // Only after an accepted transition do we mark the approval processed and announce the change.
             if (changesCommand != null && dispatch(session, changesCommand, null)) {
+                session.processedApprovals.add(approvalId);
+                emit(session, ResearchBackendEvent.builder(ResearchBackendEventType.ASSISTANT_MESSAGE)
+                        .text("Changes requested: " + (reason == null ? "" : reason)), null);
                 scheduleAdvance(session);
             }
         }
@@ -476,11 +480,24 @@ public final class FakeResearchSessionBackend implements ResearchSessionBackend 
         private final Set<String> processedApprovals = new HashSet<String>();
         private ResearchScheduler.Cancellable pending;
 
-        private FakeSession(String sessionId, String projectId, ResearchSessionListener listener) {
+        private FakeSession(String sessionId, String projectId, ResearchSessionListener listener,
+                            final ResearchIdGenerator ids, final ResearchClock clock) {
             this.sessionId = sessionId;
             this.projectId = projectId;
             this.listener = listener;
-            OoResearchStateMachine machine = new OoResearchStateMachine(sessionId);
+            // Deterministic: the state machine shares the backend's injected id/clock sources, so an identical
+            // command sequence with identical generators yields identical approval ids and mementos.
+            OoResearchStateMachine machine = new OoResearchStateMachine(sessionId,
+                    new OoResearchStateMachine.IdGenerator() {
+                        public String newId() {
+                            return ids.newId();
+                        }
+                    },
+                    new OoResearchStateMachine.TimeSource() {
+                        public long now() {
+                            return clock.now();
+                        }
+                    });
             this.machine = machine;
             this.state = machine.initialMemento();
         }

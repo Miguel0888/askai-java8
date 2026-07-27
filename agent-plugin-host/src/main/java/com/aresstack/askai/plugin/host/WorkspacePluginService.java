@@ -14,13 +14,17 @@ import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Discovers workspace/agent plugins from a single controlled root, off the EDT, and publishes a validated
@@ -58,9 +62,20 @@ public final class WorkspacePluginService {
             new PluginCatalogSnapshot(0L, Collections.<PluginCatalogEntry>emptyList(),
                     Collections.<PluginLoadFailure>emptyList(), 0L, false);
 
-    /** Generations that could not be fully retired; retried on the next refresh and at shutdown. */
-    private final List<PluginRuntimeGeneration> retiringGenerations =
-            Collections.synchronizedList(new ArrayList<PluginRuntimeGeneration>());
+    /**
+     * Generations that could not be fully retired, deduplicated by generation id (so repeated sweeps never
+     * enqueue the same generation twice), with the latest {@link GenerationRetirementResult} kept so Plugin
+     * Management can report the exact plugin id and stop/unload phase. Retried on the next refresh and at shutdown.
+     */
+    private final Object retireLock = new Object();
+    private final LinkedHashMap<Long, PluginRuntimeGeneration> retiringGenerations =
+            new LinkedHashMap<Long, PluginRuntimeGeneration>();
+    private final Map<Long, GenerationRetirementResult> lastRetireResult =
+            new HashMap<Long, GenerationRetirementResult>();
+
+    /** Bounded waits so a broken/hung EDT can never wedge a refresh or shutdown forever. */
+    private static final long EDT_WAIT_TIMEOUT_MS = 30_000L;
+    private static final long SHUTDOWN_TIMEOUT_MS = 15_000L;
 
     /**
      * Coordinates the session side of a generation swap across the EDT boundary (detach on EDT, close off-EDT).
@@ -160,14 +175,24 @@ public final class WorkspacePluginService {
         }
         final PluginRuntimeGeneration cand = candidate.generation;
 
-        // EDT: detach the outgoing generation's sessions from routing (cheap, non-blocking).
+        // EDT: detach the outgoing generation's sessions from routing (cheap, non-blocking). A failed or
+        // timed-out detach aborts the swap — the candidate is retired and the previous generation is kept.
         final GenerationSwapHook hook = generationSwapHook;
         final GenerationSwapHook.OutgoingSessions[] outgoing = new GenerationSwapHook.OutgoingSessions[1];
-        runOnEdtAndWait(new Runnable() {
+        UiCallResult detachResult = runOnEdtAndWait(new Runnable() {
             public void run() {
                 outgoing[0] = hook == null ? null : hook.detachOutgoing();
             }
         });
+        if (!detachResult.ok) {
+            trackIfIncomplete(cand, cand.retire());
+            List<PluginLoadFailure> failures = new ArrayList<PluginLoadFailure>();
+            failures.add(lifecycleFailure(PluginFailurePhase.SESSION_CLOSE,
+                    "Detaching the previous generation's sessions failed; refresh aborted. "
+                            + detachResult.describe()));
+            publishOnEdt(generation, keptSnapshot(generation, failures, true));
+            return;
+        }
 
         // Off-EDT: close the detached sessions. The old classloader is retired only if this succeeds.
         SessionCloseResult close = outgoing[0] == null ? SessionCloseResult.ok() : outgoing[0].closeAll();
@@ -188,16 +213,22 @@ public final class WorkspacePluginService {
             return;
         }
 
-        // EDT: atomically publish the new generation.
+        // EDT: atomically publish the new generation. The activeGeneration write cannot throw; delivery to
+        // listeners is guarded so a misbehaving listener cannot abort a completed swap. Only an EDT timeout
+        // yields ok == false, which is surfaced as a lifecycle failure (the generation is already active).
         final PluginRuntimeGeneration[] previous = new PluginRuntimeGeneration[1];
-        runOnEdtAndWait(new Runnable() {
+        UiCallResult publishResult = runOnEdtAndWait(new Runnable() {
             public void run() {
                 previous[0] = activeGeneration;
                 activeGeneration = cand;
                 PluginCatalogSnapshot snapshot = new PluginCatalogSnapshot(generation, cand.entries(),
                         combinedGlobalFailures(cand.globalFailures()), System.currentTimeMillis(), false);
                 latestSnapshot = snapshot;
-                deliver(snapshot);
+                try {
+                    deliver(snapshot);
+                } catch (RuntimeException | Error ignored) {
+                    // a listener failure must not abort an already-completed swap
+                }
             }
         });
 
@@ -206,16 +237,49 @@ public final class WorkspacePluginService {
         if (previous[0] != null) {
             trackIfIncomplete(previous[0], previous[0].retire());
         }
-        if (!retiringGenerations.isEmpty()) {
+        if (!publishResult.ok || getPendingRetirementCount() > 0) {
             publishLifecycleUpdate(generation, cand);
         }
     }
 
-    /** Runs {@code task} on the EDT and waits for it, without blocking the EDT itself. */
-    private void runOnEdtAndWait(final Runnable task) {
+    /** The outcome of a bounded EDT round-trip: completed cleanly, or failed (task threw) / timed out. */
+    private static final class UiCallResult {
+        private final boolean ok;
+        private final Throwable failure;
+        private final boolean timedOut;
+
+        private UiCallResult(boolean ok, Throwable failure, boolean timedOut) {
+            this.ok = ok;
+            this.failure = failure;
+            this.timedOut = timedOut;
+        }
+
+        String describe() {
+            if (timedOut) {
+                return "the UI thread did not respond in time";
+            }
+            if (failure != null) {
+                return failure.getClass().getSimpleName()
+                        + (failure.getMessage() == null ? "" : ": " + failure.getMessage());
+            }
+            return "";
+        }
+    }
+
+    /**
+     * Run {@code task} on the EDT and wait for it (bounded), without blocking the EDT itself. An exception thrown
+     * by the task on the EDT is propagated back to this lifecycle thread as a non-ok result, and an unresponsive
+     * EDT is bounded by {@link #EDT_WAIT_TIMEOUT_MS} so a swap/shutdown can never hang forever.
+     */
+    private UiCallResult runOnEdtAndWait(final Runnable task) {
+        final Throwable[] thrown = new Throwable[1];
         if (uiExecutor.isUiThread()) {
-            task.run();
-            return;
+            try {
+                task.run();
+            } catch (RuntimeException | Error ex) {
+                thrown[0] = ex;
+            }
+            return new UiCallResult(thrown[0] == null, thrown[0], false);
         }
         final CountDownLatch done = new CountDownLatch(1);
         try {
@@ -223,19 +287,25 @@ public final class WorkspacePluginService {
                 public void run() {
                     try {
                         task.run();
+                    } catch (RuntimeException | Error ex) {
+                        thrown[0] = ex;
                     } finally {
                         done.countDown();
                     }
                 }
             });
         } catch (RuntimeException ex) {
-            done.countDown();
+            return new UiCallResult(false, ex, false);
         }
         try {
-            done.await();
+            if (!done.await(EDT_WAIT_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
+                return new UiCallResult(false, null, true);
+            }
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
+            return new UiCallResult(false, ex, false);
         }
+        return new UiCallResult(thrown[0] == null, thrown[0], false);
     }
 
     private void publishOnEdt(final long generation, final PluginCatalogSnapshot snapshot) {
@@ -280,13 +350,26 @@ public final class WorkspacePluginService {
         if (refreshFailures != null) {
             all.addAll(refreshFailures);
         }
-        int pending;
-        synchronized (retiringGenerations) {
-            pending = retiringGenerations.size();
-        }
-        if (pending > 0) {
-            all.add(lifecycleFailure(PluginFailurePhase.GENERATION_RETIREMENT,
-                    pending + " previous plugin generation(s) could not be fully retired; will retry."));
+        synchronized (retireLock) {
+            for (Map.Entry<Long, PluginRuntimeGeneration> entry : retiringGenerations.entrySet()) {
+                long id = entry.getKey();
+                GenerationRetirementResult result = lastRetireResult.get(id);
+                if (result == null) {
+                    all.add(lifecycleFailure(PluginFailurePhase.GENERATION_RETIREMENT,
+                            "Plugin generation " + id + " could not be fully retired; will retry."));
+                    continue;
+                }
+                for (Map.Entry<String, String> f : result.getStopFailures().entrySet()) {
+                    all.add(lifecycleFailure(PluginFailurePhase.GENERATION_RETIREMENT,
+                            "Generation " + id + ": could not stop plugin " + f.getKey()
+                                    + " (" + f.getValue() + "); will retry."));
+                }
+                for (Map.Entry<String, String> f : result.getUnloadFailures().entrySet()) {
+                    all.add(lifecycleFailure(PluginFailurePhase.GENERATION_RETIREMENT,
+                            "Generation " + id + ": could not unload plugin " + f.getKey()
+                                    + " (" + f.getValue() + "); will retry."));
+                }
+            }
         }
         return all;
     }
@@ -303,20 +386,40 @@ public final class WorkspacePluginService {
         }
     }
 
+    /** Track (or clear) a generation by its stable id, deduplicated, keeping the latest retirement result. */
     private void trackIfIncomplete(PluginRuntimeGeneration generation, GenerationRetirementResult result) {
-        if (generation != null && (result == null || !result.isComplete())) {
-            retiringGenerations.add(generation);
+        if (generation == null) {
+            return;
+        }
+        synchronized (retireLock) {
+            long id = generation.generationId();
+            if (result == null || !result.isComplete()) {
+                retiringGenerations.put(id, generation);
+                if (result != null) {
+                    lastRetireResult.put(id, result);
+                }
+            } else {
+                retiringGenerations.remove(id);
+                lastRetireResult.remove(id);
+            }
         }
     }
 
     private void sweepRetiringGenerations() {
         List<PluginRuntimeGeneration> copy;
-        synchronized (retiringGenerations) {
-            copy = new ArrayList<PluginRuntimeGeneration>(retiringGenerations);
+        synchronized (retireLock) {
+            copy = new ArrayList<PluginRuntimeGeneration>(retiringGenerations.values());
         }
         for (PluginRuntimeGeneration generation : copy) {
-            if (generation.retire().isComplete()) {
-                retiringGenerations.remove(generation);
+            GenerationRetirementResult result = generation.retire();
+            synchronized (retireLock) {
+                long id = generation.generationId();
+                if (result.isComplete()) {
+                    retiringGenerations.remove(id);
+                    lastRetireResult.remove(id);
+                } else {
+                    lastRetireResult.put(id, result);
+                }
             }
         }
     }
@@ -377,13 +480,17 @@ public final class WorkspacePluginService {
 
     /** @return the number of generations still awaiting a complete retirement (0 when everything is clean). */
     public int getPendingRetirementCount() {
-        return retiringGenerations.size();
+        synchronized (retireLock) {
+            return retiringGenerations.size();
+        }
     }
 
     /**
-     * Serialized, idempotent shutdown: mark shutting-down → stop the discovery executor → release listeners →
-     * retire the active generation and sweep any still-pending retirements. Retiring one-by-one avoids PF4J's
-     * {@code stopPlugins()} CME; a plugin that still cannot be retired stays tracked rather than being forgotten.
+     * Serialized, idempotent shutdown. Two-stage so the EDT is not blocked by close/stop/unload: the caller
+     * thread (which may be the EDT at window close) only detaches routing and sessions — cheap, non-blocking —
+     * while the actual session close and plugin stop/unload run off the EDT, bounded by
+     * {@link #SHUTDOWN_TIMEOUT_MS} so a hung plugin cannot wedge application exit. Retiring one-by-one avoids
+     * PF4J's {@code stopPlugins()} CME; a plugin that still cannot be retired stays tracked rather than forgotten.
      */
     public void shutdown() {
         if (!shuttingDown.compareAndSet(false, true)) {
@@ -391,12 +498,47 @@ public final class WorkspacePluginService {
         }
         discoveryExecutor.shutdownNow();
         listeners.clear();
-        PluginRuntimeGeneration generation = activeGeneration;
-        activeGeneration = null;
-        if (generation != null) {
-            trackIfIncomplete(generation, generation.retire());
+        // Stage 1 (caller thread, EDT-safe): detach the outgoing sessions from routing.
+        GenerationSwapHook hook = generationSwapHook;
+        GenerationSwapHook.OutgoingSessions detached = null;
+        if (hook != null) {
+            try {
+                detached = hook.detachOutgoing();
+            } catch (RuntimeException | Error ignored) {
+                // a failing detach must not stop plugin retirement at shutdown
+            }
         }
-        sweepRetiringGenerations();
+        final GenerationSwapHook.OutgoingSessions outgoing = detached;
+        final PluginRuntimeGeneration generation = activeGeneration;
+        activeGeneration = null;
+        // Stage 2 (off the EDT, bounded): close the detached sessions, then stop/unload the plugins.
+        runOffEdtBounded(new Runnable() {
+            public void run() {
+                if (outgoing != null) {
+                    outgoing.closeAll();
+                }
+                if (generation != null) {
+                    trackIfIncomplete(generation, generation.retire());
+                }
+                sweepRetiringGenerations();
+            }
+        }, SHUTDOWN_TIMEOUT_MS);
+    }
+
+    /** Run bounded off-EDT work: inline if already off the EDT, else on a daemon thread joined with a timeout. */
+    private void runOffEdtBounded(Runnable work, long timeoutMs) {
+        if (!uiExecutor.isUiThread()) {
+            work.run(); // already off the EDT (tests, background callers)
+            return;
+        }
+        Thread worker = new Thread(work, "askai-plugin-shutdown");
+        worker.setDaemon(true);
+        worker.start();
+        try {
+            worker.join(timeoutMs); // do not block window close forever on a hung plugin
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     // ------------------------------------------------------------------ discovery (off-EDT)

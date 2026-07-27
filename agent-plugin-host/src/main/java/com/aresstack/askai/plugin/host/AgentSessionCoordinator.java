@@ -63,6 +63,10 @@ public final class AgentSessionCoordinator
     private AgentSession activeSession;
     private AgentPluginExtension activeExtension;
     private ArtifactOpener artifactOpener;
+    /** Sessions whose close() threw during a generation swap; retried on the next detach and at shutdown so a
+     *  live object is never dropped while its plugin classloader is still (correctly) kept loaded. */
+    private final List<AgentSession> unclosed =
+            java.util.Collections.synchronizedList(new ArrayList<AgentSession>());
 
     public AgentSessionCoordinator(AgentExtensionResolver resolver,
                                    AgentHostContextProvider hostContextProvider, UiExecutor uiExecutor) {
@@ -158,14 +162,18 @@ public final class AgentSessionCoordinator
         }
     }
 
-    /** Close all sessions (process shutdown, on the EDT). */
+    /** Close all sessions (process shutdown), including any that failed to close on a previous swap. */
     public void shutdown() {
         List<AgentSession> toClose = detachAllInternal();
+        synchronized (unclosed) {
+            toClose.addAll(unclosed);
+            unclosed.clear();
+        }
         for (AgentSession session : toClose) {
             try {
                 session.close();
             } catch (RuntimeException | Error ignored) {
-                // process exit: best-effort
+                // process exit: best-effort (nothing left to retry against)
             }
         }
     }
@@ -173,18 +181,24 @@ public final class AgentSessionCoordinator
     // ------------------------------------------------------------------ GenerationSwapHook
 
     /**
-     * EDT: atomically detach every session of the outgoing plugin generation from routing and return a handle
-     * that closes them <em>off</em> the EDT. No classloader-crossing session survives a generation swap; the
-     * old generation is retired by the caller only if {@link OutgoingSessions#closeAll()} succeeds, so a session
-     * that fails to close leaves the old classloader loaded rather than dangling. Sessions are recreated lazily
-     * against the new generation.
+     * EDT: atomically detach every session of the outgoing plugin generation (plus any that failed to close on a
+     * previous swap) from routing, and return a handle that closes them <em>off</em> the EDT. The old generation
+     * is retired by the caller only if {@link OutgoingSessions#closeAll()} succeeds; a session whose close throws
+     * is <em>kept</em> in {@code unclosed} (not dropped as a mere string) and retried on the next detach, so a
+     * live object is never orphaned while its plugin classloader is (correctly) still loaded. Sessions are
+     * recreated lazily against the new generation.
      */
     @Override
     public OutgoingSessions detachOutgoing() {
         final List<AgentSession> detached = detachAllInternal();
+        synchronized (unclosed) {
+            detached.addAll(unclosed); // retry sessions that failed to close on a previous swap
+            unclosed.clear();
+        }
         return new OutgoingSessions() {
             public SessionCloseResult closeAll() {
                 List<String> failures = new ArrayList<String>();
+                List<AgentSession> stillOpen = new ArrayList<AgentSession>();
                 for (AgentSession session : detached) {
                     try {
                         session.close();
@@ -194,11 +208,20 @@ public final class AgentSessionCoordinator
                             message += ": " + ex.getMessage();
                         }
                         failures.add(message);
+                        stillOpen.add(session); // keep the reference for a later retry
                     }
+                }
+                if (!stillOpen.isEmpty()) {
+                    unclosed.addAll(stillOpen);
                 }
                 return SessionCloseResult.of(failures);
             }
         };
+    }
+
+    /** @return the number of sessions that failed to close and are pending a retry (0 when clean). */
+    public int getUnclosedSessionCount() {
+        return unclosed.size();
     }
 
     /** EDT: clear routing + the session map, returning the detached sessions to be closed elsewhere. */
