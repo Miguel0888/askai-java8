@@ -207,7 +207,6 @@ public final class ChatComposerPanel extends JPanel {
         JPanel actionsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 0));
         actionsPanel.setOpaque(false);
         actionsPanel.add(settingsButton);
-        actionsPanel.add(audioFileButton);
         actionsPanel.add(discardButton);
         actionsPanel.add(retryButton);
         actionsPanel.add(saveButton);
@@ -227,6 +226,8 @@ public final class ChatComposerPanel extends JPanel {
         actionsPanel.setLayout(new BoxLayout(actionsPanel, BoxLayout.X_AXIS));
         actionsPanel.add(Box.createHorizontalGlue());
         actionsPanel.add(levelBar);
+        actionsPanel.add(Box.createHorizontalStrut(4));
+        actionsPanel.add(audioFileButton);   // transcribe-file, just left of the mic
         actionsPanel.add(Box.createHorizontalStrut(4));
         actionsPanel.add(recordButton);   // mic sits just left of Send, ChatGPT-style
         actionsPanel.add(Box.createHorizontalStrut(4));

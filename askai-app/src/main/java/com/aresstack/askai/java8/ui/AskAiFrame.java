@@ -138,7 +138,6 @@ public final class AskAiFrame extends JFrame {
         menuBar.add(createTopLevelMenu("Chat", CHAT_VIEW));
         menuBar.add(createTopLevelMenu("Batch", BATCH_VIEW));
         menuBar.add(createModelsMenu());
-        menuBar.add(createTopLevelMenu("Actions", ACTIONS_VIEW));
         menuBar.add(createConfigurationMenu());
         menuBar.add(createHelpMenu());
         menuBar.add(Box.createHorizontalGlue());
@@ -227,6 +226,8 @@ public final class AskAiFrame extends JFrame {
 
     private JMenu createHelpMenu() {
         JMenu helpMenu = new JMenu("Help");
+        helpMenu.add(createScreenItem("Actions", ACTIONS_VIEW));
+        helpMenu.addSeparator();
         helpMenu.add(createScreenItem("About", ABOUT_VIEW));
         return helpMenu;
     }
