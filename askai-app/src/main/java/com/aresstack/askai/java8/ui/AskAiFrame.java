@@ -14,16 +14,21 @@ import com.aresstack.askai.java8.stt.DefaultSpeechToTextService;
 import com.aresstack.askai.java8.stt.SpeechToTextService;
 import com.aresstack.askai.java8.batch.service.BatchAudioPreparationService;
 import com.aresstack.askai.java8.batch.service.BatchMarkdownResultWriter;
+import com.aresstack.askai.java8.batch.service.BatchProfileCatalogLoadedEvent;
+import com.aresstack.askai.java8.batch.service.BatchProfileCatalogService;
 import com.aresstack.askai.java8.batch.service.BatchSelectionCatalogLoadedEvent;
 import com.aresstack.askai.java8.batch.service.BatchSelectionCatalogService;
 import com.aresstack.askai.java8.batch.service.BatchTranscriptionEventPublisher;
 import com.aresstack.askai.java8.batch.service.BatchTranscriptionService;
+import com.aresstack.askai.java8.batch.ui.BatchSelectionRefresher;
 import com.aresstack.askai.java8.batch.ui.BatchTranscriptionController;
 import com.aresstack.askai.java8.batch.ui.BatchTranscriptionPanel;
+import com.aresstack.audio.profile.AudioProcessingProfile;
 import com.aresstack.audio.application.DefaultAudioProcessingPreviewService;
 import com.aresstack.audio.application.DefaultProcessedWaveExportService;
 
 import java.util.Collections;
+import java.util.List;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
@@ -304,22 +309,45 @@ public final class AskAiFrame extends JFrame {
                 batchEvents);
         BatchTranscriptionController batchController =
                 new BatchTranscriptionController(batchService, batchEvents);
+
+        // The two selection catalogs the Batch view reloads on Refresh. Same audio-capability rule as the
+        // Chat model list (via BatchSelectionCatalogService); profiles come from the shared repository.
+        final BatchSelectionCatalogService modelCatalog =
+                new BatchSelectionCatalogService(new Supplier<String>() {
+                    public String get() {
+                        return model.getOllamaBaseUrl();
+                    }
+                });
+        final BatchProfileCatalogService profileCatalog =
+                new BatchProfileCatalogService(new Supplier<List<AudioProcessingProfile>>() {
+                    public List<AudioProcessingProfile> get() {
+                        return audioProfileRepository.findAll();
+                    }
+                });
+        BatchSelectionRefresher refresher = new BatchSelectionRefresher() {
+            public void loadModels(Consumer<BatchSelectionCatalogLoadedEvent> callback) {
+                modelCatalog.loadAsync(callback);
+            }
+            public void loadProfiles(Consumer<BatchProfileCatalogLoadedEvent> callback) {
+                profileCatalog.loadAsync(callback);
+            }
+        };
+
         this.batchPanel = new BatchTranscriptionPanel(
                 batchController,
                 Collections.<String>emptyList(),
-                audioProfileRepository.findAll());
+                audioProfileRepository.findAll(),
+                refresher);
         contentPanel.add(batchPanel, BATCH_VIEW);
 
-        BatchSelectionCatalogService catalog = new BatchSelectionCatalogService(new Supplier<String>() {
-            public String get() {
-                return model.getOllamaBaseUrl();
-            }
-        });
-        catalog.loadAsync(new Consumer<BatchSelectionCatalogLoadedEvent>() {
+        // Initial async model load (profiles are already shown from the constructor list above).
+        modelCatalog.loadAsync(new Consumer<BatchSelectionCatalogLoadedEvent>() {
             public void accept(final BatchSelectionCatalogLoadedEvent event) {
                 onUi(new Runnable() {
                     public void run() {
-                        batchPanel.setAvailableModels(event.getAudioModelNames());
+                        if (event.isSuccessful()) {
+                            batchPanel.setAvailableModels(event.getAudioModelNames());
+                        }
                     }
                 });
             }
