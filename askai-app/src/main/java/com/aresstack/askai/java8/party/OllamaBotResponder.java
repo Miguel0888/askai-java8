@@ -108,14 +108,29 @@ public final class OllamaBotResponder implements BotResponder {
             return;
         }
         List<OllamaChatTurn> conversation = buildConversation(context, addressed, profiles);
+        execute(model, conversation, ThinkingOption.defaultOption(), true, callback);
+    }
 
+    /**
+     * Runs one chat request.  Thinking models sometimes spend the whole response in the thinking
+     * channel and stream no content ("Think: default" leaves the choice to the model); in that
+     * case a single retry with thinking explicitly disabled recovers the answer.
+     */
+    private void execute(final String model, final List<OllamaChatTurn> conversation,
+                         ThinkingOption thinking, final boolean retryWithoutThinking,
+                         final Callback callback) {
         final StringBuilder answer = new StringBuilder();
+        final StringBuilder thinkingText = new StringBuilder();
         final AtomicBoolean done = new AtomicBoolean(false);
         OllamaService.ChatRequest request = new OllamaService.ChatRequest(
-                model, keepAlive.get(), conversation, ThinkingOption.defaultOption());
+                model, keepAlive.get(), conversation, thinking);
         ollamaService.streamChat(request, new OllamaService.ChatListener() {
             public void onThinkingDelta(String delta) {
-                // The party bot publishes only the final answer, never its thinking.
+                // The bot never publishes thinking, but its presence tells us an empty answer
+                // means "everything went into the thinking channel" rather than a dead model.
+                if (delta != null) {
+                    thinkingText.append(delta);
+                }
             }
 
             public void onContent(String content) {
@@ -137,10 +152,13 @@ public final class OllamaBotResponder implements BotResponder {
                 }
                 if (isSilent(text)) {
                     callback.onNoAnswer();
-                } else if (text.isEmpty()) {
-                    callback.onFailure(new IllegalStateException("The model returned no answer."));
-                } else {
+                } else if (!text.isEmpty()) {
                     callback.onResponse(text);
+                } else if (retryWithoutThinking && thinkingText.length() > 0) {
+                    execute(model, conversation,
+                            ThinkingOption.of(ThinkingOption.Mode.DISABLED), false, callback);
+                } else {
+                    callback.onFailure(new IllegalStateException("The model returned no answer."));
                 }
             }
 
