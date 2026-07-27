@@ -1,5 +1,6 @@
 rootProject.name = 'askai-java8'
 include 'ollama4j-java8'
+include 'group-chat-api'
 include 'askai-app'
 include 'audio-dsp'
 include 'audio-openal'

@@ -3,6 +3,14 @@ package com.aresstack.askai.java8.ui;
 import com.aresstack.askai.java8.AskAiModel;
 import com.aresstack.askai.java8.audio.AudioProfileRepository;
 import com.aresstack.askai.java8.audio.FileAudioProfileRepository;
+import com.aresstack.askai.java8.groupchat.GroupChatListener;
+import com.aresstack.askai.java8.groupchat.GroupChatMessage;
+import com.aresstack.askai.java8.groupchat.GroupChatRoom;
+import com.aresstack.askai.java8.groupchat.GroupChatSubmissionTarget;
+import com.aresstack.askai.java8.groupchat.GroupChatTransport;
+import com.aresstack.askai.java8.groupchat.InMemoryGroupChatTransport;
+import com.aresstack.askai.java8.groupchat.MentionParser;
+import com.aresstack.askai.java8.groupchat.Participant;
 import com.aresstack.askai.java8.state.ApplicationStateService;
 import com.aresstack.askai.java8.client.OllamaChatTurn;
 import com.aresstack.askai.java8.service.OllamaService;
@@ -66,6 +74,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
@@ -112,6 +121,11 @@ public final class OllamaChatPanel extends JPanel {
     // name of the selected agent when in "Questing" mode. selectedAgent is null while yapping.
     private String chatMode = "Yapping";
     private String selectedAgent;
+    // Partying (LAN group-chat) state: the active transport and a derived GroupChatSubmissionTarget.
+    private GroupChatTransport partyTransport;
+    private GroupChatSubmissionTarget partySubmissionTarget;
+    // Sender-side sequence counter for messages sent in Partying mode.
+    private long partySequence = 0;
     // Thinking effort ("off"/"low"/"medium"/"high"), only sent when the selected model supports thinking.
     private String reasoningEffort = "off";
     private boolean modelSupportsThinking;
@@ -280,7 +294,11 @@ public final class OllamaChatPanel extends JPanel {
         }
         String mode = applicationState.get(STATE_MODE, YAPPING_MODE);
         String agent = applicationState.get(STATE_AGENT, null);
-        if (YAPPING_MODE.equals(mode) || agent == null || agent.trim().isEmpty()) {
+        if (PARTYING_MODE.equals(mode)) {
+            // Restore into Partying mode; transport is not auto-started on restore.
+            chatMode = PARTYING_MODE;
+            selectedAgent = null;
+        } else if (YAPPING_MODE.equals(mode) || agent == null || agent.trim().isEmpty()) {
             chatMode = YAPPING_MODE;
             selectedAgent = null;
         } else {
@@ -724,20 +742,24 @@ public final class OllamaChatPanel extends JPanel {
     /** The default, casual chat mode label (a gamified name for "just talking"). */
     private static final String YAPPING_MODE = "Yapping";
 
+    /** The gamified label for LAN group-chat mode. */
+    private static final String PARTYING_MODE = "Partying";
+
     /**
-     * The in-composer mode selector: "Yapping" is the default casual chat; "Questing" is the agent mode
-     * and carries a submenu of installed agents (none yet). Selecting an agent switches into that mode.
+     * The in-composer mode selector: "Yapping" is the default casual chat; "Questing" is the agent
+     * mode and carries a submenu of installed agents (none yet); "Partying" is the decentralized LAN
+     * group-chat mode where people and bots collaborate.
      */
     private void openModePopup() {
         javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
 
         javax.swing.JRadioButtonMenuItem yapping =
-                new javax.swing.JRadioButtonMenuItem(YAPPING_MODE, YAPPING_MODE.equals(chatMode));
+                new javax.swing.JRadioButtonMenuItem("\uD83D\uDCAC Yapping", YAPPING_MODE.equals(chatMode));
         yapping.addActionListener(event -> selectYappingMode());
         menu.add(yapping);
 
         // "Questing" is a submenu (the arrow) listing the installed agents to run.
-        javax.swing.JMenu questing = new javax.swing.JMenu("Questing");
+        javax.swing.JMenu questing = new javax.swing.JMenu("\uD83D\uDDFA Questing");
         List<String> agents = installedAgentNames();
         if (agents.isEmpty()) {
             javax.swing.JMenuItem none = new javax.swing.JMenuItem("No agents installed");
@@ -752,6 +774,12 @@ public final class OllamaChatPanel extends JPanel {
             }
         }
         menu.add(questing);
+
+        javax.swing.JRadioButtonMenuItem partying =
+                new javax.swing.JRadioButtonMenuItem("\uD83D\uDC65 Partying", PARTYING_MODE.equals(chatMode));
+        partying.setToolTipText("Partying \u2014 Chat with people and bots on your local network");
+        partying.addActionListener(event -> selectPartyingMode());
+        menu.add(partying);
 
         JComponent anchor = composer.getModeButton();
         menu.show(anchor, 0, anchor.getHeight());
@@ -776,6 +804,134 @@ public final class OllamaChatPanel extends JPanel {
         composer.setModeName(agent);
         rememberState(STATE_MODE, agent);
         rememberState(STATE_AGENT, agent);
+    }
+
+    private void selectPartyingMode() {
+        if (partyTransport == null) {
+            partyTransport = new InMemoryGroupChatTransport();
+        }
+        if (!partyTransport.isConnected()) {
+            // Use a simple default identity and room for G1; Settings will expose these in a later slice.
+            String participantId = loadOrCreateParticipantId();
+            Participant self = new Participant(participantId, loadDisplayName(participantId), null);
+            GroupChatRoom defaultRoom = new GroupChatRoom("askai.default", "AskAI Party", null);
+            final GroupChatTransport transport = partyTransport;
+            transport.join(defaultRoom, self, new GroupChatListener() {
+                public void onMessage(final GroupChatMessage message) {
+                    onUi(new Runnable() {
+                        public void run() {
+                            appendPartyMessage(message);
+                        }
+                    });
+                }
+
+                public void onParticipantJoined(final Participant participant) {
+                    onUi(new Runnable() {
+                        public void run() {
+                            transcript.appendInfo("@" + participant.getDisplayName() + " joined the party");
+                        }
+                    });
+                }
+
+                public void onParticipantLeft(final Participant participant) {
+                    onUi(new Runnable() {
+                        public void run() {
+                            transcript.appendInfo("@" + participant.getDisplayName() + " left the party");
+                        }
+                    });
+                }
+
+                public void onParticipantsChanged(java.util.List<Participant> participants) {
+                    // Party-member count is reflected via onStatusChanged.
+                }
+
+                public void onStatusChanged(final String status) {
+                    onUi(new Runnable() {
+                        public void run() {
+                            setStatus(status);
+                        }
+                    });
+                }
+            });
+            setStatus("Joining the party\u2026");
+        }
+
+        partySubmissionTarget = new GroupChatSubmissionTarget() {
+            public void submitMessage(String markdown) {
+                if (partyTransport == null || !partyTransport.isConnected()) {
+                    return;
+                }
+                partySequence++;
+                GroupChatMessage message = new GroupChatMessage.Builder()
+                        .messageId(UUID.randomUUID().toString())
+                        .roomId("askai.default")
+                        .senderParticipantId(loadOrCreateParticipantId())
+                        .senderSequence(partySequence)
+                        .mentionedParticipantIds(
+                                MentionParser.extractMentionedIds(markdown, partyTransport.getParticipants()))
+                        .markdown(markdown)
+                        .build();
+                partyTransport.send(message);
+            }
+
+            public boolean isReady() {
+                return partyTransport != null && partyTransport.isConnected();
+            }
+        };
+
+        chatMode = PARTYING_MODE;
+        selectedAgent = null;
+        composer.setModeName(PARTYING_MODE);
+        rememberState(STATE_MODE, PARTYING_MODE);
+        rememberState(STATE_AGENT, null);
+        transcript.appendInfo("Looking for a party\u2026");
+    }
+
+    /**
+     * Appends a received group-chat message to the transcript, prefixing with the sender's display
+     * name so all participants are identifiable.
+     */
+    private void appendPartyMessage(GroupChatMessage message) {
+        String senderId = message.getSenderParticipantId();
+        String displayName = senderId;
+        if (partyTransport != null) {
+            for (Participant p : partyTransport.getParticipants()) {
+                if (p.getParticipantId().equals(senderId)) {
+                    displayName = p.getDisplayName();
+                    break;
+                }
+            }
+        }
+        transcript.appendUser("**@" + displayName + "** " + message.getMarkdown());
+    }
+
+    /**
+     * Returns a stable participant ID for this installation, creating one on first use and storing
+     * it in the application state.
+     */
+    private String loadOrCreateParticipantId() {
+        if (applicationState == null) {
+            return "local";
+        }
+        String id = applicationState.get("party.participantId", null);
+        if (id == null || id.trim().isEmpty()) {
+            id = UUID.randomUUID().toString();
+            rememberState("party.participantId", id);
+        }
+        return id;
+    }
+
+    /** Returns the display name stored in settings, or a short fallback derived from the participant ID. */
+    private String loadDisplayName(String participantId) {
+        if (applicationState == null) {
+            return "Me";
+        }
+        String name = applicationState.get("party.displayName", null);
+        if (name == null || name.trim().isEmpty()) {
+            // Use a friendly abbreviation of the participant ID as the default.
+            name = "User-" + participantId.substring(0, Math.min(6, participantId.length()));
+        }
+        return name;
     }
 
     // ------------------------------------------------------------------ reasoning effort
@@ -857,6 +1013,13 @@ public final class OllamaChatPanel extends JPanel {
         if (!composer.isSendEnabled()) {
             return;
         }
+
+        // In Partying mode, route through the GroupChatSubmissionTarget instead of Ollama.
+        if (PARTYING_MODE.equals(chatMode)) {
+            sendPartyChat();
+            return;
+        }
+
         final String modelName = (String) modelCombo.getSelectedItem();
         if (modelName == null || modelName.trim().isEmpty()) {
             setStatus("No model selected. Open Models or Install first.");
@@ -933,7 +1096,25 @@ public final class OllamaChatPanel extends JPanel {
         });
     }
 
-    /** First non-empty thinking delta opens the green thinking bubble; further deltas stream into it. */
+    /**
+     * Routes a message submission in Partying mode through the {@link GroupChatSubmissionTarget},
+     * keeping the existing transcript and composer for the shared chat shell.
+     */
+    private void sendPartyChat() {
+        final String userPrompt = composer.getMessage().trim();
+        if (userPrompt.isEmpty()) {
+            setStatus("Write a message before sending.");
+            return;
+        }
+        if (partySubmissionTarget == null || !partySubmissionTarget.isReady()) {
+            // Auto-join if not yet connected.
+            selectPartyingMode();
+        }
+        composer.clearMessage();
+        if (partySubmissionTarget != null) {
+            partySubmissionTarget.submitMessage(userPrompt);
+        }
+    }
     private void handleThinkingDelta(String delta) {
         if (delta == null || delta.isEmpty()) {
             return;
