@@ -38,10 +38,9 @@ public final class OllamaBotResponder implements BotResponder {
      * declines with {@link #SILENT_MARKER} when it has nothing to add.
      */
     public static final String DEFAULT_ALWAYS_PROMPT =
-            "You see every message in the room, not only mentions. Decide yourself whether a reply "
-            + "from you adds value: answer direct questions, correct important factual errors, and "
-            + "help when the participants seem stuck or ask for ideas. When the participants are "
-            + "just talking to each other and you have nothing essential to add, stay silent.";
+            "Only correct obviously false factual statements — 'obviously' matters: do not interject "
+            + "for small talk, opinions, questions addressed to other people, or minor inaccuracies. "
+            + "When a message states an obviously wrong fact, reply with a short correction.";
 
     /** Exact reply the model uses to stay silent under the always policy. */
     public static final String SILENT_MARKER = "[SILENT]";
@@ -127,15 +126,22 @@ public final class OllamaBotResponder implements BotResponder {
             runChimeInGate(model, context, addressed, profiles, callback);
             return;
         }
-        answer(model, context, addressed, profiles, callback);
+        // The [SILENT] contract only applies to unprompted always-mode replies WITHOUT the gate:
+        // a gate-approved reply already passed the should-I-speak decision, and an explicit
+        // mention must always be answered — a second silence hurdle would swallow corrections.
+        boolean withSilenceContract = alwaysPolicy() && !mentioned;
+        answer(model, context, addressed, profiles, withSilenceContract, callback);
     }
 
     private void answer(String model, List<GroupChatMessage> context, GroupChatMessage addressed,
-                        Map<String, Participant> profiles, Callback callback) {
-        List<OllamaChatTurn> conversation = buildConversation(context, addressed, profiles);
+                        Map<String, Participant> profiles, boolean withSilenceContract,
+                        Callback callback) {
+        List<OllamaChatTurn> conversation =
+                buildConversation(context, addressed, profiles, withSilenceContract);
         ThinkingOption thinking = thinkingOption != null ? thinkingOption.get() : null;
         execute(model, conversation,
-                thinking != null ? thinking : ThinkingOption.defaultOption(), true, callback);
+                thinking != null ? thinking : ThinkingOption.defaultOption(), true,
+                withSilenceContract, callback);
     }
 
     /**
@@ -171,7 +177,7 @@ public final class OllamaBotResponder implements BotResponder {
         gate.add(OllamaChatTurn.user("Latest message — "
                 + handleOf(addressed.getSenderParticipantId(), profiles)
                 + ": " + addressed.getMarkdown()));
-        execute(model, gate, ThinkingOption.defaultOption(), true, new Callback() {
+        execute(model, gate, ThinkingOption.defaultOption(), true, true, new Callback() {
             public void onThinkingDelta(String delta) {
                 // Gate deliberation stays invisible; only a real answer shows the bubble.
             }
@@ -179,7 +185,7 @@ public final class OllamaBotResponder implements BotResponder {
             public void onResponse(String text) {
                 String normalized = text.trim().toUpperCase(java.util.Locale.ROOT);
                 if (normalized.startsWith("YES")) {
-                    answer(model, context, addressed, profiles, callback);
+                    answer(model, context, addressed, profiles, false, callback);
                 } else {
                     callback.onNoAnswer();
                 }
@@ -202,7 +208,7 @@ public final class OllamaBotResponder implements BotResponder {
      */
     private void execute(final String model, final List<OllamaChatTurn> conversation,
                          ThinkingOption thinking, final boolean retryWithoutThinking,
-                         final Callback callback) {
+                         final boolean allowSilence, final Callback callback) {
         final StringBuilder answer = new StringBuilder();
         final StringBuilder thinkingText = new StringBuilder();
         final AtomicBoolean done = new AtomicBoolean(false);
@@ -235,15 +241,15 @@ public final class OllamaBotResponder implements BotResponder {
                 if (text.isEmpty() && result != null && !result.getFallbackText().isEmpty()) {
                     text = result.getFallbackText().trim();
                 }
-                // The silence contract only exists under the always policy; on an explicit
-                // mention a literal [SILENT] would just be a (strange) answer, not a decline.
-                if (alwaysPolicy() && isSilent(text)) {
+                // The silence contract only exists where it was announced in the prompt; on a
+                // mention or a gate-approved reply a literal [SILENT] is just a (strange) answer.
+                if (allowSilence && isSilent(text)) {
                     callback.onNoAnswer();
                 } else if (!text.isEmpty()) {
                     callback.onResponse(text);
                 } else if (retryWithoutThinking && thinkingText.length() > 0) {
                     execute(model, conversation,
-                            ThinkingOption.of(ThinkingOption.Mode.DISABLED), false, callback);
+                            ThinkingOption.of(ThinkingOption.Mode.DISABLED), false, allowSilence, callback);
                 } else {
                     callback.onFailure(new IllegalStateException("The model returned no answer."));
                 }
@@ -270,9 +276,9 @@ public final class OllamaBotResponder implements BotResponder {
      */
     private List<OllamaChatTurn> buildConversation(List<GroupChatMessage> context,
                                                    GroupChatMessage addressed,
-                                                   Map<String, Participant> profiles) {
-        boolean always = settings != null
-                && PartySettings.BOT_POLICY_ALWAYS.equals(settings.botPolicy());
+                                                   Map<String, Participant> profiles,
+                                                   boolean withSilenceContract) {
+        boolean always = withSilenceContract;
         String base = configuredSystemPrompt();
         if (always) {
             base += "\n\n" + configuredAlwaysPrompt() + "\n" + SILENT_INSTRUCTION;

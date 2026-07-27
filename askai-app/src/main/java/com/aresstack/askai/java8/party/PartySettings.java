@@ -133,13 +133,16 @@ public final class PartySettings {
         return state == null ? "" : state.get(KEY_MANUAL_PEERS, "");
     }
 
-    /** The bot participation policy; default: answer only when explicitly mentioned. */
+    /**
+     * The bot participation policy; default: see every message and decide via the YES/NO gate
+     * with the built-in obviously-false-facts chime-in rules (mentions always answer).
+     */
     public String botPolicy() {
-        String policy = state == null ? BOT_POLICY_MENTION : state.get(KEY_BOT_POLICY, BOT_POLICY_MENTION);
+        String policy = state == null ? BOT_POLICY_ALWAYS : state.get(KEY_BOT_POLICY, BOT_POLICY_ALWAYS);
         if (BOT_POLICY_OFF.equals(policy)) {
             return BOT_POLICY_OFF;
         }
-        return BOT_POLICY_ALWAYS.equals(policy) ? BOT_POLICY_ALWAYS : BOT_POLICY_MENTION;
+        return BOT_POLICY_MENTION.equals(policy) ? BOT_POLICY_MENTION : BOT_POLICY_ALWAYS;
     }
 
     public void setBotPolicy(String policy) {
