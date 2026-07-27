@@ -531,23 +531,19 @@ bleiben im Adaptermodul gekapselt.
 ### Verifikation
 `gradle`-Resolve + `unzip`/`od`-Bytecode-Major-Check aller 48 transitiven Jars (Ergebnis: alle ≤ 52).
 
-## MCP-P003 — Marketplace-Quelle wird als Input bereitgestellt (Inputproblem, kein Blocker)
+## MCP-P003 — Marketplace-Quelle übernommen
 
 **Erkannt in:** Commit 31 (marketplace)
-**Status:** WORKAROUND
-**Schweregrad:** LOW
+**Status:** RESOLVED
+**Schweregrad:** —
 **Betroffene Module:** mcp-marketplace
 
-### Erwartung
-`mcp-marketplace-swing-java8.zip` übernehmen/adaptieren („nicht neu schreiben").
-
-### Beobachtung
-Die ZIP lag dem Branch nicht bei; sie wird laut Review als **zusätzlicher Arbeitsinput** bereitgestellt. Ich
-darf die Quelle nicht erfinden, kann sie aber erst adaptieren, wenn ihr Inhalt im Arbeitskontext vorliegt.
-
-### Gewähltes Zwischenverhalten
-Nicht neu geschrieben. Sobald die ZIP im Arbeitsverzeichnis liegt: Modell (`McpServerConfiguration`), Ports
-und Swing-Marketplace gemäß Commit 31 übernehmen.
+### Auflösung
+Die Marketplace-Quellen aus dem bereitgestellten `mcp-marketplace-swing-java8.zip` wurden in Commit
+`5439076` verbatim als Modul `:mcp-marketplace` übernommen (nicht neu geschrieben) und um das neutrale
+`McpServerConfiguration`-Modell + `McpInstallOptionMapper` ergänzt. Installation und Runtime-Aktivierung
+sind strikt getrennt (gespeicherte Konfiguration immer `enabled=false`; kein Prozess-/Verbindungscode im
+Modul). 7 Tests grün; Isolation verifiziert (kein Solon im Marketplace, kein Marketplace in der Runtime-API).
 
 ## MCP-P004 — Commit 30 vervollständigt: echter Solon streamable-HTTP-Transport
 
@@ -564,30 +560,17 @@ Tool-Update und idempotentem Shutdown. `SolonMcpServerRuntimeTest` beweist den v
 sieht nur noch `ping`), Abweisung eines falschen Tokens, kontrollierter Shutdown. `InProcessMcpServerRegistry`
 bleibt die deterministische Testimplementierung; die produktive Runtime ist Solon. (1 Test grün.)
 
-### Erwartung
-Ein Solon-basierter streamable-HTTP-MCP-Server (Loopback, zufälliger Port, per-Endpoint-Token,
-tools/list_changed, kontrollierter Shutdown) implementiert `McpServerRegistry` und wird isoliert mit einem
-echten Solon-MCP-Client (tools/list, ping, echo, dynamisches Add/Remove) bewiesen.
-
-### Beobachtung
-Nur die transportfreie `InProcessMcpServerRegistry` (Port + ping/echo + Tests) wurde geliefert; der reale
-Solon-Transport fehlt noch. Die Begründung „erst vom Agenten gebraucht" war nicht tragfähig — Commit 30 soll
-den Transport gerade isoliert beweisen.
-
-### Verifizierte Grundlage (Java 8)
+### Verwendete Grundlage (Java 8, verifiziert)
 ```
 org.noear:solon:3.10.1                  (Solon.start/stopBlock)
 org.noear:solon-boot-jdkhttp:3.10.1     (JDK-HTTP-Server, Java 8)
 org.noear:solon-ai-mcp:3.10.1           (McpServerEndpointProvider, McpClientProvider)
 ```
-API: `McpServerEndpointProvider.builder().name().version().channel("streamable").mcpEndpoint(path).build()`,
-`addTool(FunctionToolDesc)`, `postStart()`, `stop()`; Client `McpClientProvider.builder().apiUrl().header()
-.build()`, `getTools()`, `callTool(name, map)`.
 
-### Spätere/aktuelle Entscheidung
-`:mcp-solon-runtime` mit obigen Koordinaten hinter `McpServerRegistry` umsetzen (Loopback-Bind, Token im
-Endpoint-Pfad, Round-trip-Test mit echtem Solon-Client). `InProcessMcpServerRegistry` bleibt deterministische
-Testimplementierung, ist aber nicht die produktive Runtime.
+### Ursprüngliche Beobachtung (historisch, behoben)
+Vor der Vervollständigung war nur die transportfreie `InProcessMcpServerRegistry` geliefert; die Begründung
+„der reale Transport wird erst vom Agenten gebraucht" war nicht tragfähig — Commit 30 sollte den Transport
+isoliert beweisen. Dies ist durch die obige Auflösung erledigt.
 
 ## MCP-P005 — Playwright-Treiber-Orchestrierung im Sidecar noch nicht implementiert
 

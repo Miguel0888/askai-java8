@@ -3,8 +3,9 @@
 // Java-8 host never compiles against it and never loads its classes — it only talks MCP to it. Not packed
 // into the AskAI fat jar.
 //
-// The Java-8 :browser-api sources are compiled INTO this module (source-level reuse, no Java-8 jar on the
-// Java-21 classpath confusion): same BrowserSession port, same UrlSafetyPolicy.
+// The shared boundary is the Java-8-COMPILED :browser-api jar (Java 21 consumes Java 8 bytecode natively):
+// same BrowserSession port and UrlSafetyPolicy binary the Java-8 host uses — no double compilation, no
+// blurred module boundary, no duplicate classes in the sidecar jar.
 apply plugin: 'application'
 
 java {
@@ -13,16 +14,8 @@ java {
     }
 }
 
-// Reuse the browser port sources; keep the module self-contained as a runnable artifact.
-sourceSets {
-    main {
-        java {
-            srcDir project(':browser-api').file('src/main/java')
-        }
-    }
-}
-
 dependencies {
+    implementation project(':browser-api')
     implementation 'com.aresstack:playwright4j:0.1.0'
     implementation 'org.noear:solon:3.10.1'
     implementation 'org.noear:solon-boot-jdkhttp:3.10.1'
