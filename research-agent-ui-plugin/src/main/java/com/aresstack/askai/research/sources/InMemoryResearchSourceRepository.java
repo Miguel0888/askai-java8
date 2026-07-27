@@ -44,6 +44,18 @@ public final class InMemoryResearchSourceRepository implements ResearchSourceRep
         byId.put(record.getSourceId(), record);
     }
 
+    /** Add or overwrite a record verbatim (mirrors the file repository; used by source acceptance). */
+    public void put(ResearchSourceRecord record) {
+        byId.put(record.getSourceId(), record);
+    }
+
+    /** An EMPTY repository (no demo seeds) for fresh acceptance flows and tests. */
+    public static InMemoryResearchSourceRepository empty() {
+        InMemoryResearchSourceRepository repo = new InMemoryResearchSourceRepository();
+        repo.byId.clear();
+        return repo;
+    }
+
     @Override
     public List<ResearchSourceRecord> find(SourceQuery query) {
         SourceQuery effective = query == null ? SourceQuery.all() : query;

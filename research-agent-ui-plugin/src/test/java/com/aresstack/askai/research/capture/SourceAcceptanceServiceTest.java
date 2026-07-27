@@ -1,0 +1,150 @@
+package com.aresstack.askai.research.capture;
+
+import com.aresstack.askai.research.sources.InMemoryResearchSourceRepository;
+import com.aresstack.askai.research.sources.ResearchSourceRecord;
+import com.aresstack.askai.research.sources.SourceQuery;
+import com.aresstack.askai.research.sources.SourceStatus;
+
+import org.junit.Test;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+
+/** VISITED → CANDIDATE → ACCEPTED: strict separation, atomic + idempotent acceptance, dedup, index boundary. */
+public class SourceAcceptanceServiceTest {
+
+    private static final class Fx {
+        final CaptureStore captures = new CaptureStore(10, 1000L);
+        final InMemoryResearchSourceRepository repo = InMemoryResearchSourceRepository.empty();
+        final ResearchSearchIndex.InMemory index = new ResearchSearchIndex.InMemory();
+        final SourceAcceptanceService service = new SourceAcceptanceService(captures, repo,
+                new SourceAcceptanceService.SourceCreator() {
+                    public void create(ResearchSourceRecord record) {
+                        repo.put(record);
+                    }
+                }, index);
+    }
+
+    @Test
+    public void visitCreatesCaptureButNeverASourceOrIndexEntry() {
+        Fx fx = new Fx();
+        VisitedCapture cap = fx.captures.record("https://Example.com/a?utm_source=x#top", "A", "Alpha text.");
+        assertEquals(VisitedCapture.Stage.VISITED, cap.getStage());
+        assertEquals("https://example.com/a", cap.getCanonicalUrl()); // canonicalized
+        assertTrue("no source from a visit", fx.repo.find(SourceQuery.all()).isEmpty());
+        assertEquals("no index entry from a visit", 0, fx.index.size());
+
+        // CANDIDATE (assessment metadata) still creates neither source nor index entry.
+        fx.captures.assess(cap.getCaptureId(), "HIGH", "docs", "looks relevant");
+        assertEquals(VisitedCapture.Stage.CANDIDATE, fx.captures.get(cap.getCaptureId()).getStage());
+        assertTrue(fx.repo.find(SourceQuery.all()).isEmpty());
+        assertEquals(0, fx.index.size());
+    }
+
+    @Test
+    public void acceptCreatesExactlyOneSourceAndOneIndexEntryAndIsIdempotent() {
+        Fx fx = new Fx();
+        VisitedCapture cap = fx.captures.record("https://example.com/a", "Alpha", "Alpha body.\n\nMore.");
+        fx.captures.assess(cap.getCaptureId(), "HIGH", "article", "good");
+        SourceAcceptanceService.Result r = fx.service.accept(cap.getCaptureId());
+        assertEquals(SourceAcceptanceService.Status.ACCEPTED, r.status);
+        assertEquals(1, fx.repo.find(SourceQuery.all()).size());
+        assertEquals(1, fx.index.size());
+        assertEquals(2, r.passageCount);
+        assertFalse(r.duplicate);
+        // Assessment metadata travelled onto the record.
+        ResearchSourceRecord rec = fx.repo.get(r.sourceId);
+        assertEquals("good", rec.getComment());
+        assertEquals("article", rec.getSourceType());
+
+        // Idempotent: same capture again → ALREADY_ACCEPTED, same id, still 1 source + 1 index entry.
+        SourceAcceptanceService.Result again = fx.service.accept(cap.getCaptureId());
+        assertEquals(SourceAcceptanceService.Status.ALREADY_ACCEPTED, again.status);
+        assertEquals(r.sourceId, again.sourceId);
+        assertEquals(1, fx.repo.find(SourceQuery.all()).size());
+        assertEquals(1, fx.index.size());
+
+        // Compact tool result: no raw text leaked.
+        assertFalse(r.render().contains("Alpha body"));
+    }
+
+    @Test
+    public void dedupRulesCanonicalUrlAndContentHash() {
+        Fx fx = new Fx();
+        // Accept the original.
+        VisitedCapture a = fx.captures.record("https://example.com/a", "Alpha", "Same content.");
+        fx.service.accept(a.getCaptureId());
+
+        // Same canonical URL (tracking params differ) + same hash → identical → ALREADY_ACCEPTED.
+        VisitedCapture same = fx.captures.record("https://example.com/a?utm_medium=m", "Alpha", "Same content.");
+        SourceAcceptanceService.Result identical = fx.service.accept(same.getCaptureId());
+        assertEquals(SourceAcceptanceService.Status.ALREADY_ACCEPTED, identical.status);
+        assertEquals(1, fx.repo.find(SourceQuery.all()).size());
+
+        // Different URL, same hash → content duplicate: accepted but flagged DUPLICATE.
+        VisitedCapture mirror = fx.captures.record("https://mirror.net/copy", "Copy", "Same content.");
+        SourceAcceptanceService.Result dup = fx.service.accept(mirror.getCaptureId());
+        assertEquals(SourceAcceptanceService.Status.ACCEPTED, dup.status);
+        assertTrue(dup.duplicate);
+        assertEquals(SourceStatus.DUPLICATE, fx.repo.get(dup.sourceId).getStatus());
+
+        // Same URL, different hash → changed page → a fresh source.
+        VisitedCapture changed = fx.captures.record("https://example.com/a", "Alpha v2", "New content.");
+        SourceAcceptanceService.Result fresh = fx.service.accept(changed.getCaptureId());
+        assertEquals(SourceAcceptanceService.Status.ACCEPTED, fresh.status);
+        assertFalse(fresh.duplicate);
+        assertEquals(3, fx.repo.find(SourceQuery.all()).size());
+    }
+
+    @Test
+    public void indexFailureKeepsTheSourceAndIndexIsRebuildable() {
+        Fx fx = new Fx();
+        VisitedCapture cap = fx.captures.record("https://example.com/x", "X", "X body.");
+        fx.index.failNextIndex();
+        SourceAcceptanceService.Result r = fx.service.accept(cap.getCaptureId());
+        assertEquals(SourceAcceptanceService.Status.ACCEPTED, r.status);
+        assertTrue("index marked stale", r.indexStale);
+        assertEquals("source survives the index failure", 1, fx.repo.find(SourceQuery.all()).size());
+        assertEquals(0, fx.index.size());
+
+        // The index is a derived view: rebuild from the source records restores it.
+        fx.index.rebuild(fx.repo.find(SourceQuery.all()));
+        assertEquals(1, fx.index.size());
+    }
+
+    @Test
+    public void unknownCaptureAndBoundedLifecycle() {
+        Fx fx = new Fx();
+        assertEquals(SourceAcceptanceService.Status.UNKNOWN_CAPTURE, fx.service.accept("nope").status);
+
+        CaptureStore tiny = new CaptureStore(2, 1000L);
+        tiny.record("https://e.com/1", "1", "one");
+        tiny.record("https://e.com/2", "2", "two");
+        tiny.record("https://e.com/3", "3", "three");
+        assertEquals("bounded capture lifecycle (oldest evicted)", 2, tiny.size());
+    }
+
+    @Test
+    public void extractorsHandleHtmlRemnantsMarkdownAndText() {
+        DocumentExtractor.ExtractedDocument html = DocumentExtractor.Chain.extract(
+                new DocumentExtractor.DocumentInput("text/html", "",
+                        "<html><head><title>T</title><script>bad()</script></head>"
+                                + "<body><h1>Head</h1><p>One.</p><p>Two.</p></body></html>"));
+        assertEquals("T", html.getTitle());
+        assertTrue(html.getText().contains("Head"));       // headings preserved as text
+        assertFalse(html.getText().contains("bad()"));     // scripts stripped
+        assertEquals(3, html.getPassageCount());
+
+        DocumentExtractor.ExtractedDocument md = DocumentExtractor.Chain.extract(
+                new DocumentExtractor.DocumentInput("text/markdown", "notes.md",
+                        "# Title\n\nBlock one.\n\nBlock two."));
+        assertEquals("Title", md.getTitle());
+        assertEquals(3, md.getPassageCount());
+
+        DocumentExtractor.ExtractedDocument txt = DocumentExtractor.Chain.extract(
+                new DocumentExtractor.DocumentInput("text/plain", "", "First line\n\nSecond block"));
+        assertEquals("First line", txt.getTitle());
+        assertEquals(2, txt.getPassageCount());
+    }
+}

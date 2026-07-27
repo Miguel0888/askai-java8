@@ -603,3 +603,23 @@ meldet jede Tool-Ausführung als lesbaren NOT_INSTALLED-artigen Fehler. Kein Bui
 ### Spätere Entscheidung
 Treiber-Orchestrierung über `GraalPlaywrightRuntime` implementieren (Driver-JS laden, Connection/Transport
 über `drainTransports`, Browser-Launch, Page-Navigation) + Live-Test, sofern Browser-Binaries vorhanden.
+
+## MCP-P006 — Produktiver Lucene-Indexadapter noch nicht verdrahtet
+
+**Erkannt in:** Commit 37 (source lifecycle / indexing boundary)
+**Status:** DEFERRED
+**Schweregrad:** LOW
+**Betroffene Module:** research-agent-ui-plugin (capture)
+
+### Erwartung
+Ein produktiver Lucene-Adapter hinter `ResearchSearchIndex`, als aus den Source-Records rebuildbare,
+abgeleitete Sicht.
+
+### Gewähltes Zwischenverhalten
+Der Port ist final (`index`/`remove`/`rebuild`), die Indexgrenze steht (nur ACCEPTED wird indexiert; Index-
+Fehler verliert nie die Source, markiert nur STALE; `rebuild()` beweist die Derived-View-Eigenschaft) und der
+deterministische In-Memory-Adapter deckt Tests + MVP ab. Keine halbfertige Lucene-Integration in Commit 37.
+
+### Spätere Entscheidung
+Eigener Slice: Lucene-Adapter (Java-8-taugliche Lucene-Version prüfen) hinter demselben Port; Rebuild aus
+`ResearchSourceRepository`.
