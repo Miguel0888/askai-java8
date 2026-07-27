@@ -37,8 +37,13 @@ public final class MentionCompletionSupport {
     private final DefaultListModel<String> model = new DefaultListModel<String>();
     private final JList<String> list = new JList<String>(model);
 
+    /** Background for handles of currently loaded (fast-answering) Ollama models. */
+    private static final java.awt.Color HIGHLIGHT_BACKGROUND = new java.awt.Color(0xDFF3DF);
+    private static final java.awt.Color HIGHLIGHT_SELECTED = new java.awt.Color(0x8FCF8F);
+
     private JWindow popup;
     private List<String> handles = Collections.emptyList();
+    private final java.util.Set<String> highlighted = new java.util.HashSet<String>();
     private boolean active;
     private MentionCompletion.Result current;
 
@@ -46,6 +51,23 @@ public final class MentionCompletionSupport {
         this.editor = editor;
         list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         list.setFocusable(false);
+        list.setCellRenderer(new javax.swing.DefaultListCellRenderer() {
+            @Override
+            public java.awt.Component getListCellRendererComponent(
+                    JList<?> jList, Object value, int index, boolean selected, boolean focused) {
+                java.awt.Component component = super.getListCellRendererComponent(
+                        jList, value, index, selected, focused);
+                boolean hot = value != null && isHighlighted(String.valueOf(value));
+                if (hot) {
+                    component.setBackground(selected ? HIGHLIGHT_SELECTED : HIGHLIGHT_BACKGROUND);
+                    if (component instanceof javax.swing.JComponent) {
+                        ((javax.swing.JComponent) component)
+                                .setToolTipText("Model is loaded — answers quickly");
+                    }
+                }
+                return component;
+            }
+        });
         list.addMouseListener(new MouseAdapter() {
             public void mouseClicked(MouseEvent event) {
                 applySelection();
@@ -97,6 +119,26 @@ public final class MentionCompletionSupport {
     /** Replace the completable handles (current participants plus the bot handle). */
     public void setHandles(List<String> handles) {
         this.handles = handles != null ? handles : Collections.<String>emptyList();
+    }
+
+    /**
+     * Marks handles to render with the "loaded model" highlight (currently running Ollama
+     * models, which answer quickly).
+     */
+    public void setHighlighted(java.util.Collection<String> hot) {
+        highlighted.clear();
+        if (hot != null) {
+            for (String handle : hot) {
+                if (handle != null) {
+                    highlighted.add(handle.toLowerCase(java.util.Locale.ROOT));
+                }
+            }
+        }
+        list.repaint();
+    }
+
+    private boolean isHighlighted(String handle) {
+        return highlighted.contains(handle.toLowerCase(java.util.Locale.ROOT));
     }
 
     /** Enable while Partying is the active mode; disabling hides the popup. */

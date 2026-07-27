@@ -24,12 +24,19 @@ public interface BotResponder {
     boolean isReady();
 
     /**
+     * Model names that may be @-mentioned directly (e.g. {@code @gemma4:e2b}) to address the bot
+     * with a specific model.  Empty when model mentions are disabled or unknown.
+     */
+    List<String> modelMentionHandles();
+
+    /**
      * Produce the bot answer for {@code addressed} given the recent room context.
      *
-     * @param context   recent room messages, oldest first (including {@code addressed})
-     * @param addressed the {@code @AskAI}-mentioning message to answer
-     * @param profiles  participantId → profile, for labelling senders in the prompt
+     * @param context        recent room messages, oldest first (including {@code addressed})
+     * @param addressed      the bot-mentioning message to answer
+     * @param profiles       participantId → profile, for labelling senders in the prompt
+     * @param requestedModel a specific model mentioned by name, or {@code null} for the default
      */
     void respond(List<GroupChatMessage> context, GroupChatMessage addressed,
-                 Map<String, Participant> profiles, Callback callback);
+                 Map<String, Participant> profiles, String requestedModel, Callback callback);
 }

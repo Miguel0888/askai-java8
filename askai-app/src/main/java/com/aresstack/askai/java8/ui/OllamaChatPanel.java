@@ -130,6 +130,8 @@ public final class OllamaChatPanel extends JPanel {
     private PartySettings partySettings;
     private MentionCompletionSupport mentionCompletion;
     private boolean partyJoinInFlight;
+    // Installed model names, cached on the model refresh so party threads can read them safely.
+    private volatile List<String> installedModelNames = Collections.emptyList();
     // Thinking effort ("off"/"low"/"medium"/"high"), only sent when the selected model supports thinking.
     private String reasoningEffort = "off";
     private boolean modelSupportsThinking;
@@ -605,9 +607,14 @@ public final class OllamaChatPanel extends JPanel {
         botPolicyCombo.addItem("Never answer");
         botPolicyCombo.setSelectedIndex(
                 PartySettings.BOT_POLICY_OFF.equals(partySettings.botPolicy()) ? 1 : 0);
+        final javax.swing.JCheckBox modelMentionsBox = new javax.swing.JCheckBox(
+                "Allow @modelname mentions", partySettings.modelMentionsEnabled());
+        modelMentionsBox.setToolTipText(
+                "Address a specific installed model directly, e.g. @gemma4:e2b — loaded models are highlighted in the completion");
         JPanel botRow = partySettingsRow();
         botRow.add(new JLabel("Bot"));
         botRow.add(botPolicyCombo);
+        botRow.add(modelMentionsBox);
         party.add(botRow);
 
         final JTextField roomField = new JTextField(partySettings.roomId(), 10);
@@ -646,6 +653,8 @@ public final class OllamaChatPanel extends JPanel {
             partySettings.setManualPeers(peersField.getText());
             partySettings.setBotPolicy(botPolicyCombo.getSelectedIndex() == 1
                     ? PartySettings.BOT_POLICY_OFF : PartySettings.BOT_POLICY_MENTION);
+            partySettings.setModelMentionsEnabled(modelMentionsBox.isSelected());
+            refreshMentionCompletionHandles();
             partySettings.setRoomId(roomField.getText());
             partySettings.setRoomSecret(secretField.getText());
             partySettings.setHistoryDirectory(historyField.getText());
@@ -784,6 +793,7 @@ public final class OllamaChatPanel extends JPanel {
                         for (String name : names) {
                             modelCombo.addItem(name);
                         }
+                        installedModelNames = new ArrayList<String>(names);
                         String restored = consumePendingRestoreModel(names);
                         if (restored != null) {
                             modelCombo.setSelectedItem(restored);
@@ -1044,6 +1054,13 @@ public final class OllamaChatPanel extends JPanel {
                     public String get() {
                         return keepAliveField.getText();
                     }
+                },
+                new Supplier<List<String>>() {
+                    public List<String> get() {
+                        return partySettings.modelMentionsEnabled()
+                                ? installedModelNames
+                                : Collections.<String>emptyList();
+                    }
                 });
         return new PartySession(createPartyTransport(), room, self,
                 partySettings.botPolicy(), responder, new PanelPartyUi());
@@ -1120,9 +1137,46 @@ public final class OllamaChatPanel extends JPanel {
     /** Refreshes the {@code @}-completion handles from the current party membership. */
     private void refreshMentionCompletionHandles() {
         PartySession session = partySession;
-        mentionCompletion.setHandles(session != null
-                ? session.mentionHandles()
-                : java.util.Arrays.asList(MentionParser.BOT_HANDLE));
+        List<String> handles;
+        if (session != null) {
+            handles = session.mentionHandles();
+        } else {
+            handles = new ArrayList<String>();
+            handles.add(MentionParser.BOT_HANDLE);
+            if (partySettings.modelMentionsEnabled()) {
+                handles.addAll(installedModelNames);
+            }
+        }
+        mentionCompletion.setHandles(handles);
+        refreshRunningModelHighlight();
+    }
+
+    /**
+     * Highlights the currently loaded Ollama models in the completion popup — they answer
+     * quickly because no model load is needed.
+     */
+    private void refreshRunningModelHighlight() {
+        if (!partySettings.modelMentionsEnabled()) {
+            mentionCompletion.setHighlighted(Collections.<String>emptySet());
+            return;
+        }
+        ollamaService.listRunningModels(new OllamaService.RunningModelsListener() {
+            public void onRunningModels(final List<com.aresstack.askai.java8.client.OllamaRunningModelInfo> models) {
+                onUi(new Runnable() {
+                    public void run() {
+                        List<String> names = new ArrayList<String>();
+                        for (com.aresstack.askai.java8.client.OllamaRunningModelInfo info : models) {
+                            names.add(info.getDisplayName());
+                        }
+                        mentionCompletion.setHighlighted(names);
+                    }
+                });
+            }
+
+            public void onError(Exception ex) {
+                // Highlighting is a hint only; keep the previous state on failure.
+            }
+        });
     }
 
     /**

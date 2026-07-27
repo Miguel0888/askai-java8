@@ -80,14 +80,22 @@ public class PartySessionTest {
         volatile boolean ready = true;
         volatile boolean answer = true;
         volatile int calls;
+        volatile String lastRequestedModel;
+        volatile List<String> models = Collections.emptyList();
 
         public boolean isReady() {
             return ready;
         }
 
+        public List<String> modelMentionHandles() {
+            return models;
+        }
+
         public void respond(List<GroupChatMessage> context, GroupChatMessage addressed,
-                            Map<String, Participant> profiles, Callback callback) {
+                            Map<String, Participant> profiles, String requestedModel,
+                            Callback callback) {
             calls++;
+            lastRequestedModel = requestedModel;
             if (answer) {
                 callback.onResponse("Answer to: " + addressed.getMarkdown());
             }
@@ -165,6 +173,36 @@ public class PartySessionTest {
         assertEquals("exactly one logical bot response", 1, uiB.botMessageCount());
         assertEquals("only the elected host may run the model", 1, responderA.calls + responderB.calls);
         assertEquals("election is deterministic (lowest ready id)", 1, responderA.calls);
+    }
+
+    @Test
+    public void modelMentionInvokesBotWithRequestedModel() {
+        RecordingUi ui = new RecordingUi();
+        FakeResponder responder = new FakeResponder();
+        responder.models = java.util.Arrays.asList("gemma4:e2b", "llama3.1:8b");
+        PartySession session = session("room.model", "aaa", "Alice", responder, ui);
+        session.join();
+
+        assertTrue(session.mentionHandles().contains("gemma4:e2b"));
+        assertTrue(session.submitMessage("@gemma4:e2b was sind enten?"));
+
+        assertEquals(1, responder.calls);
+        assertEquals("gemma4:e2b", responder.lastRequestedModel);
+        assertEquals(1, ui.botMessageCount());
+    }
+
+    @Test
+    public void askAiMentionCarriesNoRequestedModel() {
+        RecordingUi ui = new RecordingUi();
+        FakeResponder responder = new FakeResponder();
+        responder.models = java.util.Arrays.asList("gemma4:e2b");
+        PartySession session = session("room.nomodel", "aaa", "Alice", responder, ui);
+        session.join();
+
+        assertTrue(session.submitMessage("@AskAI hallo"));
+
+        assertEquals(1, responder.calls);
+        assertEquals(null, responder.lastRequestedModel);
     }
 
     @Test

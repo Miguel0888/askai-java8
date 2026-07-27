@@ -193,6 +193,13 @@ public final class PartySession implements GroupChatSubmissionTarget {
         if (!handles.contains(MentionParser.BOT_HANDLE)) {
             handles.add(MentionParser.BOT_HANDLE);
         }
+        if (botResponder != null) {
+            for (String model : botResponder.modelMentionHandles()) {
+                if (!handles.contains(model)) {
+                    handles.add(model);
+                }
+            }
+        }
         return handles;
     }
 
@@ -268,7 +275,8 @@ public final class PartySession implements GroupChatSubmissionTarget {
         if (botResponder == null || !PartySettings.BOT_POLICY_MENTION.equals(botPolicy)) {
             return; // default policy: the bot only answers explicit mentions; "off" never answers
         }
-        if (!MentionParser.mentionsBot(message.getMarkdown())) {
+        String requestedModel = mentionedModel(message.getMarkdown());
+        if (!MentionParser.mentionsBot(message.getMarkdown()) && requestedModel == null) {
             return;
         }
         List<Participant> members = transport.getParticipants();
@@ -281,11 +289,35 @@ public final class PartySession implements GroupChatSubmissionTarget {
             selfId = self.getParticipantId();
         }
         if (selfId.equals(elected) && botResponder.isReady()) {
-            claimAndRespond(message, members);
+            claimAndRespond(message, members, requestedModel);
         }
     }
 
-    private void claimAndRespond(final GroupChatMessage addressed, List<Participant> members) {
+    /**
+     * A specific model addressed by name ({@code @gemma4:e2b} style), or {@code null} when the
+     * message only mentions {@code @AskAI} (or no bot at all).
+     */
+    private String mentionedModel(String markdown) {
+        if (botResponder == null) {
+            return null;
+        }
+        List<String> models = botResponder.modelMentionHandles();
+        if (models.isEmpty()) {
+            return null;
+        }
+        for (String token : MentionParser.mentionTokens(markdown)) {
+            String name = token.substring(1);
+            for (String model : models) {
+                if (model.equalsIgnoreCase(name)) {
+                    return model;
+                }
+            }
+        }
+        return null;
+    }
+
+    private void claimAndRespond(final GroupChatMessage addressed, List<Participant> members,
+                                 String requestedModel) {
         final String selfId;
         synchronized (this) {
             selfId = self.getParticipantId();
@@ -304,7 +336,7 @@ public final class PartySession implements GroupChatSubmissionTarget {
         for (Participant participant : transport.getParticipants()) {
             profiles.put(participant.getParticipantId(), participant);
         }
-        botResponder.respond(context, addressed, profiles, new BotResponder.Callback() {
+        botResponder.respond(context, addressed, profiles, requestedModel, new BotResponder.Callback() {
             public void onResponse(String markdown) {
                 if (arbiter.hasResponse(addressed.getMessageId())) {
                     return; // a merge delivered another host's answer first
@@ -354,7 +386,7 @@ public final class PartySession implements GroupChatSubmissionTarget {
             if (selfId.equals(elected) && botResponder != null && botResponder.isReady()) {
                 GroupChatMessage addressed = findRecent(addressedId);
                 if (addressed != null) {
-                    claimAndRespond(addressed, members);
+                    claimAndRespond(addressed, members, mentionedModel(addressed.getMarkdown()));
                 }
             }
         }

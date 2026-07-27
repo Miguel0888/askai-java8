@@ -31,12 +31,23 @@ public final class OllamaBotResponder implements BotResponder {
     private final OllamaService ollamaService;
     private final Supplier<String> modelName;
     private final Supplier<String> keepAlive;
+    private final Supplier<List<String>> mentionableModels;
 
     public OllamaBotResponder(OllamaService ollamaService, Supplier<String> modelName,
                               Supplier<String> keepAlive) {
+        this(ollamaService, modelName, keepAlive, null);
+    }
+
+    /**
+     * @param mentionableModels supplies the installed model names that may be @-mentioned
+     *                          directly, or {@code null} when model mentions are disabled
+     */
+    public OllamaBotResponder(OllamaService ollamaService, Supplier<String> modelName,
+                              Supplier<String> keepAlive, Supplier<List<String>> mentionableModels) {
         this.ollamaService = ollamaService;
         this.modelName = modelName;
         this.keepAlive = keepAlive;
+        this.mentionableModels = mentionableModels;
     }
 
     @Override
@@ -46,9 +57,21 @@ public final class OllamaBotResponder implements BotResponder {
     }
 
     @Override
+    public List<String> modelMentionHandles() {
+        if (mentionableModels == null) {
+            return java.util.Collections.emptyList();
+        }
+        List<String> models = mentionableModels.get();
+        return models != null ? models : java.util.Collections.<String>emptyList();
+    }
+
+    @Override
     public void respond(List<GroupChatMessage> context, GroupChatMessage addressed,
-                        Map<String, Participant> profiles, final Callback callback) {
-        String model = modelName.get();
+                        Map<String, Participant> profiles, String requestedModel,
+                        final Callback callback) {
+        String model = requestedModel != null && !requestedModel.trim().isEmpty()
+                ? requestedModel
+                : modelName.get();
         if (model == null || model.trim().isEmpty()) {
             callback.onFailure(new IllegalStateException("No model selected for the party bot."));
             return;

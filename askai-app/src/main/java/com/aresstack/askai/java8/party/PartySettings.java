@@ -29,6 +29,7 @@ public final class PartySettings {
     private static final String KEY_INTERFACE = "party.networkInterface";
     private static final String KEY_MANUAL_PEERS = "party.manualPeers";
     private static final String KEY_BOT_POLICY = "party.botPolicy";
+    private static final String KEY_MODEL_MENTIONS = "party.modelMentions";
     private static final String KEY_ROOM_ID = "party.roomId";
     private static final String KEY_ROOM_NAME = "party.roomName";
     private static final String KEY_ROOM_SECRET = "party.roomSecret";
@@ -128,6 +129,18 @@ public final class PartySettings {
 
     public void setBotPolicy(String policy) {
         put(KEY_BOT_POLICY, policy);
+    }
+
+    /**
+     * Whether the bot can also be addressed by full model name (e.g. {@code @gemma4:e2b}) in
+     * addition to {@code @AskAI}; the mentioned model then answers. Default {@code true}.
+     */
+    public boolean modelMentionsEnabled() {
+        return state == null || state.getBoolean(KEY_MODEL_MENTIONS, true);
+    }
+
+    public void setModelMentionsEnabled(boolean enabled) {
+        put(KEY_MODEL_MENTIONS, String.valueOf(enabled));
     }
 
     /** Stable room identifier (defaults to the shared default room). */
