@@ -107,3 +107,41 @@ with slice, affected function, concrete blocker, tried approaches, impact and po
 - **Possible later solution:** An optional neural voice-isolation module (same ServiceLoader/optional-module
   pattern as the other model backends), plus a speaker-enrollment artifact if/when a model supports it.
 
+
+---
+
+# Research Agent restarbeiten (Commits 14–20) — problem log
+
+Fortlaufende IDs `RA-Pnnn`. Status: OPEN | WORKAROUND | DEFERRED | RESOLVED.
+
+## RA-P001 — Produktive Quellen-/Projektpersistenz noch nicht angebunden
+
+**Erkannt in:** Commit 15 (structured source management)
+**Status:** DEFERRED
+**Schweregrad:** MEDIUM
+**Betroffene Module:** research-agent-ui-plugin (sources, agent)
+
+### Erwartung
+Quellen (und Artefakte) werden dauerhaft in einem lokalen Projekt-Store gehalten und überstehen
+einen Neustart; optional ein Lucene-Index als abgeleitete, neu aufbaubare Sicht.
+
+### Beobachtung
+Aktuell existiert nur eine deterministische In-Memory-Implementierung
+(`InMemoryResearchSourceRepository`); es gibt keine belastbare Projekt-Store-/Lucene-Infrastruktur
+im Repository, an die adaptiert werden könnte.
+
+### Analyse
+Der Port `ResearchSourceRepository` ist bewusst frei von Lucene-/Swing-Typen und damit adapterfähig.
+Die produktive Persistenz ist als eigener Slice (Commit 19) vorgesehen.
+
+### Gewähltes Zwischenverhalten
+Port + strukturierte UI + In-Memory-Adapter vollständig geliefert und getestet. Kein spekulativer
+Persistenz-Unterbau.
+
+### Auswirkung
+Quellen-/Artefaktänderungen sind pro Session flüchtig (kein Neustart-Persist), bis Commit 19 den
+Datei-/Index-Store liefert.
+
+### Spätere Entscheidung
+Commit 19: Projekt-Store (Markdown-Dateien + sources + state json, atomic write, Revisionen, Checksums);
+Lucene nur hinter Adapter, aus dem Projekt-Store rebuildbar.

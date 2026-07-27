@@ -8,10 +8,11 @@ import com.aresstack.askai.plugin.pf4j.api.AgentPluginExtension;
 import com.aresstack.askai.research.agent.ResearchAgentSessionFactory;
 import com.aresstack.askai.research.agent.ResearchChatCommands;
 import com.aresstack.askai.research.agent.ResearchStateViewContribution;
+import com.aresstack.askai.research.sources.ResearchSourcesViewContribution;
 
 import org.pf4j.Extension;
 
-import java.util.Collections;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -50,6 +51,8 @@ public final class ResearchAgentPluginExtension implements AgentPluginExtension 
 
     @Override
     public List<ArtifactViewContribution> getArtifactViews() {
-        return Collections.<ArtifactViewContribution>singletonList(new ResearchStateViewContribution());
+        return Arrays.<ArtifactViewContribution>asList(
+                new ResearchSourcesViewContribution(),
+                new ResearchStateViewContribution());
     }
 }

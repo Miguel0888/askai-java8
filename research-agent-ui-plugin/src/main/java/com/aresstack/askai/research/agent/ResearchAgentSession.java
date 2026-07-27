@@ -39,6 +39,8 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     private final ResearchProjectRequest request;
     private final List<AgentArtifact> artifacts = ResearchArtifacts.all();
     private final AgentArtifactStore artifactStore = new ResearchArtifactStore();
+    private final com.aresstack.askai.research.sources.ResearchSourceRepository sourceRepository =
+            new com.aresstack.askai.research.sources.InMemoryResearchSourceRepository();
     private final ChatSubmissionTarget chatTarget = new ResearchChatTarget();
 
     // View-model (updated only on the UI thread from backend events).
@@ -111,6 +113,11 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     @Override
     public AgentArtifactStore getArtifactStore() {
         return artifactStore;
+    }
+
+    /** Plugin-internal accessor (same classloader): the structured sources repository for the sources view. */
+    public com.aresstack.askai.research.sources.ResearchSourceRepository getSourceRepository() {
+        return sourceRepository;
     }
 
     @Override
