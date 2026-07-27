@@ -17,13 +17,13 @@ import java.util.List;
 
 /**
  * The new-model PF4J extension: the research agent extends the shared chat instead of replacing it. It lives
- * alongside {@link ResearchWorkspacePluginExtension} during the migration (same plugin id, same JAR) — the old
- * workspace path stays available as a fallback until the standalone shell is removed (Commit 16).
+ * the sole entry point for the research agent: the standalone workspace shell and its
+ * {@code WorkspacePluginExtension} were removed in Commit 17. Plugin id and JAR are unchanged.
  */
 @Extension
 public final class ResearchAgentPluginExtension implements AgentPluginExtension {
 
-    /** Same stable id as the workspace extension; there is one Research Agent, exposed via two extension points. */
+    /** The stable Research Agent id (also the plugin id). */
     public static final String AGENT_ID = ResearchPluginDescriptor.PLUGIN_ID;
 
     @Override

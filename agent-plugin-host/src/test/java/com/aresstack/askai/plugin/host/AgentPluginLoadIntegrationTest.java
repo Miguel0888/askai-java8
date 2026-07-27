@@ -62,6 +62,61 @@ public class AgentPluginLoadIntegrationTest {
     }
 
     @Test
+    public void pluginJarHasPf4jManifestAndOnlyTheAgentExtension() throws Exception {
+        java.util.jar.JarFile jar = new java.util.jar.JarFile(pluginJar);
+        try {
+            java.util.jar.Attributes attrs = jar.getManifest().getMainAttributes();
+            assertEquals(AGENT_ID, attrs.getValue("Plugin-Id"));
+            assertEquals("com.aresstack.askai.research.plugin.ResearchPlugin", attrs.getValue("Plugin-Class"));
+            assertNotNull(jar.getEntry("META-INF/extensions.idx"));
+            String idx = readEntry(jar, "META-INF/extensions.idx");
+            assertTrue("agent extension must be registered", idx.contains(EXTENSION_CLASS));
+            // Commit 17: the standalone workspace extension is gone.
+            assertFalse("workspace extension must no longer be registered",
+                    idx.contains("ResearchWorkspacePluginExtension"));
+        } finally {
+            jar.close();
+        }
+    }
+
+    @Test
+    public void pluginJarHasNoLegacyWorkspaceShellClassesAndNoBundledApi() throws Exception {
+        java.util.jar.JarFile jar = new java.util.jar.JarFile(pluginJar);
+        try {
+            java.util.Enumeration<java.util.jar.JarEntry> entries = jar.entries();
+            while (entries.hasMoreElements()) {
+                String name = entries.nextElement().getName();
+                assertFalse("bundled PF4J: " + name, name.startsWith("org/pf4j/"));
+                assertFalse("bundled workspace API: " + name,
+                        name.startsWith("com/aresstack/askai/plugin/api/"));
+                assertFalse("bundled pf4j-bridge API: " + name,
+                        name.startsWith("com/aresstack/askai/plugin/pf4j/api/"));
+                assertFalse("bundled askai-app: " + name, name.startsWith("com/aresstack/askai/java8/"));
+                assertFalse("orphan legacy workspace class: " + name,
+                        name.contains("ResearchWorkspace") || name.contains("ResearchDemoData")
+                                || name.contains("/research/domain/"));
+            }
+        } finally {
+            jar.close();
+        }
+    }
+
+    private static String readEntry(java.util.jar.JarFile jar, String name) throws Exception {
+        java.io.InputStream in = jar.getInputStream(jar.getEntry(name));
+        try {
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[4096];
+            int n;
+            while ((n = in.read(buf)) != -1) {
+                out.write(buf, 0, n);
+            }
+            return new String(out.toByteArray(), "UTF-8");
+        } finally {
+            in.close();
+        }
+    }
+
+    @Test
     public void discoversAgentExtensionWithSeparateClassloaderAndSharedApiIdentity() throws Exception {
         Path pluginsRoot = installIntoTempPluginsDir();
         AskAiPluginManager manager = new AskAiPluginManager(pluginsRoot, "0.1.0");

@@ -46,6 +46,8 @@ public final class WorkspacePluginService {
             new LinkedHashMap<String, WorkspacePluginExtension>();
     private final Map<String, AgentPluginExtension> selectableAgentById =
             new LinkedHashMap<String, AgentPluginExtension>();
+    private final Map<String, com.aresstack.askai.plugin.api.agent.AgentPluginDescriptor> agentDescriptors =
+            new LinkedHashMap<String, com.aresstack.askai.plugin.api.agent.AgentPluginDescriptor>();
     private volatile List<PluginCatalogEntry> catalog = Collections.emptyList();
 
     public WorkspacePluginService(Path pluginsRoot, String systemVersion, int supportedApiVersion,
@@ -100,6 +102,13 @@ public final class WorkspacePluginService {
         return agentId == null ? null : selectableAgentById.get(agentId);
     }
 
+    /** @return the descriptors of all selectable agents, in discovery order (for the Questing agent list). */
+    public synchronized List<com.aresstack.askai.plugin.api.agent.AgentPluginDescriptor>
+            getSelectableAgentDescriptors() {
+        return new ArrayList<com.aresstack.askai.plugin.api.agent.AgentPluginDescriptor>(
+                agentDescriptors.values());
+    }
+
     public List<PluginCatalogEntry> getCatalog() {
         return catalog;
     }
@@ -107,6 +116,7 @@ public final class WorkspacePluginService {
     public synchronized void shutdown() {
         selectableById.clear();
         selectableAgentById.clear();
+        agentDescriptors.clear();
         listeners.clear();
         if (pluginManager != null) {
             try {
@@ -128,6 +138,7 @@ public final class WorkspacePluginService {
     private synchronized List<PluginCatalogEntry> discover(List<PluginLoadFailure> failures) {
         selectableById.clear();
         selectableAgentById.clear();
+        agentDescriptors.clear();
         List<PluginCatalogEntry> entries = new ArrayList<PluginCatalogEntry>();
         try {
             pluginManager = new AskAiPluginManager(pluginsRoot, systemVersion);
@@ -151,9 +162,15 @@ public final class WorkspacePluginService {
         String pluginId = wrapper.getPluginId();
         String location = String.valueOf(wrapper.getPluginPath());
         String sha256 = sha256Of(wrapper.getPluginPath());
-        List<WorkspacePluginExtension> extensions;
+
+        List<WorkspacePluginExtension> workspaceExtensions;
+        AgentPluginExtension agentExtension;
         try {
-            extensions = pluginManager.getExtensions(WorkspacePluginExtension.class, pluginId);
+            workspaceExtensions = pluginManager.getExtensions(WorkspacePluginExtension.class, pluginId);
+            List<AgentPluginExtension> agentExtensions =
+                    pluginManager.getExtensions(AgentPluginExtension.class, pluginId);
+            agentExtension = agentExtensions == null || agentExtensions.isEmpty()
+                    ? null : agentExtensions.get(0);
         } catch (RuntimeException | Error ex) {
             PluginLoadFailure failure = new PluginLoadFailure(location, pluginId,
                     PluginFailurePhase.EXTENSION_DISCOVERY, "Could not load the plugin's extension.", ex);
@@ -163,34 +180,42 @@ public final class WorkspacePluginService {
                     .compatibility(PluginCompatibility.MISSING_EXTENSION).lastError(failure).build();
         }
 
-        int extensionCount = extensions == null ? 0 : extensions.size();
+        boolean hasWorkspace = workspaceExtensions != null && !workspaceExtensions.isEmpty();
         WorkspacePluginDescriptor descriptor = null;
-        if (extensionCount >= 1) {
-            try {
-                descriptor = extensions.get(0).getDescriptor();
-            } catch (RuntimeException | Error ex) {
-                PluginLoadFailure failure = new PluginLoadFailure(location, pluginId,
-                        PluginFailurePhase.DESCRIPTOR_VALIDATION, "The plugin descriptor is invalid.", ex);
-                failures.add(failure);
-                return PluginCatalogEntry.builder().pluginId(pluginId).location(location).sha256(sha256)
-                        .pluginState(String.valueOf(wrapper.getPluginState()))
-                        .compatibility(PluginCompatibility.DESCRIPTOR_INVALID).lastError(failure).build();
+        try {
+            if (hasWorkspace) {
+                descriptor = workspaceExtensions.get(0).getDescriptor();
+            } else if (agentExtension != null) {
+                descriptor = toWorkspaceDescriptor(agentExtension.getAgentDescriptor());
             }
+        } catch (RuntimeException | Error ex) {
+            PluginLoadFailure failure = new PluginLoadFailure(location, pluginId,
+                    PluginFailurePhase.DESCRIPTOR_VALIDATION, "The plugin descriptor is invalid.", ex);
+            failures.add(failure);
+            return PluginCatalogEntry.builder().pluginId(pluginId).location(location).sha256(sha256)
+                    .pluginState(String.valueOf(wrapper.getPluginState()))
+                    .compatibility(PluginCompatibility.DESCRIPTOR_INVALID).lastError(failure).build();
         }
 
         PluginCompatibility compatibility = descriptor == null
                 ? PluginCompatibility.MISSING_EXTENSION
                 : compatibilityChecker.check(descriptor,
                         wrapper.getDescriptor().getPluginId(), wrapper.getDescriptor().getVersion(),
-                        extensionCount, seenIds);
+                        1, seenIds);
 
         String stableId = descriptor == null ? pluginId : descriptor.getId();
         boolean enabled = enablement == null || enablement.isEnabled(stableId);
 
         if (compatibility == PluginCompatibility.COMPATIBLE && descriptor != null && enabled) {
             seenIds.add(descriptor.getId());
-            selectableById.put(descriptor.getId(), extensions.get(0));
-            mapAgentExtension(pluginId);
+            if (hasWorkspace) {
+                selectableById.put(descriptor.getId(), workspaceExtensions.get(0));
+            }
+            if (agentExtension != null) {
+                String agentId = agentExtension.getAgentDescriptor().getId();
+                selectableAgentById.put(agentId, agentExtension);
+                agentDescriptors.put(agentId, agentExtension.getAgentDescriptor());
+            }
         }
 
         return PluginCatalogEntry.builder()
@@ -204,23 +229,19 @@ public final class WorkspacePluginService {
                 .build();
     }
 
-    /**
-     * Maps the plugin's optional agent extension (new model) once its workspace side is validated as
-     * compatible + enabled. A plugin may ship only the legacy workspace extension; then this is a no-op. A
-     * broken agent extension is swallowed so the workspace/agent split degrades independently.
-     */
-    private void mapAgentExtension(String pluginId) {
-        try {
-            List<AgentPluginExtension> agentExtensions =
-                    pluginManager.getExtensions(AgentPluginExtension.class, pluginId);
-            if (agentExtensions != null && !agentExtensions.isEmpty()) {
-                AgentPluginExtension agent = agentExtensions.get(0);
-                String agentId = agent.getAgentDescriptor().getId();
-                selectableAgentById.put(agentId, agent);
-            }
-        } catch (RuntimeException | Error ignored) {
-            // A missing/broken agent extension must not break workspace discovery.
-        }
+    /** Bridge an agent descriptor to the catalog's workspace descriptor (same fields) for display/compat. */
+    private static WorkspacePluginDescriptor toWorkspaceDescriptor(
+            com.aresstack.askai.plugin.api.agent.AgentPluginDescriptor agent) {
+        return WorkspacePluginDescriptor.builder()
+                .id(agent.getId())
+                .displayName(agent.getDisplayName())
+                .description(agent.getDescription())
+                .version(agent.getVersion())
+                .pluginApiVersion(agent.getPluginApiVersion())
+                .provider(agent.getProvider())
+                .iconKey(agent.getIconKey())
+                .displayOrder(agent.getDisplayOrder())
+                .build();
     }
 
     private static String sha256Of(Path path) {
