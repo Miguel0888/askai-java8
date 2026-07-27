@@ -9,6 +9,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -18,20 +20,39 @@ public final class BatchTranscriptionService {
 
     public interface BatchTask { void cancel(); }
 
+    /**
+     * Hard wall-clock cap per model/file/profile combination. A stuck combination (a model looping at
+     * 100% GPU that never returns) is aborted after this many seconds and reported as ITEM_FAILED so the
+     * batch continues. This is intentionally shorter than the STT read/idle timeout, which only fires
+     * after that many seconds without any response byte.
+     */
+    public static final long DEFAULT_ITEM_TIMEOUT_SECONDS = 120L;
+
     private final SpeechToTextService speechToTextService;
     private final BatchAudioPreparationService audioPreparationService;
     private final BatchMarkdownResultWriter resultWriter;
     private final BatchTranscriptionEventPublisher eventPublisher;
+    private final long itemTimeoutSeconds;
     private final ExecutorService executor;
 
     public BatchTranscriptionService(SpeechToTextService speechToTextService,
                                      BatchAudioPreparationService audioPreparationService,
                                      BatchMarkdownResultWriter resultWriter,
                                      BatchTranscriptionEventPublisher eventPublisher) {
+        this(speechToTextService, audioPreparationService, resultWriter, eventPublisher,
+                DEFAULT_ITEM_TIMEOUT_SECONDS);
+    }
+
+    public BatchTranscriptionService(SpeechToTextService speechToTextService,
+                                     BatchAudioPreparationService audioPreparationService,
+                                     BatchMarkdownResultWriter resultWriter,
+                                     BatchTranscriptionEventPublisher eventPublisher,
+                                     long itemTimeoutSeconds) {
         this.speechToTextService = speechToTextService;
         this.audioPreparationService = audioPreparationService;
         this.resultWriter = resultWriter;
         this.eventPublisher = eventPublisher;
+        this.itemTimeoutSeconds = itemTimeoutSeconds > 0 ? itemTimeoutSeconds : DEFAULT_ITEM_TIMEOUT_SECONDS;
         this.executor = Executors.newSingleThreadExecutor(new BatchThreadFactory());
     }
 
@@ -98,13 +119,22 @@ public final class BatchTranscriptionService {
                         public void onError(Exception ex) { failure.set(ex); latch.countDown(); }
                     });
             cancellation.setCurrentTask(task);
+            boolean answered;
             try {
-                latch.await();
+                answered = latch.await(itemTimeoutSeconds, TimeUnit.SECONDS);
             } catch (InterruptedException ex) {
                 Thread.currentThread().interrupt();
                 throw new CancelledException();
             } finally {
                 cancellation.clearCurrentTask(task);
+            }
+            if (!answered) {
+                // Stuck combination: abort the in-flight STT call so Ollama can stop and unload, then fail
+                // this item and let the batch continue with the next combination.
+                task.cancel();
+                throw new TimeoutException(
+                        "The transcription exceeded the batch item limit of " + itemTimeoutSeconds
+                                + " seconds and was skipped.");
             }
             ensureActive(cancellation);
             if (failure.get() != null) throw failure.get();
