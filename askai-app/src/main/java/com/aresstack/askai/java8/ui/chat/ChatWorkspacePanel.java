@@ -43,6 +43,7 @@ public final class ChatWorkspacePanel extends JPanel {
             throw new IllegalArgumentException("factory must not be null");
         }
         this.factory = factory;
+        tabs.setTabPlacement(JTabbedPane.BOTTOM); // the tab strip sits below the chat + input area
         add(tabs, BorderLayout.CENTER);
         addPlusTab();
         tabs.addChangeListener(new ChangeListener() {

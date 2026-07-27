@@ -433,32 +433,20 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
     private void buildUserInterface() {
         setLayout(new BorderLayout(8, 8));
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        add(buildToolbar(), BorderLayout.NORTH);
         add(transcript.getComponent(), BorderLayout.CENTER);
-        add(buildComposer(), BorderLayout.SOUTH);
+        add(buildBottomArea(), BorderLayout.SOUTH);
     }
 
-    private JComponent buildToolbar() {
-        // New chat is now the workspace's fixed "+" tab; the model is chosen from the composer selector.
-        // The top row keeps only a model refresh. (modelCombo lives on as the off-screen selection.)
-        int refreshSize = 26;
-        JButton refreshButton = new JButton(new RefreshIcon(refreshSize - 6));
-        refreshButton.setToolTipText("Refresh models");
-        refreshButton.setFocusPainted(false);
-        refreshButton.setMargin(new java.awt.Insets(0, 0, 0, 0));
-        refreshButton.setPreferredSize(new Dimension(refreshSize, refreshSize));
-        refreshButton.addActionListener(event -> refreshModels());
-        JPanel rightControls = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 4));
-        rightControls.add(refreshButton);
-
-        JPanel toolbarRow = new JPanel(new BorderLayout());
-        toolbarRow.add(rightControls, BorderLayout.EAST);
-
-        JPanel header = new JPanel(new BorderLayout(4, 4));
-        header.add(toolbarRow, BorderLayout.NORTH);
-        // Chat settings moved behind the composer's gear; only Technical details stays here (collapsed).
-        header.add(new CollapsiblePanel("Technical details", buildTechnicalDetails(), false), BorderLayout.CENTER);
-        return header;
+    /**
+     * The bottom area of a chat: the composer, with the (collapsed) Technical details directly below it,
+     * both full width. There is no top toolbar anymore — New chat is the workspace's "+" tab and model
+     * refresh is the global button in the menu bar.
+     */
+    private JComponent buildBottomArea() {
+        JPanel bottom = new JPanel(new BorderLayout());
+        bottom.add(buildComposer(), BorderLayout.NORTH);
+        bottom.add(new CollapsiblePanel("Technical details", buildTechnicalDetails(), false), BorderLayout.SOUTH);
+        return bottom;
     }
 
     // ------------------------------------------------------------------ ChatSessionComponent
