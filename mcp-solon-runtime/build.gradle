@@ -1,0 +1,16 @@
+// Solon-backed MCP runtime: a real streamable-HTTP MCP server (loopback) behind the generic McpServerRegistry
+// port. Uses Solon 3.10.1 (Java 8, verified major<=52). No Solon type leaks through the port.
+apply plugin: 'java-library'
+
+dependencies {
+    api project(':mcp-runtime-api')
+    implementation 'org.noear:solon:3.10.1'
+    implementation 'org.noear:solon-boot-jdkhttp:3.10.1'   // JDK com.sun.net.httpserver, Java 8
+    implementation 'org.noear:solon-ai-mcp:3.10.1'         // McpServerEndpointProvider + McpClientProvider
+
+    testImplementation 'junit:junit:4.13.2'
+}
+
+test {
+    useJUnit()
+}
