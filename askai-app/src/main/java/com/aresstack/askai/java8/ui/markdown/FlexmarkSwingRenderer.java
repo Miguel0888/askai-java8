@@ -70,6 +70,12 @@ final class FlexmarkSwingRenderer {
     }
 
     private JComponent renderBlock(Node node, boolean renderMermaid, boolean allowUnwrap) {
+        if (node instanceof com.vladsch.flexmark.ast.HtmlCommentBlock) {
+            // Internal metadata such as <!-- askai:model-id=... --> stays in the Markdown source but must
+            // not paint a visible component. No HTML is rendered or executed; only comments are hidden —
+            // every other unknown node keeps the generic fallback below.
+            return null;
+        }
         if (node instanceof Heading) {
             return renderHeading((Heading) node);
         }
