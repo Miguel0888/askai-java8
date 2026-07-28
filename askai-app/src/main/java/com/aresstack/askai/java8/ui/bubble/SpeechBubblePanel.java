@@ -106,7 +106,16 @@ public final class SpeechBubblePanel extends JPanel
      */
     public void setHeaderColor(Color color) {
         headerLabel.setForeground(color != null ? color : withAlpha(textColor, 220));
+        if (timestampLabel != null) {
+            timestampLabel.setForeground(timestampColor());
+        }
         repaint();
+    }
+
+    /** The timestamp always follows the name color (first line), just dimmed. */
+    private Color timestampColor() {
+        Color header = headerLabel.getForeground();
+        return withAlpha(header != null ? header : textColor, 165);
     }
 
     /**
@@ -122,13 +131,13 @@ public final class SpeechBubblePanel extends JPanel
             timestampLabel = new JLabel();
             Font base = headerLabel.getFont();
             timestampLabel.setFont(base.deriveFont(Font.PLAIN, Math.max(6f, base.getSize2D() * 0.5f)));
-            timestampLabel.setForeground(withAlpha(textColor, 165));
             timestampLabel.setAlignmentY(BOTTOM_ALIGNMENT);
             // A minimum gap, then glue so the time/date block is pushed to the bubble's right edge.
             headerRow.add(javax.swing.Box.createHorizontalStrut(6));
             headerRow.add(javax.swing.Box.createHorizontalGlue());
             headerRow.add(timestampLabel);
         }
+        timestampLabel.setForeground(timestampColor());
         timestampLabel.setText("<html><div style='line-height:90%;text-align:right'><b>"
                 + time + "</b><br>" + date + "</div></html>");
         // A shared, readable tooltip on the whole header so hovering the name or the stamp shows it.
