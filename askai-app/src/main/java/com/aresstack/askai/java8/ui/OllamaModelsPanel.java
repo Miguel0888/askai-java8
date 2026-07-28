@@ -252,7 +252,34 @@ public final class OllamaModelsPanel extends JPanel {
         if (models.isEmpty()) {
             addPlaceholder(installedCardsPanel, "No installed models returned by Ollama.");
         } else {
+            String lastContainer = null;
             for (final OllamaModelInfo modelInfo : models) {
+                String container = containerLabel(modelInfo.getContainerDisplayName());
+                if (!container.equals(lastContainer)) {
+                    addSectionHeader(installedCardsPanel, container);
+                    lastContainer = container;
+                }
+                if (modelInfo.isLocal()) {
+                    // R0.4: local runtime models get their own card — capability/runtime line,
+                    // direct reranker test, delete. No Ollama add-ons, no chat action.
+                    OllamaModelCard localCard = OllamaModelCard.installedLocal(modelInfo,
+                            new Runnable() {
+                                @Override
+                                public void run() {
+                                    openRerankerTestDialog(modelInfo.getDisplayName());
+                                }
+                            },
+                            new Runnable() {
+                                @Override
+                                public void run() {
+                                    confirmAndDelete(modelInfo.getDisplayName());
+                                }
+                            });
+                    installedCardsPanel.add(localCard);
+                    installedCardsPanel.add(Box.createVerticalStrut(6));
+                    loadCapabilities(modelInfo.getDisplayName(), localCard);
+                    continue;
+                }
                 Runnable useInChat = new Runnable() {
                     @Override
                     public void run() {
@@ -320,12 +347,156 @@ public final class OllamaModelsPanel extends JPanel {
     }
 
 
+    /** Container section label; models without an origin tag are the plain remote Ollama list. */
+    private static String containerLabel(String containerDisplayName) {
+        return containerDisplayName == null || containerDisplayName.trim().isEmpty()
+                ? "Ollama" : containerDisplayName.trim();
+    }
+
+    private static void addSectionHeader(JPanel target, String title) {
+        JLabel header = new JLabel(title);
+        header.setFont(header.getFont().deriveFont(java.awt.Font.BOLD, 13f));
+        header.setBorder(javax.swing.BorderFactory.createEmptyBorder(10, 2, 2, 2));
+        header.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
+        target.add(header);
+        javax.swing.JSeparator separator = new javax.swing.JSeparator();
+        separator.setMaximumSize(new java.awt.Dimension(Integer.MAX_VALUE, 2));
+        target.add(separator);
+        target.add(Box.createVerticalStrut(4));
+    }
+
+    /**
+     * R0.4: the immediately testable reranker. Sends one sample query with three documents to the
+     * LOCAL runtime's /api/rerank (loading the model on first use) and shows the ordered raw
+     * scores — the relevant document must come out on top. Afterwards the model is genuinely
+     * loaded, so the Running list is refreshed.
+     */
+    private void openRerankerTestDialog(final String modelName) {
+        final javax.swing.JDialog dialog = new javax.swing.JDialog(
+                javax.swing.SwingUtilities.getWindowAncestor(this) instanceof java.awt.Frame
+                        ? (java.awt.Frame) javax.swing.SwingUtilities.getWindowAncestor(this)
+                        : null,
+                "Test reranker - " + modelName, true);
+        final javax.swing.JTextField queryField =
+                new javax.swing.JTextField("What is DirectML?");
+        final javax.swing.JTextArea document1 = new javax.swing.JTextArea(
+                "DirectML is a Windows API for hardware-accelerated machine learning.", 2, 48);
+        final javax.swing.JTextArea document2 = new javax.swing.JTextArea(
+                "Paris is the capital of France.", 2, 48);
+        final javax.swing.JTextArea document3 = new javax.swing.JTextArea(
+                "Shoes are available in many sizes.", 2, 48);
+        final javax.swing.JTextArea resultArea = new javax.swing.JTextArea(6, 48);
+        resultArea.setEditable(false);
+        final javax.swing.JButton runButton = new javax.swing.JButton("Run rerank");
+
+        JPanel form = new JPanel();
+        form.setLayout(new javax.swing.BoxLayout(form, javax.swing.BoxLayout.Y_AXIS));
+        form.setBorder(javax.swing.BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        form.add(new JLabel("Query"));
+        form.add(queryField);
+        form.add(new JLabel("Document 1"));
+        form.add(new javax.swing.JScrollPane(document1));
+        form.add(new JLabel("Document 2"));
+        form.add(new javax.swing.JScrollPane(document2));
+        form.add(new JLabel("Document 3"));
+        form.add(new javax.swing.JScrollPane(document3));
+        form.add(runButton);
+        form.add(new JLabel("Result (raw model scores, best first)"));
+        form.add(new javax.swing.JScrollPane(resultArea));
+        dialog.setContentPane(form);
+        dialog.pack();
+        dialog.setLocationRelativeTo(this);
+
+        runButton.addActionListener(new java.awt.event.ActionListener() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent event) {
+                runButton.setEnabled(false);
+                resultArea.setText("Running (the first call loads the model) ...");
+                final String query = queryField.getText();
+                final java.util.List<String> documents = java.util.Arrays.asList(
+                        document1.getText(), document2.getText(), document3.getText());
+                new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            String baseUrl = askAiService.localRuntimeManager().ensureStarted();
+                            java.util.Map<String, Object> request =
+                                    new java.util.LinkedHashMap<String, Object>();
+                            request.put("model", modelName);
+                            request.put("query", query);
+                            request.put("documents", documents);
+                            request.put("top_n", documents.size());
+                            final java.util.Map<String, Object> response =
+                                    com.aresstack.askai.java8.localmodels.LocalRuntimeHttp
+                                            .postJson(baseUrl, "/api/rerank", request);
+                            onUi(new Runnable() {
+                                @Override
+                                public void run() {
+                                    resultArea.setText(renderRerankResponse(response, documents));
+                                    runButton.setEnabled(true);
+                                    refreshRunningModels(); // the model is genuinely loaded now
+                                }
+                            });
+                        } catch (final Exception ex) {
+                            onUi(new Runnable() {
+                                @Override
+                                public void run() {
+                                    resultArea.setText("Rerank failed: " + ex.getMessage());
+                                    runButton.setEnabled(true);
+                                }
+                            });
+                        }
+                    }
+                }, "askai-reranker-test").start();
+            }
+        });
+        dialog.setVisible(true);
+    }
+
+    /** Renders the /api/rerank response as ordered "N. score=... - <document>" lines. */
+    static String renderRerankResponse(java.util.Map<String, Object> response,
+                                       java.util.List<String> documents) {
+        Object error = response.get("error");
+        if (error != null) {
+            return "Rerank failed: " + error;
+        }
+        Object results = response.get("results");
+        if (!(results instanceof java.util.List)) {
+            return "Unexpected response: " + response;
+        }
+        StringBuilder text = new StringBuilder();
+        int rank = 0;
+        for (Object entry : (java.util.List<?>) results) {
+            if (!(entry instanceof java.util.Map)) {
+                continue;
+            }
+            java.util.Map<?, ?> result = (java.util.Map<?, ?>) entry;
+            int index = result.get("index") instanceof Number
+                    ? ((Number) result.get("index")).intValue() : -1;
+            double score = result.get("score") instanceof Number
+                    ? ((Number) result.get("score")).doubleValue() : Double.NaN;
+            String document = index >= 0 && index < documents.size()
+                    ? documents.get(index) : "?";
+            String preview = document.length() > 60 ? document.substring(0, 57) + "..." : document;
+            rank++;
+            text.append(rank).append(". score=").append(String.format("%.2f", score))
+                    .append(" - ").append(preview).append('\n');
+        }
+        return text.length() == 0 ? "No results returned." : text.toString();
+    }
+
     private void showRunningModels(List<OllamaRunningModelInfo> models) {
         runningCardsPanel.removeAll();
         if (models.isEmpty()) {
             addPlaceholder(runningCardsPanel, "No running models returned by Ollama.");
         } else {
+            String lastContainer = null;
             for (OllamaRunningModelInfo modelInfo : models) {
+                String container = containerLabel(modelInfo.getContainerDisplayName());
+                if (!container.equals(lastContainer)) {
+                    addSectionHeader(runningCardsPanel, container);
+                    lastContainer = container;
+                }
                 runningCardsPanel.add(OllamaModelCard.running(modelInfo));
                 runningCardsPanel.add(Box.createVerticalStrut(6));
             }

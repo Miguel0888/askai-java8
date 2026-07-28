@@ -180,6 +180,8 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
     // Thinking effort ("off"/"low"/"medium"/"high"), only sent when the selected model supports thinking.
     private String reasoningEffort = "off";
     private boolean modelSupportsThinking;
+    /** True when the SELECTED model reports rerank-only capabilities — chat send is refused. */
+    private volatile boolean selectedModelRerankOnly;
     // The model whose thinking capability is currently being probed, to ignore stale /api/show callbacks.
     private String reasoningProbeModel;
     // Per-turn streaming state for the thinking → answer flow.
@@ -292,6 +294,21 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         this.audioProfileRepository = audioProfileRepository;
         this.applicationState = applicationState;
         this.modelCombo = new JComboBox<String>();
+        this.modelCombo.setRenderer(new javax.swing.DefaultListCellRenderer() {
+            @Override
+            public java.awt.Component getListCellRendererComponent(javax.swing.JList<?> list,
+                    Object value, int index, boolean isSelected, boolean cellHasFocus) {
+                Object display = value;
+                if (value instanceof String && com.aresstack.askai.java8.localmodels
+                        .LocalModelNames.isLocalModelName((String) value)) {
+                    display = "Local · " + ((String) value).substring(
+                            com.aresstack.askai.java8.localmodels.LocalModelNames
+                                    .LOCAL_PREFIX.length());
+                }
+                return super.getListCellRendererComponent(list, display, index, isSelected,
+                        cellHasFocus);
+            }
+        });
         this.keepAliveField = new JTextField(model.getDefaultKeepAlive(), 6);
         this.systemPromptArea = new JTextArea("You are a concise local assistant.", 2, 40);
         this.transcript = new ChatTranscript();
@@ -2109,6 +2126,15 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
                         boolean supported = ModelCapability.fromOllamaTags(info.getCapabilities())
                                 .contains(ModelCapability.THINKING);
                         applyThinkingSupport(modelName, supported);
+                        // R0.4: rerank-only models stay VISIBLE and selectable in the dropdown
+                        // (the user wants to see all models), but they cannot chat — sending is
+                        // refused with a clear status instead of a server roundtrip error.
+                        boolean rerankOnly = info.getCapabilities().contains("rerank")
+                                && !info.getCapabilities().contains("completion");
+                        selectedModelRerankOnly = rerankOnly;
+                        if (rerankOnly) {
+                            setStatus("This local model supports reranking, not chat.");
+                        }
                     }
                 });
             }
@@ -2309,6 +2335,10 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         final String modelName = (String) modelCombo.getSelectedItem();
         if (modelName == null || modelName.trim().isEmpty()) {
             setStatus("No model selected. Open Models or Install first.");
+            return;
+        }
+        if (selectedModelRerankOnly) {
+            setStatus("This local model supports reranking, not chat.");
             return;
         }
         final ChatDraft draft = composer.getDraft();

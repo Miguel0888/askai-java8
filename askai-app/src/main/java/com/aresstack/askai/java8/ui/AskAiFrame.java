@@ -133,6 +133,29 @@ public final class AskAiFrame extends JFrame {
                     public void accept(Runnable runnable) { onUi(runnable); }
                 });
         this.globalRefreshButton = createGlobalRefreshButton();
+        // R0.4 lifecycle: after an AskAI restart the local model runtime comes back automatically
+        // when locally installed models exist, and it always ends with AskAI.
+        final com.aresstack.askai.java8.localmodels.LocalModelRuntimeManager localRuntime =
+                askAiService.localRuntimeManager();
+        if (localRuntime.hasInstalledModels()) {
+            Thread localRuntimeBoot = new Thread(new Runnable() {
+                public void run() {
+                    try {
+                        localRuntime.ensureStarted();
+                    } catch (Exception ex) {
+                        System.err.println("[local-runtime] start on boot failed: "
+                                + ex.getMessage());
+                    }
+                }
+            }, "askai-local-runtime-boot");
+            localRuntimeBoot.setDaemon(true);
+            localRuntimeBoot.start();
+        }
+        Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
+            public void run() {
+                localRuntime.stop();
+            }
+        }, "askai-local-runtime-shutdown"));
         this.catalogRefreshService.subscribe(new GlobalCatalogRefreshService.Listener() {
             public void onRefreshStarted() { globalRefreshButton.setEnabled(false); }
             public void onCatalogRefreshed(GlobalCatalogSnapshot snapshot) { applyGlobalSnapshot(snapshot); }

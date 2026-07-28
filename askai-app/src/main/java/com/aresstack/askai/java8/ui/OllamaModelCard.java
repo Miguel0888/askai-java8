@@ -28,6 +28,15 @@ final class OllamaModelCard extends JPanel {
                             final OllamaModelInfo installedModel, final Runnable searchAddOnsAction,
                             final Runnable localAddOnAction,
                             final Runnable useInChatAction, Runnable deleteAction) {
+        this(title, line1, line2, running, installedModel, searchAddOnsAction, localAddOnAction,
+                useInChatAction, deleteAction, null);
+    }
+
+    private OllamaModelCard(String title, String line1, String line2, boolean running,
+                            final OllamaModelInfo installedModel, final Runnable searchAddOnsAction,
+                            final Runnable localAddOnAction,
+                            final Runnable useInChatAction, Runnable deleteAction,
+                            final Runnable testRerankerAction) {
         setLayout(new BorderLayout(12, 0));
         setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(new Color(210, 215, 224)),
@@ -51,6 +60,16 @@ final class OllamaModelCard extends JPanel {
         capabilityIconLabel.setToolTipText("Model capabilities (from /api/show)");
         right.add(capabilityIconLabel);
         if (deleteAction != null) {
+            // Local reranker models are directly testable from their card (R0.4).
+            if (testRerankerAction != null) {
+                JButton testReranker = new JButton("Test reranker");
+                testReranker.setToolTipText(
+                        "Run a sample query against this local reranker (loads the model)");
+                testReranker.setFont(testReranker.getFont().deriveFont(Font.BOLD));
+                testReranker.setForeground(new Color(0x0D, 0x47, 0xA1));
+                testReranker.addActionListener(event -> testRerankerAction.run());
+                right.add(testReranker);
+            }
             // Primary action first and highlighted: open this model in the chat with one click.
             if (useInChatAction != null) {
                 JButton useInChat = new JButton("Use in chat");
@@ -128,11 +147,26 @@ final class OllamaModelCard extends JPanel {
     }
 
     static OllamaModelCard running(OllamaRunningModelInfo model) {
+        if (model.isLocal()) {
+            // The local runtime runs on the CPU backend and never occupies VRAM (R0 default).
+            return new OllamaModelCard(model.getDisplayName(), "Backend: CPU",
+                    join("RAM " + formatBytes(model.getSize()), "VRAM 0"), true, null, null, null,
+                    null, null);
+        }
         String details = join(model.getDetails().getFamily(), model.getDetails().getParameterSize(),
                 model.getDetails().getQuantizationLevel(), model.getDetails().getFormat());
         String meta = join("RAM " + formatBytes(model.getSize()), "VRAM " + formatBytes(model.getSizeVram()),
                 "expires " + shortDate(model.getExpiresAt()));
         return new OllamaModelCard(model.getDisplayName(), details, meta, true, null, null, null, null, null);
+    }
+
+    /** A LOCALLY installed model card: capability/runtime line, test action, delete (R0.4). */
+    static OllamaModelCard installedLocal(OllamaModelInfo model, Runnable testRerankerAction,
+                                          Runnable deleteAction) {
+        String details = "Capability: rerank \u00b7 Runtime: win-directml-java \u00b7 Backend: CPU";
+        String meta = join(formatBytes(model.getSize()), shortDate(model.getModifiedAt()));
+        return new OllamaModelCard(model.getDisplayName(), details, meta, false, model, null, null,
+                null, deleteAction, testRerankerAction);
     }
 
     private static String join(String... parts) {
