@@ -348,6 +348,48 @@ public class ResearchLoopTest {
     }
 
     @Test
+    public void searchProviderIsTransitNeverASourceHostOrLinkFarm() {
+        // The user-reported bug: on Bing the agent walked the engine's own tabs (Videos, Shopping, …),
+        // counted bing.com as THE website and never rated real target pages. The provider host from the
+        // PROVIDER line is transit: visited at most once, never counted, never accepted, links ignored.
+        Fx fx = new Fx();
+        fx.browser.searchResults = "PROVIDER: www.bing.com\n"
+                + "1: pf4j Videos — https://www.bing.com/videos/search?q=pf4j\n"
+                + "2: article — https://www.bing.com/ck/a?target-a";
+        List<String> trapLinks = new ArrayList<String>();
+        trapLinks.add("pf4j trap — https://host1.com/b");
+        fx.browser.pages.put("https://www.bing.com/videos/search?q=pf4j",
+                new Page("pf4j - Videos", "pf4j video results matching every term", trapLinks));
+        fx.browser.redirects.put("https://www.bing.com/ck/a?target-a", "https://example-a.org/article");
+        fx.browser.pages.put("https://example-a.org/article",
+                new Page("pf4j article", "pf4j evidence from site a", new ArrayList<String>()));
+
+        ResearchLoop loop = fx.loop(ResearchRunBudget.defaults());
+        loop.run("pf4j");
+
+        assertEquals("only the real target host counts", 1, loop.getProgress().getDistinctHosts().size());
+        assertTrue(loop.getProgress().getDistinctHosts().contains("example-a.org"));
+        assertEquals("the provider vertical is not a page of the research",
+                1, loop.getProgress().getPagesVisited());
+        assertTrue("the vertical is marked visited (never re-opened)",
+                loop.getProgress().alreadyVisited("https://www.bing.com/videos/search?q=pf4j"));
+        assertFalse("the vertical page must never be captured/accepted",
+                fx.browser.captureByUrl.containsKey("https://www.bing.com/videos/search?q=pf4j")
+                        && fx.research.sourceByCapture.containsKey(
+                                fx.browser.captureByUrl.get("https://www.bing.com/videos/search?q=pf4j")));
+        assertFalse("links on provider pages are not harvested",
+                fx.browser.captureByUrl.containsKey("https://host1.com/b"));
+        boolean skippedBing = false;
+        for (ResearchRunActivity activity : fx.activities) {
+            if (ResearchRunActivity.PAGE_SKIPPED.equals(activity.getToken())
+                    && "www.bing.com".equals(activity.getHost())) {
+                skippedBing = true;
+            }
+        }
+        assertTrue("the transit page is visibly reported as skipped", skippedBing);
+    }
+
+    @Test
     public void revisitedUrlsAreNeverNavigatedAgainAndPagesCountOnlyNewCanonicalUrls() {
         ResearchRunProgress p = new ResearchRunProgress();
         assertTrue(p.pageVisited("https://a/x", "a"));

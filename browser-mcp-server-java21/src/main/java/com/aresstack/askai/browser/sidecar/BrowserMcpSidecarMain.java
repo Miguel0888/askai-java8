@@ -78,13 +78,19 @@ public final class BrowserMcpSidecarMain {
                 .stringParamAdd("query", "The search query")
                 .doHandle(new ToolHandler() {
                     public Object handle(Map<String, Object> args) throws Throwable {
+                        com.aresstack.askai.browser.WebSearchResult result =
+                                session.search(str(args, "query"));
                         StringBuilder sb = new StringBuilder();
-                        for (WebSearchItem item : session.search(str(args, "query")).getItems()) {
+                        if (!result.getProviderHost().isEmpty()) {
+                            // Consumers treat the engine's host as transit — never an evidence source.
+                            sb.append("PROVIDER: ").append(result.getProviderHost()).append('\n');
+                        }
+                        for (WebSearchItem item : result.getItems()) {
                             sb.append(item.getId()).append(": ").append(item.getTitle())
                               .append(" — ").append(item.getUrl()).append('\n')
                               .append("   ").append(item.getSnippet()).append('\n');
                         }
-                        return sb.length() == 0 ? "No results." : sb.toString();
+                        return result.getItems().isEmpty() ? "No results." : sb.toString();
                     }
                 }));
         endpoint.addTool(new FunctionToolDesc("web_open")

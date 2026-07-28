@@ -41,7 +41,7 @@ final class PlaywrightBrowserSession implements BrowserSession {
         this.searchUrlTemplate = searchUrlTemplate == null || searchUrlTemplate.trim().isEmpty()
                 ? null : searchUrlTemplate.trim();
         this.searchProvider = searchProvider == null
-                ? new WebSearchProvider.LinkListSearchProvider() : searchProvider;
+                ? new WebSearchProvider.OrganicResultSearchProvider() : searchProvider;
     }
 
     public BrowserBackendKind getBackendKind() {
@@ -57,7 +57,8 @@ final class PlaywrightBrowserSession implements BrowserSession {
             throw new BrowserException("Empty search query.");
         }
         BrowserPageSnapshot page = open(searchUrlTemplate.replace("{query}", encode(query.trim())));
-        return new WebSearchResult(searchProvider.extract(page, currentLinks));
+        return new WebSearchResult(searchProvider.extract(page, currentLinks),
+                WebSearchProvider.OrganicResultSearchProvider.hostOf(page.getUrl()));
     }
 
     public BrowserPageSnapshot open(String url) throws BrowserException {

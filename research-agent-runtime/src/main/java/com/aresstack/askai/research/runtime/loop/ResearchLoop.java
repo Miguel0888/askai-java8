@@ -28,6 +28,8 @@ public final class ResearchLoop {
     private final AtomicBoolean cancelled;
     private final long startedAt;
     private final Set<String> claimedSourceIds = new HashSet<String>();
+    /** Sites of the search engine(s) used this run — pure TRANSIT: never a page, host, source or link farm. */
+    private final Set<String> searchProviderSites = new HashSet<String>();
 
     public ResearchLoop(ToolInvoker browser, ToolInvoker research, ResearchRunBudget budget,
                         ResearchLoopClock clock, ResearchLoopListener listener, AtomicBoolean cancelled) {
@@ -90,6 +92,10 @@ public final class ResearchLoop {
             String query = join(terms);
             listener.progress(progress, ResearchRunActivity.searching(query));
             String results = callBrowser("web_search", args("query", query));
+            String providerHost = providerHostOf(results);
+            if (!providerHost.isEmpty()) {
+                searchProviderSites.add(siteOf(providerHost));
+            }
             frontier.addAll(extractUrls(results));
         } catch (ToolInvoker.EndpointUnavailable ex) {
             return ResearchStopReason.MCP_UNAVAILABLE;
@@ -124,13 +130,24 @@ public final class ResearchLoop {
                 String finalUrl = finalUrlOf(page);
                 String effectiveUrl = finalUrl == null || finalUrl.isEmpty() ? url : finalUrl;
                 String finalCanonical = canonicalish(effectiveUrl);
-                progress.pageVisited(finalCanonical, hostOf(effectiveUrl));
+                String finalHost = hostOf(effectiveUrl);
+                String pageTitle = titleOf(page);
+                if (isSearchProviderSite(finalHost)) {
+                    // The search engine is TRANSIT (its verticals like /videos or /shopping ended up in
+                    // the frontier): mark visited so it is never re-opened, but it counts as neither page
+                    // nor host, is never a source, and its links are not harvested.
+                    progress.noteVisitedAlias(finalCanonical);
+                    progress.noteVisitedAlias(canonical);
+                    listener.status("skipped search-provider page: " + effectiveUrl);
+                    listener.progress(progress,
+                            ResearchRunActivity.pageSkipped(effectiveUrl, finalHost, pageTitle));
+                    continue;
+                }
+                progress.pageVisited(finalCanonical, finalHost);
                 if (!finalCanonical.equals(canonical)) {
                     // A redirect: the requested address is marked visited too (but never counted).
                     progress.noteVisitedAlias(canonical);
                 }
-                String finalHost = hostOf(effectiveUrl);
-                String pageTitle = titleOf(page);
                 listener.progress(progress, ResearchRunActivity.readingPage(effectiveUrl, finalHost, pageTitle));
                 String captureId = field(page, "capture_id");
                 String pageText = page.toLowerCase(Locale.ROOT);
@@ -157,7 +174,8 @@ public final class ResearchLoop {
                     String lower = line.toLowerCase(Locale.ROOT);
                     if (matches(lower, terms)) {
                         String linkUrl = lastUrl(line);
-                        if (linkUrl != null && !progress.alreadyVisited(canonicalish(linkUrl))) {
+                        if (linkUrl != null && !isSearchProviderSite(hostOf(linkUrl))
+                                && !progress.alreadyVisited(canonicalish(linkUrl))) {
                             frontier.add(linkUrl);
                         }
                     }
@@ -380,6 +398,30 @@ public final class ResearchLoop {
             }
         }
         return "";
+    }
+
+    /** The {@code PROVIDER: <host>} line of a {@code web_search} result, or {@code ""}. */
+    static String providerHostOf(String results) {
+        for (String line : (results == null ? "" : results).split("\n")) {
+            if (line.startsWith("PROVIDER: ")) {
+                return line.substring("PROVIDER: ".length()).trim().toLowerCase(Locale.ROOT);
+            }
+        }
+        return "";
+    }
+
+    private boolean isSearchProviderSite(String host) {
+        return !host.isEmpty() && searchProviderSites.contains(siteOf(host));
+    }
+
+    /** Comparable "site" of a host ({@code www.bing.com} → {@code bing.com}); literal IPs stay as-is. */
+    static String siteOf(String host) {
+        String h = host == null ? "" : host.toLowerCase(Locale.ROOT);
+        if (h.isEmpty() || h.matches("[0-9.:]+")) {
+            return h;
+        }
+        String[] labels = h.split("\\.");
+        return labels.length <= 2 ? h : labels[labels.length - 2] + "." + labels[labels.length - 1];
     }
 
     static String hostOf(String url) {
