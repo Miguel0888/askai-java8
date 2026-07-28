@@ -143,26 +143,29 @@ public class ProductiveCommandBridgeTest {
     @Test
     public void aPlainQuestionAdvancesGateFreeTransitionsAndStopsAtTheApprovalGate() {
         Fx fx = new Fx();
-        // The natural flow (Commit 42): a plain question auto-advances START → SUBMIT_SCOPE →
-        // PROPOSE_OUTLINE and STOPS at the outline approval gate — the machine, not the UI, decides.
+        // The consultative flow (Commit 47): question → paraphrase + focused question → summary +
+        // "anything missing?" → confirmation. Only then do artifacts exist and the gate appears —
+        // the dialog is host-side, so NOTHING is forwarded to the agent during scoping.
         fx.session.submitPrompt("just a question");
-        assertEquals(1, fx.backend.prompts.size());
+        assertEquals(0, fx.backend.prompts.size());
+        assertEquals(ResearchStateIds.SCOPING, fx.resources.currentState().getPhaseId());
+        fx.session.submitPrompt("focus on isolation"); // focused answer → summary + missing check
+        assertEquals(0, fx.backend.prompts.size());
+        fx.session.submitPrompt("no"); // nothing missing → REAL artifacts + the outline gate
         assertEquals(ResearchStateIds.OUTLINE, fx.resources.currentState().getPhaseId());
         assertEquals(ResearchStateIds.WAITING_APPROVAL, fx.resources.currentState().getStateId());
+        String outline = fx.resources.getArtifactStore().read("outline").getMarkdown();
+        assertTrue(outline.contains("just a question"));
+        assertTrue("the confirmed aspect is part of the outline", outline.contains("focus on isolation"));
 
-        // The user's approve (phase-correct command resolved FROM the machine's allowed set) advances
-        // to RESEARCH/running AND automatically re-submits the STORED question — the user never has
-        // to type it a second time.
+        // The user's approve advances to RESEARCH/running AND automatically submits the STORED
+        // question — the user never types it twice.
         fx.session.approveCurrent();
         assertEquals(ResearchStateIds.RESEARCH, fx.resources.currentState().getPhaseId());
         assertEquals(ResearchStateIds.RUNNING, fx.resources.currentState().getStateId());
-        // The session's view model mirrors the single truth (direct-run UI executor).
         assertEquals("RESEARCH", fx.session.getState().getPhaseLabel());
-        assertEquals("the stored question was auto-continued", 2, fx.backend.prompts.size());
-        assertEquals("just a question", fx.backend.prompts.get(1));
-        // The approval message showed the REAL outline derived from the question.
-        assertTrue(fx.resources.getArtifactStore().read("outline").getMarkdown()
-                .contains("just a question"));
+        assertEquals("the stored question was auto-continued", 1, fx.backend.prompts.size());
+        assertEquals("just a question", fx.backend.prompts.get(0));
     }
 
     @Test

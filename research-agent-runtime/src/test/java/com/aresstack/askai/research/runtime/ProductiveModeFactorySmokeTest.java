@@ -127,21 +127,18 @@ public class ProductiveModeFactorySmokeTest {
         try {
             session.activate();
             ResearchAgentSession research = (ResearchAgentSession) session;
-            // 46: the NATURAL user flow — the FIRST message IS the research question. No prefix, no
-            // /do ceremony: gate-free transitions auto-advance, the outline approval (showing the
-            // question-derived outline) surfaces as a bubble, and APPROVING continues automatically
-            // with the stored question — it is never typed twice.
-            // RA-P003: the first ACP prompt's RESPONSE path occasionally wedges (the agent logs the
-            // turn start but no update is delivered; resending only creates overlapping prompts whose
-            // updates are then correctly late-dropped). When the race hits, this run is SKIPPED loudly
-            // under its tracked id instead of masking or failing the acceptance.
-            research.submitPrompt("pf4j plugin framework");
-            boolean announced = ready.await(120, TimeUnit.SECONDS);
-            assumeTrue("SKIPPED (RA-P003: first-prompt response path wedged; see problems.md): "
-                    + messages, announced);
+            // 47: the CONSULTATIVE flow — the agent greets with an open question; the user's first
+            // message is the research question and gets a paraphrase + focused follow-up; "start"
+            // skips further questions; the approval shows the REAL outline; approving continues
+            // automatically (the first ACP prompt happens only now).
+            research.submitPrompt("pf4j plugin framework"); // → paraphrase + focused question
+            research.submitPrompt("start");                  // → real artifacts + outline gate
             assertTrue("the outline approval must reach the chat: " + messages,
                     host.approvalRequested.await(30, TimeUnit.SECONDS));
-            research.approveCurrent(); // the user's approve — auto-continues with the stored question
+            research.approveCurrent(); // approve — auto-continues with the stored question
+            // RA-P003: the first ACP prompt's response path occasionally wedges; skip loudly then.
+            assumeTrue("SKIPPED (RA-P003: first-prompt response path wedged; see problems.md): "
+                    + messages, ready.await(120, TimeUnit.SECONDS));
             assertTrue("autonomous run must finish: " + messages, stopped.await(180, TimeUnit.SECONDS));
             assertTrue("run must reach sufficient evidence: " + messages,
                     contains(messages, "RESEARCH_RUN_STOPPED: SUFFICIENT_EVIDENCE"));

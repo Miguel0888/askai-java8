@@ -123,6 +123,10 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 }
             });
         }
+        if (productiveResources != null) {
+            // First contact: the agent takes the initiative with ONE open question (playbook).
+            sayAsAgent(ResearchPlaybook.greeting());
+        }
     }
 
     @Override
@@ -192,43 +196,69 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         return state.getPendingApprovalId() != null;
     }
 
-    /** The user's first prompt — the research question everything derives from (auto-continued after approval). */
+    /** The user's research question (set once scoping is confirmed; auto-continued after approval). */
     private volatile String researchQuestion = "";
+    /** The consultative scoping dialog (productive mode). */
+    private final ScopingConversation scoping = new ScopingConversation();
+    private final java.util.concurrent.atomic.AtomicLong playbookMessageIds =
+            new java.util.concurrent.atomic.AtomicLong();
 
     public void submitPrompt(String text, String activeSectionId) {
         if (handle == null) {
             return;
         }
+        // Explainability (both modes): meta questions are answered from the playbook + live state,
+        // in plain language — never with internal command or phase identifiers.
+        String phaseDescription = ResearchPlaybook.describePhase(state.getPhaseId(), state.getStateId(),
+                productiveResources == null || !scoping.getQuestion().isEmpty());
+        String explanation = ResearchPlaybook.explain(text, phaseDescription);
+        if (explanation != null) {
+            sayAsAgent(explanation);
+            return;
+        }
         if (productiveResources != null && !productiveResources.isClosed()) {
-            // The FIRST user text is the research question: it is stored (for automatic continuation
-            // after the approval) and turned into REAL concept/outline artifacts — an approval never
-            // refers to invented content.
-            if (researchQuestion.isEmpty() && text != null && !text.trim().isEmpty()) {
-                researchQuestion = text.trim();
-                writeQuestionArtifacts(researchQuestion);
+            if (!scoping.isComplete()) {
+                // Consultative scoping: paraphrase, ONE focused question, summary, "anything missing?".
+                ScopingConversation.Reply reply = scoping.next(text);
+                if (!reply.scopingComplete) {
+                    if (reply.text != null) {
+                        sayAsAgent(reply.text);
+                    }
+                    return; // the dialog is host-side; nothing is forwarded to the agent yet
+                }
+                // Scope CONFIRMED: real artifacts from the confirmed scope, then the outline gate.
+                researchQuestion = scoping.getQuestion();
+                writeScopedArtifacts();
+                autoAdvanceTowardsResearch(); // stops at the approval, showing the actual outline
+                return;
             }
             // Gate-FREE forward transitions advance automatically; genuine approval gates stay with
-            // the user (visible bubble with the actual outline). No /do ceremony.
+            // the user. No /do ceremony.
             autoAdvanceTowardsResearch();
         }
         backend.submitPrompt(handle, new ResearchPrompt(text, activeSectionId));
     }
 
-    /** Concept + outline derived from the QUESTION (revision >= 1) — the approval shows real content. */
-    private void writeQuestionArtifacts(String question) {
+    /** An agent utterance from the playbook/dialog, routed through the shared sink on the UI thread. */
+    private void sayAsAgent(final String text) {
+        if (sink == null) {
+            return;
+        }
+        uiExecutor.execute(new Runnable() {
+            public void run() {
+                sink.appendAssistantMessage("playbook-" + playbookMessageIds.incrementAndGet(), text);
+            }
+        });
+    }
+
+    /** Concept + outline from the CONFIRMED scope (revision >= 1) — the approval shows real content. */
+    private void writeScopedArtifacts() {
         com.aresstack.askai.plugin.api.agent.artifact.AgentArtifactStore store =
                 productiveResources.getArtifactStore();
         com.aresstack.askai.plugin.api.agent.artifact.ArtifactContent concept = store.read("concept");
-        if (concept.getMarkdown().isEmpty()) {
-            store.replace("concept", concept.getRevision(),
-                    "# Concept\n\nResearch question:\n\n> " + question + "\n");
-        }
+        store.replace("concept", concept.getRevision(), scoping.buildConceptMarkdown());
         com.aresstack.askai.plugin.api.agent.artifact.ArtifactContent outline = store.read("outline");
-        if (outline.getMarkdown().isEmpty()) {
-            store.replace("outline", outline.getRevision(),
-                    "# Outline — " + question + "\n\n"
-                            + "1. Background\n2. Evidence from web research\n3. Conclusions\n");
-        }
+        store.replace("outline", outline.getRevision(), scoping.buildOutlineMarkdown());
     }
 
     /**

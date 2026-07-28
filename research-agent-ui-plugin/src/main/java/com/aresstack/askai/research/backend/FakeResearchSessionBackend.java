@@ -51,8 +51,7 @@ public final class FakeResearchSessionBackend implements ResearchSessionBackend 
         // activation. The session waits for the USER'S research question; guidance is visible instead.
         synchronized (session) {
             emit(session, ResearchBackendEvent.builder(ResearchBackendEventType.ASSISTANT_MESSAGE)
-                    .text("What would you like me to research? Type your research question below "
-                            + "to begin."), null);
+                    .text(com.aresstack.askai.research.agent.ResearchPlaybook.greeting()), null);
         }
         return session;
     }
