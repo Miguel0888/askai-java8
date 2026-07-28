@@ -1,10 +1,20 @@
 package com.aresstack.askai.browser.search.analysis;
 
+import com.aresstack.askai.browser.render.RenderedBox;
 import com.aresstack.askai.browser.search.AiLayoutResolverSettings;
 import com.aresstack.askai.browser.search.AiRetryPolicy;
 import com.aresstack.askai.browser.search.LegacyBrowserSearchDefaults;
 import com.aresstack.askai.browser.search.LegacyBrowserSearchSettings;
 import com.aresstack.askai.browser.search.SearchDiagnosticsSettings;
+import com.aresstack.askai.browser.search.layout.EngineFamily;
+import com.aresstack.askai.browser.search.layout.MechanicalConfidenceOutcome;
+import com.aresstack.askai.browser.search.layout.SearchPageAnalysisArtifact;
+import com.aresstack.askai.browser.search.layout.SearchPageContainerCandidate;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 
 /**
  * Shared builders for the A4 tests: settings variants (tight diagnostics, enabled/disabled AI
@@ -56,5 +66,28 @@ final class LayoutTestSupport {
     static AiRetryPolicy retryPolicy(int maximumAttempts) {
         return new AiRetryPolicy(maximumAttempts, 0, 1.0, 0, true, true, true, true, true, true,
                 true, true);
+    }
+
+    /** A minimal container candidate with an id and parent — geometry/scores neutral. */
+    static SearchPageContainerCandidate candidate(String id, String parent) {
+        return new SearchPageContainerCandidate(id, parent, "div", "", Collections.<String>emptyList(),
+                "", 100, 60, 1, 3, 0, 0, 3, new RenderedBox(0, 0, 100, 100), 1.0, false, 0.1, 0.1,
+                0, 0, "", false, "div(a)", 2, Collections.<com.aresstack.askai.browser.search.layout
+                        .SearchPageSignalScore>emptyList(), 1.0, "");
+    }
+
+    /** A synthetic low-confidence artifact bound to a snapshot, exposing the given candidates. */
+    static SearchPageAnalysisArtifact artifactOf(String snapshotId,
+                                                 SearchPageContainerCandidate... candidates) {
+        List<SearchPageContainerCandidate> list =
+                new ArrayList<SearchPageContainerCandidate>(Arrays.asList(candidates));
+        List<String> preferred = new ArrayList<String>();
+        for (SearchPageContainerCandidate candidate : list) {
+            preferred.add(candidate.containerId);
+        }
+        return new SearchPageAnalysisArtifact("analysis-" + snapshotId + "-1", snapshotId, 1L, "fp",
+                "q", EngineFamily.GENERIC, "https://engine.example/find?q=q", "SERP",
+                MechanicalConfidenceOutcome.LOW_CONFIDENCE, 0.2, preferred, list,
+                Collections.<String>emptyList(), Collections.<String>emptyList(), "digest");
     }
 }

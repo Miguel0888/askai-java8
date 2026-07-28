@@ -3,6 +3,7 @@ package com.aresstack.askai.browser.search.analysis;
 import com.aresstack.askai.browser.search.AiLayoutResolverSettings;
 import com.aresstack.askai.browser.search.AiRetryPolicy;
 import com.aresstack.askai.browser.search.SearchDiagnosticsSettings;
+import com.aresstack.askai.browser.search.SearchResultExtractionSettings;
 import com.aresstack.askai.browser.search.inference.CancellationSignal;
 import com.aresstack.askai.browser.search.inference.StructuredInferencePort;
 import com.aresstack.askai.browser.search.inference.StructuredInferenceRequest;
@@ -15,6 +16,8 @@ import com.aresstack.askai.browser.search.layout.SearchPageLayoutResolutionReque
 import com.aresstack.askai.browser.search.layout.SearchPageLayoutResolver;
 import com.aresstack.askai.browser.search.layout.SearchPageLayoutResolverOutcome;
 import com.aresstack.askai.browser.search.layout.SearchPageLayoutResolverResult;
+import com.aresstack.askai.browser.search.layout.SearchPageLayoutValidationResult;
+import com.aresstack.askai.browser.search.layout.ValidatedSearchPageLayoutDecision;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -37,9 +40,12 @@ public final class AiSearchPageLayoutResolver implements SearchPageLayoutResolve
     private final StructuredInferencePort port;
     private final SearchPageLayoutPromptFactory promptFactory = new SearchPageLayoutPromptFactory();
     private final SearchPageLayoutDecisionParser parser = new SearchPageLayoutDecisionParser();
+    private final SearchPageLayoutDecisionValidator validator;
 
-    public AiSearchPageLayoutResolver(StructuredInferencePort port) {
+    public AiSearchPageLayoutResolver(StructuredInferencePort port,
+                                      SearchResultExtractionSettings extraction) {
         this.port = port;
+        this.validator = new SearchPageLayoutDecisionValidator(extraction);
     }
 
     public SearchPageLayoutResolverResult resolve(SearchPageLayoutResolutionRequest request) {
@@ -134,15 +140,45 @@ public final class AiSearchPageLayoutResolver implements SearchPageLayoutResolve
                         attempts, "parse failure: " + parseFailure.getMessage());
             }
 
-            // A4b accepts a parsed decision; A4c inserts structural validation here.
+            SearchPageLayoutValidationResult validation = validator.validate(decision, artifact);
+            if (!validation.valid) {
+                List<String> violations = validation.messages();
+                attempts.add(attempt(attemptNumber, inference.status, true, false, violations,
+                        rawStored));
+                if (retryOnValidation(policy, validation) && !lastAttempt) {
+                    previousResponse = inference.rawText;
+                    previousViolations = violations;
+                    continue;
+                }
+                return result(SearchPageLayoutResolverOutcome.VALIDATION_FAILED, snapshotId, null,
+                        attempts, "validation failed: " + violations);
+            }
+
+            ValidatedSearchPageLayoutDecision validated =
+                    validator.toValidatedDecision(decision, artifact);
             attempts.add(attempt(attemptNumber, inference.status, true, true,
                     Collections.<String>emptyList(), rawStored));
-            return result(SearchPageLayoutResolverOutcome.RESOLVED, snapshotId, decision, attempts,
-                    "resolved on attempt " + attemptNumber);
+            return new SearchPageLayoutResolverResult(SearchPageLayoutResolverOutcome.RESOLVED,
+                    snapshotId, decision, validated, attempts, "resolved on attempt " + attemptNumber);
         }
 
-        return result(SearchPageLayoutResolverOutcome.VALIDATION_FAILED, snapshotId, null, attempts,
-                "retry budget exhausted");
+        return result(SearchPageLayoutResolverOutcome.VALIDATION_FAILED, snapshotId, null,
+                attempts, "retry budget exhausted");
+    }
+
+    /**
+     * Whether a rejected decision should be repaired, per the policy's granular flags: unknown-id,
+     * schema-shape and semantic-choice violations each have their own switch.
+     */
+    private static boolean retryOnValidation(AiRetryPolicy policy,
+                                             SearchPageLayoutValidationResult validation) {
+        if (validation.hasUnknownContainerId() && policy.retryOnUnknownIds) {
+            return true;
+        }
+        if (validation.hasSchemaViolation() && policy.retryOnSchemaViolation) {
+            return true;
+        }
+        return validation.hasSemanticViolation() && policy.retryOnSemanticValidationFailure;
     }
 
     private static boolean retryOnStatus(AiRetryPolicy policy, StructuredInferenceStatus status) {
@@ -202,7 +238,8 @@ public final class AiSearchPageLayoutResolver implements SearchPageLayoutResolve
                                                          SearchPageLayoutResolutionDecision decision,
                                                          List<SearchPageAnalysisAttempt> attempts,
                                                          String diagnostic) {
-        return new SearchPageLayoutResolverResult(outcome, snapshotId, decision, attempts, diagnostic);
+        return new SearchPageLayoutResolverResult(outcome, snapshotId, decision, null, attempts,
+                diagnostic);
     }
 
     private static List<String> one(String value) {
