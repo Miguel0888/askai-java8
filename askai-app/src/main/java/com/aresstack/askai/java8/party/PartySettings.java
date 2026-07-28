@@ -370,6 +370,34 @@ public final class PartySettings {
         }
     }
 
+    // ------------------------------------------------------------------ last-seen tracking
+
+    private static final String KEY_LAST_SEEN_PREFIX = "party.lastSeen.";
+
+    /**
+     * The newest message timestamp (epoch millis) already shown to the user in {@code roomId} —
+     * replayed or synced messages at or before this stamp are old news and must not ring.
+     */
+    public long lastSeenAt(String roomId) {
+        if (state == null || roomId == null) {
+            return 0L;
+        }
+        try {
+            String raw = state.get(KEY_LAST_SEEN_PREFIX + roomId, null);
+            return raw == null ? 0L : Long.parseLong(raw.trim());
+        } catch (NumberFormatException ex) {
+            return 0L;
+        }
+    }
+
+    /** Advance the last-seen stamp for {@code roomId}; never moves backwards. */
+    public void markSeen(String roomId, long createdAtMillis) {
+        if (state == null || roomId == null || createdAtMillis <= lastSeenAt(roomId)) {
+            return;
+        }
+        state.putAndSave(KEY_LAST_SEEN_PREFIX + roomId, String.valueOf(createdAtMillis));
+    }
+
     // ------------------------------------------------------------------ desktop notifications
 
     private static final String KEY_NOTIFY_TEXT = "notify.text";

@@ -156,6 +156,15 @@ public final class BubbleTranscriptPanel extends JPanel {
      */
     public void appendPartyMessage(String senderName, String participantId, String markdown,
                                    java.awt.Color headerColor, boolean local) {
+        appendPartyMessage(senderName, participantId, markdown, headerColor, local, 0L);
+    }
+
+    /**
+     * Appends a Partying-mode group message; a non-zero {@code createdAtMillis} renders as a
+     * small stacked date/time block next to the sender name.
+     */
+    public void appendPartyMessage(String senderName, String participantId, String markdown,
+                                   java.awt.Color headerColor, boolean local, long createdAtMillis) {
         requireEventDispatchThread();
         String header = senderName != null && !senderName.trim().isEmpty() ? senderName : "?";
         BubbleSide side = local ? BubbleSide.RIGHT : BubbleSide.LEFT;
@@ -167,6 +176,9 @@ public final class BubbleTranscriptPanel extends JPanel {
                 markdown);
         if (headerColor != null) {
             bubble.setHeaderColor(headerColor);
+        }
+        if (createdAtMillis > 0) {
+            bubble.setHeaderTimestamp(createdAtMillis);
         }
         addBubbleRow(bubble, side);
     }

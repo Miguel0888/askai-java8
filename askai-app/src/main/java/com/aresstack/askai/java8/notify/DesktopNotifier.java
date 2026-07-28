@@ -52,6 +52,9 @@ public final class DesktopNotifier {
     private volatile int volumePercent = 70;
 
     private TrayIcon trayIcon; // lazily added while text notifications are on
+    // Coalesce sound bursts (e.g. a history sync delivering many missed messages at once).
+    private volatile long lastSoundAtMillis;
+    private static final long SOUND_COALESCE_MILLIS = 1200;
 
     /**
      * Update the channels, the output device, the sound type and the volume (0–100).
@@ -102,7 +105,11 @@ public final class DesktopNotifier {
                     showTrayMessage(title, body);
                 }
                 if (sound) {
-                    playSound(deviceName, soundType, volumePercent);
+                    long now = System.currentTimeMillis();
+                    if (now - lastSoundAtMillis >= SOUND_COALESCE_MILLIS) {
+                        lastSoundAtMillis = now;
+                        playSound(deviceName, soundType, volumePercent);
+                    }
                 }
             }
         });

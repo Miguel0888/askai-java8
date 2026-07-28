@@ -1647,8 +1647,14 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
     /** Routes the session's callbacks (transport threads) onto the EDT and into the shared shell. */
     private final class PanelPartyUi implements PartySession.Ui {
         public void onPartyMessage(final PartySession.PartyMessageView view) {
-            // Notify for incoming messages from others (and the bot), regardless of focus.
-            if (!view.isLocal()) {
+            // Ring only for messages newer than anything already seen in this room: local history
+            // replay stays silent, while live arrivals AND messages missed offline (delivered by
+            // the peers' history sync) notify. Local own messages just advance the stamp.
+            String roomId = view.getMessage().getRoomId();
+            long createdAt = view.getMessage().getCreatedAt();
+            boolean unseen = createdAt > partySettings.lastSeenAt(roomId);
+            partySettings.markSeen(roomId, createdAt);
+            if (!view.isLocal() && unseen) {
                 fireMessageNotification(
                         "Party — " + view.getSenderDisplayName(), view.getMessage().getMarkdown());
             }
@@ -1662,7 +1668,8 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
                             view.getMessage().getSenderParticipantId(),
                             view.getMessage().getMarkdown(),
                             partyColor(view.getColorToken()),
-                            view.isLocal());
+                            view.isLocal(),
+                            view.getMessage().getCreatedAt());
                 }
             });
         }

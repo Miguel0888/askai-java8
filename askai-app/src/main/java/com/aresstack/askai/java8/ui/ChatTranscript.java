@@ -99,7 +99,16 @@ final class ChatTranscript {
      */
     void appendPartyMessage(String senderName, String participantId, String markdown,
                             java.awt.Color headerColor, boolean local) {
-        panel.appendPartyMessage(senderName, participantId, markdown, headerColor, local);
+        panel.appendPartyMessage(senderName, participantId, markdown, headerColor, local, 0L);
+    }
+
+    /**
+     * Appends a Partying-mode message including its creation timestamp, rendered small next to
+     * the sender name.
+     */
+    void appendPartyMessage(String senderName, String participantId, String markdown,
+                            java.awt.Color headerColor, boolean local, long createdAtMillis) {
+        panel.appendPartyMessage(senderName, participantId, markdown, headerColor, local, createdAtMillis);
     }
 
     /** Appends a muted, centered info/system line. */
