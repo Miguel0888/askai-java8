@@ -182,6 +182,8 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
     private boolean modelSupportsThinking;
     /** True when the SELECTED model reports rerank-only capabilities — chat send is refused. */
     private volatile boolean selectedModelRerankOnly;
+    /** The model the rerank-only transcript hint was last shown for (avoid repeating it). */
+    private String rerankOnlyHintShownFor;
     // The model whose thinking capability is currently being probed, to ignore stale /api/show callbacks.
     private String reasoningProbeModel;
     // Per-turn streaming state for the thinking → answer flow.
@@ -2133,7 +2135,21 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
                                 && !info.getCapabilities().contains("completion");
                         selectedModelRerankOnly = rerankOnly;
                         if (rerankOnly) {
+                            // The Send button is DISABLED with the reason as tooltip — a click
+                            // that silently does nothing would look like a bug.
+                            composer.setSendBlockedReason(
+                                    "This local model supports reranking, not chat.");
                             setStatus("This local model supports reranking, not chat.");
+                            if (!modelName.equals(rerankOnlyHintShownFor)) {
+                                rerankOnlyHintShownFor = modelName;
+                                transcript.appendInfo("\"" + modelName + "\" is a reranker — it "
+                                        + "scores documents against a query instead of chatting. "
+                                        + "Try it under Models > Installed > Local > Test "
+                                        + "reranker.");
+                            }
+                        } else {
+                            composer.setSendBlockedReason("");
+                            rerankOnlyHintShownFor = null;
                         }
                     }
                 });
@@ -2143,6 +2159,9 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
                 onUi(new Runnable() {
                     public void run() {
                         applyThinkingSupport(modelName, false); // unknown → keep it greyed out
+                        // Unknown capabilities must never leave a STALE send block behind.
+                        selectedModelRerankOnly = false;
+                        composer.setSendBlockedReason("");
                     }
                 });
             }

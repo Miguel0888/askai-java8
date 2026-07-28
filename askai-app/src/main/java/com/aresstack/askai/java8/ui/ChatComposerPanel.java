@@ -691,9 +691,23 @@ public final class ChatComposerPanel extends JPanel {
         revalidate();
     }
 
+    /** Non-empty = sending is blocked entirely (e.g. a rerank-only local model is selected). */
+    private String sendBlockedReason = "";
+
+    /**
+     * Block or unblock sending with a visible reason: the Send button is DISABLED (not just
+     * refused on click) and carries the reason as tooltip until an empty reason unblocks it.
+     */
+    public void setSendBlockedReason(String reason) {
+        this.sendBlockedReason = reason == null ? "" : reason.trim();
+        sendButton.setToolTipText(sendBlockedReason.isEmpty() ? "Send" : sendBlockedReason);
+        updateMessageAvailability();
+    }
+
     private void updateMessageAvailability() {
         boolean hasContent = editor.getText().trim().length() > 0 || !attachmentStrip.isEmpty();
-        sendButton.setEnabled(!chatBusy && !dictationActive && editor.isEnabled() && hasContent);
+        sendButton.setEnabled(!chatBusy && !dictationActive && editor.isEnabled() && hasContent
+                && sendBlockedReason.isEmpty());
     }
 
     @Override
