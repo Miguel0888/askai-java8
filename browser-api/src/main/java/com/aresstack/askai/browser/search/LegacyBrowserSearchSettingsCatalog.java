@@ -156,6 +156,9 @@ public final class LegacyBrowserSearchSettingsCatalog {
                 "Maximum await call (ms)",
                 "Upper bound of a single MCP await call; readiness may span calls.", 500, 60_000);
         // --- Mechanical analysis
+        list(f, "analysis.noResultsTexts", SECTION_ANALYSIS, "No-results texts",
+                "Lower-cased page texts (one per line) that mark an explicitly EMPTY result page "
+                        + "(NO_ORGANIC_RESULTS) instead of an extraction failure.");
         integer(f, "analysis.maximumCandidateContainers", SECTION_ANALYSIS,
                 "Maximum candidate containers",
                 "Upper bound of result-container candidates per page.", 1, 200);

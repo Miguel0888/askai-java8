@@ -87,6 +87,7 @@ public final class LegacyBrowserSearchSettingsCodec {
         m.put("readiness.maximumAwaitCallMillis",
                 String.valueOf(s.readiness.maximumAwaitCallMillis));
 
+        m.put("analysis.noResultsTexts", joinList(s.analysis.noResultsTexts));
         m.put("analysis.maximumCandidateContainers",
                 String.valueOf(s.analysis.maximumCandidateContainers));
         m.put("analysis.minimumContainerTextCharacters",
@@ -269,6 +270,7 @@ public final class LegacyBrowserSearchSettingsCodec {
                         r.intValue("readiness.navigationCommitTimeoutMillis"),
                         r.intValue("readiness.maximumAwaitCallMillis")),
                 new SearchPageAnalysisSettings(
+                        r.list("analysis.noResultsTexts"),
                         r.intValue("analysis.maximumCandidateContainers"),
                         r.intValue("analysis.minimumContainerTextCharacters"),
                         r.intValue("analysis.minimumNonLinkTextCharacters"),

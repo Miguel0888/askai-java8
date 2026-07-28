@@ -7,6 +7,9 @@ package com.aresstack.askai.browser.search;
  */
 public final class SearchPageAnalysisSettings {
 
+    /** Lower-cased page texts that mark an EXPLICIT empty SERP (NO_ORGANIC_RESULTS, not a failure). */
+    public final java.util.List<String> noResultsTexts;
+
     public final int maximumCandidateContainers;
     public final int minimumContainerTextCharacters;
     /** Minimum characters of NON-link text — pure link lists are navigation, not results. */
@@ -49,7 +52,8 @@ public final class SearchPageAnalysisSettings {
     public final int maximumLinksPerContainer;
     public final int maximumStructureSignatureDepth;
 
-    public SearchPageAnalysisSettings(int maximumCandidateContainers, int minimumContainerTextCharacters,
+    public SearchPageAnalysisSettings(java.util.List<String> noResultsTexts,
+                                      int maximumCandidateContainers, int minimumContainerTextCharacters,
                                       int minimumNonLinkTextCharacters, int minimumRepeatedSiblingCount,
                                       double minimumResultStructuralConfidence,
                                       double maximumNavigationLinkDensity, double internalLinkWeight,
@@ -65,6 +69,7 @@ public final class SearchPageAnalysisSettings {
                                       int textLengthSaturationCharacters, int maximumContainerDomDepth,
                                       int maximumCapturedContainers, int maximumLinksPerContainer,
                                       int maximumStructureSignatureDepth) {
+        this.noResultsTexts = java.util.Collections.unmodifiableList(noResultsTexts);
         this.maximumCandidateContainers = maximumCandidateContainers;
         this.minimumContainerTextCharacters = minimumContainerTextCharacters;
         this.minimumNonLinkTextCharacters = minimumNonLinkTextCharacters;

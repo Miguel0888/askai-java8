@@ -96,6 +96,9 @@ public final class LegacyBrowserSearchDefaults {
 
     private static SearchPageAnalysisSettings analysis() {
         return new SearchPageAnalysisSettings(
+                Arrays.asList(
+                        "no results", "keine ergebnisse", "did not match any", "nichts gefunden",
+                        "no matches", "0 results", "keine treffer"),
                 24,     // maximumCandidateContainers
                 80,     // minimumContainerTextCharacters
                 24,     // minimumNonLinkTextCharacters
