@@ -26,7 +26,13 @@ public final class AgentRuntimeServices {
 
     private final LazyRegistry registry = new LazyRegistry();
     private final McpToolClientFactory toolClients = new SolonMcpToolClientFactory();
-    private final AcpAgentConnector connector = new SolonAcpAgentConnector(Duration.ofSeconds(180), null);
+    // The agent's STDERR goes to the app console: without it a failed agent start is undiagnosable.
+    private final AcpAgentConnector connector = new SolonAcpAgentConnector(Duration.ofSeconds(180),
+            new java.util.function.Consumer<String>() {
+                public void accept(String line) {
+                    System.err.println("[research-agent] " + line);
+                }
+            });
 
     /** The service map for DefaultAgentHostContext (neutral interface types as keys). */
     public Map<Class<?>, Object> asServiceMap() {

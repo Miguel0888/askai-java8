@@ -531,7 +531,12 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             case BLOCKED:
             case ERROR:
                 problemMessage = event.getPublicMessage();
-                sink.showProblem(event.getEventId(), event.getPublicMessage());
+                // Show the WHY, not just the what: the technical detail (exception phase + reason,
+                // never secrets) is the only way anyone can act on a start failure.
+                String detail = event.getTechnicalDetail();
+                sink.showProblem(event.getEventId(), detail == null || detail.isEmpty()
+                        ? event.getPublicMessage()
+                        : event.getPublicMessage() + "\n" + detail);
                 break;
             default:
                 break; // SOURCE_ADDED/FINDING_ADDED/OUTLINE_CHANGED/PROBLEM_REPORTED handled by artifact views
