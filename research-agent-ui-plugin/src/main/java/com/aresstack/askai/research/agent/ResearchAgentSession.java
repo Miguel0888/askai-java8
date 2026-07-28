@@ -178,8 +178,62 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     }
 
     public void submitPrompt(String text, String activeSectionId) {
-        if (handle != null) {
-            backend.submitPrompt(handle, new ResearchPrompt(text, activeSectionId));
+        if (handle == null) {
+            return;
+        }
+        if (productiveResources != null && !productiveResources.isClosed()) {
+            // A normal question is enough to start researching: gate-FREE forward transitions are advanced
+            // automatically; genuine approval gates stay with the user (visible bubble). No /do ceremony.
+            autoAdvanceTowardsResearch();
+        }
+        backend.submitPrompt(handle, new ResearchPrompt(text, activeSectionId));
+    }
+
+    /**
+     * Advance the productive state machine through the transitions that need NO human approval
+     * (START, SUBMIT_SCOPE, PROPOSE_OUTLINE, START_RESEARCH). At an approval gate the machine stops and
+     * the approval is surfaced in the chat — the user decides; phase rules stay in the machine.
+     */
+    private void autoAdvanceTowardsResearch() {
+        for (int guard = 0; guard < 8; guard++) {
+            com.aresstack.askai.research.state.oo.ResearchStateMemento memento =
+                    productiveResources.currentState();
+            String phase = memento.getPhaseId();
+            String stateId = memento.getStateId();
+            ResearchCommandType next = null;
+            if (com.aresstack.askai.research.state.oo.ResearchStateIds.SCOPING.equals(phase)
+                    && com.aresstack.askai.research.state.oo.ResearchStateIds.NEW.equals(stateId)) {
+                next = ResearchCommandType.START;
+            } else if (com.aresstack.askai.research.state.oo.ResearchStateIds.SCOPING.equals(phase)
+                    && com.aresstack.askai.research.state.oo.ResearchStateIds.RUNNING.equals(stateId)) {
+                next = ResearchCommandType.SUBMIT_SCOPE;
+            } else if (com.aresstack.askai.research.state.oo.ResearchStateIds.OUTLINE.equals(phase)
+                    && com.aresstack.askai.research.state.oo.ResearchStateIds.RUNNING.equals(stateId)) {
+                next = ResearchCommandType.PROPOSE_OUTLINE;
+            } else if (com.aresstack.askai.research.state.oo.ResearchStateIds.RESEARCH.equals(phase)
+                    && com.aresstack.askai.research.state.oo.ResearchStateIds.WAITING.equals(stateId)) {
+                next = ResearchCommandType.START_RESEARCH;
+            }
+            if (next == null) {
+                break;
+            }
+            if (!dispatch(next, null).isAccepted()) {
+                break;
+            }
+        }
+        final com.aresstack.askai.research.state.oo.ResearchStateMemento after =
+                productiveResources.currentState();
+        if (com.aresstack.askai.research.state.oo.ResearchStateIds.WAITING_APPROVAL
+                .equals(after.getStateId()) && sink != null) {
+            uiExecutor.execute(new Runnable() {
+                public void run() {
+                    String approvalId = after.getPendingApprovalId() == null
+                            ? "approval-" + after.getRevision() : after.getPendingApprovalId();
+                    sink.requestApproval(approvalId,
+                            "The " + after.getPhaseId() + " needs your approval before research "
+                                    + "continues (approve or request changes).");
+                }
+            });
         }
     }
 

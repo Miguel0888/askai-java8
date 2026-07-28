@@ -87,6 +87,7 @@ public final class ResearchAgentMain {
 
     @Prompt
     public AcpSchema.PromptResponse prompt(SyncPromptContext ctx, AcpSchema.PromptRequest request) {
+        System.err.println("[research-agent] prompt turn started");
         cancelled.set(false);
         if (!readinessAnnounced) {
             readinessAnnounced = true;
@@ -100,15 +101,18 @@ public final class ResearchAgentMain {
         if (cancelled.get()) {
             return new AcpSchema.PromptResponse(AcpSchema.StopReason.CANCELLED);
         }
-        // Autonomous web research turn: run the deterministic loop (36A, unchanged) against the browser and
-        // research endpoints from the launch environment. Without a browser endpoint this is a visible,
-        // honest refusal — never a fallback.
-        if (text.startsWith("research:")) {
+        // Autonomous web research turn: a NORMAL user question starts the loop whenever the HOST state
+        // machine (mirrored via research_status — this process owns no state) is in research/running.
+        // The legacy explicit "research:" prefix keeps working. Without a browser endpoint this is a
+        // visible, honest refusal — never a fallback.
+        boolean explicitResearch = text.startsWith("research:");
+        String task = explicitResearch ? text.substring("research:".length()).trim() : text.trim();
+        if ((explicitResearch || hostIsInResearchRunning()) && !task.isEmpty()) {
             if (!environment.hasBrowser()) {
                 ctx.sendMessage("BROWSER_NOT_AVAILABLE: cannot run autonomous web research this turn.");
                 return AcpSchema.PromptResponse.endTurn();
             }
-            runResearchLoop(ctx, text.substring("research:".length()).trim());
+            runResearchLoop(ctx, task);
             return cancelled.get()
                     ? new AcpSchema.PromptResponse(AcpSchema.StopReason.CANCELLED)
                     : AcpSchema.PromptResponse.endTurn();
@@ -131,6 +135,17 @@ public final class ResearchAgentMain {
         }
         ctx.sendMessage("turn done for: " + text);
         return AcpSchema.PromptResponse.endTurn();
+    }
+
+    /** Mirror the host state: research phase in run state — the only condition for an autonomous turn. */
+    private boolean hostIsInResearchRunning() {
+        try {
+            String status = String.valueOf(researchMcp.callTool("research_status",
+                    Collections.<String, Object>emptyMap()));
+            return status.contains("research/running");
+        } catch (RuntimeException ex) {
+            return false; // unreachable status → answer as a plain turn, never start a blind run
+        }
     }
 
     /**

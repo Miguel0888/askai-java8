@@ -785,3 +785,25 @@ alte UI-Aktionen erreichen nie eine fremde Session.
   `RESEARCH_RUN_STOPPED: SUFFICIENT_EVIDENCE`, genau ein PHASE_READY → Benutzeraktion
   REQUEST_EVIDENCE_REVIEW über den Port → Host-Maschine in waiting_approval → Session-View zeigt es.
 - FAKE-Modus implementiert denselben Port (dispatch → Fake-Backend), Full Build `--rerun-tasks` grün.
+
+## RA-P003 — Erster ACP-Prompt nach Session-Start geht gelegentlich verloren
+
+**Erkannt in:** Commit 42 (Akzeptanztest-Läufe; Signatur bereits in einem Commit-41-Full-Build)
+**Status:** OPEN
+**Schweregrad:** MEDIUM
+**Betroffene Module:** acp-solon-client / research-agent-runtime (Transportgrenze)
+
+### Beobachtung
+Selten (beobachtet ~1 von 3–4 vollen `--rerun-tasks`-Builds) erreicht der ERSTE `session/prompt` nach
+`session/new` den Agentenprozess nicht: der Agent loggt keinen Turn-Start, es kommen keinerlei Updates und
+kein Terminal-Callback; spätere Prompts derselben Session funktionieren. `session/new` selbst (inkl. realem
+MCP-Readiness-Roundtrip) war zuvor erfolgreich. Reproduktion ist lastabhängig, nicht deterministisch.
+
+### Gewähltes Zwischenverhalten
+Der Akzeptanztest sendet den ersten Prompt mit begrenztem Resend (max. 3 Versuche à 60 s) — das entspricht
+einem Benutzer, der erneut sendet, und hält den Build stabil, ohne den Fehler zu verstecken (dieser Eintrag).
+Produktiv gibt es bewusst KEIN automatisches Prompt-Resend (Gefahr doppelter Turns).
+
+### Spätere Entscheidung
+Transport-Analyse an der acp-sdk/Stdio-Grenze (Initialisierungs-/Prompt-Race direkt nach `session/new`):
+Request-Journal im Connector, ggf. Ready-Handshake vor dem ersten Prompt oder Upstream-Issue an acp-sdk.

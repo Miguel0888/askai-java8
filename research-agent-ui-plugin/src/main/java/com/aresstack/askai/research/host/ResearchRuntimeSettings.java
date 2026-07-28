@@ -112,9 +112,25 @@ public final class ResearchRuntimeSettings {
                 searchUrlTemplate.isEmpty() ? null : searchUrlTemplate);
     }
 
-    /** Same rules as the runtime itself ({@link ResearchRuntimeConfig#validate()}). Empty = usable. */
+    /**
+     * The runtime rules ({@link ResearchRuntimeConfig#validate()}) PLUS the product-level requirements:
+     * the autonomous loop always seeds with {@code web_search}, so a search provider URL is mandatory for
+     * the productive mode (it is not an optional nicety), and the thin sidecar jar needs its sibling
+     * {@code lib/} directory. Empty = usable.
+     */
     public List<String> validateProductive() {
-        return toRuntimeConfig().validate();
+        List<String> problems = new java.util.ArrayList<String>(toRuntimeConfig().validate());
+        if (searchUrlTemplate.isEmpty()) {
+            problems.add("search provider URL is required (autonomous research starts with web_search), "
+                    + "e.g. https://www.bing.com/search?q={query}");
+        }
+        if (!sidecarJar.isEmpty() && new java.io.File(sidecarJar).isFile()) {
+            java.io.File lib = new java.io.File(new java.io.File(sidecarJar).getParentFile(), "lib");
+            if (!lib.isDirectory()) {
+                problems.add("sidecar lib directory missing next to the jar: " + lib);
+            }
+        }
+        return problems;
     }
 
     private static String nullToEmpty(String value) {

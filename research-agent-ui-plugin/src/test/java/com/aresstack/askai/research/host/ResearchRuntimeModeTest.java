@@ -181,10 +181,11 @@ public class ResearchRuntimeModeTest {
         File agentJar = touch(dir, "agent.jar");
         File java21 = touch(dir, "java21.exe");
         File sidecarJar = touch(dir, "sidecar.jar");
+        assertTrue(new File(dir, "lib").mkdirs()); // the thin sidecar jar needs its sibling lib/
         host.workspaceDir = dir;
         new ResearchRuntimeSettings(ResearchBackendMode.ACP, java8.getAbsolutePath(),
                 agentJar.getAbsolutePath(), java21.getAbsolutePath(), sidecarJar.getAbsolutePath(),
-                "chrome", true, "").save(host.store);
+                "chrome", true, "http://search.example/find?q={query}").save(host.store);
         try {
             new ResearchAgentSessionFactory().create(
                     new AgentSessionCreationRequest("s1", "p1", new HashMap<String, String>()), host);

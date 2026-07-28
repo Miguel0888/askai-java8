@@ -58,6 +58,9 @@ public final class ResearchAgentSessionFactory implements AgentSessionFactory {
     private AgentSession createProductive(ResearchRuntimeSettings settings,
                                           AgentSessionCreationRequest request,
                                           AgentHostContext hostContext) {
+        // Empty fields are completed from the detectable environment (running JVM, assembled
+        // distribution, discovered Java 21) — explicit user values always win.
+        settings = com.aresstack.askai.research.host.ResearchRuntimeDefaults.complete(settings);
         List<String> problems = settings.validateProductive();
         if (!problems.isEmpty()) {
             throw new IllegalStateException("The productive research configuration is not usable "

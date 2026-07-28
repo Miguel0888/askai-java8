@@ -48,26 +48,35 @@ sidecar process (which ends the GraalJS driver child and Chromium). All closes a
   the state unchanged until the host reacts, ordered teardown, failed switch keeps the old
   generation usable, successful switch locks it.
 
-## Enabling the productive mode in AskAI (Commit 40)
+## Enabling the productive mode in AskAI (Commits 40+42)
 
-Open the Research workspace → artifact tab **Runtime**:
+Start AskAI via `./gradlew :askai-app:runWithDevPlugins` — this assembles the research runtime
+distribution (`build/research-runtime/`: agent jar, sidecar jar, `lib/`) and hands its location to
+the app. Then open the Research workspace → artifact tab **Runtime**:
 
 1. Set *Backend mode* to `Productive (ACP + browser sidecar)` (the default `Fake` is the labelled
    clickdummy/development mode).
-2. Fill in the paths: Java 8 launcher + `research-agent-runtime-*-all.jar`, Java 21 launcher +
-   `browser-mcp-sidecar-*.jar` (with its `lib/` directory next to it), browser channel, optionally a
-   search URL containing `{query}`.
-3. **Check requirements** validates every item individually off the EDT and briefly starts the sidecar
-   to obtain its real readiness status (READY / INCOMPATIBLE_DRIVER / DRIVER_BUNDLE_NOT_FOUND /
-   BROWSER_NOT_INSTALLED / BROWSER_START_FAILED).
-4. **Save** persists through the typed `ResearchRuntimeSettings` model; saving an unusable productive
-   configuration is rejected with the concrete problem list.
-5. The NEXT research session uses the configured backend. A productive start failure is a visible
-   error — there is no silent fallback to the fake backend.
-6. Phase actions run through the structured command surface: `/do <command>` completes exactly the
-   commands the live state machine allows (plus `/approve`, `/request-changes`, `/pause`, `/resume`,
-   `/cancel`); rejections show the structured status (INVALID_PHASE, SESSION_CLOSED, …). Free text in
-   the composer stays a prompt — commands are never smuggled as chat messages.
+2. The path fields are PRE-FILLED automatically: Java 8 from the running JVM, both jars from the
+   assembled distribution, Java 21 discovered in the standard JDK locations (override:
+   `askai.research.java21`). Every field has a Browse button; explicit values always win.
+3. Enter a search provider URL containing `{query}` (e.g. `https://www.bing.com/search?q={query}`) —
+   it is REQUIRED: autonomous research always starts with `web_search`; validation says so.
+4. **Check requirements** validates every item individually off the EDT and briefly starts the
+   sidecar to obtain its real readiness status (READY / INCOMPATIBLE_DRIVER /
+   DRIVER_BUNDLE_NOT_FOUND / BROWSER_NOT_INSTALLED / BROWSER_START_FAILED).
+5. **Save** persists through the typed `ResearchRuntimeSettings` model; saving an unusable productive
+   configuration is rejected with the concrete problem list. The save output states EXPLICITLY that
+   the running session keeps its backend — close the Research session and open a new one.
+6. **Ask a normal question.** Gate-free phase transitions advance automatically; the outline approval
+   gate appears as a visible approval in the chat (approve / request changes); after approval the
+   next question runs the autonomous research — no `/do` ceremony and no internal prompt prefix.
+   `/do <command>` remains available for explicit control (completion = exactly the live-allowed
+   commands; rejections show the structured status). Free text stays a prompt — commands are never
+   smuggled as chat messages.
+
+Known remaining UX gaps (deliberately documented, not hidden): saving does not yet restart the
+session for you (explicit close/reopen), and the very first prompt can rarely require a resend
+(RA-P003).
 
 ## Manual acceptance checklist
 
@@ -146,11 +155,13 @@ and explicitly not hidden under RA-P001/RA-P002):
 
 ### Closing statement
 
-> The AskAI Research platform MVP is fully operable and proven end-to-end through the productive
-> user-facing path. It supports runtime configuration, ACP/MCP orchestration, real Chromium
-> research, source acceptance, findings, host-controlled phase transitions, and interactive
-> approvals. The next development stage adds the model-driven research methodology: semantic
-> planning, evidence analysis, drafting, citation integrity, persistence, and recovery.
+> The technical research process chain is proven end-to-end, including a no-manually-typed-paths
+> acceptance run through the exact factory and command facade AskAI uses: assembled runtime
+> distribution, automatic defaults, a plain user question, automatic gate-free phase advancement, a
+> visible outline approval, autonomous Chromium research, and host-controlled state transitions.
+> Remaining product-integration gaps are listed above (session restart after save, RA-P003) and the
+> research METHODOLOGY (semantic planning, evidence analysis, drafting, citation integrity,
+> persistence, recovery) is the next development stage — the platform does not claim it.
 
 ## Merge gate
 

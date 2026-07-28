@@ -58,10 +58,10 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         JPanel form = new JPanel();
         form.setLayout(new BoxLayout(form, BoxLayout.Y_AXIS));
         form.add(row("Backend mode:", mode));
-        form.add(row("Java 8 runtime (agent):", agentJava));
-        form.add(row("Research agent jar:", agentJar));
-        form.add(row("Java 21 runtime (sidecar):", sidecarJava));
-        form.add(row("Browser sidecar jar:", sidecarJar));
+        form.add(pathRow("Java 8 runtime (agent):", agentJava));
+        form.add(pathRow("Research agent jar:", agentJar));
+        form.add(pathRow("Java 21 runtime (sidecar):", sidecarJava));
+        form.add(pathRow("Browser sidecar jar:", sidecarJar));
         form.add(row("Browser channel:", browserChannel));
         form.add(row("", headless));
         form.add(row("Search URL ({query}):", searchUrl));
@@ -80,7 +80,9 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         results.setLineWrap(false);
         add(new JScrollPane(results), BorderLayout.CENTER);
 
-        apply(ResearchRuntimeSettings.load(store));
+        // Persisted values first, then AUTOMATIC defaults for whatever is still empty (running JVM,
+        // assembled distribution, discovered Java 21) — no empty mandatory fields on a normal dev start.
+        apply(ResearchRuntimeDefaults.complete(ResearchRuntimeSettings.load(store)));
 
         save.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent event) {
@@ -131,7 +133,8 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         settings.save(store);
         results.setText("Saved. Mode: " + (settings.getMode() == ResearchBackendMode.ACP
                 ? MODE_ACP_LABEL : MODE_FAKE_LABEL)
-                + "\nNew research sessions use this configuration.");
+                + "\n\nIMPORTANT: the RUNNING session keeps its current backend."
+                + "\nClose this Research session and open a new one to start with this configuration.");
     }
 
     private void runCheck() {
@@ -163,6 +166,27 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         }, "research-runtime-check");
         worker.setDaemon(true);
         worker.start();
+    }
+
+    /** A path field with a working Browse button (file chooser preset to the current value). */
+    private JPanel pathRow(String label, final JTextField field) {
+        JPanel row = row(label, field);
+        JButton browse = new JButton("…");
+        browse.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent event) {
+                javax.swing.JFileChooser chooser = new javax.swing.JFileChooser();
+                String current = field.getText().trim();
+                if (!current.isEmpty()) {
+                    chooser.setSelectedFile(new java.io.File(current));
+                }
+                if (chooser.showOpenDialog(ResearchRuntimeSettingsPanel.this)
+                        == javax.swing.JFileChooser.APPROVE_OPTION) {
+                    field.setText(chooser.getSelectedFile().getAbsolutePath());
+                }
+            }
+        });
+        row.add(browse);
+        return row;
     }
 
     private static JPanel row(String label, javax.swing.JComponent field) {

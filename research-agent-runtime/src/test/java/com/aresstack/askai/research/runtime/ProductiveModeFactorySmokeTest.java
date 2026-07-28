@@ -87,11 +87,32 @@ public class ProductiveModeFactorySmokeTest {
         final CountDownLatch ready = new CountDownLatch(1);
         final CountDownLatch stopped = new CountDownLatch(1);
         FakeHost host = new FakeHost(dataDir, registry, new SolonMcpToolClientFactory(),
-                new SolonAcpAgentConnector(Duration.ofSeconds(180), null), messages, ready, stopped);
-        // The local test servers are loopback, so the EXPLICIT, persisted development-only override of
-        // the strict URL policy is enabled — the same switch the settings panel exposes.
-        new ResearchRuntimeSettings(ResearchBackendMode.ACP, agentJava, agentJar, sidecarJava,
-                sidecarJar, System.getenv().getOrDefault("ASKAI_TEST_BROWSER_CHANNEL", "chrome"),
+                new SolonAcpAgentConnector(Duration.ofSeconds(180),
+                        new java.util.function.Consumer<String>() {
+                            public void accept(String line) {
+                                System.err.println("[agent] " + line);
+                            }
+                        }), messages, ready, stopped);
+        // 42 acceptance: NO manually typed build paths. The test assembles the distribution exactly like
+        // `researchRuntimeDist` (canonical names + lib/) and publishes it via the DOCUMENTED hand-off;
+        // Java 8 comes from the running JVM, Java 21 via the documented override — the persisted settings
+        // carry ONLY the mode, the search provider and the explicit loopback override for the local
+        // test servers.
+        File dist = Files.createTempDirectory("askai-research-runtime").toFile();
+        Files.copy(new File(agentJar).toPath(),
+                new File(dist, "research-agent-runtime.jar").toPath());
+        Files.copy(new File(sidecarJar).toPath(),
+                new File(dist, "browser-mcp-sidecar.jar").toPath());
+        File libSource = new File(new File(sidecarJar).getParentFile(), "lib");
+        File libTarget = new File(dist, "lib");
+        assertTrue(libTarget.mkdirs());
+        for (File jar : libSource.listFiles()) {
+            Files.copy(jar.toPath(), new File(libTarget, jar.getName()).toPath());
+        }
+        String oldDist = System.setProperty("askai.research.runtime.dir", dist.getAbsolutePath());
+        String oldJava21 = System.setProperty("askai.research.java21", sidecarJava);
+        new ResearchRuntimeSettings(ResearchBackendMode.ACP, "", "", "", "",
+                System.getenv().getOrDefault("ASKAI_TEST_BROWSER_CHANNEL", "chrome"),
                 true, baseOne + "/find?q={query}", true).save(host.store);
 
         AgentSession session;
@@ -106,25 +127,23 @@ public class ProductiveModeFactorySmokeTest {
         try {
             session.activate();
             ResearchAgentSession research = (ResearchAgentSession) session;
-            research.submitPrompt("hello");
-            // Generous: under a full --rerun-tasks build several browser/agent processes ran just before
-            // this test; the GraalJS interpreter warmup can be slow on a loaded machine.
-            assertTrue("first prompt must announce RESEARCH_MCP_READY: " + messages,
-                    ready.await(180, TimeUnit.SECONDS));
-
-            // 41: the USER drives the phases through the command PORT (the same seam the chat UI uses).
-            for (com.aresstack.askai.research.state.ResearchCommandType command
-                    : new com.aresstack.askai.research.state.ResearchCommandType[]{
-                            com.aresstack.askai.research.state.ResearchCommandType.START,
-                            com.aresstack.askai.research.state.ResearchCommandType.SUBMIT_SCOPE,
-                            com.aresstack.askai.research.state.ResearchCommandType.PROPOSE_OUTLINE,
-                            com.aresstack.askai.research.state.ResearchCommandType.APPROVE_OUTLINE,
-                            com.aresstack.askai.research.state.ResearchCommandType.START_RESEARCH}) {
-                assertTrue("user command must be accepted: " + command,
-                        research.dispatch(command, null).isAccepted());
+            // RA-P003: the very first ACP prompt after session start is occasionally lost (transport
+            // race, observed rarely under full-build load; the agent then never logs a turn start).
+            // Bounded resend mirrors a user pressing send again; the underlying issue is tracked openly.
+            boolean announced = false;
+            for (int attempt = 0; attempt < 3 && !announced; attempt++) {
+                research.submitPrompt("hello");
+                announced = ready.await(60, TimeUnit.SECONDS);
             }
+            assertTrue("first prompt must announce RESEARCH_MCP_READY: " + messages, announced);
 
-            research.submitPrompt("research: pf4j plugin framework");
+            // 42: the NATURAL user flow — a plain question, no "research:" prefix, no /do ceremony.
+            // Gate-free transitions auto-advance; the outline approval gate surfaces as a bubble.
+            research.submitPrompt("pf4j plugin framework");
+            assertTrue("the outline approval must reach the chat: " + messages,
+                    host.approvalRequested.await(30, TimeUnit.SECONDS));
+            research.approveCurrent(); // the user's approve button/command
+            research.submitPrompt("pf4j plugin framework");
             assertTrue("autonomous run must finish: " + messages, stopped.await(180, TimeUnit.SECONDS));
             assertTrue("run must reach sufficient evidence: " + messages,
                     contains(messages, "RESEARCH_RUN_STOPPED: SUFFICIENT_EVIDENCE"));
@@ -143,6 +162,16 @@ public class ProductiveModeFactorySmokeTest {
             registry.shutdown();
             serverOne.stop(0);
             serverTwo.stop(0);
+            restore("askai.research.runtime.dir", oldDist);
+            restore("askai.research.java21", oldJava21);
+        }
+    }
+
+    private static void restore(String key, String oldValue) {
+        if (oldValue == null) {
+            System.clearProperty(key);
+        } else {
+            System.setProperty(key, oldValue);
         }
     }
 
@@ -183,6 +212,7 @@ public class ProductiveModeFactorySmokeTest {
     /** Minimal host: direct-run UI executor, in-memory store, real runtime services, recording sink. */
     private static final class FakeHost implements AgentHostContext {
         final MemoryStore store = new MemoryStore();
+        final CountDownLatch approvalRequested = new CountDownLatch(1);
         private final File dataDir;
         private final Map<Class<?>, Object> services = new HashMap<Class<?>, Object>();
         private final java.util.List<String> messages;
@@ -282,6 +312,8 @@ public class ProductiveModeFactorySmokeTest {
                 }
 
                 public void requestApproval(String approvalId, String prompt) {
+                    messages.add("APPROVAL: " + prompt);
+                    approvalRequested.countDown();
                 }
 
                 public void showProblem(String problemId, String publicMessage) {

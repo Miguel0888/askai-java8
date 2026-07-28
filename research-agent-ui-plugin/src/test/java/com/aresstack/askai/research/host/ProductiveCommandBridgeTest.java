@@ -141,24 +141,25 @@ public class ProductiveCommandBridgeTest {
     }
 
     @Test
-    public void structuredCommandsReachTheProductiveStateMachineAndTextStaysOnPrompt() {
+    public void aPlainQuestionAdvancesGateFreeTransitionsAndStopsAtTheApprovalGate() {
         Fx fx = new Fx();
+        // The natural flow (Commit 42): a plain question auto-advances START → SUBMIT_SCOPE →
+        // PROPOSE_OUTLINE and STOPS at the outline approval gate — the machine, not the UI, decides.
         fx.session.submitPrompt("just a question");
         assertEquals(1, fx.backend.prompts.size());
+        assertEquals(ResearchStateIds.OUTLINE, fx.resources.currentState().getPhaseId());
+        assertEquals(ResearchStateIds.WAITING_APPROVAL, fx.resources.currentState().getStateId());
 
-        for (ResearchCommandType command : new ResearchCommandType[]{
-                ResearchCommandType.START, ResearchCommandType.SUBMIT_SCOPE,
-                ResearchCommandType.PROPOSE_OUTLINE, ResearchCommandType.APPROVE_OUTLINE,
-                ResearchCommandType.START_RESEARCH}) {
-            assertTrue(command + " must be accepted",
-                    fx.session.dispatch(command, null).isAccepted());
-        }
+        // The user's approve (phase-correct command resolved FROM the machine's allowed set).
+        fx.session.approveCurrent();
+        // The next question auto-advances START_RESEARCH → the research phase actually runs.
+        fx.session.submitPrompt("just a question");
         assertEquals(ResearchStateIds.RESEARCH, fx.resources.currentState().getPhaseId());
         assertEquals(ResearchStateIds.RUNNING, fx.resources.currentState().getStateId());
         // The session's view model mirrors the single truth (direct-run UI executor).
         assertEquals("RESEARCH", fx.session.getState().getPhaseLabel());
         // Text never became a command; no command became text.
-        assertEquals(1, fx.backend.prompts.size());
+        assertEquals(2, fx.backend.prompts.size());
     }
 
     @Test

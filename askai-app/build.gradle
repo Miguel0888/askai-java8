@@ -142,16 +142,42 @@ build.dependsOn fatJar
 
 def devPluginsDir = rootProject.layout.buildDirectory.dir('dev-plugins')
 
+// One assembled research runtime distribution (Commit 42): agent jar + sidecar thin jar + its lib/
+// directory in a single, stable layout the app can auto-detect — no manually typed build paths.
+def researchRuntimeDir = rootProject.layout.buildDirectory.dir('research-runtime')
+
+task researchRuntimeDist(type: Sync) {
+    group = 'build'
+    description = 'Assemble the research runtime distribution (agent jar, sidecar jar, lib/).'
+    dependsOn ':research-agent-runtime:researchAgentJar'
+    dependsOn ':browser-mcp-server-java21:sidecarJar', ':browser-mcp-server-java21:sidecarLibs'
+    into researchRuntimeDir
+    // Closures defer the cross-project task lookups to execution time (configuration order safe).
+    from({ project(':research-agent-runtime').tasks.getByName('researchAgentJar').archiveFile }) {
+        rename { 'research-agent-runtime.jar' }
+    }
+    from({ project(':browser-mcp-server-java21').tasks.getByName('sidecarJar').archiveFile }) {
+        rename { 'browser-mcp-sidecar.jar' }
+    }
+    from({ project(':browser-mcp-server-java21').tasks.getByName('sidecarLibs').destinationDir }) {
+        into 'lib'
+    }
+}
+
 // Same runtime classpath, main class and (default) JVM options as the regular `run`, but pointed at the
 // shared dev-plugins directory so the externally-built research plugin is discovered by PF4J at runtime.
 task runWithDevPlugins(type: JavaExec) {
     group = 'application'
     description = 'Run AskAI with the research plugin installed into <root>/build/dev-plugins.'
     dependsOn ':research-agent-ui-plugin:installDevPlugin'
+    dependsOn researchRuntimeDist
     classpath = sourceSets.main.runtimeClasspath
     mainClass = mainClassName
     doFirst {
         systemProperty 'askai.pluginsDir', devPluginsDir.get().asFile.absolutePath
+        // DOCUMENTED hand-off of the assembled distribution (read by ResearchRuntimeDefaults; the
+        // settings themselves stay in the typed, persisted model — this only feeds the defaults).
+        systemProperty 'askai.research.runtime.dir', researchRuntimeDir.get().asFile.absolutePath
     }
 }
 
