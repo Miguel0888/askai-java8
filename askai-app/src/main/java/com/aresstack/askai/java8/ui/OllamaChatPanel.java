@@ -207,6 +207,13 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         void openInstall();
     }
 
+    /** Opens a saved chat as a workspace tab (or selects it if already open); wired by the frame. */
+    public interface ChatHistoryNavigator {
+        void openChat(ChatSessionId id);
+    }
+
+    private ChatHistoryNavigator chatHistoryNavigator;
+
     /** Callback to open the Audio processing profile editor from the chat settings (wired by the frame). */
     public interface AudioProcessingSettingsHandler {
         void openAudioProcessing();
@@ -260,6 +267,10 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         this.transcript = new ChatTranscript();
         this.transcript.applyColors(model.getChatColors());
         this.composer = new ChatComposerPanel(new ChatComposerPanel.Actions() {
+            public void openChatHistory() {
+                showChatHistoryMenu();
+            }
+
             public void selectModel() {
                 openModelPopup();
             }
@@ -446,6 +457,52 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
 
     public void setAudioProcessingSettingsHandler(AudioProcessingSettingsHandler handler) {
         this.audioProcessingSettingsHandler = handler;
+    }
+
+    public void setChatHistoryNavigator(ChatHistoryNavigator navigator) {
+        this.chatHistoryNavigator = navigator;
+    }
+
+    /**
+     * Shows the saved-chats menu anchored to the composer's hamburger button: every persisted chat
+     * (most recent first) with its title and time, opening it as a tab (or selecting it) on click.
+     */
+    private void showChatHistoryMenu() {
+        javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
+        java.util.List<com.aresstack.askai.java8.history.ChatRecord> chats =
+                historyStore != null ? historyStore.list() : java.util.Collections.<com.aresstack.askai.java8.history.ChatRecord>emptyList();
+        if (chats.isEmpty()) {
+            javax.swing.JMenuItem none = new javax.swing.JMenuItem("No saved chats");
+            none.setEnabled(false);
+            menu.add(none);
+        } else {
+            java.text.SimpleDateFormat when = new java.text.SimpleDateFormat("dd/MM/yy HH:mm");
+            for (final com.aresstack.askai.java8.history.ChatRecord chat : chats) {
+                String title = chat.getTitle() == null || chat.getTitle().trim().isEmpty()
+                        ? "(untitled)" : chat.getTitle().trim();
+                String label = "<html><b>" + escapeHtml(title) + "</b> &nbsp;<span style='color:gray'>"
+                        + when.format(new java.util.Date(chat.getModifiedAt())) + "</span></html>";
+                javax.swing.JMenuItem item = new javax.swing.JMenuItem(label);
+                if (chat.getId().equals(sessionId.toString())) {
+                    item.setEnabled(false); // this is the current tab
+                }
+                item.addActionListener(event -> {
+                    if (chatHistoryNavigator != null) {
+                        try {
+                            chatHistoryNavigator.openChat(new ChatSessionId(java.util.UUID.fromString(chat.getId())));
+                        } catch (IllegalArgumentException ignored) {
+                        }
+                    }
+                });
+                menu.add(item);
+            }
+        }
+        JComponent anchor = composer.getMenuButton();
+        menu.show(anchor, 0, -menu.getPreferredSize().height);
+    }
+
+    private static String escapeHtml(String text) {
+        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
     // ------------------------------------------------------------------ dictation wiring

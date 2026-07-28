@@ -205,6 +205,10 @@ public final class ChatComposerPanelTest {
             increment("reasoning");
         }
 
+        public void openChatHistory() {
+            increment("openChatHistory");
+        }
+
         public void openSettings() {
             increment("settings");
         }

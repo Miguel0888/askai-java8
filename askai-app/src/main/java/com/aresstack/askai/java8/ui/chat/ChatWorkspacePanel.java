@@ -72,6 +72,14 @@ public final class ChatWorkspacePanel extends JPanel {
 
     /** Open a tab for a persisted chat with a known id; its panel restores its own transcript. */
     public ChatSessionComponent openExistingChat(ChatSessionId id) {
+        ChatSessionComponent existing = sessionsById.get(id);
+        if (existing != null) {
+            int index = tabs.indexOfComponent(existing.getComponent());
+            if (index >= 0) {
+                tabs.setSelectedIndex(index);
+            }
+            return existing;
+        }
         ChatSessionComponent session = factory.create(id);
         int insertIndex = Math.max(tabs.getTabCount() - 1, 0);
         tabs.insertTab(null, null, session.getComponent(), id.toString(), insertIndex);
