@@ -35,10 +35,29 @@ dependencies {
     // Silence the "no SLF4J providers" startup warning Jodd's slf4j-api dependency prints.
     runtimeOnly 'org.slf4j:slf4j-nop:1.7.36'
     testImplementation 'junit:junit:4.13.2'
+    // TEST-ONLY: full GUI-chain reproduction (plugin factory on the APP classpath); the plugin
+    // never becomes a runtime dependency and never enters the fat jar (verifyFatJarExclusions).
+    testImplementation project(':research-agent-ui-plugin')
 }
 
 test {
     useJUnit()
+    // App-classpath reproduction of the research-agent start (diagnoses -32603 from the GUI).
+    dependsOn ':research-agent-runtime:researchAgentJar'
+    dependsOn ':browser-mcp-server-java21:sidecarJar'
+    doFirst {
+        def agentJarTask = project(':research-agent-runtime').tasks.getByName('researchAgentJar')
+        systemProperty 'research.agent.jar', agentJarTask.archiveFile.get().asFile.absolutePath
+        def sidecarTask = project(':browser-mcp-server-java21').tasks.getByName('sidecarJar')
+        systemProperty 'browser.sidecar.jar', sidecarTask.archiveFile.get().asFile.absolutePath
+        try {
+            def launcher21 = javaToolchains.launcherFor {
+                languageVersion = JavaLanguageVersion.of(21)
+            }.get()
+            systemProperty 'sidecar.java', launcher21.executablePath.asFile.absolutePath
+        } catch (Exception noJava21) {
+        }
+    }
 }
 
 mainClassName = 'com.aresstack.askai.java8.AskAiJava8App'
@@ -150,6 +169,7 @@ task researchRuntimeDist(type: Sync) {
     group = 'build'
     description = 'Assemble the research runtime distribution (agent jar, sidecar jar, lib/).'
     dependsOn ':research-agent-runtime:researchAgentJar'
+    dependsOn ':browser-mcp-server-java21:sidecarJar'
     dependsOn ':browser-mcp-server-java21:sidecarJar', ':browser-mcp-server-java21:sidecarLibs'
     into researchRuntimeDir
     // Closures defer the cross-project task lookups to execution time (configuration order safe).
