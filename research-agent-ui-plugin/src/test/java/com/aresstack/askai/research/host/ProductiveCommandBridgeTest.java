@@ -46,7 +46,7 @@ public class ProductiveCommandBridgeTest {
     /** Recording backend standing in for the ACP adapter (prompts + cancels only, like the real one). */
     private static final class RecordingBackend implements ResearchSessionBackend {
         final List<String> prompts = new ArrayList<String>();
-        int cancels;
+        volatile int cancels;
 
         public ResearchSessionHandle createSession(ResearchProjectRequest request,
                                                    ResearchSessionListener listener) {
@@ -202,6 +202,11 @@ public class ProductiveCommandBridgeTest {
             }
         });
         assertTrue(fx.session.dispatch(ResearchCommandType.PAUSE, null).isAccepted());
+        // The turn cancel runs OFF the calling thread (EDT protection) — await it briefly.
+        long deadline = System.currentTimeMillis() + 2000;
+        while (fx.backend.cancels < 1 && System.currentTimeMillis() < deadline) {
+            Thread.yield();
+        }
         assertEquals("PAUSE also cancels the running agent turn", 1, fx.backend.cancels);
         assertTrue("observers received the state update", updates.get() >= 1);
         assertTrue("a broken observer must not block later observers", healthy.get() >= 1);
