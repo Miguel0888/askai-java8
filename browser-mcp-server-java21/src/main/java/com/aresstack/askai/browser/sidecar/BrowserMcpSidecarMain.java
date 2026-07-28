@@ -17,11 +17,15 @@ import java.util.Map;
  * Entry point of the Java-21 Browser-MCP sidecar process. Boots a Solon streamable-HTTP MCP endpoint on
  * 127.0.0.1 with a caller-provided port and session token (both passed by the spawning host) and exposes the
  * exact flat tool set {@code web_search, web_open, web_read, web_links, web_follow, web_back} over a
- * {@link BrowserSession}. Args: {@code --port=<port> --token=<token>}. Logs go to STDERR only.
+ * {@link BrowserSession}. Args: {@code --port=<port> --token=<token>} plus optional
+ * {@code --browser-channel=chrome|msedge} (default chrome), {@code --headless=true|false} (default true),
+ * {@code --allow-private=true|false} (default false; true only for local test servers) and
+ * {@code --search-url=<template with {query}>}. Logs go to STDERR only; the token never appears in them.
  *
- * <p>The Playwright-backed session ({@link PlaywrightSessionFactory}) reports NOT_INSTALLED as a readable
- * tool error when the driver/browser runtime is unavailable; a missing driver never breaks packaging or the
- * host build. See problems.md MCP-P005 for the driver-orchestration status.</p>
+ * <p>The Playwright-backed session ({@link PlaywrightSessionFactory}) runs a structured capability probe;
+ * when the runtime is unavailable every tool reports the SPECIFIC status as a readable error. A missing
+ * driver or browser never breaks packaging or the host build, and nothing is downloaded. See problems.md
+ * MCP-P005.</p>
  */
 public final class BrowserMcpSidecarMain {
 
@@ -41,7 +45,13 @@ public final class BrowserMcpSidecarMain {
                 "--server.port=" + port
         });
 
-        BrowserSession session = PlaywrightSessionFactory.createOrUnavailable();
+        String channel = stringArg(args, "--browser-channel=");
+        BrowserSession session = PlaywrightSessionFactory.create(
+                channel == null ? "chrome" : channel,
+                !"false".equalsIgnoreCase(stringArg(args, "--headless=")),
+                "true".equalsIgnoreCase(stringArg(args, "--allow-private=")),
+                stringArg(args, "--search-url="),
+                com.aresstack.askai.browser.BrowserLimits.defaults());
         McpServerEndpointProvider endpoint = McpServerEndpointProvider.builder()
                 .name("browser")
                 .version("0.1")
@@ -50,7 +60,16 @@ public final class BrowserMcpSidecarMain {
                 .build();
         registerTools(endpoint, session);
         endpoint.postStart();
-        System.err.println("[browser-mcp] ready on 127.0.0.1:" + port);
+        // Ordered teardown even on SIGTERM: page/context/browser/driver-child close before the JVM exits,
+        // so no Chromium process is left behind.
+        final BrowserSession toClose = session;
+        Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
+            public void run() {
+                toClose.close();
+            }
+        }, "browser-session-shutdown"));
+        System.err.println("[browser-mcp] ready on 127.0.0.1:" + port
+                + " backend=" + session.getBackendKind());
     }
 
     static void registerTools(McpServerEndpointProvider endpoint, final BrowserSession session) {

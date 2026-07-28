@@ -16,10 +16,26 @@ java {
 
 dependencies {
     implementation project(':browser-api')
-    implementation 'com.aresstack:playwright4j:0.1.0'
+    // The official Playwright Java API — but WITHOUT its Node driver artifacts: playwright4j ships a
+    // replacement com.microsoft.playwright.impl.driver.Driver that spawns a second Java process running
+    // the Playwright Core JS driver on GraalJS (no Node.js). Excluding upstream 'driver' is mandatory:
+    // two Driver classes on the fat-jar classpath would make the winner order-dependent.
+    implementation('com.microsoft.playwright:playwright:1.59.0') {
+        exclude group: 'com.microsoft.playwright', module: 'driver'
+        exclude group: 'com.microsoft.playwright', module: 'driver-bundle'
+    }
+    implementation 'com.aresstack:playwright4j:0.1.0' // brings driver-bundle:1.59.0 (JS driver resources)
     implementation 'org.noear:solon:3.10.1'
     implementation 'org.noear:solon-boot-jdkhttp:3.10.1'
     implementation 'org.noear:solon-ai-mcp:3.10.1'
+
+    testImplementation 'junit:junit:4.13.2'
+}
+
+test {
+    useJUnit()
+    // The live browser test self-gates on the capability probe (Assume): without an installed
+    // Chrome/Edge it SKIPS with a readable message instead of silently passing or failing the build.
 }
 
 mainClassName = 'com.aresstack.askai.browser.sidecar.BrowserMcpSidecarMain'

@@ -580,29 +580,75 @@ isoliert beweisen. Dies ist durch die obige Auflösung erledigt.
 ## MCP-P005 — Playwright-Treiber-Orchestrierung im Sidecar noch nicht implementiert
 
 **Erkannt in:** Commit 32 (browser MCP sidecar)
-**Status:** OPEN
-**Schweregrad:** HIGH
+**Status:** RESOLVED (Commit 36B)
+**Schweregrad:** HIGH (historisch)
 **Betroffene Module:** browser-mcp-server-java21
 
 ### Erwartung
 Der Java-21-Sidecar bedient `web_*` real über Playwright (JS-Navigation, dynamische Seiten).
 
-### Beobachtung
-`playwright4j:0.1.0` ist **kein** High-Level-Port der Playwright-Java-API, sondern eine GraalJS-Runtime, die
-den rohen Playwright-**JS-Driver** hostet (`GraalPlaywrightRuntime.evaluate(...)`, polyglot `Value`,
-`drainTransports()`/`runDueTimers()`-Eventloop). Es gibt keine `Browser`/`Page`-Fassade; zusätzlich braucht
-die Laufzeit die Browser-Binaries des `driver-bundle`.
+### Ursprüngliche Beobachtung (historisch, präzisiert in 36B)
+Die erste Analyse sah in `playwright4j:0.1.0` nur die rohe GraalJS-Runtime (`GraalPlaywrightRuntime`,
+`drainTransports()`/`runDueTimers()`) ohne `Browser`/`Page`-Fassade. Die Analyse der realen Projektquellen
+(Commit 36B) hat das **korrigiert**: playwright4j behält das offizielle Playwright-Java-API-Modell bei.
 
-### Gewähltes Zwischenverhalten
-Sidecar vollständig baubar + paketierbar (`sidecarJar`, 252 MB, Main major 65): Solon-MCP-Endpoint (loopback,
-Token im Pfad) mit exakt `web_search/web_open/web_read/web_links/web_follow/web_back`; die Playwright-Session
-meldet jede Tool-Ausführung als lesbaren NOT_INSTALLED-artigen Fehler. Kein Build-Bruch bei fehlendem Driver.
-`STATIC_HTTP` existiert als separates, sichtbar limitiertes Backend hinter demselben `BrowserSession`-Port
-(kein stiller Fallback, kein zweiter Tool-Satz) und ist voll getestet.
+### Auflösung (36B) — reales Nutzungsmodell von playwright4j 0.1.0
+- Konsument nutzt das **offizielle** `com.microsoft.playwright:playwright:1.59.0`-API (`Playwright.create()`
+  → `chromium().launch(channel)` → `BrowserContext`/`Page`), dabei werden dessen Module `driver` und
+  `driver-bundle` **ausgeschlossen** (sonst zwei `Driver`-Klassen im Fat-Jar, Gewinner reihenfolgeabhängig).
+- `playwright4j:0.1.0` liefert eine Ersatz-`com.microsoft.playwright.impl.driver.Driver`-Klasse: statt eines
+  Node-Prozesses startet sie einen **zweiten Java-Prozess** (`com.aresstack.playwright4j.driver.GraalDriverMain`,
+  gleiches `java.home`, gleicher Classpath), der den offiziellen Playwright-Core-**JS**-Driver auf GraalJS
+  hostet. Kein Node.js nötig; die GraalJS-Orchestrierung liegt vollständig in playwright4j.
+- Das JS-Driver-Paket kommt aus `com.microsoft.playwright:driver-bundle:1.59.0` (runtime-Abhängigkeit von
+  playwright4j, Classpath-Ressourcen `driver/<platform>/package/...`).
+- Browser: **lokal installiertes** Chrome/Edge über den Playwright-Channel-Mechanismus
+  (`BROWSER_CHANNEL=chrome|msedge`); Firefox/WebKit werden von playwright4j 0.1.0 nicht unterstützt.
 
-### Spätere Entscheidung
-Treiber-Orchestrierung über `GraalPlaywrightRuntime` implementieren (Driver-JS laden, Connection/Transport
-über `drainTransports`, Browser-Launch, Page-Navigation) + Live-Test, sofern Browser-Binaries vorhanden.
+### Umsetzung im Sidecar (36B)
+`PlaywrightDriver` (enge Naht, nur `PlaywrightPageState`-Werte) → `Playwright4jDriver` (offizielles API;
+Popups sofort geschlossen, Downloads abgelehnt, Request-Interception gegen private Ziele bei strikter Policy,
+Navigations-Timeouts aus `BrowserLimits`) → `PlaywrightBrowserSession` (URL-Policy **vor Navigation und auf
+der finalen URL nach Redirects**; Text-/Link-Limits; snapshot-stabile `link-1..n`; `web_search` = Navigation
+zu konfigurierbarem `--search-url={query}`-Provider hinter `WebSearchProvider`, ohne Konfiguration ehrlicher
+Fehler). `PlaywrightCapabilityProbe` liefert strukturierte Status (`READY`/`INCOMPATIBLE_DRIVER`/
+`DRIVER_BUNDLE_NOT_FOUND`/`BROWSER_NOT_INSTALLED`/`BROWSER_START_FAILED` — bewusst kein pauschales
+NOT_INSTALLED; ein `NODE_RUNTIME_NOT_FOUND` existiert nicht, da playwright4j ohne Node arbeitet — das
+Äquivalent ist `DRIVER_BUNDLE_NOT_FOUND`). Shutdown-Reihenfolge Page→Context→Browser→Playwright (beendet den
+GraalJS-Kindprozess), idempotent, zusätzlich als JVM-Shutdown-Hook.
+
+### Keine impliziten Downloads/Installationen
+`PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` und `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS=1` sind fest gesetzt;
+die Probe sucht Browser nur an Standard-Installationspfaden. Ressourcen-Extraktion durch playwright4j selbst:
+Quelle = `driver-bundle`-Jar-Ressourcen, Ziel = `%TEMP%/playwright4j-driver` (Package-Assets + ggf.
+`node.exe`-Kompatibilitäts-Launcher + Konfigdatei), bleibt zwischen Läufen bestehen (Marker-Datei), wird von
+uns nicht gelöscht; gestartete Prozesse: Sidecar-JVM → GraalDriverMain-JVM → Chromium-Prozessbaum.
+
+### Paketierungs-Ehrlichkeit
+Das Sidecar-Fat-Jar (253 MB) enthält GraalJS, das driver-bundle **aller** Plattformen und genau **eine**
+`Driver.class` (verifiziert). **Nicht** enthalten und extern vorausgesetzt: ein lokal installiertes
+Chrome oder Edge. Temporär entstehen die o. g. Dateien unter `%TEMP%/playwright4j-driver`.
+
+### Verifikation
+- `PlaywrightCapabilityProbeTest` (Status-Klassifikation mit Fakes + realer Classpath-Beweis, dass die
+  playwright4j-`Driver`-Ersatzklasse effektiv ist und das JS-Bundle vorliegt).
+- `PlaywrightBrowserSessionTest` (8 Tests, Fake-Driver: Mapping/Trunkierung, Link-IDs pro Snapshot,
+  Policy vor Navigation und **nach Redirect** (geblockte Seite wird nicht current), unbekannte Link-ID,
+  Suche ehrlich/konfiguriert, idempotenter Close, Request-Filter-Klassifikation inkl. 169.254.169.254).
+- `PlaywrightLiveBrowserTest` — **erfolgreicher echter Browserlauf, dokumentierte Testumgebung:**
+  Windows 11, lokal installiertes Google Chrome (stable), Gradle-Toolchain Java 21, JVM-Modus (Truffle-
+  Fallback ohne JVMCI). Lokaler `com.sun.net.httpserver`-Testserver, dessen Text und Links **nur per
+  JavaScript** entstehen: `web_open` → „Rendered by JavaScript" sichtbar, JS-erzeugter Link über
+  `web_links`-Semantik, `follow` → zweite dynamische Seite, `back` → Startseite, 302-Redirect → Snapshot
+  trägt finale URL, `file:`-Scheme geblockt, doppelter `close()` sauber. Laufzeit 10,2 s. Der Test ist
+  environment-gated (JUnit-Assume auf Probe-READY): ohne installierten Browser SKIP mit Statusmeldung,
+  kein stilles Grün.
+- Full Build `./gradlew build --rerun-tasks` grün; ohne Browserruntime bleibt der Build grün (Probe-Status
+  statt Fehlschlag).
+
+### Anmerkung (kein Blocker)
+Ohne JVMCI läuft GraalJS im Truffle-Interpreter-Modus (Warnung im Log, geringere Geschwindigkeit). Für das
+MVP akzeptiert; optional später JVMCI/GraalVM-JDK für den Sidecar.
 
 ## MCP-P006 — Produktiver Lucene-Indexadapter noch nicht verdrahtet
 
