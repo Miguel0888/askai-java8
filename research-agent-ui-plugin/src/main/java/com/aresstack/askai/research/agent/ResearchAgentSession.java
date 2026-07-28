@@ -200,6 +200,8 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
 
     /** The user's research question (set once scoping is confirmed; auto-continued after approval). */
     private volatile String researchQuestion = "";
+    /** True while an agent TURN is in flight (productive composer busy-state; cleared on terminal events). */
+    private volatile boolean agentTurnInFlight;
     /** The consultative scoping dialog (productive mode). */
     private final ScopingConversation scoping = new ScopingConversation();
     private final java.util.concurrent.atomic.AtomicLong playbookMessageIds =
@@ -237,6 +239,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             // Gate-FREE forward transitions advance automatically; genuine approval gates stay with
             // the user. No /do ceremony.
             autoAdvanceTowardsResearch();
+            agentTurnInFlight = true; // cleared by the turn's terminal event
         }
         backend.submitPrompt(handle, new ResearchPrompt(text, activeSectionId));
     }
@@ -411,6 +414,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 if (!researchQuestion.isEmpty() && handle != null
                         && com.aresstack.askai.research.state.oo.ResearchStateIds.RUNNING
                                 .equals(productiveResources.currentState().getStateId())) {
+                    agentTurnInFlight = true; // cleared by the turn's terminal event
                     backend.submitPrompt(handle, new ResearchPrompt(researchQuestion, ""));
                 }
             }
@@ -438,6 +442,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
 
     public void pause() {
         if (productiveResources != null) {
+            agentTurnInFlight = false;
             dispatch(ResearchCommandType.PAUSE, null);
         } else if (handle != null) {
             backend.pause(handle);
@@ -454,6 +459,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
 
     public void cancel() {
         if (productiveResources != null) {
+            agentTurnInFlight = false;
             dispatch(ResearchCommandType.CANCEL, null);
         } else if (handle != null) {
             backend.cancel(handle);
@@ -524,12 +530,16 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             case USER_MESSAGE:
                 sink.appendUserMessage(event.getEventId(), event.getText());
                 break;
-            case ASSISTANT_MESSAGE:
             case COMPLETED:
+                agentTurnInFlight = false; // the turn ended; the composer is usable again
+                sink.appendAssistantMessage(event.getEventId(), event.getText());
+                break;
+            case ASSISTANT_MESSAGE:
                 sink.appendAssistantMessage(event.getEventId(), event.getText());
                 break;
             case BLOCKED:
             case ERROR:
+                agentTurnInFlight = false; // a failed turn must not wedge the composer
                 problemMessage = event.getPublicMessage();
                 // Show the WHY, not just the what: the technical detail (exception phase + reason,
                 // never secrets) is the only way anyone can act on a start failure.
@@ -653,6 +663,13 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             boolean terminal = com.aresstack.askai.research.state.oo.ResearchStateIds.isTerminal(stateId);
             if (disposed || handle == null || terminal) {
                 return SubmissionAvailability.UNAVAILABLE;
+            }
+            if (productiveResources != null) {
+                // Productive mode: "running" is the PHASE (research stays active between turns) — the
+                // composer is busy only while an agent TURN is actually in flight. Otherwise the user
+                // could never type again after "Agent turn completed".
+                return agentTurnInFlight ? SubmissionAvailability.BUSY
+                        : SubmissionAvailability.AVAILABLE;
             }
             return com.aresstack.askai.research.state.oo.ResearchStateIds.RUNNING.equals(stateId)
                     ? SubmissionAvailability.BUSY : SubmissionAvailability.AVAILABLE;
