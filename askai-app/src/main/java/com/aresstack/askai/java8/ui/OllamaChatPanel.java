@@ -1489,7 +1489,17 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
             }
         };
         if (synchronously) {
-            leave.run();
+            // Called on the EDT during window close; session.leave() closes the JGroups channel,
+            // which can block for seconds. Run it on a daemon thread with a short bound so the
+            // window closes promptly even if the transport is slow to shut down.
+            Thread leaver = new Thread(leave, "askai-party-leave");
+            leaver.setDaemon(true);
+            leaver.start();
+            try {
+                leaver.join(1500);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            }
         } else {
             dictationExecutor.execute(leave);
         }

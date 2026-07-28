@@ -117,6 +117,7 @@ public final class SpeechBubblePanel extends JPanel
         java.util.Date at = new java.util.Date(epochMillis);
         String date = new java.text.SimpleDateFormat("dd/MM/yy").format(at);
         String time = new java.text.SimpleDateFormat("HH:mm").format(at);
+        String full = new java.text.SimpleDateFormat("EEE dd/MM/yyyy HH:mm").format(at);
         if (timestampLabel == null) {
             timestampLabel = new JLabel();
             Font base = headerLabel.getFont();
@@ -127,9 +128,14 @@ public final class SpeechBubblePanel extends JPanel
             headerRow.add(timestampLabel);
         }
         timestampLabel.setText("<html><div style='line-height:90%'><b>" + time + "</b><br>" + date + "</div></html>");
-        // Cap the two stacked lines to the username's height.
+        // A shared, readable tooltip on the whole header so hovering the name or the stamp shows it.
+        headerLabel.setToolTipText(full);
+        timestampLabel.setToolTipText(full);
+        setToolTipText(full);
+        // Cap the two stacked lines to the username's height; pad the width so the year is never
+        // clipped (HTML labels tend to under-measure their preferred width by a pixel or two).
         Dimension pref = timestampLabel.getPreferredSize();
-        Dimension cap = new Dimension(pref.width, headerLabel.getPreferredSize().height);
+        Dimension cap = new Dimension(pref.width + 4, headerLabel.getPreferredSize().height);
         timestampLabel.setPreferredSize(cap);
         timestampLabel.setMaximumSize(cap);
         refreshLayout();
@@ -139,7 +145,7 @@ public final class SpeechBubblePanel extends JPanel
     private Dimension headerBlockSize() {
         Dimension label = headerLabel.getPreferredSize();
         if (timestampLabel != null) {
-            return new Dimension(label.width + 6 + timestampLabel.getPreferredSize().width, label.height);
+            return new Dimension(label.width + 6 + timestampLabel.getPreferredSize().width + 4, label.height);
         }
         return label;
     }
