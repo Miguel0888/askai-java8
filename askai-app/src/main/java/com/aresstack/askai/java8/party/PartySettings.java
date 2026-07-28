@@ -50,6 +50,16 @@ public final class PartySettings {
     private static final String KEY_ROOM_NAME = "party.roomName";
     private static final String KEY_ROOM_SECRET = "party.roomSecret";
     private static final String KEY_HISTORY_DIR = "party.historyDirectory";
+    private static final String KEY_HISTORY_AGE_CAP = "party.historyAgeCap";
+    private static final String KEY_HISTORY_MAX_AGE_DAYS = "party.historyMaxAgeDays";
+    private static final String KEY_HISTORY_SIZE_CAP = "party.historySizeCap";
+    private static final String KEY_HISTORY_MAX_SIZE_MB = "party.historyMaxSizeMb";
+    private static final String KEY_HISTORY_MAX_RECORD_MB = "party.historyMaxRecordMb";
+
+    /** History retention defaults: age cap on (30 days), size cap on (50 MB), 32 MB per record. */
+    public static final int DEFAULT_HISTORY_MAX_AGE_DAYS = 30;
+    public static final int DEFAULT_HISTORY_MAX_SIZE_MB = 50;
+    public static final int DEFAULT_HISTORY_MAX_RECORD_MB = 32;
 
     private final ApplicationStateService state;
 
@@ -263,6 +273,73 @@ public final class PartySettings {
 
     public void setHistoryDirectory(String path) {
         put(KEY_HISTORY_DIR, path);
+    }
+
+    // ------------------------------------------------------------------ history retention
+
+    /** Whether the age cap is active (default {@code true}). */
+    public boolean historyAgeCapEnabled() {
+        return state == null || state.getBoolean(KEY_HISTORY_AGE_CAP, true);
+    }
+
+    public void setHistoryAgeCapEnabled(boolean enabled) {
+        put(KEY_HISTORY_AGE_CAP, String.valueOf(enabled));
+    }
+
+    /** Maximum history age in days when the age cap is active. */
+    public int historyMaxAgeDays() {
+        return intValue(KEY_HISTORY_MAX_AGE_DAYS, DEFAULT_HISTORY_MAX_AGE_DAYS);
+    }
+
+    public void setHistoryMaxAgeDays(int days) {
+        put(KEY_HISTORY_MAX_AGE_DAYS, String.valueOf(Math.max(1, days)));
+    }
+
+    /** Whether the total-size cap is active (default {@code true}). */
+    public boolean historySizeCapEnabled() {
+        return state == null || state.getBoolean(KEY_HISTORY_SIZE_CAP, true);
+    }
+
+    public void setHistorySizeCapEnabled(boolean enabled) {
+        put(KEY_HISTORY_SIZE_CAP, String.valueOf(enabled));
+    }
+
+    /** Maximum total history size in MB when the size cap is active. */
+    public int historyMaxSizeMb() {
+        return intValue(KEY_HISTORY_MAX_SIZE_MB, DEFAULT_HISTORY_MAX_SIZE_MB);
+    }
+
+    public void setHistoryMaxSizeMb(int mb) {
+        put(KEY_HISTORY_MAX_SIZE_MB, String.valueOf(Math.max(1, mb)));
+    }
+
+    /** Per-message size guard in MB (default {@value #DEFAULT_HISTORY_MAX_RECORD_MB}). */
+    public int historyMaxRecordMb() {
+        return intValue(KEY_HISTORY_MAX_RECORD_MB, DEFAULT_HISTORY_MAX_RECORD_MB);
+    }
+
+    public void setHistoryMaxRecordMb(int mb) {
+        put(KEY_HISTORY_MAX_RECORD_MB, String.valueOf(Math.max(1, mb)));
+    }
+
+    /** Build the retention policy from the configured caps. */
+    public com.aresstack.askai.java8.groupchat.HistoryRetentionPolicy historyRetentionPolicy() {
+        long maxAge = historyAgeCapEnabled() ? historyMaxAgeDays() * 24L * 60L * 60L * 1000L : 0L;
+        long maxSize = historySizeCapEnabled() ? historyMaxSizeMb() * 1024L * 1024L : 0L;
+        int maxRecord = Math.max(1, historyMaxRecordMb()) * 1024 * 1024;
+        return new com.aresstack.askai.java8.groupchat.HistoryRetentionPolicy(maxAge, maxSize, maxRecord);
+    }
+
+    private int intValue(String key, int fallback) {
+        if (state == null) {
+            return fallback;
+        }
+        try {
+            String raw = state.get(key, null);
+            return raw == null || raw.trim().isEmpty() ? fallback : Integer.parseInt(raw.trim());
+        } catch (NumberFormatException ex) {
+            return fallback;
+        }
     }
 
     private void put(String key, String value) {

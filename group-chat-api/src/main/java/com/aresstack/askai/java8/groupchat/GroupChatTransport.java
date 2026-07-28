@@ -55,4 +55,8 @@ public interface GroupChatTransport {
     default List<GroupChatMessage> localHistory() {
         return java.util.Collections.emptyList();
     }
+
+    /** Delete this room's locally persisted history; no-op when there is no persistence. */
+    default void clearHistory() {
+    }
 }

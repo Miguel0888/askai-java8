@@ -168,7 +168,8 @@ public class JGroupsGroupChatTransport implements GroupChatTransport {
 
             File historyDir = config.getHistoryDirectory();
             if (historyDir != null) {
-                this.historyLog = new FileRoomHistoryLog(historyDir, room.getRoomId());
+                this.historyLog = new FileRoomHistoryLog(
+                        historyDir, room.getRoomId(), config.getHistoryRetention());
             }
 
             try {
@@ -324,6 +325,15 @@ public class JGroupsGroupChatTransport implements GroupChatTransport {
                 return Collections.emptyList();
             }
             return historyLog.readAll();
+        }
+    }
+
+    @Override
+    public void clearHistory() {
+        synchronized (lock) {
+            if (historyLog instanceof FileRoomHistoryLog) {
+                ((FileRoomHistoryLog) historyLog).clear();
+            }
         }
     }
 

@@ -1,5 +1,7 @@
 package com.aresstack.askai.java8.groupchat.jgroups;
 
+import com.aresstack.askai.java8.groupchat.HistoryRetentionPolicy;
+
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -23,6 +25,7 @@ public final class JGroupsTransportConfig {
     private final List<String> manualPeers;
     private final int tcpBindPort;
     private final File historyDirectory;
+    private final HistoryRetentionPolicy historyRetention;
 
     private JGroupsTransportConfig(Builder builder) {
         this.multicastDiscovery = builder.multicastDiscovery;
@@ -30,6 +33,8 @@ public final class JGroupsTransportConfig {
         this.manualPeers = Collections.unmodifiableList(new ArrayList<String>(builder.manualPeers));
         this.tcpBindPort = builder.tcpBindPort;
         this.historyDirectory = builder.historyDirectory;
+        this.historyRetention = builder.historyRetention != null
+                ? builder.historyRetention : HistoryRetentionPolicy.UNLIMITED;
     }
 
     /** @return a config with all defaults (UDP multicast discovery, auto bind, no persistence). */
@@ -75,6 +80,11 @@ public final class JGroupsTransportConfig {
         return historyDirectory;
     }
 
+    /** Retention limits applied to the per-room history log (never {@code null}). */
+    public HistoryRetentionPolicy getHistoryRetention() {
+        return historyRetention;
+    }
+
     /** @return {@code true} when the TCP/TCPPING stack should be used instead of UDP multicast. */
     public boolean useTcpStack() {
         return !multicastDiscovery || !manualPeers.isEmpty();
@@ -96,6 +106,7 @@ public final class JGroupsTransportConfig {
         private List<String> manualPeers = new ArrayList<String>();
         private int tcpBindPort = DEFAULT_TCP_PORT;
         private File historyDirectory;
+        private HistoryRetentionPolicy historyRetention = HistoryRetentionPolicy.UNLIMITED;
 
         /** Enable or disable UDP multicast discovery (enabled by default). */
         public Builder multicastDiscovery(boolean multicastDiscovery) {
@@ -129,6 +140,12 @@ public final class JGroupsTransportConfig {
         /** Directory for per-room history logs; {@code null} disables persistence. */
         public Builder historyDirectory(File historyDirectory) {
             this.historyDirectory = historyDirectory;
+            return this;
+        }
+
+        /** Retention limits for the history log; {@code null} = unlimited (default). */
+        public Builder historyRetention(HistoryRetentionPolicy historyRetention) {
+            this.historyRetention = historyRetention;
             return this;
         }
 

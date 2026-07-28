@@ -144,6 +144,11 @@ public final class PartySession implements GroupChatSubmissionTarget {
         return joined && transport.isConnected();
     }
 
+    /** Delete this room's locally persisted history (the on-disk log). */
+    public void clearHistory() {
+        transport.clearHistory();
+    }
+
     /** Update this peer's bot readiness (model became available/unavailable) and announce it. */
     public synchronized void updateBotReadiness() {
         boolean capable = botResponder != null && !PartySettings.BOT_POLICY_OFF.equals(botPolicy.get());

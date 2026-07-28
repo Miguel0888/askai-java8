@@ -330,16 +330,19 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         }
         String mode = applicationState.get(STATE_MODE, GroupChatMode.YAPPING);
         String agent = applicationState.get(STATE_AGENT, null);
-        if (GroupChatMode.PARTYING.equals(mode)) {
+        if (GroupChatMode.PARTYING.equals(mode)
+                && com.aresstack.askai.java8.party.PartyModeGuard.acquire(this)) {
             // Restore into Partying mode and rejoin right away so the stored room history is
-            // replayed without requiring a first (swallowed) send.
+            // replayed without requiring a first (swallowed) send.  Only the first restored tab
+            // wins the party; any further tabs fall back to Yapping.
             chatMode = GroupChatMode.PARTYING;
             selectedAgent = null;
             composer.setModeName("Partying");
             mentionCompletion.setActive(true);
             refreshMentionCompletionHandles();
             startPartySessionIfNeeded();
-        } else if (GroupChatMode.YAPPING.equals(mode) || agent == null || agent.trim().isEmpty()) {
+        } else if (GroupChatMode.YAPPING.equals(mode) || GroupChatMode.PARTYING.equals(mode)
+                || agent == null || agent.trim().isEmpty()) {
             chatMode = GroupChatMode.YAPPING;
             selectedAgent = null;
             composer.setModeName("Yapping");
@@ -524,7 +527,8 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
 
     /** The category names shown in the Outlook-style navigation list, in display order. */
     private static final String[] SETTINGS_CATEGORIES = {
-            "General", "Audio & Dictation", "Party: Identity & Room", "Party: Network", "Party: Bot"};
+            "General", "Audio & Dictation", "Party: Identity & Room", "Party: Network",
+            "Party: Bot", "Party: History"};
 
     /**
      * The chat settings dialog content, Outlook-style: a category list on the left selects one
@@ -539,6 +543,7 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         cards.add(settingsCard(partyCards[0]), SETTINGS_CATEGORIES[2]);
         cards.add(settingsCard(partyCards[1]), SETTINGS_CATEGORIES[3]);
         cards.add(settingsCard(partyCards[2]), SETTINGS_CATEGORIES[4]);
+        cards.add(settingsCard(partyCards[3]), SETTINGS_CATEGORIES[5]);
 
         final javax.swing.JList<String> navigation =
                 new javax.swing.JList<String>(SETTINGS_CATEGORIES);
@@ -715,6 +720,17 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         final JTextField historyField = new JTextField(
                 partySettings.historyDirectory().getAbsolutePath(), 24);
 
+        final javax.swing.JCheckBox ageCapBox = new javax.swing.JCheckBox(
+                "Delete history older than", partySettings.historyAgeCapEnabled());
+        final javax.swing.JSpinner ageDaysSpinner = new javax.swing.JSpinner(
+                new javax.swing.SpinnerNumberModel(partySettings.historyMaxAgeDays(), 1, 3650, 1));
+        final javax.swing.JCheckBox sizeCapBox = new javax.swing.JCheckBox(
+                "Keep total history under", partySettings.historySizeCapEnabled());
+        final javax.swing.JSpinner sizeMbSpinner = new javax.swing.JSpinner(
+                new javax.swing.SpinnerNumberModel(partySettings.historyMaxSizeMb(), 1, 100000, 10));
+        final javax.swing.JSpinner recordMbSpinner = new javax.swing.JSpinner(
+                new javax.swing.SpinnerNumberModel(partySettings.historyMaxRecordMb(), 1, 1024, 1));
+
         // One shared apply action; each card carries its own button for it.
         final java.awt.event.ActionListener applyAction = event -> {
             partySettings.setDisplayName(nameField.getText());
@@ -739,6 +755,11 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
             partySettings.setRoomId(roomField.getText());
             partySettings.setRoomSecret(secretField.getText());
             partySettings.setHistoryDirectory(historyField.getText());
+            partySettings.setHistoryAgeCapEnabled(ageCapBox.isSelected());
+            partySettings.setHistoryMaxAgeDays((Integer) ageDaysSpinner.getValue());
+            partySettings.setHistorySizeCapEnabled(sizeCapBox.isSelected());
+            partySettings.setHistoryMaxSizeMb((Integer) sizeMbSpinner.getValue());
+            partySettings.setHistoryMaxRecordMb((Integer) recordMbSpinner.getValue());
             refreshMentionCompletionHandles();
             // A policy change flips this peer's bot capability; announce it to the room.
             final PartySession session = partySession;
@@ -769,16 +790,6 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         roomRow.add(new JLabel("Secret"));
         roomRow.add(secretField);
         identityCard.add(roomRow);
-        JPanel historyRow = partySettingsRow();
-        historyRow.add(new JLabel("History folder"));
-        historyRow.add(historyField);
-        identityCard.add(historyRow);
-        JLabel historyNote = new JLabel(
-                "History lives on the participants' machines. Messages no reachable peer remembers cannot be restored.");
-        historyNote.setFont(historyNote.getFont().deriveFont(historyNote.getFont().getSize2D() - 2f));
-        JPanel noteRow = partySettingsRow();
-        noteRow.add(historyNote);
-        identityCard.add(noteRow);
         identityCard.add(partyApplyRow(applyAction));
 
         // ---- Card 2: network
@@ -836,7 +847,74 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         botCard.add(alwaysFieldRow);
         botCard.add(partyApplyRow(applyAction));
 
-        return new JComponent[] {identityCard, networkCard, botCard};
+        // ---- Card 4: history
+        JPanel historyCard = settingsColumn();
+        JPanel folderRow = partySettingsRow();
+        folderRow.add(new JLabel("History folder"));
+        folderRow.add(historyField);
+        historyCard.add(folderRow);
+        JPanel ageRow = partySettingsRow();
+        ageRow.add(ageCapBox);
+        ageRow.add(ageDaysSpinner);
+        ageRow.add(new JLabel("days"));
+        historyCard.add(ageRow);
+        JPanel sizeRow = partySettingsRow();
+        sizeRow.add(sizeCapBox);
+        sizeRow.add(sizeMbSpinner);
+        sizeRow.add(new JLabel("MB"));
+        historyCard.add(sizeRow);
+        JPanel recordRow = partySettingsRow();
+        recordRow.add(new JLabel("Max single message"));
+        recordRow.add(recordMbSpinner);
+        recordRow.add(new JLabel("MB"));
+        historyCard.add(recordRow);
+        JLabel retentionNote = new JLabel(
+                "Caps are applied when the room is (re)joined. Empty history folder = no persistence.");
+        retentionNote.setFont(retentionNote.getFont().deriveFont(retentionNote.getFont().getSize2D() - 2f));
+        JPanel retentionNoteRow = partySettingsRow();
+        retentionNoteRow.add(retentionNote);
+        historyCard.add(retentionNoteRow);
+        JLabel historyNote = new JLabel(
+                "History lives on the participants' machines. Messages no reachable peer remembers cannot be restored.");
+        historyNote.setFont(historyNote.getFont().deriveFont(historyNote.getFont().getSize2D() - 2f));
+        JPanel noteRow = partySettingsRow();
+        noteRow.add(historyNote);
+        historyCard.add(noteRow);
+        JButton clearHistoryButton = new JButton("Clear history now");
+        clearHistoryButton.setToolTipText("Delete this room's stored history on this machine");
+        clearHistoryButton.addActionListener(event -> clearPartyHistory());
+        JPanel historyActions = partyApplyRow(applyAction);
+        historyActions.add(clearHistoryButton);
+        historyCard.add(historyActions);
+
+        return new JComponent[] {identityCard, networkCard, botCard, historyCard};
+    }
+
+    /**
+     * Clears this room's persisted history: through the live session when joined (so the open log
+     * handle is reset safely), otherwise by deleting the on-disk log for the configured room.  The
+     * on-screen transcript is cleared too when Partying is active.
+     */
+    private void clearPartyHistory() {
+        final PartySession session = partySession;
+        if (session != null) {
+            dictationExecutor.execute(new Runnable() {
+                public void run() {
+                    try {
+                        session.clearHistory();
+                    } catch (Exception ignored) {
+                    }
+                }
+            });
+        } else {
+            com.aresstack.askai.java8.groupchat.FileRoomHistoryLog.deleteLog(
+                    partySettings.historyDirectory(), partySettings.roomId());
+        }
+        if (GroupChatMode.PARTYING.equals(chatMode)) {
+            transcript.clear();
+            transcript.appendInfo("Party history cleared.");
+        }
+        setStatus("Party history cleared.");
     }
 
     /** A row with an "Apply party settings" button wired to the shared apply action. */
@@ -1230,9 +1308,17 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         } else {
             dictationExecutor.execute(leave);
         }
+        // Release the app-wide party so another tab can join.
+        com.aresstack.askai.java8.party.PartyModeGuard.release(this);
     }
 
     private void selectPartyingMode() {
+        // Only one tab may be in the party at a time: the installation-scoped identity would
+        // otherwise appear as one participant joining twice, breaking membership and colors.
+        if (!com.aresstack.askai.java8.party.PartyModeGuard.acquire(this)) {
+            setStatus("Partying is already open in another chat tab — close it first.");
+            return;
+        }
         chatMode = GroupChatMode.PARTYING;
         selectedAgent = null;
         composer.setModeName("Partying");
@@ -1345,6 +1431,7 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
                 .bindInterface(partySettings.networkInterface())
                 .manualPeers(partySettings.manualPeers())
                 .historyDirectory(partySettings.historyDirectory())
+                .historyRetention(partySettings.historyRetentionPolicy())
                 .build();
         return new JGroupsGroupChatTransport(config);
     }
