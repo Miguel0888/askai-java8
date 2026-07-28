@@ -22,7 +22,8 @@ import java.util.Map;
  */
 public final class LegacyBrowserSearchConfigDocument {
 
-    public static final int CURRENT_SCHEMA_VERSION = 1;
+    /** v1 = A2 field set; v2 = A3 mechanical-analysis fields added to the analysis section. */
+    public static final int CURRENT_SCHEMA_VERSION = 2;
 
     public final int schemaVersion;
     public final long settingsRevision;

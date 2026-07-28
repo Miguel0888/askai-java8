@@ -26,13 +26,42 @@ public final class SearchPageAnalysisSettings {
     public final double subdomainPenalty;
     public final double unknownDomainPenalty;
 
+    // A3 scoring weights (signal families of the mechanical container/region analysis).
+    public final double repeatedBlockWeight;
+    public final double nonLinkTextWeight;
+    public final double titleLinkWeight;
+    public final double snippetPresenceWeight;
+    public final double headingLinkWeight;
+    public final double semanticMainWeight;
+    public final double navigationRolePenalty;
+    /** Similarity (0..1) two sibling structure signatures need to count as the same block shape. */
+    public final double resultBlockSimilarityThreshold;
+    /** At least this many signal FAMILIES must discriminate, else the analysis is LOW_CONFIDENCE. */
+    public final int minimumDiscriminatingSignalFamilies;
+    /** Text beyond this length adds no further score (saturation). */
+    public final int textLengthSaturationCharacters;
+
+    // A3 capture limits (the sidecar capture is bounded by construction).
+    public final int maximumContainerDomDepth;
+    public final int maximumCapturedContainers;
+    public final int maximumLinksPerContainer;
+    public final int maximumStructureSignatureDepth;
+
     public SearchPageAnalysisSettings(int maximumCandidateContainers, int minimumContainerTextCharacters,
                                       int minimumNonLinkTextCharacters, int minimumRepeatedSiblingCount,
                                       double minimumResultStructuralConfidence,
                                       double maximumNavigationLinkDensity, double internalLinkWeight,
                                       double externalLinkWeight, double sameHostPenalty,
                                       double sameRegistrableDomainPenalty, double subdomainPenalty,
-                                      double unknownDomainPenalty) {
+                                      double unknownDomainPenalty, double repeatedBlockWeight,
+                                      double nonLinkTextWeight, double titleLinkWeight,
+                                      double snippetPresenceWeight, double headingLinkWeight,
+                                      double semanticMainWeight, double navigationRolePenalty,
+                                      double resultBlockSimilarityThreshold,
+                                      int minimumDiscriminatingSignalFamilies,
+                                      int textLengthSaturationCharacters, int maximumContainerDomDepth,
+                                      int maximumCapturedContainers, int maximumLinksPerContainer,
+                                      int maximumStructureSignatureDepth) {
         this.maximumCandidateContainers = maximumCandidateContainers;
         this.minimumContainerTextCharacters = minimumContainerTextCharacters;
         this.minimumNonLinkTextCharacters = minimumNonLinkTextCharacters;
@@ -45,5 +74,19 @@ public final class SearchPageAnalysisSettings {
         this.sameRegistrableDomainPenalty = sameRegistrableDomainPenalty;
         this.subdomainPenalty = subdomainPenalty;
         this.unknownDomainPenalty = unknownDomainPenalty;
+        this.repeatedBlockWeight = repeatedBlockWeight;
+        this.nonLinkTextWeight = nonLinkTextWeight;
+        this.titleLinkWeight = titleLinkWeight;
+        this.snippetPresenceWeight = snippetPresenceWeight;
+        this.headingLinkWeight = headingLinkWeight;
+        this.semanticMainWeight = semanticMainWeight;
+        this.navigationRolePenalty = navigationRolePenalty;
+        this.resultBlockSimilarityThreshold = resultBlockSimilarityThreshold;
+        this.minimumDiscriminatingSignalFamilies = minimumDiscriminatingSignalFamilies;
+        this.textLengthSaturationCharacters = textLengthSaturationCharacters;
+        this.maximumContainerDomDepth = maximumContainerDomDepth;
+        this.maximumCapturedContainers = maximumCapturedContainers;
+        this.maximumLinksPerContainer = maximumLinksPerContainer;
+        this.maximumStructureSignatureDepth = maximumStructureSignatureDepth;
     }
 }

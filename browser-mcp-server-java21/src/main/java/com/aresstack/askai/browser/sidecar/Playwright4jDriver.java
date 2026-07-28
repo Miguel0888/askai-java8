@@ -35,6 +35,8 @@ final class Playwright4jDriver implements PlaywrightDriver {
     /** SERP guard behaviour comes exclusively from the settings — no local constants. */
     private final com.aresstack.askai.browser.search.ConsentHandlingSettings consent;
     private final com.aresstack.askai.browser.search.CaptchaHandlingSettings captcha;
+    /** The structured-page capture is a separate collaborator; this driver only delegates to it. */
+    private RenderedPageDocumentCapture renderedCapture;
     private Page page;
     /** The parked manual-challenge page (kept open for the user), or null. At most one at a time. */
     private Page challengePage;
@@ -132,6 +134,39 @@ final class Playwright4jDriver implements PlaywrightDriver {
             return state();
         } catch (PlaywrightException ex) {
             throw new BrowserException("Going back failed: " + firstLine(ex));
+        }
+    }
+
+    /** Hand in the capture collaborator (built from the analysis settings by the factory). */
+    void setRenderedCapture(RenderedPageDocumentCapture capture) {
+        this.renderedCapture = capture;
+    }
+
+    @Override
+    public com.aresstack.askai.browser.render.RenderedPageDocument captureRenderedPage(
+            com.aresstack.askai.browser.domain.DomainKeyResolver domainKeys,
+            long snapshotGeneration) throws BrowserException {
+        requireOpen();
+        if (renderedCapture == null) {
+            return null;
+        }
+        try {
+            final Page target = page;
+            return renderedCapture.capture(new RenderedPageDocumentCapture.PageScriptRunner() {
+                public Object evaluate(String script) {
+                    return target.evaluate(script);
+                }
+
+                public String url() {
+                    return target.url();
+                }
+
+                public String title() {
+                    return target.title();
+                }
+            }, domainKeys, snapshotGeneration);
+        } catch (PlaywrightException ex) {
+            throw new BrowserException("Structured page capture failed: " + firstLine(ex));
         }
     }
 

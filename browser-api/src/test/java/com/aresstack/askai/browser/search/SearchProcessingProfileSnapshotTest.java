@@ -48,12 +48,40 @@ public class SearchProcessingProfileSnapshotTest {
     public void unknownOlderSchemaHasNoGuessedMigration() {
         String json = SearchProcessingProfileSnapshot.create(
                         "s", 1L, 1L, LegacyBrowserSearchDefaults.create()).toJson()
-                .replace("\"schemaVersion\": 1", "\"schemaVersion\": 0");
+                .replace("\"schemaVersion\": 2", "\"schemaVersion\": 0");
         try {
             SearchProcessingProfileSnapshot.parse(json);
             fail("expected missing migration path");
         } catch (IllegalArgumentException expected) {
             assertTrue(expected.getMessage().contains("no migration path"));
         }
+    }
+
+    @Test
+    public void v1SnapshotsMigrateExplicitlyToV2WithDefaultsForNewFields() {
+        // A stored A2-era snapshot: schema 1, WITHOUT the A3 analysis keys and with a digest over
+        // the v1 key set. It must migrate (not fail), keep its stored values and give the new
+        // fields their central defaults.
+        java.util.Map<String, String> v1Values = new java.util.LinkedHashMap<String, String>(
+                LegacyBrowserSearchSettingsCodec.toValues(LegacyBrowserSearchDefaults.create()));
+        for (java.util.Iterator<String> it = v1Values.keySet().iterator(); it.hasNext();) {
+            String key = it.next();
+            if (key.startsWith("analysis.repeatedBlockWeight")
+                    || key.startsWith("analysis.maximumCaptured")
+                    || key.startsWith("analysis.maximumLinksPerContainer")
+                    || key.startsWith("analysis.maximumContainerDomDepth")
+                    || key.startsWith("analysis.maximumStructureSignatureDepth")) {
+                it.remove();
+            }
+        }
+        v1Values.put("captcha.challengeProbeIntervalMillis", "3000"); // a real v1 override
+        String v1Json = new LegacyBrowserSearchConfigDocument(1, 5L, "v1-digest-not-verified",
+                "old-session", 42L, v1Values).toJson();
+        SearchProcessingProfileSnapshot migrated = SearchProcessingProfileSnapshot.parse(v1Json);
+        assertEquals("old-session", migrated.profileId);
+        assertEquals(3000, migrated.settings.captcha.challengeProbeIntervalMillis);
+        assertEquals("new A3 fields take their central defaults", 1.2,
+                migrated.settings.analysis.repeatedBlockWeight, 0.0001);
+        assertEquals(2, migrated.schemaVersion);
     }
 }

@@ -61,7 +61,7 @@ public final class SearchProcessingProfileSnapshot {
                     + new SettingsValidationResult(decoded.violations).describe());
         }
         String digest = LegacyBrowserSearchSettingsCodec.digest(decoded.settings);
-        if (migrated.schemaVersion == LegacyBrowserSearchConfigDocument.CURRENT_SCHEMA_VERSION
+        if (document.schemaVersion == LegacyBrowserSearchConfigDocument.CURRENT_SCHEMA_VERSION
                 && !migrated.settingsDigest.isEmpty() && !migrated.settingsDigest.equals(digest)) {
             throw new IllegalArgumentException("search profile snapshot digest mismatch: stored "
                     + migrated.settingsDigest + " but values hash to " + digest
@@ -77,6 +77,12 @@ public final class SearchProcessingProfileSnapshot {
             LegacyBrowserSearchConfigDocument document) {
         switch (document.schemaVersion) {
             case LegacyBrowserSearchConfigDocument.CURRENT_SCHEMA_VERSION:
+                return document;
+            case 1:
+                // v1 → v2 (A3): the analysis section gained fields; every v1 value stays valid and
+                // the new keys take their central defaults during decoding. The stored digest
+                // covered the v1 key set, so it is recomputed (digest verification only applies to
+                // un-migrated current-version snapshots).
                 return document;
             default:
                 // parse() already rejects NEWER versions; an unknown older one has no migration path.

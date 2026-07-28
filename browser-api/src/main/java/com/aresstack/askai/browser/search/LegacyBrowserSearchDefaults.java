@@ -107,7 +107,21 @@ public final class LegacyBrowserSearchDefaults {
                 0.6,    // sameHostPenalty
                 0.3,    // sameRegistrableDomainPenalty
                 0.4,    // subdomainPenalty
-                0.2);   // unknownDomainPenalty
+                0.2,    // unknownDomainPenalty
+                1.2,    // repeatedBlockWeight — repeated sibling blocks are the strongest signal
+                0.8,    // nonLinkTextWeight
+                1.0,    // titleLinkWeight
+                0.9,    // snippetPresenceWeight
+                0.6,    // headingLinkWeight
+                0.8,    // semanticMainWeight
+                1.0,    // navigationRolePenalty
+                0.6,    // resultBlockSimilarityThreshold
+                1,      // minimumDiscriminatingSignalFamilies
+                600,    // textLengthSaturationCharacters
+                40,     // maximumContainerDomDepth
+                600,    // maximumCapturedContainers
+                50,     // maximumLinksPerContainer
+                3);     // maximumStructureSignatureDepth
     }
 
     private static SearchPageVisualAnalysisSettings visualAnalysis() {

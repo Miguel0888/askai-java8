@@ -37,10 +37,11 @@ final class PlaywrightSessionFactory {
         UrlSafetyPolicy policy = allowPrivateNetworks
                 ? UrlSafetyPolicy.allowingPrivateNetworks() : UrlSafetyPolicy.strict();
         try {
-            PlaywrightDriver driver = Playwright4jDriver.launch(normalizedChannel, headless,
+            Playwright4jDriver driver = Playwright4jDriver.launch(normalizedChannel, headless,
                     settings.navigation.navigationCommitTimeoutMillis,
                     allowPrivateNetworks ? null : new PrivateTargetRequestFilter(),
                     settings.consent, settings.captcha);
+            driver.setRenderedCapture(new RenderedPageDocumentCapture(settings.analysis));
             return new PlaywrightBrowserSession(driver, policy, limits, searchUrlTemplate, null,
                     settings);
         } catch (BrowserException ex) {

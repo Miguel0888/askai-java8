@@ -23,6 +23,19 @@ interface PlaywrightDriver extends AutoCloseable {
     /** Browser history back. Fails readably when there is no previous page. */
     PlaywrightPageState back() throws BrowserException;
 
+    /**
+     * Capture the CURRENT page as a neutral {@link com.aresstack.askai.browser.render.RenderedPageDocument}
+     * (container hierarchy, text/link statistics, geometry, colors) for the mechanical SERP analysis.
+     * @param domainKeys the session's domain-key resolver (link domain classification)
+     * @param snapshotGeneration monotonic per session; stale-reference guard for container/link ids
+     * @return the document, or null when this driver cannot capture (tests provide their own)
+     */
+    default com.aresstack.askai.browser.render.RenderedPageDocument captureRenderedPage(
+            com.aresstack.askai.browser.domain.DomainKeyResolver domainKeys,
+            long snapshotGeneration) throws BrowserException {
+        return null;
+    }
+
     // ------------------------------------------------------------------ search-page guards (SERP only)
     // These stay driver-level so SERP details (consent, challenge DOM) never leak into the research loop.
 

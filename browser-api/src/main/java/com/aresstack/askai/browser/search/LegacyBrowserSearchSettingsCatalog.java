@@ -187,6 +187,41 @@ public final class LegacyBrowserSearchSettingsCatalog {
                 "Penalty for links to engine subdomains.", 0, Double.NaN);
         decimal(f, "analysis.unknownDomainPenalty", SECTION_ANALYSIS, "Unknown-domain penalty",
                 "Penalty for links whose domain kind cannot be judged.", 0, Double.NaN);
+        decimal(f, "analysis.repeatedBlockWeight", SECTION_ANALYSIS, "Repeated block weight",
+                "Weight of repeated similar sibling blocks — the strongest result signal.",
+                0, Double.NaN);
+        decimal(f, "analysis.nonLinkTextWeight", SECTION_ANALYSIS, "Non-link text weight",
+                "Weight of explanatory (non-linked) text inside a container.", 0, Double.NaN);
+        decimal(f, "analysis.titleLinkWeight", SECTION_ANALYSIS, "Title link weight",
+                "Weight of one dominant title link per block.", 0, Double.NaN);
+        decimal(f, "analysis.snippetPresenceWeight", SECTION_ANALYSIS, "Snippet presence weight",
+                "Weight of an explanatory snippet next to the title link.", 0, Double.NaN);
+        decimal(f, "analysis.headingLinkWeight", SECTION_ANALYSIS, "Heading link weight",
+                "Weight of links sitting inside a heading element.", 0, Double.NaN);
+        decimal(f, "analysis.semanticMainWeight", SECTION_ANALYSIS, "Semantic main weight",
+                "Weight of main/role=main DOM semantics.", 0, Double.NaN);
+        decimal(f, "analysis.navigationRolePenalty", SECTION_ANALYSIS, "Navigation role penalty",
+                "Penalty for nav/role=navigation semantics.", 0, Double.NaN);
+        decimal(f, "analysis.resultBlockSimilarityThreshold", SECTION_ANALYSIS,
+                "Result block similarity threshold",
+                "Similarity two sibling structure signatures need to count as the same block shape.",
+                0, 1);
+        integer(f, "analysis.minimumDiscriminatingSignalFamilies", SECTION_ANALYSIS,
+                "Minimum discriminating signal families",
+                "If fewer signal families discriminate, the analysis is LOW_CONFIDENCE "
+                        + "(→ EXTRACTION_FAILED, next engine).", 1, 6);
+        integer(f, "analysis.textLengthSaturationCharacters", SECTION_ANALYSIS,
+                "Text length saturation (chars)",
+                "Text beyond this length adds no further score.", 1, 100_000);
+        integer(f, "analysis.maximumContainerDomDepth", SECTION_ANALYSIS,
+                "Maximum container DOM depth", "Capture depth bound.", 4, 200);
+        integer(f, "analysis.maximumCapturedContainers", SECTION_ANALYSIS,
+                "Maximum captured containers", "Capture container bound.", 16, 10_000);
+        integer(f, "analysis.maximumLinksPerContainer", SECTION_ANALYSIS,
+                "Maximum links per container", "Capture link bound per container.", 1, 1_000);
+        integer(f, "analysis.maximumStructureSignatureDepth", SECTION_ANALYSIS,
+                "Maximum structure signature depth",
+                "Depth bound of the structural shape signature.", 1, 10);
         // --- Visual analysis
         bool(f, "visual.enabled", SECTION_VISUAL, "Enabled",
                 "Screenshot-based container detection (takes effect once the visual stage ships).");

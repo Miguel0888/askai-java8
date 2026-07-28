@@ -106,6 +106,27 @@ public final class LegacyBrowserSearchSettingsCodec {
                 String.valueOf(s.analysis.sameRegistrableDomainPenalty));
         m.put("analysis.subdomainPenalty", String.valueOf(s.analysis.subdomainPenalty));
         m.put("analysis.unknownDomainPenalty", String.valueOf(s.analysis.unknownDomainPenalty));
+        m.put("analysis.repeatedBlockWeight", String.valueOf(s.analysis.repeatedBlockWeight));
+        m.put("analysis.nonLinkTextWeight", String.valueOf(s.analysis.nonLinkTextWeight));
+        m.put("analysis.titleLinkWeight", String.valueOf(s.analysis.titleLinkWeight));
+        m.put("analysis.snippetPresenceWeight", String.valueOf(s.analysis.snippetPresenceWeight));
+        m.put("analysis.headingLinkWeight", String.valueOf(s.analysis.headingLinkWeight));
+        m.put("analysis.semanticMainWeight", String.valueOf(s.analysis.semanticMainWeight));
+        m.put("analysis.navigationRolePenalty", String.valueOf(s.analysis.navigationRolePenalty));
+        m.put("analysis.resultBlockSimilarityThreshold",
+                String.valueOf(s.analysis.resultBlockSimilarityThreshold));
+        m.put("analysis.minimumDiscriminatingSignalFamilies",
+                String.valueOf(s.analysis.minimumDiscriminatingSignalFamilies));
+        m.put("analysis.textLengthSaturationCharacters",
+                String.valueOf(s.analysis.textLengthSaturationCharacters));
+        m.put("analysis.maximumContainerDomDepth",
+                String.valueOf(s.analysis.maximumContainerDomDepth));
+        m.put("analysis.maximumCapturedContainers",
+                String.valueOf(s.analysis.maximumCapturedContainers));
+        m.put("analysis.maximumLinksPerContainer",
+                String.valueOf(s.analysis.maximumLinksPerContainer));
+        m.put("analysis.maximumStructureSignatureDepth",
+                String.valueOf(s.analysis.maximumStructureSignatureDepth));
 
         m.put("visual.enabled", String.valueOf(s.visualAnalysis.enabled));
         m.put("visual.backgroundSimilarityThreshold",
@@ -258,7 +279,21 @@ public final class LegacyBrowserSearchSettingsCodec {
                         r.doubleValue("analysis.sameHostPenalty"),
                         r.doubleValue("analysis.sameRegistrableDomainPenalty"),
                         r.doubleValue("analysis.subdomainPenalty"),
-                        r.doubleValue("analysis.unknownDomainPenalty")),
+                        r.doubleValue("analysis.unknownDomainPenalty"),
+                        r.doubleValue("analysis.repeatedBlockWeight"),
+                        r.doubleValue("analysis.nonLinkTextWeight"),
+                        r.doubleValue("analysis.titleLinkWeight"),
+                        r.doubleValue("analysis.snippetPresenceWeight"),
+                        r.doubleValue("analysis.headingLinkWeight"),
+                        r.doubleValue("analysis.semanticMainWeight"),
+                        r.doubleValue("analysis.navigationRolePenalty"),
+                        r.doubleValue("analysis.resultBlockSimilarityThreshold"),
+                        r.intValue("analysis.minimumDiscriminatingSignalFamilies"),
+                        r.intValue("analysis.textLengthSaturationCharacters"),
+                        r.intValue("analysis.maximumContainerDomDepth"),
+                        r.intValue("analysis.maximumCapturedContainers"),
+                        r.intValue("analysis.maximumLinksPerContainer"),
+                        r.intValue("analysis.maximumStructureSignatureDepth")),
                 new SearchPageVisualAnalysisSettings(
                         r.boolValue("visual.enabled"),
                         r.doubleValue("visual.backgroundSimilarityThreshold"),

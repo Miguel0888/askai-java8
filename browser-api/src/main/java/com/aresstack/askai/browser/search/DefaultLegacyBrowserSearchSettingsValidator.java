@@ -77,6 +77,24 @@ public final class DefaultLegacyBrowserSearchSettingsValidator
         weight(v, "analysis.sameRegistrableDomainPenalty", s.analysis.sameRegistrableDomainPenalty);
         weight(v, "analysis.subdomainPenalty", s.analysis.subdomainPenalty);
         weight(v, "analysis.unknownDomainPenalty", s.analysis.unknownDomainPenalty);
+        weight(v, "analysis.repeatedBlockWeight", s.analysis.repeatedBlockWeight);
+        weight(v, "analysis.nonLinkTextWeight", s.analysis.nonLinkTextWeight);
+        weight(v, "analysis.titleLinkWeight", s.analysis.titleLinkWeight);
+        weight(v, "analysis.snippetPresenceWeight", s.analysis.snippetPresenceWeight);
+        weight(v, "analysis.headingLinkWeight", s.analysis.headingLinkWeight);
+        weight(v, "analysis.semanticMainWeight", s.analysis.semanticMainWeight);
+        weight(v, "analysis.navigationRolePenalty", s.analysis.navigationRolePenalty);
+        ratio(v, "analysis.resultBlockSimilarityThreshold",
+                s.analysis.resultBlockSimilarityThreshold);
+        atLeast(v, "analysis.minimumDiscriminatingSignalFamilies",
+                s.analysis.minimumDiscriminatingSignalFamilies, 1);
+        atLeast(v, "analysis.textLengthSaturationCharacters",
+                s.analysis.textLengthSaturationCharacters, 1);
+        atLeast(v, "analysis.maximumContainerDomDepth", s.analysis.maximumContainerDomDepth, 4);
+        atLeast(v, "analysis.maximumCapturedContainers", s.analysis.maximumCapturedContainers, 16);
+        atLeast(v, "analysis.maximumLinksPerContainer", s.analysis.maximumLinksPerContainer, 1);
+        atLeast(v, "analysis.maximumStructureSignatureDepth",
+                s.analysis.maximumStructureSignatureDepth, 1);
 
         // --- visual analysis
         ratio(v, "visual.backgroundSimilarityThreshold",
