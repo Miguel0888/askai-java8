@@ -45,8 +45,8 @@ interface WebSearchProvider {
      * (Videos/Shopping/Maps tabs, settings, sign-in). Provider-internal links are dropped unless they are
      * known redirect wrappers (Bing {@code /ck/}, Google {@code /url}, DuckDuckGo {@code /l/}) — those ARE
      * the organic links on engines that wrap their results. The list is deduplicated and capped so it stays
-     * digestible for small models. If the heuristic finds nothing (unknown provider layout), it degrades to
-     * the legacy all-links extraction rather than returning an empty street sign.
+     * digestible for small models. An EMPTY result means "this engine gave us no routes" — the session then
+     * tries its fallback engines and only degrades to the legacy all-links extraction as the last resort.
      */
     final class OrganicResultSearchProvider implements WebSearchProvider {
 
@@ -77,7 +77,7 @@ interface WebSearchProvider {
                             link.getText(), url, link.getText()));
                 }
             }
-            return organic.isEmpty() ? new LinkListSearchProvider().extract(page, links) : organic;
+            return organic;
         }
 
         private static boolean isRedirectWrapper(String url, String host) {

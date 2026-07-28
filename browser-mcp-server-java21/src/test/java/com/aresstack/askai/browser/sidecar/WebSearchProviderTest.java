@@ -54,17 +54,16 @@ public class WebSearchProviderTest {
     }
 
     @Test
-    public void fallsBackToAllTextLinksWhenNoOrganicLinkIsFound() {
-        // Unknown provider layout where everything is provider-internal: degrade, never go blind.
+    public void returnsEmptyWhenNoOrganicRouteExists() {
+        // Everything provider-internal (consent wall, JS-only results): "no routes from this engine" —
+        // the SESSION then tries its fallback engines before degrading to the all-links extraction.
         List<BrowserLink> links = new ArrayList<BrowserLink>();
         links.add(link("Result A", "https://search.example/r/1"));
         links.add(link("Result B", "https://search.example/r/2"));
         BrowserPageSnapshot page =
                 new BrowserPageSnapshot("https://search.example/find?q=x", "find", "…", false);
 
-        List<WebSearchItem> items = PROVIDER.extract(page, links);
-
-        assertEquals(2, items.size());
+        assertEquals(0, PROVIDER.extract(page, links).size());
     }
 
     @Test

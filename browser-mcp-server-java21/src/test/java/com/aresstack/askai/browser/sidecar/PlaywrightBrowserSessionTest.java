@@ -207,6 +207,73 @@ public class PlaywrightBrowserSessionTest {
         assertEquals(1, result.getItems().size());
         assertEquals("PF4J primer", result.getItems().get(0).getTitle());
         assertEquals("http://9.9.9.9/a", result.getItems().get(0).getUrl());
+        assertEquals("the engine host travels with the result",
+                java.util.Arrays.asList("8.8.8.8"), result.getProviderHosts());
+    }
+
+    @Test
+    public void searchFallsThroughToTheNextEngineWhenTheConfiguredOneHasNoOrganicRoutes() throws Exception {
+        // The user-reported case: headless Bing serves a consent/JS page — every anchor is provider-
+        // internal. The session must try the fallback engine instead of returning provider navigation.
+        // DNS-named engines + allow-private policy: fallbacks apply, and no DNS lookup happens in check().
+        FakeDriver driver = new FakeDriver();
+        driver.byUrl.put("http://engine-one.test/find?q=pf4j", state("http://engine-one.test/find?q=pf4j",
+                "Consent", "consent wall",
+                "Videos", "http://engine-one.test/videos?q=pf4j",
+                "Accept", "http://engine-one.test/consent"));
+        driver.byUrl.put("http://engine-two.test/html?q=pf4j", state("http://engine-two.test/html?q=pf4j",
+                "Results", "results page", "PF4J primer", "http://target.test/pf4j"));
+        PlaywrightBrowserSession s = session(driver, UrlSafetyPolicy.allowingPrivateNetworks(),
+                BrowserLimits.defaults(), "http://engine-one.test/find?q={query}");
+        s.setFallbackSearchTemplates(new String[]{"http://engine-two.test/html?q={query}"});
+
+        WebSearchResult result = s.search("pf4j");
+
+        assertEquals(1, result.getItems().size());
+        assertEquals("http://target.test/pf4j", result.getItems().get(0).getUrl());
+        assertEquals("BOTH engine hosts are reported as transit",
+                java.util.Arrays.asList("engine-one.test", "engine-two.test"),
+                result.getProviderHosts());
+    }
+
+    @Test
+    public void searchDegradesToAllLinksOnlyWhenNoEngineHasOrganicRoutes() throws Exception {
+        FakeDriver driver = new FakeDriver();
+        driver.byUrl.put("http://engine-one.test/find?q=pf4j", state("http://engine-one.test/find?q=pf4j",
+                "Consent", "wall", "Videos", "http://engine-one.test/videos?q=pf4j"));
+        driver.byUrl.put("http://engine-two.test/html?q=pf4j", state("http://engine-two.test/html?q=pf4j",
+                "Empty", "nothing", "Settings", "http://engine-two.test/settings"));
+        PlaywrightBrowserSession s = session(driver, UrlSafetyPolicy.allowingPrivateNetworks(),
+                BrowserLimits.defaults(), "http://engine-one.test/find?q={query}");
+        s.setFallbackSearchTemplates(new String[]{"http://engine-two.test/html?q={query}"});
+
+        WebSearchResult result = s.search("pf4j");
+
+        assertEquals("degrades to the last page's text links, never goes blind",
+                1, result.getItems().size());
+        assertEquals("http://engine-two.test/settings", result.getItems().get(0).getUrl());
+        assertTrue("degrade mode reports NO transit hosts — the engine's links ARE the results",
+                result.getProviderHosts().isEmpty());
+    }
+
+    @Test
+    public void literalIpProvidersNeverFallThroughToPublicEngines() throws Exception {
+        // A literal-IP provider is a self-contained dev/test world: no fallback engine is contacted,
+        // the engine's own links stay usable (degrade mode), no transit hosts are reported.
+        FakeDriver driver = new FakeDriver();
+        driver.byUrl.put("http://8.8.8.8/find?q=pf4j", state("http://8.8.8.8/find?q=pf4j",
+                "Find", "results", "Local result", "http://8.8.8.8/a"));
+        PlaywrightBrowserSession s = session(driver, UrlSafetyPolicy.strict(),
+                BrowserLimits.defaults(), "http://8.8.8.8/find?q={query}");
+        s.setFallbackSearchTemplates(new String[]{"http://engine-two.test/html?q={query}"});
+
+        WebSearchResult result = s.search("pf4j");
+
+        assertEquals("exactly one navigation — no fallback engine was contacted",
+                1, driver.opened.size());
+        assertEquals(1, result.getItems().size());
+        assertEquals("http://8.8.8.8/a", result.getItems().get(0).getUrl());
+        assertTrue(result.getProviderHosts().isEmpty());
     }
 
     @Test

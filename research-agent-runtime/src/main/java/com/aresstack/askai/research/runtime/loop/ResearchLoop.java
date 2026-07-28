@@ -92,8 +92,7 @@ public final class ResearchLoop {
             String query = join(terms);
             listener.progress(progress, ResearchRunActivity.searching(query));
             String results = callBrowser("web_search", args("query", query));
-            String providerHost = providerHostOf(results);
-            if (!providerHost.isEmpty()) {
+            for (String providerHost : providerHostsOf(results)) {
                 searchProviderSites.add(siteOf(providerHost));
             }
             frontier.addAll(extractUrls(results));
@@ -400,14 +399,15 @@ public final class ResearchLoop {
         return "";
     }
 
-    /** The {@code PROVIDER: <host>} line of a {@code web_search} result, or {@code ""}. */
-    static String providerHostOf(String results) {
+    /** All {@code PROVIDER: <host>} lines of a {@code web_search} result (fallback engines add more). */
+    static List<String> providerHostsOf(String results) {
+        List<String> hosts = new ArrayList<String>();
         for (String line : (results == null ? "" : results).split("\n")) {
             if (line.startsWith("PROVIDER: ")) {
-                return line.substring("PROVIDER: ".length()).trim().toLowerCase(Locale.ROOT);
+                hosts.add(line.substring("PROVIDER: ".length()).trim().toLowerCase(Locale.ROOT));
             }
         }
-        return "";
+        return hosts;
     }
 
     private boolean isSearchProviderSite(String host) {

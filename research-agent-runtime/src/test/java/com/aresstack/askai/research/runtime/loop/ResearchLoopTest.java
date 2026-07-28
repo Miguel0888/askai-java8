@@ -390,6 +390,14 @@ public class ResearchLoopTest {
     }
 
     @Test
+    public void allProviderLinesAreParsedAsTransitSites() {
+        assertEquals(java.util.Arrays.asList("www.bing.com", "html.duckduckgo.com"),
+                ResearchLoop.providerHostsOf("PROVIDER: www.bing.com\nPROVIDER: html.duckduckgo.com\n"
+                        + "1: x — https://a.example/"));
+        assertTrue(ResearchLoop.providerHostsOf("1: x — https://a.example/").isEmpty());
+    }
+
+    @Test
     public void revisitedUrlsAreNeverNavigatedAgainAndPagesCountOnlyNewCanonicalUrls() {
         ResearchRunProgress p = new ResearchRunProgress();
         assertTrue(p.pageVisited("https://a/x", "a"));

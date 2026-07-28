@@ -48,6 +48,24 @@ final class PlaywrightBrowserSession implements BrowserSession {
         return BrowserBackendKind.PLAYWRIGHT_SIDECAR;
     }
 
+    /**
+     * Scrape-friendly, server-rendered fallback engines: when the CONFIGURED engine yields no organic
+     * routes (consent wall, JS-only result page, blocking), the search falls through to these before
+     * degrading to the legacy all-links extraction. Their result links are direct or {@code /l/}-wrapped,
+     * which the street-sign extraction understands.
+     */
+    static final String[] FALLBACK_SEARCH_TEMPLATES = {
+            "https://html.duckduckgo.com/html/?q={query}",
+            "https://lite.duckduckgo.com/lite/?q={query}"
+    };
+
+    private String[] fallbackSearchTemplates = FALLBACK_SEARCH_TEMPLATES;
+
+    /** Test seam: replace the built-in fallback engines (tests use literal-IP URLs, no DNS). */
+    void setFallbackSearchTemplates(String[] templates) {
+        this.fallbackSearchTemplates = templates == null ? new String[0] : templates;
+    }
+
     public WebSearchResult search(String query) throws BrowserException {
         if (searchUrlTemplate == null) {
             throw new BrowserException("No search provider is configured for the Playwright backend "
@@ -56,9 +74,52 @@ final class PlaywrightBrowserSession implements BrowserSession {
         if (query == null || query.trim().isEmpty()) {
             throw new BrowserException("Empty search query.");
         }
-        BrowserPageSnapshot page = open(searchUrlTemplate.replace("{query}", encode(query.trim())));
-        return new WebSearchResult(searchProvider.extract(page, currentLinks),
-                WebSearchProvider.OrganicResultSearchProvider.hostOf(page.getUrl()));
+        String encoded = encode(query.trim());
+        List<String> templates = new ArrayList<String>();
+        templates.add(searchUrlTemplate);
+        // Fallback engines only make sense behind a PUBLIC engine (Bing & co.). A literal-IP/localhost
+        // provider is a self-contained dev/test world — falling through to a public engine would leave it.
+        if (isDnsName(WebSearchProvider.OrganicResultSearchProvider.hostOf(searchUrlTemplate))) {
+            for (String fallback : fallbackSearchTemplates) {
+                if (!fallback.equals(searchUrlTemplate)) {
+                    templates.add(fallback);
+                }
+            }
+        }
+        List<String> providerHosts = new ArrayList<String>();
+        BrowserPageSnapshot lastPage = null;
+        List<BrowserLink> lastLinks = null;
+        BrowserException lastFailure = null;
+        for (String template : templates) {
+            BrowserPageSnapshot page;
+            try {
+                page = open(template.replace("{query}", encoded));
+            } catch (BrowserException engineUnreachable) {
+                lastFailure = engineUnreachable;
+                continue; // this engine is down/blocked — the next one may still deliver routes
+            }
+            String host = WebSearchProvider.OrganicResultSearchProvider.hostOf(page.getUrl());
+            if (!host.isEmpty() && !providerHosts.contains(host)) {
+                providerHosts.add(host);
+            }
+            List<com.aresstack.askai.browser.WebSearchItem> organic =
+                    searchProvider.extract(page, currentLinks);
+            if (!organic.isEmpty()) {
+                return new WebSearchResult(organic, providerHosts);
+            }
+            lastPage = page;
+            lastLinks = currentLinks;
+        }
+        if (lastPage == null) {
+            throw lastFailure != null ? lastFailure
+                    : new BrowserException("Search failed: no engine was reachable.");
+        }
+        // No engine produced organic routes: degrade to the legacy all-links extraction, never go blind.
+        // Deliberately WITHOUT provider hosts: in this mode the engine's own links ARE the results
+        // (single-host dev/test worlds) — marking the host as transit would make them unusable.
+        return new WebSearchResult(
+                new WebSearchProvider.LinkListSearchProvider().extract(lastPage, lastLinks),
+                Collections.<String>emptyList());
     }
 
     public BrowserPageSnapshot open(String url) throws BrowserException {
@@ -144,6 +205,17 @@ final class PlaywrightBrowserSession implements BrowserSession {
         if (!hasPage) {
             throw new BrowserException("No page is open yet — call web_open or web_search first.");
         }
+    }
+
+    /** True for registered DNS names ("www.bing.com"); false for literal IPs/ports-only authorities. */
+    private static boolean isDnsName(String host) {
+        for (int i = 0; i < host.length(); i++) {
+            char c = Character.toLowerCase(host.charAt(i));
+            if (c >= 'a' && c <= 'z') {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String encode(String value) throws BrowserException {

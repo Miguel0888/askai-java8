@@ -77,6 +77,11 @@ public class PlaywrightLiveBrowserTest {
 
         BrowserSession session = PlaywrightSessionFactory.create(channel, true, true,
                 base + "/find?q={query}", BrowserLimits.defaults());
+        if (session instanceof PlaywrightBrowserSession) {
+            // Hermetic: the local single-host provider has no "external" organic links, and the test
+            // must never fall through to a real public search engine.
+            ((PlaywrightBrowserSession) session).setFallbackSearchTemplates(new String[0]);
+        }
         try {
             assertEquals(BrowserBackendKind.PLAYWRIGHT_SIDECAR, session.getBackendKind());
 

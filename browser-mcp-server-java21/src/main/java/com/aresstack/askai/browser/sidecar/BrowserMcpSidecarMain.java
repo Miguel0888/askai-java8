@@ -81,9 +81,9 @@ public final class BrowserMcpSidecarMain {
                         com.aresstack.askai.browser.WebSearchResult result =
                                 session.search(str(args, "query"));
                         StringBuilder sb = new StringBuilder();
-                        if (!result.getProviderHost().isEmpty()) {
-                            // Consumers treat the engine's host as transit — never an evidence source.
-                            sb.append("PROVIDER: ").append(result.getProviderHost()).append('\n');
+                        // Consumers treat every engine host as transit — never an evidence source.
+                        for (String providerHost : result.getProviderHosts()) {
+                            sb.append("PROVIDER: ").append(providerHost).append('\n');
                         }
                         for (WebSearchItem item : result.getItems()) {
                             sb.append(item.getId()).append(": ").append(item.getTitle())
