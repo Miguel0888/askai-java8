@@ -20,7 +20,14 @@ import static org.junit.Assert.assertTrue;
 public class WebSearchProviderTest {
 
     private static final WebSearchProvider.OrganicResultSearchProvider PROVIDER =
-            new WebSearchProvider.OrganicResultSearchProvider();
+            new WebSearchProvider.OrganicResultSearchProvider(
+                    new com.aresstack.askai.browser.domain.PublicSuffixDomainKeyResolver());
+
+    private static String bingWrapped(String target) {
+        return "https://www.bing.com/ck/a?!&&p=abc&u=a1"
+                + java.util.Base64.getUrlEncoder().withoutPadding()
+                        .encodeToString(target.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    }
 
     private static BrowserPageSnapshot bingPage() {
         return new BrowserPageSnapshot("https://www.bing.com/search?q=pf4j", "pf4j - Suchen", "…", false);
@@ -31,13 +38,15 @@ public class WebSearchProviderTest {
     }
 
     @Test
-    public void dropsProviderNavigationKeepsRedirectWrappersAndExternalLinks() {
+    public void dropsProviderNavigationResolvesWrappersAndKeepsExternalLinks() {
+        String wrapped = bingWrapped("https://pf4j.org/doc/getting-started.html");
         List<BrowserLink> links = new ArrayList<BrowserLink>();
         links.add(link("Videos", "https://www.bing.com/videos/search?q=pf4j"));
         links.add(link("Shopping", "https://www.bing.com/shopping?q=pf4j"));
         links.add(link("Bilder", "https://cn.bing.com/images/search?q=pf4j"));
         links.add(link("Einstellungen", "https://www.bing.com/account/general"));
-        links.add(link("PF4J – Plugin Framework for Java", "https://www.bing.com/ck/a?!&&p=abc"));
+        links.add(link("PF4J – Plugin Framework for Java", wrapped));
+        links.add(link("Kaputter Wrapper", "https://www.bing.com/ck/a?!&&p=abc")); // no decodable target
         links.add(link("pf4j/pf4j: Plugin Framework", "https://github.com/pf4j/pf4j"));
         links.add(link("pf4j/pf4j: Plugin Framework", "https://github.com/pf4j/pf4j")); // duplicate
         links.add(link("", "https://no-text.example/"));
@@ -45,8 +54,10 @@ public class WebSearchProviderTest {
 
         List<WebSearchItem> items = PROVIDER.extract(bingPage(), links);
 
-        assertEquals("wrapper + external, deduped — nothing else", 2, items.size());
-        assertEquals("https://www.bing.com/ck/a?!&&p=abc", items.get(0).getUrl());
+        assertEquals("resolved wrapper + external, deduped — nav and broken wrapper dropped",
+                2, items.size());
+        assertEquals("the NAVIGATION target stays the wrapper (the engine expects it followed)",
+                wrapped, items.get(0).getUrl());
         assertEquals("https://github.com/pf4j/pf4j", items.get(1).getUrl());
         for (WebSearchItem item : items) {
             assertTrue(!item.getUrl().contains("/videos/") && !item.getUrl().contains("/shopping"));
@@ -76,12 +87,4 @@ public class WebSearchProviderTest {
         assertEquals(WebSearchProvider.OrganicResultSearchProvider.MAX_RESULTS, items.size());
     }
 
-    @Test
-    public void siteOfComparesRegistrableDomainsAndKeepsIps() {
-        assertEquals("bing.com",
-                WebSearchProvider.OrganicResultSearchProvider.siteOf("www.bing.com"));
-        assertEquals("bing.com",
-                WebSearchProvider.OrganicResultSearchProvider.siteOf("cn.bing.com"));
-        assertEquals("8.8.8.8", WebSearchProvider.OrganicResultSearchProvider.siteOf("8.8.8.8"));
-    }
 }

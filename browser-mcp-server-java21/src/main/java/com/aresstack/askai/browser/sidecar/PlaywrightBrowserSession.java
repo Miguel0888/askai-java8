@@ -29,12 +29,16 @@ final class PlaywrightBrowserSession implements BrowserSession {
     private final UrlSafetyPolicy policy;
     private final BrowserLimits limits;
     private final String searchUrlTemplate;
-    private final WebSearchProvider searchProvider;
+    private WebSearchProvider searchProvider;
     private List<BrowserLink> currentLinks = Collections.emptyList();
     private boolean hasPage;
     /** MANUAL_CHALLENGE_PENDING: the domain family whose parked challenge waits for the user, or null. */
     private String challengeFamily;
     private String challengeUrl;
+
+    /** Public-suffix aware domain families; tests may inject a fake (e.g. host:port for local worlds). */
+    private com.aresstack.askai.browser.domain.DomainKeyResolver domainKeys =
+            new com.aresstack.askai.browser.domain.PublicSuffixDomainKeyResolver();
 
     PlaywrightBrowserSession(PlaywrightDriver driver, UrlSafetyPolicy policy, BrowserLimits limits,
                              String searchUrlTemplate, WebSearchProvider searchProvider) {
@@ -44,7 +48,21 @@ final class PlaywrightBrowserSession implements BrowserSession {
         this.searchUrlTemplate = searchUrlTemplate == null || searchUrlTemplate.trim().isEmpty()
                 ? null : searchUrlTemplate.trim();
         this.searchProvider = searchProvider == null
-                ? new WebSearchProvider.OrganicResultSearchProvider() : searchProvider;
+                ? new WebSearchProvider.OrganicResultSearchProvider(domainKeys) : searchProvider;
+    }
+
+    /**
+     * Inject a different {@link com.aresstack.askai.browser.domain.DomainKeyResolver} (tests/dev modes,
+     * e.g. host:port keys for local multi-server worlds). The default organic extraction is rebuilt on
+     * the same domain semantics; a custom search provider stays untouched.
+     */
+    void setDomainKeyResolver(com.aresstack.askai.browser.domain.DomainKeyResolver resolver) {
+        if (resolver != null) {
+            this.domainKeys = resolver;
+            if (searchProvider instanceof WebSearchProvider.OrganicResultSearchProvider) {
+                this.searchProvider = new WebSearchProvider.OrganicResultSearchProvider(resolver);
+            }
+        }
     }
 
     public BrowserBackendKind getBackendKind() {
@@ -82,7 +100,8 @@ final class PlaywrightBrowserSession implements BrowserSession {
         templates.add(searchUrlTemplate);
         // Fallback engines only make sense behind a PUBLIC engine (Bing & co.). A literal-IP/localhost
         // provider is a self-contained dev/test world — falling through to a public engine would leave it.
-        if (isDnsName(WebSearchProvider.OrganicResultSearchProvider.hostOf(searchUrlTemplate))) {
+        if (domainKeys.resolve(searchUrlTemplate).getHostKind()
+                == com.aresstack.askai.browser.domain.HostKind.REGISTERED_NAME) {
             for (String fallback : fallbackSearchTemplates) {
                 if (!fallback.equals(searchUrlTemplate)) {
                     templates.add(fallback);
@@ -94,8 +113,7 @@ final class PlaywrightBrowserSession implements BrowserSession {
         List<BrowserLink> lastLinks = null;
         BrowserException lastFailure = null;
         for (String template : templates) {
-            String engineFamily = WebSearchProvider.OrganicResultSearchProvider.siteOf(
-                    WebSearchProvider.OrganicResultSearchProvider.hostOf(template));
+            String engineFamily = domainKeys.resolve(template).getRegistrableDomain();
             if (engineFamily.equals(challengeFamily)) {
                 continue; // MANUAL_CHALLENGE_PENDING: no new search, no reload, no retry on this family
             }
@@ -111,11 +129,12 @@ final class PlaywrightBrowserSession implements BrowserSession {
             if (driver.tryDismissConsent().startsWith("clicked")) {
                 page = checkedSnapshot(driver.current()); // re-read without the consent overlay
             }
-            String host = WebSearchProvider.OrganicResultSearchProvider.hostOf(page.getUrl());
+            com.aresstack.askai.browser.domain.DomainIdentity pageIdentity =
+                    domainKeys.resolve(page.getUrl());
+            String host = pageIdentity.getHost();
             if (driver.challengePresent()) {
-                String family = WebSearchProvider.OrganicResultSearchProvider.siteOf(host);
                 if (challengeFamily == null && driver.parkChallenge()) {
-                    challengeFamily = family;
+                    challengeFamily = pageIdentity.getRegistrableDomain();
                     challengeUrl = page.getUrl();
                 }
                 continue; // the user solves it manually; try the next engine meanwhile
@@ -249,17 +268,6 @@ final class PlaywrightBrowserSession implements BrowserSession {
         if (!hasPage) {
             throw new BrowserException("No page is open yet — call web_open or web_search first.");
         }
-    }
-
-    /** True for registered DNS names ("www.bing.com"); false for literal IPs/ports-only authorities. */
-    private static boolean isDnsName(String host) {
-        for (int i = 0; i < host.length(); i++) {
-            char c = Character.toLowerCase(host.charAt(i));
-            if (c >= 'a' && c <= 'z') {
-                return true;
-            }
-        }
-        return false;
     }
 
     private static String encode(String value) throws BrowserException {

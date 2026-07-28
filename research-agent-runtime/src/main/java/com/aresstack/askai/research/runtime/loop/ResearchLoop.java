@@ -38,6 +38,16 @@ public final class ResearchLoop {
     private long waitedForUserMillis;
     private long lastChallengeProbeAt;
     private static final long CHALLENGE_PROBE_INTERVAL_MILLIS = 1000L;
+    /** Public-suffix aware domain families; tests may inject a fake (e.g. host:port for local worlds). */
+    private com.aresstack.askai.browser.domain.DomainKeyResolver domainKeys =
+            new com.aresstack.askai.browser.domain.PublicSuffixDomainKeyResolver();
+
+    /** Inject a different domain-key resolver (tests/dev only; production keeps the public-suffix one). */
+    public void setDomainKeyResolver(com.aresstack.askai.browser.domain.DomainKeyResolver resolver) {
+        if (resolver != null) {
+            this.domainKeys = resolver;
+        }
+    }
 
     public ResearchLoop(ToolInvoker browser, ToolInvoker research, ResearchRunBudget budget,
                         ResearchLoopClock clock, ResearchLoopListener listener, AtomicBoolean cancelled) {
@@ -101,7 +111,7 @@ public final class ResearchLoop {
             listener.progress(progress, ResearchRunActivity.searching(query));
             String results = callBrowser("web_search", args("query", query));
             for (String providerHost : providerHostsOf(results)) {
-                searchProviderSites.add(siteOf(providerHost));
+                searchProviderSites.add(familyOf(providerHost));
             }
             applyChallengeLines(results);
             frontier.addAll(extractUrls(stripStatusLines(results)));
@@ -134,7 +144,7 @@ public final class ResearchLoop {
             if (progress.alreadyVisited(canonical)) {
                 continue; // already visited → never navigate again
             }
-            if (challengedFamilies.contains(siteOf(hostOf(url)))) {
+            if (challengedFamilies.contains(familyOf(url))) {
                 deferredUrls.add(url); // QUEUED_DOMAIN_BLOCKED: starts only after the challenge resolves
                 continue;
             }
@@ -265,14 +275,14 @@ public final class ResearchLoop {
             if (line.startsWith("CHALLENGE: ")) {
                 String rest = line.substring("CHALLENGE: ".length()).trim();
                 int space = rest.indexOf(' ');
-                String family = siteOf(space < 0 ? rest : rest.substring(0, space));
+                String family = familyOf(space < 0 ? rest : rest.substring(0, space));
                 String url = space < 0 ? "" : rest.substring(space + 1).trim();
                 if (!family.isEmpty() && challengedFamilies.add(family)) {
                     listener.status("manual challenge pending on " + family);
                     listener.attention("CAPTCHA", family, url, false);
                 }
             } else if (line.startsWith("RESOLVED: ")) {
-                unlockFamily(siteOf(line.substring("RESOLVED: ".length()).trim()));
+                unlockFamily(familyOf(line.substring("RESOLVED: ".length()).trim()));
             } else if (line.equals("NONE")) {
                 // The browser has no pending challenge (it may have been consumed elsewhere): unlock all.
                 for (String family : new ArrayList<String>(challengedFamilies)) {
@@ -310,7 +320,7 @@ public final class ResearchLoop {
             // Re-queue everything whose family is unlocked again (still-locked URLs re-defer on pull).
             List<String> requeue = new ArrayList<String>();
             for (String url : deferredUrls) {
-                if (!challengedFamilies.contains(siteOf(hostOf(url)))) {
+                if (!challengedFamilies.contains(familyOf(url))) {
                     requeue.add(url);
                 }
             }
@@ -531,17 +541,12 @@ public final class ResearchLoop {
     }
 
     private boolean isSearchProviderSite(String host) {
-        return !host.isEmpty() && searchProviderSites.contains(siteOf(host));
+        return !host.isEmpty() && searchProviderSites.contains(familyOf(host));
     }
 
-    /** Comparable "site" of a host ({@code www.bing.com} → {@code bing.com}); literal IPs stay as-is. */
-    static String siteOf(String host) {
-        String h = host == null ? "" : host.toLowerCase(Locale.ROOT);
-        if (h.isEmpty() || h.matches("[0-9.:]+")) {
-            return h;
-        }
-        String[] labels = h.split("\\.");
-        return labels.length <= 2 ? h : labels[labels.length - 2] + "." + labels[labels.length - 1];
+    /** The public-suffix aware domain family ({@code news.bbc.co.uk} → {@code bbc.co.uk}). */
+    private String familyOf(String urlOrHost) {
+        return domainKeys.resolve(urlOrHost).getRegistrableDomain();
     }
 
     static String hostOf(String url) {
