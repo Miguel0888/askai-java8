@@ -15,6 +15,9 @@ dependencies {
     // 36C: the live-sidecar integration test drives the PRODUCTIVE capture/acceptance lifecycle
     // (CaptureStore, SourceAcceptanceService, in-memory repository/index) behind the research endpoint.
     testImplementation project(':research-agent-ui-plugin')
+    // The plugin's shared APIs are compileOnly there (host-provided); the E2E host wiring test IS the host.
+    testImplementation project(':agent-workspace-api')
+    testImplementation project(':agent-plugin-pf4j-api')
     testImplementation 'junit:junit:4.13.2'
 }
 

@@ -114,6 +114,16 @@ public final class AcpResearchSessionBackend implements ResearchSessionBackend {
         }
     }
 
+    /** Close every live session (agent processes included). Used by the owning resources on shutdown. */
+    public void closeAllSessions() {
+        for (String sessionId : sessions.keySet()) {
+            AcpBackedSession session = sessions.remove(sessionId);
+            if (session != null) {
+                session.shutdown();
+            }
+        }
+    }
+
     private AcpBackedSession resolve(ResearchSessionHandle handle) {
         return handle == null ? null : sessions.get(handle.getSessionId());
     }

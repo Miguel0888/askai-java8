@@ -16,4 +16,11 @@ public interface McpServerRegistry {
     void updateTools(McpEndpointHandle handle, Collection<McpToolContribution> tools);
 
     void unregisterEndpoint(McpEndpointHandle handle);
+
+    /**
+     * The client-facing URL of a registered endpoint (its token embedded in the path), or {@code null} when
+     * the handle is unknown/unregistered. The in-process registry returns a non-network {@code inprocess:}
+     * URI usable only for identity, never for connecting.
+     */
+    String endpointUrl(McpEndpointHandle handle);
 }

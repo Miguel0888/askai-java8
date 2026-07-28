@@ -683,3 +683,34 @@ deterministische In-Memory-Adapter deckt Tests + MVP ab. Keine halbfertige Lucen
 ### Spätere Entscheidung
 Eigener Slice: Lucene-Adapter (Java-8-taugliche Lucene-Version prüfen) hinter demselben Port; Rebuild aus
 `ResearchSourceRepository`.
+
+## MCP-P007 — UI-Konfigurationsfläche für den produktiven Research-Modus noch nicht verdrahtet
+
+**Erkannt in:** Commit 38 (produktives Host-Wiring)
+**Status:** OPEN
+**Schweregrad:** MEDIUM
+**Betroffene Module:** research-agent-ui-plugin (agent), askai-app
+
+### Erwartung
+Der AskAI-Benutzer kann den produktiven Research-Modus in der UI aktivieren (Pfade zu Agent-Jar,
+Java-21-Launcher, Sidecar-Jar, Browser-Channel, Search-Provider), und `ResearchAgentSessionFactory`
+erzeugt dann Sessions über die produktive Kette statt über den Fake.
+
+### Beobachtung
+Das produktive Wiring existiert vollständig und ist end-to-end getestet
+(`ResearchRuntimeGenerationSwitch` → `ProductiveResearchBackendFactory` →
+`ProductiveResearchSessionResources` → `AcpResearchSessionBackend`;
+`ProductiveResearchMvpEndToEndTest`). Was fehlt, ist ausschließlich die UI-Konfigurationsfläche:
+`ResearchAgentSessionFactory` (der PF4J-Einstieg der Chat-Workspaces) instanziiert weiterhin den
+sichtbaren, deterministischen `FakeResearchSessionBackend`, weil die `ResearchRuntimeConfig`-Pfade
+im UI-Host noch nirgends erfasst/persistiert werden. Kein stiller Fallback: FAKE ist der dokumentierte
+Clickdummy-Modus, nicht eine heimliche Degradation des produktiven Modus.
+
+### Verifikation
+`ProductiveResearchMvpEndToEndTest` beweist die produktive Kette ohne UI (echter Agentprozess, echter
+Sidecar, echtes Chrome, JS-only-Inhalte, zwei Hosts, Datei-Repository, Generationswechsel + Rollback).
+
+### Spätere Entscheidung
+Eigener Slice: Konfigurationsdialog/Settings-Persistenz für `ResearchRuntimeConfig` + Umschaltung
+`ResearchBackendMode` FAKE→ACP in `ResearchAgentSessionFactory` (inkl. Anzeige des Sidecar-Readiness-
+Status im UI). Bis dahin bleibt der produktive Modus programmatisch/testseitig nutzbar.

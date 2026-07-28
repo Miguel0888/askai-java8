@@ -170,10 +170,12 @@ public final class ResearchToolPolicy {
                         if (captureId == null || captureId.trim().isEmpty()) {
                             return McpToolResult.error("Missing argument: capture_id");
                         }
-                        String sourceId = ctx.acceptCapture(captureId.trim());
-                        return sourceId == null
+                        // The context returns the compact Commit-37 acceptance line verbatim
+                        // (status/source_id/title/passage_count/duplicate[/index=STALE]).
+                        String result = ctx.acceptCapture(captureId.trim());
+                        return result == null
                                 ? McpToolResult.error("Unknown capture: " + captureId)
-                                : McpToolResult.ok("accepted sourceId=" + sourceId);
+                                : McpToolResult.ok(result);
                     }
                 },
                 McpToolParameter.string("capture_id", true, "The capture id from a visited page"));

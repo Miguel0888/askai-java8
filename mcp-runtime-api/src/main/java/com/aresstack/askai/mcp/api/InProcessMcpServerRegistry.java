@@ -70,6 +70,13 @@ public final class InProcessMcpServerRegistry implements McpServerRegistry {
         }
     }
 
+    @Override
+    public String endpointUrl(McpEndpointHandle handle) {
+        Endpoint endpoint = authorized(handle);
+        return endpoint == null ? null
+                : "inprocess://" + endpoint.definition.getEndpointId() + "/" + endpoint.token;
+    }
+
     public void addToolsChangedListener(ToolsChangedListener listener) {
         if (listener != null) {
             listeners.addIfAbsent(listener);

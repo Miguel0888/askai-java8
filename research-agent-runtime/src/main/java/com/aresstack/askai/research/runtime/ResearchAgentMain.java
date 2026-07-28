@@ -100,6 +100,19 @@ public final class ResearchAgentMain {
         if (cancelled.get()) {
             return new AcpSchema.PromptResponse(AcpSchema.StopReason.CANCELLED);
         }
+        // Autonomous web research turn: run the deterministic loop (36A, unchanged) against the browser and
+        // research endpoints from the launch environment. Without a browser endpoint this is a visible,
+        // honest refusal — never a fallback.
+        if (text.startsWith("research:")) {
+            if (!environment.hasBrowser()) {
+                ctx.sendMessage("BROWSER_NOT_AVAILABLE: cannot run autonomous web research this turn.");
+                return AcpSchema.PromptResponse.endTurn();
+            }
+            runResearchLoop(ctx, text.substring("research:".length()).trim());
+            return cancelled.get()
+                    ? new AcpSchema.PromptResponse(AcpSchema.StopReason.CANCELLED)
+                    : AcpSchema.PromptResponse.endTurn();
+        }
         // Mirror the host state via MCP (no own state machine): report the live research status.
         try {
             ToolResult status = researchMcp.callTool("research_status",
@@ -118,5 +131,47 @@ public final class ResearchAgentMain {
         }
         ctx.sendMessage("turn done for: " + text);
         return AcpSchema.PromptResponse.endTurn();
+    }
+
+    /**
+     * The 36A loop, verbatim: content-driven, centrally budgeted, PHASE_READY as an EVENT line (the host
+     * remains the only state authority — this process never switches phases). Stop reason and progress are
+     * reported explicitly over ACP, never only to logs.
+     */
+    private void runResearchLoop(final SyncPromptContext ctx, String task) {
+        com.aresstack.askai.research.runtime.loop.SolonToolInvoker browser =
+                new com.aresstack.askai.research.runtime.loop.SolonToolInvoker(
+                        environment.browserUrl, environment.browserTransport);
+        com.aresstack.askai.research.runtime.loop.SolonToolInvoker research =
+                new com.aresstack.askai.research.runtime.loop.SolonToolInvoker(
+                        environment.researchUrl, environment.researchTransport);
+        try {
+            com.aresstack.askai.research.runtime.loop.ResearchLoop loop =
+                    new com.aresstack.askai.research.runtime.loop.ResearchLoop(browser, research,
+                            com.aresstack.askai.research.runtime.loop.ResearchRunBudget.defaults(),
+                            new com.aresstack.askai.research.runtime.loop.ResearchLoopClock() {
+                                public long currentTimeMillis() {
+                                    return System.currentTimeMillis();
+                                }
+                            },
+                            new com.aresstack.askai.research.runtime.loop.ResearchLoopListener() {
+                                public void status(String message) {
+                                    ctx.sendMessage("loop: " + message);
+                                }
+
+                                public void phaseReady(
+                                        com.aresstack.askai.research.runtime.loop.ResearchStopReason reason) {
+                                    ctx.sendMessage("PHASE_READY: " + reason); // event only — host decides
+                                }
+                            }, cancelled);
+            com.aresstack.askai.research.runtime.loop.ResearchStopReason reason = loop.run(task);
+            ctx.sendMessage("RESEARCH_RUN_STOPPED: " + reason
+                    + " pages=" + loop.getProgress().getPagesVisited()
+                    + " sources=" + loop.getProgress().getAcceptedSources()
+                    + " hosts=" + loop.getProgress().getDistinctHosts().size());
+        } finally {
+            browser.close();
+            research.close();
+        }
     }
 }

@@ -1,0 +1,282 @@
+package com.aresstack.askai.research.runtime;
+
+import com.aresstack.askai.acp.solon.SolonAcpAgentConnector;
+import com.aresstack.askai.mcp.solon.SolonMcpServerRuntime;
+import com.aresstack.askai.mcp.solon.SolonMcpToolClientFactory;
+import com.aresstack.askai.research.backend.ResearchBackendEvent;
+import com.aresstack.askai.research.backend.ResearchProjectRequest;
+import com.aresstack.askai.research.backend.ResearchPrompt;
+import com.aresstack.askai.research.backend.ResearchSessionHandle;
+import com.aresstack.askai.research.backend.ResearchSessionListener;
+import com.aresstack.askai.research.capture.VisitedCapture;
+import com.aresstack.askai.research.host.ProductiveResearchSessionResources;
+import com.aresstack.askai.research.host.ResearchRuntimeConfig;
+import com.aresstack.askai.research.host.ResearchRuntimeGeneration;
+import com.aresstack.askai.research.host.ResearchRuntimeGenerationSwitch;
+import com.aresstack.askai.research.sources.ResearchSourceRecord;
+import com.aresstack.askai.research.sources.SourceQuery;
+import com.aresstack.askai.research.state.ResearchCommandType;
+import com.aresstack.askai.research.state.oo.ResearchStateIds;
+
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpHandler;
+import com.sun.net.httpserver.HttpServer;
+
+import org.junit.Test;
+
+import java.io.File;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.time.Duration;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
+import static org.junit.Assume.assumeTrue;
+
+/**
+ * Commit 38: the PRODUCTIVE research MVP end to end, driven exclusively through the host wiring AskAI uses —
+ * {@code ResearchRuntimeGenerationSwitch} → {@code ProductiveResearchBackendFactory} →
+ * {@code ProductiveResearchSessionResources} → {@code ResearchSessionBackend} port. No ResearchLoop call, no
+ * SolonToolInvoker, no fake backend, no STATIC_HTTP anywhere in this test: the loop runs INSIDE the real
+ * external agent process; pages come from the real Playwright sidecar (JavaScript-only content, two hosts);
+ * sources persist through the Commit-37 acceptance path into the FILE repository; the host state machine is
+ * the only transition authority (PHASE_READY is an event, the HOST dispatches REQUEST_EVIDENCE_REVIEW).
+ * Also proven: ordered session teardown, prepare-then-publish generation switching and that a failed switch
+ * leaves the old generation fully usable.
+ */
+public class ProductiveResearchMvpEndToEndTest {
+
+    private static final String PAGE_TEMPLATE = "<!doctype html><html><head><title>%TITLE%</title></head>"
+            + "<body><div id='c'></div><script>"
+            + "document.getElementById('c').textContent='%TEXT% Rendered by JavaScript.';"
+            + "%LINKS%"
+            + "</script></body></html>";
+
+    private static final class Collecting implements ResearchSessionListener {
+        final List<ResearchBackendEvent> events = new CopyOnWriteArrayList<ResearchBackendEvent>();
+        final CountDownLatch runStopped = new CountDownLatch(1);
+
+        public void onEvent(ResearchBackendEvent event) {
+            events.add(event);
+            if (text(event).contains("RESEARCH_RUN_STOPPED")) {
+                runStopped.countDown();
+            }
+        }
+
+        static String text(ResearchBackendEvent event) {
+            return (event.getText() == null ? "" : event.getText())
+                    + " " + (event.getPublicMessage() == null ? "" : event.getPublicMessage());
+        }
+
+        int count(String needle) {
+            int n = 0;
+            for (ResearchBackendEvent event : events) {
+                if (text(event).contains(needle)) {
+                    n++;
+                }
+            }
+            return n;
+        }
+    }
+
+    @Test
+    public void productiveHostWiringRunsTheFullMvpAndSurvivesGenerationSwitching() throws Exception {
+        // ---- external prerequisites (environment-gated with the concrete reason) ----
+        String agentJar = System.getProperty("research.agent.jar", "");
+        String sidecarJar = System.getProperty("browser.sidecar.jar", "");
+        String sidecarJava = System.getProperty("sidecar.java", "");
+        String agentHome = System.getProperty("acp.java.home", System.getProperty("java.home"));
+        String agentJava = agentHome + File.separator + "bin" + File.separator
+                + (System.getProperty("os.name", "").toLowerCase().contains("win") ? "java.exe" : "java");
+        assumeTrue("SKIPPED: agent jar not built", new File(agentJar).isFile());
+        assumeTrue("SKIPPED: sidecar jar not built", new File(sidecarJar).isFile());
+        assumeTrue("SKIPPED: no Java 21 toolchain for the sidecar",
+                !sidecarJava.isEmpty() && new File(sidecarJava).isFile());
+
+        // ---- two local JS servers = two distinct hosts ----
+        HttpServer serverOne = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        HttpServer serverTwo = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        String baseOne = "http://127.0.0.1:" + serverOne.getAddress().getPort();
+        String baseTwo = "http://127.0.0.1:" + serverTwo.getAddress().getPort();
+        serverOne.createContext("/find", page("Find", "search results.",
+                jsLink("PF4J primer", baseOne + "/a")));
+        serverOne.createContext("/a", page("PF4J primer",
+                "pf4j is a plugin framework. Primary source.",
+                jsLink("pf4j details", baseTwo + "/c")));
+        serverTwo.createContext("/c", page("Independent pf4j review",
+                "pf4j works well with java 8.",
+                jsLink("pf4j extra evidence", baseTwo + "/e")));
+        serverTwo.createContext("/e", page("pf4j in production",
+                "More pf4j evidence from the field.", ""));
+        serverOne.start();
+        serverTwo.start();
+
+        SolonMcpServerRuntime registry = new SolonMcpServerRuntime();
+        ResearchRuntimeGenerationSwitch switcher = new ResearchRuntimeGenerationSwitch(
+                registry, new SolonMcpToolClientFactory(),
+                new SolonAcpAgentConnector(Duration.ofSeconds(180), null));
+        ResearchRuntimeConfig config = new ResearchRuntimeConfig(agentJava, agentJar,
+                sidecarJava, sidecarJar, System.getenv().getOrDefault("ASKAI_TEST_BROWSER_CHANNEL", "chrome"),
+                true, true, baseOne + "/find?q={query}");
+
+        File projectDir = Files.createTempDirectory("askai-e2e").toFile();
+        ProductiveResearchSessionResources resources = null;
+        ResearchRuntimeGeneration gen1;
+        try {
+            // ---- generation 1: prepare-then-publish, then a productive session ----
+            gen1 = switcher.switchTo(config);
+            try {
+                resources = gen1.createSession("e2e1", projectDir);
+            } catch (IOException notReady) {
+                // The only external dependency left is an installed browser; skip with the specific status.
+                assumeTrue("SKIPPED (environment-gated): " + notReady.getMessage(), false);
+                return;
+            }
+
+            // Both endpoints are really registered on the host MCP runtime.
+            assertNotNull("research endpoint registered",
+                    registry.endpointUrl(resources.getControlEndpoint().getHandle()));
+            assertNotNull("browser bridge endpoint registered",
+                    registry.endpointUrl(resources.getBrowserBridge().getHandle()));
+            assertTrue("sidecar process running", resources.getSidecar().isAlive());
+
+            // ---- host is the only state authority: drive the machine to RESEARCH/running ----
+            for (ResearchCommandType command : new ResearchCommandType[]{
+                    ResearchCommandType.START, ResearchCommandType.SUBMIT_SCOPE,
+                    ResearchCommandType.PROPOSE_OUTLINE, ResearchCommandType.APPROVE_OUTLINE,
+                    ResearchCommandType.START_RESEARCH}) {
+                assertTrue("command must be accepted: " + command,
+                        resources.dispatch(command).isAccepted());
+            }
+            assertEquals(ResearchStateIds.RESEARCH, resources.currentState().getPhaseId());
+            assertEquals(ResearchStateIds.RUNNING, resources.currentState().getStateId());
+
+            // ---- the productive backend port: real agent process + prompt-driven autonomous run ----
+            Collecting observer = new Collecting();
+            ResearchSessionHandle handle = resources.getBackend().createSession(
+                    new ResearchProjectRequest("e2e1", "p1", "Research project"), observer);
+            assertTrue("agent session must not report a start error",
+                    observer.count("could not be started") == 0);
+            resources.getBackend().submitPrompt(handle,
+                    new ResearchPrompt("research: pf4j plugin framework", ""));
+            assertTrue("autonomous run must finish", observer.runStopped.await(180, TimeUnit.SECONDS));
+
+            // ---- the mandated verifications ----
+            assertEquals("exactly one PHASE_READY event", 1, observer.count("PHASE_READY:"));
+            assertEquals("run must stop with sufficient evidence",
+                    1, observer.count("RESEARCH_RUN_STOPPED: SUFFICIENT_EVIDENCE"));
+            assertTrue("readiness reached the observer", observer.count("RESEARCH_MCP_READY") >= 1);
+            assertTrue("observer received a full event stream", observer.events.size() >= 5);
+
+            List<VisitedCapture> captures = resources.getCaptures().list();
+            assertTrue("at least three captures", captures.size() >= 3);
+            for (VisitedCapture capture : captures) {
+                assertTrue("capture must be JS-rendered: " + capture.getCanonicalUrl(),
+                        capture.getText().contains("Rendered by JavaScript"));
+            }
+
+            List<ResearchSourceRecord> sources = resources.getRepository().find(SourceQuery.all());
+            assertTrue("at least two persisted sources", sources.size() >= 2);
+            Set<String> origins = new HashSet<String>();
+            for (ResearchSourceRecord source : sources) {
+                origins.add(source.getOrigin());
+            }
+            assertEquals("sources from two distinct hosts", 2, origins.size());
+
+            String findings = resources.getArtifactStore().read("findings").getMarkdown();
+            assertTrue("findings recorded", findings.contains("- [source-"));
+            for (String line : findings.split("\n")) {
+                if (line.startsWith("- [")) {
+                    String sourceId = line.substring(3, line.indexOf(']'));
+                    assertNotNull("finding must reference a committed source: " + sourceId,
+                            resources.getRepository().get(sourceId));
+                }
+            }
+
+            // PHASE_READY was an event only — the state did NOT change until the HOST reacts.
+            assertEquals(ResearchStateIds.RUNNING, resources.currentState().getStateId());
+            assertTrue(resources.dispatch(ResearchCommandType.REQUEST_EVIDENCE_REVIEW).isAccepted());
+            assertEquals(ResearchStateIds.WAITING_APPROVAL, resources.currentState().getStateId());
+
+            // ---- ordered, idempotent teardown ----
+            resources.getBackend().close(handle);
+            com.aresstack.askai.mcp.api.McpEndpointHandle controlHandle =
+                    resources.getControlEndpoint().getHandle();
+            resources.close();
+            resources.close();
+            assertFalse("sidecar process ended with the session", resources.getSidecar().isAlive());
+            assertNull("research endpoint unregistered (token invalid)",
+                    registry.endpointUrl(controlHandle));
+
+            // ---- failed generation switch leaves generation 1 fully usable ----
+            ResearchRuntimeConfig broken = new ResearchRuntimeConfig(agentJava, agentJar,
+                    sidecarJava, sidecarJar + ".missing", "chrome", true, true, null);
+            try {
+                switcher.switchTo(broken);
+                fail("a broken config must not be published");
+            } catch (IllegalArgumentException expected) {
+                assertTrue(expected.getMessage().contains("keeping the current one"));
+            }
+            assertTrue("generation 1 still active", switcher.getActive() == gen1);
+            assertFalse("generation 1 not retired", gen1.isRetired());
+            ProductiveResearchSessionResources second = gen1.createSession("e2e2", projectDir);
+            assertTrue("old generation still creates working sessions",
+                    second.getSidecar().isAlive());
+            second.close();
+
+            // ---- successful switch: publish only after preparation, then lock + close the old one ----
+            ResearchRuntimeGeneration gen2 = switcher.switchTo(config);
+            assertTrue("generation 1 retired after publish", gen1.isRetired());
+            try {
+                gen1.createSession("e2e3", projectDir);
+                fail("retired generation must be locked for new sessions");
+            } catch (IllegalStateException expected) {
+                assertTrue(expected.getMessage().contains("retired"));
+            }
+            assertTrue(switcher.getActive() == gen2);
+        } finally {
+            if (resources != null) {
+                resources.close();
+            }
+            switcher.shutdown();
+            registry.shutdown();
+            serverOne.stop(0);
+            serverTwo.stop(0);
+        }
+    }
+
+    // ------------------------------------------------------------------ fixtures
+
+    private static HttpHandler page(String title, String text, String linkScript) {
+        final String html = PAGE_TEMPLATE.replace("%TITLE%", title)
+                .replace("%TEXT%", text).replace("%LINKS%", linkScript);
+        return new HttpHandler() {
+            public void handle(HttpExchange exchange) throws IOException {
+                byte[] body = html.getBytes(StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().add("Content-Type", "text/html; charset=utf-8");
+                exchange.sendResponseHeaders(200, body.length);
+                OutputStream out = exchange.getResponseBody();
+                out.write(body);
+                exchange.close();
+            }
+        };
+    }
+
+    private static String jsLink(String text, String href) {
+        return "var a=document.createElement('a');a.href='" + href + "';a.textContent='" + text
+                + "';document.body.appendChild(a);";
+    }
+}

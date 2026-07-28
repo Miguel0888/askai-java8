@@ -23,8 +23,11 @@ public interface ResearchControlContext {
     ResearchSourceRepository sourceRepository();
 
     /**
-     * Promote a visited capture to an accepted source (the only path that creates a persistent source).
-     * @return the new sourceId, or {@code null} when the capture id is unknown.
+     * Promote a visited capture to an accepted source (the only path that creates a persistent source —
+     * productively backed by the Commit-37 {@code SourceAcceptanceService}).
+     * @return the compact acceptance result line (status/source_id/title/passage_count/duplicate,
+     *         e.g. {@code status=ACCEPTED source_id=source-1 title="t" passage_count=1 duplicate=false}),
+     *         or {@code null} when the capture id is unknown.
      */
     String acceptCapture(String captureId);
 }
