@@ -140,6 +140,7 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
     // Partying (LAN group-chat) state: the active session controller and the persisted settings.
     private PartySession partySession;
     private PartySettings partySettings;
+    private com.aresstack.askai.java8.notify.DesktopNotifier notifier;
     private MentionCompletionSupport mentionCompletion;
     private boolean partyJoinInFlight;
     // Set when a send raced the join; the composer content is submitted once the join succeeds.
@@ -262,6 +263,10 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
                 openSettingsDialog();
             }
 
+            public void toggleNotificationsMute() {
+                OllamaChatPanel.this.toggleNotificationsMute();
+            }
+
             public void send() {
                 sendChat();
             }
@@ -300,6 +305,7 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         });
 
         this.partySettings = new PartySettings(applicationState);
+        this.notifier = new com.aresstack.askai.java8.notify.DesktopNotifier();
         this.mentionCompletion = new MentionCompletionSupport(composer.getEditor());
         this.dictationExecutor = Executors.newCachedThreadPool(new DaemonThreadFactory());
         this.workDir = new File(System.getProperty("java.io.tmpdir"), "askai-speech");
@@ -527,8 +533,8 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
 
     /** The category names shown in the Outlook-style navigation list, in display order. */
     private static final String[] SETTINGS_CATEGORIES = {
-            "General", "Audio & Dictation", "Party: Identity & Room", "Party: Network",
-            "Party: Bot", "Party: History"};
+            "General", "Audio & Dictation", "Notifications", "Party: Identity & Room",
+            "Party: Network", "Party: Bot", "Party: History"};
 
     /**
      * The chat settings dialog content, Outlook-style: a category list on the left selects one
@@ -540,10 +546,11 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         JComponent[] partyCards = buildPartyCards();
         cards.add(settingsCard(buildGeneralCard()), SETTINGS_CATEGORIES[0]);
         cards.add(settingsCard(buildAudioCard()), SETTINGS_CATEGORIES[1]);
-        cards.add(settingsCard(partyCards[0]), SETTINGS_CATEGORIES[2]);
-        cards.add(settingsCard(partyCards[1]), SETTINGS_CATEGORIES[3]);
-        cards.add(settingsCard(partyCards[2]), SETTINGS_CATEGORIES[4]);
-        cards.add(settingsCard(partyCards[3]), SETTINGS_CATEGORIES[5]);
+        cards.add(settingsCard(buildNotificationsCard()), SETTINGS_CATEGORIES[2]);
+        cards.add(settingsCard(partyCards[0]), SETTINGS_CATEGORIES[3]);
+        cards.add(settingsCard(partyCards[1]), SETTINGS_CATEGORIES[4]);
+        cards.add(settingsCard(partyCards[2]), SETTINGS_CATEGORIES[5]);
+        cards.add(settingsCard(partyCards[3]), SETTINGS_CATEGORIES[6]);
 
         final javax.swing.JList<String> navigation =
                 new javax.swing.JList<String>(SETTINGS_CATEGORIES);
@@ -643,6 +650,74 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         testMicButton.addActionListener(event -> testMicrophone());
         micRow.add(testMicButton);
         card.add(micRow);
+        return card;
+    }
+
+    /**
+     * Desktop notifications for incoming party messages: independent text and sound switches, and
+     * the output device for the sound.  When at least one switch is on, the composer shows the
+     * mute bell.  Settings apply immediately.
+     */
+    private JComponent buildNotificationsCard() {
+        JPanel card = settingsColumn();
+
+        final javax.swing.JCheckBox textBox = new javax.swing.JCheckBox(
+                "Show a desktop text notification", partySettings.notifyText());
+        JPanel textRow = partySettingsRow();
+        textRow.add(textBox);
+        card.add(textRow);
+
+        final javax.swing.JCheckBox soundBox = new javax.swing.JCheckBox(
+                "Play a notification sound", partySettings.notifySound());
+        JPanel soundRow = partySettingsRow();
+        soundRow.add(soundBox);
+        card.add(soundRow);
+
+        final JComboBox<String> deviceCombo = new JComboBox<String>();
+        for (String name : com.aresstack.askai.java8.notify.DesktopNotifier.outputDeviceNames()) {
+            deviceCombo.addItem(name);
+        }
+        String device = partySettings.notifySoundDevice();
+        deviceCombo.setSelectedItem(device == null || device.isEmpty()
+                ? com.aresstack.askai.java8.notify.DesktopNotifier.SYSTEM_DEFAULT_DEVICE : device);
+        deviceCombo.setPreferredSize(new Dimension(260, deviceCombo.getPreferredSize().height));
+        JPanel deviceRow = partySettingsRow();
+        deviceRow.add(new JLabel("Sound device"));
+        deviceRow.add(deviceCombo);
+        card.add(deviceRow);
+
+        JButton applyButton = new JButton("Apply notification settings");
+        applyButton.addActionListener(event -> {
+            partySettings.setNotifyText(textBox.isSelected());
+            partySettings.setNotifySound(soundBox.isSelected());
+            Object selectedDevice = deviceCombo.getSelectedItem();
+            partySettings.setNotifySoundDevice(
+                    selectedDevice == null || com.aresstack.askai.java8.notify.DesktopNotifier.SYSTEM_DEFAULT_DEVICE
+                            .equals(selectedDevice) ? "" : String.valueOf(selectedDevice));
+            applyNotificationSettings();
+            setStatus("Notification settings saved.");
+        });
+        JButton testButton = new JButton("Test");
+        testButton.setToolTipText("Fire a sample notification with the current (unsaved) switches");
+        testButton.addActionListener(event -> {
+            Object selectedDevice = deviceCombo.getSelectedItem();
+            String dev = selectedDevice == null ? "" : String.valueOf(selectedDevice);
+            notifier.configure(textBox.isSelected(), soundBox.isSelected(), dev);
+            notifier.setMuted(false);
+            notifier.notifyMessage("AskAI", "This is a test notification.");
+            applyNotificationSettings(); // restore the saved config + mute state
+        });
+        JPanel actionsRow = partySettingsRow();
+        actionsRow.add(applyButton);
+        actionsRow.add(testButton);
+        card.add(actionsRow);
+
+        JLabel note = new JLabel(
+                "The mute bell in the composer appears while a switch is on; it silences everything.");
+        note.setFont(note.getFont().deriveFont(note.getFont().getSize2D() - 2f));
+        JPanel noteRow = partySettingsRow();
+        noteRow.add(note);
+        card.add(noteRow);
         return card;
     }
 
@@ -1088,7 +1163,28 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         composer.setChatStatus("Select a model and start chatting.");
         composer.setDictationStatus(" ");
         refreshDictationControls();
+        applyNotificationSettings();
         return composer;
+    }
+
+    /** Push the persisted notification settings into the notifier and the composer bell. */
+    private void applyNotificationSettings() {
+        boolean text = partySettings.notifyText();
+        boolean sound = partySettings.notifySound();
+        boolean muted = partySettings.notificationsMuted();
+        notifier.configure(text, sound, partySettings.notifySoundDevice());
+        notifier.setMuted(muted);
+        composer.setNotificationsButtonVisible(text || sound);
+        composer.setNotificationsMuted(muted);
+    }
+
+    /** The composer bell toggles the persisted mute state and updates the notifier + icon. */
+    private void toggleNotificationsMute() {
+        boolean muted = !partySettings.notificationsMuted();
+        partySettings.setNotificationsMuted(muted);
+        notifier.setMuted(muted);
+        composer.setNotificationsMuted(muted);
+        setStatus(muted ? "Notifications muted." : "Notifications on.");
     }
 
     // ------------------------------------------------------------------ global catalog snapshot
@@ -1443,6 +1539,11 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
     /** Routes the session's callbacks (transport threads) onto the EDT and into the shared shell. */
     private final class PanelPartyUi implements PartySession.Ui {
         public void onPartyMessage(final PartySession.PartyMessageView view) {
+            // Notify for incoming messages from others (and the bot), regardless of focus.
+            if (!view.isLocal()) {
+                notifier.notifyMessage(
+                        "Party — " + view.getSenderDisplayName(), view.getMessage().getMarkdown());
+            }
             onUi(new Runnable() {
                 public void run() {
                     if (!GroupChatMode.PARTYING.equals(chatMode)) {
@@ -2670,6 +2771,7 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
             }
         }
         leavePartySession(true);
+        notifier.dispose();
         cleanupOldRecordings();
         dictationExecutor.shutdownNow();
     }

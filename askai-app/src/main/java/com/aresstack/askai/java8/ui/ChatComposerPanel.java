@@ -73,6 +73,8 @@ public final class ChatComposerPanel extends JPanel {
 
         void openSettings();
 
+        void toggleNotificationsMute();
+
         void send();
 
         void stop();
@@ -132,6 +134,7 @@ public final class ChatComposerPanel extends JPanel {
     private final JButton modeButton;
     private final JButton reasoningButton;
     private final JButton settingsButton;
+    private final JButton muteButton;
     private final JButton recordButton;
     private final JButton audioFileButton;
     private final JButton attachButton;
@@ -162,6 +165,8 @@ public final class ChatComposerPanel extends JPanel {
         this.modeButton = createModeButton();
         this.reasoningButton = createReasoningButton();
         this.settingsButton = createIconButton(new GearIcon(), "Chat settings");
+        this.muteButton = createIconButton(new SpeakerIcon(), "Mute notifications");
+        this.muteButton.setVisible(false);
         this.recordButton = createIconButton(new MicrophoneIcon(), "Record or stop dictation");
         this.audioFileButton = createIconButton(new AudioFileIcon(), "Transcribe audio file");
         this.attachButton = createIconButton(new PaperclipIcon(), "Attach images");
@@ -209,7 +214,13 @@ public final class ChatComposerPanel extends JPanel {
         west.add(reasoningButton);
         west.add(buildLeftActions());
         footer.add(west, BorderLayout.WEST);
-        footer.add(statusPanel, BorderLayout.CENTER);
+        // The notification mute bell sits in the middle of the footer, between the settings gear
+        // (left) and the Send button (right); it is only shown while a channel is enabled.
+        JPanel center = new JPanel(new BorderLayout(6, 0));
+        center.setOpaque(false);
+        center.add(muteButton, BorderLayout.WEST);
+        center.add(statusPanel, BorderLayout.CENTER);
+        footer.add(center, BorderLayout.CENTER);
         footer.add(buildPrimaryActions(), BorderLayout.EAST);
         return footer;
     }
@@ -361,6 +372,11 @@ public final class ChatComposerPanel extends JPanel {
                 actions.openSettings();
             }
         });
+        muteButton.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent event) {
+                actions.toggleNotificationsMute();
+            }
+        });
         sendButton.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent event) {
                 actions.send();
@@ -500,6 +516,20 @@ public final class ChatComposerPanel extends JPanel {
     /** Return the mode selector button, so the panel can anchor its mode popup to it. */
     public JComponent getModeButton() {
         return modeButton;
+    }
+
+    /** Show or hide the notification mute bell (shown when at least one channel is enabled). */
+    public void setNotificationsButtonVisible(boolean visible) {
+        muteButton.setVisible(visible);
+        revalidate();
+        repaint();
+    }
+
+    /** Reflect the mute state on the bell: muted shows a struck-through speaker. */
+    public void setNotificationsMuted(boolean muted) {
+        muteButton.setIcon(muted ? new SpeakerMutedIcon() : new SpeakerIcon());
+        muteButton.setToolTipText(muted ? "Notifications muted — click to unmute" : "Mute notifications");
+        repaint();
     }
 
     /** Set the label shown on the reasoning-effort selector (e.g. "Think: High"). */
@@ -934,6 +964,32 @@ public final class ChatComposerPanel extends JPanel {
                 int y2 = (int) Math.round(cy + Math.sin(a) * (r + 2.5));
                 g2.drawLine(x1, y1, x2, y2);
             }
+        }
+    }
+
+    /** A speaker with two sound waves — the "notifications on" bell. */
+    private static class SpeakerIcon extends StrokeIcon {
+        protected void paint(Graphics2D g2) {
+            paintSpeaker(g2);
+            g2.drawArc(9, 4, 4, 7, -60, 120);
+            g2.drawArc(9, 2, 7, 11, -55, 110);
+        }
+
+        final void paintSpeaker(Graphics2D g2) {
+            g2.drawLine(2, 6, 4, 6);
+            g2.drawLine(2, 6, 2, 9);
+            g2.drawLine(2, 9, 4, 9);
+            int[] x = {4, 7, 7, 4};
+            int[] y = {6, 3, 12, 9};
+            g2.drawPolygon(x, y, 4);
+        }
+    }
+
+    /** The muted speaker — same body with a diagonal strike-through, no sound waves. */
+    private static final class SpeakerMutedIcon extends SpeakerIcon {
+        protected void paint(Graphics2D g2) {
+            paintSpeaker(g2);
+            g2.drawLine(9, 4, 14, 11);
         }
     }
 }

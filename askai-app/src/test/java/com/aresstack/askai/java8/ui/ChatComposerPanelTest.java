@@ -209,6 +209,10 @@ public final class ChatComposerPanelTest {
             increment("settings");
         }
 
+        public void toggleNotificationsMute() {
+            increment("toggleNotificationsMute");
+        }
+
         public void send() {
             increment("send");
         }

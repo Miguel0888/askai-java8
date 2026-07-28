@@ -342,6 +342,50 @@ public final class PartySettings {
         }
     }
 
+    // ------------------------------------------------------------------ desktop notifications
+
+    private static final String KEY_NOTIFY_TEXT = "notify.text";
+    private static final String KEY_NOTIFY_SOUND = "notify.sound";
+    private static final String KEY_NOTIFY_DEVICE = "notify.soundDevice";
+    private static final String KEY_NOTIFY_MUTED = "notify.muted";
+
+    /** Whether an incoming message shows a desktop (system-tray) text notification. */
+    public boolean notifyText() {
+        return state != null && state.getBoolean(KEY_NOTIFY_TEXT, false);
+    }
+
+    public void setNotifyText(boolean enabled) {
+        put(KEY_NOTIFY_TEXT, String.valueOf(enabled));
+    }
+
+    /** Whether an incoming message plays a notification sound. */
+    public boolean notifySound() {
+        return state != null && state.getBoolean(KEY_NOTIFY_SOUND, false);
+    }
+
+    public void setNotifySound(boolean enabled) {
+        put(KEY_NOTIFY_SOUND, String.valueOf(enabled));
+    }
+
+    /** Output device for the notification sound; empty = system default. */
+    public String notifySoundDevice() {
+        String device = state == null ? null : state.get(KEY_NOTIFY_DEVICE, null);
+        return device == null ? "" : device;
+    }
+
+    public void setNotifySoundDevice(String device) {
+        put(KEY_NOTIFY_DEVICE, device);
+    }
+
+    /** Runtime mute state of the notification bell (persisted so it survives a restart). */
+    public boolean notificationsMuted() {
+        return state != null && state.getBoolean(KEY_NOTIFY_MUTED, false);
+    }
+
+    public void setNotificationsMuted(boolean muted) {
+        put(KEY_NOTIFY_MUTED, String.valueOf(muted));
+    }
+
     private void put(String key, String value) {
         if (state != null) {
             state.putAndSave(key, value == null || value.trim().isEmpty() ? null : value.trim());
