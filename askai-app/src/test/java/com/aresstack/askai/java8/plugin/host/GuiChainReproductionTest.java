@@ -68,8 +68,12 @@ public class GuiChainReproductionTest {
         new ResearchRuntimeSettings(ResearchBackendMode.ACP, "", "", "", "", "chrome", true,
                 "https://www.bing.com/search?q={query}", false).save(host.store);
 
+        // REGRESSION: the REAL GUI session id contains '#' (pluginId + "#session") and an empty
+        // project id. The raw '#' in the MCP endpoint URL truncated the client URL at the fragment
+        // and broke the initialize with -32603 — exactly the reported GUI failure.
         AgentSession session = new ResearchAgentSessionFactory().create(
-                new AgentSessionCreationRequest("guichain", "p1", new HashMap<String, String>()), host);
+                new AgentSessionCreationRequest("com.aresstack.askai.research#session", "",
+                        new HashMap<String, String>()), host);
         try {
             session.activate(); // ← the GUI failure point
             assertTrue("agent start failed like the GUI: " + problems, problems.isEmpty());

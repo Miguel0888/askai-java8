@@ -84,7 +84,11 @@ public final class SolonMcpServerRuntime implements McpServerRegistry {
         }
         start();
         String token = newToken();
-        String path = "/mcp/" + definition.getEndpointId() + "/" + token;
+        // Endpoint ids may contain URL-hostile characters (a real GUI session key is e.g.
+        // "com.aresstack.askai.research#session" - the raw "#" truncated the client URL at the
+        // fragment and broke the MCP initialize with -32603). The ROUTE uses a sanitized form;
+        // the id itself stays the untouched registry key.
+        String path = "/mcp/" + urlSafe(definition.getEndpointId()) + "/" + token;
         McpServerEndpointProvider provider = McpServerEndpointProvider.builder()
                 .name(definition.getEndpointId())
                 .version("1.0")
@@ -189,6 +193,18 @@ public final class SolonMcpServerRuntime implements McpServerRegistry {
             }
         });
         return desc;
+    }
+
+    /** Replace every character that is not URL-path-safe so ids never corrupt the endpoint URL. */
+    static String urlSafe(String endpointId) {
+        StringBuilder sb = new StringBuilder(endpointId.length());
+        for (int i = 0; i < endpointId.length(); i++) {
+            char c = endpointId.charAt(i);
+            boolean safe = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+                    || (c >= '0' && c <= '9') || c == '.' || c == '-' || c == '_';
+            sb.append(safe ? c : '-');
+        }
+        return sb.toString();
     }
 
     private static String newToken() {
