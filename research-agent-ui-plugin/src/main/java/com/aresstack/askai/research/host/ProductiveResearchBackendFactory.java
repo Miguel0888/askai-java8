@@ -84,48 +84,55 @@ public final class ProductiveResearchBackendFactory {
             throw new IOException("Research runtime configuration is not usable: " + problems);
         }
 
-        // Legacy-browser-search settings: decode stored overrides against the central defaults,
-        // validate HARD (an invalid configuration never starts a session, and is never corrected
-        // silently), then freeze them into the session's config documents: the FULL document for the
-        // Java-8 agent, the browser-near SUBSET for the Java-21 sidecar (AI/prompt settings never
-        // enter the browser process).
-        com.aresstack.askai.browser.search.LegacyBrowserSearchSettingsCodec.Decoded decoded =
-                com.aresstack.askai.browser.search.LegacyBrowserSearchSettingsCodec
-                        .fromValues(browserSearchValues);
-        if (!decoded.violations.isEmpty()) {
-            throw new IOException("Legacy browser search settings are invalid:\n"
-                    + new com.aresstack.askai.browser.search.SettingsValidationResult(
-                            decoded.violations).describe());
-        }
-        com.aresstack.askai.browser.search.SettingsValidationResult validation =
-                new com.aresstack.askai.browser.search.DefaultLegacyBrowserSearchSettingsValidator()
-                        .validate(decoded.settings);
-        if (!validation.isValid()) {
-            throw new IOException("Legacy browser search settings failed validation:\n"
-                    + validation.describe());
-        }
-        String digest = com.aresstack.askai.browser.search.LegacyBrowserSearchSettingsCodec
-                .digest(decoded.settings);
-        Map<String, String> fullValues = com.aresstack.askai.browser.search
-                .LegacyBrowserSearchSettingsCodec.toValues(decoded.settings);
+        // A2c snapshot semantics: global settings are only the TEMPLATE for NEW sessions. A stored
+        // profile (session resume) is reused EXACTLY — never silently replaced by current globals;
+        // an unreadable/corrupt profile is a clear recovery error. A fresh session freezes the
+        // validated globals into one immutable snapshot persisted with the session.
         File searchConfigDir = new File(projectDir, "browser-search");
         if (!searchConfigDir.isDirectory() && !searchConfigDir.mkdirs()) {
             throw new IOException("Cannot create " + searchConfigDir);
         }
-        File fullConfigFile = new File(searchConfigDir, "search-settings.json");
+        File profileFile = new File(searchConfigDir, "search-profile.json");
         File sidecarConfigFile = new File(searchConfigDir, "browser-config.json");
-        writeUtf8(fullConfigFile, new com.aresstack.askai.browser.search
-                .LegacyBrowserSearchConfigDocument(
-                        com.aresstack.askai.browser.search.LegacyBrowserSearchConfigDocument
-                                .CURRENT_SCHEMA_VERSION,
-                        browserSearchRevision, digest, fullValues).toJson());
+        com.aresstack.askai.browser.search.SearchProcessingProfileSnapshot profile;
+        if (profileFile.isFile()) {
+            try {
+                profile = com.aresstack.askai.browser.search.SearchProcessingProfileSnapshot
+                        .parse(readUtf8(profileFile));
+            } catch (IllegalArgumentException ex) {
+                throw new IOException("Stored search profile of this session is unusable ("
+                        + profileFile + "): " + ex.getMessage());
+            }
+        } else {
+            com.aresstack.askai.browser.search.LegacyBrowserSearchSettingsCodec.Decoded decoded =
+                    com.aresstack.askai.browser.search.LegacyBrowserSearchSettingsCodec
+                            .fromValues(browserSearchValues);
+            if (!decoded.violations.isEmpty()) {
+                throw new IOException("Legacy browser search settings are invalid:\n"
+                        + new com.aresstack.askai.browser.search.SettingsValidationResult(
+                                decoded.violations).describe());
+            }
+            com.aresstack.askai.browser.search.SettingsValidationResult validation =
+                    new com.aresstack.askai.browser.search
+                            .DefaultLegacyBrowserSearchSettingsValidator().validate(decoded.settings);
+            if (!validation.isValid()) {
+                throw new IOException("Legacy browser search settings failed validation:\n"
+                        + validation.describe());
+            }
+            profile = com.aresstack.askai.browser.search.SearchProcessingProfileSnapshot.create(
+                    sessionKey, browserSearchRevision, System.currentTimeMillis(), decoded.settings);
+            writeUtf8(profileFile, profile.toJson());
+        }
+        // The browser-near SUBSET for the sidecar is regenerated from the SNAPSHOT on every start
+        // (AI/prompt/reranker settings never enter the browser process).
         writeUtf8(sidecarConfigFile, new com.aresstack.askai.browser.search
                 .LegacyBrowserSearchConfigDocument(
+                        profile.schemaVersion, profile.profileRevision, profile.settingsDigest,
                         com.aresstack.askai.browser.search.LegacyBrowserSearchConfigDocument
-                                .CURRENT_SCHEMA_VERSION,
-                        browserSearchRevision, digest,
-                        com.aresstack.askai.browser.search.LegacyBrowserSearchConfigDocument
-                                .sidecarSubset(fullValues)).toJson());
+                                .sidecarSubset(com.aresstack.askai.browser.search
+                                        .LegacyBrowserSearchSettingsCodec
+                                        .toValues(profile.settings))).toJson());
+        File fullConfigFile = profileFile;
 
         // 1. Session-owned stores + state machine (pure, nothing to roll back).
         CaptureStore captures = new CaptureStore(200);
@@ -222,6 +229,7 @@ public final class ProductiveResearchBackendFactory {
             resources = new ProductiveResearchSessionResources(sessionKey, stateMachine, captures,
                     repository, acceptance, new ResearchArtifactStore(), control, bridge,
                     sidecarClient, sidecar, backend);
+            resources.setSearchProfile(profile);
             holder[0] = resources;
             control.refreshTools(); // now that the live context resolves, publish the initial tool set
             return resources;
@@ -263,5 +271,9 @@ public final class ProductiveResearchBackendFactory {
         } finally {
             out.close();
         }
+    }
+
+    private static String readUtf8(File file) throws IOException {
+        return new String(java.nio.file.Files.readAllBytes(file.toPath()), "UTF-8");
     }
 }

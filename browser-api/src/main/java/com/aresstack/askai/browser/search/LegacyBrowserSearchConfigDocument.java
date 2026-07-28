@@ -28,13 +28,25 @@ public final class LegacyBrowserSearchConfigDocument {
     public final long settingsRevision;
     /** Digest of the FULL source settings (provenance); the document may carry a subset. */
     public final String settingsDigest;
+    /** The owning profile (session snapshot id); empty for a plain hand-off document. */
+    public final String profileId;
+    /** Creation instant of the owning profile; 0 for a plain hand-off document. */
+    public final long createdAtEpochMillis;
     public final Map<String, String> values;
 
     public LegacyBrowserSearchConfigDocument(int schemaVersion, long settingsRevision,
                                              String settingsDigest, Map<String, String> values) {
+        this(schemaVersion, settingsRevision, settingsDigest, "", 0L, values);
+    }
+
+    public LegacyBrowserSearchConfigDocument(int schemaVersion, long settingsRevision,
+                                             String settingsDigest, String profileId,
+                                             long createdAtEpochMillis, Map<String, String> values) {
         this.schemaVersion = schemaVersion;
         this.settingsRevision = settingsRevision;
         this.settingsDigest = settingsDigest;
+        this.profileId = profileId == null ? "" : profileId;
+        this.createdAtEpochMillis = createdAtEpochMillis;
         this.values = Collections.unmodifiableMap(new LinkedHashMap<String, String>(values));
     }
 
@@ -59,6 +71,10 @@ public final class LegacyBrowserSearchConfigDocument {
         sb.append("  \"schemaVersion\": ").append(schemaVersion).append(",\n");
         sb.append("  \"settingsRevision\": ").append(settingsRevision).append(",\n");
         sb.append("  \"settingsDigest\": ").append(quote(settingsDigest)).append(",\n");
+        if (!profileId.isEmpty()) {
+            sb.append("  \"profileId\": ").append(quote(profileId)).append(",\n");
+            sb.append("  \"createdAtEpochMillis\": ").append(createdAtEpochMillis).append(",\n");
+        }
         sb.append("  \"settings\": {");
         boolean first = true;
         for (Map.Entry<String, String> entry : values.entrySet()) {
@@ -100,10 +116,14 @@ public final class LegacyBrowserSearchConfigDocument {
             }
             values.put(String.valueOf(entry.getKey()), (String) entry.getValue());
         }
+        Object profileId = root.get("profileId");
+        Object createdAt = root.get("createdAtEpochMillis");
         return new LegacyBrowserSearchConfigDocument(
                 ((Long) schemaVersion).intValue(),
                 revision instanceof Long ? (Long) revision : 0L,
                 digest instanceof String ? (String) digest : "",
+                profileId instanceof String ? (String) profileId : "",
+                createdAt instanceof Long ? (Long) createdAt : 0L,
                 values);
     }
 

@@ -45,6 +45,8 @@ public final class ProductiveResearchSessionResources {
     private final McpToolClient sidecarClient;
     private final BrowserMcpSidecarProcess sidecar;
     private final AcpResearchSessionBackend backend;
+    /** The session's immutable settings snapshot (A2c); set once by the factory right after creation. */
+    private volatile com.aresstack.askai.browser.search.SearchProcessingProfileSnapshot searchProfile;
     private volatile boolean closed;
 
     ProductiveResearchSessionResources(String sessionKey, OoResearchStateMachine stateMachine,
@@ -65,6 +67,15 @@ public final class ProductiveResearchSessionResources {
         this.sidecarClient = sidecarClient;
         this.sidecar = sidecar;
         this.backend = backend;
+    }
+
+    void setSearchProfile(com.aresstack.askai.browser.search.SearchProcessingProfileSnapshot profile) {
+        this.searchProfile = profile;
+    }
+
+    /** The settings snapshot this RUNNING session uses (global changes only affect NEW sessions). */
+    public com.aresstack.askai.browser.search.SearchProcessingProfileSnapshot getSearchProfile() {
+        return searchProfile;
     }
 
     public String getSessionKey() {
