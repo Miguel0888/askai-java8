@@ -97,6 +97,61 @@ Environment: Windows, Java 8 + Java 21 installed, Chrome installed, jars built.
 22. A successful switch locks the old generation (`retired`) for new sessions.
 23. Search the transcript/logs of the whole run for the endpoint tokens: zero hits.
 
+## Maturity levels (review framing)
+
+Two maturity levels must be read separately; conflating them overstates the second.
+
+### Platform MVP — fully implemented and E2E-proven
+
+PF4J workspace, ACP client/agent runtime, both MCP endpoints (research-control + browser bridge),
+Playwright browser sidecar, productive host wiring, generation lifecycle (prepare-then-publish with
+rollback), runtime configuration UI, chat-command bridge to the host state machine, source
+acceptance, and the productive vertical user path:
+
+```text
+AskAI UI → runtime configuration → ResearchSessionCommandPort → host state machine
+→ tool republication → ACP agent → real MCP endpoints → Chromium research
+→ PHASE_READY → allowed user action → state update back to the UI
+```
+
+### Research methodology — Evidence-Collection MVP
+
+Proven today: autonomous discovery, web page access, source acceptance, findings, evidence
+threshold, approval gate. The loop is DETERMINISTIC (query-term matching) by design — it proves the
+platform, not semantic research quality.
+
+NOT yet proven (deliberately out of scope of this branch; own epics, not lifecycle hardening,
+and explicitly not hidden under RA-P001/RA-P002):
+
+- a productive model binding in the external research agent (LLM planning / query generation),
+- productive scoping and outline creation,
+- semantic evidence evaluation instead of deterministic term hits,
+- drafting, revision and finalization,
+- citation integrity on persisted source snapshots,
+- one shared productive artifact/source store for agent AND UI (ResearchProjectContext),
+- project restore after a restart (RA-P002 is only the lifecycle part of this).
+
+### Next epics (separate branches, after review)
+
+1. **Productive project context** — one `ResearchProjectContext` (state machine, artifact store,
+   source repository, snapshot store, event publisher, command port) shared by agent, UI and MCP;
+   collision-free source ids; persisted page snapshots; wiring of the existing file stores.
+2. **Model-driven research agent** — a `ResearchLanguageModel` port (planScope, proposeOutline,
+   planSearch, evaluateEvidence, createDraft, reviseFinal) with a configurable model profile; the
+   deterministic loop remains as test/fallback strategy.
+3. **Full phase strategies** — Scoping/Outline/EvidenceCollection/Drafting/Finalization strategies
+   in the agent; the host state machine keeps owning approvals.
+4. **Evidence & citation integrity** — findings carry source id, snapshot id, concrete passage,
+   claim, support/contradiction, relevance, reliability; cited drafts derive only from that.
+
+### Closing statement
+
+> The AskAI Research platform MVP is fully operable and proven end-to-end through the productive
+> user-facing path. It supports runtime configuration, ACP/MCP orchestration, real Chromium
+> research, source acceptance, findings, host-controlled phase transitions, and interactive
+> approvals. The next development stage adds the model-driven research methodology: semantic
+> planning, evidence analysis, drafting, citation integrity, persistence, and recovery.
+
 ## Merge gate
 
 **NOT MERGE READY** (as mandated: no merge to `main` within this work order).
