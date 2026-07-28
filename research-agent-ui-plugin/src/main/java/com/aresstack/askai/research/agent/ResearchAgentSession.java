@@ -123,8 +123,10 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 }
             });
         }
-        if (productiveResources != null) {
+        if (productiveResources != null && problemMessage.isEmpty()) {
             // First contact: the agent takes the initiative with ONE open question (playbook).
+            // Suppressed when the backend start already reported an error — no cheerful greeting
+            // right under a "could not be started" problem.
             sayAsAgent(ResearchPlaybook.greeting());
         }
     }
