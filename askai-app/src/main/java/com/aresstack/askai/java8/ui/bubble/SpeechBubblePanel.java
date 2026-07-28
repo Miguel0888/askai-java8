@@ -124,7 +124,9 @@ public final class SpeechBubblePanel extends JPanel
             timestampLabel.setFont(base.deriveFont(Font.PLAIN, Math.max(6f, base.getSize2D() * 0.5f)));
             timestampLabel.setForeground(withAlpha(textColor, 165));
             timestampLabel.setAlignmentY(BOTTOM_ALIGNMENT);
+            // A minimum gap, then glue so the time/date block is pushed to the bubble's right edge.
             headerRow.add(javax.swing.Box.createHorizontalStrut(6));
+            headerRow.add(javax.swing.Box.createHorizontalGlue());
             headerRow.add(timestampLabel);
         }
         timestampLabel.setText("<html><div style='line-height:90%;text-align:center'><b>"
