@@ -339,15 +339,27 @@ public final class AskAiFrame extends JFrame {
                     }
                 };
         // Each tab is an independent chat session, created on demand by the workspace's "+" tab.
-        this.chatWorkspace = new ChatWorkspacePanel(new ChatWorkspacePanel.ChatSessionFactory() {
+        final com.aresstack.askai.java8.history.ChatHistoryStore historyStore =
+                new com.aresstack.askai.java8.history.ChatHistoryStore();
+        ChatWorkspacePanel.ChatSessionFactory chatFactory = new ChatWorkspacePanel.ChatSessionFactory() {
             public ChatSessionComponent create(ChatSessionId id) {
                 OllamaChatPanel chat = new OllamaChatPanel(id, model, ollamaService, speechToTextService,
-                        audioProfileRepository, applicationState);
+                        audioProfileRepository, applicationState, historyStore);
                 chat.setInstallAudioModelHandler(installHandler);
                 chat.setAudioProcessingSettingsHandler(audioHandler);
                 return chat;
             }
-        });
+        };
+        // Restore previously persisted chats (most recent first) so tabs survive a restart.
+        List<ChatSessionId> restoreIds = new ArrayList<ChatSessionId>();
+        for (com.aresstack.askai.java8.history.ChatRecord record : historyStore.list()) {
+            try {
+                restoreIds.add(new ChatSessionId(java.util.UUID.fromString(record.getId())));
+            } catch (IllegalArgumentException ignored) {
+                // Skip records whose id is not a valid UUID.
+            }
+        }
+        this.chatWorkspace = new ChatWorkspacePanel(chatFactory, restoreIds);
         contentPanel.add(chatWorkspace, CHAT_VIEW);
         // One-click "Use in chat" from an installed model card: switch to Chat and select the model.
         modelsPanel.setUseInChatHandler(new OllamaModelsPanel.UseInChatHandler() {

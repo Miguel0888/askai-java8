@@ -38,6 +38,14 @@ public final class ChatWorkspacePanel extends JPanel {
             new LinkedHashMap<ChatSessionId, ChatSessionComponent>();
 
     public ChatWorkspacePanel(ChatSessionFactory factory) {
+        this(factory, null);
+    }
+
+    /**
+     * @param restoreIds session ids of persisted chats to reopen on startup (most recent first);
+     *                   when null/empty, a single fresh chat is opened
+     */
+    public ChatWorkspacePanel(ChatSessionFactory factory, List<ChatSessionId> restoreIds) {
         super(new BorderLayout());
         if (factory == null) {
             throw new IllegalArgumentException("factory must not be null");
@@ -51,7 +59,26 @@ public final class ChatWorkspacePanel extends JPanel {
                 keepSelectionOffPlusTab();
             }
         });
-        openNewChat(); // never start empty
+        if (restoreIds != null && !restoreIds.isEmpty()) {
+            // Reopen persisted chats in oldest-first tab order (the list is newest-first).
+            for (int i = restoreIds.size() - 1; i >= 0; i--) {
+                openExistingChat(restoreIds.get(i));
+            }
+            keepSelectionOffPlusTab();
+        } else {
+            openNewChat(); // never start empty
+        }
+    }
+
+    /** Open a tab for a persisted chat with a known id; its panel restores its own transcript. */
+    public ChatSessionComponent openExistingChat(ChatSessionId id) {
+        ChatSessionComponent session = factory.create(id);
+        int insertIndex = Math.max(tabs.getTabCount() - 1, 0);
+        tabs.insertTab(null, null, session.getComponent(), id.toString(), insertIndex);
+        tabs.setTabComponentAt(insertIndex, createChatTabHeader(id));
+        sessionsById.put(id, session);
+        tabs.setSelectedIndex(insertIndex);
+        return session;
     }
 
     /** Create a new chat, insert its tab before the plus tab and select it. */

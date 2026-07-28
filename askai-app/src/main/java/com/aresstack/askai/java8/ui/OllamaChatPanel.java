@@ -169,6 +169,9 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
 
     private final List<OllamaChatTurn> history = new ArrayList<OllamaChatTurn>();
     private final ImageAttachmentContentLoader imageContentLoader = new ImageAttachmentContentLoader();
+    // Durable per-chat persistence (may be null in tests): the record is built up as messages land.
+    private final com.aresstack.askai.java8.history.ChatHistoryStore historyStore;
+    private com.aresstack.askai.java8.history.ChatRecord chatRecord;
     private final StringBuilder streamingAssistant = new StringBuilder();
     private OllamaService.Task chatTask;
     // The UI's chat-busy state, decoupled from the technical chatTask handle so the dictation controls
@@ -228,14 +231,24 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
                            AudioProfileRepository audioProfileRepository,
                            ApplicationStateService applicationState) {
         this(ChatSessionId.create(), model, ollamaService, speechToTextService,
-                audioProfileRepository, applicationState);
+                audioProfileRepository, applicationState, null);
     }
 
     public OllamaChatPanel(ChatSessionId sessionId, AskAiModel model, OllamaService ollamaService,
                            SpeechToTextService speechToTextService,
                            AudioProfileRepository audioProfileRepository,
                            ApplicationStateService applicationState) {
+        this(sessionId, model, ollamaService, speechToTextService,
+                audioProfileRepository, applicationState, null);
+    }
+
+    public OllamaChatPanel(ChatSessionId sessionId, AskAiModel model, OllamaService ollamaService,
+                           SpeechToTextService speechToTextService,
+                           AudioProfileRepository audioProfileRepository,
+                           ApplicationStateService applicationState,
+                           com.aresstack.askai.java8.history.ChatHistoryStore historyStore) {
         this.sessionId = sessionId == null ? ChatSessionId.create() : sessionId;
+        this.historyStore = historyStore;
         this.model = model;
         this.ollamaService = ollamaService;
         this.speechToTextService = speechToTextService;
@@ -326,7 +339,9 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         buildUserInterface();
         restoreChatPreferences();
         setBusy(false);
-        showEmptyState();
+        if (!restoreChatHistory()) {
+            showEmptyState();
+        }
         cleanupOldRecordings();
         refreshModels();
         refreshMicrophones();
@@ -1919,6 +1934,133 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         transcript.appendInfo("New conversation. Type a message below and press Enter.");
     }
 
+    // ------------------------------------------------------------------ durable chat persistence
+
+    /** @return the chat record for this session, created lazily on first use. */
+    private com.aresstack.askai.java8.history.ChatRecord chatRecord() {
+        if (chatRecord == null) {
+            chatRecord = new com.aresstack.askai.java8.history.ChatRecord(
+                    sessionId.toString(), System.currentTimeMillis());
+        }
+        return chatRecord;
+    }
+
+    /** Persist a sent user message (with any image attachments) to the durable store. */
+    private void persistUserMessage(String text, java.util.List<ImageAttachment> attachments) {
+        if (historyStore == null) {
+            return;
+        }
+        java.util.List<com.aresstack.askai.java8.history.AttachmentRecord> stored =
+                new ArrayList<com.aresstack.askai.java8.history.AttachmentRecord>();
+        for (ImageAttachment attachment : attachments) {
+            com.aresstack.askai.java8.history.AttachmentRecord record = historyStore.storeAttachment(
+                    sessionId.toString(), attachment.getFile().toFile(), attachment.getMediaType());
+            if (record != null) {
+                stored.add(record);
+            }
+        }
+        com.aresstack.askai.java8.history.ChatRecord chat = chatRecord();
+        chat.getMessages().add(new com.aresstack.askai.java8.history.ChatMessageRecord(
+                com.aresstack.askai.java8.history.ChatMessageRecord.ROLE_USER,
+                text, System.currentTimeMillis(), null, stored));
+        if (chat.getTitle() == null || chat.getTitle().trim().isEmpty()) {
+            chat.setTitle(deriveTitle(text, attachments));
+        }
+        saveChatRecord();
+    }
+
+    /** Persist a completed assistant answer to the durable store. */
+    private void persistAssistantMessage(String text, String modelName) {
+        if (historyStore == null) {
+            return;
+        }
+        chatRecord().getMessages().add(new com.aresstack.askai.java8.history.ChatMessageRecord(
+                com.aresstack.askai.java8.history.ChatMessageRecord.ROLE_ASSISTANT,
+                text, System.currentTimeMillis(), modelName, null));
+        saveChatRecord();
+    }
+
+    private void saveChatRecord() {
+        if (historyStore == null || chatRecord == null) {
+            return;
+        }
+        chatRecord.setModel((String) modelCombo.getSelectedItem());
+        chatRecord.setMode(chatMode);
+        chatRecord.setAgent(selectedAgent);
+        chatRecord.setSystemPrompt(systemPromptArea.getText());
+        chatRecord.setModifiedAt(System.currentTimeMillis());
+        historyStore.save(chatRecord);
+    }
+
+    private static String deriveTitle(String text, java.util.List<ImageAttachment> attachments) {
+        String base = text == null ? "" : text.trim();
+        if (base.isEmpty() && attachments != null && !attachments.isEmpty()) {
+            base = attachments.size() == 1 ? "Image" : attachments.size() + " images";
+        }
+        int newline = base.indexOf('\n');
+        if (newline >= 0) {
+            base = base.substring(0, newline);
+        }
+        return base.length() > 60 ? base.substring(0, 60) + "…" : base;
+    }
+
+    /**
+     * Replays this session's persisted conversation into the transcript and the in-memory history.
+     *
+     * <p>Past image attachments are shown as thumbnails again but not re-encoded into the model
+     * history (that would reload every past image); new turns still send images normally.</p>
+     *
+     * @return {@code true} when a non-empty conversation was restored
+     */
+    private boolean restoreChatHistory() {
+        if (historyStore == null) {
+            return false;
+        }
+        com.aresstack.askai.java8.history.ChatRecord record = historyStore.load(sessionId.toString());
+        if (record == null || record.isEmpty()) {
+            return false;
+        }
+        this.chatRecord = record;
+        if (record.getSystemPrompt() != null && !record.getSystemPrompt().trim().isEmpty()) {
+            systemPromptArea.setText(record.getSystemPrompt());
+        }
+        if (record.getModel() != null && !record.getModel().trim().isEmpty()) {
+            pendingRestoreModel = record.getModel(); // selected once the model list loads
+        }
+        transcript.clear();
+        for (com.aresstack.askai.java8.history.ChatMessageRecord message : record.getMessages()) {
+            if (message.isAssistant()) {
+                transcript.startAssistant(message.getModel() != null ? message.getModel() : "Assistant");
+                transcript.appendAssistantDelta(message.getText());
+                transcript.finishAssistant();
+                history.add(OllamaChatTurn.assistant(message.getText()));
+            } else {
+                java.util.List<ImageAttachment> attachments = restoreAttachments(message);
+                if (attachments.isEmpty()) {
+                    transcript.appendUser(message.getText());
+                } else if (message.getText().isEmpty()) {
+                    transcript.appendUserImages(attachments);
+                } else {
+                    transcript.appendUser(message.getText(), attachments);
+                }
+                history.add(OllamaChatTurn.user(message.getText()));
+            }
+        }
+        return true;
+    }
+
+    private java.util.List<ImageAttachment> restoreAttachments(
+            com.aresstack.askai.java8.history.ChatMessageRecord message) {
+        java.util.List<ImageAttachment> attachments = new ArrayList<ImageAttachment>();
+        for (com.aresstack.askai.java8.history.AttachmentRecord record : message.getAttachments()) {
+            File file = historyStore.attachmentFile(sessionId.toString(), record.getStoredName());
+            if (file != null) {
+                attachments.add(new ImageAttachment(file.toPath(), record.getFileName(), record.getMediaType()));
+            }
+        }
+        return attachments;
+    }
+
     private void sendChat() {
         if (!composer.isSendEnabled()) {
             return;
@@ -2032,6 +2174,7 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         history.add(images.isEmpty()
                 ? OllamaChatTurn.user(userPrompt)
                 : OllamaChatTurn.user(userPrompt, images));
+        persistUserMessage(userPrompt, attachments);
 
         // Do not open an assistant bubble yet: thinking (if any) opens a green thinking bubble first, and
         // the answer bubble only appears when real content arrives.
@@ -2188,6 +2331,7 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         if (assistantBubbleStarted) {
             transcript.finishAssistant();
             history.add(OllamaChatTurn.assistant(assistantText));
+            persistAssistantMessage(assistantText, streamingModelName);
             if (result.hasMetrics()) {
                 setStatus(String.format("Ready · %d tokens · %.1f tok/s",
                         result.getEvalCount(), result.tokensPerSecond()));
