@@ -62,6 +62,8 @@ import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.Icon;
 import javax.swing.JButton;
+import javax.swing.JOptionPane;
+import javax.swing.SwingConstants;
 import javax.swing.JColorChooser;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
@@ -478,27 +480,64 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         } else {
             java.text.SimpleDateFormat when = new java.text.SimpleDateFormat("dd/MM/yy HH:mm");
             for (final com.aresstack.askai.java8.history.ChatRecord chat : chats) {
-                String title = chat.getTitle() == null || chat.getTitle().trim().isEmpty()
-                        ? "(untitled)" : chat.getTitle().trim();
-                String label = "<html><b>" + escapeHtml(title) + "</b> &nbsp;<span style='color:gray'>"
-                        + when.format(new java.util.Date(chat.getModifiedAt())) + "</span></html>";
-                javax.swing.JMenuItem item = new javax.swing.JMenuItem(label);
-                if (chat.getId().equals(sessionId.toString())) {
-                    item.setEnabled(false); // this is the current tab
-                }
-                item.addActionListener(event -> {
-                    if (chatHistoryNavigator != null) {
-                        try {
-                            chatHistoryNavigator.openChat(new ChatSessionId(java.util.UUID.fromString(chat.getId())));
-                        } catch (IllegalArgumentException ignored) {
-                        }
-                    }
-                });
-                menu.add(item);
+                menu.add(buildChatHistoryRow(chat, when, menu));
             }
         }
         JComponent anchor = composer.getMenuButton();
         menu.show(anchor, 0, -menu.getPreferredSize().height);
+    }
+
+    /** One saved-chat row: a wide "open" button plus a trailing trash button that deletes it. */
+    private JComponent buildChatHistoryRow(final com.aresstack.askai.java8.history.ChatRecord chat,
+                                           java.text.SimpleDateFormat when, final javax.swing.JPopupMenu menu) {
+        boolean current = chat.getId().equals(sessionId.toString());
+        String title = chat.getTitle() == null || chat.getTitle().trim().isEmpty()
+                ? "(untitled)" : chat.getTitle().trim();
+        String label = "<html><b>" + escapeHtml(title) + "</b> &nbsp;<span style='color:gray'>"
+                + when.format(new java.util.Date(chat.getModifiedAt()))
+                + (current ? " · current" : "") + "</span></html>";
+
+        JButton open = new JButton(label);
+        open.setHorizontalAlignment(SwingConstants.LEFT);
+        open.setBorderPainted(false);
+        open.setContentAreaFilled(false);
+        open.setFocusPainted(false);
+        open.setEnabled(!current);
+        open.addActionListener(event -> {
+            menu.setVisible(false);
+            if (chatHistoryNavigator != null) {
+                try {
+                    chatHistoryNavigator.openChat(new ChatSessionId(java.util.UUID.fromString(chat.getId())));
+                } catch (IllegalArgumentException ignored) {
+                }
+            }
+        });
+
+        JButton delete = new JButton("🗑"); // 🗑
+        delete.setToolTipText("Delete this saved chat");
+        delete.setBorderPainted(false);
+        delete.setContentAreaFilled(false);
+        delete.setFocusPainted(false);
+        delete.addActionListener(event -> {
+            menu.setVisible(false);
+            int choice = JOptionPane.showConfirmDialog(OllamaChatPanel.this,
+                    "Delete the saved chat \"" + title + "\"? This cannot be undone.",
+                    "Delete chat", JOptionPane.OK_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE);
+            if (choice == JOptionPane.OK_OPTION && historyStore != null) {
+                historyStore.delete(chat.getId());
+                if (current) {
+                    chatRecord = null; // stop this tab from re-saving the just-deleted chat
+                }
+                setStatus("Deleted chat \"" + title + "\".");
+            }
+        });
+
+        JPanel row = new JPanel(new BorderLayout(4, 0));
+        row.setOpaque(false);
+        row.add(open, BorderLayout.CENTER);
+        row.add(delete, BorderLayout.EAST);
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
+        return row;
     }
 
     private static String escapeHtml(String text) {
