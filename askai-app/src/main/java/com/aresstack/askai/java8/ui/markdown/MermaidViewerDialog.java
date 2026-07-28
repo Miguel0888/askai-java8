@@ -101,13 +101,86 @@ public final class MermaidViewerDialog extends JDialog {
         reset.setToolTipText("Reset zoom");
         reset.addActionListener(event -> setZoom(1.0));
 
+        JButton copy = new JButton("Copy image");
+        copy.setToolTipText("Copy the diagram at the current zoom resolution");
+        copy.addActionListener(event -> copyImage());
+        JButton save = new JButton("Save image…");
+        save.setToolTipText("Save the diagram as a PNG at the current zoom resolution");
+        save.addActionListener(event -> saveImage());
+
         JPanel toolbar = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 4));
         toolbar.setBackground(theme.getSeparatorColor());
         toolbar.add(zoomOut);
         toolbar.add(zoomLabel);
         toolbar.add(zoomIn);
         toolbar.add(reset);
+        toolbar.add(copy);
+        toolbar.add(save);
         return toolbar;
+    }
+
+    /** Copy the current high-resolution render to the clipboard. */
+    private void copyImage() {
+        if (image == null) {
+            return;
+        }
+        try {
+            java.awt.Toolkit.getDefaultToolkit().getSystemClipboard()
+                    .setContents(new ImageTransferable(image), null);
+        } catch (RuntimeException ex) {
+            javax.swing.JOptionPane.showMessageDialog(this,
+                    "Could not copy the diagram: " + ex.getMessage(),
+                    "Copy failed", javax.swing.JOptionPane.WARNING_MESSAGE);
+        }
+    }
+
+    /** Save the current high-resolution render as a PNG. */
+    private void saveImage() {
+        if (image == null) {
+            return;
+        }
+        javax.swing.JFileChooser chooser = new javax.swing.JFileChooser();
+        chooser.setDialogTitle("Save diagram as PNG");
+        chooser.setSelectedFile(new java.io.File("diagram.png"));
+        if (chooser.showSaveDialog(this) != javax.swing.JFileChooser.APPROVE_OPTION) {
+            return;
+        }
+        java.io.File target = chooser.getSelectedFile();
+        if (!target.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".png")) {
+            target = new java.io.File(target.getParentFile(), target.getName() + ".png");
+        }
+        try {
+            javax.imageio.ImageIO.write(image, "png", target);
+        } catch (Exception ex) {
+            javax.swing.JOptionPane.showMessageDialog(this,
+                    "Could not save the diagram: " + ex.getMessage(),
+                    "Save failed", javax.swing.JOptionPane.WARNING_MESSAGE);
+        }
+    }
+
+    /** Exposes a rendered diagram to the clipboard as an image. */
+    private static final class ImageTransferable implements java.awt.datatransfer.Transferable {
+        private final BufferedImage image;
+
+        ImageTransferable(BufferedImage image) {
+            this.image = image;
+        }
+
+        public java.awt.datatransfer.DataFlavor[] getTransferDataFlavors() {
+            return new java.awt.datatransfer.DataFlavor[] {java.awt.datatransfer.DataFlavor.imageFlavor};
+        }
+
+        public boolean isDataFlavorSupported(java.awt.datatransfer.DataFlavor flavor) {
+            return java.awt.datatransfer.DataFlavor.imageFlavor.equals(flavor);
+        }
+
+        public Object getTransferData(java.awt.datatransfer.DataFlavor flavor)
+                throws java.awt.datatransfer.UnsupportedFlavorException {
+            if (!java.awt.datatransfer.DataFlavor.imageFlavor.equals(flavor)) {
+                throw new java.awt.datatransfer.UnsupportedFlavorException(flavor);
+            }
+            return image;
+        }
     }
 
     private void installKeyBindings() {
