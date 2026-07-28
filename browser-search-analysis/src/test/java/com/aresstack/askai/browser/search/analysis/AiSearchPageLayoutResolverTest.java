@@ -58,7 +58,7 @@ public class AiSearchPageLayoutResolverTest {
         SearchPageAnalysisArtifact artifact = artifact();
         ScriptedStructuredInferencePort port = new ScriptedStructuredInferencePort();
         SearchPageLayoutResolverResult result =
-                new AiSearchPageLayoutResolver(port).resolve(request(artifact, false, 3));
+                new AiSearchPageLayoutResolver(port, defaults.extraction).resolve(request(artifact, false, 3));
 
         assertEquals(SearchPageLayoutResolverOutcome.AI_DISABLED, result.outcome);
         assertEquals("model must never be called when disabled", 0, port.callCount());
@@ -68,7 +68,8 @@ public class AiSearchPageLayoutResolverTest {
     public void missingAdapterYieldsTypedUnavailableNotFakeSuccess() {
         SearchPageAnalysisArtifact artifact = artifact();
         SearchPageLayoutResolverResult result = new AiSearchPageLayoutResolver(
-                new UnavailableStructuredInferencePort()).resolve(request(artifact, true, 3));
+                new UnavailableStructuredInferencePort(), defaults.extraction)
+                .resolve(request(artifact, true, 3));
 
         assertEquals(SearchPageLayoutResolverOutcome.AI_UNAVAILABLE, result.outcome);
         assertNull(result.acceptedDecision);
@@ -80,7 +81,7 @@ public class AiSearchPageLayoutResolverTest {
         ScriptedStructuredInferencePort port =
                 new ScriptedStructuredInferencePort().thenSuccess(validResponse(artifact));
         SearchPageLayoutResolverResult result =
-                new AiSearchPageLayoutResolver(port).resolve(request(artifact, true, 3));
+                new AiSearchPageLayoutResolver(port, defaults.extraction).resolve(request(artifact, true, 3));
 
         assertEquals(SearchPageLayoutResolverOutcome.RESOLVED, result.outcome);
         assertNotNull(result.acceptedDecision);
@@ -95,7 +96,7 @@ public class AiSearchPageLayoutResolverTest {
                 .thenSuccess("not json at all")
                 .thenSuccess(validResponse(artifact));
         SearchPageLayoutResolverResult result =
-                new AiSearchPageLayoutResolver(port).resolve(request(artifact, true, 3));
+                new AiSearchPageLayoutResolver(port, defaults.extraction).resolve(request(artifact, true, 3));
 
         assertEquals(SearchPageLayoutResolverOutcome.RESOLVED, result.outcome);
         assertEquals("must have repaired after one bad answer", 2, port.callCount());
@@ -110,7 +111,7 @@ public class AiSearchPageLayoutResolverTest {
         ScriptedStructuredInferencePort port = new ScriptedStructuredInferencePort()
                 .thenSuccess("nope").thenSuccess("still nope");
         SearchPageLayoutResolverResult result =
-                new AiSearchPageLayoutResolver(port).resolve(request(artifact, true, 2));
+                new AiSearchPageLayoutResolver(port, defaults.extraction).resolve(request(artifact, true, 2));
 
         assertEquals(SearchPageLayoutResolverOutcome.VALIDATION_FAILED, result.outcome);
         assertEquals(2, result.attempts.size());
@@ -129,7 +130,7 @@ public class AiSearchPageLayoutResolverTest {
                 return true;
             }
         });
-        SearchPageLayoutResolverResult result = new AiSearchPageLayoutResolver(port).resolve(request);
+        SearchPageLayoutResolverResult result = new AiSearchPageLayoutResolver(port, defaults.extraction).resolve(request);
 
         assertEquals(SearchPageLayoutResolverOutcome.CANCELLED, result.outcome);
         assertEquals(0, port.callCount());
