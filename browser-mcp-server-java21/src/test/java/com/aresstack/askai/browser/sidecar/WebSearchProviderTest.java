@@ -78,6 +78,31 @@ public class WebSearchProviderTest {
     }
 
     @Test
+    public void internalEngineLinksReceiveTypedClassifications() {
+        com.aresstack.askai.browser.domain.DomainKeyResolver r =
+                new com.aresstack.askai.browser.domain.PublicSuffixDomainKeyResolver();
+        com.aresstack.askai.browser.domain.DomainIdentity bing =
+                r.resolve("https://www.bing.com/search?q=x");
+        assertEquals(SearchPageLinkType.SEARCH_VERTICAL,
+                SearchPageLinkType.classify("https://www.bing.com/videos/search?q=x", "Videos", bing, r));
+        assertEquals("subdomains of the engine are engine-internal too",
+                SearchPageLinkType.SEARCH_VERTICAL,
+                SearchPageLinkType.classify("https://cn.bing.com/images/search?q=x", "Bilder", bing, r));
+        assertEquals(SearchPageLinkType.PAGINATION,
+                SearchPageLinkType.classify("https://www.bing.com/search?q=x&first=11", "2", bing, r));
+        assertEquals(SearchPageLinkType.QUERY_REFINEMENT,
+                SearchPageLinkType.classify("https://www.bing.com/search?q=related", "related", bing, r));
+        assertEquals(SearchPageLinkType.ACCOUNT_OR_SETTINGS,
+                SearchPageLinkType.classify("https://www.bing.com/account/general", "Konto", bing, r));
+        assertEquals(SearchPageLinkType.LEGAL_OR_HELP,
+                SearchPageLinkType.classify("https://www.bing.com/privacy", "Datenschutz", bing, r));
+        assertEquals(SearchPageLinkType.ORGANIC_RESULT,
+                SearchPageLinkType.classify("https://github.com/pf4j/pf4j", "pf4j", bing, r));
+        assertEquals(SearchPageLinkType.UNKNOWN_INTERNAL,
+                SearchPageLinkType.classify("https://www.bing.com/something", "x", bing, r));
+    }
+
+    @Test
     public void capsTheRouteListForSmallModels() {
         List<BrowserLink> links = new ArrayList<BrowserLink>();
         for (int i = 1; i <= 40; i++) {

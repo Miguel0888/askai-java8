@@ -119,12 +119,14 @@ public class ProductiveResearchMvpEndToEndTest {
         assumeTrue("SKIPPED: no Java 21 toolchain for the sidecar",
                 !sidecarJava.isEmpty() && new File(sidecarJava).isFile());
 
-        // ---- two local JS servers = two distinct hosts ----
+        // ---- an ENGINE server + two content servers (host:port families via the sidecar dev flag) ----
+        HttpServer engineServer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         HttpServer serverOne = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         HttpServer serverTwo = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        String baseEngine = "http://127.0.0.1:" + engineServer.getAddress().getPort();
         String baseOne = "http://127.0.0.1:" + serverOne.getAddress().getPort();
         String baseTwo = "http://127.0.0.1:" + serverTwo.getAddress().getPort();
-        serverOne.createContext("/find", page("Find", "search results.",
+        engineServer.createContext("/find", page("Find", "search results.",
                 jsLink("PF4J primer", baseOne + "/a")));
         serverOne.createContext("/a", page("PF4J primer",
                 "pf4j is a plugin framework. Primary source.",
@@ -134,8 +136,12 @@ public class ProductiveResearchMvpEndToEndTest {
                 jsLink("pf4j extra evidence", baseTwo + "/e")));
         serverTwo.createContext("/e", page("pf4j in production",
                 "More pf4j evidence from the field.", ""));
+        engineServer.start();
         serverOne.start();
         serverTwo.start();
+        // Documented dev/test hand-off: local multi-server worlds act as distinct domain families.
+        String oldSidecarArgs =
+                System.setProperty("askai.research.sidecar.args", "--domain-key-mode=host-port");
 
         SolonMcpServerRuntime registry = new SolonMcpServerRuntime();
         ResearchRuntimeGenerationSwitch switcher = new ResearchRuntimeGenerationSwitch(
@@ -143,7 +149,7 @@ public class ProductiveResearchMvpEndToEndTest {
                 new SolonAcpAgentConnector(Duration.ofSeconds(180), null));
         ResearchRuntimeConfig config = new ResearchRuntimeConfig(agentJava, agentJar,
                 sidecarJava, sidecarJar, System.getenv().getOrDefault("ASKAI_TEST_BROWSER_CHANNEL", "chrome"),
-                true, true, baseOne + "/find?q={query}");
+                true, true, baseEngine + "/find?q={query}");
 
         File projectDir = Files.createTempDirectory("askai-e2e").toFile();
         ProductiveResearchSessionResources resources = null;
@@ -267,8 +273,14 @@ public class ProductiveResearchMvpEndToEndTest {
             }
             switcher.shutdown();
             registry.shutdown();
+            engineServer.stop(0);
             serverOne.stop(0);
             serverTwo.stop(0);
+            if (oldSidecarArgs == null) {
+                System.clearProperty("askai.research.sidecar.args");
+            } else {
+                System.setProperty("askai.research.sidecar.args", oldSidecarArgs);
+            }
         }
     }
 

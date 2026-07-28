@@ -49,9 +49,10 @@ public class PlaywrightLiveBrowserTest {
             + "document.getElementById('c').textContent='Second page rendered';"
             + "</script></body></html>";
 
+    /** The SERP lives on its OWN server; the organic result links to the content server (%TARGET%). */
     private static final String SEARCH_PAGE = "<!doctype html><html><head><title>Find</title></head>"
-            + "<body><div id='r'></div><script>"
-            + "var a=document.createElement('a');a.href='/start';"
+            + "<body><nav><a href='/videos?q=x'>Videos</a></nav><div id='r'></div><script>"
+            + "var a=document.createElement('a');a.href='%TARGET%';"
             + "a.textContent='JS Start (result)';document.getElementById('r').appendChild(a);"
             + "</script></body></html>";
 
@@ -64,7 +65,6 @@ public class PlaywrightLiveBrowserTest {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/start", page(START_PAGE));
         server.createContext("/second", page(SECOND_PAGE));
-        server.createContext("/find", page(SEARCH_PAGE));
         server.createContext("/redirect", new HttpHandler() {
             public void handle(HttpExchange exchange) throws IOException {
                 exchange.getResponseHeaders().add("Location", "/second");
@@ -75,12 +75,20 @@ public class PlaywrightLiveBrowserTest {
         server.start();
         String base = "http://127.0.0.1:" + server.getAddress().getPort();
 
+        // The search engine lives on its OWN server; its organic result links to the content server.
+        HttpServer searchServer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        searchServer.createContext("/find", page(SEARCH_PAGE.replace("%TARGET%", base + "/start")));
+        searchServer.start();
+        String searchBase = "http://127.0.0.1:" + searchServer.getAddress().getPort();
+
         BrowserSession session = PlaywrightSessionFactory.create(channel, true, true,
-                base + "/find?q={query}", BrowserLimits.defaults());
+                searchBase + "/find?q={query}", BrowserLimits.defaults());
         if (session instanceof PlaywrightBrowserSession) {
-            // Hermetic: the local single-host provider has no "external" organic links, and the test
-            // must never fall through to a real public search engine.
+            // Hermetic: never fall through to a real public search engine, and key domain families by
+            // host:port so the two local servers act as distinct domains (production semantics untouched).
             ((PlaywrightBrowserSession) session).setFallbackSearchTemplates(new String[0]);
+            ((PlaywrightBrowserSession) session).setDomainKeyResolver(
+                    new com.aresstack.askai.browser.domain.HostPortDomainKeyResolver());
         }
         try {
             assertEquals(BrowserBackendKind.PLAYWRIGHT_SIDECAR, session.getBackendKind());
@@ -128,6 +136,7 @@ public class PlaywrightLiveBrowserTest {
             session.close();
             session.close();
             server.stop(0);
+            searchServer.stop(0);
         }
     }
 

@@ -21,23 +21,6 @@ interface WebSearchProvider {
     /** Extract structured results from the loaded provider result page. */
     List<WebSearchItem> extract(BrowserPageSnapshot page, List<BrowserLink> links);
 
-    /** Legacy extraction: every outbound link with text becomes a hit (kept for tests/special providers). */
-    final class LinkListSearchProvider implements WebSearchProvider {
-        public List<WebSearchItem> extract(BrowserPageSnapshot page, List<BrowserLink> links) {
-            List<WebSearchItem> items = new ArrayList<WebSearchItem>();
-            int id = 0;
-            for (BrowserLink link : links) {
-                if (link.getText().isEmpty()) {
-                    continue;
-                }
-                id++;
-                items.add(new WebSearchItem(String.valueOf(id), link.getText(), link.getUrl(),
-                        link.getText()));
-            }
-            return items;
-        }
-    }
-
     /**
      * The "street sign" extraction (default): only plausible ORGANIC result links become hits, so the agent
      * gets a short list of routes to real target websites — never the search engine's own navigation
@@ -79,8 +62,11 @@ interface WebSearchProvider {
                 }
                 boolean wrapped = resolution.getStatus() == SearchRedirectResolver.Status.RESOLVED;
                 String effectiveUrl = wrapped ? resolution.getTargetUrl() : rawUrl;
-                if (domainKeys.resolve(effectiveUrl).sameFamily(provider)) {
-                    continue; // the engine's own navigation: tabs, verticals, settings, sign-in
+                // Typed link classification on the RESOLVED target: verticals, pagination, refinements,
+                // account/legal and ads are MODELED but never candidates; only ORGANIC_RESULT passes.
+                if (SearchPageLinkType.classify(effectiveUrl, link.getText(), provider, domainKeys)
+                        != SearchPageLinkType.ORGANIC_RESULT) {
+                    continue;
                 }
                 // The NAVIGATION target stays the raw URL (the engine expects its wrapper to be followed);
                 // the resolved target only drives the domain judgement above.

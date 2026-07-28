@@ -52,6 +52,14 @@ public final class BrowserMcpSidecarProcess {
         if (config.getSearchUrlTemplate() != null && !config.getSearchUrlTemplate().isEmpty()) {
             command.add("--search-url=" + config.getSearchUrlTemplate());
         }
+        // Documented DEV/TEST hand-off (like askai.research.runtime.dir): extra sidecar arguments,
+        // e.g. "--domain-key-mode=host-port" so local multi-server worlds act as distinct domains.
+        String extraArgs = System.getProperty("askai.research.sidecar.args", "").trim();
+        if (!extraArgs.isEmpty()) {
+            for (String extra : extraArgs.split("\\s+")) {
+                command.add(extra);
+            }
+        }
         final Process process = new ProcessBuilder(command).start();
 
         final CountDownLatch ready = new CountDownLatch(1);

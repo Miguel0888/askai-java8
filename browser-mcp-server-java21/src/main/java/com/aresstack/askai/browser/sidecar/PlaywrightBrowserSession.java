@@ -71,9 +71,9 @@ final class PlaywrightBrowserSession implements BrowserSession {
 
     /**
      * Scrape-friendly, server-rendered fallback engines: when the CONFIGURED engine yields no organic
-     * routes (consent wall, JS-only result page, blocking), the search falls through to these before
-     * degrading to the legacy all-links extraction. Their result links are direct or {@code /l/}-wrapped,
-     * which the street-sign extraction understands.
+     * routes (consent wall, JS-only result page, blocking), the search falls through to these. If NO
+     * engine has organic routes, the result is typed and EMPTY — never the SERP's raw anchors (hard
+     * invariant of the Legacy-Browser-Search requirements).
      */
     static final String[] FALLBACK_SEARCH_TEMPLATES = {
             "https://html.duckduckgo.com/html/?q={query}",
@@ -109,21 +109,32 @@ final class PlaywrightBrowserSession implements BrowserSession {
             }
         }
         List<String> providerHosts = new ArrayList<String>();
-        BrowserPageSnapshot lastPage = null;
-        List<BrowserLink> lastLinks = null;
+        List<com.aresstack.askai.browser.LegacySearchEngineAttemptResult> attempts =
+                new ArrayList<com.aresstack.askai.browser.LegacySearchEngineAttemptResult>();
+        boolean anyEngineReached = false;
         BrowserException lastFailure = null;
         for (String template : templates) {
+            String engineHost = com.aresstack.askai.browser.domain.PublicSuffixDomainKeyResolver
+                    .hostOf(template);
             String engineFamily = domainKeys.resolve(template).getRegistrableDomain();
             if (engineFamily.equals(challengeFamily)) {
-                continue; // MANUAL_CHALLENGE_PENDING: no new search, no reload, no retry on this family
+                // MANUAL_CHALLENGE_PENDING: no new search, no reload, no retry on this family.
+                attempts.add(attempt(engineHost,
+                        com.aresstack.askai.browser.LegacySearchAttemptOutcome.CHALLENGE_PENDING,
+                        "family locked"));
+                continue;
             }
             BrowserPageSnapshot page;
             try {
                 page = open(template.replace("{query}", encoded));
             } catch (BrowserException engineUnreachable) {
                 lastFailure = engineUnreachable;
+                attempts.add(attempt(engineHost,
+                        com.aresstack.askai.browser.LegacySearchAttemptOutcome.NAVIGATION_FAILED,
+                        engineUnreachable.getMessage()));
                 continue; // this engine is down/blocked — the next one may still deliver routes
             }
+            anyEngineReached = true;
             // SERP guards, encapsulated here (never in the research loop): consent first, then the
             // challenge check — a challenge page is never read as a result page.
             if (driver.tryDismissConsent().startsWith("clicked")) {
@@ -137,34 +148,43 @@ final class PlaywrightBrowserSession implements BrowserSession {
                     challengeFamily = pageIdentity.getRegistrableDomain();
                     challengeUrl = page.getUrl();
                 }
+                attempts.add(attempt(host,
+                        com.aresstack.askai.browser.LegacySearchAttemptOutcome.CHALLENGE_PENDING,
+                        "manual challenge"));
                 continue; // the user solves it manually; try the next engine meanwhile
             }
-            if (!host.isEmpty() && !providerHosts.contains(host)) {
+            // Transit semantics only exist for PUBLIC engines; an IP/localhost dev world has no
+            // engine navigation to hide, so it never marks itself as transit.
+            if (!host.isEmpty() && !providerHosts.contains(host)
+                    && pageIdentity.getHostKind()
+                            == com.aresstack.askai.browser.domain.HostKind.REGISTERED_NAME) {
                 providerHosts.add(host);
             }
             List<com.aresstack.askai.browser.WebSearchItem> organic =
                     searchProvider.extract(page, currentLinks);
             if (!organic.isEmpty()) {
-                return new WebSearchResult(organic, providerHosts);
+                attempts.add(attempt(host,
+                        com.aresstack.askai.browser.LegacySearchAttemptOutcome.ORGANIC_RESULTS,
+                        organic.size() + " candidates"));
+                return new WebSearchResult(organic, providerHosts, attempts);
             }
-            lastPage = page;
-            lastLinks = currentLinks;
+            attempts.add(attempt(host,
+                    com.aresstack.askai.browser.LegacySearchAttemptOutcome.NO_ORGANIC_RESULTS, ""));
         }
-        if (lastPage == null && challengeFamily != null) {
-            // Every reachable engine is challenge-bound: report it typed instead of a generic failure.
-            throw new BrowserException("SEARCH_CHALLENGE_PENDING: " + challengeFamily
-                    + " requires manual verification in the browser.");
+        if (!anyEngineReached && challengeFamily == null && lastFailure != null) {
+            throw lastFailure; // nothing was reachable at all — a plain technical failure
         }
-        if (lastPage == null) {
-            throw lastFailure != null ? lastFailure
-                    : new BrowserException("Search failed: no engine was reachable.");
-        }
-        // No engine produced organic routes: degrade to the legacy all-links extraction, never go blind.
-        // Deliberately WITHOUT provider hosts: in this mode the engine's own links ARE the results
-        // (single-host dev/test worlds) — marking the host as transit would make them unusable.
-        return new WebSearchResult(
-                new WebSearchProvider.LinkListSearchProvider().extract(lastPage, lastLinks),
-                Collections.<String>emptyList());
+        // HARD INVARIANT (Gesamtanforderungen): no path ever returns the SERP's raw anchors as results.
+        // Every engine's typed outcome travels with the (empty) result instead.
+        return new WebSearchResult(Collections.<com.aresstack.askai.browser.WebSearchItem>emptyList(),
+                providerHosts, attempts);
+    }
+
+    private static com.aresstack.askai.browser.LegacySearchEngineAttemptResult attempt(
+            String engineHost, com.aresstack.askai.browser.LegacySearchAttemptOutcome outcome,
+            String diagnostic) {
+        return new com.aresstack.askai.browser.LegacySearchEngineAttemptResult(engineHost, outcome,
+                diagnostic == null ? "" : diagnostic);
     }
 
     public BrowserPageSnapshot open(String url) throws BrowserException {

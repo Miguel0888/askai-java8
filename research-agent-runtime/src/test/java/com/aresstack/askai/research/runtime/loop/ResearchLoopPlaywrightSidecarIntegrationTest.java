@@ -73,14 +73,18 @@ public class ResearchLoopPlaywrightSidecarIntegrationTest {
         assumeTrue("SKIPPED: no Java 21 toolchain available for the sidecar",
                 !sidecarJava.isEmpty() && new File(sidecarJava).isFile());
 
-        // ---- two local JS servers = two distinct hosts (host = authority incl. port) ----
+        // ---- an ENGINE server + two content servers (host:port families via --domain-key-mode) ----
+        HttpServer engineServer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         HttpServer serverOne = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         HttpServer serverTwo = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        String baseEngine = "http://127.0.0.1:" + engineServer.getAddress().getPort();
         String baseOne = "http://127.0.0.1:" + serverOne.getAddress().getPort();
         String baseTwo = "http://127.0.0.1:" + serverTwo.getAddress().getPort();
 
-        serverOne.createContext("/find", page("Find", "search results.",
-                jsLink("PF4J primer", baseOne + "/a")));
+        // The SERP has engine-internal navigation (never a candidate) plus one organic external result.
+        engineServer.createContext("/find", page("Find", "search results.",
+                jsLink("Videos", baseEngine + "/videos?q=pf4j")
+                        + jsLink("PF4J primer", baseOne + "/a")));
         serverOne.createContext("/a", page("PF4J primer",
                 "pf4j is a plugin framework. Primary source.",
                 jsLink("pf4j details", baseTwo + "/c")));
@@ -89,6 +93,7 @@ public class ResearchLoopPlaywrightSidecarIntegrationTest {
                 jsLink("pf4j extra evidence", baseTwo + "/e")));
         serverTwo.createContext("/e", page("pf4j in production",
                 "More pf4j evidence from the field.", ""));
+        engineServer.start();
         serverOne.start();
         serverTwo.start();
 
@@ -98,7 +103,8 @@ public class ResearchLoopPlaywrightSidecarIntegrationTest {
         Process sidecar = new ProcessBuilder(sidecarJava, "-jar", sidecarJar,
                 "--port=" + sidecarPort, "--token=" + token,
                 "--allow-private=true", "--headless=true",
-                "--search-url=" + baseOne + "/find?q={query}")
+                "--domain-key-mode=host-port",
+                "--search-url=" + baseEngine + "/find?q={query}")
                 .redirectErrorStream(false)
                 .start();
         final CountDownLatch ready = new CountDownLatch(1);
@@ -268,6 +274,7 @@ public class ResearchLoopPlaywrightSidecarIntegrationTest {
                 sidecar.destroyForcibly();
                 sidecar.waitFor(15, TimeUnit.SECONDS);
             }
+            engineServer.stop(0);
             serverOne.stop(0);
             serverTwo.stop(0);
         }

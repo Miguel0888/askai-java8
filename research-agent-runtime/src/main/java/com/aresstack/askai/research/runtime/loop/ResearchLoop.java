@@ -521,7 +521,8 @@ public final class ResearchLoop {
         StringBuilder sb = new StringBuilder();
         for (String line : (results == null ? "" : results).split("\n")) {
             if (line.startsWith("PROVIDER: ") || line.startsWith("CHALLENGE: ")
-                    || line.startsWith("RESOLVED: ") || line.equals("NONE")) {
+                    || line.startsWith("RESOLVED: ") || line.startsWith("ATTEMPT: ")
+                    || line.equals("NONE")) {
                 continue;
             }
             sb.append(line).append('\n');

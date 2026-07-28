@@ -256,8 +256,10 @@ public class PlaywrightBrowserSessionTest {
         assertEquals(1, result.getItems().size());
         assertEquals("PF4J primer", result.getItems().get(0).getTitle());
         assertEquals("http://9.9.9.9/a", result.getItems().get(0).getUrl());
-        assertEquals("the engine host travels with the result",
-                java.util.Arrays.asList("8.8.8.8"), result.getProviderHosts());
+        assertTrue("transit semantics only exist for PUBLIC engines — an IP world reports none",
+                result.getProviderHosts().isEmpty());
+        assertEquals(com.aresstack.askai.browser.LegacySearchAttemptOutcome.ORGANIC_RESULTS,
+                result.getAttempts().get(0).getOutcome());
     }
 
     @Test
@@ -286,7 +288,8 @@ public class PlaywrightBrowserSessionTest {
     }
 
     @Test
-    public void searchDegradesToAllLinksOnlyWhenNoEngineHasOrganicRoutes() throws Exception {
+    public void allEnginesWithoutOrganicRoutesYieldTypedOutcomesNeverTheRawAnchors() throws Exception {
+        // HARD INVARIANT (Gesamtanforderungen): no path may ever return the SERP's raw anchors.
         FakeDriver driver = new FakeDriver();
         driver.byUrl.put("http://engine-one.test/find?q=pf4j", state("http://engine-one.test/find?q=pf4j",
                 "Consent", "wall", "Videos", "http://engine-one.test/videos?q=pf4j"));
@@ -298,11 +301,12 @@ public class PlaywrightBrowserSessionTest {
 
         WebSearchResult result = s.search("pf4j");
 
-        assertEquals("degrades to the last page's text links, never goes blind",
-                1, result.getItems().size());
-        assertEquals("http://engine-two.test/settings", result.getItems().get(0).getUrl());
-        assertTrue("degrade mode reports NO transit hosts — the engine's links ARE the results",
-                result.getProviderHosts().isEmpty());
+        assertTrue("never the raw anchors as pretended results", result.getItems().isEmpty());
+        assertEquals("one typed outcome per attempted engine", 2, result.getAttempts().size());
+        assertEquals(com.aresstack.askai.browser.LegacySearchAttemptOutcome.NO_ORGANIC_RESULTS,
+                result.getAttempts().get(0).getOutcome());
+        assertEquals(com.aresstack.askai.browser.LegacySearchAttemptOutcome.NO_ORGANIC_RESULTS,
+                result.getAttempts().get(1).getOutcome());
     }
 
     @Test
@@ -381,7 +385,7 @@ public class PlaywrightBrowserSessionTest {
     @Test
     public void literalIpProvidersNeverFallThroughToPublicEngines() throws Exception {
         // A literal-IP provider is a self-contained dev/test world: no fallback engine is contacted,
-        // the engine's own links stay usable (degrade mode), no transit hosts are reported.
+        // and same-family links are typed NO_ORGANIC_RESULTS instead of degraded to raw anchors.
         FakeDriver driver = new FakeDriver();
         driver.byUrl.put("http://8.8.8.8/find?q=pf4j", state("http://8.8.8.8/find?q=pf4j",
                 "Find", "results", "Local result", "http://8.8.8.8/a"));
@@ -393,9 +397,30 @@ public class PlaywrightBrowserSessionTest {
 
         assertEquals("exactly one navigation — no fallback engine was contacted",
                 1, driver.opened.size());
-        assertEquals(1, result.getItems().size());
-        assertEquals("http://8.8.8.8/a", result.getItems().get(0).getUrl());
-        assertTrue(result.getProviderHosts().isEmpty());
+        assertTrue(result.getItems().isEmpty());
+        assertEquals(com.aresstack.askai.browser.LegacySearchAttemptOutcome.NO_ORGANIC_RESULTS,
+                result.getAttempts().get(0).getOutcome());
+    }
+
+    @Test
+    public void hostPortModeMakesLocalServersActAsDistinctDomains() throws Exception {
+        // The injected dev/test resolver keys families by host:port — local multi-server worlds work
+        // WITHOUT bending the production public-suffix semantics.
+        FakeDriver driver = new FakeDriver();
+        driver.byUrl.put("http://127.0.0.1:1111/find?q=pf4j", state("http://127.0.0.1:1111/find?q=pf4j",
+                "Find", "results",
+                "Engine internal", "http://127.0.0.1:1111/settings",
+                "Local result", "http://127.0.0.1:2222/a"));
+        PlaywrightBrowserSession s = session(driver, UrlSafetyPolicy.allowingPrivateNetworks(),
+                BrowserLimits.defaults(), "http://127.0.0.1:1111/find?q={query}");
+        s.setFallbackSearchTemplates(new String[0]);
+        s.setDomainKeyResolver(new com.aresstack.askai.browser.domain.HostPortDomainKeyResolver());
+
+        WebSearchResult result = s.search("pf4j");
+
+        assertEquals("the other-port server is an organic route", 1, result.getItems().size());
+        assertEquals("http://127.0.0.1:2222/a", result.getItems().get(0).getUrl());
+        assertTrue("IP worlds still report no transit hosts", result.getProviderHosts().isEmpty());
     }
 
     @Test

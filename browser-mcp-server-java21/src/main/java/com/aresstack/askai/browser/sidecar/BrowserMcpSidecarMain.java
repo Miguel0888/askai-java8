@@ -52,6 +52,14 @@ public final class BrowserMcpSidecarMain {
                 "true".equalsIgnoreCase(stringArg(args, "--allow-private=")),
                 stringArg(args, "--search-url="),
                 com.aresstack.askai.browser.BrowserLimits.defaults());
+        // DEV/TEST ONLY: host:port domain families so local multi-server worlds act as distinct domains
+        // (production keeps the public-suffix resolver; never the default).
+        if ("host-port".equalsIgnoreCase(stringArg(args, "--domain-key-mode="))
+                && session instanceof PlaywrightBrowserSession) {
+            ((PlaywrightBrowserSession) session).setDomainKeyResolver(
+                    new com.aresstack.askai.browser.domain.HostPortDomainKeyResolver());
+            System.err.println("[browser-mcp] domain-key-mode=host-port (dev/test)");
+        }
         McpServerEndpointProvider endpoint = McpServerEndpointProvider.builder()
                 .name("browser")
                 .version("0.1")
@@ -97,8 +105,13 @@ public final class BrowserMcpSidecarMain {
                                 sb.append(line).append('\n');
                             }
                         }
-                        return result.getItems().isEmpty() && sb.length() == 0
-                                ? "No results." : sb.toString();
+                        // One typed line per attempted engine — diagnostics, never candidates.
+                        for (com.aresstack.askai.browser.LegacySearchEngineAttemptResult attempt
+                                : result.getAttempts()) {
+                            sb.append("ATTEMPT: ").append(attempt.getSearchEngineHost())
+                              .append(' ').append(attempt.getOutcome()).append('\n');
+                        }
+                        return sb.length() == 0 ? "No results." : sb.toString();
                     }
                 }));
         endpoint.addTool(new FunctionToolDesc("web_open")
