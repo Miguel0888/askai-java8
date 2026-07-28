@@ -157,19 +157,18 @@ public class ResearchRuntimeModeTest {
     }
 
     @Test
-    public void invalidProductiveConfigurationIsRejectedWithoutFallback() {
+    public void unmetRequirementsStartTheDemoBackendVisiblyWithoutServiceLookups() {
+        // There is no user-facing mode choice anymore: unmet requirements mean new sessions run the
+        // DEMO backend with a visible startup notice (surfaced in the chat on activate) — and the
+        // host runtime services are never touched.
         FakeHostContext host = new FakeHostContext();
         new ResearchRuntimeSettings(ResearchBackendMode.ACP, "", "", "", "", "chrome", true, "")
                 .save(host.store);
-        try {
-            new ResearchAgentSessionFactory().create(
-                    new AgentSessionCreationRequest("s1", "p1", new HashMap<String, String>()), host);
-            fail("an unusable productive configuration must fail visibly, not fall back to FAKE");
-        } catch (IllegalStateException expected) {
-            assertTrue(expected.getMessage().contains("no fallback"));
-            assertTrue(expected.getMessage().contains("not configured"));
-        }
-        assertEquals("validation happens before any service lookup", 0, host.serviceLookups);
+        AgentSession session = new ResearchAgentSessionFactory().create(
+                new AgentSessionCreationRequest("s1", "p1", new HashMap<String, String>()), host);
+        assertNotNull(session);
+        assertEquals("no service lookup for a demo start", 0, host.serviceLookups);
+        session.close();
     }
 
     @Test

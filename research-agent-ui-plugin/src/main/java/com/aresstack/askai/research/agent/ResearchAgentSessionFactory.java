@@ -45,14 +45,42 @@ public final class ResearchAgentSessionFactory implements AgentSessionFactory {
     @Override
     public AgentSession create(AgentSessionCreationRequest request, AgentHostContext hostContext) {
         ResearchRuntimeSettings settings = ResearchRuntimeSettings.load(hostContext.getStateStore());
-        if (settings.getMode() == ResearchBackendMode.ACP) {
-            return createProductive(settings, request, hostContext);
+        // There is NO user-facing mode choice: productive is simply THE mode whenever its requirements
+        // are met (auto-completed defaults). A persisted FAKE value remains a developer-only override.
+        if (settings.getMode() == ResearchBackendMode.FAKE
+                && hostContext.getStateStore() != null
+                && ResearchRuntimeSettings.hasPersistedMode(hostContext.getStateStore())) {
+            return createDemo(request, hostContext, null);
         }
+        ResearchRuntimeSettings completed =
+                com.aresstack.askai.research.host.ResearchRuntimeDefaults.complete(settings);
+        List<String> problems = completed.validateProductive();
+        if (!problems.isEmpty()) {
+            // Requirements not met → the session starts in DEMO mode with a VISIBLE notice listing
+            // exactly what is missing. This is not a silent fallback; a start FAILURE with met
+            // requirements still fails visibly below.
+            StringBuilder notice = new StringBuilder(
+                    "Research runs in DEMO mode — the productive runtime is not available:\n");
+            for (String problem : problems) {
+                notice.append("  - ").append(problem).append('\n');
+            }
+            notice.append("Fix this in the Runtime tab, then open a new Research session.");
+            return createDemo(request, hostContext, notice.toString());
+        }
+        return createProductive(completed, request, hostContext);
+    }
+
+    private AgentSession createDemo(AgentSessionCreationRequest request, AgentHostContext hostContext,
+                                    String visibleNotice) {
         RealResearchScheduler scheduler = new RealResearchScheduler();
         FakeResearchSessionBackend backend = new FakeResearchSessionBackend(
                 scheduler, ResearchClock.system(), ResearchIdGenerator.random(), STEP_DELAY_MILLIS);
-        return new ResearchAgentSession(backend, scheduler, hostContext,
+        ResearchAgentSession session = new ResearchAgentSession(backend, scheduler, hostContext,
                 request.getSessionId(), request.getProjectId());
+        if (visibleNotice != null) {
+            session.setStartupNotice(visibleNotice);
+        }
+        return session;
     }
 
     private AgentSession createProductive(ResearchRuntimeSettings settings,

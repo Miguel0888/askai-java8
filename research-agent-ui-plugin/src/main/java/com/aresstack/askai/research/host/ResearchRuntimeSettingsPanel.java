@@ -30,12 +30,11 @@ import java.util.List;
  */
 public final class ResearchRuntimeSettingsPanel extends JPanel {
 
-    static final String MODE_FAKE_LABEL = "Fake (clickdummy / development)";
-    static final String MODE_ACP_LABEL = "Productive (ACP + browser sidecar)";
-
     private final WorkspaceStateStore store;
-    private final JComboBox<String> mode = new JComboBox<String>(
-            new String[]{MODE_FAKE_LABEL, MODE_ACP_LABEL});
+    // There is deliberately NO backend-mode field: productive is simply THE mode whenever its
+    // requirements are met; otherwise new sessions run the demo backend with a visible notice.
+    // (A persisted FAKE value remains a developer-only override in the store.)
+    private final JLabel backendStatus = new JLabel(" ");
     // Deliberately NO agent-Java field: the agent is Java-8 bytecode and simply runs on AskAI's own
     // JVM. A persisted override (store key) stays possible for special cases, but it is not a user
     // decision — the ONE configurable runtime is the Java >= 21 for the browser sidecar (GraalJS),
@@ -61,7 +60,7 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
 
         JPanel form = new JPanel();
         form.setLayout(new BoxLayout(form, BoxLayout.Y_AXIS));
-        form.add(row("Backend mode:", mode));
+        form.add(row("Backend:", backendStatus));
         form.add(pathRow("Research agent jar:", agentJar));
         form.add(pathRow("Java for browser (≥21):", sidecarJava));
         form.add(pathRow("Browser sidecar jar:", sidecarJar));
@@ -90,6 +89,7 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         ResearchRuntimeSettings persisted = ResearchRuntimeSettings.load(store);
         apply(ResearchRuntimeDefaults.complete(persisted));
         agentJavaOverride = persisted.getAgentJavaExecutable();
+        refreshBackendStatus();
 
         save.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent event) {
@@ -105,15 +105,25 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
 
     /** The panel state as the SAME typed model the factory reads — no second mapping. */
     ResearchRuntimeSettings currentSettings() {
-        return new ResearchRuntimeSettings(
-                mode.getSelectedIndex() == 1 ? ResearchBackendMode.ACP : ResearchBackendMode.FAKE,
+        // Saving from the panel always persists the automatic mode (this also migrates stores where an
+        // old default once wrote FAKE); the demo backend is chosen by the FACTORY only when the
+        // requirements are not met.
+        return new ResearchRuntimeSettings(ResearchBackendMode.ACP,
                 agentJavaOverride, agentJar.getText(), sidecarJava.getText(), sidecarJar.getText(),
                 String.valueOf(browserChannel.getSelectedItem()), headless.isSelected(),
                 searchUrl.getText(), allowPrivate.isSelected());
     }
 
+    /** The live projection of what NEW sessions will do — computed, never chosen. */
+    private void refreshBackendStatus() {
+        List<String> problems = ResearchRuntimeDefaults.complete(currentSettings()).validateProductive();
+        backendStatus.setText(problems.isEmpty()
+                ? "Productive (requirements met — new sessions research with the real browser)"
+                : "DEMO (missing: " + problems.get(0)
+                        + (problems.size() > 1 ? " +" + (problems.size() - 1) + " more" : "") + ")");
+    }
+
     private void apply(ResearchRuntimeSettings settings) {
-        mode.setSelectedIndex(settings.getMode() == ResearchBackendMode.ACP ? 1 : 0);
         agentJavaOverride = settings.getAgentJavaExecutable();
         agentJar.setText(settings.getAgentJar());
         sidecarJava.setText(settings.getSidecarJavaExecutable());
@@ -129,24 +139,22 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
 
     private void saveSettings() {
         ResearchRuntimeSettings settings = currentSettings();
-        if (settings.getMode() == ResearchBackendMode.ACP) {
-            // Validate exactly what the factory will run: the settings COMPLETED by the automatic
-            // defaults (agent Java = AskAI's own JVM, jars/Java21 discovered) — never the raw fields.
-            List<String> problems = ResearchRuntimeDefaults.complete(settings).validateProductive();
-            if (!problems.isEmpty()) {
-                StringBuilder sb = new StringBuilder("Not saved — the productive configuration is not usable:\n");
-                for (String problem : problems) {
-                    sb.append("  - ").append(problem).append('\n');
-                }
-                results.setText(sb.toString());
-                return;
+        // Always save — configuration is never rejected; what NEW sessions do is computed from it.
+        settings.save(store);
+        List<String> problems = ResearchRuntimeDefaults.complete(settings).validateProductive();
+        refreshBackendStatus();
+        StringBuilder sb = new StringBuilder("Saved.\n");
+        if (problems.isEmpty()) {
+            sb.append("New Research sessions run PRODUCTIVE (real browser research).\n");
+        } else {
+            sb.append("New Research sessions run in DEMO mode until these are fixed:\n");
+            for (String problem : problems) {
+                sb.append("  - ").append(problem).append('\n');
             }
         }
-        settings.save(store);
-        results.setText("Saved. Mode: " + (settings.getMode() == ResearchBackendMode.ACP
-                ? MODE_ACP_LABEL : MODE_FAKE_LABEL)
-                + "\n\nIMPORTANT: the RUNNING session keeps its current backend."
-                + "\nClose this Research session and open a new one to start with this configuration.");
+        sb.append("\nThe RUNNING session keeps its current backend — close this Research session and"
+                + "\nopen a new one to apply.");
+        results.setText(sb.toString());
     }
 
     private void runCheck() {

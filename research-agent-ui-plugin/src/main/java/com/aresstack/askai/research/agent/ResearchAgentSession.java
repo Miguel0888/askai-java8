@@ -99,6 +99,13 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
 
     // ------------------------------------------------------------------ AgentSession lifecycle
 
+    /** Visible one-time message shown when the session starts (e.g. the demo-mode notice). */
+    private volatile String startupNotice;
+
+    public void setStartupNotice(String notice) {
+        this.startupNotice = notice;
+    }
+
     @Override
     public void activate() {
         if (disposed || started) {
@@ -108,6 +115,14 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         // listener must already accept it even though the handle field is assigned only when the call returns.
         started = true;
         handle = backend.createSession(request, this);
+        final String notice = startupNotice;
+        if (notice != null && sink != null) {
+            uiExecutor.execute(new Runnable() {
+                public void run() {
+                    sink.showProblem("research-runtime-mode", notice);
+                }
+            });
+        }
     }
 
     @Override

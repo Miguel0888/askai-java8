@@ -61,6 +61,11 @@ public final class ResearchRuntimeSettings {
         return new ResearchRuntimeSettings(ResearchBackendMode.FAKE, "", "", "", "", "chrome", true, "");
     }
 
+    /** True when a mode value was ever persisted (the FAKE developer override requires an explicit one). */
+    public static boolean hasPersistedMode(WorkspaceStateStore store) {
+        return store != null && store.get(KEY_MODE, null) != null;
+    }
+
     public static ResearchRuntimeSettings load(WorkspaceStateStore store) {
         if (store == null) {
             return defaults(); // a host without persisted state runs the visible clickdummy mode
