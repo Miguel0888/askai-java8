@@ -44,6 +44,9 @@ public final class ResearchAgentSessionFactory implements AgentSessionFactory {
 
     @Override
     public AgentSession create(AgentSessionCreationRequest request, AgentHostContext hostContext) {
+        // The agent speaks the persisted language (English default, German translation) from the start.
+        ResearchPlaybook.setLanguage(
+                ResearchRuntimeSettings.loadLanguage(hostContext.getStateStore()));
         ResearchRuntimeSettings settings = ResearchRuntimeSettings.load(hostContext.getStateStore());
         // There is NO user-facing mode choice: productive is simply THE mode whenever its requirements
         // are met (auto-completed defaults). A persisted FAKE value remains a developer-only override.

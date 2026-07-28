@@ -11,11 +11,40 @@ import java.util.Locale;
  */
 public final class ResearchPlaybook {
 
+    /** UI language of every agent utterance (default English; switchable in the Runtime tab). */
+    public enum Language { ENGLISH, GERMAN }
+
+    private static volatile Language language = Language.ENGLISH;
+
+    public static void setLanguage(Language value) {
+        language = value == null ? Language.ENGLISH : value;
+    }
+
+    /** Convenience for persisted codes ("de" → German, anything else → English default). */
+    public static void setLanguage(String code) {
+        setLanguage("de".equalsIgnoreCase(code) ? Language.GERMAN : Language.ENGLISH);
+    }
+
+    public static Language getLanguage() {
+        return language;
+    }
+
+    private static boolean de() {
+        return language == Language.GERMAN;
+    }
+
     private ResearchPlaybook() {
     }
 
     /** First contact: friendly, takes initiative, ONE open question — never an approval. */
     public static String greeting() {
+        if (de()) {
+            return "Hallo! Ich unterstütze dich bei einer strukturierten Recherche: Wir klären zuerst, "
+                    + "WAS du herausfinden willst, dann schlage ich dir eine Gliederung zur Freigabe "
+                    + "vor, und danach recherchiere ich echte Webquellen und sammle die Belege für "
+                    + "dich.\n\n"
+                    + "Also: Was möchtest du herausfinden?";
+        }
         return "Hi! I help you run a structured research: we first clarify WHAT you want to find out, "
                 + "then I propose an outline for your approval, and after that I research real web "
                 + "sources and collect the evidence for you.\n\n"
@@ -24,6 +53,12 @@ public final class ResearchPlaybook {
 
     /** Echo-based paraphrase + ONE focused follow-up (honest: mirrors, does not pretend deep analysis). */
     public static String paraphraseAndFocus(String question) {
+        if (de()) {
+            return "Verstanden — du möchtest recherchieren:\n\n> " + question + "\n\n"
+                    + "Eine fokussierende Frage: Gibt es bestimmte Aspekte, die dir besonders wichtig "
+                    + "sind (zum Beispiel Architektur, Updates, Sicherheit, Alternativen)? "
+                    + "Du kannst auch einfach \"start\" sagen, dann arbeite ich mit dem, was wir haben.";
+        }
         return "Got it — you want to research:\n\n> " + question + "\n\n"
                 + "One focusing question: are there specific aspects that matter most to you "
                 + "(for example architecture, updates, security, alternatives)? "
@@ -32,13 +67,18 @@ public final class ResearchPlaybook {
 
     /** Scope summary + the explicit missing-anything check. */
     public static String summarizeAndCheck(String question, java.util.List<String> aspects) {
-        StringBuilder sb = new StringBuilder("Here is my current understanding of the scope:\n\n");
-        sb.append("- Research question: ").append(question).append('\n');
+        StringBuilder sb = new StringBuilder(de()
+                ? "So verstehe ich den Umfang bisher:\n\n"
+                : "Here is my current understanding of the scope:\n\n");
+        sb.append(de() ? "- Forschungsfrage: " : "- Research question: ").append(question).append('\n');
         for (String aspect : aspects) {
-            sb.append("- Focus: ").append(aspect).append('\n');
+            sb.append(de() ? "- Schwerpunkt: " : "- Focus: ").append(aspect).append('\n');
         }
-        sb.append("\nIs anything important missing? If it is complete, just say \"no\" (or \"start\") "
-                + "and I will propose the outline.");
+        sb.append(de()
+                ? "\nFehlt noch etwas Wichtiges? Wenn alles vollständig ist, sage einfach \"nein\" "
+                        + "(oder \"start\"), dann schlage ich die Gliederung vor."
+                : "\nIs anything important missing? If it is complete, just say \"no\" (or \"start\") "
+                        + "and I will propose the outline.");
         return sb.toString();
     }
 
@@ -68,6 +108,13 @@ public final class ResearchPlaybook {
                 || t.contains("what do you do") || t.contains("was machst du")
                 || t.contains("how does this work") || t.contains("wie funktioniert");
         if (asksWhat) {
+            if (de()) {
+                return "Ich helfe dir zuerst, die Forschungsfrage und ihren Umfang zu schärfen. Danach "
+                        + "erstelle ich eine Gliederung, die du prüfen kannst. Nach deiner Freigabe "
+                        + "durchsuche ich echte Webquellen, sammle und dedupliziere Belege und lege dir "
+                        + "die Ergebnisse zur Prüfung vor. Später kann daraus ein strukturierter Bericht "
+                        + "entstehen.\n\nAktuell: " + phaseDescription;
+            }
             return "I first help you sharpen the research question and its scope. Then I create an "
                     + "outline you can review. After your approval I browse real web sources, collect "
                     + "and deduplicate evidence, and present the findings for your review. Later this "
@@ -75,6 +122,11 @@ public final class ResearchPlaybook {
         }
         if (t.contains("why do you ask") || t.contains("warum fragst du")
                 || t.contains("why so many questions") || t.contains("so viele fragen")) {
+            if (de()) {
+                return "Damit ich nicht am eigentlichen Ziel vorbeirecherchiere — ich frage nur nach "
+                        + "Punkten, die Suchrichtung, Quellenwahl oder Ergebnisform wesentlich "
+                        + "beeinflussen.";
+            }
             return "So that I do not research past your actual goal — I only ask about points that "
                     + "change the search direction, the choice of sources or the form of the result.";
         }
@@ -88,21 +140,32 @@ public final class ResearchPlaybook {
     /** Human wording for the current situation (no internal identifiers). */
     public static String describePhase(String phaseId, String stateId, boolean hasQuestion) {
         if ("scoping".equals(phaseId) || !hasQuestion) {
-            return "We are clarifying what you want to find out. Next: I summarize the scope, then "
-                    + "propose an outline for your approval.";
+            return de()
+                    ? "Wir klären gerade, was du herausfinden möchtest. Als Nächstes fasse ich den "
+                            + "Umfang zusammen und schlage dann eine Gliederung zur Freigabe vor."
+                    : "We are clarifying what you want to find out. Next: I summarize the scope, then "
+                            + "propose an outline for your approval.";
         }
         if ("outline".equals(phaseId)) {
-            return "The outline is waiting for your approval. After you approve it, I start the web "
-                    + "research automatically.";
+            return de()
+                    ? "Die Gliederung wartet auf deine Freigabe. Nach deiner Freigabe starte ich die "
+                            + "Webrecherche automatisch."
+                    : "The outline is waiting for your approval. After you approve it, I start the web "
+                            + "research automatically.";
         }
         if ("research".equals(phaseId)) {
-            return "I am researching web sources for your question. When the evidence is sufficient, "
-                    + "I will ask you to review it.";
+            return de()
+                    ? "Ich recherchiere gerade Webquellen zu deiner Frage. Sobald die Belege "
+                            + "ausreichen, bitte ich dich um eine Prüfung."
+                    : "I am researching web sources for your question. When the evidence is sufficient, "
+                            + "I will ask you to review it.";
         }
         if ("evidence".equals(phaseId)) {
-            return "The collected evidence is waiting for your review.";
+            return de()
+                    ? "Die gesammelten Belege warten auf deine Prüfung."
+                    : "The collected evidence is waiting for your review.";
         }
-        return "Current step: " + phaseId + " (" + stateId + ").";
+        return (de() ? "Aktueller Schritt: " : "Current step: ") + phaseId + " (" + stateId + ").";
     }
 
     private static String normalize(String text) {

@@ -225,6 +225,24 @@ public class ResearchRuntimeModeTest {
     }
 
     @Test
+    public void agentLanguageIsPersistedAndSwitchesThePlaybook() {
+        MemoryStore store = new MemoryStore();
+        assertEquals("en", ResearchRuntimeSettings.loadLanguage(store)); // English default
+        ResearchRuntimeSettings.saveLanguage(store, "de");
+        assertEquals("de", ResearchRuntimeSettings.loadLanguage(store));
+        try {
+            com.aresstack.askai.research.agent.ResearchPlaybook.setLanguage(
+                    ResearchRuntimeSettings.loadLanguage(store));
+            assertTrue(com.aresstack.askai.research.agent.ResearchPlaybook.greeting()
+                    .contains("Was möchtest du herausfinden?"));
+        } finally {
+            com.aresstack.askai.research.agent.ResearchPlaybook.setLanguage("en"); // no test bleed
+        }
+        assertTrue(com.aresstack.askai.research.agent.ResearchPlaybook.greeting()
+                .contains("what would you like to find out?"));
+    }
+
+    @Test
     public void panelReadsAndWritesTheSameTypedMapper() {
         MemoryStore store = new MemoryStore();
         new ResearchRuntimeSettings(ResearchBackendMode.ACP, "a", "b", "c", "d", "msedge", false,

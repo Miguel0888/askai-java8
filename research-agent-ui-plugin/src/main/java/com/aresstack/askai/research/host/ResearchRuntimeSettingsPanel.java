@@ -35,6 +35,9 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
     // requirements are met; otherwise new sessions run the demo backend with a visible notice.
     // (A persisted FAKE value remains a developer-only override in the store.)
     private final JLabel backendStatus = new JLabel(" ");
+    /** Agent language (English default, German translation) — applies immediately and is persisted. */
+    private final JComboBox<String> agentLanguage =
+            new JComboBox<String>(new String[]{"English", "Deutsch"});
     // Deliberately NO agent-Java field: the agent is Java-8 bytecode and simply runs on AskAI's own
     // JVM. A persisted override (store key) stays possible for special cases, but it is not a user
     // decision — the ONE configurable runtime is the Java >= 21 for the browser sidecar (GraalJS),
@@ -61,6 +64,7 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         JPanel form = new JPanel();
         form.setLayout(new BoxLayout(form, BoxLayout.Y_AXIS));
         form.add(row("Backend:", backendStatus));
+        form.add(row("Language / Sprache:", agentLanguage));
         form.add(pathRow("Research agent jar:", agentJar));
         form.add(pathRow("Java for browser (≥21):", sidecarJava));
         form.add(pathRow("Browser sidecar jar:", sidecarJar));
@@ -89,6 +93,16 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         ResearchRuntimeSettings persisted = ResearchRuntimeSettings.load(store);
         apply(ResearchRuntimeDefaults.complete(persisted));
         agentJavaOverride = persisted.getAgentJavaExecutable();
+        String languageCode = ResearchRuntimeSettings.loadLanguage(store);
+        agentLanguage.setSelectedIndex("de".equals(languageCode) ? 1 : 0);
+        com.aresstack.askai.research.agent.ResearchPlaybook.setLanguage(languageCode);
+        agentLanguage.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent event) {
+                String code = agentLanguage.getSelectedIndex() == 1 ? "de" : "en";
+                ResearchRuntimeSettings.saveLanguage(ResearchRuntimeSettingsPanel.this.store, code);
+                com.aresstack.askai.research.agent.ResearchPlaybook.setLanguage(code);
+            }
+        });
         refreshBackendStatus();
 
         save.addActionListener(new ActionListener() {

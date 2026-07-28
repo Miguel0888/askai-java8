@@ -23,6 +23,18 @@ public final class ResearchRuntimeSettings {
     static final String KEY_HEADLESS = "research.runtime.headless";
     static final String KEY_SEARCH_URL = "research.runtime.searchUrl";
     static final String KEY_ALLOW_PRIVATE = "research.runtime.allowPrivateNetworks";
+    static final String KEY_LANGUAGE = "research.runtime.language";
+
+    /** Agent language code ("en" default, "de" German) — read directly, independent of the path model. */
+    public static String loadLanguage(WorkspaceStateStore store) {
+        return store == null ? "en" : store.get(KEY_LANGUAGE, "en");
+    }
+
+    public static void saveLanguage(WorkspaceStateStore store, String code) {
+        if (store != null) {
+            store.put(KEY_LANGUAGE, "de".equalsIgnoreCase(code) ? "de" : "en");
+        }
+    }
 
     private final ResearchBackendMode mode;
     private final String agentJavaExecutable;
