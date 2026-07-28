@@ -97,7 +97,8 @@ final class SerpDocuments {
                     .build());
             addLink(blockId, "https://site" + i + ".example.org/page", "Result " + i + " title",
                     DomainClassification.EXTERNAL_DOMAIN, true,
-                    "Explanatory snippet text describing the target page.");
+                    "Result " + i + " title Snippet for result " + i
+                            + " describing exactly this target page.");
         }
         containers.add(RenderedContainerDescriptor.builder(columnId)
                 .hierarchy("container-0001", blockIds, bodyChildIds.size() - 1, 1)
@@ -109,6 +110,48 @@ final class SerpDocuments {
                         columnBox.contains(640, 400), 0.1, 0.1)
                 .colors(background, background,
                         background.distanceTo(WHITE), background.distanceTo(WHITE))
+                .separation("", 0, "", 12, 8)
+                .structure(new DomStructureSignature("main(li,li,li)"), 0)
+                .build());
+        containers.addAll(blockDescriptors);
+        return columnId;
+    }
+
+    /** A result column whose blocks carry ONLY a title link — no explanatory text anywhere. */
+    String addBareResultColumn(int blocks, RenderedBox columnBox) {
+        String columnId = nextContainerId();
+        bodyChildIds.add(columnId);
+        List<String> blockIds = new ArrayList<String>();
+        List<RenderedContainerDescriptor> blockDescriptors =
+                new ArrayList<RenderedContainerDescriptor>();
+        for (int i = 0; i < blocks; i++) {
+            String blockId = nextContainerId();
+            blockIds.add(blockId);
+            blockDescriptors.add(RenderedContainerDescriptor.builder(blockId)
+                    .hierarchy(columnId, Collections.<String>emptyList(), i, 2)
+                    .semantics("li", "", Arrays.asList("result"), "", "",
+                            Collections.<String>emptyList())
+                    .text("Result " + i + " title", 40, 22, 18, 1, 0)
+                    .links(1, 0, 0, 0, 1, 0)
+                    .geometry(true, new RenderedBox(columnBox.x + 8,
+                                    columnBox.y + 8 + i * 60, columnBox.width - 16, 48),
+                            1.0, false, 0.1, 0.1)
+                    .colors(RenderedColor.TRANSPARENT, WHITE, 0, 0)
+                    .separation("", 0, "", 4, 8)
+                    .structure(new DomStructureSignature("li(h2(a))"), blocks - 1)
+                    .build());
+            addRawLink(blockId, "https://bare" + i + ".example.org/",
+                    "https://bare" + i + ".example.org/", LinkRedirectResolution.NOT_A_REDIRECT,
+                    "Result " + i + " title", DomainClassification.EXTERNAL_DOMAIN, true, "");
+        }
+        containers.add(RenderedContainerDescriptor.builder(columnId)
+                .hierarchy("container-0001", blockIds, bodyChildIds.size() - 1, 1)
+                .semantics("main", "results", Collections.<String>emptyList(), "main", "",
+                        Arrays.asList("MAIN"))
+                .text("bare results", blocks * 40, blocks * 22, blocks * 18, blocks, 0)
+                .links(blocks, 0, 0, 0, blocks, 0)
+                .geometry(true, columnBox, 1.0, columnBox.contains(640, 400), 0.1, 0.1)
+                .colors(WHITE, WHITE, 0, 0)
                 .separation("", 0, "", 12, 8)
                 .structure(new DomStructureSignature("main(li,li,li)"), 0)
                 .build());
@@ -141,10 +184,25 @@ final class SerpDocuments {
 
     void addLink(String containerId, String url, String text,
                  DomainClassification classification, boolean insideHeading, String surrounding) {
+        addRawLink(containerId, url, url, LinkRedirectResolution.NOT_A_REDIRECT, text,
+                classification, insideHeading, surrounding);
+    }
+
+    /** Full control (wrapper links, unresolved wrappers, displayed domains). */
+    void addRawLink(String containerId, String rawHref, String resolvedTarget,
+                    LinkRedirectResolution status, String text,
+                    DomainClassification classification, boolean insideHeading,
+                    String surrounding) {
         links.add(new RenderedLinkDescriptor("link-" + String.format("%04d", ++linkSeq),
-                containerId, url, url, LinkRedirectResolution.NOT_A_REDIRECT, text, surrounding,
+                containerId, rawHref, resolvedTarget, status, text, surrounding,
                 insideHeading ? text : "", "", classification, true,
                 new RenderedBox(0, 0, 300, 20), insideHeading));
+    }
+
+    /** The id of the {@code index}-th result BLOCK of the most recent result column. */
+    static String blockId(String columnId, int index) {
+        int column = Integer.parseInt(columnId.substring("container-".length()));
+        return "container-" + String.format("%04d", column + 1 + index);
     }
 
     RenderedPageDocument build() {

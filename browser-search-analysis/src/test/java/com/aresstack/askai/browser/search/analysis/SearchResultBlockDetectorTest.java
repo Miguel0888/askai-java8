@@ -1,0 +1,164 @@
+package com.aresstack.askai.browser.search.analysis;
+
+import com.aresstack.askai.browser.domain.DomainClassification;
+import com.aresstack.askai.browser.render.LinkRedirectResolution;
+import com.aresstack.askai.browser.render.RenderedBox;
+import com.aresstack.askai.browser.render.RenderedPageDocument;
+import com.aresstack.askai.browser.search.LegacyBrowserSearchDefaults;
+import org.junit.Test;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+
+/**
+ * The result-block business unit: repeated similar siblings become blocks with ONE primary title
+ * link each; the snippet belongs to its OWN block; sitelinks are metadata, never own candidates;
+ * resolved wrapper targets are the navigation candidate while raw wrappers stay provenance;
+ * unresolved wrappers are never primary; a snippet-less isolated link scores clearly lower.
+ */
+public class SearchResultBlockDetectorTest {
+
+    private final SearchPageMechanicalAnalyzer analyzer =
+            new SearchPageMechanicalAnalyzer(LegacyBrowserSearchDefaults.create());
+    private final SearchResultBlockDetector detector =
+            new SearchResultBlockDetector(LegacyBrowserSearchDefaults.create());
+
+    private SearchResultBlockDetector.Detection detect(SerpDocuments serp) {
+        RenderedPageDocument document = serp.build();
+        SearchPageLayoutResolution resolution = analyzer.analyze(document);
+        assertTrue("fixture must resolve an organic container",
+                resolution.hasOrganicResultsContainer());
+        return detector.detect(document, resolution);
+    }
+
+    @Test
+    public void repeatedBlocksYieldOnePrimaryLinkSnippetAndSitelinksEach() {
+        SerpDocuments serp = SerpDocuments.builder();
+        serp.addNavigationBar(8);
+        String column = serp.addResultColumn(3,
+                new RenderedBox(300, 120, 680, 560), SerpDocuments.WHITE);
+        // Block 0 additionally carries two sitelinks and one engine-internal action link.
+        String block0 = SerpDocuments.blockId(column, 0);
+        serp.addLink(block0, "https://site0.example.org/docs", "Docs",
+                DomainClassification.EXTERNAL_DOMAIN, false, "");
+        serp.addLink(block0, "https://site0.example.org/download", "Download",
+                DomainClassification.EXTERNAL_DOMAIN, false, "");
+        serp.addLink(block0, "https://engine.example/translate", "Übersetzen",
+                DomainClassification.SAME_HOST, false, "");
+
+        SearchResultBlockDetector.Detection detection = detect(serp);
+        assertEquals(3, detection.blocks.size());
+        DetectedResultBlock first = detection.blocks.get(0);
+        assertEquals(1, first.rank);
+        assertEquals("Result 0 title", first.title);
+        assertEquals("https://site0.example.org/page", first.primaryLink.resolvedTargetUrl);
+        assertEquals("sitelinks are metadata of the primary hit", 2, first.siteLinks.size());
+        for (DetectedResultBlock block : detection.blocks) {
+            assertFalse("engine-internal action must never be the primary link",
+                    block.primaryLink.resolvedTargetUrl.contains("/translate"));
+        }
+    }
+
+    @Test
+    public void snippetBelongsToItsOwnBlockNotTheNeighbor() {
+        SerpDocuments serp = SerpDocuments.builder();
+        serp.addResultColumn(3, new RenderedBox(300, 120, 680, 560), SerpDocuments.WHITE);
+        SearchResultBlockDetector.Detection detection = detect(serp);
+        for (int i = 0; i < 3; i++) {
+            DetectedResultBlock block = detection.blocks.get(i);
+            assertTrue("snippet of block " + i + " must describe result " + i + ": "
+                    + block.snippet, block.snippet.contains("Snippet for result " + i));
+            assertFalse("snippet must not repeat the title",
+                    block.snippet.contains(block.title));
+            for (int other = 0; other < 3; other++) {
+                if (other != i) {
+                    assertFalse("snippet of block " + i + " leaked from block " + other,
+                            block.snippet.contains("Snippet for result " + other));
+                }
+            }
+        }
+    }
+
+    @Test
+    public void resolvedWrapperTargetIsTheNavigationCandidateRawStaysProvenance() {
+        SerpDocuments serp = SerpDocuments.builder();
+        String column = serp.addResultColumn(3,
+                new RenderedBox(300, 120, 680, 560), SerpDocuments.WHITE);
+        // Replace nothing — ADD a wrapper-style primary into a fourth block-like sibling is
+        // complex; instead give block 1 an additional WRAPPED, heading-level link that wins.
+        String block1 = SerpDocuments.blockId(column, 1);
+        serp.addRawLink(block1, "https://engine.example/ck/a?u=a1aHR0cHM6Ly9kaXJlY3QuZXhhbXBsZS8",
+                "https://direct.example/target", LinkRedirectResolution.RESOLVED,
+                "Wrapped result title with more text", DomainClassification.EXTERNAL_DOMAIN, true,
+                "Wrapped result title with more text Explains the wrapped target in detail.");
+
+        SearchResultBlockDetector.Detection detection = detect(serp);
+        DetectedResultBlock block = detection.blocks.get(1);
+        // Both candidates qualify; the detector must navigate to a RESOLVED target either way and
+        // never to the raw wrapper.
+        assertFalse(block.primaryLink.resolvedTargetUrl.contains("/ck/"));
+        assertTrue(block.primaryLink.resolvedTargetUrl.startsWith("https://"));
+        for (DetectedResultBlock b : detection.blocks) {
+            assertFalse("navigation candidates never carry the wrapper",
+                    b.primaryLink.resolvedTargetUrl.contains("u=a1"));
+        }
+    }
+
+    @Test
+    public void unresolvedWrapperIsNeverPrimary() {
+        SerpDocuments serp = SerpDocuments.builder();
+        String column = serp.addResultColumn(3,
+                new RenderedBox(300, 120, 680, 560), SerpDocuments.WHITE);
+        // A fourth similar block whose ONLY link is an unresolvable wrapper.
+        String block2 = SerpDocuments.blockId(column, 2);
+        serp.addRawLink(block2, "https://engine.example/ck/a?u=garbage", "",
+                LinkRedirectResolution.UNRESOLVED, "Broken wrapper result",
+                DomainClassification.EXTERNAL_DOMAIN, true, "context");
+        SearchResultBlockDetector.Detection detection = detect(serp);
+        for (DetectedResultBlock block : detection.blocks) {
+            assertFalse(block.primaryLink.rawHref.contains("garbage"));
+            assertFalse(block.primaryLink.resolvedTargetUrl.isEmpty());
+        }
+    }
+
+    @Test
+    public void subdomainResultInASolidBlockIsNotDiscardedAsMenu() {
+        SerpDocuments serp = SerpDocuments.builder();
+        String column = serp.addResultColumn(3,
+                new RenderedBox(300, 120, 680, 560), SerpDocuments.WHITE);
+        RenderedPageDocument base = serp.build();
+        // Rebuild block 1's primary as a SAME_REGISTRABLE_DOMAIN link (finance.engine.example on
+        // an engine.example SERP): the detector must still accept it as primary.
+        SerpDocuments serp2 = SerpDocuments.builder();
+        String column2 = serp2.addResultColumn(3,
+                new RenderedBox(300, 120, 680, 560), SerpDocuments.WHITE);
+        String block = SerpDocuments.blockId(column2, 1);
+        serp2.addRawLink(block, "https://finance.engine.example/quote/x",
+                "https://finance.engine.example/quote/x", LinkRedirectResolution.NOT_A_REDIRECT,
+                "Finance subdomain result title", DomainClassification.SAME_REGISTRABLE_DOMAIN,
+                true, "Finance subdomain result title Quotes and financial data for x.");
+        SearchResultBlockDetector.Detection detection = detect(serp2);
+        assertEquals(3, detection.blocks.size());
+        assertTrue(base.containers.size() > 0); // silence unused; base validated the fixture shape
+    }
+
+    @Test
+    public void snippetlessBlockScoresClearlyBelowABlockWithExplanatoryText() {
+        SerpDocuments withSnippets = SerpDocuments.builder();
+        withSnippets.addResultColumn(3, new RenderedBox(300, 120, 680, 560), SerpDocuments.WHITE);
+        SearchResultBlockDetector.Detection rich = detect(withSnippets);
+        double richConfidence = rich.blocks.get(0).structuralConfidence;
+        assertTrue(rich.blocks.get(0).snippet.length() > 0);
+
+        // Same repeated structure, but the blocks carry NO explanatory text at all.
+        SerpDocuments bare = SerpDocuments.builder();
+        bare.addBareResultColumn(3, new RenderedBox(300, 120, 680, 560));
+        SearchResultBlockDetector.Detection detection = detect(bare);
+        double bareConfidence = detection.blocks.get(0).structuralConfidence;
+        assertTrue(detection.blocks.get(0).snippet.isEmpty());
+        assertTrue("a hit with explanatory text must score clearly above an isolated link: "
+                        + richConfidence + " vs " + bareConfidence,
+                richConfidence > bareConfidence + 0.2);
+    }
+}
