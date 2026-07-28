@@ -735,8 +735,8 @@ die reale Factory, RESEARCH_MCP_READY im Sink, idempotenter Close). `verifyFatJa
 ## MCP-P008 — Chat-Kommandos treiben im produktiven Modus die Host-State-Machine noch nicht
 
 **Erkannt in:** Commit 40 (UI-Konfigurationsfläche)
-**Status:** OPEN
-**Schweregrad:** MEDIUM
+**Status:** RESOLVED (Commit 41)
+**Schweregrad:** MEDIUM (historisch)
 **Betroffene Module:** research-agent-ui-plugin (agent/host)
 
 ### Erwartung
@@ -757,3 +757,31 @@ Eigener Slice: ResearchAgentSession erhält optional die Session-Resources und r
 Kontrollmethoden (approve/requestChanges/pause/resume/cancel + Phasenkommandos) auf `dispatch()`; Events
 SESSION_STATE_CHANGED aus Transitionen in den Event-Strom spiegeln (Memento), damit State-View und
 Tool-Refresh synchron bleiben. Eng verwandt mit RA-P002 (Restore).
+
+
+### Auflösung (Commit 41)
+Neutraler Command-Port `ResearchSessionCommandPort` (`submitPrompt(text)` / `dispatch(ResearchCommandType,
+argument)` mit strukturiertem `ResearchCommandDispatchResult`: ACCEPTED / COMMAND_NOT_AVAILABLE /
+INVALID_PHASE / SESSION_NOT_ACTIVE / SESSION_CLOSED / DISPATCH_FAILED) — implementiert von
+`ResearchAgentSession`, die im produktiven Modus ihre Session-Resources BESITZT und strukturierte Kommandos
+auf `ProductiveResearchSessionResources.dispatch()` routet (State-Machine bleibt einzige Autorität, Tool-Set
+wird mitpubliziert; das Memento wird über den UiExecutor in das Session-View-Modell gespiegelt und die
+Observer werden isoliert benachrichtigt). Bestehende fachliche `ResearchCommandType`-Kommandos, keine zweite
+Hierarchie; `AcpResearchSessionBackend` bleibt reiner Transport-Adapter (`canExecute=false`, per Test
+fixiert). Chat-Oberfläche: `/do <command>` mit Completion exakt aus dem live erlaubten Set (Source of Truth =
+State-Machine, keine UI-Phasenregeln); approve/request-changes/pause/resume/cancel routen produktiv über den
+Port; keine synthetischen Chatnachrichten. PAUSE/CANCEL stoppen zusätzlich den laufenden Agent-Turn
+(Transportbelang). Session-/Generationsbindung: nach Close/Retirement liefert der Port SESSION_CLOSED —
+alte UI-Aktionen erreichen nie eine fremde Session.
+
+### Verifikation
+- `ProductiveCommandBridgeTest` (4 Tests): Kommandos erreichen die produktive Maschine (START→…→
+  START_RESEARCH ⇒ RESEARCH/running, View gespiegelt), Text bleibt auf submitPrompt, INVALID_PHASE/
+  COMMAND_NOT_AVAILABLE/SESSION_CLOSED strukturiert, PAUSE cancelt den Agent-Turn, kaputter Observer
+  blockiert nichts, Backend-Adapter ohne Phasenlogik.
+- `ProductiveModeFactorySmokeTest` (environment-gated, bestanden): der VOLLE Benutzerpfad über die Fassade —
+  persistierte Settings → reale Factory → produktive Session → Phasenkommandos über den PORT (nie
+  `resources.dispatch()` direkt) → autonomer Lauf gegen JS-only-Seiten auf zwei Hosts →
+  `RESEARCH_RUN_STOPPED: SUFFICIENT_EVIDENCE`, genau ein PHASE_READY → Benutzeraktion
+  REQUEST_EVIDENCE_REVIEW über den Port → Host-Maschine in waiting_approval → Session-View zeigt es.
+- FAKE-Modus implementiert denselben Port (dispatch → Fake-Backend), Full Build `--rerun-tasks` grün.

@@ -37,29 +37,35 @@ public final class SolonMcpServerRuntime implements McpServerRegistry {
 
     private static final SecureRandom RANDOM = new SecureRandom();
 
-    private final int port;
+    // Solon.start/stopBlock are PROCESS-GLOBAL. Booting the app is therefore a JVM-wide one-time act shared
+    // by every runtime instance: a stop-then-restart of Solon within one JVM is not reliable (observed as
+    // order-dependent failures when several tests each created their own runtime). Instances keep their own
+    // registrations; shutdown() removes only those — the Solon app itself lives until the JVM exits.
+    private static final Object BOOT_LOCK = new Object();
+    private static volatile int sharedPort = -1;
+
     private final Map<String, Registration> byId = new ConcurrentHashMap<String, Registration>();
-    private volatile boolean started;
     private volatile boolean shutdown;
 
-    public SolonMcpServerRuntime() {
-        this.port = freeLoopbackPort();
-    }
-
-    /** Boot the Solon app on 127.0.0.1:port. Idempotent. */
-    public synchronized void start() {
-        if (started || shutdown) {
+    /** Boot the shared Solon app on 127.0.0.1:&lt;free port&gt; (JVM-wide once). Idempotent. */
+    public void start() {
+        if (shutdown) {
             return;
         }
-        Solon.start(SolonMcpServerRuntime.class, new String[]{
-                "--server.host=127.0.0.1",
-                "--server.port=" + port
-        });
-        started = true;
+        synchronized (BOOT_LOCK) {
+            if (sharedPort < 0) {
+                int port = freeLoopbackPort();
+                Solon.start(SolonMcpServerRuntime.class, new String[]{
+                        "--server.host=127.0.0.1",
+                        "--server.port=" + port
+                });
+                sharedPort = port;
+            }
+        }
     }
 
     public int getPort() {
-        return port;
+        return sharedPort;
     }
 
     /** The full loopback URL a client uses for this endpoint (path carries the session token). */
@@ -68,7 +74,7 @@ public final class SolonMcpServerRuntime implements McpServerRegistry {
         if (reg == null || !reg.token.equals(handle.getToken())) {
             return null;
         }
-        return "http://127.0.0.1:" + port + reg.path;
+        return "http://127.0.0.1:" + sharedPort + reg.path;
     }
 
     @Override
@@ -141,13 +147,9 @@ public final class SolonMcpServerRuntime implements McpServerRegistry {
             }
         }
         byId.clear();
-        if (started) {
-            try {
-                Solon.stopBlock(false, 0, -1);
-            } catch (RuntimeException ignored) {
-                // best-effort
-            }
-        }
+        // The shared Solon app is deliberately NOT stopped: Solon is process-global and a stop-then-
+        // restart within one JVM is unreliable. Without registrations it serves no route (all tokens
+        // invalidated); it ends with the JVM.
     }
 
     // ------------------------------------------------------------------ helpers

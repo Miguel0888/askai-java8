@@ -35,15 +35,24 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeTrue;
 
 /**
- * Commit 40 smoke: the productive research mode selected through the PERSISTED settings and started by the
- * SAME {@code ResearchAgentSessionFactory} AskAI's plugin host calls — proving select → validate → start
- * works end to end from the user-facing entry point (MCP-P007). Environment-gated: skips readably without
- * built jars, a Java-21 toolchain or an installed browser (the factory's own specific error message).
+ * Commits 40+41: the FULL user path through the facade AskAI uses — settings persisted → the SAME
+ * {@code ResearchAgentSessionFactory} starts the productive session → structured phase commands go through
+ * the {@code ResearchSessionCommandPort} (never {@code resources.dispatch()} directly, never chat text) →
+ * the agent researches autonomously against JavaScript-only pages → PHASE_READY arrives as an event →
+ * the USER action REQUEST_EVIDENCE_REVIEW moves the host state machine to waiting_approval and the session
+ * view reflects it. Environment-gated: skips readably without built jars, a Java-21 toolchain or an
+ * installed browser (the factory's own specific error message).
  */
 public class ProductiveModeFactorySmokeTest {
 
+    private static final String PAGE_TEMPLATE = "<!doctype html><html><head><title>%TITLE%</title></head>"
+            + "<body><div id='c'></div><script>"
+            + "document.getElementById('c').textContent='%TEXT% Rendered by JavaScript.';"
+            + "%LINKS%"
+            + "</script></body></html>";
+
     @Test
-    public void factoryStartsAProductiveSessionFromPersistedSettings() throws Exception {
+    public void factoryStartsAProductiveSessionAndUserCommandsDriveThePhases() throws Exception {
         String agentJar = System.getProperty("research.agent.jar", "");
         String sidecarJar = System.getProperty("browser.sidecar.jar", "");
         String sidecarJava = System.getProperty("sidecar.java", "");
@@ -54,15 +63,36 @@ public class ProductiveModeFactorySmokeTest {
         assumeTrue("SKIPPED: sidecar jar not built", new File(sidecarJar).isFile());
         assumeTrue("SKIPPED: no Java 21 toolchain", new File(sidecarJava).isFile());
 
+        // Two local JS servers = two distinct hosts (link chain find → a → c → e, JS-rendered only).
+        com.sun.net.httpserver.HttpServer serverOne =
+                com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        com.sun.net.httpserver.HttpServer serverTwo =
+                com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        String baseOne = "http://127.0.0.1:" + serverOne.getAddress().getPort();
+        String baseTwo = "http://127.0.0.1:" + serverTwo.getAddress().getPort();
+        serverOne.createContext("/find", page("Find", "search results.",
+                jsLink("PF4J primer", baseOne + "/a")));
+        serverOne.createContext("/a", page("PF4J primer",
+                "pf4j is a plugin framework. Primary source.", jsLink("pf4j details", baseTwo + "/c")));
+        serverTwo.createContext("/c", page("Independent pf4j review",
+                "pf4j works well with java 8.", jsLink("pf4j extra evidence", baseTwo + "/e")));
+        serverTwo.createContext("/e", page("pf4j in production",
+                "More pf4j evidence from the field.", ""));
+        serverOne.start();
+        serverTwo.start();
+
         SolonMcpServerRuntime registry = new SolonMcpServerRuntime();
         final File dataDir = Files.createTempDirectory("askai-mode-smoke").toFile();
         final java.util.List<String> messages = new java.util.concurrent.CopyOnWriteArrayList<String>();
         final CountDownLatch ready = new CountDownLatch(1);
+        final CountDownLatch stopped = new CountDownLatch(1);
         FakeHost host = new FakeHost(dataDir, registry, new SolonMcpToolClientFactory(),
-                new SolonAcpAgentConnector(Duration.ofSeconds(120), null), messages, ready);
+                new SolonAcpAgentConnector(Duration.ofSeconds(180), null), messages, ready, stopped);
+        // The local test servers are loopback, so the EXPLICIT, persisted development-only override of
+        // the strict URL policy is enabled — the same switch the settings panel exposes.
         new ResearchRuntimeSettings(ResearchBackendMode.ACP, agentJava, agentJar, sidecarJava,
                 sidecarJar, System.getenv().getOrDefault("ASKAI_TEST_BROWSER_CHANNEL", "chrome"),
-                true, "").save(host.store);
+                true, baseOne + "/find?q={query}", true).save(host.store);
 
         AgentSession session;
         try {
@@ -75,14 +105,79 @@ public class ProductiveModeFactorySmokeTest {
         }
         try {
             session.activate();
-            ((ResearchAgentSession) session).submitPrompt("hello", "");
+            ResearchAgentSession research = (ResearchAgentSession) session;
+            research.submitPrompt("hello");
+            // Generous: under a full --rerun-tasks build several browser/agent processes ran just before
+            // this test; the GraalJS interpreter warmup can be slow on a loaded machine.
             assertTrue("first prompt must announce RESEARCH_MCP_READY: " + messages,
-                    ready.await(120, TimeUnit.SECONDS));
+                    ready.await(180, TimeUnit.SECONDS));
+
+            // 41: the USER drives the phases through the command PORT (the same seam the chat UI uses).
+            for (com.aresstack.askai.research.state.ResearchCommandType command
+                    : new com.aresstack.askai.research.state.ResearchCommandType[]{
+                            com.aresstack.askai.research.state.ResearchCommandType.START,
+                            com.aresstack.askai.research.state.ResearchCommandType.SUBMIT_SCOPE,
+                            com.aresstack.askai.research.state.ResearchCommandType.PROPOSE_OUTLINE,
+                            com.aresstack.askai.research.state.ResearchCommandType.APPROVE_OUTLINE,
+                            com.aresstack.askai.research.state.ResearchCommandType.START_RESEARCH}) {
+                assertTrue("user command must be accepted: " + command,
+                        research.dispatch(command, null).isAccepted());
+            }
+
+            research.submitPrompt("research: pf4j plugin framework");
+            assertTrue("autonomous run must finish: " + messages, stopped.await(180, TimeUnit.SECONDS));
+            assertTrue("run must reach sufficient evidence: " + messages,
+                    contains(messages, "RESEARCH_RUN_STOPPED: SUFFICIENT_EVIDENCE"));
+            assertTrue("exactly one PHASE_READY event", count(messages, "PHASE_READY:") == 1);
+
+            // PHASE_READY was an event; the HOST state machine moves only on the user's structured action.
+            assertTrue("REQUEST_EVIDENCE_REVIEW via the UI port must be accepted",
+                    research.dispatch(com.aresstack.askai.research.state.ResearchCommandType
+                            .REQUEST_EVIDENCE_REVIEW, null).isAccepted());
+            assertTrue("the session view must reflect the waiting-approval state",
+                    research.getState().getRunStateLabel().toUpperCase(java.util.Locale.ROOT)
+                            .contains("WAITING"));
         } finally {
             session.close();
-            session.close(); // idempotent, closes agent + endpoints + sidecar via the close hook
+            session.close(); // idempotent, closes agent + endpoints + sidecar via the owned resources
             registry.shutdown();
+            serverOne.stop(0);
+            serverTwo.stop(0);
         }
+    }
+
+    private static boolean contains(java.util.List<String> messages, String needle) {
+        return count(messages, needle) > 0;
+    }
+
+    private static int count(java.util.List<String> messages, String needle) {
+        int n = 0;
+        for (String message : messages) {
+            if (message != null && message.contains(needle)) {
+                n++;
+            }
+        }
+        return n;
+    }
+
+    private static com.sun.net.httpserver.HttpHandler page(String title, String text, String linkScript) {
+        final String html = PAGE_TEMPLATE.replace("%TITLE%", title)
+                .replace("%TEXT%", text).replace("%LINKS%", linkScript);
+        return new com.sun.net.httpserver.HttpHandler() {
+            public void handle(com.sun.net.httpserver.HttpExchange exchange) throws java.io.IOException {
+                byte[] body = html.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().add("Content-Type", "text/html; charset=utf-8");
+                exchange.sendResponseHeaders(200, body.length);
+                java.io.OutputStream out = exchange.getResponseBody();
+                out.write(body);
+                exchange.close();
+            }
+        };
+    }
+
+    private static String jsLink(String text, String href) {
+        return "var a=document.createElement('a');a.href='" + href + "';a.textContent='" + text
+                + "';document.body.appendChild(a);";
     }
 
     /** Minimal host: direct-run UI executor, in-memory store, real runtime services, recording sink. */
@@ -93,11 +188,15 @@ public class ProductiveModeFactorySmokeTest {
         private final java.util.List<String> messages;
         private final CountDownLatch ready;
 
+        private final CountDownLatch stopped;
+
         FakeHost(File dataDir, McpServerRegistry registry, McpToolClientFactory clients,
-                 AcpAgentConnector connector, java.util.List<String> messages, CountDownLatch ready) {
+                 AcpAgentConnector connector, java.util.List<String> messages, CountDownLatch ready,
+                 CountDownLatch stopped) {
             this.dataDir = dataDir;
             this.messages = messages;
             this.ready = ready;
+            this.stopped = stopped;
             services.put(McpServerRegistry.class, registry);
             services.put(McpToolClientFactory.class, clients);
             services.put(AcpAgentConnector.class, connector);
@@ -155,6 +254,9 @@ public class ProductiveModeFactorySmokeTest {
                     messages.add(markdown);
                     if (markdown != null && markdown.contains("RESEARCH_MCP_READY")) {
                         ready.countDown();
+                    }
+                    if (markdown != null && markdown.contains("RESEARCH_RUN_STOPPED")) {
+                        stopped.countDown();
                     }
                 }
 

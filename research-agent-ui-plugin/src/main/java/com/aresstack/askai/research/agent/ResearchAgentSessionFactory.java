@@ -77,12 +77,10 @@ public final class ResearchAgentSessionFactory implements AgentSessionFactory {
             throw new IllegalStateException("The productive research backend could not be started "
                     + "(no fallback to the fake backend): " + ex.getMessage(), ex);
         }
+        // The session OWNS the resources: structured commands route to their state machine, close() tears
+        // them down last (endpoints → sidecar client → sidecar process).
         return new ResearchAgentSession(resources.getBackend(), null, hostContext,
-                request.getSessionId(), request.getProjectId(), new Runnable() {
-                    public void run() {
-                        resources.close(); // endpoints → sidecar client → sidecar process
-                    }
-                });
+                request.getSessionId(), request.getProjectId(), resources);
     }
 
     private static <T> T requireService(AgentHostContext hostContext, Class<T> type) {

@@ -63,8 +63,11 @@ Open the Research workspace → artifact tab **Runtime**:
 4. **Save** persists through the typed `ResearchRuntimeSettings` model; saving an unusable productive
    configuration is rejected with the concrete problem list.
 5. The NEXT research session uses the configured backend. A productive start failure is a visible
-   error — there is no silent fallback to the fake backend. (Driving phase transitions from the chat
-   UI is the follow-up MCP-P008.)
+   error — there is no silent fallback to the fake backend.
+6. Phase actions run through the structured command surface: `/do <command>` completes exactly the
+   commands the live state machine allows (plus `/approve`, `/request-changes`, `/pause`, `/resume`,
+   `/cancel`); rejections show the structured status (INVALID_PHASE, SESSION_CLOSED, …). Free text in
+   the composer stays a prompt — commands are never smuggled as chat messages.
 
 ## Manual acceptance checklist
 
@@ -104,7 +107,7 @@ Open problem ids and why they do not block the MVP scope:
 |----------|---------------|--------------------------------------------------------------------------------|
 | MCP-P006 | DEFERRED/LOW  | Search index is the in-memory adapter; sources themselves are file-persisted and the index is rebuildable — Lucene is an additive adapter behind the same port. |
 | MCP-P007 | RESOLVED (40) | The productive mode is selectable, validated and startable from AskAI (Runtime settings view + typed settings + strict factory switch). |
-| MCP-P008 | OPEN/MEDIUM   | Chat commands do not yet drive the productive host state machine (programmatic dispatch works and is E2E-proven); phase transitions from the chat UI land in a follow-up slice. |
+| MCP-P008 | RESOLVED (41) | Structured chat/workspace actions drive the productive host state machine through the ResearchSessionCommandPort (`/do <command>` with live-allowed completion; approve/pause/... routed; structured rejection statuses). |
 | RA-P001  | WORKAROUND    | PF4J refresh quirk documented in plugin-lifecycle docs; hardened stop/unload path in place. |
 | RA-P002  | WORKAROUND    | ACP runtime integration works. Restart restoration remains incomplete until RA-P002 is resolved (memento store wiring). |
 

@@ -22,6 +22,7 @@ public final class ResearchRuntimeSettings {
     static final String KEY_BROWSER_CHANNEL = "research.runtime.browserChannel";
     static final String KEY_HEADLESS = "research.runtime.headless";
     static final String KEY_SEARCH_URL = "research.runtime.searchUrl";
+    static final String KEY_ALLOW_PRIVATE = "research.runtime.allowPrivateNetworks";
 
     private final ResearchBackendMode mode;
     private final String agentJavaExecutable;
@@ -31,10 +32,20 @@ public final class ResearchRuntimeSettings {
     private final String browserChannel;
     private final boolean headless;
     private final String searchUrlTemplate;
+    private final boolean allowPrivateNetworks;
 
     public ResearchRuntimeSettings(ResearchBackendMode mode, String agentJavaExecutable, String agentJar,
                                    String sidecarJavaExecutable, String sidecarJar, String browserChannel,
                                    boolean headless, String searchUrlTemplate) {
+        this(mode, agentJavaExecutable, agentJar, sidecarJavaExecutable, sidecarJar, browserChannel,
+                headless, searchUrlTemplate, false);
+    }
+
+    /** @param allowPrivateNetworks development-only override of the strict URL policy (default false). */
+    public ResearchRuntimeSettings(ResearchBackendMode mode, String agentJavaExecutable, String agentJar,
+                                   String sidecarJavaExecutable, String sidecarJar, String browserChannel,
+                                   boolean headless, String searchUrlTemplate,
+                                   boolean allowPrivateNetworks) {
         this.mode = mode == null ? ResearchBackendMode.FAKE : mode;
         this.agentJavaExecutable = nullToEmpty(agentJavaExecutable);
         this.agentJar = nullToEmpty(agentJar);
@@ -43,6 +54,7 @@ public final class ResearchRuntimeSettings {
         this.browserChannel = browserChannel == null || browserChannel.isEmpty() ? "chrome" : browserChannel;
         this.headless = headless;
         this.searchUrlTemplate = nullToEmpty(searchUrlTemplate);
+        this.allowPrivateNetworks = allowPrivateNetworks;
     }
 
     public static ResearchRuntimeSettings defaults() {
@@ -66,7 +78,8 @@ public final class ResearchRuntimeSettings {
                 store.get(KEY_SIDECAR_JAR, ""),
                 store.get(KEY_BROWSER_CHANNEL, "chrome"),
                 store.getBoolean(KEY_HEADLESS, true),
-                store.get(KEY_SEARCH_URL, ""));
+                store.get(KEY_SEARCH_URL, ""),
+                store.getBoolean(KEY_ALLOW_PRIVATE, false));
     }
 
     public void save(WorkspaceStateStore store) {
@@ -78,6 +91,7 @@ public final class ResearchRuntimeSettings {
         store.put(KEY_BROWSER_CHANNEL, browserChannel);
         store.putBoolean(KEY_HEADLESS, headless);
         store.put(KEY_SEARCH_URL, searchUrlTemplate);
+        store.putBoolean(KEY_ALLOW_PRIVATE, allowPrivateNetworks);
     }
 
     public ResearchBackendMode getMode() { return mode; }
@@ -88,11 +102,14 @@ public final class ResearchRuntimeSettings {
     public String getBrowserChannel() { return browserChannel; }
     public boolean isHeadless() { return headless; }
     public String getSearchUrlTemplate() { return searchUrlTemplate; }
+    public boolean isAllowPrivateNetworks() { return allowPrivateNetworks; }
 
-    /** The productive runtime config (strict URL policy — private networks are never allowed from the UI). */
+    /** The productive runtime config. The URL policy is strict unless the explicit, persisted
+     * development-only override is set — never an implicit relaxation. */
     public ResearchRuntimeConfig toRuntimeConfig() {
         return new ResearchRuntimeConfig(agentJavaExecutable, agentJar, sidecarJavaExecutable, sidecarJar,
-                browserChannel, headless, false, searchUrlTemplate.isEmpty() ? null : searchUrlTemplate);
+                browserChannel, headless, allowPrivateNetworks,
+                searchUrlTemplate.isEmpty() ? null : searchUrlTemplate);
     }
 
     /** Same rules as the runtime itself ({@link ResearchRuntimeConfig#validate()}). Empty = usable. */

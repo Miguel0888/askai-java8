@@ -79,3 +79,12 @@ Research workspace select FAKE vs. productive ACP; `ResearchAgentSessionFactory`
 validated mode, and AskAI now provides the host runtime services (lazy Solon MCP runtime, MCP tool-client
 factory, ACP connector) through the new neutral `AgentHostContext.getService` lookup. MCP-P007 resolved;
 chat-driven phase transitions in the productive mode remain open as MCP-P008.
+
+### Commit 41 — chat commands bridge to the productive state machine
+
+`ResearchSessionCommandPort` (text → submitPrompt; structured actions → dispatch with the existing
+`ResearchCommandType`, structured `ResearchCommandDispatchResult`) is now the single seam between the chat
+UI and a research session. In productive mode the session owns its resources and routes commands to the
+authoritative host state machine (tool set republished, view model mirrored); the ACP backend stays a pure
+transport adapter. New `/do <command>` slash command completes exactly the live-allowed commands.
+MCP-P008 resolved.

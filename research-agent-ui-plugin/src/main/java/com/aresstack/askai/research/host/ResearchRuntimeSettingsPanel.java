@@ -43,6 +43,8 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
     private final JComboBox<String> browserChannel = new JComboBox<String>(new String[]{"chrome", "msedge"});
     private final JCheckBox headless = new JCheckBox("Run the browser headless", true);
     private final JTextField searchUrl = new JTextField(38);
+    private final JCheckBox allowPrivate = new JCheckBox(
+            "Allow private/loopback targets (development only)", false);
     private final JButton save = new JButton("Save");
     private final JButton check = new JButton("Check requirements");
     private final JLabel busy = new JLabel(" ");
@@ -63,6 +65,7 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         form.add(row("Browser channel:", browserChannel));
         form.add(row("", headless));
         form.add(row("Search URL ({query}):", searchUrl));
+        form.add(row("", allowPrivate));
         JPanel buttons = new JPanel();
         buttons.setLayout(new BoxLayout(buttons, BoxLayout.X_AXIS));
         buttons.add(save);
@@ -97,7 +100,7 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
                 mode.getSelectedIndex() == 1 ? ResearchBackendMode.ACP : ResearchBackendMode.FAKE,
                 agentJava.getText(), agentJar.getText(), sidecarJava.getText(), sidecarJar.getText(),
                 String.valueOf(browserChannel.getSelectedItem()), headless.isSelected(),
-                searchUrl.getText());
+                searchUrl.getText(), allowPrivate.isSelected());
     }
 
     private void apply(ResearchRuntimeSettings settings) {
@@ -109,6 +112,7 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         browserChannel.setSelectedItem(settings.getBrowserChannel());
         headless.setSelected(settings.isHeadless());
         searchUrl.setText(settings.getSearchUrlTemplate());
+        allowPrivate.setSelected(settings.isAllowPrivateNetworks());
     }
 
     private void saveSettings() {

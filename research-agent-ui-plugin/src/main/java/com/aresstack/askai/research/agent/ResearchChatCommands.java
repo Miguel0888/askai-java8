@@ -35,6 +35,7 @@ public final class ResearchChatCommands {
         commands.add(new ResumeCommand());
         commands.add(new CancelCommand());
         commands.add(new OpenCommand());
+        commands.add(new DoCommand());
         return commands;
     }
 
@@ -155,6 +156,63 @@ public final class ResearchChatCommands {
             }
             session.cancel();
             return CommandExecutionResult.handled("Cancelled.");
+        }
+    }
+
+    /**
+     * {@code /do <command>} — the STRUCTURED phase-action surface. It completes exactly the commands the
+     * live state machine allows right now (single source of truth; no phase rules in the UI) and dispatches
+     * through the {@link com.aresstack.askai.research.backend.ResearchSessionCommandPort} — never as a
+     * synthetic chat message. Rejections surface the structured status readably.
+     */
+    private static final class DoCommand extends Base {
+        public ChatCommandDescriptor getDescriptor() {
+            return ChatCommandDescriptor.of("do", "Trigger an allowed research phase action",
+                    "/do <command>",
+                    new CommandArgumentDescriptor("command", "One of the currently allowed commands", true));
+        }
+
+        @Override
+        public CommandCompletionResult complete(CommandCompletionRequest request, AgentSessionContext context) {
+            ResearchAgentSession session = research(context);
+            if (session == null || request.getArgumentIndex() != 0) {
+                return CommandCompletionResult.empty();
+            }
+            String partial = request.getPartialToken().toLowerCase();
+            List<CommandCompletion> out = new ArrayList<CommandCompletion>();
+            for (com.aresstack.askai.research.state.ResearchCommandType type
+                    : session.currentAllowedCommands()) {
+                String kebab = type.name().toLowerCase(java.util.Locale.ROOT).replace('_', '-');
+                if (kebab.startsWith(partial)) {
+                    out.add(new CommandCompletion(kebab, kebab,
+                            "Allowed in the current state", CompletionKind.ARGUMENT_VALUE));
+                }
+            }
+            return new CommandCompletionResult(out);
+        }
+
+        public CommandExecutionResult execute(CommandInvocation invocation, AgentSessionContext context) {
+            ResearchAgentSession session = research(context);
+            if (session == null) {
+                return CommandExecutionResult.unknown();
+            }
+            String raw = invocation.getArgument(0).trim();
+            if (raw.isEmpty()) {
+                return CommandExecutionResult.rejected("Usage: /do <command>");
+            }
+            com.aresstack.askai.research.state.ResearchCommandType type;
+            try {
+                type = com.aresstack.askai.research.state.ResearchCommandType.valueOf(
+                        raw.toUpperCase(java.util.Locale.ROOT).replace('-', '_'));
+            } catch (IllegalArgumentException unknown) {
+                return CommandExecutionResult.rejected("Unknown command: " + raw);
+            }
+            com.aresstack.askai.research.backend.ResearchCommandDispatchResult result =
+                    session.dispatch(type, null);
+            if (result.isAccepted()) {
+                return CommandExecutionResult.handled("Dispatched " + raw + ".");
+            }
+            return CommandExecutionResult.rejected(result.getStatus() + ": " + result.getDetail());
         }
     }
 

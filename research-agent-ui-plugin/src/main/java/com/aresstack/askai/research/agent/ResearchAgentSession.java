@@ -30,7 +30,8 @@ import java.util.List;
  * guards the workspace controller uses. Slash commands call the typed control methods here (never raw strings),
  * which reach {@code DefaultResearchStateMachine} through the backend.
  */
-public final class ResearchAgentSession implements AgentSession, ResearchSessionListener {
+public final class ResearchAgentSession implements AgentSession, ResearchSessionListener,
+        com.aresstack.askai.research.backend.ResearchSessionCommandPort {
 
     private final ResearchSessionBackend backend;
     private final ResearchScheduler ownedScheduler;
@@ -60,7 +61,8 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     private boolean started;
     private boolean disposed;
     private final com.aresstack.askai.plugin.api.service.WorkspaceStateStore hostStateStore;
-    private final Runnable closeHook; // productive mode: closes the session's endpoint/process resources
+    /** Productive mode only: the session's OWN generation-scoped resources (state authority + processes). */
+    private final com.aresstack.askai.research.host.ProductiveResearchSessionResources productiveResources;
 
     /**
      * @param ownedScheduler a scheduler this session must shut down on {@link #close()} (the production path),
@@ -71,17 +73,23 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         this(backend, ownedScheduler, host, sessionId, projectId, null);
     }
 
-    /** @param closeHook invoked LAST on {@link #close()} (after backend + scheduler); may be {@code null}. */
+    /**
+     * Productive constructor: the session OWNS the resources (closed last on {@link #close()}) and routes
+     * structured commands to the resources' state machine — the single transition authority.
+     */
     public ResearchAgentSession(ResearchSessionBackend backend, ResearchScheduler ownedScheduler,
                                 AgentHostContext host, String sessionId, String projectId,
-                                Runnable closeHook) {
+                                com.aresstack.askai.research.host.ProductiveResearchSessionResources resources) {
         this.backend = backend;
         this.ownedScheduler = ownedScheduler;
         this.sink = host.getConversationSink();
         this.uiExecutor = host.getUiExecutor();
         this.hostStateStore = host.getStateStore();
-        this.closeHook = closeHook;
+        this.productiveResources = resources;
         this.request = new ResearchProjectRequest(sessionId, projectId, "Research project");
+        if (resources != null) {
+            this.state = resources.currentState(); // one truth from the start
+        }
     }
 
     /** Plugin-internal: the host's persisted state store (used by the runtime settings view). */
@@ -120,8 +128,8 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         if (ownedScheduler != null) {
             ownedScheduler.shutdown();
         }
-        if (closeHook != null) {
-            closeHook.run(); // productive resources: endpoints → sidecar client → sidecar process
+        if (productiveResources != null) {
+            productiveResources.close(); // endpoints → sidecar client → sidecar process (idempotent)
         }
     }
 
@@ -175,7 +183,99 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         }
     }
 
+    // ------------------------------------------------------------------ ResearchSessionCommandPort
+
+    /** Free-form text — the ONLY thing that travels as prompt; structured actions never do. */
+    @Override
+    public void submitPrompt(String text) {
+        submitPrompt(text, "");
+    }
+
+    /**
+     * Structured user action. Productive mode routes to the session's OWN state machine
+     * ({@code ProductiveResearchSessionResources.dispatch} — which also republishes the MCP tool set);
+     * FAKE mode routes through the fake backend exactly as before. Never a synthetic chat message,
+     * never a silent no-op.
+     */
+    @Override
+    public com.aresstack.askai.research.backend.ResearchCommandDispatchResult dispatch(
+            ResearchCommandType command, String argument) {
+        if (command == null) {
+            return com.aresstack.askai.research.backend.ResearchCommandDispatchResult.of(
+                    com.aresstack.askai.research.backend.ResearchCommandDispatchResult
+                            .Status.COMMAND_NOT_AVAILABLE, "No command given.");
+        }
+        if (disposed || (productiveResources != null && productiveResources.isClosed())) {
+            return com.aresstack.askai.research.backend.ResearchCommandDispatchResult.of(
+                    com.aresstack.askai.research.backend.ResearchCommandDispatchResult
+                            .Status.SESSION_CLOSED, "The research session is closed.");
+        }
+        if (!started || handle == null) {
+            return com.aresstack.askai.research.backend.ResearchCommandDispatchResult.of(
+                    com.aresstack.askai.research.backend.ResearchCommandDispatchResult
+                            .Status.SESSION_NOT_ACTIVE, "The research session is not active yet.");
+        }
+        if (productiveResources != null) {
+            return dispatchProductive(command);
+        }
+        // FAKE mode: the deterministic backend owns its state machine; availability from the live memento.
+        if (!canDispatch(command)) {
+            return com.aresstack.askai.research.backend.ResearchCommandDispatchResult.of(
+                    com.aresstack.askai.research.backend.ResearchCommandDispatchResult
+                            .Status.INVALID_PHASE,
+                    "Not allowed in " + state.getPhaseId() + "/" + state.getStateId() + ".");
+        }
+        backend.executeCommand(handle, command);
+        return com.aresstack.askai.research.backend.ResearchCommandDispatchResult.accepted();
+    }
+
+    private com.aresstack.askai.research.backend.ResearchCommandDispatchResult dispatchProductive(
+            ResearchCommandType command) {
+        boolean allowed = stateFactory
+                .restore(productiveResources.currentState())
+                .getCurrentState().getAllowedCommands().contains(command);
+        try {
+            com.aresstack.askai.research.state.oo.ResearchStateTransitionResult result =
+                    productiveResources.dispatch(command);
+            if (!result.isAccepted()) {
+                return com.aresstack.askai.research.backend.ResearchCommandDispatchResult.of(
+                        allowed ? com.aresstack.askai.research.backend.ResearchCommandDispatchResult
+                                        .Status.DISPATCH_FAILED
+                                : com.aresstack.askai.research.backend.ResearchCommandDispatchResult
+                                        .Status.INVALID_PHASE,
+                        result.getRejectionReason());
+            }
+            // PAUSE/CANCEL additionally stop the agent's running turn (transport concern, not state logic).
+            if (command == ResearchCommandType.PAUSE || command == ResearchCommandType.CANCEL) {
+                backend.cancel(handle);
+            }
+            final com.aresstack.askai.research.state.oo.ResearchStateMemento next =
+                    productiveResources.currentState();
+            uiExecutor.execute(new Runnable() {
+                public void run() {
+                    state = next; // mirror the single truth into the view model, then notify observers
+                    revision = next.getRevision();
+                    fireStateChanged();
+                }
+            });
+            return com.aresstack.askai.research.backend.ResearchCommandDispatchResult.accepted();
+        } catch (RuntimeException ex) {
+            return com.aresstack.askai.research.backend.ResearchCommandDispatchResult.of(
+                    com.aresstack.askai.research.backend.ResearchCommandDispatchResult
+                            .Status.DISPATCH_FAILED, ex.getMessage() == null ? "dispatch failed"
+                            : ex.getMessage());
+        }
+    }
+
     public void approveCurrent() {
+        if (productiveResources != null) {
+            // The machine knows WHICH approval fits the phase; the UI never re-encodes phase rules.
+            ResearchCommandType approve = firstAllowedWithPrefix("APPROVE_");
+            if (approve != null) {
+                dispatch(approve, null);
+            }
+            return;
+        }
         String pendingApprovalId = state.getPendingApprovalId();
         if (handle != null && pendingApprovalId != null) {
             backend.approve(handle, pendingApprovalId);
@@ -183,6 +283,13 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     }
 
     public void requestChanges(String reason) {
+        if (productiveResources != null) {
+            ResearchCommandType request = firstAllowedWithPrefix("REQUEST_");
+            if (request != null) {
+                dispatch(request, reason);
+            }
+            return;
+        }
         String pendingApprovalId = state.getPendingApprovalId();
         if (handle != null && pendingApprovalId != null) {
             backend.reject(handle, pendingApprovalId, reason);
@@ -190,26 +297,47 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     }
 
     public void pause() {
-        if (handle != null) {
+        if (productiveResources != null) {
+            dispatch(ResearchCommandType.PAUSE, null);
+        } else if (handle != null) {
             backend.pause(handle);
         }
     }
 
     public void resume() {
-        if (handle != null) {
+        if (productiveResources != null) {
+            dispatch(ResearchCommandType.RESUME, null);
+        } else if (handle != null) {
             backend.resume(handle);
         }
     }
 
     public void cancel() {
-        if (handle != null) {
+        if (productiveResources != null) {
+            dispatch(ResearchCommandType.CANCEL, null);
+        } else if (handle != null) {
             backend.cancel(handle);
         }
     }
 
     public boolean canDispatch(ResearchCommandType type) {
-        return handle != null
-                && stateFactory.restore(state).getCurrentState().getAllowedCommands().contains(type);
+        return handle != null && currentAllowedCommands().contains(type);
+    }
+
+    /** The live allowed set — productive mode reads the authoritative resources state directly. */
+    public java.util.Set<ResearchCommandType> currentAllowedCommands() {
+        com.aresstack.askai.research.state.oo.ResearchStateMemento memento =
+                productiveResources != null ? productiveResources.currentState() : state;
+        return stateFactory.restore(memento).getCurrentState().getAllowedCommands();
+    }
+
+    private ResearchCommandType firstAllowedWithPrefix(String prefix) {
+        for (ResearchCommandType type : currentAllowedCommands()) {
+            if (type.name().startsWith(prefix)) {
+                return type;
+            }
+        }
+        return null;
     }
 
     // ------------------------------------------------------------------ event intake (backend thread → UI)
@@ -285,7 +413,11 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
 
     private void fireStateChanged() {
         for (Runnable listener : stateListeners) {
-            listener.run();
+            try {
+                listener.run();
+            } catch (RuntimeException ex) {
+                // A broken observer must never take the session (or other observers) down.
+            }
         }
     }
 
@@ -329,10 +461,13 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         }
     }
 
-    /** Single source of command availability: the allowed set of the live memento's current state. */
+    /**
+     * Single source of command availability: the allowed set of the live state (productive mode reads the
+     * authoritative resources state). This is the "available research actions" projection the UI renders —
+     * it never re-implements phase rules.
+     */
     private List<String> allowedCommandNames() {
-        java.util.Set<ResearchCommandType> allowed =
-                stateFactory.restore(state).getCurrentState().getAllowedCommands();
+        java.util.Set<ResearchCommandType> allowed = currentAllowedCommands();
         List<String> names = new ArrayList<String>();
         names.add("status");
         names.add("open");
@@ -345,9 +480,23 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         if (allowed.contains(ResearchCommandType.CANCEL)) {
             names.add("cancel");
         }
-        if (state.getPendingApprovalId() != null) {
+        boolean approvable = state.getPendingApprovalId() != null;
+        for (ResearchCommandType type : allowed) {
+            if (type.name().startsWith("APPROVE_") || type.name().startsWith("REQUEST_")) {
+                approvable = true;
+            }
+        }
+        if (approvable) {
             names.add("approve");
             names.add("request-changes");
+        }
+        // Every remaining allowed forward command is offered by name for /do (kebab-case).
+        for (ResearchCommandType type : allowed) {
+            String kebab = type.name().toLowerCase(java.util.Locale.ROOT).replace('_', '-');
+            if (!names.contains(kebab) && type != ResearchCommandType.PAUSE
+                    && type != ResearchCommandType.RESUME && type != ResearchCommandType.CANCEL) {
+                names.add(kebab);
+            }
         }
         return names;
     }
