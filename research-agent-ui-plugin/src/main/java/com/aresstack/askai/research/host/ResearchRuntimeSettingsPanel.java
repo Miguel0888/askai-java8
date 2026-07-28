@@ -36,7 +36,11 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
     private final WorkspaceStateStore store;
     private final JComboBox<String> mode = new JComboBox<String>(
             new String[]{MODE_FAKE_LABEL, MODE_ACP_LABEL});
-    private final JTextField agentJava = new JTextField(38);
+    // Deliberately NO agent-Java field: the agent is Java-8 bytecode and simply runs on AskAI's own
+    // JVM. A persisted override (store key) stays possible for special cases, but it is not a user
+    // decision — the ONE configurable runtime is the Java >= 21 for the browser sidecar (GraalJS),
+    // and even that is auto-discovered (or unnecessary when AskAI itself runs on >= 21).
+    private String agentJavaOverride = "";
     private final JTextField agentJar = new JTextField(38);
     private final JTextField sidecarJava = new JTextField(38);
     private final JTextField sidecarJar = new JTextField(38);
@@ -58,9 +62,8 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         JPanel form = new JPanel();
         form.setLayout(new BoxLayout(form, BoxLayout.Y_AXIS));
         form.add(row("Backend mode:", mode));
-        form.add(pathRow("Java 8 runtime (agent):", agentJava));
         form.add(pathRow("Research agent jar:", agentJar));
-        form.add(pathRow("Java 21 runtime (sidecar):", sidecarJava));
+        form.add(pathRow("Java for browser (≥21):", sidecarJava));
         form.add(pathRow("Browser sidecar jar:", sidecarJar));
         form.add(row("Browser channel:", browserChannel));
         form.add(row("", headless));
@@ -80,9 +83,13 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         results.setLineWrap(false);
         add(new JScrollPane(results), BorderLayout.CENTER);
 
-        // Persisted values first, then AUTOMATIC defaults for whatever is still empty (running JVM,
-        // assembled distribution, discovered Java 21) — no empty mandatory fields on a normal dev start.
-        apply(ResearchRuntimeDefaults.complete(ResearchRuntimeSettings.load(store)));
+        // Persisted values first, then AUTOMATIC defaults for whatever is still empty (assembled
+        // distribution, discovered Java >= 21) — no empty mandatory fields on a normal dev start.
+        // The agent-Java override is kept ONLY when the user persisted one explicitly; the automatic
+        // value (AskAI's own JVM) is applied by the factory and never written back as a setting.
+        ResearchRuntimeSettings persisted = ResearchRuntimeSettings.load(store);
+        apply(ResearchRuntimeDefaults.complete(persisted));
+        agentJavaOverride = persisted.getAgentJavaExecutable();
 
         save.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent event) {
@@ -100,14 +107,14 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
     ResearchRuntimeSettings currentSettings() {
         return new ResearchRuntimeSettings(
                 mode.getSelectedIndex() == 1 ? ResearchBackendMode.ACP : ResearchBackendMode.FAKE,
-                agentJava.getText(), agentJar.getText(), sidecarJava.getText(), sidecarJar.getText(),
+                agentJavaOverride, agentJar.getText(), sidecarJava.getText(), sidecarJar.getText(),
                 String.valueOf(browserChannel.getSelectedItem()), headless.isSelected(),
                 searchUrl.getText(), allowPrivate.isSelected());
     }
 
     private void apply(ResearchRuntimeSettings settings) {
         mode.setSelectedIndex(settings.getMode() == ResearchBackendMode.ACP ? 1 : 0);
-        agentJava.setText(settings.getAgentJavaExecutable());
+        agentJavaOverride = settings.getAgentJavaExecutable();
         agentJar.setText(settings.getAgentJar());
         sidecarJava.setText(settings.getSidecarJavaExecutable());
         sidecarJar.setText(settings.getSidecarJar());

@@ -81,6 +81,13 @@ public final class ResearchRuntimeDefaults {
         if (!override.isEmpty() && new File(override).isFile()) {
             return new File(override).getAbsolutePath();
         }
+        // If AskAI itself already runs on >= 21, no separate runtime is needed at all.
+        if (currentJvmIsAtLeast(21)) {
+            String current = currentJvmJava();
+            if (!current.isEmpty()) {
+                return current;
+            }
+        }
         for (File root : candidateJdkRoots()) {
             File[] children = root.listFiles();
             if (children == null) {
@@ -143,6 +150,18 @@ public final class ResearchRuntimeDefaults {
             }
         }
         return false;
+    }
+
+    static boolean currentJvmIsAtLeast(int major) {
+        String spec = System.getProperty("java.specification.version", "");
+        try {
+            // "1.8" (Java 8) vs "9".."21" (Java 9+).
+            int version = spec.startsWith("1.") ? Integer.parseInt(spec.substring(2))
+                    : Integer.parseInt(spec);
+            return version >= major;
+        } catch (NumberFormatException ex) {
+            return false;
+        }
     }
 
     private static String existingPath(File file) {

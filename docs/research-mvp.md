@@ -56,9 +56,11 @@ the app. Then open the Research workspace → artifact tab **Runtime**:
 
 1. Set *Backend mode* to `Productive (ACP + browser sidecar)` (the default `Fake` is the labelled
    clickdummy/development mode).
-2. The path fields are PRE-FILLED automatically: Java 8 from the running JVM, both jars from the
-   assembled distribution, Java 21 discovered in the standard JDK locations (override:
-   `askai.research.java21`). Every field has a Browse button; explicit values always win.
+2. The path fields are PRE-FILLED automatically: both jars from the assembled distribution and ONE
+   Java runtime — the >= 21 launcher for the browser sidecar, discovered in the standard JDK
+   locations (override: `askai.research.java21`; unnecessary when AskAI itself runs on >= 21). The
+   agent needs NO Java configuration at all: it is Java-8 bytecode and runs on AskAI's own JVM.
+   Every field has a Browse button; explicit values always win.
 3. Enter a search provider URL containing `{query}` (e.g. `https://www.bing.com/search?q={query}`) —
    it is REQUIRED: autonomous research always starts with `web_search`; validation says so.
 4. **Check requirements** validates every item individually off the EDT and briefly starts the
