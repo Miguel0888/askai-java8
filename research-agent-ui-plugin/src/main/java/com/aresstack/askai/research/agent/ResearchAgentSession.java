@@ -95,6 +95,11 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     }
 
     /** Plugin-internal: the host's persisted state store (used by the runtime settings view). */
+    /** The immutable settings snapshot of THIS session, or null (fake backend / not started). */
+    public com.aresstack.askai.browser.search.SearchProcessingProfileSnapshot getActiveSearchProfile() {
+        return productiveResources == null ? null : productiveResources.getSearchProfile();
+    }
+
     public com.aresstack.askai.plugin.api.service.WorkspaceStateStore getHostStateStore() {
         return hostStateStore;
     }
