@@ -38,6 +38,18 @@ public final class BrowserMcpSidecarProcess {
 
     public static BrowserMcpSidecarProcess start(ResearchRuntimeConfig config,
                                                  long readyTimeoutSeconds) throws IOException {
+        return start(config, readyTimeoutSeconds, null);
+    }
+
+    /**
+     * @param browserConfigPath absolute path of the versioned browser-search config document
+     *                          ({@code --browser-config=}), or null (sidecar then uses the central
+     *                          defaults). Precedence inside the sidecar: defaults &lt; document &lt;
+     *                          explicit legacy CLI overrides (dev/test).
+     */
+    public static BrowserMcpSidecarProcess start(ResearchRuntimeConfig config,
+                                                 long readyTimeoutSeconds,
+                                                 String browserConfigPath) throws IOException {
         int port = freePort();
         String token = newToken();
         List<String> command = new ArrayList<String>();
@@ -49,6 +61,9 @@ public final class BrowserMcpSidecarProcess {
         command.add("--browser-channel=" + config.getBrowserChannel());
         command.add("--headless=" + config.isHeadless());
         command.add("--allow-private=" + config.isAllowPrivateNetworks());
+        if (browserConfigPath != null && !browserConfigPath.isEmpty()) {
+            command.add("--browser-config=" + browserConfigPath);
+        }
         if (config.getSearchUrlTemplate() != null && !config.getSearchUrlTemplate().isEmpty()) {
             command.add("--search-url=" + config.getSearchUrlTemplate());
         }

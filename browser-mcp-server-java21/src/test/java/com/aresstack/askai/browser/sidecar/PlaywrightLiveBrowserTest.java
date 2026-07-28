@@ -82,7 +82,8 @@ public class PlaywrightLiveBrowserTest {
         String searchBase = "http://127.0.0.1:" + searchServer.getAddress().getPort();
 
         BrowserSession session = PlaywrightSessionFactory.create(channel, true, true,
-                searchBase + "/find?q={query}", BrowserLimits.defaults());
+                searchBase + "/find?q={query}", BrowserLimits.defaults(),
+                com.aresstack.askai.browser.search.LegacyBrowserSearchDefaults.create());
         if (session instanceof PlaywrightBrowserSession) {
             // Hermetic: never fall through to a real public search engine, and key domain families by
             // host:port so the two local servers act as distinct domains (production semantics untouched).

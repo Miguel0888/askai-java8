@@ -34,6 +34,11 @@ final class SearchRedirectResolver {
         private final Status status;
         private final String targetUrl;
 
+        /** A pass-through resolution (used when redirect resolution is disabled by settings). */
+        static Resolution passThrough(String url) {
+            return new Resolution(Status.NOT_A_REDIRECT, url);
+        }
+
         private Resolution(Status status, String targetUrl) {
             this.status = status;
             this.targetUrl = targetUrl == null ? "" : targetUrl;

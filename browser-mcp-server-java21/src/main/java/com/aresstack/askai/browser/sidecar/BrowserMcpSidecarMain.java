@@ -46,12 +46,17 @@ public final class BrowserMcpSidecarMain {
         });
 
         String channel = stringArg(args, "--browser-channel=");
+        // PRECEDENCE (fixed contract): defaults < --browser-config document < explicit legacy CLI
+        // overrides (dev/test escape hatches) — never any other mix.
+        com.aresstack.askai.browser.search.LegacyBrowserSearchSettings searchSettings =
+                loadBrowserConfig(stringArg(args, "--browser-config="));
         BrowserSession session = PlaywrightSessionFactory.create(
                 channel == null ? "chrome" : channel,
                 !"false".equalsIgnoreCase(stringArg(args, "--headless=")),
                 "true".equalsIgnoreCase(stringArg(args, "--allow-private=")),
                 stringArg(args, "--search-url="),
-                com.aresstack.askai.browser.BrowserLimits.defaults());
+                com.aresstack.askai.browser.BrowserLimits.defaults(),
+                searchSettings);
         // DEV/TEST ONLY: host:port domain families so local multi-server worlds act as distinct domains
         // (production keeps the public-suffix resolver; never the default).
         if ("host-port".equalsIgnoreCase(stringArg(args, "--domain-key-mode="))
@@ -78,6 +83,52 @@ public final class BrowserMcpSidecarMain {
         }, "browser-session-shutdown"));
         System.err.println("[browser-mcp] ready on 127.0.0.1:" + port
                 + " backend=" + session.getBackendKind());
+    }
+
+    /**
+     * Load the typed settings from the {@code --browser-config} document. Without the argument the
+     * settings are exactly {@code LegacyBrowserSearchDefaults.create()} (the single default origin).
+     * An unreadable, malformed or invalid document FAILS the start with the concrete reason on STDERR
+     * — a broken configuration never silently degrades to defaults.
+     */
+    static com.aresstack.askai.browser.search.LegacyBrowserSearchSettings loadBrowserConfig(
+            String path) {
+        if (path == null || path.trim().isEmpty()) {
+            return com.aresstack.askai.browser.search.LegacyBrowserSearchDefaults.create();
+        }
+        try {
+            byte[] bytes = java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path.trim()));
+            com.aresstack.askai.browser.search.LegacyBrowserSearchConfigDocument document =
+                    com.aresstack.askai.browser.search.LegacyBrowserSearchConfigDocument
+                            .parse(new String(bytes, java.nio.charset.StandardCharsets.UTF_8));
+            com.aresstack.askai.browser.search.LegacyBrowserSearchSettingsCodec.Decoded decoded =
+                    com.aresstack.askai.browser.search.LegacyBrowserSearchSettingsCodec
+                            .fromValues(document.values);
+            if (!decoded.violations.isEmpty()) {
+                throw new IllegalArgumentException("browser config has invalid values:\n"
+                        + new com.aresstack.askai.browser.search.SettingsValidationResult(
+                                decoded.violations).describe());
+            }
+            com.aresstack.askai.browser.search.SettingsValidationResult validation =
+                    new com.aresstack.askai.browser.search.DefaultLegacyBrowserSearchSettingsValidator()
+                            .validate(decoded.settings);
+            if (!validation.isValid()) {
+                throw new IllegalArgumentException("browser config failed validation:\n"
+                        + validation.describe());
+            }
+            System.err.println("[browser-mcp] browser config: revision=" + document.settingsRevision
+                    + " digest=" + document.settingsDigest);
+            return decoded.settings;
+        } catch (java.io.IOException ex) {
+            System.err.println("[browser-mcp] FATAL: cannot read --browser-config=" + path
+                    + ": " + ex.getMessage());
+            System.exit(2);
+            throw new IllegalStateException("unreachable");
+        } catch (IllegalArgumentException ex) {
+            System.err.println("[browser-mcp] FATAL: " + ex.getMessage());
+            System.exit(2);
+            throw new IllegalStateException("unreachable");
+        }
     }
 
     static void registerTools(McpServerEndpointProvider endpoint, final BrowserSession session) {

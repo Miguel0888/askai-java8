@@ -16,15 +16,19 @@ final class ResearchAgentEnvironment {
     final String researchTransport;
     final String browserUrl;      // null when no browser backend is available
     final String browserTransport;
+    /** Path of the legacy-browser-search config document (same file the sidecar receives), or null. */
+    final String browserSearchConfigPath;
 
     private ResearchAgentEnvironment(String sessionId, String projectId, String researchUrl,
-                                     String researchTransport, String browserUrl, String browserTransport) {
+                                     String researchTransport, String browserUrl, String browserTransport,
+                                     String browserSearchConfigPath) {
         this.sessionId = sessionId;
         this.projectId = projectId;
         this.researchUrl = researchUrl;
         this.researchTransport = researchTransport;
         this.browserUrl = browserUrl;
         this.browserTransport = browserTransport;
+        this.browserSearchConfigPath = browserSearchConfigPath;
     }
 
     static ResearchAgentEnvironment from(Map<String, String> env) {
@@ -36,7 +40,8 @@ final class ResearchAgentEnvironment {
                 orDefault(env.get("ASKAI_PROJECT_ID"), ""),
                 researchUrl, researchTransport,
                 browserUrl,
-                browserUrl == null ? null : orDefault(env.get("ASKAI_BROWSER_MCP_TRANSPORT"), "streamable"));
+                browserUrl == null ? null : orDefault(env.get("ASKAI_BROWSER_MCP_TRANSPORT"), "streamable"),
+                blankToNull(env.get("ASKAI_BROWSER_SEARCH_CONFIG")));
     }
 
     boolean hasBrowser() {

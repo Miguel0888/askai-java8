@@ -32,13 +32,20 @@ interface WebSearchProvider {
      */
     final class OrganicResultSearchProvider implements WebSearchProvider {
 
-        /** A short route list beats a full crawl frontier (small-model context budget). */
-        static final int MAX_RESULTS = 20;
+        /** Result cap, redirect handling and URL length guard come from the navigation settings. */
+        private final com.aresstack.askai.browser.search.LegacySearchNavigationSettings navigation;
 
         private final com.aresstack.askai.browser.domain.DomainKeyResolver domainKeys;
 
         OrganicResultSearchProvider(com.aresstack.askai.browser.domain.DomainKeyResolver domainKeys) {
+            this(domainKeys, com.aresstack.askai.browser.search.LegacyBrowserSearchDefaults
+                    .create().navigation);
+        }
+
+        OrganicResultSearchProvider(com.aresstack.askai.browser.domain.DomainKeyResolver domainKeys,
+                com.aresstack.askai.browser.search.LegacySearchNavigationSettings navigation) {
             this.domainKeys = domainKeys;
+            this.navigation = navigation;
         }
 
         public List<WebSearchItem> extract(BrowserPageSnapshot page, List<BrowserLink> links) {
@@ -47,16 +54,21 @@ interface WebSearchProvider {
             List<WebSearchItem> organic = new ArrayList<WebSearchItem>();
             Set<String> seenUrls = new HashSet<String>();
             for (BrowserLink link : links) {
-                if (organic.size() >= MAX_RESULTS) {
+                if (organic.size() >= navigation.searchResultLimit) {
                     break;
                 }
                 String rawUrl = link.getUrl();
                 if (link.getText().isEmpty() || !rawUrl.startsWith("http")) {
                     continue; // javascript:/mailto:/fragment links are never routes
                 }
+                if (rawUrl.length() > navigation.maximumRedirectUrlLength) {
+                    continue; // pathological URL length — never fed into resolution or results
+                }
                 // Redirect wrappers are resolved BEFORE any domain judgement; an unresolvable wrapper is
                 // discarded in a controlled way, never misclassified by the engine's wrapper host.
-                SearchRedirectResolver.Resolution resolution = SearchRedirectResolver.resolve(rawUrl);
+                SearchRedirectResolver.Resolution resolution = navigation.redirectResolutionEnabled
+                        ? SearchRedirectResolver.resolve(rawUrl)
+                        : SearchRedirectResolver.Resolution.passThrough(rawUrl);
                 if (resolution.getStatus() == SearchRedirectResolver.Status.UNRESOLVED) {
                     continue;
                 }

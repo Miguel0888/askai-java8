@@ -109,7 +109,8 @@ public class WebSearchProviderTest {
             links.add(link("Result " + i, "https://site" + i + ".example/a"));
         }
         List<WebSearchItem> items = PROVIDER.extract(bingPage(), links);
-        assertEquals(WebSearchProvider.OrganicResultSearchProvider.MAX_RESULTS, items.size());
+        assertEquals(com.aresstack.askai.browser.search.LegacyBrowserSearchDefaults.create()
+                .navigation.searchResultLimit, items.size());
     }
 
 }

@@ -26,7 +26,8 @@ final class PlaywrightSessionFactory {
     }
 
     static BrowserSession create(String channel, boolean headless, boolean allowPrivateNetworks,
-                                 String searchUrlTemplate, BrowserLimits limits) {
+                                 String searchUrlTemplate, BrowserLimits limits,
+                                 com.aresstack.askai.browser.search.LegacyBrowserSearchSettings settings) {
         String normalizedChannel = "msedge".equalsIgnoreCase(channel) ? "msedge" : "chrome";
         PlaywrightReadiness readiness = new PlaywrightCapabilityProbe().probe(normalizedChannel);
         System.err.println("[browser-mcp] playwright readiness: " + readiness.render());
@@ -37,9 +38,11 @@ final class PlaywrightSessionFactory {
                 ? UrlSafetyPolicy.allowingPrivateNetworks() : UrlSafetyPolicy.strict();
         try {
             PlaywrightDriver driver = Playwright4jDriver.launch(normalizedChannel, headless,
-                    limits.getTimeoutMillis(),
-                    allowPrivateNetworks ? null : new PrivateTargetRequestFilter());
-            return new PlaywrightBrowserSession(driver, policy, limits, searchUrlTemplate, null);
+                    settings.navigation.navigationCommitTimeoutMillis,
+                    allowPrivateNetworks ? null : new PrivateTargetRequestFilter(),
+                    settings.consent, settings.captcha);
+            return new PlaywrightBrowserSession(driver, policy, limits, searchUrlTemplate, null,
+                    settings);
         } catch (BrowserException ex) {
             PlaywrightReadiness failed = new PlaywrightReadiness(
                     PlaywrightReadiness.Status.BROWSER_START_FAILED, ex.getMessage());

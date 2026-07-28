@@ -32,16 +32,23 @@ final class Playwright4jDriver implements PlaywrightDriver {
     private final Playwright playwright;
     private final Browser browser;
     private final BrowserContext context;
+    /** SERP guard behaviour comes exclusively from the settings — no local constants. */
+    private final com.aresstack.askai.browser.search.ConsentHandlingSettings consent;
+    private final com.aresstack.askai.browser.search.CaptchaHandlingSettings captcha;
     private Page page;
     /** The parked manual-challenge page (kept open for the user), or null. At most one at a time. */
     private Page challengePage;
     private volatile boolean closed;
 
-    private Playwright4jDriver(Playwright playwright, Browser browser, BrowserContext context, Page page) {
+    private Playwright4jDriver(Playwright playwright, Browser browser, BrowserContext context, Page page,
+                               com.aresstack.askai.browser.search.ConsentHandlingSettings consent,
+                               com.aresstack.askai.browser.search.CaptchaHandlingSettings captcha) {
         this.playwright = playwright;
         this.browser = browser;
         this.context = context;
         this.page = page;
+        this.consent = consent;
+        this.captcha = captcha;
     }
 
     /**
@@ -50,7 +57,10 @@ final class Playwright4jDriver implements PlaywrightDriver {
      * authoritative post-navigation URL-policy check in the session).
      */
     static Playwright4jDriver launch(String channel, boolean headless, int timeoutMillis,
-                                     final Predicate<String> requestAllowed) throws BrowserException {
+                                     final Predicate<String> requestAllowed,
+                                     com.aresstack.askai.browser.search.ConsentHandlingSettings consent,
+                                     com.aresstack.askai.browser.search.CaptchaHandlingSettings captcha)
+            throws BrowserException {
         Playwright playwright = null;
         Browser browser = null;
         BrowserContext context = null;
@@ -84,7 +94,7 @@ final class Playwright4jDriver implements PlaywrightDriver {
                     }
                 }
             });
-            return new Playwright4jDriver(playwright, browser, context, page);
+            return new Playwright4jDriver(playwright, browser, context, page, consent, captcha);
         } catch (RuntimeException ex) {
             closeQuietly(context, browser, playwright);
             throw new BrowserException("Browser start failed (channel=" + channel + "): " + firstLine(ex));
@@ -129,16 +139,23 @@ final class Playwright4jDriver implements PlaywrightDriver {
 
     @Override
     public String tryDismissConsent() {
-        if (closed) {
+        if (closed || !consent.enabled) {
             return "none";
         }
         try {
-            String result = String.valueOf(page.evaluate(SearchPageGuards.consentDismissScript()));
-            if (result.startsWith("clicked")) {
-                // Give the banner a moment to animate away before the caller re-reads the page.
-                page.waitForTimeout(600);
+            // Up to maximumDismissAttempts stacked banners; each successful click settles before the
+            // next probe, and the caller re-reads the page when anything was clicked at all.
+            String lastClicked = "none";
+            for (int attempt = 0; attempt < consent.maximumDismissAttempts; attempt++) {
+                String result = String.valueOf(
+                        page.evaluate(SearchPageGuards.consentDismissScript(consent)));
+                if (!result.startsWith("clicked")) {
+                    break;
+                }
+                lastClicked = result;
+                page.waitForTimeout(consent.postClickSettleMillis);
             }
-            return result;
+            return lastClicked;
         } catch (RuntimeException ex) {
             return "none"; // a broken CMP script must never take the search down
         }
@@ -146,11 +163,11 @@ final class Playwright4jDriver implements PlaywrightDriver {
 
     @Override
     public boolean challengePresent() {
-        if (closed) {
+        if (closed || !captcha.enabled) {
             return false;
         }
         try {
-            return String.valueOf(page.evaluate(SearchPageGuards.challengeDetectScript()))
+            return String.valueOf(page.evaluate(SearchPageGuards.challengeDetectScript(captcha)))
                     .startsWith("challenge");
         } catch (RuntimeException ex) {
             return false;
@@ -174,9 +191,11 @@ final class Playwright4jDriver implements PlaywrightDriver {
                 }
             });
             // Bring the challenge to the user's attention exactly ONCE — polls never steal focus again.
-            try {
-                challengePage.bringToFront();
-            } catch (RuntimeException ignored) {
+            if (captcha.focusTabOnFirstDetection) {
+                try {
+                    challengePage.bringToFront();
+                } catch (RuntimeException ignored) {
+                }
             }
             return true;
         } catch (RuntimeException ex) {
@@ -192,7 +211,7 @@ final class Playwright4jDriver implements PlaywrightDriver {
             return false;
         }
         try {
-            return String.valueOf(challengePage.evaluate(SearchPageGuards.challengeDetectScript()))
+            return String.valueOf(challengePage.evaluate(SearchPageGuards.challengeDetectScript(captcha)))
                     .startsWith("challenge");
         } catch (RuntimeException ex) {
             return false; // an unreadable/closed challenge tab counts as resolved, never blocks forever

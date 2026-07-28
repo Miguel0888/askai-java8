@@ -36,19 +36,33 @@ final class PlaywrightBrowserSession implements BrowserSession {
     private String challengeFamily;
     private String challengeUrl;
 
+    /** The typed configuration contract; defaults come ONLY from LegacyBrowserSearchDefaults. */
+    private final com.aresstack.askai.browser.search.LegacyBrowserSearchSettings settings;
+
     /** Public-suffix aware domain families; tests may inject a fake (e.g. host:port for local worlds). */
     private com.aresstack.askai.browser.domain.DomainKeyResolver domainKeys =
             new com.aresstack.askai.browser.domain.PublicSuffixDomainKeyResolver();
 
     PlaywrightBrowserSession(PlaywrightDriver driver, UrlSafetyPolicy policy, BrowserLimits limits,
                              String searchUrlTemplate, WebSearchProvider searchProvider) {
+        this(driver, policy, limits, searchUrlTemplate, searchProvider,
+                com.aresstack.askai.browser.search.LegacyBrowserSearchDefaults.create());
+    }
+
+    PlaywrightBrowserSession(PlaywrightDriver driver, UrlSafetyPolicy policy, BrowserLimits limits,
+                             String searchUrlTemplate, WebSearchProvider searchProvider,
+                             com.aresstack.askai.browser.search.LegacyBrowserSearchSettings settings) {
         this.driver = driver;
         this.policy = policy;
         this.limits = limits;
+        this.settings = settings;
         this.searchUrlTemplate = searchUrlTemplate == null || searchUrlTemplate.trim().isEmpty()
                 ? null : searchUrlTemplate.trim();
+        this.fallbackSearchTemplates = settings.navigation.fallbackEngineTemplates
+                .toArray(new String[0]);
         this.searchProvider = searchProvider == null
-                ? new WebSearchProvider.OrganicResultSearchProvider(domainKeys) : searchProvider;
+                ? new WebSearchProvider.OrganicResultSearchProvider(domainKeys, settings.navigation)
+                : searchProvider;
     }
 
     /**
@@ -60,7 +74,8 @@ final class PlaywrightBrowserSession implements BrowserSession {
         if (resolver != null) {
             this.domainKeys = resolver;
             if (searchProvider instanceof WebSearchProvider.OrganicResultSearchProvider) {
-                this.searchProvider = new WebSearchProvider.OrganicResultSearchProvider(resolver);
+                this.searchProvider = new WebSearchProvider.OrganicResultSearchProvider(resolver,
+                        settings.navigation);
             }
         }
     }
@@ -70,17 +85,13 @@ final class PlaywrightBrowserSession implements BrowserSession {
     }
 
     /**
-     * Scrape-friendly, server-rendered fallback engines: when the CONFIGURED engine yields no organic
-     * routes (consent wall, JS-only result page, blocking), the search falls through to these. If NO
-     * engine has organic routes, the result is typed and EMPTY — never the SERP's raw anchors (hard
-     * invariant of the Legacy-Browser-Search requirements).
+     * Scrape-friendly, server-rendered fallback engines (from the navigation settings; defaults in
+     * LegacyBrowserSearchDefaults): when the CONFIGURED engine yields no organic routes (consent wall,
+     * JS-only result page, blocking), the search falls through to these. If NO engine has organic
+     * routes, the result is typed and EMPTY — never the SERP's raw anchors (hard invariant of the
+     * Legacy-Browser-Search requirements).
      */
-    static final String[] FALLBACK_SEARCH_TEMPLATES = {
-            "https://html.duckduckgo.com/html/?q={query}",
-            "https://lite.duckduckgo.com/lite/?q={query}"
-    };
-
-    private String[] fallbackSearchTemplates = FALLBACK_SEARCH_TEMPLATES;
+    private String[] fallbackSearchTemplates;
 
     /** Test seam: replace the built-in fallback engines (tests use literal-IP URLs, no DNS). */
     void setFallbackSearchTemplates(String[] templates) {
@@ -103,7 +114,8 @@ final class PlaywrightBrowserSession implements BrowserSession {
         if (domainKeys.resolve(searchUrlTemplate).getHostKind()
                 == com.aresstack.askai.browser.domain.HostKind.REGISTERED_NAME) {
             for (String fallback : fallbackSearchTemplates) {
-                if (!fallback.equals(searchUrlTemplate)) {
+                if (!fallback.equals(searchUrlTemplate)
+                        && templates.size() < settings.navigation.maximumEngineAttempts) {
                     templates.add(fallback);
                 }
             }

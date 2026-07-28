@@ -49,15 +49,28 @@ public final class ProductiveResearchBackendFactory {
     private final AcpAgentConnector connector;
     private final ResearchRuntimeConfig config;
     private final long generationId;
+    /** Stored browser-search overrides (canonical codec keys) + their revision, from the host store. */
+    private final Map<String, String> browserSearchValues;
+    private final long browserSearchRevision;
 
     public ProductiveResearchBackendFactory(McpServerRegistry registry, McpToolClientFactory toolClients,
                                             AcpAgentConnector connector, ResearchRuntimeConfig config,
                                             long generationId) {
+        this(registry, toolClients, connector, config, generationId,
+                Collections.<String, String>emptyMap(), 0L);
+    }
+
+    public ProductiveResearchBackendFactory(McpServerRegistry registry, McpToolClientFactory toolClients,
+                                            AcpAgentConnector connector, ResearchRuntimeConfig config,
+                                            long generationId, Map<String, String> browserSearchValues,
+                                            long browserSearchRevision) {
         this.registry = registry;
         this.toolClients = toolClients;
         this.connector = connector;
         this.config = config;
         this.generationId = generationId;
+        this.browserSearchValues = browserSearchValues;
+        this.browserSearchRevision = browserSearchRevision;
     }
 
     /**
@@ -70,6 +83,49 @@ public final class ProductiveResearchBackendFactory {
         if (!problems.isEmpty()) {
             throw new IOException("Research runtime configuration is not usable: " + problems);
         }
+
+        // Legacy-browser-search settings: decode stored overrides against the central defaults,
+        // validate HARD (an invalid configuration never starts a session, and is never corrected
+        // silently), then freeze them into the session's config documents: the FULL document for the
+        // Java-8 agent, the browser-near SUBSET for the Java-21 sidecar (AI/prompt settings never
+        // enter the browser process).
+        com.aresstack.askai.browser.search.LegacyBrowserSearchSettingsCodec.Decoded decoded =
+                com.aresstack.askai.browser.search.LegacyBrowserSearchSettingsCodec
+                        .fromValues(browserSearchValues);
+        if (!decoded.violations.isEmpty()) {
+            throw new IOException("Legacy browser search settings are invalid:\n"
+                    + new com.aresstack.askai.browser.search.SettingsValidationResult(
+                            decoded.violations).describe());
+        }
+        com.aresstack.askai.browser.search.SettingsValidationResult validation =
+                new com.aresstack.askai.browser.search.DefaultLegacyBrowserSearchSettingsValidator()
+                        .validate(decoded.settings);
+        if (!validation.isValid()) {
+            throw new IOException("Legacy browser search settings failed validation:\n"
+                    + validation.describe());
+        }
+        String digest = com.aresstack.askai.browser.search.LegacyBrowserSearchSettingsCodec
+                .digest(decoded.settings);
+        Map<String, String> fullValues = com.aresstack.askai.browser.search
+                .LegacyBrowserSearchSettingsCodec.toValues(decoded.settings);
+        File searchConfigDir = new File(projectDir, "browser-search");
+        if (!searchConfigDir.isDirectory() && !searchConfigDir.mkdirs()) {
+            throw new IOException("Cannot create " + searchConfigDir);
+        }
+        File fullConfigFile = new File(searchConfigDir, "search-settings.json");
+        File sidecarConfigFile = new File(searchConfigDir, "browser-config.json");
+        writeUtf8(fullConfigFile, new com.aresstack.askai.browser.search
+                .LegacyBrowserSearchConfigDocument(
+                        com.aresstack.askai.browser.search.LegacyBrowserSearchConfigDocument
+                                .CURRENT_SCHEMA_VERSION,
+                        browserSearchRevision, digest, fullValues).toJson());
+        writeUtf8(sidecarConfigFile, new com.aresstack.askai.browser.search
+                .LegacyBrowserSearchConfigDocument(
+                        com.aresstack.askai.browser.search.LegacyBrowserSearchConfigDocument
+                                .CURRENT_SCHEMA_VERSION,
+                        browserSearchRevision, digest,
+                        com.aresstack.askai.browser.search.LegacyBrowserSearchConfigDocument
+                                .sidecarSubset(fullValues)).toJson());
 
         // 1. Session-owned stores + state machine (pure, nothing to roll back).
         CaptureStore captures = new CaptureStore(200);
@@ -95,7 +151,8 @@ public final class ProductiveResearchBackendFactory {
         com.aresstack.askai.research.mcp.ResearchControlEndpoint control = null;
         try {
             // 2. Browser sidecar process (fails with its specific readiness status when not READY).
-            sidecar = BrowserMcpSidecarProcess.start(config, SIDECAR_READY_TIMEOUT_SECONDS);
+            sidecar = BrowserMcpSidecarProcess.start(config, SIDECAR_READY_TIMEOUT_SECONDS,
+                    sidecarConfigFile.getAbsolutePath());
             sidecarClient = toolClients.connect(sidecar.getMcpUrl(), "streamable");
 
             // 3. Host endpoints for this session+generation.
@@ -145,6 +202,9 @@ public final class ProductiveResearchBackendFactory {
             // 4. Backend with BOTH endpoint descriptors (structured env hand-off; tokens never logged).
             String agentJava = config.getAgentJavaExecutable();
             Map<String, String> baseEnv = new LinkedHashMap<String, String>();
+            // The agent reads the FULL settings document (AI/prompt settings stay host-side only in
+            // the sense of never reaching the BROWSER process; the agent needs them).
+            baseEnv.put("ASKAI_BROWSER_SEARCH_CONFIG", fullConfigFile.getAbsolutePath());
             AgentLaunchSpec spec = new AgentLaunchSpec(agentJava,
                     java.util.Arrays.asList("-jar", config.getAgentJar()), baseEnv);
             AcpResearchSessionBackend backend = null; // assigned after control.open()
@@ -194,5 +254,14 @@ public final class ProductiveResearchBackendFactory {
     /** Used by generation preparation: validation without side effects. */
     public List<String> validateConfig() {
         return Collections.unmodifiableList(config.validate());
+    }
+
+    private static void writeUtf8(File file, String content) throws IOException {
+        java.io.OutputStream out = new java.io.FileOutputStream(file);
+        try {
+            out.write(content.getBytes("UTF-8"));
+        } finally {
+            out.close();
+        }
     }
 }

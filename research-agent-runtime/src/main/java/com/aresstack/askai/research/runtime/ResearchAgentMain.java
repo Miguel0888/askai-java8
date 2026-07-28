@@ -229,7 +229,7 @@ public final class ResearchAgentMain {
                                     ctx.sendMessage(com.aresstack.askai.research.runtime.loop
                                             .ResearchRunWire.attention(reason, domainFamily, url, resolved));
                                 }
-                            }, cancelled);
+                            }, cancelled, loadBrowserSearchSettings());
             // Continuation semantics: a later run of the same session never re-navigates target pages.
             loop.excludeVisited(visitedAcrossRuns);
             com.aresstack.askai.research.runtime.loop.ResearchStopReason reason = loop.run(task);
@@ -240,6 +240,36 @@ public final class ResearchAgentMain {
         } finally {
             browser.close();
             research.close();
+        }
+    }
+
+    /**
+     * The loop's settings come from the SAME config document the browser sidecar receives
+     * ({@code ASKAI_BROWSER_SEARCH_CONFIG}); without one, exactly the central defaults apply. A broken
+     * document fails the run visibly — settings are never silently substituted.
+     */
+    private com.aresstack.askai.browser.search.LegacyBrowserSearchSettings loadBrowserSearchSettings() {
+        String path = environment.browserSearchConfigPath;
+        if (path == null) {
+            return com.aresstack.askai.browser.search.LegacyBrowserSearchDefaults.create();
+        }
+        try {
+            byte[] bytes = java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path));
+            com.aresstack.askai.browser.search.LegacyBrowserSearchConfigDocument document =
+                    com.aresstack.askai.browser.search.LegacyBrowserSearchConfigDocument
+                            .parse(new String(bytes, java.nio.charset.StandardCharsets.UTF_8));
+            com.aresstack.askai.browser.search.LegacyBrowserSearchSettingsCodec.Decoded decoded =
+                    com.aresstack.askai.browser.search.LegacyBrowserSearchSettingsCodec
+                            .fromValues(document.values);
+            if (!decoded.violations.isEmpty()) {
+                throw new IllegalStateException("browser search config has invalid values:\n"
+                        + new com.aresstack.askai.browser.search.SettingsValidationResult(
+                                decoded.violations).describe());
+            }
+            return decoded.settings;
+        } catch (java.io.IOException ex) {
+            throw new IllegalStateException(
+                    "Cannot read ASKAI_BROWSER_SEARCH_CONFIG=" + path + ": " + ex.getMessage());
         }
     }
 }

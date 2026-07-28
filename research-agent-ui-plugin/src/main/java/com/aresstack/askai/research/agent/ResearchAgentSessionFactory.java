@@ -102,7 +102,11 @@ public final class ResearchAgentSessionFactory implements AgentSessionFactory {
         AcpAgentConnector connector = requireService(hostContext, AcpAgentConnector.class);
 
         ProductiveResearchBackendFactory factory = new ProductiveResearchBackendFactory(
-                registry, toolClients, connector, settings.toRuntimeConfig(), generationId);
+                registry, toolClients, connector, settings.toRuntimeConfig(), generationId,
+                com.aresstack.askai.research.host.LegacyBrowserSearchSettingsStore
+                        .loadValues(hostContext.getStateStore()),
+                com.aresstack.askai.research.host.LegacyBrowserSearchSettingsStore
+                        .revision(hostContext.getStateStore()));
         final ProductiveResearchSessionResources resources;
         try {
             resources = factory.createSession(request.getSessionId(),

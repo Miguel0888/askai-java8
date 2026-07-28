@@ -5,6 +5,11 @@
 // The shared APIs and PF4J are provided by the HOST classloader, so they are `compileOnly` here and must
 // not be bundled into the plugin jar (that would break extension class identity across classloaders).
 dependencies {
+    // The typed legacy-browser-search settings domain (Java 8, framework-free). The HOST does not
+    // provide browser-api, so it is a real implementation dependency and its classes+resources are
+    // bundled INTO the plugin jar below (no other classloader in the host loads them — no identity
+    // split).
+    implementation project(':browser-api')
     compileOnly project(':agent-workspace-api')
     compileOnly project(':agent-plugin-pf4j-api')
     compileOnly project(':mcp-runtime-api')      // host-provided, like the other shared APIs
@@ -47,6 +52,13 @@ task pluginJar(type: Jar) {
     archiveClassifier = 'plugin'
     archiveVersion = project.version.toString()
     from sourceSets.main.output
+    // Bundle browser-api (settings domain + PSL snapshot resource) — the host classloader does not
+    // provide it. Duplicate-safe: only this one dependency jar is unpacked.
+    from(configurations.runtimeClasspath
+            .filter { it.name.startsWith('browser-api') }
+            .collect { zipTree(it) }) {
+        exclude 'META-INF/MANIFEST.MF'
+    }
 
     manifest {
         attributes(

@@ -37,7 +37,8 @@ public final class ResearchLoop {
     /** Time spent waiting for the USER (manual challenge) — never counted against the time budget. */
     private long waitedForUserMillis;
     private long lastChallengeProbeAt;
-    private static final long CHALLENGE_PROBE_INTERVAL_MILLIS = 1000L;
+    /** From the CAPTCHA settings (single default origin: LegacyBrowserSearchDefaults). */
+    private final long challengeProbeIntervalMillis;
     /** Public-suffix aware domain families; tests may inject a fake (e.g. host:port for local worlds). */
     private com.aresstack.askai.browser.domain.DomainKeyResolver domainKeys =
             new com.aresstack.askai.browser.domain.PublicSuffixDomainKeyResolver();
@@ -51,12 +52,20 @@ public final class ResearchLoop {
 
     public ResearchLoop(ToolInvoker browser, ToolInvoker research, ResearchRunBudget budget,
                         ResearchLoopClock clock, ResearchLoopListener listener, AtomicBoolean cancelled) {
+        this(browser, research, budget, clock, listener, cancelled,
+                com.aresstack.askai.browser.search.LegacyBrowserSearchDefaults.create());
+    }
+
+    public ResearchLoop(ToolInvoker browser, ToolInvoker research, ResearchRunBudget budget,
+                        ResearchLoopClock clock, ResearchLoopListener listener, AtomicBoolean cancelled,
+                        com.aresstack.askai.browser.search.LegacyBrowserSearchSettings searchSettings) {
         this.browser = browser;
         this.research = research;
         this.budget = budget;
         this.clock = clock;
         this.listener = listener;
         this.cancelled = cancelled;
+        this.challengeProbeIntervalMillis = searchSettings.captcha.challengeProbeIntervalMillis;
         this.startedAt = clock.currentTimeMillis();
     }
 
@@ -305,7 +314,7 @@ public final class ResearchLoop {
             return;
         }
         long now = clock.currentTimeMillis();
-        if (now - lastChallengeProbeAt < CHALLENGE_PROBE_INTERVAL_MILLIS) {
+        if (now - lastChallengeProbeAt < challengeProbeIntervalMillis) {
             return;
         }
         lastChallengeProbeAt = now;
@@ -343,7 +352,7 @@ public final class ResearchLoop {
                 return ResearchStopReason.USER_CANCELLED;
             }
             long tickStart = clock.currentTimeMillis();
-            clock.sleepMillis(CHALLENGE_PROBE_INTERVAL_MILLIS);
+            clock.sleepMillis(challengeProbeIntervalMillis);
             waitedForUserMillis += Math.max(0, clock.currentTimeMillis() - tickStart);
             probeChallengesIfDue(frontier);
         }
