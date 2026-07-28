@@ -7,6 +7,7 @@ import com.aresstack.askai.java8.state.ApplicationStateService;
 import com.aresstack.askai.java8.config.AppConfigurationRepository;
 import com.aresstack.askai.java8.service.AskAiService;
 import com.aresstack.askai.java8.service.DefaultOllamaService;
+import com.aresstack.askai.java8.service.VirtualOllamaContainerService;
 import com.aresstack.askai.java8.service.FeatureActionService;
 import com.aresstack.askai.java8.service.OllamaFeatureActionService;
 import com.aresstack.askai.java8.service.OllamaService;
@@ -104,7 +105,10 @@ public final class AskAiFrame extends JFrame {
         this.configurationRepository = configurationRepository;
         this.askAiService = askAiService;
         this.model = new AskAiModel(configurationRepository);
-        this.ollamaService = new DefaultOllamaService(model);
+        // R0.3: the VIRTUAL container service is the single source of every model list —
+        // remote Ollama and AskAI's local model runtime aggregated with per-source fault isolation.
+        this.ollamaService = new VirtualOllamaContainerService(model,
+                askAiService.localRuntimeManager());
         this.featureActionService = new OllamaFeatureActionService(model);
         this.speechToTextService = new DefaultSpeechToTextService(configurationRepository);
         this.connectionStatusView = new ConnectionStatusView(new Runnable() {
@@ -205,9 +209,9 @@ public final class AskAiFrame extends JFrame {
 
     /** Load installed model names for the chat model list (blocking; runs off the EDT in the refresh service). */
     private List<String> loadInstalledModelNames() throws Exception {
-        AskAiOllamaClient client = new AskAiOllamaClient(model.getOllamaBaseUrl());
         List<String> names = new ArrayList<String>();
-        for (OllamaModelInfo installed : client.getInstalledModels()) {
+        for (OllamaModelInfo installed
+                : ((VirtualOllamaContainerService) ollamaService).loadInstalledModelsNow()) {
             names.add(installed.getDisplayName());
         }
         return names;
@@ -215,12 +219,13 @@ public final class AskAiFrame extends JFrame {
 
     /** Load only the audio-capable model names (exact {@code audio} capability), same rule as the batch list. */
     private List<String> loadAudioCapableModelNames() throws Exception {
-        AskAiOllamaClient client = new AskAiOllamaClient(model.getOllamaBaseUrl());
+        VirtualOllamaContainerService virtual = (VirtualOllamaContainerService) ollamaService;
         List<String> audioModels = new ArrayList<String>();
-        for (OllamaModelInfo installed : client.getInstalledModels()) {
+        for (OllamaModelInfo installed : virtual.loadInstalledModelsNow()) {
             String name = installed.getDisplayName();
             try {
-                if (AudioCapability.isAudioCapable(client.getModelInfo(name).getCapabilities())) {
+                if (AudioCapability.isAudioCapable(
+                        virtual.loadModelInfoNow(name).getCapabilities())) {
                     audioModels.add(name);
                 }
             } catch (Exception ignored) {
