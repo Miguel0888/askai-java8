@@ -19,11 +19,23 @@ public final class DefaultAgentHostContext implements AgentHostContext {
     private final WorkspaceStateStore stateStore;
     private final PluginPathService pluginPathService;
     private final AgentConversationSink conversationSink;
+    private final java.util.Map<Class<?>, Object> services;
 
     public DefaultAgentHostContext(UiExecutor uiExecutor, ThemeService themeService,
                                    MarkdownViewFactory markdownViewFactory,
                                    NotificationService notificationService, WorkspaceStateStore stateStore,
                                    PluginPathService pluginPathService, AgentConversationSink conversationSink) {
+        this(uiExecutor, themeService, markdownViewFactory, notificationService, stateStore,
+                pluginPathService, conversationSink,
+                java.util.Collections.<Class<?>, Object>emptyMap());
+    }
+
+    /** @param services optional host runtime services by interface type (see AgentHostContext#getService). */
+    public DefaultAgentHostContext(UiExecutor uiExecutor, ThemeService themeService,
+                                   MarkdownViewFactory markdownViewFactory,
+                                   NotificationService notificationService, WorkspaceStateStore stateStore,
+                                   PluginPathService pluginPathService, AgentConversationSink conversationSink,
+                                   java.util.Map<Class<?>, Object> services) {
         this.uiExecutor = uiExecutor;
         this.themeService = themeService;
         this.markdownViewFactory = markdownViewFactory;
@@ -31,6 +43,14 @@ public final class DefaultAgentHostContext implements AgentHostContext {
         this.stateStore = stateStore;
         this.pluginPathService = pluginPathService;
         this.conversationSink = conversationSink;
+        this.services = new java.util.LinkedHashMap<Class<?>, Object>(services);
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public <T> T getService(Class<T> type) {
+        Object service = services.get(type);
+        return service == null ? null : (T) service;
     }
 
     public UiExecutor getUiExecutor() {

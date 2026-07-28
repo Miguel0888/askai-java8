@@ -59,6 +59,8 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     private ResearchSessionHandle handle;
     private boolean started;
     private boolean disposed;
+    private final com.aresstack.askai.plugin.api.service.WorkspaceStateStore hostStateStore;
+    private final Runnable closeHook; // productive mode: closes the session's endpoint/process resources
 
     /**
      * @param ownedScheduler a scheduler this session must shut down on {@link #close()} (the production path),
@@ -66,11 +68,25 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
      */
     public ResearchAgentSession(ResearchSessionBackend backend, ResearchScheduler ownedScheduler,
                                 AgentHostContext host, String sessionId, String projectId) {
+        this(backend, ownedScheduler, host, sessionId, projectId, null);
+    }
+
+    /** @param closeHook invoked LAST on {@link #close()} (after backend + scheduler); may be {@code null}. */
+    public ResearchAgentSession(ResearchSessionBackend backend, ResearchScheduler ownedScheduler,
+                                AgentHostContext host, String sessionId, String projectId,
+                                Runnable closeHook) {
         this.backend = backend;
         this.ownedScheduler = ownedScheduler;
         this.sink = host.getConversationSink();
         this.uiExecutor = host.getUiExecutor();
+        this.hostStateStore = host.getStateStore();
+        this.closeHook = closeHook;
         this.request = new ResearchProjectRequest(sessionId, projectId, "Research project");
+    }
+
+    /** Plugin-internal: the host's persisted state store (used by the runtime settings view). */
+    public com.aresstack.askai.plugin.api.service.WorkspaceStateStore getHostStateStore() {
+        return hostStateStore;
     }
 
     // ------------------------------------------------------------------ AgentSession lifecycle
@@ -103,6 +119,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         }
         if (ownedScheduler != null) {
             ownedScheduler.shutdown();
+        }
+        if (closeHook != null) {
+            closeHook.run(); // productive resources: endpoints → sidecar client → sidecar process
         }
     }
 

@@ -71,3 +71,11 @@ The clickdummy backend gained a full productive sibling; nothing user-visible wa
   plugin and are host-provided.
 
 See docs/research-mvp.md for the full chain, prerequisites and the manual acceptance checklist.
+
+### Commit 40 — productive mode configurable from AskAI
+
+`ResearchRuntimeSettings` (typed, persisted via the workspace state store) + the **Runtime** view in the
+Research workspace select FAKE vs. productive ACP; `ResearchAgentSessionFactory` switches strictly on the
+validated mode, and AskAI now provides the host runtime services (lazy Solon MCP runtime, MCP tool-client
+factory, ACP connector) through the new neutral `AgentHostContext.getService` lookup. MCP-P007 resolved;
+chat-driven phase transitions in the productive mode remain open as MCP-P008.

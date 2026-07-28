@@ -34,4 +34,14 @@ public interface AgentHostContext {
 
     /** The shared chat transcript the session pushes its activity into. */
     AgentConversationSink getConversationSink();
+
+    /**
+     * Optional, host-provided runtime services looked up by their (neutral) interface type — e.g. the MCP
+     * server registry or the ACP agent connector for the productive research backend. Hosts that do not
+     * provide a service return {@code null}; plugins must fail VISIBLY when a required service is absent,
+     * never fall back silently.
+     */
+    default <T> T getService(Class<T> type) {
+        return null;
+    }
 }

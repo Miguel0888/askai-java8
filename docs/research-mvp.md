@@ -48,6 +48,24 @@ sidecar process (which ends the GraalJS driver child and Chromium). All closes a
   the state unchanged until the host reacts, ordered teardown, failed switch keeps the old
   generation usable, successful switch locks it.
 
+## Enabling the productive mode in AskAI (Commit 40)
+
+Open the Research workspace → artifact tab **Runtime**:
+
+1. Set *Backend mode* to `Productive (ACP + browser sidecar)` (the default `Fake` is the labelled
+   clickdummy/development mode).
+2. Fill in the paths: Java 8 launcher + `research-agent-runtime-*-all.jar`, Java 21 launcher +
+   `browser-mcp-sidecar-*.jar` (with its `lib/` directory next to it), browser channel, optionally a
+   search URL containing `{query}`.
+3. **Check requirements** validates every item individually off the EDT and briefly starts the sidecar
+   to obtain its real readiness status (READY / INCOMPATIBLE_DRIVER / DRIVER_BUNDLE_NOT_FOUND /
+   BROWSER_NOT_INSTALLED / BROWSER_START_FAILED).
+4. **Save** persists through the typed `ResearchRuntimeSettings` model; saving an unusable productive
+   configuration is rejected with the concrete problem list.
+5. The NEXT research session uses the configured backend. A productive start failure is a visible
+   error — there is no silent fallback to the fake backend. (Driving phase transitions from the chat
+   UI is the follow-up MCP-P008.)
+
 ## Manual acceptance checklist
 
 Environment: Windows, Java 8 + Java 21 installed, Chrome installed, jars built.
@@ -85,7 +103,8 @@ Open problem ids and why they do not block the MVP scope:
 | Id       | Status        | Restriction                                                                    |
 |----------|---------------|--------------------------------------------------------------------------------|
 | MCP-P006 | DEFERRED/LOW  | Search index is the in-memory adapter; sources themselves are file-persisted and the index is rebuildable — Lucene is an additive adapter behind the same port. |
-| MCP-P007 | OPEN/MEDIUM   | The UI configuration surface for enabling the productive mode is missing; the productive wiring itself is complete and E2E-tested. FAKE remains the visible clickdummy default, not a silent fallback. |
+| MCP-P007 | RESOLVED (40) | The productive mode is selectable, validated and startable from AskAI (Runtime settings view + typed settings + strict factory switch). |
+| MCP-P008 | OPEN/MEDIUM   | Chat commands do not yet drive the productive host state machine (programmatic dispatch works and is E2E-proven); phase transitions from the chat UI land in a follow-up slice. |
 | RA-P001  | WORKAROUND    | PF4J refresh quirk documented in plugin-lifecycle docs; hardened stop/unload path in place. |
 | RA-P002  | WORKAROUND    | ACP runtime integration works. Restart restoration remains incomplete until RA-P002 is resolved (memento store wiring). |
 

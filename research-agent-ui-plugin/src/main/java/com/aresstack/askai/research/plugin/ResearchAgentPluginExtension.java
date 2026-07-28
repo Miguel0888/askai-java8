@@ -53,6 +53,7 @@ public final class ResearchAgentPluginExtension implements AgentPluginExtension 
     public List<ArtifactViewContribution> getArtifactViews() {
         return Arrays.<ArtifactViewContribution>asList(
                 new ResearchSourcesViewContribution(),
-                new ResearchStateViewContribution());
+                new ResearchStateViewContribution(),
+                new com.aresstack.askai.research.host.ResearchRuntimeSettingsViewContribution());
     }
 }

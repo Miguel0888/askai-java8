@@ -19,6 +19,7 @@ public final class ResearchArtifacts {
     public static final String TYPE_MARKDOWN = "markdown";
     public static final String TYPE_SOURCES = "research.sources";
     public static final String TYPE_STATE = "research.state";
+    public static final String TYPE_RUNTIME = "research.runtime";
 
     private ResearchArtifacts() {
     }
@@ -33,6 +34,7 @@ public final class ResearchArtifacts {
         list.add(markdown("final", "Final Document", "final.md"));
         list.add(new Artifact("sources", "Sources", TYPE_SOURCES, ""));
         list.add(new Artifact("state", "State", TYPE_STATE, ""));
+        list.add(new Artifact("runtime", "Runtime", TYPE_RUNTIME, ""));
         return Collections.unmodifiableList(list);
     }
 

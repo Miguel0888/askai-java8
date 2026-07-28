@@ -687,8 +687,8 @@ Eigener Slice: Lucene-Adapter (Java-8-taugliche Lucene-Version prüfen) hinter d
 ## MCP-P007 — UI-Konfigurationsfläche für den produktiven Research-Modus noch nicht verdrahtet
 
 **Erkannt in:** Commit 38 (produktives Host-Wiring)
-**Status:** OPEN
-**Schweregrad:** MEDIUM
+**Status:** RESOLVED (Commit 40)
+**Schweregrad:** MEDIUM (historisch)
 **Betroffene Module:** research-agent-ui-plugin (agent), askai-app
 
 ### Erwartung
@@ -714,3 +714,46 @@ Sidecar, echtes Chrome, JS-only-Inhalte, zwei Hosts, Datei-Repository, Generatio
 Eigener Slice: Konfigurationsdialog/Settings-Persistenz für `ResearchRuntimeConfig` + Umschaltung
 `ResearchBackendMode` FAKE→ACP in `ResearchAgentSessionFactory` (inkl. Anzeige des Sidecar-Readiness-
 Status im UI). Bis dahin bleibt der produktive Modus programmatisch/testseitig nutzbar.
+
+
+### Auflösung (Commit 40)
+Typisiertes, persistiertes `ResearchRuntimeSettings`-Modell (WorkspaceStateStore-Keys, keine freien Maps,
+keine System-Properties) + `ResearchRuntimeSettingsPanel` als "Runtime"-View im Research-Workspace:
+Backend-Modus (FAKE klar als Clickdummy-/Entwicklungsmodus gekennzeichnet / Productive ACP), Agent-Jar,
+Java-8-/Java-21-Launcher, Sidecar-Jar, Browser-Channel, Headless, Such-URL. "Check requirements" läuft auf
+einem Hintergrund-Thread (nie EDT, Busy-Anzeige, Ergebnis via SwingUtilities) und meldet jede Voraussetzung
+einzeln — Browser-Status über die echte Sidecar-Probe (READY/INCOMPATIBLE_DRIVER/DRIVER_BUNDLE_NOT_FOUND/
+BROWSER_NOT_INSTALLED/BROWSER_START_FAILED). `ResearchAgentSessionFactory` schaltet ausschließlich anhand
+des validierten Modus (FAKE→Fake-Backend ohne Service-Lookup; ACP→ProductiveResearchBackendFactory über die
+neutralen Host-Services `AgentHostContext.getService(McpServerRegistry/McpToolClientFactory/
+AcpAgentConnector)`, die AskAI jetzt bereitstellt — Solon-MCP-Runtime lazy). Produktive Fehler schlagen
+sichtbar fehl; kein Fallback in beide Richtungen. Verifikation: `ResearchRuntimeModeTest` (6 Tests) +
+environment-gated `ProductiveModeFactorySmokeTest` (echte produktive Session aus persistierten Settings über
+die reale Factory, RESEARCH_MCP_READY im Sink, idempotenter Close). `verifyFatJarExclusions` weiter grün
+(keine Research-Klassen im Fat-Jar; die Solon/ACP-HOST-Runtime gehört bewusst zum Host).
+
+## MCP-P008 — Chat-Kommandos treiben im produktiven Modus die Host-State-Machine noch nicht
+
+**Erkannt in:** Commit 40 (UI-Konfigurationsfläche)
+**Status:** OPEN
+**Schweregrad:** MEDIUM
+**Betroffene Module:** research-agent-ui-plugin (agent/host)
+
+### Erwartung
+Im produktiven Modus führen die Slash-Kommandos/Approval-Buttons der UI dieselben Zustandsübergänge aus wie
+im FAKE-Modus (dort transportiert der Fake-Backend die Kommandos in die State-Machine).
+
+### Beobachtung
+Die produktive Session besitzt ihre autoritative State-Machine in `ProductiveResearchSessionResources`
+(`dispatch()` inkl. Tool-Refresh — programmatisch voll funktionsfähig, im 38-E2E bewiesen). Der
+`AcpResearchSessionBackend` ist bewusst ein reiner Adapter (`canExecute=false`), und die Brücke
+UI-Session → `resources.dispatch(...)` ist noch nicht verdrahtet. Folge: Der produktive Modus lässt sich aus
+AskAI wählen, validieren und starten (MCP-P007), aber Phasenübergänge (z. B. bis RESEARCH/running, Approve)
+sind aus der Chat-UI noch nicht auslösbar; der Agent kann daher aus der UI heraus noch keine Sources
+akzeptieren.
+
+### Spätere Entscheidung
+Eigener Slice: ResearchAgentSession erhält optional die Session-Resources und routet die typisierten
+Kontrollmethoden (approve/requestChanges/pause/resume/cancel + Phasenkommandos) auf `dispatch()`; Events
+SESSION_STATE_CHANGED aus Transitionen in den Event-Strom spiegeln (Memento), damit State-View und
+Tool-Refresh synchron bleiben. Eng verwandt mit RA-P002 (Restore).

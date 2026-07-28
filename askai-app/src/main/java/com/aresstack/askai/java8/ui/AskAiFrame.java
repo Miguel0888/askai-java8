@@ -286,6 +286,15 @@ public final class AskAiFrame extends JFrame {
                         return agentPluginService.getSelectableAgentExtension(agentId);
                     }
                 };
+        // Host-owned runtime services for the productive research mode (lazy Solon MCP runtime,
+        // MCP tool-client factory, ACP connector). Plugins look them up via AgentHostContext.getService.
+        final com.aresstack.askai.java8.plugin.host.AgentRuntimeServices agentRuntimeServices =
+                new com.aresstack.askai.java8.plugin.host.AgentRuntimeServices();
+        Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
+            public void run() {
+                agentRuntimeServices.shutdown();
+            }
+        }, "agent-runtime-services-shutdown"));
         com.aresstack.askai.plugin.host.AgentSessionCoordinator.AgentHostContextProvider agentHostProvider =
                 new com.aresstack.askai.plugin.host.AgentSessionCoordinator.AgentHostContextProvider() {
                     public com.aresstack.askai.plugin.api.agent.AgentHostContext create(
@@ -298,7 +307,8 @@ public final class AskAiFrame extends JFrame {
                                 new com.aresstack.askai.java8.plugin.host.ApplicationStateWorkspaceStateStore(
                                         applicationState, "agent." + agentId + "."),
                                 new com.aresstack.askai.plugin.host.ScopedPluginPathService(agentDataDir, agentId),
-                                agentSink);
+                                agentSink,
+                                agentRuntimeServices.asServiceMap());
                     }
                 };
         final com.aresstack.askai.plugin.host.AgentSessionCoordinator agentCoordinator =

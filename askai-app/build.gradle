@@ -7,6 +7,13 @@ dependencies {
     // PF4J workspace-plugin host (brings agent-workspace-api + agent-plugin-pf4j-api + pf4j transitively).
     // The research plugin is NOT a dependency and never enters the fat jar.
     implementation project(':agent-plugin-host')
+    // Host runtime services for the PRODUCTIVE research mode (Commit 40): the host is the intended owner
+    // of the Solon MCP server runtime and the ACP connector; plugins reach them only through the neutral
+    // AgentHostContext.getService lookup. Research classes themselves stay out of the fat jar.
+    implementation project(':mcp-runtime-api')
+    implementation project(':mcp-solon-runtime')
+    implementation project(':acp-client-api')
+    implementation project(':acp-solon-client')
     implementation 'com.aresstack:win-proxy-java:0.1.0-beta.4'
     // HTML parsing for the Ollama Library scraper (Jerry/Lagarto). Java 8 bytecode, pulls
     // jodd-core transitively; only used to parse ollama.com HTML, the HTTP fetch goes through
