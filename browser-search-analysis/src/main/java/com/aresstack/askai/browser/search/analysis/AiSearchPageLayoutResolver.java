@@ -4,7 +4,11 @@ import com.aresstack.askai.browser.search.AiLayoutResolverSettings;
 import com.aresstack.askai.browser.search.AiRetryPolicy;
 import com.aresstack.askai.browser.search.SearchDiagnosticsSettings;
 import com.aresstack.askai.browser.search.SearchResultExtractionSettings;
-import com.aresstack.askai.browser.search.inference.CancellationSignal;
+import com.aresstack.askai.browser.search.inference.InferenceBudgetDecision;
+import com.aresstack.askai.browser.search.inference.InferenceBudgetGate;
+import com.aresstack.askai.browser.search.inference.InferenceBudgetRequest;
+import com.aresstack.askai.browser.search.inference.RetryDelay;
+import com.aresstack.askai.browser.search.inference.RetryDelayResult;
 import com.aresstack.askai.browser.search.inference.StructuredInferencePort;
 import com.aresstack.askai.browser.search.inference.StructuredInferenceRequest;
 import com.aresstack.askai.browser.search.inference.StructuredInferenceResult;
@@ -29,23 +33,37 @@ import java.util.List;
  * {@link AiRetryPolicy} and the cancellation signal — repairs a rejected answer by handing the model
  * its previous response and the concrete problems. It knows NO concrete model library; the adapter is
  * injected. Absent an adapter (or when the port answers UNAVAILABLE) it returns a typed
- * {@code AI_UNAVAILABLE} — never a silent fake success. A4c deepens the in-loop gate from parse-only
- * to full structural validation.
+ * {@code AI_UNAVAILABLE} — never a silent fake success. Every inference (initial and repair) passes
+ * a neutral {@link InferenceBudgetGate} first, and repair backoff runs through an injectable
+ * {@link RetryDelay} rather than a hardcoded sleep.
  */
 public final class AiSearchPageLayoutResolver implements SearchPageLayoutResolver {
 
-    /** Absolute ceiling on attempts regardless of settings — no unbounded retry path exists. */
-    static final int HARD_ATTEMPT_CEILING = 6;
+    /**
+     * The single hard bound on attempts is the A2-validated {@code AiRetryPolicy.maximumAttempts}
+     * range (1..10); a valid configuration is never silently reduced below its own maximum.
+     */
+    static final int MAX_ATTEMPTS_HARD_LIMIT = 10;
 
     private final StructuredInferencePort port;
     private final SearchPageLayoutPromptFactory promptFactory = new SearchPageLayoutPromptFactory();
     private final SearchPageLayoutDecisionParser parser = new SearchPageLayoutDecisionParser();
     private final SearchPageLayoutDecisionValidator validator;
+    private final InferenceBudgetGate budgetGate;
+    private final RetryDelay retryDelay;
 
     public AiSearchPageLayoutResolver(StructuredInferencePort port,
                                       SearchResultExtractionSettings extraction) {
+        this(port, extraction, InferenceBudgetGate.ALLOW_ALL, RetryDelay.IMMEDIATE);
+    }
+
+    public AiSearchPageLayoutResolver(StructuredInferencePort port,
+                                      SearchResultExtractionSettings extraction,
+                                      InferenceBudgetGate budgetGate, RetryDelay retryDelay) {
         this.port = port;
         this.validator = new SearchPageLayoutDecisionValidator(extraction);
+        this.budgetGate = budgetGate == null ? InferenceBudgetGate.ALLOW_ALL : budgetGate;
+        this.retryDelay = retryDelay == null ? RetryDelay.IMMEDIATE : retryDelay;
     }
 
     public SearchPageLayoutResolverResult resolve(SearchPageLayoutResolutionRequest request) {
@@ -65,7 +83,7 @@ public final class AiSearchPageLayoutResolver implements SearchPageLayoutResolve
         }
 
         AiRetryPolicy policy = ai.retryPolicy;
-        int maxAttempts = clamp(policy.maximumAttempts, 1, HARD_ATTEMPT_CEILING);
+        int maxAttempts = clamp(policy.maximumAttempts, 1, MAX_ATTEMPTS_HARD_LIMIT);
         List<SearchPageAnalysisAttempt> attempts = new ArrayList<SearchPageAnalysisAttempt>();
         String previousResponse = "";
         List<String> previousViolations = Collections.emptyList();
@@ -76,10 +94,21 @@ public final class AiSearchPageLayoutResolver implements SearchPageLayoutResolve
                 return result(SearchPageLayoutResolverOutcome.CANCELLED, snapshotId, null, attempts,
                         "cancelled before attempt " + attemptNumber);
             }
-            backoffBeforeRetry(policy, attemptNumber, request.cancellationSignal);
-            if (request.cancellationSignal.isCancelled()) {
+            if (attemptNumber > 1 && retryDelay.await(backoffMillis(policy, attemptNumber),
+                    request.cancellationSignal) == RetryDelayResult.CANCELLED) {
                 return result(SearchPageLayoutResolverOutcome.CANCELLED, snapshotId, null, attempts,
                         "cancelled during backoff before attempt " + attemptNumber);
+            }
+
+            InferenceBudgetDecision budget = budgetGate.beforeInference(new InferenceBudgetRequest(
+                    snapshotId, attemptNumber, attemptNumber > 1, ai.maximumOutputTokens));
+            if (budget != InferenceBudgetDecision.ALLOWED) {
+                if (budget == InferenceBudgetDecision.CANCELLED) {
+                    return result(SearchPageLayoutResolverOutcome.CANCELLED, snapshotId, null,
+                            attempts, "cancelled by budget gate before attempt " + attemptNumber);
+                }
+                return result(SearchPageLayoutResolverOutcome.AI_UNAVAILABLE, snapshotId, null,
+                        attempts, "inference budget " + budget + " before attempt " + attemptNumber);
             }
 
             String userPrompt = promptFactory.userPrompt(artifact, ai);
@@ -194,28 +223,11 @@ public final class AiSearchPageLayoutResolver implements SearchPageLayoutResolve
         }
     }
 
-    private void backoffBeforeRetry(AiRetryPolicy policy, int attemptNumber,
-                                    CancellationSignal cancellation) {
-        if (attemptNumber <= 1) {
-            return;
-        }
+    /** The exponential backoff (capped) for the given retry attempt — waiting is delegated. */
+    private static long backoffMillis(AiRetryPolicy policy, int attemptNumber) {
         long backoff = (long) (policy.initialBackoffMillis
                 * Math.pow(policy.backoffMultiplier, attemptNumber - 2));
-        backoff = Math.min(backoff, policy.maximumBackoffMillis);
-        if (backoff <= 0) {
-            return;
-        }
-        long deadline = backoff;
-        long slept = 0;
-        while (slept < deadline && !cancellation.isCancelled()) {
-            try {
-                Thread.sleep(Math.min(50, deadline - slept));
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return;
-            }
-            slept += 50;
-        }
+        return Math.max(0, Math.min(backoff, policy.maximumBackoffMillis));
     }
 
     private String storedRaw(SearchDiagnosticsSettings diagnostics, String rawText) {
