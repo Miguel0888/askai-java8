@@ -36,6 +36,13 @@ public interface AgentConversationSink {
     /** Render a blocked/failed condition as a readable status bubble (public message only). */
     void showProblem(String problemId, String publicMessage);
 
+    /**
+     * One technical diagnostic line for the host's collapsible "Technical details" area — NEVER rendered
+     * in the visible chat or inside a card. Hosts without such an area may drop the line.
+     */
+    default void appendTechnicalLog(String line) {
+    }
+
     /** One typed action offered on an interactive card (stable id + localized label). */
     final class ActionOption {
         private final String id;

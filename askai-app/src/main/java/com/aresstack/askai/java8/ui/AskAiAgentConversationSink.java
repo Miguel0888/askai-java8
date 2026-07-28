@@ -14,16 +14,30 @@ import java.util.Map;
  */
 final class AskAiAgentConversationSink implements AgentConversationSink {
 
+    /** Receives one technical diagnostic line for the chat's collapsed "Technical details" area. */
+    interface TechnicalLog {
+        void line(String line);
+    }
+
     private final ChatTranscript transcript;
     private final Runnable afterUpdate;
+    private final TechnicalLog technicalLog;
     private final Map<String, BubbleTranscriptPanel.ThinkingHandle> thinking =
             new HashMap<String, BubbleTranscriptPanel.ThinkingHandle>();
     private final Map<String, BubbleTranscriptPanel.AgentActivityHandle> tools =
             new HashMap<String, BubbleTranscriptPanel.AgentActivityHandle>();
 
-    AskAiAgentConversationSink(ChatTranscript transcript, Runnable afterUpdate) {
+    AskAiAgentConversationSink(ChatTranscript transcript, Runnable afterUpdate, TechnicalLog technicalLog) {
         this.transcript = transcript;
         this.afterUpdate = afterUpdate;
+        this.technicalLog = technicalLog;
+    }
+
+    @Override
+    public void appendTechnicalLog(String line) {
+        if (technicalLog != null && line != null && !line.isEmpty()) {
+            technicalLog.line(line);
+        }
     }
 
     @Override

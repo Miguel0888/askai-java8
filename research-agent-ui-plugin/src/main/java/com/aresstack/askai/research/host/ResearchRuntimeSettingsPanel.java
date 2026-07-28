@@ -70,6 +70,10 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         form.add(pathRow("Browser sidecar jar:", sidecarJar));
         form.add(row("Browser channel:", browserChannel));
         form.add(row("", headless));
+        // Transparency does not depend on a visible browser window: the chat shows the visited sites.
+        JLabel headlessHint = new JLabel(com.aresstack.askai.research.agent.ResearchPlaybook.headlessHint());
+        headlessHint.setEnabled(false);
+        form.add(row("", headlessHint));
         form.add(row("Search URL ({query}):", searchUrl));
         form.add(row("", allowPrivate));
         JPanel buttons = new JPanel();

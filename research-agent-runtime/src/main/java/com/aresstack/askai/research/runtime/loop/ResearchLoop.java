@@ -87,8 +87,9 @@ public final class ResearchLoop {
             if (gate != null) {
                 return gate;
             }
-            listener.progress(progress, "SEARCHING", null);
-            String results = callBrowser("web_search", args("query", join(terms)));
+            String query = join(terms);
+            listener.progress(progress, ResearchRunActivity.searching(query));
+            String results = callBrowser("web_search", args("query", query));
             frontier.addAll(extractUrls(results));
         } catch (ToolInvoker.EndpointUnavailable ex) {
             return ResearchStopReason.MCP_UNAVAILABLE;
@@ -128,17 +129,21 @@ public final class ResearchLoop {
                     // A redirect: the requested address is marked visited too (but never counted).
                     progress.noteVisitedAlias(canonical);
                 }
-                listener.progress(progress, "OPENING_PAGE", effectiveUrl);
+                String finalHost = hostOf(effectiveUrl);
+                String pageTitle = titleOf(page);
+                listener.progress(progress, ResearchRunActivity.readingPage(effectiveUrl, finalHost, pageTitle));
                 String captureId = field(page, "capture_id");
                 String pageText = page.toLowerCase(Locale.ROOT);
 
                 if (matches(pageText, terms)) {
-                    ResearchStopReason g3 = acceptAndRecordFinding(captureId, page, terms);
+                    ResearchStopReason g3 = acceptAndRecordFinding(captureId, page, terms,
+                            effectiveUrl, finalHost, pageTitle);
                     if (g3 != null) {
                         return g3;
                     }
                 } else {
                     listener.status("skipped irrelevant page: " + url);
+                    listener.progress(progress, ResearchRunActivity.pageSkipped(effectiveUrl, finalHost, pageTitle));
                 }
 
                 // Follow only links whose text hints at the task (content-driven, not order-driven).
@@ -167,7 +172,8 @@ public final class ResearchLoop {
     }
 
     /** Accept the capture and store one finding — via MCP only; duplicates are NOT errors. */
-    private ResearchStopReason acceptAndRecordFinding(String captureId, String page, Set<String> terms)
+    private ResearchStopReason acceptAndRecordFinding(String captureId, String page, Set<String> terms,
+                                                      String pageUrl, String pageHost, String pageTitle)
             throws ToolInvoker.EndpointUnavailable {
         if (captureId == null) {
             return null;
@@ -189,7 +195,7 @@ public final class ResearchLoop {
             }
             progress.sourceAccepted();
             listener.status("accepted " + sourceId + (duplicate ? " (duplicate content)" : ""));
-            listener.progress(progress, "RECORDING_SOURCE", null);
+            listener.progress(progress, ResearchRunActivity.sourceAccepted(pageUrl, pageHost, pageTitle));
             // One finding per NEW claim; a duplicate source never repeats the same claim unchecked.
             String claim = "Evidence for [" + join(terms) + "] in \"" + field(page, "title") + "\"";
             if (!duplicate && claimedSourceIds.add(claim)) {
@@ -351,6 +357,29 @@ public final class ResearchLoop {
         }
         String url = rest.substring(0, end).trim();
         return url.isEmpty() ? null : url;
+    }
+
+    /**
+     * The page title out of a {@code web_open} result. The bridge appends {@code title="…"} on the URL line
+     * (parsed as the full quoted value, not just the first word), the raw sidecar reports a "TITLE: …" line.
+     */
+    static String titleOf(String page) {
+        if (page == null) {
+            return "";
+        }
+        int i = page.indexOf("title=\"");
+        if (i >= 0) {
+            int end = page.indexOf('"', i + "title=\"".length());
+            if (end > 0) {
+                return page.substring(i + "title=\"".length(), end);
+            }
+        }
+        for (String line : page.split("\n")) {
+            if (line.startsWith("TITLE: ")) {
+                return line.substring("TITLE: ".length()).trim();
+            }
+        }
+        return "";
     }
 
     static String hostOf(String url) {

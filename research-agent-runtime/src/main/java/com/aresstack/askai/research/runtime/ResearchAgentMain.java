@@ -202,10 +202,10 @@ public final class ResearchAgentMain {
 
                                 public void progress(
                                         com.aresstack.askai.research.runtime.loop.ResearchRunProgress p,
-                                        String activityToken, String url) {
+                                        com.aresstack.askai.research.runtime.loop.ResearchRunActivity activity) {
                                     // ONE in-place progress card per run, updated structurally.
                                     ctx.sendMessage(com.aresstack.askai.research.runtime.loop
-                                            .ResearchRunWire.progress(p, budget, activityToken, url));
+                                            .ResearchRunWire.progress(p, budget, activity));
                                 }
 
                                 public void phaseReady(

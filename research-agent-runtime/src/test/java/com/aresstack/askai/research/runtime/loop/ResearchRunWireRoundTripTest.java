@@ -26,7 +26,8 @@ public class ResearchRunWireRoundTripTest {
         progress.toolCall();
         progress.toolCall();
         String line = ResearchRunWire.progress(progress, new ResearchRunBudget(30, 20, 8, 3, 600_000, 3, 2),
-                "OPENING_PAGE", "https://example-a.org/article");
+                ResearchRunActivity.readingPage("https://example-a.org/article", "example-a.org",
+                        "Ein Artikel über PF4J & Isolation"));
 
         assertTrue(com.aresstack.askai.research.acp.ResearchRunWire.isWireLine(line));
         assertEquals("progress", com.aresstack.askai.research.acp.ResearchRunWire.typeOf(line));
@@ -37,8 +38,26 @@ public class ResearchRunWireRoundTripTest {
         assertEquals(2, com.aresstack.askai.research.acp.ResearchRunWire.intField(f, "tools"));
         assertEquals(3, com.aresstack.askai.research.acp.ResearchRunWire.intField(f, "min_sources"));
         assertEquals(2, com.aresstack.askai.research.acp.ResearchRunWire.intField(f, "min_hosts"));
-        assertEquals("OPENING_PAGE", f.get("activity"));
+        assertEquals("READING_PAGE", f.get("activity"));
         assertEquals("https://example-a.org/article", f.get("url"));
+        // Free-text fields travel URL-encoded (never a space on the wire) and decode losslessly.
+        assertEquals("example-a.org",
+                com.aresstack.askai.research.acp.ResearchRunWire.decodedField(f, "host"));
+        assertEquals("Ein Artikel über PF4J & Isolation",
+                com.aresstack.askai.research.acp.ResearchRunWire.decodedField(f, "title"));
+    }
+
+    @Test
+    public void searchingProgressCarriesTheDecodableQuery() {
+        ResearchRunProgress progress = new ResearchRunProgress();
+        String line = ResearchRunWire.progress(progress, ResearchRunBudget.defaults(),
+                ResearchRunActivity.searching("pf4j plugin isolation updates"));
+        Map<String, String> f = com.aresstack.askai.research.acp.ResearchRunWire.fields(line);
+        assertEquals("SEARCHING", f.get("activity"));
+        assertEquals("pf4j plugin isolation updates",
+                com.aresstack.askai.research.acp.ResearchRunWire.decodedField(f, "query"));
+        assertEquals("a missing field decodes to the empty string", "",
+                com.aresstack.askai.research.acp.ResearchRunWire.decodedField(f, "title"));
     }
 
     @Test

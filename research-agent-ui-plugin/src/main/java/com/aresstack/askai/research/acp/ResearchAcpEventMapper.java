@@ -62,7 +62,11 @@ public final class ResearchAcpEventMapper {
                             ResearchRunWire.intField(f, "sources"),
                             ResearchRunWire.intField(f, "hosts"),
                             ResearchRunWire.intField(f, "tools"),
-                            f.get("activity"), f.get("url")));
+                            f.get("activity"),
+                            ResearchRunWire.decodedField(f, "query"),
+                            f.get("url"),
+                            ResearchRunWire.decodedField(f, "host"),
+                            ResearchRunWire.decodedField(f, "title")));
         }
         if (ResearchRunWire.TYPE_OUTCOME.equals(type)) {
             java.util.Map<String, String> f = ResearchRunWire.fields(text);

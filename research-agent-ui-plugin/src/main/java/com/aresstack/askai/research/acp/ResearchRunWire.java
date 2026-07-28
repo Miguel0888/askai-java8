@@ -55,6 +55,22 @@ public final class ResearchRunWire {
         return fields;
     }
 
+    /**
+     * A free-text field (search query, page title) that traveled URL-encoded so it never contains spaces
+     * on the wire; returns the decoded text or {@code ""}.
+     */
+    public static String decodedField(Map<String, String> fields, String key) {
+        String value = fields.get(key);
+        if (value == null || value.isEmpty()) {
+            return "";
+        }
+        try {
+            return java.net.URLDecoder.decode(value, "UTF-8");
+        } catch (Exception ex) {
+            return value; // a malformed encoding degrades to the raw token, never crashes the mapper
+        }
+    }
+
     public static int intField(Map<String, String> fields, String key) {
         try {
             return Integer.parseInt(fields.get(key));

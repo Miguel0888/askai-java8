@@ -257,6 +257,18 @@ public class ResearchRuntimeModeTest {
         assertEquals("http://s/{query}", fromPanel.getSearchUrlTemplate());
     }
 
+    @Test
+    public void browserChannelFallsBackToTheInstalledBrowserOnly() {
+        // The configured channel wins whenever its browser exists.
+        assertEquals("chrome", ResearchRuntimeDefaults.pickChannel("chrome", true, true, "msedge"));
+        assertEquals("msedge", ResearchRuntimeDefaults.pickChannel("msedge", true, false, "chrome"));
+        // A provably absent browser falls back to the installed alternative (Chrome uninstalled → Edge).
+        assertEquals("msedge", ResearchRuntimeDefaults.pickChannel("chrome", false, true, "msedge"));
+        assertEquals("chrome", ResearchRuntimeDefaults.pickChannel("msedge", false, true, "chrome"));
+        // Neither installed: keep the configured channel so validation reports it readably.
+        assertEquals("chrome", ResearchRuntimeDefaults.pickChannel("chrome", false, false, "msedge"));
+    }
+
     private static File touch(File dir, String name) throws Exception {
         File file = new File(dir, name);
         assertTrue(file.createNewFile() || file.isFile());

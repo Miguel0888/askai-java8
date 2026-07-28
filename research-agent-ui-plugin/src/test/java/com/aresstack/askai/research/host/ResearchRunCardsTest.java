@@ -56,6 +56,12 @@ public class ResearchRunCardsTest {
         final List<String> cardMarkdowns = new ArrayList<String>();
         final List<List<ActionOption>> cardOptions = new ArrayList<List<ActionOption>>();
         final List<ActionHandler> cardHandlers = new ArrayList<ActionHandler>();
+        final List<String> technicalLog = new ArrayList<String>();
+
+        @Override
+        public void appendTechnicalLog(String line) {
+            technicalLog.add(line);
+        }
 
         public void appendUserMessage(String messageId, String markdown) {
         }
@@ -240,22 +246,84 @@ public class ResearchRunCardsTest {
 
         fx.event(ResearchBackendEvent.builder(ResearchBackendEventType.RUN_PROGRESS)
                 .activity("research-run-p1", null, "", "")
-                .runProgress(new ResearchRunProgressInfo("p1", 1, 0, 1, 2, "OPENING_PAGE",
+                .runProgress(new ResearchRunProgressInfo("p1", 1, 0, 1, 2, "READING_PAGE",
                         "https://example-a.org/x")));
         fx.event(ResearchBackendEvent.builder(ResearchBackendEventType.RUN_LOG)
                 .activity("research-run-p1", null, "", "")
                 .text("accepted source-3"));
         fx.event(ResearchBackendEvent.builder(ResearchBackendEventType.RUN_PROGRESS)
                 .activity("research-run-p1", null, "", "")
-                .runProgress(new ResearchRunProgressInfo("p1", 6, 4, 2, 9, "OPENING_PAGE", "")));
+                .runProgress(new ResearchRunProgressInfo("p1", 6, 4, 2, 9, "READING_PAGE", "")));
 
         assertEquals("exactly ONE progress card is started", 1, fx.sink.startedActivities.size());
-        assertTrue("later progress updates the SAME card", fx.sink.updatedActivities.size() >= 2);
+        assertTrue("later progress updates the SAME card", fx.sink.updatedActivities.size() >= 1);
         assertEquals("no new chat bubbles for pages/sources/logs",
                 bubblesBefore, fx.sink.assistantMessages.size());
         String lastBody = fx.sink.activityBodies.get(fx.sink.activityBodies.size() - 1);
         assertTrue("counters are readable", lastBody.contains("6 pages checked"));
-        assertTrue("technical log lives INSIDE the card details", lastBody.contains("accepted source-3"));
+        assertFalse("raw log lines never clutter the visible card", lastBody.contains("source-3"));
+        assertTrue("technical log goes to the host's Technical details area",
+                fx.sink.technicalLog.contains("accepted source-3"));
+    }
+
+    @Test
+    public void progressCardShowsQueryFinalHostTitleAndABoundedHistory() {
+        Fx fx = new Fx();
+        fx.reachRunningResearch();
+
+        fx.event(ResearchBackendEvent.builder(ResearchBackendEventType.RUN_PROGRESS)
+                .activity("research-run-p1", null, "", "")
+                .runProgress(new ResearchRunProgressInfo("p1", 0, 0, 0, 1, "SEARCHING",
+                        "pf4j plugin isolation", "", "", "")));
+        String body = fx.sink.activityBodies.get(fx.sink.activityBodies.size() - 1);
+        assertTrue("the actually used search query is visible", body.contains("Searching the web for"));
+        assertTrue(body.contains("pf4j plugin isolation"));
+
+        fx.event(ResearchBackendEvent.builder(ResearchBackendEventType.RUN_PROGRESS)
+                .activity("research-run-p1", null, "", "")
+                .runProgress(new ResearchRunProgressInfo("p1", 1, 0, 1, 2, "READING_PAGE", "",
+                        "https://pf4j.org/doc/getting-started.html", "pf4j.org",
+                        "PF4J – Plugin Framework for Java")));
+        body = fx.sink.activityBodies.get(fx.sink.activityBodies.size() - 1);
+        assertTrue("currentUrl context is no longer ignored: the final host is shown",
+                body.contains("Currently open"));
+        assertTrue(body.contains("pf4j.org"));
+        assertTrue("the page title is shown", body.contains("PF4J – Plugin Framework for Java"));
+        assertTrue("the query stays visible while browsing", body.contains("pf4j plugin isolation"));
+        assertFalse("raw URLs never appear in the visible card", body.contains("https://"));
+
+        fx.event(ResearchBackendEvent.builder(ResearchBackendEventType.RUN_PROGRESS)
+                .activity("research-run-p1", null, "", "")
+                .runProgress(new ResearchRunProgressInfo("p1", 1, 1, 1, 3, "SOURCE_ACCEPTED", "",
+                        "https://pf4j.org/doc/getting-started.html", "pf4j.org",
+                        "PF4J – Plugin Framework for Java")));
+        fx.event(ResearchBackendEvent.builder(ResearchBackendEventType.RUN_PROGRESS)
+                .activity("research-run-p1", null, "", "")
+                .runProgress(new ResearchRunProgressInfo("p1", 2, 1, 1, 5, "PAGE_SKIPPED", "",
+                        "https://baeldung.com/x", "baeldung.com", "Some unrelated tutorial")));
+        body = fx.sink.activityBodies.get(fx.sink.activityBodies.size() - 1);
+        assertTrue("an accepted source is visibly recorded", body.contains("✓ pf4j.org"));
+        assertTrue("a skipped page is visibly not relevant", body.contains("– baeldung.com"));
+        assertTrue(body.contains("not relevant"));
+
+        // The visible history stays bounded: after many accepted pages only the last 5 entries remain.
+        for (int i = 1; i <= 7; i++) {
+            fx.event(ResearchBackendEvent.builder(ResearchBackendEventType.RUN_PROGRESS)
+                    .activity("research-run-p1", null, "", "")
+                    .runProgress(new ResearchRunProgressInfo("p1", 2 + i, 1 + i, 1 + i, 5 + i,
+                            "SOURCE_ACCEPTED", "", "https://host" + i + ".example/a",
+                            "host" + i + ".example", "Page " + i)));
+        }
+        body = fx.sink.activityBodies.get(fx.sink.activityBodies.size() - 1);
+        int entries = 0;
+        for (String line : body.split("\n")) {
+            if (line.startsWith("✓ ") || line.startsWith("– ")) {
+                entries++;
+            }
+        }
+        assertEquals("at most five history entries stay visible", 5, entries);
+        assertTrue("the newest entry is present", body.contains("✓ host7.example — Page 7"));
+        assertFalse("the oldest entries dropped out", body.contains("host1.example"));
     }
 
     @Test

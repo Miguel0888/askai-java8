@@ -12,7 +12,9 @@ import java.io.IOException;
  * {@code runWithDevPlugins} / an installer), and a Java 21 launcher is DISCOVERED in the standard JDK
  * install locations by parsing each candidate's {@code release} file ({@code askai.research.java21}
  * overrides discovery). Only EMPTY fields are completed — explicit user values always win, and nothing is
- * ever downloaded or installed.
+ * ever downloaded or installed. The single exception is the browser channel: when the configured browser
+ * is provably absent but the other channel's browser is installed, the installed one is used (otherwise
+ * every session would fail although a working browser exists).
  */
 public final class ResearchRuntimeDefaults {
 
@@ -46,8 +48,60 @@ public final class ResearchRuntimeDefaults {
             sidecarJava = locateJava21();
         }
         return new ResearchRuntimeSettings(settings.getMode(), agentJava, agentJar, sidecarJava,
-                sidecarJar, settings.getBrowserChannel(), settings.isHeadless(),
+                sidecarJar, installedBrowserChannel(settings.getBrowserChannel()), settings.isHeadless(),
                 settings.getSearchUrlTemplate(), settings.isAllowPrivateNetworks());
+    }
+
+    /**
+     * The browser channel to actually use: the configured one when its browser is installed; otherwise the
+     * OTHER channel when that one is provably present (e.g. a machine with Edge but no Chrome keeps
+     * working after Chrome is uninstalled). When neither is found, the configured channel stays and the
+     * sidecar's readiness probe reports BROWSER_NOT_INSTALLED readably. Discovery only — never installs.
+     */
+    public static String installedBrowserChannel(String configured) {
+        String channel = "msedge".equals(configured) ? "msedge" : "chrome";
+        String other = "msedge".equals(channel) ? "chrome" : "msedge";
+        return pickChannel(channel, browserInstalled(channel), browserInstalled(other), other);
+    }
+
+    /** Pure channel decision, separated from the file-system probe for testability. */
+    static String pickChannel(String configured, boolean configuredInstalled, boolean otherInstalled,
+                              String other) {
+        return configuredInstalled || !otherInstalled ? configured : other;
+    }
+
+    /** Standard install locations of the channel's browser (mirrors the sidecar's discovery paths). */
+    static boolean browserInstalled(String channel) {
+        boolean chrome = !"msedge".equals(channel);
+        java.util.List<String> paths = new java.util.ArrayList<String>();
+        String os = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT);
+        if (os.contains("win")) {
+            for (String root : new String[]{System.getenv("ProgramFiles"),
+                    System.getenv("ProgramFiles(x86)"), System.getenv("LOCALAPPDATA")}) {
+                if (root != null) {
+                    paths.add(root + (chrome ? "\\Google\\Chrome\\Application\\chrome.exe"
+                            : "\\Microsoft\\Edge\\Application\\msedge.exe"));
+                }
+            }
+        } else if (os.contains("mac")) {
+            paths.add(chrome ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+                    : "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge");
+        } else {
+            if (chrome) {
+                paths.add("/usr/bin/google-chrome");
+                paths.add("/usr/bin/google-chrome-stable");
+                paths.add("/opt/google/chrome/chrome");
+            } else {
+                paths.add("/usr/bin/microsoft-edge");
+                paths.add("/opt/microsoft/msedge/msedge");
+            }
+        }
+        for (String candidate : paths) {
+            if (new File(candidate).isFile()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** The running JVM's launcher (the host itself is the Java 8 baseline). */

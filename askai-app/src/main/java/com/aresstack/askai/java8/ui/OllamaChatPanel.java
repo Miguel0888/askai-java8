@@ -1566,6 +1566,10 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
                 public void run() {
                     refreshAgentComposerState();
                 }
+            }, new AskAiAgentConversationSink.TechnicalLog() {
+                public void line(String line) {
+                    appendTech(line);
+                }
             });
         }
         return agentConversationSink;

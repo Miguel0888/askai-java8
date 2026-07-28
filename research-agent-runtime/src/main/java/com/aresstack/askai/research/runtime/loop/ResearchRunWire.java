@@ -8,11 +8,15 @@ package com.aresstack.askai.research.runtime.loop;
  * plugin share no module); a round-trip test pins the format.
  *
  * <pre>
- * #RSX1# progress pages=6 sources=4 hosts=2 tools=12 min_sources=3 min_hosts=2 activity=OPENING_PAGE url=…
+ * #RSX1# progress pages=6 sources=4 hosts=2 tools=12 min_sources=3 min_hosts=2 activity=READING_PAGE \
+ *        query=&lt;urlenc&gt; host=pf4j.org title=&lt;urlenc&gt; url=…
  * #RSX1# outcome stop=TOOL_BUDGET_EXHAUSTED pages=10 sources=7 hosts=1 min_sources=3 min_hosts=2 \
  *        recoverable=true limitation=INSUFFICIENT_HOST_DIVERSITY action=CONTINUE_RESEARCH
  * #RSX1# log &lt;free text to end of line&gt;
  * </pre>
+ *
+ * <p>Values must never contain spaces (the parser splits on them): free-text values (search query, page
+ * title) travel URL-encoded and are decoded by the plugin's {@code decodedField}.</p>
  */
 public final class ResearchRunWire {
 
@@ -22,9 +26,9 @@ public final class ResearchRunWire {
     private ResearchRunWire() {
     }
 
-    /** One in-place progress update ({@code activity} is a stable token; {@code url} may be null). */
+    /** One in-place progress update with the structured activity context (query/host/title/url). */
     public static String progress(ResearchRunProgress p, ResearchRunBudget budget,
-                                  String activityToken, String url) {
+                                  ResearchRunActivity activity) {
         StringBuilder sb = new StringBuilder(MARKER).append("progress")
                 .append(" pages=").append(p.getPagesVisited())
                 .append(" sources=").append(p.getAcceptedSources())
@@ -32,11 +36,29 @@ public final class ResearchRunWire {
                 .append(" tools=").append(p.getToolCalls())
                 .append(" min_sources=").append(budget.getMinimumAcceptedSources())
                 .append(" min_hosts=").append(budget.getMinimumDistinctHosts())
-                .append(" activity=").append(activityToken == null ? "WORKING" : activityToken);
-        if (url != null && !url.isEmpty()) {
-            sb.append(" url=").append(url); // URLs never contain spaces; always the LAST field
+                .append(" activity=").append(activity == null || activity.getToken().isEmpty()
+                        ? "WORKING" : activity.getToken());
+        if (activity != null) {
+            appendEncoded(sb, "query", activity.getSearchQuery());
+            appendEncoded(sb, "host", activity.getHost());
+            appendEncoded(sb, "title", activity.getPageTitle());
+            if (!activity.getUrl().isEmpty()) {
+                sb.append(" url=").append(activity.getUrl()); // URLs never contain spaces; always LAST
+            }
         }
         return sb.toString();
+    }
+
+    private static void appendEncoded(StringBuilder sb, String key, String value) {
+        if (value == null || value.isEmpty()) {
+            return;
+        }
+        try {
+            sb.append(' ').append(key).append('=')
+                    .append(java.net.URLEncoder.encode(value, "UTF-8"));
+        } catch (java.io.UnsupportedEncodingException ex) {
+            // UTF-8 is guaranteed on every JVM; if it were missing, the field is simply omitted.
+        }
     }
 
     /** The terminal outcome of one run — the only basis for the user-facing result card. */

@@ -641,27 +641,67 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     private String currentRunActivityId;
     private boolean runCardStarted;
     private com.aresstack.askai.research.backend.ResearchRunProgressInfo lastRunProgress;
-    /** Bounded rolling technical log of the active run (rendered inside the progress card only). */
-    private final java.util.ArrayDeque<String> runTechnicalLog = new java.util.ArrayDeque<String>();
-    private static final int RUN_LOG_LINES = 8;
+    /** The visible activity context of the active run: what is searched, which page is open right now. */
+    private String runSearchQuery = "";
+    private String runCurrentHost = "";
+    private String runCurrentPageTitle = "";
+    /** Bounded, user-readable history of the last processed websites (accepted/skipped) in the card. */
+    private final java.util.ArrayDeque<String> runActivityHistory = new java.util.ArrayDeque<String>();
+    private static final int RUN_HISTORY_LINES = 5;
 
     private void applyRunLog(ResearchBackendEvent event) {
-        rememberRunLogLine(event.getText());
-        // Rendered inside the progress card when it exists; for an unknown activity id the transcript
-        // treats the update as a no-op, but observers (tests, alternative hosts) still see the line.
-        sink.updateToolActivity(event.getActivityId() == null ? "research-turn" : event.getActivityId(),
-                ResearchPlaybook.progressTitle(), progressCardBody());
+        // Full diagnostics belong EXCLUSIVELY to the host's collapsed "Technical details" area — the
+        // visible progress card never carries raw log lines, source ids or redirect URLs.
+        sink.appendTechnicalLog(event.getText());
     }
 
     private void applyRunProgress(ResearchBackendEvent event) {
-        lastRunProgress = event.getRunProgress();
+        com.aresstack.askai.research.backend.ResearchRunProgressInfo info = event.getRunProgress();
         String id = event.getActivityId();
-        if (!runCardStarted || !id.equals(currentRunActivityId)) {
+        boolean newCard = !runCardStarted || !id.equals(currentRunActivityId);
+        if (newCard) {
+            resetRunActivityContext();
+        }
+        lastRunProgress = info;
+        rememberRunActivity(info);
+        if (newCard) {
             currentRunActivityId = id;
             runCardStarted = true;
             sink.startToolActivity(id, ResearchPlaybook.progressTitle(), progressCardBody());
         } else {
             sink.updateToolActivity(id, ResearchPlaybook.progressTitle(), progressCardBody());
+        }
+    }
+
+    private void resetRunActivityContext() {
+        runSearchQuery = "";
+        runCurrentHost = "";
+        runCurrentPageTitle = "";
+        runActivityHistory.clear();
+    }
+
+    /** Fold one progress snapshot into the card's visible activity context + bounded history. */
+    private void rememberRunActivity(com.aresstack.askai.research.backend.ResearchRunProgressInfo info) {
+        if (!info.getSearchQuery().isEmpty()) {
+            runSearchQuery = info.getSearchQuery();
+        }
+        if (!info.getCurrentHost().isEmpty()) {
+            runCurrentHost = info.getCurrentHost();
+            runCurrentPageTitle = info.getCurrentPageTitle();
+        }
+        String token = info.getActivityToken();
+        if ("SOURCE_ACCEPTED".equals(token) && !info.getCurrentHost().isEmpty()) {
+            pushRunHistory(ResearchPlaybook.historyAccepted(info.getCurrentHost(),
+                    info.getCurrentPageTitle()));
+        } else if ("PAGE_SKIPPED".equals(token) && !info.getCurrentHost().isEmpty()) {
+            pushRunHistory(ResearchPlaybook.historySkipped(info.getCurrentHost()));
+        }
+    }
+
+    private void pushRunHistory(String entry) {
+        runActivityHistory.addLast(entry);
+        while (runActivityHistory.size() > RUN_HISTORY_LINES) {
+            runActivityHistory.removeFirst();
         }
     }
 
@@ -674,7 +714,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         }
         currentRunActivityId = null;
         runCardStarted = false;
-        runTechnicalLog.clear();
+        resetRunActivityContext();
         sink.showActionCard("research-outcome-" + outcome.getPromptId(),
                 ResearchPlaybook.outcomeCard(outcome), outcomeActions(outcome),
                 new AgentConversationSink.ActionHandler() {
@@ -684,28 +724,29 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 });
     }
 
-    private void rememberRunLogLine(String line) {
-        if (line == null || line.isEmpty()) {
-            return;
-        }
-        runTechnicalLog.addLast(line);
-        while (runTechnicalLog.size() > RUN_LOG_LINES) {
-            runTechnicalLog.removeFirst();
-        }
-    }
-
-    /** Counters + readable activity, followed by the bounded technical detail lines. */
+    /**
+     * The card's visible body: what is searched, which real website is open right now (final host +
+     * page title), the counters and a bounded history of the last processed websites. No raw URLs,
+     * no source ids, no log lines — those live in the host's collapsed "Technical details" only.
+     */
     private String progressCardBody() {
         StringBuilder sb = new StringBuilder();
         if (lastRunProgress != null) {
+            if (!runSearchQuery.isEmpty()) {
+                sb.append(ResearchPlaybook.progressSearchLine(runSearchQuery)).append("\n\n");
+            }
+            if (!runCurrentHost.isEmpty()) {
+                sb.append(ResearchPlaybook.progressPageLine(runCurrentHost, runCurrentPageTitle))
+                        .append("\n\n");
+            }
             sb.append(ResearchPlaybook.progressLine(lastRunProgress.getPagesVisited(),
                     lastRunProgress.getAcceptedSources(), lastRunProgress.getDistinctHosts(),
                     lastRunProgress.getActivityToken()));
-        }
-        if (!runTechnicalLog.isEmpty()) {
-            sb.append(sb.length() > 0 ? "\n\n" : "");
-            for (String line : runTechnicalLog) {
-                sb.append(line).append('\n');
+            if (!runActivityHistory.isEmpty()) {
+                sb.append("\n\n").append(ResearchPlaybook.recentPagesTitle());
+                for (String entry : runActivityHistory) {
+                    sb.append('\n').append(entry);
+                }
             }
         }
         return sb.toString();

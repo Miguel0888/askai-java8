@@ -159,6 +159,7 @@ public class ResearchLoopTest {
         final AtomicBoolean cancelled = new AtomicBoolean(false);
         final List<String> statuses = new ArrayList<String>();
         final List<String> progressTokens = new ArrayList<String>();
+        final List<ResearchRunActivity> activities = new ArrayList<ResearchRunActivity>();
         final List<ResearchStopReason> ready = new ArrayList<ResearchStopReason>();
 
         ResearchLoop loop(ResearchRunBudget budget) {
@@ -173,9 +174,9 @@ public class ResearchLoopTest {
                             statuses.add(message);
                         }
 
-                        public void progress(ResearchRunProgress progress, String activityToken,
-                                             String url) {
-                            progressTokens.add(activityToken);
+                        public void progress(ResearchRunProgress progress, ResearchRunActivity activity) {
+                            progressTokens.add(activity.getToken());
+                            activities.add(activity);
                         }
 
                         public void phaseReady(ResearchStopReason reason) {
@@ -298,6 +299,52 @@ public class ResearchLoopTest {
         assertEquals("2 sources from 2 hosts meet the 2/2 minimums",
                 ResearchStopReason.SUFFICIENT_EVIDENCE, reason);
         assertFalse("in-place progress updates were emitted", fx.progressTokens.isEmpty());
+    }
+
+    @Test
+    public void progressActivitiesCarryQueryFinalHostTitleAndDispositions() {
+        // Commit 56: the loop reports WHAT it searches and WHICH final page it reads — through redirects.
+        Fx fx = new Fx();
+        fx.browser.searchResults = "1: article https://www.bing.com/ck/a?target-a";
+        fx.browser.redirects.put("https://www.bing.com/ck/a?target-a", "https://example-a.org/article");
+        List<String> links = new ArrayList<String>();
+        links.add("pf4j cooking blog — https://host1.com/b");
+        fx.browser.pages.put("https://example-a.org/article",
+                new Page("PF4J article on site A", "pf4j evidence from site a", links));
+
+        fx.loop(ResearchRunBudget.defaults()).run("pf4j");
+
+        ResearchRunActivity searching = null;
+        ResearchRunActivity reading = null;
+        ResearchRunActivity accepted = null;
+        ResearchRunActivity skipped = null;
+        for (ResearchRunActivity activity : fx.activities) {
+            if (ResearchRunActivity.SEARCHING.equals(activity.getToken()) && searching == null) {
+                searching = activity;
+            }
+            if (ResearchRunActivity.READING_PAGE.equals(activity.getToken()) && reading == null) {
+                reading = activity;
+            }
+            if (ResearchRunActivity.SOURCE_ACCEPTED.equals(activity.getToken()) && accepted == null) {
+                accepted = activity;
+            }
+            if (ResearchRunActivity.PAGE_SKIPPED.equals(activity.getToken()) && skipped == null) {
+                skipped = activity;
+            }
+        }
+        assertTrue("SEARCHING carries the actually used query",
+                searching != null && searching.getSearchQuery().contains("pf4j"));
+        assertTrue("READING_PAGE reports the FINAL post-redirect url",
+                reading != null && reading.getUrl().equals("https://example-a.org/article"));
+        assertEquals("example-a.org", reading.getHost());
+        assertEquals("the full quoted page title, not just its first word",
+                "PF4J article on site A", reading.getPageTitle());
+        assertTrue("an accepted page reports host + title",
+                accepted != null && accepted.getHost().equals("example-a.org")
+                        && accepted.getPageTitle().equals("PF4J article on site A"));
+        assertTrue("the irrelevant page B is visibly skipped with its final host",
+                skipped != null && skipped.getHost().equals("host1.com")
+                        && skipped.getPageTitle().equals("Cooking tips"));
     }
 
     @Test

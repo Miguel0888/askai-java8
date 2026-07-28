@@ -172,7 +172,42 @@ public final class ResearchPlaybook {
 
     /** Title of the single in-place progress card. */
     public static String progressTitle() {
-        return de() ? "Recherche läuft" : "Research in progress";
+        return de() ? "Webrecherche läuft" : "Web research in progress";
+    }
+
+    /** The search the agent is running right now — the query is the user's own request, so it is shown. */
+    public static String progressSearchLine(String query) {
+        return (de() ? "Suche im Web nach:\n" : "Searching the web for:\n") + "„" + query + "“";
+    }
+
+    /** The real target website the browser is on right now (final host + page title, never raw URLs). */
+    public static String progressPageLine(String host, String pageTitle) {
+        String head = de() ? "Gerade geöffnet:\n" : "Currently open:\n";
+        return head + host + (pageTitle == null || pageTitle.isEmpty() ? "" : "\n" + pageTitle);
+    }
+
+    /** Heading of the compact visible activity history (the last few processed websites). */
+    public static String recentPagesTitle() {
+        return de() ? "Zuletzt:" : "Recently:";
+    }
+
+    /** One history entry for a page recorded as a source. */
+    public static String historyAccepted(String host, String pageTitle) {
+        return "✓ " + host + (pageTitle == null || pageTitle.isEmpty() ? "" : " — " + pageTitle);
+    }
+
+    /** One history entry for a page checked and found not relevant. */
+    public static String historySkipped(String host) {
+        return "– " + host + (de() ? " — nicht relevant" : " — not relevant");
+    }
+
+    /** Explains the headless switch: transparency comes from the chat, not from a visible browser window. */
+    public static String headlessHint() {
+        return de()
+                ? "Headless: Das Browserfenster bleibt verborgen. Die besuchten Websites werden "
+                        + "während der Recherche im Chat angezeigt."
+                : "Headless: the browser window stays hidden. The websites visited are shown in the "
+                        + "chat while the research runs.";
     }
 
     /** The card's live counters + a readable current activity (never enum names or raw URLs). */
@@ -190,11 +225,14 @@ public final class ResearchPlaybook {
         if ("SEARCHING".equals(t)) {
             return de() ? "Suche läuft …" : "Searching …";
         }
-        if ("OPENING_PAGE".equals(t)) {
-            return de() ? "Ziel-Websites werden geprüft …" : "Checking target websites …";
+        if ("READING_PAGE".equals(t) || "OPENING_PAGE".equals(t)) {
+            return de() ? "Seite wird gelesen …" : "Reading the page …";
         }
-        if ("RECORDING_SOURCE".equals(t)) {
-            return de() ? "Quelle wird aufgenommen …" : "Recording a source …";
+        if ("SOURCE_ACCEPTED".equals(t) || "RECORDING_SOURCE".equals(t)) {
+            return de() ? "Als Quelle aufgenommen" : "Recorded as a source";
+        }
+        if ("PAGE_SKIPPED".equals(t)) {
+            return de() ? "Geprüft – nicht relevant" : "Checked – not relevant";
         }
         return de() ? "Arbeite …" : "Working …";
     }
