@@ -624,10 +624,18 @@ Quelle = `driver-bundle`-Jar-Ressourcen, Ziel = `%TEMP%/playwright4j-driver` (Pa
 `node.exe`-Kompatibilitäts-Launcher + Konfigdatei), bleibt zwischen Läufen bestehen (Marker-Datei), wird von
 uns nicht gelöscht; gestartete Prozesse: Sidecar-JVM → GraalDriverMain-JVM → Chromium-Prozessbaum.
 
-### Paketierungs-Ehrlichkeit
-Das Sidecar-Fat-Jar (253 MB) enthält GraalJS, das driver-bundle **aller** Plattformen und genau **eine**
-`Driver.class` (verifiziert). **Nicht** enthalten und extern vorausgesetzt: ein lokal installiertes
-Chrome oder Edge. Temporär entstehen die o. g. Dateien unter `%TEMP%/playwright4j-driver`.
+### Paketierungs-Ehrlichkeit (korrigiert in 36C)
+Ein Fat-/Uber-Jar ist für den Sidecar **nicht tragfähig**: Beim Umpacken von GraalJS/Truffle geht das
+`Multi-Release: true`-Manifest-Attribut verloren und doppelte `META-INF/services`-Providerdateien werden
+von der Jar-Task kollabiert → zur Laufzeit `InternalError: Truffle could not be initialized ... Multi-Release
+classes are not configured correctly` (real beobachtet im 36C-Test; der 36B-Livetest lief auf dem Gradle-
+Classpath und konnte das nicht zeigen). Auslieferung daher als **Thin-Jar + `lib/`-Verzeichnis**
+(`build/sidecar/browser-mcp-sidecar-<version>.jar` mit `Class-Path`-Manifest über 62 unveränderte
+Dependency-Jars inkl. GraalJS und driver-bundle aller Plattformen); `java -jar` funktioniert, und der mit
+`-cp <jar>` gestartete GraalDriverMain-Kindprozess erbt die Abhängigkeiten über denselben Jar-`Class-Path`-
+Mechanismus. Es gibt genau **eine** `Driver.class` auf dem Classpath (upstream-`driver`-Modul ausgeschlossen).
+**Nicht** enthalten und extern vorausgesetzt: ein lokal installiertes Chrome oder Edge. Temporär entstehen
+die o. g. Dateien unter `%TEMP%/playwright4j-driver`.
 
 ### Verifikation
 - `PlaywrightCapabilityProbeTest` (Status-Klassifikation mit Fakes + realer Classpath-Beweis, dass die
@@ -645,6 +653,12 @@ Chrome oder Edge. Temporär entstehen die o. g. Dateien unter `%TEMP%/playwright
   kein stilles Grün.
 - Full Build `./gradlew build --rerun-tasks` grün; ohne Browserruntime bleibt der Build grün (Probe-Status
   statt Fehlschlag).
+- **36C — derselbe Loop gegen den echten Sidecar-Prozess:** `ResearchLoopPlaywrightSidecarIntegrationTest`
+  spawnt das reale Sidecar-Thin-Jar mit Java 21 (Gradle-Toolchain), zwei lokale HTTP-Server (zwei Hosts über
+  Ports) liefern Seiten, deren Text und Links **nur per JavaScript** entstehen; der **unveränderte**
+  `ResearchLoop` mit dem **unveränderten** `SolonToolInvoker` erreicht SUFFICIENT_EVIDENCE über den
+  produktiven Commit-37-Acceptance-Pfad (`CaptureStore`/`SourceAcceptanceService`/Repository/Index).
+  Environment-gated (skippt lesbar ohne Java-21-Toolchain oder Browser), kein STATIC_HTTP-Fallback.
 
 ### Anmerkung (kein Blocker)
 Ohne JVMCI läuft GraalJS im Truffle-Interpreter-Modus (Warnung im Log, geringere Geschwindigkeit). Für das

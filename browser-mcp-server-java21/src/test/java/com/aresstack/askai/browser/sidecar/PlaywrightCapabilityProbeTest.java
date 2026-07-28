@@ -12,7 +12,7 @@ import static org.junit.Assert.assertTrue;
  * Status classification with injected checks: every failure mode maps to its SPECIFIC status (no blanket
  * NOT_INSTALLED), plus the real classpath checks against the module's own test classpath (the playwright4j
  * Driver replacement and the driver bundle must be effective here — that is the classpath-composition
- * regression guard for the fat jar's exclude rules).
+ * regression guard for the upstream-driver exclude rules).
  */
 public class PlaywrightCapabilityProbeTest {
 

@@ -12,6 +12,9 @@ dependencies {
     testImplementation project(':acp-solon-client')
     testImplementation project(':mcp-runtime-api')
     testImplementation project(':mcp-solon-runtime')
+    // 36C: the live-sidecar integration test drives the PRODUCTIVE capture/acceptance lifecycle
+    // (CaptureStore, SourceAcceptanceService, in-memory repository/index) behind the research endpoint.
+    testImplementation project(':research-agent-ui-plugin')
     testImplementation 'junit:junit:4.13.2'
 }
 
@@ -32,8 +35,22 @@ task researchAgentJar(type: Jar) {
 test {
     useJUnit()
     dependsOn researchAgentJar
+    // 36C: the loop-vs-live-Playwright test spawns the REAL Java-21 sidecar fat jar as a separate
+    // process (the Java-8 test JVM never loads sidecar classes). Without a Java-21 toolchain or an
+    // installed browser the test SKIPS readably; the build stays green.
+    dependsOn ':browser-mcp-server-java21:sidecarJar'
     doFirst {
         systemProperty 'research.agent.jar', researchAgentJar.archiveFile.get().asFile.absolutePath
         systemProperty 'acp.java.home', System.getProperty('java.home')
+        def sidecarTask = project(':browser-mcp-server-java21').tasks.getByName('sidecarJar')
+        systemProperty 'browser.sidecar.jar', sidecarTask.archiveFile.get().asFile.absolutePath
+        try {
+            def launcher21 = javaToolchains.launcherFor {
+                languageVersion = JavaLanguageVersion.of(21)
+            }.get()
+            systemProperty 'sidecar.java', launcher21.executablePath.asFile.absolutePath
+        } catch (Exception noJava21) {
+            // property absent → the sidecar test skips with a readable message
+        }
     }
 }

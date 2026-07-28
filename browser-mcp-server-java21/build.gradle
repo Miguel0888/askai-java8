@@ -46,22 +46,31 @@ jar {
     }
 }
 
-// Runnable fat jar for the sidecar so the host can spawn it with a plain `java -jar`.
+// Runnable sidecar distribution: a THIN jar with a Class-Path manifest plus a lib/ directory next to it.
+// A fat/uber jar is NOT viable here: repackaging GraalJS/Truffle loses the `Multi-Release: true` manifest
+// attribute and collapses duplicate META-INF/services provider files, so Truffle fails at runtime with
+// "Multi-Release classes are not configured correctly" (proven by the 36C live-sidecar test). The thin
+// jar keeps every dependency jar intact; `java -jar` works, and the GraalDriverMain child spawned with
+// `-cp <thin jar>` inherits the same dependencies through the jar's Class-Path mechanism.
+task sidecarLibs(type: Sync) {
+    group = 'build'
+    description = 'Collects the sidecar runtime dependencies into build/sidecar/lib.'
+    from configurations.runtimeClasspath.filter { it.name.endsWith('.jar') }
+    into layout.buildDirectory.dir('sidecar/lib')
+}
+
 task sidecarJar(type: Jar) {
     group = 'build'
-    description = 'Build the runnable Java-21 browser MCP sidecar jar.'
+    description = 'Build the runnable Java-21 browser MCP sidecar jar (thin, with lib/ Class-Path).'
     archiveBaseName = 'browser-mcp-sidecar'
-    archiveClassifier = 'all'
-    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-    dependsOn classes
+    destinationDirectory = layout.buildDirectory.dir('sidecar')
+    dependsOn classes, sidecarLibs
     from sourceSets.main.output
-    from {
-        // graalvm publishes pom-only platform artifacts on the classpath; only expand real jars.
-        configurations.runtimeClasspath
-                .filter { it.isDirectory() || it.name.endsWith('.jar') }
-                .collect { it.isDirectory() ? it : zipTree(it) }
-    }
     manifest {
         attributes('Main-Class': mainClassName)
+        attributes('Class-Path': configurations.runtimeClasspath
+                .filter { it.name.endsWith('.jar') }
+                .collect { 'lib/' + it.name }
+                .join(' '))
     }
 }
