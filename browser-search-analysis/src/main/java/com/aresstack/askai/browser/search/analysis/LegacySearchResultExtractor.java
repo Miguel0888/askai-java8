@@ -8,68 +8,176 @@ import com.aresstack.askai.browser.search.SearchPageAnalysisOutcome;
 import com.aresstack.askai.browser.search.SearchResultCandidate;
 import com.aresstack.askai.browser.search.SearchResultExtractionResult;
 import com.aresstack.askai.browser.search.SearchResultSiteLink;
+import com.aresstack.askai.browser.search.inference.CancellationSignal;
+import com.aresstack.askai.browser.search.layout.SearchPageAnalysisArtifact;
+import com.aresstack.askai.browser.search.layout.SearchPageLayoutResolutionRequest;
+import com.aresstack.askai.browser.search.layout.SearchPageLayoutResolver;
+import com.aresstack.askai.browser.search.layout.SearchPageLayoutResolverResult;
+import com.aresstack.askai.browser.search.layout.ValidatedSearchPageLayoutDecision;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /**
- * The full mechanical extraction pipeline (A3d): rendered document → layout resolution → result
- * blocks → typed candidates, with HONEST outcome semantics:
+ * The full mechanical extraction pipeline (A3d) plus the A4d AI repair path, with HONEST outcome
+ * semantics:
  * <ul>
  * <li>{@code ORGANIC_RESULTS} — validated result blocks were extracted,</li>
  * <li>{@code NO_ORGANIC_RESULTS} — a valid SERP or an EXPLICIT no-results indication with
- *     genuinely zero hits (the configured no-results texts decide),</li>
- * <li>{@code EXTRACTION_FAILED} — no plausible result region, contradictory structure or low
- *     confidence. An ununderstood layout is NEVER reported as an empty engine.</li>
+ *     genuinely zero hits,</li>
+ * <li>{@code EXTRACTION_FAILED} — no plausible result region, contradictory structure, low
+ *     confidence with no usable AI resolution, or a capture failure. An ununderstood layout is NEVER
+ *     reported as an empty engine.</li>
  * </ul>
- * LOW_CONFIDENCE does not call any AI in A3 — it yields EXTRACTION_FAILED and the existing
- * engine-fallback policy moves on; the AI layout resolver plugs in exactly here later.
+ *
+ * <p>HIGH_CONFIDENCE never calls the AI. On LOW_CONFIDENCE, when — and only when — a
+ * {@link SearchPageLayoutResolver} was injected, the ununderstood layout is offered to it as a
+ * bounded artifact; a VALIDATED decision then feeds the EXISTING result-block extraction. Absent a
+ * resolver (the model-free sidecar) or on a disabled/unavailable resolver, LOW_CONFIDENCE stays
+ * EXTRACTION_FAILED and the engine-fallback policy moves on. The AI only ever replaces the uncertain
+ * LAYOUT resolution — primary-link selection, snippet extraction, sitelinks and dedup remain the
+ * single A3 implementation.</p>
  */
 public final class LegacySearchResultExtractor {
 
     private final LegacyBrowserSearchSettings settings;
     private final SearchPageMechanicalAnalyzer analyzer;
     private final SearchResultBlockDetector blockDetector;
+    private final SearchPageAnalysisArtifactBuilder artifactBuilder;
+    private final SearchPageLayoutResolver aiResolver;
+    private final CancellationSignal cancellationSignal;
 
     public LegacySearchResultExtractor(LegacyBrowserSearchSettings settings) {
+        this(settings, null, CancellationSignal.NONE);
+    }
+
+    /**
+     * Wire an AI layout resolver for the LOW_CONFIDENCE path. The sidecar keeps using the single-arg
+     * constructor and therefore stays model-free.
+     */
+    public LegacySearchResultExtractor(LegacyBrowserSearchSettings settings,
+                                       SearchPageLayoutResolver aiResolver,
+                                       CancellationSignal cancellationSignal) {
         this.settings = settings;
         this.analyzer = new SearchPageMechanicalAnalyzer(settings);
         this.blockDetector = new SearchResultBlockDetector(settings);
+        this.artifactBuilder = new SearchPageAnalysisArtifactBuilder(settings);
+        this.aiResolver = aiResolver;
+        this.cancellationSignal =
+                cancellationSignal == null ? CancellationSignal.NONE : cancellationSignal;
     }
 
     public SearchResultExtractionResult extract(RenderedPageDocument document) {
+        return extract(document, "");
+    }
+
+    public SearchResultExtractionResult extract(RenderedPageDocument document, String searchQuery) {
         List<String> diagnostics = new ArrayList<String>(document.captureWarnings);
         SearchPageLayoutResolution resolution = analyzer.analyze(document);
         if (resolution.lowConfidence) {
             if (showsExplicitNoResults(document)) {
                 diagnostics.add("explicit no-results indication on a page without a result region");
-                return new SearchResultExtractionResult(SearchPageAnalysisOutcome.NO_ORGANIC_RESULTS,
-                        document.snapshotId, resolution.confidence,
-                        java.util.Collections.<SearchResultCandidate>emptyList(), diagnostics);
+                return noOrganicResults(document, resolution.confidence, diagnostics);
+            }
+            if (aiResolver != null) {
+                return resolveWithAi(document, resolution, searchQuery, diagnostics);
             }
             diagnostics.add("layout resolution LOW_CONFIDENCE (confidence="
                     + resolution.confidence + ") — the layout was not understood, which is not "
                     + "the same as an empty result page");
-            return failed(document, resolution, diagnostics);
+            return failed(document, resolution.confidence, diagnostics);
         }
 
-        SearchResultBlockDetector.Detection detection =
-                blockDetector.detect(document, resolution);
+        SearchResultBlockDetector.Detection detection = blockDetector.detect(document, resolution);
         diagnostics.addAll(detection.rejectionReasons);
         if (detection.blocks.isEmpty()) {
             if (showsExplicitNoResults(document)) {
                 diagnostics.add("explicit no-results indication — genuinely zero organic hits");
-                return new SearchResultExtractionResult(SearchPageAnalysisOutcome.NO_ORGANIC_RESULTS,
-                        document.snapshotId, resolution.confidence,
-                        java.util.Collections.<SearchResultCandidate>emptyList(), diagnostics);
+                return noOrganicResults(document, resolution.confidence, diagnostics);
             }
             diagnostics.add("a result region was resolved but no valid result block emerged");
-            return failed(document, resolution, diagnostics);
+            return failed(document, resolution.confidence, diagnostics);
         }
+        return assemble(document, resolution.organicResultsContainerId, resolution.confidence,
+                detection, diagnostics);
+    }
 
+    /**
+     * Apply an already-VALIDATED AI layout decision to the existing extraction: seed a resolution
+     * from the chosen organic container and run the unchanged block detection. A stale decision (a
+     * different snapshot) is refused; a valid decision that yields no result block is
+     * EXTRACTION_FAILED — never NO_ORGANIC_RESULTS.
+     */
+    public SearchResultExtractionResult extract(RenderedPageDocument document,
+                                                ValidatedSearchPageLayoutDecision decision) {
+        List<String> diagnostics = new ArrayList<String>(document.captureWarnings);
+        return applyValidatedDecision(document, decision, diagnostics);
+    }
+
+    /** Diagnostics access for the technical-details rendering. */
+    public SearchPageLayoutResolution resolveLayout(RenderedPageDocument document) {
+        return analyzer.analyze(document);
+    }
+
+    private SearchResultExtractionResult resolveWithAi(RenderedPageDocument document,
+                                                       SearchPageLayoutResolution resolution,
+                                                       String searchQuery, List<String> diagnostics) {
+        SearchPageAnalysisArtifact artifact =
+                artifactBuilder.build(document, resolution, searchQuery);
+        SearchPageLayoutResolverResult ai = aiResolver.resolve(new SearchPageLayoutResolutionRequest(
+                artifact, settings.aiLayoutResolver, settings.diagnostics, cancellationSignal));
+        diagnostics.add("AI layout resolver: " + ai.outcome + " after " + ai.attempts.size()
+                + " attempt(s)");
+        if (!ai.isResolved()) {
+            diagnostics.add("layout resolution LOW_CONFIDENCE and AI " + ai.outcome
+                    + " — not an empty result page");
+            return failed(document, resolution.confidence, diagnostics);
+        }
+        return applyValidatedDecision(document, ai.validatedDecision, diagnostics);
+    }
+
+    private SearchResultExtractionResult applyValidatedDecision(RenderedPageDocument document,
+                                                                ValidatedSearchPageLayoutDecision decision,
+                                                                List<String> diagnostics) {
+        if (decision == null || !document.snapshotId.equals(decision.snapshotId)) {
+            diagnostics.add("stale or missing AI layout decision — refused (snapshot "
+                    + (decision == null ? "null" : decision.snapshotId) + " vs document "
+                    + document.snapshotId + ")");
+            return failed(document, 0, diagnostics);
+        }
+        Map<String, SearchPageRegionClassification> regions =
+                new LinkedHashMap<String, SearchPageRegionClassification>();
+        regions.put(decision.primaryOrganicContainerId,
+                SearchPageRegionClassification.ORGANIC_RESULTS);
+        SearchPageLayoutResolution resolution = new SearchPageLayoutResolution(document.snapshotId,
+                decision.primaryOrganicContainerId, decision.confidence, false, regions,
+                Collections.<HeuristicScoreBreakdown>emptyList());
+
+        SearchResultBlockDetector.Detection detection = blockDetector.detect(document, resolution);
+        diagnostics.addAll(detection.rejectionReasons);
+        if (detection.blocks.isEmpty()) {
+            diagnostics.add("AI-resolved layout produced no valid result block — EXTRACTION_FAILED, "
+                    + "not an empty engine");
+            return failed(document, decision.confidence, diagnostics);
+        }
+        return assemble(document, decision.primaryOrganicContainerId, decision.confidence, detection,
+                diagnostics);
+    }
+
+    /**
+     * The single result-block → candidate assembly, shared by the mechanical and AI paths: primary
+     * link, snippet, sitelinks and dedup all stay the existing A3 implementation.
+     */
+    private SearchResultExtractionResult assemble(RenderedPageDocument document,
+                                                  String organicContainerId, double confidence,
+                                                  SearchResultBlockDetector.Detection detection,
+                                                  List<String> diagnostics) {
         List<SearchResultCandidate> candidates = new ArrayList<SearchResultCandidate>();
         Set<String> seenTargets = new HashSet<String>();
         for (DetectedResultBlock block : detection.blocks) {
@@ -86,28 +194,29 @@ public final class LegacySearchResultExtractor {
             candidates.add(new SearchResultCandidate(
                     "candidate-" + candidates.size(), document.snapshotId,
                     block.primaryLink.resolvedTargetUrl, block.primaryLink.rawHref, block.title,
-                    block.snippet, block.displayedDomain, block.rank,
-                    resolution.organicResultsContainerId, block.blockContainerId,
-                    block.structuralConfidence, block.primaryLinkConfidence, siteLinks));
+                    block.snippet, block.displayedDomain, block.rank, organicContainerId,
+                    block.blockContainerId, block.structuralConfidence, block.primaryLinkConfidence,
+                    siteLinks));
         }
         if (candidates.isEmpty()) {
             diagnostics.add("all detected blocks were duplicates — nothing extractable");
-            return failed(document, resolution, diagnostics);
+            return failed(document, confidence, diagnostics);
         }
         return new SearchResultExtractionResult(SearchPageAnalysisOutcome.ORGANIC_RESULTS,
-                document.snapshotId, resolution.confidence, candidates, diagnostics);
+                document.snapshotId, confidence, candidates, diagnostics);
     }
 
-    /** Diagnostics access for the technical-details rendering. */
-    public SearchPageLayoutResolution resolveLayout(RenderedPageDocument document) {
-        return analyzer.analyze(document);
-    }
-
-    private SearchResultExtractionResult failed(RenderedPageDocument document,
-                                                SearchPageLayoutResolution resolution,
+    private SearchResultExtractionResult failed(RenderedPageDocument document, double confidence,
                                                 List<String> diagnostics) {
         return new SearchResultExtractionResult(SearchPageAnalysisOutcome.EXTRACTION_FAILED,
-                document.snapshotId, resolution.confidence,
+                document.snapshotId, confidence,
+                java.util.Collections.<SearchResultCandidate>emptyList(), diagnostics);
+    }
+
+    private SearchResultExtractionResult noOrganicResults(RenderedPageDocument document,
+                                                          double confidence, List<String> diagnostics) {
+        return new SearchResultExtractionResult(SearchPageAnalysisOutcome.NO_ORGANIC_RESULTS,
+                document.snapshotId, confidence,
                 java.util.Collections.<SearchResultCandidate>emptyList(), diagnostics);
     }
 
