@@ -2363,6 +2363,9 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
                 : system.trim() + "\n\n" + OUTPUT_FORMAT_HINT;
         conversation.add(OllamaChatTurn.system(combined));
         conversation.addAll(history);
+        // Opt-in safe diagnostics (-Daskai.vision.diagnostics=true): confirms each image is
+        // transmitted and bound to the intended turn, without logging Base64 or paths.
+        com.aresstack.askai.java8.vision.VisionDiagnostics.logConversation(conversation);
         return conversation;
     }
 
