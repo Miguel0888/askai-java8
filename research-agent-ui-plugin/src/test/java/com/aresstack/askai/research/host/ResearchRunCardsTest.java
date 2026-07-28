@@ -163,6 +163,8 @@ public class ResearchRunCardsTest {
         final InProcessMcpServerRegistry registry = new InProcessMcpServerRegistry();
         final RecordingBackend backend = new RecordingBackend();
         final RecordingSink sink = new RecordingSink();
+        final com.aresstack.askai.research.sources.InMemoryResearchSourceRepository productiveSources =
+                com.aresstack.askai.research.sources.InMemoryResearchSourceRepository.empty();
         final ProductiveResearchSessionResources resources;
         final ResearchAgentSession session;
         long sequence;
@@ -200,7 +202,7 @@ public class ResearchRunCardsTest {
                     });
             control.open();
             resources = new ProductiveResearchSessionResources("s1", new OoResearchStateMachine("s1"),
-                    null, null, null, new ResearchArtifactStore(), control, null, null, null, null);
+                    null, productiveSources, null, new ResearchArtifactStore(), control, null, null, null, null);
             holder[0] = resources;
             session = new ResearchAgentSession(backend, null, new SinkHost(sink), "s1", "p1", resources);
             session.activate();
@@ -404,6 +406,21 @@ public class ResearchRunCardsTest {
                 notes.contains("Limitation recorded"));
         assertEquals("the state moved on towards the evidence review",
                 ResearchStateIds.EVIDENCE, fx.resources.currentState().getPhaseId());
+    }
+
+    @Test
+    public void productiveSessionExposesTheProductiveSourcesAndArtifactsNotTheDemoSeeds() {
+        // The user-reported bug: the Sources tab kept showing the clickdummy seed records although the
+        // productive run had accepted real sources — the session handed out its session-local demo
+        // repository/store instead of the resources' ones (where source_accept and the notes land).
+        Fx fx = new Fx();
+        org.junit.Assert.assertSame("the sources view must read where source_accept writes",
+                fx.resources.getRepository(), fx.session.getSourceRepository());
+        org.junit.Assert.assertSame("the artifact tabs must read where the agent writes",
+                fx.resources.getArtifactStore(), fx.session.getArtifactStore());
+        assertTrue("no demo seed records in a fresh productive session",
+                fx.session.getSourceRepository()
+                        .find(com.aresstack.askai.research.sources.SourceQuery.all()).isEmpty());
     }
 
     @Test

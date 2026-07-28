@@ -116,6 +116,30 @@ public final class ResearchSourcesView extends JPanel {
         return detail;
     }
 
+    /**
+     * Re-read the table from the repository — e.g. after a research run accepted new sources. Keeps the
+     * current selection (and thereby any in-progress detail edit) when that record still exists.
+     */
+    public void refresh() {
+        String keep = selectedId;
+        List<ResearchSourceRecord> rows = repository.find(new SourceQuery(filterField.getText(), null));
+        tableModel.setRows(rows);
+        int keepRow = -1;
+        for (int i = 0; i < rows.size(); i++) {
+            if (rows.get(i).getSourceId().equals(keep)) {
+                keepRow = i;
+                break;
+            }
+        }
+        if (keepRow >= 0) {
+            table.setRowSelectionInterval(keepRow, keepRow);
+        } else if (!rows.isEmpty()) {
+            table.setRowSelectionInterval(0, 0);
+        } else {
+            clearDetail();
+        }
+    }
+
     private void reloadTable() {
         List<ResearchSourceRecord> rows = repository.find(new SourceQuery(filterField.getText(), null));
         tableModel.setRows(rows);

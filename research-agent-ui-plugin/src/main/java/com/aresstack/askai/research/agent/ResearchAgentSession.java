@@ -168,12 +168,18 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
 
     @Override
     public AgentArtifactStore getArtifactStore() {
-        return artifactStore;
+        // Productive sessions expose the resources' store — the one the agent's MCP endpoint writes to.
+        // The session-local store is only the clickdummy/demo world.
+        return productiveResources != null ? productiveResources.getArtifactStore() : artifactStore;
     }
 
-    /** Plugin-internal accessor (same classloader): the structured sources repository for the sources view. */
+    /**
+     * Plugin-internal accessor (same classloader): the structured sources repository for the sources view.
+     * In productive mode this MUST be the resources' repository (where {@code source_accept} lands) — the
+     * session-local in-memory repository only backs the demo mode with its visibly seeded examples.
+     */
     public com.aresstack.askai.research.sources.ResearchSourceRepository getSourceRepository() {
-        return sourceRepository;
+        return productiveResources != null ? productiveResources.getRepository() : sourceRepository;
     }
 
     @Override

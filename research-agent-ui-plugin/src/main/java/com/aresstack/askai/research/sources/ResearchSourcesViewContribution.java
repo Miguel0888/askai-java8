@@ -28,8 +28,18 @@ public final class ResearchSourcesViewContribution implements ArtifactViewContri
     public JComponent createView(ArtifactViewContext context) {
         AgentSession session = context.getSession();
         if (session instanceof ResearchAgentSession) {
-            ResearchSourceRepository repository = ((ResearchAgentSession) session).getSourceRepository();
-            return new ResearchSourcesView(repository, ResearchSourcesView.demoKnownSections());
+            ResearchAgentSession research = (ResearchAgentSession) session;
+            ResearchSourceRepository repository = research.getSourceRepository();
+            final ResearchSourcesView view =
+                    new ResearchSourcesView(repository, ResearchSourcesView.demoKnownSections());
+            // Keep the table live: every session state change (run finished, approval, continuation)
+            // re-reads the repository, so freshly accepted sources appear without manual filtering.
+            research.addStateListener(new Runnable() {
+                public void run() {
+                    view.refresh();
+                }
+            });
+            return view;
         }
         JPanel placeholder = new JPanel(new BorderLayout());
         placeholder.add(new JLabel("No source repository available."), BorderLayout.NORTH);
