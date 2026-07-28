@@ -17,12 +17,18 @@ public final class ChatMessage {
     private final String thinking;
     private final String toolName;
     private final List<ToolCall> toolCalls;
+    private final List<String> images;
 
     public ChatMessage(String role, String content) {
         this(role, content, "", "", Collections.<ToolCall>emptyList());
     }
 
     public ChatMessage(String role, String content, String thinking, String toolName, List<ToolCall> toolCalls) {
+        this(role, content, thinking, toolName, toolCalls, Collections.<String>emptyList());
+    }
+
+    public ChatMessage(String role, String content, String thinking, String toolName,
+                       List<ToolCall> toolCalls, List<String> images) {
         this.role = role == null ? "user" : role;
         this.content = content == null ? "" : content;
         this.thinking = thinking == null ? "" : thinking;
@@ -30,6 +36,9 @@ public final class ChatMessage {
         this.toolCalls = toolCalls == null
                 ? Collections.<ToolCall>emptyList()
                 : Collections.unmodifiableList(new ArrayList<ToolCall>(toolCalls));
+        this.images = images == null
+                ? Collections.<String>emptyList()
+                : Collections.unmodifiableList(new ArrayList<String>(images));
     }
 
     public static ChatMessage system(String content) {
@@ -38,6 +47,11 @@ public final class ChatMessage {
 
     public static ChatMessage user(String content) {
         return new ChatMessage("user", content);
+    }
+
+    /** A user turn carrying one or more base64-encoded images (no data-URI prefix), for vision models. */
+    public static ChatMessage user(String content, List<String> images) {
+        return new ChatMessage("user", content, "", "", Collections.<ToolCall>emptyList(), images);
     }
 
     public static ChatMessage assistant(String content) {
@@ -72,5 +86,10 @@ public final class ChatMessage {
 
     public List<ToolCall> getToolCalls() {
         return toolCalls;
+    }
+
+    /** Base64-encoded images attached to this message (empty for text-only turns). */
+    public List<String> getImages() {
+        return images;
     }
 }

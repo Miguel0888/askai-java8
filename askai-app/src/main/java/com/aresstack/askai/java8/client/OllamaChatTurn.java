@@ -23,6 +23,7 @@ public final class OllamaChatTurn {
     private final String thinking;
     private final String toolName;
     private final List<OllamaToolCall> toolCalls;
+    private final List<String> images;
 
     public OllamaChatTurn(String role, String content) {
         this(role, content, "", "", Collections.<OllamaToolCall>emptyList());
@@ -30,6 +31,11 @@ public final class OllamaChatTurn {
 
     public OllamaChatTurn(String role, String content, String thinking, String toolName,
                           List<OllamaToolCall> toolCalls) {
+        this(role, content, thinking, toolName, toolCalls, Collections.<String>emptyList());
+    }
+
+    public OllamaChatTurn(String role, String content, String thinking, String toolName,
+                          List<OllamaToolCall> toolCalls, List<String> images) {
         this.role = role == null ? "" : role;
         this.content = content == null ? "" : content;
         this.thinking = thinking == null ? "" : thinking;
@@ -37,6 +43,9 @@ public final class OllamaChatTurn {
         this.toolCalls = toolCalls == null
                 ? Collections.<OllamaToolCall>emptyList()
                 : Collections.unmodifiableList(new java.util.ArrayList<OllamaToolCall>(toolCalls));
+        this.images = images == null
+                ? Collections.<String>emptyList()
+                : Collections.unmodifiableList(new java.util.ArrayList<String>(images));
     }
 
     public static OllamaChatTurn system(String content) {
@@ -45,6 +54,11 @@ public final class OllamaChatTurn {
 
     public static OllamaChatTurn user(String content) {
         return new OllamaChatTurn(ROLE_USER, content);
+    }
+
+    /** A user turn carrying one or more base64-encoded images (no data-URI prefix), for vision models. */
+    public static OllamaChatTurn user(String content, List<String> images) {
+        return new OllamaChatTurn(ROLE_USER, content, "", "", Collections.<OllamaToolCall>emptyList(), images);
     }
 
     public static OllamaChatTurn assistant(String content) {
@@ -79,6 +93,11 @@ public final class OllamaChatTurn {
 
     public List<OllamaToolCall> getToolCalls() {
         return toolCalls;
+    }
+
+    /** Base64-encoded images attached to this turn (empty for text-only turns). */
+    public List<String> getImages() {
+        return images;
     }
 
     public boolean isUser() {

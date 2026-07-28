@@ -66,6 +66,51 @@ final class ChatTranscript {
         panel.appendUserMessage(text);
     }
 
+    /** Appends a finished user message followed by a preview row of the images that were sent. */
+    void appendUser(String text, java.util.List<com.aresstack.askai.java8.vision.ImageAttachment> attachments) {
+        panel.appendUserMessage(text);
+        panel.appendUserImages(attachments);
+    }
+
+    /** Appends only a preview row of sent images (for an image-only message with no text). */
+    void appendUserImages(java.util.List<com.aresstack.askai.java8.vision.ImageAttachment> attachments) {
+        panel.appendUserImages(attachments);
+    }
+
+    /**
+     * Appends a Partying-mode message from another participant.
+     *
+     * <p>The sender's display name becomes the bubble header; the message body is passed through
+     * verbatim (not prefixed with {@code **@name**}).  This preserves the distinction between
+     * local "your" messages and remote participant messages, and allows per-participant colors
+     * to be applied in a later slice without modifying the stored Markdown.</p>
+     *
+     * @param senderName    display name shown as the bubble header
+     * @param participantId sender's stable ID (reserved for future color support)
+     * @param markdown      message body
+     */
+    void appendPartyMessage(String senderName, String participantId, String markdown) {
+        panel.appendPartyMessage(senderName, participantId, markdown);
+    }
+
+    /**
+     * Appends a Partying-mode message with the sender's replicated participant color and
+     * alignment (own messages right, remote messages left).
+     */
+    void appendPartyMessage(String senderName, String participantId, String markdown,
+                            java.awt.Color headerColor, boolean local) {
+        panel.appendPartyMessage(senderName, participantId, markdown, headerColor, local, 0L);
+    }
+
+    /**
+     * Appends a Partying-mode message including its creation timestamp, rendered small next to
+     * the sender name.
+     */
+    void appendPartyMessage(String senderName, String participantId, String markdown,
+                            java.awt.Color headerColor, boolean local, long createdAtMillis) {
+        panel.appendPartyMessage(senderName, participantId, markdown, headerColor, local, createdAtMillis);
+    }
+
     /** Appends a muted, centered info/system line. */
     void appendInfo(String text) {
         panel.appendInfo(text);

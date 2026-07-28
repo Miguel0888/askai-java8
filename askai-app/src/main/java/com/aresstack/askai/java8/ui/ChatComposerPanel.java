@@ -65,6 +65,8 @@ public final class ChatComposerPanel extends JPanel {
 
     /** Route semantic user actions without exposing the internal buttons. */
     public interface Actions {
+        void openChatHistory();
+
         void selectModel();
 
         void selectMode();
@@ -72,6 +74,8 @@ public final class ChatComposerPanel extends JPanel {
         void selectReasoning();
 
         void openSettings();
+
+        void toggleNotificationsMute();
 
         void send();
 
@@ -88,6 +92,8 @@ public final class ChatComposerPanel extends JPanel {
         void installAudioModel();
 
         void transcribeAudioFile();
+
+        void attachImages();
     }
 
     /** Carry the complete dictation presentation in one immutable value. */
@@ -126,12 +132,16 @@ public final class ChatComposerPanel extends JPanel {
     private final JPanel statusPanel;
     private final JLabel chatStatusLabel;
     private final JLabel dictationStatusLabel;
+    private final JButton menuButton;
     private final JButton modelButton;
     private final JButton modeButton;
     private final JButton reasoningButton;
     private final JButton settingsButton;
+    private final JButton muteButton;
     private final JButton recordButton;
     private final JButton audioFileButton;
+    private final JButton attachButton;
+    private final ChatAttachmentStrip attachmentStrip;
     private final JButton discardButton;
     private final JButton retryButton;
     private final JButton saveButton;
@@ -154,12 +164,21 @@ public final class ChatComposerPanel extends JPanel {
         this.chatStatusLabel = createStatusLabel();
         this.dictationStatusLabel = createStatusLabel();
         this.statusPanel = createStatusPanel();
+        this.menuButton = createIconButton(new MenuIcon(), "Saved chats");
         this.modelButton = createModelButton();
         this.modeButton = createModeButton();
         this.reasoningButton = createReasoningButton();
         this.settingsButton = createIconButton(new GearIcon(), "Chat settings");
+        this.muteButton = createIconButton(new SpeakerIcon(), "Mute notifications");
+        this.muteButton.setVisible(false);
         this.recordButton = createIconButton(new MicrophoneIcon(), "Record or stop dictation");
         this.audioFileButton = createIconButton(new AudioFileIcon(), "Transcribe audio file");
+        this.attachButton = createIconButton(new PaperclipIcon(), "Attach images");
+        this.attachmentStrip = new ChatAttachmentStrip(new ChatAttachmentStrip.ChangeListener() {
+            public void onAttachmentsChanged() {
+                refreshAttachmentState();
+            }
+        });
         this.discardButton = createIconButton(new CloseIcon(), "Discard or cancel dictation");
         this.retryButton = createSecondaryButton(new RetryIcon(), "Retry", "Retry transcription");
         this.saveButton = createSecondaryButton(new SaveIcon(), "Save", "Save recording");
@@ -181,6 +200,7 @@ public final class ChatComposerPanel extends JPanel {
         setLayout(new BorderLayout(0, 0));
         setBorder(new EmptyBorder(9, 11, 8, 8));
 
+        add(attachmentStrip, BorderLayout.NORTH);
         add(editorScroll, BorderLayout.CENTER);
         add(buildFooter(), BorderLayout.SOUTH);
 
@@ -193,12 +213,19 @@ public final class ChatComposerPanel extends JPanel {
         footer.setBorder(new EmptyBorder(5, 0, 0, 0));
         JPanel west = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         west.setOpaque(false);
+        west.add(menuButton);
         west.add(modelButton);
         west.add(modeButton);
         west.add(reasoningButton);
         west.add(buildLeftActions());
         footer.add(west, BorderLayout.WEST);
-        footer.add(statusPanel, BorderLayout.CENTER);
+        // The notification mute bell sits in the middle of the footer, between the settings gear
+        // (left) and the Send button (right); it is only shown while a channel is enabled.
+        JPanel center = new JPanel(new BorderLayout(6, 0));
+        center.setOpaque(false);
+        center.add(muteButton, BorderLayout.WEST);
+        center.add(statusPanel, BorderLayout.CENTER);
+        footer.add(center, BorderLayout.CENTER);
         footer.add(buildPrimaryActions(), BorderLayout.EAST);
         return footer;
     }
@@ -207,7 +234,6 @@ public final class ChatComposerPanel extends JPanel {
         JPanel actionsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 0));
         actionsPanel.setOpaque(false);
         actionsPanel.add(settingsButton);
-        actionsPanel.add(audioFileButton);
         actionsPanel.add(discardButton);
         actionsPanel.add(retryButton);
         actionsPanel.add(saveButton);
@@ -227,6 +253,10 @@ public final class ChatComposerPanel extends JPanel {
         actionsPanel.setLayout(new BoxLayout(actionsPanel, BoxLayout.X_AXIS));
         actionsPanel.add(Box.createHorizontalGlue());
         actionsPanel.add(levelBar);
+        actionsPanel.add(Box.createHorizontalStrut(4));
+        actionsPanel.add(attachButton);   // image attachments, left of the transcribe-file button
+        actionsPanel.add(Box.createHorizontalStrut(4));
+        actionsPanel.add(audioFileButton);   // transcribe-file, just left of the mic
         actionsPanel.add(Box.createHorizontalStrut(4));
         actionsPanel.add(recordButton);   // mic sits just left of Send, ChatGPT-style
         actionsPanel.add(Box.createHorizontalStrut(4));
@@ -327,6 +357,11 @@ public final class ChatComposerPanel extends JPanel {
     }
 
     private void wireActions() {
+        menuButton.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent event) {
+                actions.openChatHistory();
+            }
+        });
         modelButton.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent event) {
                 actions.selectModel();
@@ -345,6 +380,11 @@ public final class ChatComposerPanel extends JPanel {
         settingsButton.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent event) {
                 actions.openSettings();
+            }
+        });
+        muteButton.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent event) {
+                actions.toggleNotificationsMute();
             }
         });
         sendButton.addActionListener(new ActionListener() {
@@ -385,6 +425,11 @@ public final class ChatComposerPanel extends JPanel {
         audioFileButton.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent event) {
                 actions.transcribeAudioFile();
+            }
+        });
+        attachButton.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent event) {
+                actions.attachImages();
             }
         });
         editor.getDocument().addDocumentListener(new DocumentListener() {
@@ -471,6 +516,11 @@ public final class ChatComposerPanel extends JPanel {
         return modelButton;
     }
 
+    /** Return the hamburger (saved chats) button, so the panel can anchor its history menu to it. */
+    public JComponent getMenuButton() {
+        return menuButton;
+    }
+
     /** Set the label shown on the in-composer mode selector (e.g. "Yapping" or an agent name). */
     public void setModeName(String name) {
         modeButton.setText(name == null || name.trim().length() == 0 ? "Yapping" : name.trim());
@@ -481,6 +531,20 @@ public final class ChatComposerPanel extends JPanel {
     /** Return the mode selector button, so the panel can anchor its mode popup to it. */
     public JComponent getModeButton() {
         return modeButton;
+    }
+
+    /** Show or hide the notification mute bell (shown when at least one channel is enabled). */
+    public void setNotificationsButtonVisible(boolean visible) {
+        muteButton.setVisible(visible);
+        revalidate();
+        repaint();
+    }
+
+    /** Reflect the mute state on the bell: muted shows a struck-through speaker. */
+    public void setNotificationsMuted(boolean muted) {
+        muteButton.setIcon(muted ? new SpeakerMutedIcon() : new SpeakerIcon());
+        muteButton.setToolTipText(muted ? "Notifications muted — click to unmute" : "Mute notifications");
+        repaint();
     }
 
     /** Set the label shown on the reasoning-effort selector (e.g. "Think: High"). */
@@ -513,6 +577,36 @@ public final class ChatComposerPanel extends JPanel {
     /** Clear the message text. */
     public void clearMessage() {
         editor.setText("");
+    }
+
+    /** The full outgoing draft: the editor text plus any queued image attachments. */
+    public com.aresstack.askai.java8.vision.ChatDraft getDraft() {
+        return new com.aresstack.askai.java8.vision.ChatDraft(editor.getText(), attachmentStrip.getAttachments());
+    }
+
+    /** Queue image attachments for the next message (already-queued files are ignored). */
+    public void addAttachments(java.util.List<com.aresstack.askai.java8.vision.ImageAttachment> attachments) {
+        attachmentStrip.addAttachments(attachments);
+    }
+
+    /** The currently queued attachments. */
+    public java.util.List<com.aresstack.askai.java8.vision.ImageAttachment> getAttachments() {
+        return attachmentStrip.getAttachments();
+    }
+
+    /** Clear both the message text and the queued attachments (after a successful send). */
+    public void clearDraft() {
+        editor.setText("");
+        attachmentStrip.clear();
+    }
+
+    private void refreshAttachmentState() {
+        int count = attachmentStrip.count();
+        attachButton.setText(count > 0 ? String.valueOf(count) : null);
+        attachButton.setToolTipText(count > 0 ? "Attach images (" + count + " attached)" : "Attach images");
+        updateMessageAvailability();
+        revalidate();
+        repaint();
     }
 
     /** Focus the message editor. */
@@ -598,8 +692,8 @@ public final class ChatComposerPanel extends JPanel {
     }
 
     private void updateMessageAvailability() {
-        sendButton.setEnabled(!chatBusy && !dictationActive
-                && editor.isEnabled() && editor.getText().trim().length() > 0);
+        boolean hasContent = editor.getText().trim().length() > 0 || !attachmentStrip.isEmpty();
+        sendButton.setEnabled(!chatBusy && !dictationActive && editor.isEnabled() && hasContent);
     }
 
     @Override
@@ -821,6 +915,16 @@ public final class ChatComposerPanel extends JPanel {
         }
     }
 
+    private static final class PaperclipIcon extends StrokeIcon {
+        protected void paint(Graphics2D g2) {
+            // A simple paperclip: an open hook curving up on the left and back down on the right.
+            g2.drawLine(4, 4, 4, 11);
+            g2.drawArc(4, 2, 6, 5, 90, 180);
+            g2.drawLine(10, 4, 10, 12);
+            g2.drawArc(3, 9, 7, 6, 0, -180);
+        }
+    }
+
     private static final class CloseIcon extends StrokeIcon {
         protected void paint(Graphics2D g2) {
             g2.drawLine(4, 4, 12, 12);
@@ -860,6 +964,14 @@ public final class ChatComposerPanel extends JPanel {
         }
     }
 
+    private static final class MenuIcon extends StrokeIcon {
+        protected void paint(Graphics2D g2) {
+            g2.drawLine(2, 4, 13, 4);
+            g2.drawLine(2, 8, 13, 8);
+            g2.drawLine(2, 12, 13, 12);
+        }
+    }
+
     private static final class GearIcon extends StrokeIcon {
         protected void paint(Graphics2D g2) {
             int cx = 7;
@@ -875,6 +987,32 @@ public final class ChatComposerPanel extends JPanel {
                 int y2 = (int) Math.round(cy + Math.sin(a) * (r + 2.5));
                 g2.drawLine(x1, y1, x2, y2);
             }
+        }
+    }
+
+    /** A speaker with two sound waves — the "notifications on" bell. */
+    private static class SpeakerIcon extends StrokeIcon {
+        protected void paint(Graphics2D g2) {
+            paintSpeaker(g2);
+            g2.drawArc(9, 4, 4, 7, -60, 120);
+            g2.drawArc(9, 2, 7, 11, -55, 110);
+        }
+
+        final void paintSpeaker(Graphics2D g2) {
+            g2.drawLine(2, 6, 4, 6);
+            g2.drawLine(2, 6, 2, 9);
+            g2.drawLine(2, 9, 4, 9);
+            int[] x = {4, 7, 7, 4};
+            int[] y = {6, 3, 12, 9};
+            g2.drawPolygon(x, y, 4);
+        }
+    }
+
+    /** The muted speaker — same body with a diagonal strike-through, no sound waves. */
+    private static final class SpeakerMutedIcon extends SpeakerIcon {
+        protected void paint(Graphics2D g2) {
+            paintSpeaker(g2);
+            g2.drawLine(9, 4, 14, 11);
         }
     }
 }

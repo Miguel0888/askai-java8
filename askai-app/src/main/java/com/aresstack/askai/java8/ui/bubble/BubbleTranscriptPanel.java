@@ -115,6 +115,74 @@ public final class BubbleTranscriptPanel extends JPanel {
         return bubble;
     }
 
+    /** Add a right-aligned row of image previews under the user's message (the images just sent). */
+    public void appendUserImages(java.util.List<com.aresstack.askai.java8.vision.ImageAttachment> attachments) {
+        requireEventDispatchThread();
+        if (attachments == null || attachments.isEmpty()) {
+            return;
+        }
+        JPanel thumbs = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.RIGHT, 6, 0));
+        thumbs.setOpaque(false);
+        for (com.aresstack.askai.java8.vision.ImageAttachment attachment : attachments) {
+            thumbs.add(new com.aresstack.askai.java8.ui.ImageThumbnail(attachment, 72));
+        }
+        addBubbleRow(thumbs, BubbleSide.RIGHT);
+    }
+
+    /**
+     * Appends a Partying-mode group message as a left-aligned bubble with the sender's display
+     * name as the header.
+     *
+     * <p>The message content is passed as plain text (not prefixed with {@code **@name**}) so that
+     * sender semantics are carried by the structured header, not baked into the Markdown body.
+     * This makes it possible to apply per-participant colors and metadata cleanly in later slices.</p>
+     *
+     * @param senderName    the sender's display name to show as the bubble header
+     * @param participantId the sender's stable participant ID (reserved for future color mapping)
+     * @param markdown      the message body as raw Markdown
+     */
+    public void appendPartyMessage(String senderName, String participantId, String markdown) {
+        appendPartyMessage(senderName, participantId, markdown, null, false);
+    }
+
+    /**
+     * Appends a Partying-mode group message with the sender's replicated participant color.
+     *
+     * @param senderName  the sender's display name shown as the bubble header
+     * @param participantId the sender's stable participant ID
+     * @param markdown    the message body as raw Markdown
+     * @param headerColor the sender's palette color (theme-matched variant), or {@code null}
+     * @param local       {@code true} for the local participant's own messages (right-aligned)
+     */
+    public void appendPartyMessage(String senderName, String participantId, String markdown,
+                                   java.awt.Color headerColor, boolean local) {
+        appendPartyMessage(senderName, participantId, markdown, headerColor, local, 0L);
+    }
+
+    /**
+     * Appends a Partying-mode group message; a non-zero {@code createdAtMillis} renders as a
+     * small stacked date/time block next to the sender name.
+     */
+    public void appendPartyMessage(String senderName, String participantId, String markdown,
+                                   java.awt.Color headerColor, boolean local, long createdAtMillis) {
+        requireEventDispatchThread();
+        String header = senderName != null && !senderName.trim().isEmpty() ? senderName : "?";
+        BubbleSide side = local ? BubbleSide.RIGHT : BubbleSide.LEFT;
+        SpeechBubblePanel bubble = new SpeechBubblePanel(
+                side,
+                local ? palette.getUserBackground() : palette.getAssistantBackground(),
+                local ? palette.getUserForeground() : palette.getAssistantForeground(),
+                header,
+                markdown);
+        if (headerColor != null) {
+            bubble.setHeaderColor(headerColor);
+        }
+        if (createdAtMillis > 0) {
+            bubble.setHeaderTimestamp(createdAtMillis);
+        }
+        addBubbleRow(bubble, side);
+    }
+
     /**
      * Starts a streaming assistant answer rendered as native Markdown inside a speech bubble. While
      * streaming the text re-renders debounced; a Mermaid fence stays a code block until
@@ -349,7 +417,7 @@ public final class BubbleTranscriptPanel extends JPanel {
     /** Adds the assistant answer inside a left speech bubble, capped in width and reflowing on resize. */
     private void addAssistantMarkdownRow(String header, MarkdownMessageView view) {
         AssistantMarkdownBubble bubble = new AssistantMarkdownBubble(
-                palette, header == null || header.length() == 0 ? "Assistant" : header, view);
+                BubbleSide.LEFT, palette, header == null || header.length() == 0 ? "Assistant" : header, view);
         MarkdownAnswerRow row = new MarkdownAnswerRow(bubble);
         row.setAlignmentX(LEFT_ALIGNMENT);
         messageList.add(row);

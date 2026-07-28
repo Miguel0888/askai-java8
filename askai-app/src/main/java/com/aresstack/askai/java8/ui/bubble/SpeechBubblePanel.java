@@ -24,8 +24,13 @@ import java.awt.geom.RoundRectangle2D;
  *
  * <p>Keep the text as a real Swing text component so copy and selection continue to work. Paint
  * only the bubble chrome with {@link Graphics2D}.</p>
+ *
+ * <p>Implements {@link com.aresstack.askai.java8.ui.markdown.WidthAwareHeight} so the transcript
+ * rows can ask for the exact wrapped height at the final bubble width — before that, long
+ * unbroken texts were measured unwrapped once and rendered as a single clipped line.</p>
  */
-public final class SpeechBubblePanel extends JPanel {
+public final class SpeechBubblePanel extends JPanel
+        implements com.aresstack.askai.java8.ui.markdown.WidthAwareHeight {
 
     private static final int ARC = 22;
     private static final int TAIL_WIDTH = 16;
@@ -38,6 +43,8 @@ public final class SpeechBubblePanel extends JPanel {
     private final Color bubbleColor;
     private final Color textColor;
     private final JLabel headerLabel;
+    private final JPanel headerRow;
+    private JLabel timestampLabel; // small stacked date/time next to the name, or null
     private final JTextArea textArea;
     private int maximumBubbleWidth;
 
@@ -60,6 +67,7 @@ public final class SpeechBubblePanel extends JPanel {
         this.textColor = textColor;
         this.maximumBubbleWidth = DEFAULT_MAXIMUM_WIDTH;
         this.headerLabel = createHeaderLabel(header);
+        this.headerRow = new JPanel();
         this.textArea = createTextArea(text);
         buildUi();
     }
@@ -88,7 +96,70 @@ public final class SpeechBubblePanel extends JPanel {
     public void setHeader(String header) {
         headerLabel.setText(normalize(header));
         headerLabel.setVisible(headerLabel.getText().length() > 0);
+        headerRow.setVisible(headerLabel.isVisible());
         refreshLayout();
+    }
+
+    /**
+     * Colors the header label (the sender name), used for per-participant colors in Partying
+     * mode.  {@code null} restores the default muted text color.
+     */
+    public void setHeaderColor(Color color) {
+        headerLabel.setForeground(color != null ? color : withAlpha(textColor, 220));
+        if (timestampLabel != null) {
+            timestampLabel.setForeground(timestampColor());
+        }
+        repaint();
+    }
+
+    /** The timestamp always follows the name color (first line), just dimmed. */
+    private Color timestampColor() {
+        Color header = headerLabel.getForeground();
+        return withAlpha(header != null ? header : textColor, 165);
+    }
+
+    /**
+     * Shows the message creation time next to the sender name: date over time, squeezed into two
+     * half-size lines no taller than the name itself.
+     */
+    public void setHeaderTimestamp(long epochMillis) {
+        java.util.Date at = new java.util.Date(epochMillis);
+        String date = new java.text.SimpleDateFormat("dd/MM/yy").format(at);
+        String time = new java.text.SimpleDateFormat("HH:mm").format(at);
+        String full = new java.text.SimpleDateFormat("EEE dd/MM/yyyy HH:mm").format(at);
+        if (timestampLabel == null) {
+            timestampLabel = new JLabel();
+            Font base = headerLabel.getFont();
+            timestampLabel.setFont(base.deriveFont(Font.PLAIN, Math.max(6f, base.getSize2D() * 0.5f)));
+            timestampLabel.setAlignmentY(BOTTOM_ALIGNMENT);
+            // A minimum gap, then glue so the time/date block is pushed to the bubble's right edge.
+            headerRow.add(javax.swing.Box.createHorizontalStrut(6));
+            headerRow.add(javax.swing.Box.createHorizontalGlue());
+            headerRow.add(timestampLabel);
+        }
+        timestampLabel.setForeground(timestampColor());
+        timestampLabel.setText("<html><div style='line-height:90%;text-align:right'><b>"
+                + time + "</b><br>" + date + "</div></html>");
+        // A shared, readable tooltip on the whole header so hovering the name or the stamp shows it.
+        headerLabel.setToolTipText(full);
+        timestampLabel.setToolTipText(full);
+        setToolTipText(full);
+        // Cap the two stacked lines to the username's height; pad the width so the year is never
+        // clipped (HTML labels tend to under-measure their preferred width by a pixel or two).
+        Dimension pref = timestampLabel.getPreferredSize();
+        Dimension cap = new Dimension(pref.width + 4, headerLabel.getPreferredSize().height);
+        timestampLabel.setPreferredSize(cap);
+        timestampLabel.setMaximumSize(cap);
+        refreshLayout();
+    }
+
+    /** Header block size: the name plus the optional timestamp, no taller than the name. */
+    private Dimension headerBlockSize() {
+        Dimension label = headerLabel.getPreferredSize();
+        if (timestampLabel != null) {
+            return new Dimension(label.width + 6 + timestampLabel.getPreferredSize().width + 4, label.height);
+        }
+        return label;
     }
 
     public void setMaximumBubbleWidth(int maximumBubbleWidth) {
@@ -110,7 +181,7 @@ public final class SpeechBubblePanel extends JPanel {
         textArea.setSize(new Dimension(contentWidth, Short.MAX_VALUE));
         Dimension textSize = textArea.getPreferredSize();
         Dimension headerSize = headerLabel.isVisible()
-                ? headerLabel.getPreferredSize()
+                ? headerBlockSize()
                 : new Dimension(0, 0);
 
         int width = Math.max(textSize.width, headerSize.width)
@@ -123,6 +194,61 @@ public final class SpeechBubblePanel extends JPanel {
             height += headerSize.height + 3;
         }
         return new Dimension(width, Math.max(48, height));
+    }
+
+    /**
+     * Deterministic height for a fixed bubble width: paddings + optional header + the text wrapped
+     * at exactly the inner width.  Uses the larger of the text view's measurement and a
+     * font-metrics greedy-wrap estimate, so a stale unwrapped view measurement can never produce
+     * a one-line bubble for a long text.
+     */
+    @Override
+    public int preferredHeightForWidth(int width) {
+        Insets insets = getInsets();
+        int innerWidth = Math.max(24, width - insets.left - insets.right);
+        textArea.setSize(new Dimension(innerWidth, Short.MAX_VALUE));
+        int viewHeight = textArea.getPreferredSize().height;
+        int metricsHeight = estimateWrappedTextHeight(innerWidth);
+        int height = insets.top + insets.bottom + Math.max(viewHeight, metricsHeight);
+        if (headerLabel.isVisible()) {
+            height += headerBlockSize().height + 3;
+        }
+        return Math.max(48, height);
+    }
+
+    /** Greedy word-wrap line count from font metrics — independent of the Swing view state. */
+    private int estimateWrappedTextHeight(int innerWidth) {
+        FontMetrics metrics = textArea.getFontMetrics(textArea.getFont());
+        int lineHeight = metrics.getHeight();
+        int lines = 0;
+        for (String paragraph : textArea.getText().split("\n", -1)) {
+            lines += countWrappedLines(paragraph, metrics, innerWidth);
+        }
+        return Math.max(1, lines) * lineHeight;
+    }
+
+    private static int countWrappedLines(String paragraph, FontMetrics metrics, int width) {
+        if (paragraph.isEmpty()) {
+            return 1;
+        }
+        int lines = 1;
+        int currentWidth = 0;
+        int spaceWidth = metrics.charWidth(' ');
+        for (String word : paragraph.split(" ")) {
+            int wordWidth = metrics.stringWidth(word);
+            if (currentWidth > 0 && currentWidth + spaceWidth + wordWidth > width) {
+                lines++;
+                currentWidth = 0;
+            }
+            if (wordWidth > width) {
+                // Overlong words wrap mid-word across additional lines.
+                lines += wordWidth / Math.max(1, width);
+                currentWidth = wordWidth % Math.max(1, width);
+            } else {
+                currentWidth += (currentWidth > 0 ? spaceWidth : 0) + wordWidth;
+            }
+        }
+        return lines;
     }
 
     @Override
@@ -143,7 +269,12 @@ public final class SpeechBubblePanel extends JPanel {
         setOpaque(false);
         setLayout(new BorderLayout(0, 3));
         setBorder(createContentBorder());
-        add(headerLabel, BorderLayout.NORTH);
+        headerRow.setLayout(new javax.swing.BoxLayout(headerRow, javax.swing.BoxLayout.X_AXIS));
+        headerRow.setOpaque(false);
+        headerLabel.setAlignmentY(BOTTOM_ALIGNMENT);
+        headerRow.add(headerLabel);
+        headerRow.setVisible(headerLabel.isVisible());
+        add(headerRow, BorderLayout.NORTH);
         add(textArea, BorderLayout.CENTER);
     }
 
@@ -228,7 +359,9 @@ public final class SpeechBubblePanel extends JPanel {
         }
         if (headerLabel.isVisible()) {
             FontMetrics headerMetrics = headerLabel.getFontMetrics(headerLabel.getFont());
-            maximum = Math.max(maximum, headerMetrics.stringWidth(headerLabel.getText()) + 8);
+            int headerWidth = headerMetrics.stringWidth(headerLabel.getText())
+                    + (timestampLabel != null ? 6 + timestampLabel.getPreferredSize().width : 0);
+            maximum = Math.max(maximum, headerWidth + 8);
         }
         return maximum;
     }

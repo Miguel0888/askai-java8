@@ -14,6 +14,7 @@ import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.Toolkit;
+import java.awt.Window;
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.StringSelection;
@@ -113,12 +114,21 @@ public final class MermaidDiagramPanel extends JPanel {
                 } finally {
                     rendering = false;
                     copyImageButton.setEnabled(image != null);
+                    canvas.setCursor(java.awt.Cursor.getPredefinedCursor(
+                            image != null ? java.awt.Cursor.HAND_CURSOR : java.awt.Cursor.DEFAULT_CURSOR));
                     canvas.updatePreferredSize();
                     canvas.revalidate();
                     canvas.repaint();
                 }
             }
         }.execute();
+    }
+
+    /** Open the enlarged, zoomable viewer for this diagram, re-rendered from the Mermaid source. */
+    private void openEnlargedViewer() {
+        Window owner = javax.swing.SwingUtilities.getWindowAncestor(this);
+        int baseWidth = image != null ? image.getWidth() : 900;
+        MermaidViewerDialog.open(owner, diagramCode, theme, imageRenderer, baseWidth, image);
     }
 
     private void copyImageToClipboard() {
@@ -173,6 +183,14 @@ public final class MermaidDiagramPanel extends JPanel {
         DiagramCanvas() {
             setOpaque(false);
             setPreferredSize(new Dimension(600, 140));
+            setToolTipText("Click to open the enlarged viewer");
+            addMouseListener(new java.awt.event.MouseAdapter() {
+                public void mouseClicked(java.awt.event.MouseEvent event) {
+                    if (event.getButton() == java.awt.event.MouseEvent.BUTTON1 && image != null) {
+                        openEnlargedViewer();
+                    }
+                }
+            });
         }
 
         void updatePreferredSize() {
