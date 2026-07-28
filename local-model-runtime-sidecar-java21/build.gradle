@@ -11,20 +11,18 @@ java {
     }
 }
 
-// The pinned win-directml-java runtime. Until it is published to Maven Central the DEVELOPMENT
-// build consumes it from mavenLocal: run `./gradlew publishToMavenLocal` in
-// C:\Projects\win-directml-java, plus once for the (deliberately Central-unpublished)
-// directml-inference module via an init script that applies maven-publish to it:
-//   ./gradlew -I <init-that-applies-maven-publish> :directml-inference:publishToMavenLocal
-// No sources are copied into AskAI.
-ext.directmlVersion = '0.1.0-SNAPSHOT'
+// The pinned win-directml-java runtime, released to Maven Central as of 0.1.1 (the release that
+// extracted :directml-model-package so the published core is self-contained — no legacy
+// directml-inference needed anymore). mavenLocal in the root build covers the window until the
+// Central sync of a fresh release lands; `./gradlew -Pversion=<v> publishToMavenLocal` in
+// C:\Projects\win-directml-java serves local development. No sources are copied into AskAI.
+ext.directmlVersion = '0.1.1'
 
 dependencies {
     implementation "com.aresstack:directml-runtime:${directmlVersion}"
     implementation "com.aresstack:directml-encoder:${directmlVersion}"
-    // ModelPackageLifecycle/ModelConversionResult live here (encoder exposes them only at runtime
-    // scope in its POM, so the compile classpath needs the explicit dependency).
-    implementation "com.aresstack:directml-inference:${directmlVersion}"
+    // The wdmlpack/lifecycle contract (ModelPackageLifecycle, ModelConversionResult, …).
+    implementation "com.aresstack:directml-model-package:${directmlVersion}"
 
     testImplementation 'junit:junit:4.13.2'
 }

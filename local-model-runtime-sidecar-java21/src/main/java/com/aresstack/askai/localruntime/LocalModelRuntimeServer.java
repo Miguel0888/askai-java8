@@ -1,7 +1,7 @@
 package com.aresstack.askai.localruntime;
 
 import com.aresstack.windirectml.encoder.pack.EncoderPackageLifecycle;
-import com.aresstack.windirectml.inference.artifact.ModelConversionResult;
+import com.aresstack.windirectml.modelpack.ModelConversionResult;
 import com.aresstack.windirectml.runtime.api.RerankResult;
 import com.aresstack.windirectml.runtime.api.RerankerModelId;
 import com.sun.net.httpserver.HttpExchange;
