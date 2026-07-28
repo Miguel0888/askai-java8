@@ -115,7 +115,7 @@ public final class SpeechBubblePanel extends JPanel
      */
     public void setHeaderTimestamp(long epochMillis) {
         java.util.Date at = new java.util.Date(epochMillis);
-        String date = new java.text.SimpleDateFormat("dd.MM.yy").format(at);
+        String date = new java.text.SimpleDateFormat("dd/MM/yy").format(at);
         String time = new java.text.SimpleDateFormat("HH:mm").format(at);
         if (timestampLabel == null) {
             timestampLabel = new JLabel();
@@ -126,7 +126,7 @@ public final class SpeechBubblePanel extends JPanel
             headerRow.add(javax.swing.Box.createHorizontalStrut(6));
             headerRow.add(timestampLabel);
         }
-        timestampLabel.setText("<html><div style='line-height:90%'>" + date + "<br>" + time + "</div></html>");
+        timestampLabel.setText("<html><div style='line-height:90%'><b>" + time + "</b><br>" + date + "</div></html>");
         // Cap the two stacked lines to the username's height.
         Dimension pref = timestampLabel.getPreferredSize();
         Dimension cap = new Dimension(pref.width, headerLabel.getPreferredSize().height);

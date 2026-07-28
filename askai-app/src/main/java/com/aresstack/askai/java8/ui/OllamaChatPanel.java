@@ -307,6 +307,12 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         this.partySettings = new PartySettings(applicationState);
         this.notifier = new com.aresstack.askai.java8.notify.DesktopNotifier();
         this.mentionCompletion = new MentionCompletionSupport(composer.getEditor());
+        // Typing "@" re-queries the loaded models so the highlight is fresh, not join-time stale.
+        this.mentionCompletion.setPopupRefreshHook(new Runnable() {
+            public void run() {
+                refreshRunningModelHighlight();
+            }
+        });
         this.dictationExecutor = Executors.newCachedThreadPool(new DaemonThreadFactory());
         this.workDir = new File(System.getProperty("java.io.tmpdir"), "askai-speech");
         this.dictation = buildDictationService();
@@ -1764,11 +1770,19 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
      * Highlights the currently loaded Ollama models in the completion popup — they answer
      * quickly because no model load is needed.
      */
+    private long runningModelsQueriedAt;
+
     private void refreshRunningModelHighlight() {
         if (!partySettings.modelMentionsEnabled()) {
             mentionCompletion.setHighlighted(Collections.<String>emptySet());
             return;
         }
+        // Throttle: the popup refresh hook fires on every keystroke inside a mention token.
+        long now = System.currentTimeMillis();
+        if (now - runningModelsQueriedAt < 2000) {
+            return;
+        }
+        runningModelsQueriedAt = now;
         ollamaService.listRunningModels(new OllamaService.RunningModelsListener() {
             public void onRunningModels(final List<com.aresstack.askai.java8.client.OllamaRunningModelInfo> models) {
                 onUi(new Runnable() {

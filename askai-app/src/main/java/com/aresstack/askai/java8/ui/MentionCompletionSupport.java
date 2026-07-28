@@ -116,9 +116,19 @@ public final class MentionCompletionSupport {
         });
     }
 
+    private Runnable popupRefreshHook;
+
     /** Replace the completable handles (current participants plus the bot handle). */
     public void setHandles(List<String> handles) {
         this.handles = handles != null ? handles : Collections.<String>emptyList();
+    }
+
+    /**
+     * Invoked whenever the suggestion popup is (re)shown — lets the owner refresh volatile data
+     * such as the currently loaded Ollama models right when the user types {@code @}.
+     */
+    public void setPopupRefreshHook(Runnable hook) {
+        this.popupRefreshHook = hook;
     }
 
     /**
@@ -171,6 +181,9 @@ public final class MentionCompletionSupport {
         if (current == null) {
             hidePopup();
             return;
+        }
+        if (popupRefreshHook != null) {
+            popupRefreshHook.run();
         }
         model.clear();
         for (String suggestion : current.getSuggestions()) {
