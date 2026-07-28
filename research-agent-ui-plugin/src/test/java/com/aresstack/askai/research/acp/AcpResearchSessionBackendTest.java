@@ -159,7 +159,9 @@ public class AcpResearchSessionBackendTest {
         assertEquals(3, rec.events.size());
         assertEquals(ResearchBackendEventType.ACTIVITY, rec.events.get(0).getType());
         assertEquals(ResearchBackendEventType.ASSISTANT_MESSAGE, rec.events.get(1).getType());
-        assertEquals(ResearchBackendEventType.ASSISTANT_MESSAGE, rec.events.get(2).getType());
+        // The terminal MUST arrive typed COMPLETED — the session clears its turn-in-flight flag
+        // (composer unblock) only on this type; a plain ASSISTANT_MESSAGE would wedge the composer.
+        assertEquals(ResearchBackendEventType.COMPLETED, rec.events.get(2).getType());
         long last = 0;
         for (ResearchBackendEvent e : rec.events) {
             assertTrue("monotonic backend sequence", e.getSequenceNumber() > last);

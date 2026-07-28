@@ -40,7 +40,10 @@ public final class ResearchAcpEventMapper {
     public static ResearchBackendEvent.Builder mapTerminal(AcpPromptState state, String detail) {
         switch (state) {
             case COMPLETED:
-                return ResearchBackendEvent.builder(ResearchBackendEventType.ASSISTANT_MESSAGE)
+                // MUST be the COMPLETED event type (not a plain assistant message): the session clears
+                // its turn-in-flight flag on it — otherwise the composer stays busy forever after
+                // "Agent turn completed." (user-reported). The text still renders as a normal bubble.
+                return ResearchBackendEvent.builder(ResearchBackendEventType.COMPLETED)
                         .text("Agent turn completed.");
             case FAILED:
                 return ResearchBackendEvent.builder(ResearchBackendEventType.ERROR)
