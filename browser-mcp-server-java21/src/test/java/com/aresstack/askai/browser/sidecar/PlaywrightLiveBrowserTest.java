@@ -50,10 +50,23 @@ public class PlaywrightLiveBrowserTest {
             + "</script></body></html>";
 
     /** The SERP lives on its OWN server; the organic result links to the content server (%TARGET%). */
+    /**
+     * A structurally VALID artificial SERP: navigation bar plus a repeated result list (three
+     * similar blocks with heading link + explanatory snippet). The THIRD block is injected via
+     * JavaScript — the proof the capture reads the RENDERED DOM, not the raw HTML.
+     */
     private static final String SEARCH_PAGE = "<!doctype html><html><head><title>Find</title></head>"
-            + "<body><nav><a href='/videos?q=x'>Videos</a></nav><div id='r'></div><script>"
-            + "var a=document.createElement('a');a.href='%TARGET%';"
-            + "a.textContent='JS Start (result)';document.getElementById('r').appendChild(a);"
+            + "<body><nav><a href='/videos?q=x'>Videos</a><a href='/settings'>Settings</a></nav>"
+            + "<main><ul id='r'>"
+            + "<li><h2><a href='%TARGET%'>JS Start (result)</a></h2>"
+            + "<p>Explanatory snippet describing the start page target.</p></li>"
+            + "<li><h2><a href='%TARGET2%'>Second page (result)</a></h2>"
+            + "<p>Explanatory snippet describing the second page target.</p></li>"
+            + "</ul></main><script>"
+            + "var li=document.createElement('li');"
+            + "li.innerHTML=\"<h2><a href='%TARGET3%'>Third rendered (result)</a></h2>\""
+            + "  + '<p>Explanatory snippet describing the third rendered target.</p>';"
+            + "document.getElementById('r').appendChild(li);"
             + "</script></body></html>";
 
     @Test
@@ -77,7 +90,10 @@ public class PlaywrightLiveBrowserTest {
 
         // The search engine lives on its OWN server; its organic result links to the content server.
         HttpServer searchServer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        searchServer.createContext("/find", page(SEARCH_PAGE.replace("%TARGET%", base + "/start")));
+        searchServer.createContext("/find", page(SEARCH_PAGE
+                .replace("%TARGET%", base + "/start")
+                .replace("%TARGET2%", base + "/second")
+                .replace("%TARGET3%", base + "/start?v=3")));
         searchServer.start();
         String searchBase = "http://127.0.0.1:" + searchServer.getAddress().getPort();
 
@@ -120,10 +136,16 @@ public class PlaywrightLiveBrowserTest {
             assertTrue("snapshot must carry the post-redirect url: " + redirected.getUrl(),
                     redirected.getUrl().endsWith("/second"));
 
-            // 6) Search = navigation to the local provider; results extracted from the JS-built links.
+            // 6) Search = navigation to the local provider; the mechanical analysis reads the
+            // RENDERED repeated result blocks (the third block exists only in the JS-built DOM)
+            // and delivers title + snippet per block.
             WebSearchResult found = session.search("anything");
-            assertEquals(1, found.getItems().size());
+            assertEquals(3, found.getItems().size());
             assertEquals("JS Start (result)", found.getItems().get(0).getTitle());
+            assertTrue("snippet must come from the block's explanatory text: "
+                            + found.getItems().get(0).getSnippet(),
+                    found.getItems().get(0).getSnippet().contains("start page target"));
+            assertEquals("Third rendered (result)", found.getItems().get(2).getTitle());
 
             // 7) Scheme gate stays active on the live backend.
             try {

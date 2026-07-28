@@ -81,10 +81,14 @@ public class ResearchLoopPlaywrightSidecarIntegrationTest {
         String baseOne = "http://127.0.0.1:" + serverOne.getAddress().getPort();
         String baseTwo = "http://127.0.0.1:" + serverTwo.getAddress().getPort();
 
-        // The SERP has engine-internal navigation (never a candidate) plus one organic external result.
-        engineServer.createContext("/find", page("Find", "search results.",
-                jsLink("Videos", baseEngine + "/videos?q=pf4j")
-                        + jsLink("PF4J primer", baseOne + "/a")));
+        // The SERP has engine-internal navigation (never a candidate) plus a REPEATED result list
+        // of three similar blocks (title link + explanatory snippet) — the A3 mechanical analysis
+        // only accepts structurally valid SERPs, never single naked anchors.
+        engineServer.createContext("/find", serpPage(baseEngine + "/videos?q=pf4j",
+                new String[][]{
+                        {"PF4J primer", baseOne + "/a"},
+                        {"Independent pf4j review", baseTwo + "/c"},
+                        {"pf4j in production", baseTwo + "/e"}}));
         serverOne.createContext("/a", page("PF4J primer",
                 "pf4j is a plugin framework. Primary source.",
                 jsLink("pf4j details", baseTwo + "/c")));
@@ -314,6 +318,29 @@ public class ResearchLoopPlaywrightSidecarIntegrationTest {
             }
         }
         return new String[]{url, title, text.toString()};
+    }
+
+    /** A structurally valid artificial SERP: nav bar + repeated li(h2(a),p) result blocks. */
+    private static HttpHandler serpPage(String navHref, String[][] results) {
+        StringBuilder html = new StringBuilder("<!doctype html><html><head><title>Find</title>"
+                + "</head><body><nav><a href='" + navHref + "'>Videos</a></nav><main><ul>");
+        for (String[] result : results) {
+            html.append("<li><h2><a href='").append(result[1]).append("'>").append(result[0])
+                .append("</a></h2><p>Explanatory snippet describing ").append(result[0])
+                .append(" in detail.</p></li>");
+        }
+        html.append("</ul></main></body></html>");
+        final String body = html.toString();
+        return new HttpHandler() {
+            public void handle(HttpExchange exchange) throws IOException {
+                byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().add("Content-Type", "text/html; charset=utf-8");
+                exchange.sendResponseHeaders(200, bytes.length);
+                OutputStream out = exchange.getResponseBody();
+                out.write(bytes);
+                exchange.close();
+            }
+        };
     }
 
     private static HttpHandler page(String title, String text, String linkScript) {

@@ -126,8 +126,12 @@ public class ProductiveResearchMvpEndToEndTest {
         String baseEngine = "http://127.0.0.1:" + engineServer.getAddress().getPort();
         String baseOne = "http://127.0.0.1:" + serverOne.getAddress().getPort();
         String baseTwo = "http://127.0.0.1:" + serverTwo.getAddress().getPort();
-        engineServer.createContext("/find", page("Find", "search results.",
-                jsLink("PF4J primer", baseOne + "/a")));
+        // A structurally valid artificial SERP: repeated li(h2(a),p) blocks (A3 contract).
+        engineServer.createContext("/find", serpPage(
+                new String[][]{
+                        {"PF4J primer", baseOne + "/a"},
+                        {"Independent pf4j review", baseTwo + "/c"},
+                        {"pf4j in production", baseTwo + "/e"}}));
         serverOne.createContext("/a", page("PF4J primer",
                 "pf4j is a plugin framework. Primary source.",
                 jsLink("pf4j details", baseTwo + "/c")));
@@ -296,6 +300,29 @@ public class ProductiveResearchMvpEndToEndTest {
                 exchange.sendResponseHeaders(200, body.length);
                 OutputStream out = exchange.getResponseBody();
                 out.write(body);
+                exchange.close();
+            }
+        };
+    }
+
+    /** A structurally valid artificial SERP: repeated li(h2(a),p) result blocks. */
+    private static HttpHandler serpPage(String[][] results) {
+        StringBuilder html = new StringBuilder("<!doctype html><html><head><title>Find</title>"
+                + "</head><body><main><ul>");
+        for (String[] result : results) {
+            html.append("<li><h2><a href='").append(result[1]).append("'>").append(result[0])
+                .append("</a></h2><p>Explanatory snippet describing ").append(result[0])
+                .append(" in detail.</p></li>");
+        }
+        html.append("</ul></main></body></html>");
+        final String body = html.toString();
+        return new HttpHandler() {
+            public void handle(HttpExchange exchange) throws IOException {
+                byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().add("Content-Type", "text/html; charset=utf-8");
+                exchange.sendResponseHeaders(200, bytes.length);
+                OutputStream out = exchange.getResponseBody();
+                out.write(bytes);
                 exchange.close();
             }
         };

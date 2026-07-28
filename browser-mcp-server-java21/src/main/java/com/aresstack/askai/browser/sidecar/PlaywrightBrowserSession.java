@@ -35,6 +35,8 @@ final class PlaywrightBrowserSession implements BrowserSession {
     /** MANUAL_CHALLENGE_PENDING: the domain family whose parked challenge waits for the user, or null. */
     private String challengeFamily;
     private String challengeUrl;
+    /** Monotonic per navigation — the stale-reference guard of every rendered-page snapshot. */
+    private long snapshotGeneration;
 
     /** The typed configuration contract; defaults come ONLY from LegacyBrowserSearchDefaults. */
     private final com.aresstack.askai.browser.search.LegacyBrowserSearchSettings settings;
@@ -61,8 +63,7 @@ final class PlaywrightBrowserSession implements BrowserSession {
         this.fallbackSearchTemplates = settings.navigation.fallbackEngineTemplates
                 .toArray(new String[0]);
         this.searchProvider = searchProvider == null
-                ? new WebSearchProvider.OrganicResultSearchProvider(domainKeys, settings.navigation)
-                : searchProvider;
+                ? new WebSearchProvider.OrganicResultSearchProvider(settings) : searchProvider;
     }
 
     /**
@@ -72,11 +73,7 @@ final class PlaywrightBrowserSession implements BrowserSession {
      */
     void setDomainKeyResolver(com.aresstack.askai.browser.domain.DomainKeyResolver resolver) {
         if (resolver != null) {
-            this.domainKeys = resolver;
-            if (searchProvider instanceof WebSearchProvider.OrganicResultSearchProvider) {
-                this.searchProvider = new WebSearchProvider.OrganicResultSearchProvider(resolver,
-                        settings.navigation);
-            }
+            this.domainKeys = resolver; // capture + engine policy pick it up on the next search
         }
     }
 
@@ -172,16 +169,53 @@ final class PlaywrightBrowserSession implements BrowserSession {
                             == com.aresstack.askai.browser.domain.HostKind.REGISTERED_NAME) {
                 providerHosts.add(host);
             }
-            List<com.aresstack.askai.browser.WebSearchItem> organic =
-                    searchProvider.extract(page, currentLinks);
-            if (!organic.isEmpty()) {
+            // A3: judge the STRUCTURED rendered page — container hierarchy, repeated result
+            // blocks, primary links, snippets. Navigation targets are the RESOLVED direct URLs.
+            com.aresstack.askai.browser.render.RenderedPageDocument document;
+            try {
+                document = driver.captureRenderedPage(domainKeys, ++snapshotGeneration);
+            } catch (BrowserException captureFailed) {
                 attempts.add(attempt(host,
-                        com.aresstack.askai.browser.LegacySearchAttemptOutcome.ORGANIC_RESULTS,
-                        organic.size() + " candidates"));
-                return new WebSearchResult(organic, providerHosts, attempts);
+                        com.aresstack.askai.browser.LegacySearchAttemptOutcome.EXTRACTION_FAILED,
+                        bounded(captureFailed.getMessage())));
+                continue;
             }
-            attempts.add(attempt(host,
-                    com.aresstack.askai.browser.LegacySearchAttemptOutcome.NO_ORGANIC_RESULTS, ""));
+            if (document == null) {
+                attempts.add(attempt(host,
+                        com.aresstack.askai.browser.LegacySearchAttemptOutcome.EXTRACTION_FAILED,
+                        "structured page capture unavailable"));
+                continue;
+            }
+            com.aresstack.askai.browser.search.SearchResultExtractionResult extraction =
+                    searchProvider.extract(document);
+            switch (extraction.outcome) {
+                case ORGANIC_RESULTS:
+                    List<com.aresstack.askai.browser.WebSearchItem> items =
+                            new ArrayList<com.aresstack.askai.browser.WebSearchItem>();
+                    for (com.aresstack.askai.browser.search.SearchResultCandidate candidate
+                            : extraction.candidates) {
+                        if (items.size() >= settings.navigation.searchResultLimit) {
+                            break;
+                        }
+                        items.add(new com.aresstack.askai.browser.WebSearchItem(
+                                String.valueOf(items.size() + 1), candidate.title,
+                                candidate.resolvedTargetUrl, candidate.snippet));
+                    }
+                    attempts.add(attempt(host,
+                            com.aresstack.askai.browser.LegacySearchAttemptOutcome.ORGANIC_RESULTS,
+                            items.size() + " candidates"));
+                    return new WebSearchResult(items, providerHosts, attempts);
+                case NO_ORGANIC_RESULTS:
+                    attempts.add(attempt(host, com.aresstack.askai.browser
+                            .LegacySearchAttemptOutcome.NO_ORGANIC_RESULTS,
+                            bounded(firstDiagnostic(extraction))));
+                    break;
+                default:
+                    // An ununderstood layout is an extraction FAILURE, never an empty engine.
+                    attempts.add(attempt(host, com.aresstack.askai.browser
+                            .LegacySearchAttemptOutcome.EXTRACTION_FAILED,
+                            bounded(firstDiagnostic(extraction))));
+            }
         }
         if (!anyEngineReached && challengeFamily == null && lastFailure != null) {
             throw lastFailure; // nothing was reachable at all — a plain technical failure
@@ -190,6 +224,19 @@ final class PlaywrightBrowserSession implements BrowserSession {
         // Every engine's typed outcome travels with the (empty) result instead.
         return new WebSearchResult(Collections.<com.aresstack.askai.browser.WebSearchItem>emptyList(),
                 providerHosts, attempts);
+    }
+
+    private static String firstDiagnostic(
+            com.aresstack.askai.browser.search.SearchResultExtractionResult extraction) {
+        return extraction.diagnostics.isEmpty() ? "" : extraction.diagnostics.get(
+                extraction.diagnostics.size() - 1);
+    }
+
+    /** Attempt diagnostics are bounded by the diagnostics settings — never unbounded dumps. */
+    private String bounded(String text) {
+        String value = text == null ? "" : text;
+        int limit = settings.diagnostics.maximumTextExcerptCharacters;
+        return value.length() > limit ? value.substring(0, limit) : value;
     }
 
     private static com.aresstack.askai.browser.LegacySearchEngineAttemptResult attempt(

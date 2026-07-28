@@ -107,6 +107,15 @@ public class PlaywrightBrowserSessionTest {
             return history.get(history.size() - 1);
         }
 
+        @Override
+        public com.aresstack.askai.browser.render.RenderedPageDocument captureRenderedPage(
+                com.aresstack.askai.browser.domain.DomainKeyResolver domainKeys,
+                long snapshotGeneration) {
+            PlaywrightPageState current = history.isEmpty() ? null : history.get(history.size() - 1);
+            return current == null ? null
+                    : SyntheticRenderedDocuments.fromState(current, domainKeys, snapshotGeneration);
+        }
+
         public void close() {
             closeCalls++;
         }
@@ -247,13 +256,15 @@ public class PlaywrightBrowserSessionTest {
 
         FakeDriver driver2 = new FakeDriver();
         driver2.byUrl.put("http://8.8.8.8/find?q=pf4j+plugin", state("http://8.8.8.8/find?q=pf4j+plugin",
-                "Results", "results page", "PF4J primer", "http://9.9.9.9/a", "", "http://9.9.9.9/no-text"));
+                "Results", "results page", "PF4J primer", "http://9.9.9.9/a",
+                "PF4J guide", "http://9.9.9.10/b", "PF4J docs", "http://9.9.9.11/c",
+                "", "http://9.9.9.9/no-text"));
         PlaywrightBrowserSession s = session(driver2, UrlSafetyPolicy.strict(),
                 BrowserLimits.defaults(), "http://8.8.8.8/find?q={query}");
         WebSearchResult result = s.search("pf4j plugin");
         assertEquals("query is URL-encoded into the template",
                 "http://8.8.8.8/find?q=pf4j+plugin", driver2.opened.get(0));
-        assertEquals(1, result.getItems().size());
+        assertEquals(3, result.getItems().size());
         assertEquals("PF4J primer", result.getItems().get(0).getTitle());
         assertEquals("http://9.9.9.9/a", result.getItems().get(0).getUrl());
         assertTrue("transit semantics only exist for PUBLIC engines — an IP world reports none",
@@ -273,14 +284,15 @@ public class PlaywrightBrowserSessionTest {
                 "Videos", "http://engine-one.test/videos?q=pf4j",
                 "Accept", "http://engine-one.test/consent"));
         driver.byUrl.put("http://engine-two.test/html?q=pf4j", state("http://engine-two.test/html?q=pf4j",
-                "Results", "results page", "PF4J primer", "http://target.test/pf4j"));
+                "Results", "results page", "PF4J primer", "http://target.test/pf4j",
+                "PF4J guide", "http://target-two.test/pf4j", "PF4J docs", "http://target-three.test/pf4j"));
         PlaywrightBrowserSession s = session(driver, UrlSafetyPolicy.allowingPrivateNetworks(),
                 BrowserLimits.defaults(), "http://engine-one.test/find?q={query}");
         s.setFallbackSearchTemplates(new String[]{"http://engine-two.test/html?q={query}"});
 
         WebSearchResult result = s.search("pf4j");
 
-        assertEquals(1, result.getItems().size());
+        assertEquals(3, result.getItems().size());
         assertEquals("http://target.test/pf4j", result.getItems().get(0).getUrl());
         assertEquals("BOTH engine hosts are reported as transit",
                 java.util.Arrays.asList("engine-one.test", "engine-two.test"),
@@ -303,9 +315,11 @@ public class PlaywrightBrowserSessionTest {
 
         assertTrue("never the raw anchors as pretended results", result.getItems().isEmpty());
         assertEquals("one typed outcome per attempted engine", 2, result.getAttempts().size());
-        assertEquals(com.aresstack.askai.browser.LegacySearchAttemptOutcome.NO_ORGANIC_RESULTS,
+        // A3: a page whose layout yields no result structure is an extraction FAILURE - not an
+        // "engine without hits" (that would need an explicit no-results indication).
+        assertEquals(com.aresstack.askai.browser.LegacySearchAttemptOutcome.EXTRACTION_FAILED,
                 result.getAttempts().get(0).getOutcome());
-        assertEquals(com.aresstack.askai.browser.LegacySearchAttemptOutcome.NO_ORGANIC_RESULTS,
+        assertEquals(com.aresstack.askai.browser.LegacySearchAttemptOutcome.EXTRACTION_FAILED,
                 result.getAttempts().get(1).getOutcome());
     }
 
@@ -318,7 +332,9 @@ public class PlaywrightBrowserSessionTest {
                 "Consent", "wall", "Settings", "http://engine-one.test/settings"));
         driver.afterConsent.put("http://engine-one.test/find?q=pf4j",
                 state("http://engine-one.test/find?q=pf4j", "Results", "results",
-                        "PF4J primer", "http://target.test/pf4j"));
+                        "PF4J primer", "http://target.test/pf4j",
+                        "PF4J guide", "http://target-two.test/pf4j",
+                        "PF4J docs", "http://target-three.test/pf4j"));
         PlaywrightBrowserSession s = session(driver, UrlSafetyPolicy.allowingPrivateNetworks(),
                 BrowserLimits.defaults(), "http://engine-one.test/find?q={query}");
         s.setFallbackSearchTemplates(new String[0]);
@@ -326,7 +342,7 @@ public class PlaywrightBrowserSessionTest {
         WebSearchResult result = s.search("pf4j");
 
         assertEquals("the consent button was clicked exactly once", 1, driver.consentClicks);
-        assertEquals(1, result.getItems().size());
+        assertEquals(3, result.getItems().size());
         assertEquals("http://target.test/pf4j", result.getItems().get(0).getUrl());
     }
 
@@ -334,12 +350,14 @@ public class PlaywrightBrowserSessionTest {
     public void withoutABannerTheDismisserHasNoSideEffect() throws Exception {
         FakeDriver driver = new FakeDriver();
         driver.byUrl.put("http://engine-one.test/find?q=pf4j", state("http://engine-one.test/find?q=pf4j",
-                "Results", "results", "PF4J primer", "http://target.test/pf4j"));
+                "Results", "results", "PF4J primer", "http://target.test/pf4j",
+                "PF4J guide", "http://target-two.test/pf4j",
+                "PF4J docs", "http://target-three.test/pf4j"));
         PlaywrightBrowserSession s = session(driver, UrlSafetyPolicy.allowingPrivateNetworks(),
                 BrowserLimits.defaults(), "http://engine-one.test/find?q={query}");
         s.setFallbackSearchTemplates(new String[0]);
 
-        assertEquals(1, s.search("pf4j").getItems().size());
+        assertEquals(3, s.search("pf4j").getItems().size());
         assertEquals("no banner → no click", 0, driver.consentClicks);
     }
 
@@ -350,13 +368,15 @@ public class PlaywrightBrowserSessionTest {
                 "One last step", "verify you are human", "Help", "http://engine-one.test/help"));
         driver.challengeUrls.add("http://engine-one.test/find?q=pf4j");
         driver.byUrl.put("http://engine-two.test/html?q=pf4j", state("http://engine-two.test/html?q=pf4j",
-                "Results", "results", "PF4J primer", "http://target.test/pf4j"));
+                "Results", "results", "PF4J primer", "http://target.test/pf4j",
+                "PF4J guide", "http://target-two.test/pf4j",
+                "PF4J docs", "http://target-three.test/pf4j"));
         PlaywrightBrowserSession s = session(driver, UrlSafetyPolicy.allowingPrivateNetworks(),
                 BrowserLimits.defaults(), "http://engine-one.test/find?q={query}");
         s.setFallbackSearchTemplates(new String[]{"http://engine-two.test/html?q={query}"});
 
         WebSearchResult result = s.search("pf4j");
-        assertEquals("the fallback engine still delivered routes", 1, result.getItems().size());
+        assertEquals("the fallback engine still delivered routes", 3, result.getItems().size());
         assertTrue("the challenge page was parked for the user", driver.parked);
 
         assertEquals("CHALLENGE: engine-one.test http://engine-one.test/find?q=pf4j",
@@ -385,7 +405,7 @@ public class PlaywrightBrowserSessionTest {
     @Test
     public void literalIpProvidersNeverFallThroughToPublicEngines() throws Exception {
         // A literal-IP provider is a self-contained dev/test world: no fallback engine is contacted,
-        // and same-family links are typed NO_ORGANIC_RESULTS instead of degraded to raw anchors.
+        // and a page without result structure is typed EXTRACTION_FAILED - never raw anchors.
         FakeDriver driver = new FakeDriver();
         driver.byUrl.put("http://8.8.8.8/find?q=pf4j", state("http://8.8.8.8/find?q=pf4j",
                 "Find", "results", "Local result", "http://8.8.8.8/a"));
@@ -398,7 +418,7 @@ public class PlaywrightBrowserSessionTest {
         assertEquals("exactly one navigation — no fallback engine was contacted",
                 1, driver.opened.size());
         assertTrue(result.getItems().isEmpty());
-        assertEquals(com.aresstack.askai.browser.LegacySearchAttemptOutcome.NO_ORGANIC_RESULTS,
+        assertEquals(com.aresstack.askai.browser.LegacySearchAttemptOutcome.EXTRACTION_FAILED,
                 result.getAttempts().get(0).getOutcome());
     }
 
@@ -410,7 +430,9 @@ public class PlaywrightBrowserSessionTest {
         driver.byUrl.put("http://127.0.0.1:1111/find?q=pf4j", state("http://127.0.0.1:1111/find?q=pf4j",
                 "Find", "results",
                 "Engine internal", "http://127.0.0.1:1111/settings",
-                "Local result", "http://127.0.0.1:2222/a"));
+                "Local result", "http://127.0.0.1:2222/a",
+                "Second result", "http://127.0.0.1:3333/b",
+                "Third result", "http://127.0.0.1:4444/c"));
         PlaywrightBrowserSession s = session(driver, UrlSafetyPolicy.allowingPrivateNetworks(),
                 BrowserLimits.defaults(), "http://127.0.0.1:1111/find?q={query}");
         s.setFallbackSearchTemplates(new String[0]);
@@ -418,7 +440,7 @@ public class PlaywrightBrowserSessionTest {
 
         WebSearchResult result = s.search("pf4j");
 
-        assertEquals("the other-port server is an organic route", 1, result.getItems().size());
+        assertEquals("the other-port servers are organic routes", 3, result.getItems().size());
         assertEquals("http://127.0.0.1:2222/a", result.getItems().get(0).getUrl());
         assertTrue("IP worlds still report no transit hosts", result.getProviderHosts().isEmpty());
     }

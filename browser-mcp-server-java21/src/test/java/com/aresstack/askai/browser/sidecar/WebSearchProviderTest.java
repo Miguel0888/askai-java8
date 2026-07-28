@@ -1,8 +1,10 @@
 package com.aresstack.askai.browser.sidecar;
 
-import com.aresstack.askai.browser.BrowserLink;
-import com.aresstack.askai.browser.BrowserPageSnapshot;
-import com.aresstack.askai.browser.WebSearchItem;
+import com.aresstack.askai.browser.domain.PublicSuffixDomainKeyResolver;
+import com.aresstack.askai.browser.render.RenderedPageDocument;
+import com.aresstack.askai.browser.search.LegacyBrowserSearchDefaults;
+import com.aresstack.askai.browser.search.SearchPageAnalysisOutcome;
+import com.aresstack.askai.browser.search.SearchResultExtractionResult;
 
 import org.junit.Test;
 
@@ -10,18 +12,19 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 /**
- * The "street sign" search extraction: only plausible organic result links become hits — the search
- * engine's own navigation (Videos/Shopping/Maps tabs, verticals, settings) never enters the route list,
- * while its redirect wrappers (the actual organic links on Bing & co.) and direct external links do.
+ * The productive search provider is a thin adapter over the mechanical SERP analysis: repeated
+ * result blocks with resolved DIRECT targets become typed candidates; engine navigation never
+ * does; a page without result structure is a typed EXTRACTION_FAILED — there is no flat-anchor
+ * code path left (the detailed judgement is covered by the :browser-search-analysis tests).
  */
 public class WebSearchProviderTest {
 
-    private static final WebSearchProvider.OrganicResultSearchProvider PROVIDER =
-            new WebSearchProvider.OrganicResultSearchProvider(
-                    new com.aresstack.askai.browser.domain.PublicSuffixDomainKeyResolver());
+    private final WebSearchProvider provider = new WebSearchProvider.OrganicResultSearchProvider(
+            LegacyBrowserSearchDefaults.create());
 
     private static String bingWrapped(String target) {
         return "https://www.bing.com/ck/a?!&&p=abc&u=a1"
@@ -29,88 +32,46 @@ public class WebSearchProviderTest {
                         .encodeToString(target.getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 
-    private static BrowserPageSnapshot bingPage() {
-        return new BrowserPageSnapshot("https://www.bing.com/search?q=pf4j", "pf4j - Suchen", "…", false);
-    }
-
-    private static BrowserLink link(String text, String url) {
-        return new BrowserLink("link-x", text, url);
+    private static RenderedPageDocument bingSerp(String... titleUrlPairs) {
+        List<PlaywrightPageState.Anchor> anchors = new ArrayList<PlaywrightPageState.Anchor>();
+        anchors.add(new PlaywrightPageState.Anchor("Videos",
+                "https://www.bing.com/videos/search?q=pf4j"));
+        anchors.add(new PlaywrightPageState.Anchor("Einstellungen",
+                "https://www.bing.com/account/general"));
+        for (int i = 0; i + 1 < titleUrlPairs.length; i += 2) {
+            anchors.add(new PlaywrightPageState.Anchor(titleUrlPairs[i], titleUrlPairs[i + 1]));
+        }
+        return SyntheticRenderedDocuments.fromState(new PlaywrightPageState(
+                        "https://www.bing.com/search?q=pf4j", "pf4j - Suchen", "results", anchors),
+                new PublicSuffixDomainKeyResolver(), 1L);
     }
 
     @Test
-    public void dropsProviderNavigationResolvesWrappersAndKeepsExternalLinks() {
+    public void repeatedExternalBlocksBecomeCandidatesNavigationNever() {
         String wrapped = bingWrapped("https://pf4j.org/doc/getting-started.html");
-        List<BrowserLink> links = new ArrayList<BrowserLink>();
-        links.add(link("Videos", "https://www.bing.com/videos/search?q=pf4j"));
-        links.add(link("Shopping", "https://www.bing.com/shopping?q=pf4j"));
-        links.add(link("Bilder", "https://cn.bing.com/images/search?q=pf4j"));
-        links.add(link("Einstellungen", "https://www.bing.com/account/general"));
-        links.add(link("PF4J – Plugin Framework for Java", wrapped));
-        links.add(link("Kaputter Wrapper", "https://www.bing.com/ck/a?!&&p=abc")); // no decodable target
-        links.add(link("pf4j/pf4j: Plugin Framework", "https://github.com/pf4j/pf4j"));
-        links.add(link("pf4j/pf4j: Plugin Framework", "https://github.com/pf4j/pf4j")); // duplicate
-        links.add(link("", "https://no-text.example/"));
-        links.add(link("Impressum", "javascript:void(0)"));
+        SearchResultExtractionResult result = provider.extract(bingSerp(
+                "PF4J - Plugin Framework for Java", wrapped,
+                "pf4j/pf4j: Plugin Framework", "https://github.com/pf4j/pf4j",
+                "PF4J tutorial", "https://www.baeldung.com/pf4j"));
 
-        List<WebSearchItem> items = PROVIDER.extract(bingPage(), links);
-
-        assertEquals("resolved wrapper + external, deduped — nav and broken wrapper dropped",
-                2, items.size());
-        assertEquals("the NAVIGATION target stays the wrapper (the engine expects it followed)",
-                wrapped, items.get(0).getUrl());
-        assertEquals("https://github.com/pf4j/pf4j", items.get(1).getUrl());
-        for (WebSearchItem item : items) {
-            assertTrue(!item.getUrl().contains("/videos/") && !item.getUrl().contains("/shopping"));
+        assertEquals(SearchPageAnalysisOutcome.ORGANIC_RESULTS, result.outcome);
+        assertEquals(3, result.candidates.size());
+        assertEquals("the resolved DIRECT target is the navigation candidate",
+                "https://pf4j.org/doc/getting-started.html",
+                result.candidates.get(0).resolvedTargetUrl);
+        assertTrue("the raw wrapper stays diagnostic provenance",
+                result.candidates.get(0).rawSearchHref.contains("/ck/"));
+        for (com.aresstack.askai.browser.search.SearchResultCandidate candidate
+                : result.candidates) {
+            assertFalse(candidate.resolvedTargetUrl.contains("/videos/"));
+            assertFalse(candidate.resolvedTargetUrl.contains("/account/"));
         }
     }
 
     @Test
-    public void returnsEmptyWhenNoOrganicRouteExists() {
-        // Everything provider-internal (consent wall, JS-only results): "no routes from this engine" —
-        // the SESSION then tries its fallback engines before degrading to the all-links extraction.
-        List<BrowserLink> links = new ArrayList<BrowserLink>();
-        links.add(link("Result A", "https://search.example/r/1"));
-        links.add(link("Result B", "https://search.example/r/2"));
-        BrowserPageSnapshot page =
-                new BrowserPageSnapshot("https://search.example/find?q=x", "find", "…", false);
-
-        assertEquals(0, PROVIDER.extract(page, links).size());
+    public void aPageWithoutResultStructureIsATypedExtractionFailure() {
+        SearchResultExtractionResult result = provider.extract(bingSerp());
+        assertEquals(SearchPageAnalysisOutcome.EXTRACTION_FAILED, result.outcome);
+        assertTrue(result.candidates.isEmpty());
     }
-
-    @Test
-    public void internalEngineLinksReceiveTypedClassifications() {
-        com.aresstack.askai.browser.domain.DomainKeyResolver r =
-                new com.aresstack.askai.browser.domain.PublicSuffixDomainKeyResolver();
-        com.aresstack.askai.browser.domain.DomainIdentity bing =
-                r.resolve("https://www.bing.com/search?q=x");
-        assertEquals(SearchPageLinkType.SEARCH_VERTICAL,
-                SearchPageLinkType.classify("https://www.bing.com/videos/search?q=x", "Videos", bing, r));
-        assertEquals("subdomains of the engine are engine-internal too",
-                SearchPageLinkType.SEARCH_VERTICAL,
-                SearchPageLinkType.classify("https://cn.bing.com/images/search?q=x", "Bilder", bing, r));
-        assertEquals(SearchPageLinkType.PAGINATION,
-                SearchPageLinkType.classify("https://www.bing.com/search?q=x&first=11", "2", bing, r));
-        assertEquals(SearchPageLinkType.QUERY_REFINEMENT,
-                SearchPageLinkType.classify("https://www.bing.com/search?q=related", "related", bing, r));
-        assertEquals(SearchPageLinkType.ACCOUNT_OR_SETTINGS,
-                SearchPageLinkType.classify("https://www.bing.com/account/general", "Konto", bing, r));
-        assertEquals(SearchPageLinkType.LEGAL_OR_HELP,
-                SearchPageLinkType.classify("https://www.bing.com/privacy", "Datenschutz", bing, r));
-        assertEquals(SearchPageLinkType.ORGANIC_RESULT,
-                SearchPageLinkType.classify("https://github.com/pf4j/pf4j", "pf4j", bing, r));
-        assertEquals(SearchPageLinkType.UNKNOWN_INTERNAL,
-                SearchPageLinkType.classify("https://www.bing.com/something", "x", bing, r));
-    }
-
-    @Test
-    public void capsTheRouteListForSmallModels() {
-        List<BrowserLink> links = new ArrayList<BrowserLink>();
-        for (int i = 1; i <= 40; i++) {
-            links.add(link("Result " + i, "https://site" + i + ".example/a"));
-        }
-        List<WebSearchItem> items = PROVIDER.extract(bingPage(), links);
-        assertEquals(com.aresstack.askai.browser.search.LegacyBrowserSearchDefaults.create()
-                .navigation.searchResultLimit, items.size());
-    }
-
 }

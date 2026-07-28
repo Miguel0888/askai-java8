@@ -16,6 +16,9 @@ java {
 
 dependencies {
     implementation project(':browser-api')
+    // Java-8 bytecode consumed by this Java-21 process: the mechanical SERP analysis runs
+    // in-process for web_search (the sidecar measures AND asks the analysis for judgement).
+    implementation project(':browser-search-analysis')
     // The official Playwright Java API — but WITHOUT its Node driver artifacts: playwright4j ships a
     // replacement com.microsoft.playwright.impl.driver.Driver that spawns a second Java process running
     // the Playwright Core JS driver on GraalJS (no Node.js). Excluding upstream 'driver' is mandatory:
