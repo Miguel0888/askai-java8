@@ -68,6 +68,44 @@ public final class VirtualOllamaContainerService implements OllamaService {
     }
 
     @Override
+    public Task listChatModelNames(final ModelNamesListener listener) {
+        return submit(new Runnable() {
+            public void run() {
+                try {
+                    listener.onModelNames(loadChatModelNamesNow());
+                } catch (Exception ex) {
+                    listener.onError(ex);
+                }
+            }
+        });
+    }
+
+    /**
+     * CHAT-capable model names: remote models unfiltered; LOCAL models only when their /api/show
+     * capabilities include completion — a rerank-only local model never appears in a chat
+     * dropdown, while a locally installed chat model stays selectable. A local model whose
+     * capabilities cannot be read is EXCLUDED (unknown local capabilities never unlock chat).
+     */
+    public List<String> loadChatModelNamesNow() throws Exception {
+        List<String> names = new ArrayList<String>();
+        for (OllamaModelInfo info : loadInstalledModelsNow()) {
+            if (info.isLocal() && !localModelCanChat(info.getDisplayName())) {
+                continue;
+            }
+            names.add(info.getDisplayName());
+        }
+        return names;
+    }
+
+    private boolean localModelCanChat(String modelName) {
+        try {
+            return loadModelInfoNow(modelName).getCapabilities().contains("completion");
+        } catch (Exception unknown) {
+            return false;
+        }
+    }
+
+    @Override
     public Task listInstalledModels(final InstalledModelsListener listener) {
         return submit(new Runnable() {
             public void run() {

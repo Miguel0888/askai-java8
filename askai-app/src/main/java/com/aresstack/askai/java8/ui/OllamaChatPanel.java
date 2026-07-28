@@ -1476,7 +1476,8 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
 
     private void refreshModels() {
         setStatus("Loading models from " + model.getOllamaBaseUrl() + " ...");
-        ollamaService.listModelNames(new OllamaService.ModelNamesListener() {
+        // CHAT list: local models appear only when they can actually chat (capability-filtered).
+        ollamaService.listChatModelNames(new OllamaService.ModelNamesListener() {
             public void onModelNames(final List<String> names) {
                 onUi(new Runnable() {
                     public void run() {

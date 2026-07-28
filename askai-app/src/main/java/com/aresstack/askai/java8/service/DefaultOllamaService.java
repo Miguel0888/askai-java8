@@ -45,6 +45,12 @@ public final class DefaultOllamaService implements OllamaService {
     }
 
     @Override
+    public Task listChatModelNames(final ModelNamesListener listener) {
+        // A plain remote Ollama world has no local models to filter.
+        return listModelNames(listener);
+    }
+
+    @Override
     public Task listInstalledModels(final InstalledModelsListener listener) {
         return submit(new Runnable() {
             @Override

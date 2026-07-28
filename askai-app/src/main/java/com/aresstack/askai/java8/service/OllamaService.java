@@ -17,6 +17,13 @@ public interface OllamaService {
 
     Task listModelNames(ModelNamesListener listener);
 
+    /**
+     * The model names offered for CHAT selection: like {@link #listModelNames} but local models
+     * that cannot chat (e.g. rerank-only) are filtered out by their /api/show capabilities. A
+     * locally installed CHAT-capable model stays selectable; remote models are never filtered.
+     */
+    Task listChatModelNames(ModelNamesListener listener);
+
     Task listInstalledModels(InstalledModelsListener listener);
 
     Task listRunningModels(RunningModelsListener listener);

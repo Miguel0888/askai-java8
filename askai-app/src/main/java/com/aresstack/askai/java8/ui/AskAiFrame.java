@@ -232,12 +232,8 @@ public final class AskAiFrame extends JFrame {
 
     /** Load installed model names for the chat model list (blocking; runs off the EDT in the refresh service). */
     private List<String> loadInstalledModelNames() throws Exception {
-        List<String> names = new ArrayList<String>();
-        for (OllamaModelInfo installed
-                : ((VirtualOllamaContainerService) ollamaService).loadInstalledModelsNow()) {
-            names.add(installed.getDisplayName());
-        }
-        return names;
+        // Feeds the CHAT dropdown catalogs: local models only when they can actually chat.
+        return ((VirtualOllamaContainerService) ollamaService).loadChatModelNamesNow();
     }
 
     /** Load only the audio-capable model names (exact {@code audio} capability), same rule as the batch list. */
