@@ -61,29 +61,39 @@ public final class OllamaBotResponder implements BotResponder {
     private final Supplier<List<String>> mentionableModels;
     private final PartySettings settings;
     private final Supplier<ThinkingOption> thinkingOption;
+    private final Supplier<ThinkingOption> gateThinkingOption;
+    private final Supplier<ThinkingOption> correctionThinkingOption;
 
     public OllamaBotResponder(OllamaService ollamaService, Supplier<String> modelName,
                               Supplier<String> keepAlive) {
-        this(ollamaService, modelName, keepAlive, null, null, null);
+        this(ollamaService, modelName, keepAlive, null, null, null, null, null);
     }
 
     /**
-     * @param mentionableModels supplies the installed model names that may be @-mentioned
-     *                          directly, or {@code null} when model mentions are disabled
-     * @param settings          Partying settings supplying the bot prompts, context mode and
-     *                          policy; {@code null} uses the built-in defaults
-     * @param thinkingOption    supplies the thinking effort for bot requests (mirrors the
-     *                          composer's Think selector); {@code null} leaves it to the model
+     * @param mentionableModels        supplies the installed model names that may be @-mentioned
+     *                                 directly, or {@code null} when model mentions are disabled
+     * @param settings                 Partying settings supplying the bot prompts, context mode
+     *                                 and policy; {@code null} uses the built-in defaults
+     * @param thinkingOption           thinking effort for replies to explicit mentions (mirrors
+     *                                 the composer's Think selector); {@code null} = model default
+     * @param gateThinkingOption       thinking effort for the always-policy YES/NO gate;
+     *                                 {@code null} = model default
+     * @param correctionThinkingOption thinking effort for unprompted always-policy corrections;
+     *                                 {@code null} = model default
      */
     public OllamaBotResponder(OllamaService ollamaService, Supplier<String> modelName,
                               Supplier<String> keepAlive, Supplier<List<String>> mentionableModels,
-                              PartySettings settings, Supplier<ThinkingOption> thinkingOption) {
+                              PartySettings settings, Supplier<ThinkingOption> thinkingOption,
+                              Supplier<ThinkingOption> gateThinkingOption,
+                              Supplier<ThinkingOption> correctionThinkingOption) {
         this.ollamaService = ollamaService;
         this.modelName = modelName;
         this.keepAlive = keepAlive;
         this.mentionableModels = mentionableModels;
         this.settings = settings;
         this.thinkingOption = thinkingOption;
+        this.gateThinkingOption = gateThinkingOption;
+        this.correctionThinkingOption = correctionThinkingOption;
     }
 
     @Override
@@ -114,8 +124,8 @@ public final class OllamaBotResponder implements BotResponder {
         }
         boolean mentioned = requestedModel != null
                 || com.aresstack.askai.java8.groupchat.MentionParser.mentionsBot(addressed.getMarkdown());
-        if (alwaysPolicy() && !mentioned
-                && (settings == null || settings.chimeInGateEnabled())) {
+        boolean unpromptedAlways = alwaysPolicy() && !mentioned;
+        if (unpromptedAlways && (settings == null || settings.chimeInGateEnabled())) {
             // Small models don't reliably honor a free-form silence marker, so unprompted
             // messages first pass a strictly binary should-I-reply gate. Large models that
             // follow the [SILENT] contract can disable the gate in Settings.
@@ -125,19 +135,33 @@ public final class OllamaBotResponder implements BotResponder {
         // The [SILENT] contract only applies to unprompted always-mode replies WITHOUT the gate:
         // a gate-approved reply already passed the should-I-speak decision, and an explicit
         // mention must always be answered — a second silence hurdle would swallow corrections.
-        boolean withSilenceContract = alwaysPolicy() && !mentioned;
-        answer(model, context, addressed, profiles, withSilenceContract, callback);
+        // Explicit mentions think with the composer setting; unprompted corrections use the
+        // separately-configured correction thinking level.
+        ThinkingOption thinking = unpromptedAlways ? correctionThinking() : mentionThinking();
+        answer(model, context, addressed, profiles, thinking, unpromptedAlways, callback);
     }
 
     private void answer(String model, List<GroupChatMessage> context, GroupChatMessage addressed,
-                        Map<String, Participant> profiles, boolean withSilenceContract,
-                        Callback callback) {
+                        Map<String, Participant> profiles, ThinkingOption thinking,
+                        boolean withSilenceContract, Callback callback) {
         List<OllamaChatTurn> conversation =
                 buildConversation(context, addressed, profiles, withSilenceContract);
-        ThinkingOption thinking = thinkingOption != null ? thinkingOption.get() : null;
-        execute(model, conversation,
-                thinking != null ? thinking : ThinkingOption.defaultOption(), true,
-                withSilenceContract, callback);
+        execute(model, conversation, thinking, true, withSilenceContract, callback);
+    }
+
+    private ThinkingOption mentionThinking() {
+        ThinkingOption option = thinkingOption != null ? thinkingOption.get() : null;
+        return option != null ? option : ThinkingOption.defaultOption();
+    }
+
+    private ThinkingOption gateThinking() {
+        ThinkingOption option = gateThinkingOption != null ? gateThinkingOption.get() : null;
+        return option != null ? option : ThinkingOption.defaultOption();
+    }
+
+    private ThinkingOption correctionThinking() {
+        ThinkingOption option = correctionThinkingOption != null ? correctionThinkingOption.get() : null;
+        return option != null ? option : ThinkingOption.defaultOption();
     }
 
     /**
@@ -178,14 +202,16 @@ public final class OllamaBotResponder implements BotResponder {
         gate.add(OllamaChatTurn.user("Latest message — "
                 + handleOf(addressed.getSenderParticipantId(), profiles)
                 + ": " + addressed.getMarkdown()));
-        execute(model, gate, ThinkingOption.defaultOption(), true, true, new Callback() {
+        // The gate is a fast classifier: it uses its own (by default: no) thinking level, so the
+        // extra round-trip stays cheap. Only the approved correction thinks (default: high).
+        execute(model, gate, gateThinking(), true, true, new Callback() {
             public void onThinkingDelta(String delta) {
                 // Gate deliberation stays invisible; only a real answer shows the bubble.
             }
 
             public void onResponse(String text) {
                 if (isAffirmative(text)) {
-                    answer(model, context, addressed, profiles, false, callback);
+                    answer(model, context, addressed, profiles, correctionThinking(), false, callback);
                 } else {
                     callback.onNoAnswer();
                 }

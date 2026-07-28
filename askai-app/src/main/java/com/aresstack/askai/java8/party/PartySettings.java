@@ -37,6 +37,8 @@ public final class PartySettings {
     private static final String KEY_BOT_SYSTEM_PROMPT = "party.botSystemPrompt";
     private static final String KEY_BOT_ALWAYS_PROMPT = "party.botAlwaysPrompt";
     private static final String KEY_BOT_CHIME_GATE = "party.botChimeGate";
+    private static final String KEY_BOT_GATE_THINKING = "party.botGateThinking";
+    private static final String KEY_BOT_CORRECTION_THINKING = "party.botCorrectionThinking";
     private static final String KEY_BOT_CONTEXT_MODE = "party.botContextMode";
 
     /**
@@ -211,6 +213,32 @@ public final class PartySettings {
 
     public void setChimeInGateEnabled(boolean enabled) {
         put(KEY_BOT_CHIME_GATE, String.valueOf(enabled));
+    }
+
+    /** Thinking effort for the always-policy YES/NO gate ("off"/"low"/"medium"/"high"). */
+    public String botGateThinking() {
+        return thinkingLevel(KEY_BOT_GATE_THINKING, "off");
+    }
+
+    public void setBotGateThinking(String level) {
+        put(KEY_BOT_GATE_THINKING, level);
+    }
+
+    /** Thinking effort for unprompted always-policy corrections; default "high". */
+    public String botCorrectionThinking() {
+        return thinkingLevel(KEY_BOT_CORRECTION_THINKING, "high");
+    }
+
+    public void setBotCorrectionThinking(String level) {
+        put(KEY_BOT_CORRECTION_THINKING, level);
+    }
+
+    private String thinkingLevel(String key, String fallback) {
+        String value = state == null ? fallback : state.get(key, fallback);
+        if ("off".equals(value) || "low".equals(value) || "medium".equals(value) || "high".equals(value)) {
+            return value;
+        }
+        return fallback;
     }
 
     /**

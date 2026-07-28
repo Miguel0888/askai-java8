@@ -767,6 +767,12 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
                 "Extra short model call deciding whether to chime in under the \"always\" policy. "
                         + "Recommended for small models; large models that follow the [SILENT] contract "
                         + "reliably can disable it and save the call.");
+        final JComboBox<String> gateThinkingCombo = thinkingLevelCombo(partySettings.botGateThinking());
+        gateThinkingCombo.setToolTipText("Thinking effort for the gate decision — Off keeps it fast.");
+        final JComboBox<String> correctionThinkingCombo =
+                thinkingLevelCombo(partySettings.botCorrectionThinking());
+        correctionThinkingCombo.setToolTipText(
+                "Thinking effort for the actual unprompted correction (only if the model can think).");
         final JComboBox<String> contextModeCombo = new JComboBox<String>();
         contextModeCombo.addItem("Users as one collective (merged chat turns)");
         contextModeCombo.addItem("Answer the mentioning message (transcript as context)");
@@ -821,6 +827,8 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
                     : PartySettings.BOT_POLICY_MENTION);
             partySettings.setModelMentionsEnabled(modelMentionsBox.isSelected());
             partySettings.setChimeInGateEnabled(gateBox.isSelected());
+            partySettings.setBotGateThinking((String) gateThinkingCombo.getSelectedItem());
+            partySettings.setBotCorrectionThinking((String) correctionThinkingCombo.getSelectedItem());
             int contextIndex = contextModeCombo.getSelectedIndex();
             partySettings.setBotContextMode(contextIndex == 1 ? PartySettings.BOT_CONTEXT_TRANSCRIPT
                     : contextIndex == 2 ? PartySettings.BOT_CONTEXT_CONVERSATION
@@ -900,6 +908,12 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         JPanel gateRow = partySettingsRow();
         gateRow.add(gateBox);
         botCard.add(gateRow);
+        JPanel thinkingRow = partySettingsRow();
+        thinkingRow.add(new JLabel("Always thinking — gate"));
+        thinkingRow.add(gateThinkingCombo);
+        thinkingRow.add(new JLabel("correction"));
+        thinkingRow.add(correctionThinkingCombo);
+        botCard.add(thinkingRow);
         JPanel contextRow = partySettingsRow();
         contextRow.add(new JLabel("Bot context"));
         contextRow.add(contextModeCombo);
@@ -990,6 +1004,13 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
             transcript.appendInfo("Party history cleared.");
         }
         setStatus("Party history cleared.");
+    }
+
+    /** A thinking-level dropdown (Off/Low/Medium/High) preselected to {@code current}. */
+    private static JComboBox<String> thinkingLevelCombo(String current) {
+        JComboBox<String> combo = new JComboBox<String>(new String[] {"off", "low", "medium", "high"});
+        combo.setSelectedItem(current == null ? "off" : current);
+        return combo;
     }
 
     /** A row with an "Apply party settings" button wired to the shared apply action. */
@@ -1505,10 +1526,20 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
                 partySettings,
                 new Supplier<ThinkingOption>() {
                     public ThinkingOption get() {
-                        // Mirror the composer's Think selector, exactly like a Yapping turn.
+                        // Replies to explicit mentions mirror the composer's Think selector.
                         return modelSupportsThinking && !"off".equals(reasoningEffort)
                                 ? ThinkingOption.ofLevel(reasoningEffort)
                                 : ThinkingOption.defaultOption();
+                    }
+                },
+                new Supplier<ThinkingOption>() {
+                    public ThinkingOption get() {
+                        return botThinkingFor(partySettings.botGateThinking());
+                    }
+                },
+                new Supplier<ThinkingOption>() {
+                    public ThinkingOption get() {
+                        return botThinkingFor(partySettings.botCorrectionThinking());
                     }
                 });
         return new PartySession(createPartyTransport(), room, self,
@@ -1518,6 +1549,21 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
                     }
                 },
                 responder, new PanelPartyUi());
+    }
+
+    /**
+     * Resolve a party-bot thinking level to a request option: {@code "off"} explicitly disables
+     * thinking (fast), a level enables it — but only when the current model supports thinking,
+     * otherwise the field is omitted.
+     */
+    private ThinkingOption botThinkingFor(String level) {
+        if (!modelSupportsThinking) {
+            return ThinkingOption.defaultOption();
+        }
+        if (level == null || "off".equals(level)) {
+            return ThinkingOption.of(ThinkingOption.Mode.DISABLED);
+        }
+        return ThinkingOption.ofLevel(level);
     }
 
     /** The real LAN transport (JGroups); discovery options come from the Partying settings. */
