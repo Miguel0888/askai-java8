@@ -1,7 +1,5 @@
 package com.aresstack.askai.browser.search.analysis;
 
-import com.aresstack.askai.browser.render.RenderedContainerDescriptor;
-import com.aresstack.askai.browser.render.RenderedPageDocument;
 import com.aresstack.askai.browser.search.SearchResultExtractionSettings;
 import com.aresstack.askai.browser.search.layout.SearchPageAnalysisArtifact;
 import com.aresstack.askai.browser.search.layout.SearchPageContainerCandidate;
@@ -13,21 +11,20 @@ import com.aresstack.askai.browser.search.layout.SearchPageLayoutResolutionDecis
 import com.aresstack.askai.browser.search.layout.SearchPageLayoutValidationResult;
 import com.aresstack.askai.browser.search.layout.ValidatedSearchPageLayoutDecision;
 
-import java.util.ArrayList;
 import java.util.Collections;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Set;
 
 /**
- * Applies and records validated layout profiles by STRUCTURE, never by container id (A4e). Reuse is
- * only permitted when the engine family and the fingerprint/structure/ancestry signatures are
- * compatible AND a current container re-resolves to that structure AND the re-derived selection
- * re-validates against the current artifact. On any deviation the profile is not applied and the AI
- * path stays open. A reused profile can never resurrect a raw old container id — it re-derives the id
- * from the CURRENT document.
+ * Applies and records validated layout profiles by STRUCTURE, never by container id (A4e). It works
+ * purely from the bounded artifact — the runtime that consults it never holds the RenderedPageDocument
+ * — so every candidate carries its own structure and ancestry signature. Reuse is only permitted when
+ * the engine family, fingerprint, settings digest and structure/ancestry signatures are compatible AND
+ * a current candidate re-resolves to that structure AND the re-derived selection re-validates against
+ * the current artifact. The id is re-derived from the CURRENT artifact, never resurrected from storage.
  */
 public final class SearchPageLayoutProfileService {
+
+    static final int STRUCTURE_SIGNATURE_VERSION = FileSearchPageLayoutProfileStore
+            .STRUCTURE_SIGNATURE_VERSION;
 
     private final SearchPageLayoutDecisionValidator validator;
 
@@ -40,15 +37,13 @@ public final class SearchPageLayoutProfileService {
      * Returns the re-derived, re-validated decision, or null when no compatible profile re-resolves.
      * A used profile is re-saved with a bumped validation stamp.
      */
-    public ValidatedSearchPageLayoutDecision resolveFromProfiles(RenderedPageDocument document,
-                                                                 SearchPageAnalysisArtifact artifact,
+    public ValidatedSearchPageLayoutDecision resolveFromProfiles(SearchPageAnalysisArtifact artifact,
                                                                  SearchPageLayoutProfileStore store,
                                                                  long nowEpochMillis) {
-        String fingerprint = artifact.documentFingerprint;
         for (SearchPageContainerCandidate candidate : artifact.containerCandidates) {
             SearchPageLayoutProfileQuery query = new SearchPageLayoutProfileQuery(
-                    artifact.engineFamily, fingerprint, artifact.settingsDigest,
-                    candidate.structureSignature, ancestrySignature(document, candidate.containerId));
+                    artifact.engineFamily, artifact.documentFingerprint, artifact.settingsDigest,
+                    candidate.structureSignature, candidate.ancestrySignature);
             SearchPageLayoutProfileMatch match = store.find(query);
             if (!match.matched) {
                 continue;
@@ -68,57 +63,29 @@ public final class SearchPageLayoutProfileService {
     }
 
     /**
-     * Build a STRUCTURE-only profile from a validated decision on the current document — the region
-     * and block structure signatures and the ancestry, never the snapshot-local container ids.
+     * Build a STRUCTURE-only profile from a validated decision on the current artifact — the region
+     * structure signature and ancestry, never the snapshot-local container ids.
      */
-    public SearchPageLayoutProfile buildProfile(RenderedPageDocument document,
-                                                SearchPageAnalysisArtifact artifact,
+    public SearchPageLayoutProfile buildProfile(SearchPageAnalysisArtifact artifact,
                                                 ValidatedSearchPageLayoutDecision decision,
                                                 long nowEpochMillis) {
-        RenderedContainerDescriptor region =
-                document.container(decision.primaryOrganicContainerId);
-        String regionSignature = region == null || region.structureSignature == null
-                ? "" : region.structureSignature.value;
-        List<String> blockSignatures = new ArrayList<String>();
-        if (region != null) {
-            Set<String> distinct = new LinkedHashSet<String>();
-            for (String childId : region.childContainerIds) {
-                RenderedContainerDescriptor child = document.container(childId);
-                if (child != null && child.structureSignature != null
-                        && !child.structureSignature.value.isEmpty()) {
-                    distinct.add(child.structureSignature.value);
-                }
-            }
-            blockSignatures.addAll(distinct);
-        }
+        SearchPageContainerCandidate region = candidateOf(artifact, decision.primaryOrganicContainerId);
+        String regionSignature = region == null ? "" : region.structureSignature;
+        String ancestry = region == null ? "" : region.ancestrySignature;
         return new SearchPageLayoutProfile(artifact.engineFamily, artifact.documentFingerprint,
-                FileSearchPageLayoutProfileStore.STRUCTURE_SIGNATURE_VERSION, regionSignature,
-                blockSignatures, ancestrySignature(document, decision.primaryOrganicContainerId),
-                artifact.settingsDigest, nowEpochMillis, nowEpochMillis, 1);
+                STRUCTURE_SIGNATURE_VERSION, regionSignature,
+                Collections.<String>emptyList(), ancestry, artifact.settingsDigest, nowEpochMillis,
+                nowEpochMillis, 1);
     }
 
-    /** A stable tag-name ancestry from the container up to the root, e.g. {@code body>div>main}. */
-    private String ancestrySignature(RenderedPageDocument document, String containerId) {
-        List<String> chain = new ArrayList<String>();
-        String current = containerId;
-        Set<String> visited = new LinkedHashSet<String>();
-        while (current != null && !current.isEmpty() && visited.add(current)) {
-            RenderedContainerDescriptor descriptor = document.container(current);
-            if (descriptor == null) {
-                break;
+    private static SearchPageContainerCandidate candidateOf(SearchPageAnalysisArtifact artifact,
+                                                            String containerId) {
+        for (SearchPageContainerCandidate candidate : artifact.containerCandidates) {
+            if (candidate.containerId.equals(containerId)) {
+                return candidate;
             }
-            chain.add(descriptor.tagName.isEmpty() ? "?" : descriptor.tagName);
-            current = descriptor.parentContainerId;
         }
-        Collections.reverse(chain);
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < chain.size(); i++) {
-            if (i > 0) {
-                sb.append('>');
-            }
-            sb.append(chain.get(i));
-        }
-        return sb.toString();
+        return null;
     }
 
     private static double profileConfidence(SearchPageLayoutProfile profile) {
