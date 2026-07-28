@@ -63,6 +63,8 @@ public class BackendHardeningTest {
         Recorder recorder = new Recorder();
         ResearchSessionHandle handle =
                 backend.createSession(new ResearchProjectRequest("s", "p", "t"), recorder);
+        // Creation is passive now: the first user question starts the run.
+        backend.submitPrompt(handle, new ResearchPrompt("investigate pf4j", ""));
         if (probeCanExecuteBeforeRunning) {
             // Hammer the pure enablement query; it must not consume any id from the shared generator.
             for (int i = 0; i < 25; i++) {
@@ -97,6 +99,8 @@ public class BackendHardeningTest {
         Recorder recorder = new Recorder();
         ResearchSessionHandle handle =
                 backend.createSession(new ResearchProjectRequest("s", "p", "t"), recorder);
+        // Creation is passive now: the first user question starts the run.
+        backend.submitPrompt(handle, new ResearchPrompt("investigate pf4j", ""));
 
         // Advance all the way to the FINAL approval gate, where "request changes" has no valid transition.
         for (int i = 0; i < 6; i++) {

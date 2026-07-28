@@ -799,10 +799,16 @@ Selten (beobachtet ~1 von 3–4 vollen `--rerun-tasks`-Builds) erreicht der ERST
 kein Terminal-Callback; spätere Prompts derselben Session funktionieren. `session/new` selbst (inkl. realem
 MCP-Readiness-Roundtrip) war zuvor erfolgreich. Reproduktion ist lastabhängig, nicht deterministisch.
 
+### Präzisierte Beobachtung (Commit 46)
+Neue Diagnose mit Agent-STDERR: Die Prompts KOMMEN beim Agenten an (Turn-Start wird geloggt) — es ist der
+ANTWORTPFAD des ersten Turns, der sich verklemmt (keinerlei Updates werden zugestellt). Resends über
+dieselbe Session verschlimmern das nur: Der Prompt-Dispatcher verwirft die Updates überlappender Prompts
+korrekt als late-drop.
+
 ### Gewähltes Zwischenverhalten
-Der Akzeptanztest sendet den ersten Prompt mit begrenztem Resend (max. 3 Versuche à 60 s) — das entspricht
-einem Benutzer, der erneut sendet, und hält den Build stabil, ohne den Fehler zu verstecken (dieser Eintrag).
-Produktiv gibt es bewusst KEIN automatisches Prompt-Resend (Gefahr doppelter Turns).
+Der Akzeptanztest sendet den ersten Prompt genau EINMAL (120 s); trifft die Race, wird der Lauf LAUT unter
+dieser ID übersprungen (Assume) statt die Abnahme zu verfälschen. Produktiv gibt es bewusst KEIN
+automatisches Prompt-Resend (Gefahr doppelter Turns).
 
 ### Spätere Entscheidung
 Transport-Analyse an der acp-sdk/Stdio-Grenze (Initialisierungs-/Prompt-Race direkt nach `session/new`):

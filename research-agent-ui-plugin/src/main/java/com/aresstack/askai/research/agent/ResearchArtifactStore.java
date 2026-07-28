@@ -18,18 +18,10 @@ public final class ResearchArtifactStore implements AgentArtifactStore {
     private final Map<String, Entry> entries = new HashMap<String, Entry>();
 
     public ResearchArtifactStore() {
-        seed("outline", "# Research Outline\n\n## 1. Introduction\n\n## 2. Background\n\n"
-                + "### 2.1 Prior work\n\n## 3. Architecture\n\n## 4. Conclusion\n");
-        seed("concept", "# Concept\n\nThe research question and the approach in a few paragraphs.\n");
-        seed("research-notes", "# Research Notes\n\n- First observation\n- Second observation\n");
-        seed("findings", "# Findings\n\n| Finding | Source | Confidence |\n|---|---|---|\n"
-                + "| Example finding | src1 | medium |\n");
-        seed("draft", "# Draft\n\nThe working draft of the document.\n");
-        seed("final", "# Final Document\n\nThe finalized research document.\n");
-    }
-
-    private void seed(String artifactId, String markdown) {
-        entries.put(artifactId, new Entry(markdown, 1L));
+        // Deliberately EMPTY: no pre-invented sample artifacts. Every document starts at revision 0
+        // with no content and only ever contains what the user or the agent actually produced —
+        // a fabricated outline presented for "approval" is exactly the clickdummy behavior this
+        // store must never cause again.
     }
 
     @Override

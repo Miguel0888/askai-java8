@@ -59,18 +59,25 @@ final class SlashCommandPopup {
         return shown;
     }
 
+    /** Coalesces refreshes scheduled from document callbacks (see attach()). */
+    private boolean refreshPending;
+
     private void attach() {
+        // NEVER refresh synchronously from a DocumentListener: during the callback the caret has not
+        // been updated yet, so typing a lone "/" computed completions for caret position 0 and the
+        // popup only appeared one keystroke late. Deferring via invokeLater (coalesced) runs after
+        // the caret moved — "/" alone immediately lists all commands.
         editor.getDocument().addDocumentListener(new DocumentListener() {
             public void insertUpdate(DocumentEvent e) {
-                refresh();
+                scheduleRefresh();
             }
 
             public void removeUpdate(DocumentEvent e) {
-                refresh();
+                scheduleRefresh();
             }
 
             public void changedUpdate(DocumentEvent e) {
-                refresh();
+                scheduleRefresh();
             }
         });
         // Key handling runs before the editor's InputMap bindings, so consuming here suppresses send/discard.
@@ -107,6 +114,19 @@ final class SlashCommandPopup {
                     acceptSelected();
                     editor.requestFocusInWindow();
                 }
+            }
+        });
+    }
+
+    private void scheduleRefresh() {
+        if (refreshPending) {
+            return;
+        }
+        refreshPending = true;
+        javax.swing.SwingUtilities.invokeLater(new Runnable() {
+            public void run() {
+                refreshPending = false;
+                refresh();
             }
         });
     }
@@ -164,7 +184,13 @@ final class SlashCommandPopup {
         }
         Point origin = editor.getLocationOnScreen();
         int x = origin.x;
-        int y = origin.y + editor.getHeight();
+        // The composer sits at the BOTTOM of the window: prefer showing the popup ABOVE the editor;
+        // only fall back below when there is genuinely not enough screen space above.
+        int popupHeight = scroll.getPreferredSize().height;
+        int y = origin.y - popupHeight;
+        if (y < 0) {
+            y = origin.y + editor.getHeight();
+        }
         if (shown && popup != null) {
             popup.hide();
         }

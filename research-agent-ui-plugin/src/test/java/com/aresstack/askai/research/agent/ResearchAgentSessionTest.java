@@ -94,7 +94,9 @@ public class ResearchAgentSessionTest {
         Fixture f = new Fixture();
         f.session.activate();
         f.sink.assistantMessages.clear();
-        f.session.getChatTarget().submitText("look into caching");
+        f.session.getChatTarget().submitText("investigate pf4j"); // the question starts the run
+        assertTrue(f.sink.userMessages.contains("investigate pf4j"));
+        f.session.getChatTarget().submitText("look into caching"); // follow-up gets a visible reply
         assertTrue(f.sink.userMessages.contains("look into caching"));
         assertFalse(f.sink.assistantMessages.isEmpty());
     }
@@ -103,6 +105,8 @@ public class ResearchAgentSessionTest {
     public void runReachesApprovalGateAndStateReflectsIt() {
         Fixture f = new Fixture();
         f.session.activate();
+        // Creation is passive: the user's first question starts the run.
+        f.session.getChatTarget().submitText("investigate pf4j");
         f.scheduler.runUntilIdle(); // → OUTLINE / WAITING with a pending approval
         assertEquals("OUTLINE", f.session.getState().getPhaseLabel());
         assertTrue(f.session.getState().hasPendingApproval());
@@ -114,7 +118,8 @@ public class ResearchAgentSessionTest {
     public void chatTargetAvailabilityFollowsRunState() {
         Fixture f = new Fixture();
         assertEquals(SubmissionAvailability.UNAVAILABLE, f.session.getChatTarget().getAvailability());
-        f.session.activate(); // START → SCOPING/RUNNING
+        f.session.activate(); // passive: SCOPING/NEW until the first question
+        f.session.getChatTarget().submitText("investigate pf4j"); // → SCOPING/RUNNING
         assertEquals(SubmissionAvailability.BUSY, f.session.getChatTarget().getAvailability());
         f.scheduler.runUntilIdle(); // → WAITING for approval
         assertEquals(SubmissionAvailability.AVAILABLE, f.session.getChatTarget().getAvailability());
@@ -124,6 +129,7 @@ public class ResearchAgentSessionTest {
     public void approveCommandGatedThenAdvances() {
         Fixture f = new Fixture();
         f.session.activate();
+        f.session.getChatTarget().submitText("investigate pf4j"); // the question starts the run
         AgentSessionContext ctx = new FixedContext(f.session);
         ChatCommandContribution approve = command("approve");
 
@@ -187,6 +193,7 @@ public class ResearchAgentSessionTest {
             }
         });
         f.session.activate();
+        f.session.getChatTarget().submitText("investigate pf4j"); // the question starts the run
         f.scheduler.runUntilIdle(); // → OUTLINE / waiting_approval
         com.aresstack.askai.research.agent.ResearchStateSnapshot snapshot =
                 f.session.currentResearchSnapshot();

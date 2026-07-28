@@ -77,6 +77,9 @@ public class FakeResearchSessionBackendTest {
 
         Fixture(String sessionId) {
             handle = backend.createSession(new ResearchProjectRequest(sessionId, "p", "t"), listener);
+            // Creation alone starts NOTHING (no auto-run, no invented approval); the first user
+            // question sets the session in motion.
+            backend.submitPrompt(handle, new ResearchPrompt("investigate pf4j", ""));
         }
 
         /** Approve the currently pending approval (if any) and let the run advance to the next gate. */
@@ -90,13 +93,23 @@ public class FakeResearchSessionBackendTest {
 
     // 1
     @Test
-    public void createSessionStartsRunAndEmitsInitialRunningState() {
-        Fixture f = new Fixture("s1");
-        ResearchBackendEvent first = f.listener.events.get(0);
-        assertEquals(ResearchBackendEventType.SESSION_STATE_CHANGED, first.getType());
-        assertEquals(ResearchPhase.SCOPING, first.getPhase());
-        assertEquals(ResearchRunState.RUNNING, first.getRunState());
-        assertEquals("s1", first.getSessionId());
+    public void creationIsPassiveAndTheFirstQuestionStartsTheRun() {
+        // Creation emits ONLY visible guidance — no state machine command, no invented approval.
+        ManualResearchScheduler scheduler = new ManualResearchScheduler();
+        FakeResearchSessionBackend backend =
+                new FakeResearchSessionBackend(scheduler, fixedClock(), sequentialIds(), 10L);
+        RecordingListener listener = new RecordingListener();
+        ResearchSessionHandle handle =
+                backend.createSession(new ResearchProjectRequest("s1", "p", "t"), listener);
+        assertEquals(ResearchBackendEventType.ASSISTANT_MESSAGE, listener.events.get(0).getType());
+        assertEquals(0, listener.ofType(ResearchBackendEventType.SESSION_STATE_CHANGED).size());
+        assertEquals(0, listener.ofType(ResearchBackendEventType.APPROVAL_REQUESTED).size());
+
+        backend.submitPrompt(handle, new ResearchPrompt("investigate pf4j", ""));
+        ResearchBackendEvent state = listener.lastState();
+        assertEquals(ResearchPhase.SCOPING, state.getPhase());
+        assertEquals(ResearchRunState.RUNNING, state.getRunState());
+        assertEquals("s1", state.getSessionId());
     }
 
     // 2
@@ -235,14 +248,14 @@ public class FakeResearchSessionBackendTest {
         f.scheduler.runUntilIdle();
         f.backend.resume(f.handle);
         f.scheduler.runUntilIdle();
-        // The scoping "thinking" activity happens exactly once despite the pause/resume.
+        // Exactly one question-understanding + one scoping "thinking" despite the pause/resume.
         int thinkingStarts = 0;
         for (ResearchBackendEvent e : f.listener.ofType(ResearchBackendEventType.ACTIVITY)) {
             if (e.getActivityKind() == ResearchActivityKind.THINKING_STARTED) {
                 thinkingStarts++;
             }
         }
-        assertEquals(1, thinkingStarts);
+        assertEquals(2, thinkingStarts);
         assertEquals(ResearchPhase.OUTLINE, f.listener.lastState().getPhase());
     }
 

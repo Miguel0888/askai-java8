@@ -47,9 +47,12 @@ public final class FakeResearchSessionBackend implements ResearchSessionBackend 
         FakeSession session = new FakeSession(request.getSessionId(), request.getProjectId(), listener,
                 idGenerator, clock);
         sessions.put(session.sessionId, session);
+        // Deliberately NOTHING is dispatched here: no auto-run, no invented outline, no approval on
+        // activation. The session waits for the USER'S research question; guidance is visible instead.
         synchronized (session) {
-            dispatch(session, ResearchCommandType.START, null);
-            scheduleAdvance(session);
+            emit(session, ResearchBackendEvent.builder(ResearchBackendEventType.ASSISTANT_MESSAGE)
+                    .text("What would you like me to research? Type your research question below "
+                            + "to begin."), null);
         }
         return session;
     }
@@ -93,6 +96,20 @@ public final class FakeResearchSessionBackend implements ResearchSessionBackend 
                     || run == ResearchRunState.FAILED || run == ResearchRunState.COMPLETED) {
                 emit(session, ResearchBackendEvent.builder(ResearchBackendEventType.ASSISTANT_MESSAGE)
                         .text("The agent is " + run + " and cannot act on this prompt right now."), null);
+                return;
+            }
+            // The FIRST user text is the research question: only now does the session start moving.
+            if (session.machine.allowedCommands(session.state).contains(ResearchCommandType.START)) {
+                session.researchQuestion = prompt.getText();
+                String thinkId = idGenerator.newId();
+                emit(session, ResearchBackendEvent.builder(ResearchBackendEventType.ACTIVITY)
+                        .activity(thinkId, ResearchActivityKind.THINKING_STARTED, "Thinking",
+                                "Understanding the research question"), null);
+                emit(session, ResearchBackendEvent.builder(ResearchBackendEventType.ACTIVITY)
+                        .activity(thinkId, ResearchActivityKind.THINKING_FINISHED, "Thinking",
+                                "Question captured"), null);
+                dispatch(session, ResearchCommandType.START, null);
+                scheduleAdvance(session);
                 return;
             }
             String section = prompt.getActiveSectionId().isEmpty()
@@ -380,7 +397,7 @@ public final class FakeResearchSessionBackend implements ResearchSessionBackend 
         String pendingApprovalId = session.state.getPendingApprovalId();
         if (ResearchStateIds.WAITING_APPROVAL.equals(session.state.getStateId()) && pendingApprovalId != null) {
             emit(session, ResearchBackendEvent.builder(ResearchBackendEventType.APPROVAL_REQUESTED)
-                    .approval(pendingApprovalId, approvalPromptFor(session.state.getPhaseId())), null);
+                    .approval(pendingApprovalId, approvalPromptFor(session, session.state.getPhaseId())), null);
         }
         if (ResearchStateIds.COMPLETED.equals(session.state.getStateId())) {
             emit(session, ResearchBackendEvent.builder(ResearchBackendEventType.COMPLETED)
@@ -425,9 +442,12 @@ public final class FakeResearchSessionBackend implements ResearchSessionBackend 
         return ResearchStateIds.runState(session.state.getStateId());
     }
 
-    private static String approvalPromptFor(String phaseId) {
+    private static String approvalPromptFor(FakeSession session, String phaseId) {
         if (ResearchStateIds.OUTLINE.equals(phaseId)) {
-            return "Approve the proposed outline?";
+            // The proposal SHOWS what is being approved and where it came from — never a bare gate.
+            return "Proposed outline for: " + (char) 34 + session.researchQuestion + (char) 34 + "\n"
+                    + "1. Background" + "\n" + "2. Evidence" + "\n" + "3. Conclusions" + "\n"
+                    + "Approve to start the web research, or request changes.";
         }
         if (ResearchStateIds.EVIDENCE.equals(phaseId)) {
             return "Approve the collected evidence?";
@@ -479,6 +499,8 @@ public final class FakeResearchSessionBackend implements ResearchSessionBackend 
         private boolean closed;
         private final Set<String> processedApprovals = new HashSet<String>();
         private ResearchScheduler.Cancellable pending;
+        /** The user's first prompt — the research question everything derives from. */
+        private String researchQuestion = "";
 
         private FakeSession(String sessionId, String projectId, ResearchSessionListener listener,
                             final ResearchIdGenerator ids, final ResearchClock clock) {

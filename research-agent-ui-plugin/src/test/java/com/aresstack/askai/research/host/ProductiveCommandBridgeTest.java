@@ -150,16 +150,19 @@ public class ProductiveCommandBridgeTest {
         assertEquals(ResearchStateIds.OUTLINE, fx.resources.currentState().getPhaseId());
         assertEquals(ResearchStateIds.WAITING_APPROVAL, fx.resources.currentState().getStateId());
 
-        // The user's approve (phase-correct command resolved FROM the machine's allowed set).
+        // The user's approve (phase-correct command resolved FROM the machine's allowed set) advances
+        // to RESEARCH/running AND automatically re-submits the STORED question — the user never has
+        // to type it a second time.
         fx.session.approveCurrent();
-        // The next question auto-advances START_RESEARCH → the research phase actually runs.
-        fx.session.submitPrompt("just a question");
         assertEquals(ResearchStateIds.RESEARCH, fx.resources.currentState().getPhaseId());
         assertEquals(ResearchStateIds.RUNNING, fx.resources.currentState().getStateId());
         // The session's view model mirrors the single truth (direct-run UI executor).
         assertEquals("RESEARCH", fx.session.getState().getPhaseLabel());
-        // Text never became a command; no command became text.
-        assertEquals(2, fx.backend.prompts.size());
+        assertEquals("the stored question was auto-continued", 2, fx.backend.prompts.size());
+        assertEquals("just a question", fx.backend.prompts.get(1));
+        // The approval message showed the REAL outline derived from the question.
+        assertTrue(fx.resources.getArtifactStore().read("outline").getMarkdown()
+                .contains("just a question"));
     }
 
     @Test

@@ -192,16 +192,43 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         return state.getPendingApprovalId() != null;
     }
 
+    /** The user's first prompt — the research question everything derives from (auto-continued after approval). */
+    private volatile String researchQuestion = "";
+
     public void submitPrompt(String text, String activeSectionId) {
         if (handle == null) {
             return;
         }
         if (productiveResources != null && !productiveResources.isClosed()) {
-            // A normal question is enough to start researching: gate-FREE forward transitions are advanced
-            // automatically; genuine approval gates stay with the user (visible bubble). No /do ceremony.
+            // The FIRST user text is the research question: it is stored (for automatic continuation
+            // after the approval) and turned into REAL concept/outline artifacts — an approval never
+            // refers to invented content.
+            if (researchQuestion.isEmpty() && text != null && !text.trim().isEmpty()) {
+                researchQuestion = text.trim();
+                writeQuestionArtifacts(researchQuestion);
+            }
+            // Gate-FREE forward transitions advance automatically; genuine approval gates stay with
+            // the user (visible bubble with the actual outline). No /do ceremony.
             autoAdvanceTowardsResearch();
         }
         backend.submitPrompt(handle, new ResearchPrompt(text, activeSectionId));
+    }
+
+    /** Concept + outline derived from the QUESTION (revision >= 1) — the approval shows real content. */
+    private void writeQuestionArtifacts(String question) {
+        com.aresstack.askai.plugin.api.agent.artifact.AgentArtifactStore store =
+                productiveResources.getArtifactStore();
+        com.aresstack.askai.plugin.api.agent.artifact.ArtifactContent concept = store.read("concept");
+        if (concept.getMarkdown().isEmpty()) {
+            store.replace("concept", concept.getRevision(),
+                    "# Concept\n\nResearch question:\n\n> " + question + "\n");
+        }
+        com.aresstack.askai.plugin.api.agent.artifact.ArtifactContent outline = store.read("outline");
+        if (outline.getMarkdown().isEmpty()) {
+            store.replace("outline", outline.getRevision(),
+                    "# Outline — " + question + "\n\n"
+                            + "1. Background\n2. Evidence from web research\n3. Conclusions\n");
+        }
     }
 
     /**
@@ -240,13 +267,17 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 productiveResources.currentState();
         if (com.aresstack.askai.research.state.oo.ResearchStateIds.WAITING_APPROVAL
                 .equals(after.getStateId()) && sink != null) {
+            // The approval SHOWS what is being approved — the real outline artifact, never a bare gate.
+            String outline = productiveResources.getArtifactStore().read("outline").getMarkdown();
+            final String message = (outline.isEmpty()
+                    ? "The " + after.getPhaseId() + " needs your approval."
+                    : outline + "\n")
+                    + "\nApprove to start the web research, or request changes.";
             uiExecutor.execute(new Runnable() {
                 public void run() {
                     String approvalId = after.getPendingApprovalId() == null
                             ? "approval-" + after.getRevision() : after.getPendingApprovalId();
-                    sink.requestApproval(approvalId,
-                            "The " + after.getPhaseId() + " needs your approval before research "
-                                    + "continues (approve or request changes).");
+                    sink.requestApproval(approvalId, message);
                 }
             });
         }
@@ -340,8 +371,16 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         if (productiveResources != null) {
             // The machine knows WHICH approval fits the phase; the UI never re-encodes phase rules.
             ResearchCommandType approve = firstAllowedWithPrefix("APPROVE_");
-            if (approve != null) {
-                dispatch(approve, null);
+            if (approve != null && dispatch(approve, null).isAccepted()) {
+                // Continue AUTOMATICALLY with the stored research question — the user never has to
+                // type it a second time. Auto-advance reaches RESEARCH/running, then the question
+                // goes to the agent, which starts the autonomous web research.
+                autoAdvanceTowardsResearch();
+                if (!researchQuestion.isEmpty() && handle != null
+                        && com.aresstack.askai.research.state.oo.ResearchStateIds.RUNNING
+                                .equals(productiveResources.currentState().getStateId())) {
+                    backend.submitPrompt(handle, new ResearchPrompt(researchQuestion, ""));
+                }
             }
             return;
         }

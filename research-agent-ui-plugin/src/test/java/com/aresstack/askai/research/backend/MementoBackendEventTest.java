@@ -61,7 +61,10 @@ public class MementoBackendEventTest {
         FakeResearchSessionBackend backend =
                 new FakeResearchSessionBackend(scheduler, fixedClock(), sequentialIds(), 10L);
         RecordingListener listener = new RecordingListener();
-        backend.createSession(new ResearchProjectRequest("s", "p", "t"), listener);
+        ResearchSessionHandle handle =
+                backend.createSession(new ResearchProjectRequest("s", "p", "t"), listener);
+        // The session no longer auto-runs on creation: the FIRST user question starts it.
+        backend.submitPrompt(handle, new ResearchPrompt("investigate pf4j", ""));
         scheduler.runUntilIdle();
 
         int stateChanges = 0;
@@ -93,6 +96,8 @@ public class MementoBackendEventTest {
         RecordingListener listener = new RecordingListener();
         ResearchSessionHandle handle =
                 backend.createSession(new ResearchProjectRequest("s", "p", "t"), listener);
+        // The session no longer auto-runs on creation: the FIRST user question starts it.
+        backend.submitPrompt(handle, new ResearchPrompt("investigate pf4j", ""));
         scheduler.runUntilIdle();
 
         ResearchBackendEvent approval = listener.last(ResearchBackendEventType.APPROVAL_REQUESTED);
