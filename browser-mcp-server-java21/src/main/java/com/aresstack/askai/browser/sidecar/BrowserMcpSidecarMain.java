@@ -90,7 +90,15 @@ public final class BrowserMcpSidecarMain {
                               .append(" — ").append(item.getUrl()).append('\n')
                               .append("   ").append(item.getSnippet()).append('\n');
                         }
-                        return result.getItems().isEmpty() ? "No results." : sb.toString();
+                        // A pending manual challenge travels typed WITH the results (same line format
+                        // as web_challenge_status), so the consumer can lock the domain family.
+                        for (String line : session.challengeStatus()) {
+                            if (line.startsWith("CHALLENGE: ")) {
+                                sb.append(line).append('\n');
+                            }
+                        }
+                        return result.getItems().isEmpty() && sb.length() == 0
+                                ? "No results." : sb.toString();
                     }
                 }));
         endpoint.addTool(new FunctionToolDesc("web_open")
@@ -133,6 +141,20 @@ public final class BrowserMcpSidecarMain {
                 .doHandle(new ToolHandler() {
                     public Object handle(Map<String, Object> args) throws Throwable {
                         return render(session.back());
+                    }
+                }));
+        endpoint.addTool(new FunctionToolDesc("web_challenge_status")
+                .description("Poll the pending manual challenge (CAPTCHA): CHALLENGE/RESOLVED/NONE lines.")
+                .doHandle(new ToolHandler() {
+                    public Object handle(Map<String, Object> args) throws Throwable {
+                        StringBuilder sb = new StringBuilder();
+                        for (String line : session.challengeStatus()) {
+                            if (sb.length() > 0) {
+                                sb.append('\n');
+                            }
+                            sb.append(line);
+                        }
+                        return sb.toString();
                     }
                 }));
     }

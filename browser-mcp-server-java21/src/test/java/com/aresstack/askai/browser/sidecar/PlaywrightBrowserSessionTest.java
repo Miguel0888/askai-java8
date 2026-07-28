@@ -32,6 +32,55 @@ public class PlaywrightBrowserSessionTest {
         final List<String> opened = new ArrayList<String>();
         final List<PlaywrightPageState> history = new ArrayList<PlaywrightPageState>();
         int closeCalls;
+        /** url -> state AFTER a successful consent dismissal on that page. */
+        final Map<String, PlaywrightPageState> afterConsent = new LinkedHashMap<String, PlaywrightPageState>();
+        /** urls whose page shows a manual challenge. */
+        final java.util.Set<String> challengeUrls = new java.util.HashSet<String>();
+        int consentClicks;
+        boolean parked;
+        boolean parkedChallengeGone;
+        int parkCalls;
+        int closeParkedCalls;
+
+        @Override
+        public String tryDismissConsent() {
+            PlaywrightPageState current = history.isEmpty() ? null : history.get(history.size() - 1);
+            if (current != null && afterConsent.containsKey(current.url)) {
+                consentClicks++;
+                history.set(history.size() - 1, afterConsent.remove(current.url));
+                return "clicked:#consent";
+            }
+            return "none";
+        }
+
+        @Override
+        public boolean challengePresent() {
+            PlaywrightPageState current = history.isEmpty() ? null : history.get(history.size() - 1);
+            return current != null && challengeUrls.contains(current.url);
+        }
+
+        @Override
+        public boolean parkChallenge() {
+            parkCalls++;
+            if (parked) {
+                return false;
+            }
+            parked = true;
+            return true;
+        }
+
+        @Override
+        public boolean parkedChallengeStillPresent() {
+            return parked && !parkedChallengeGone;
+        }
+
+        @Override
+        public void closeParkedChallenge() {
+            if (parked) {
+                closeParkedCalls++;
+                parked = false;
+            }
+        }
 
         public PlaywrightPageState open(String url) throws BrowserException {
             opened.add(url);
@@ -254,6 +303,79 @@ public class PlaywrightBrowserSessionTest {
         assertEquals("http://engine-two.test/settings", result.getItems().get(0).getUrl());
         assertTrue("degrade mode reports NO transit hosts — the engine's links ARE the results",
                 result.getProviderHosts().isEmpty());
+    }
+
+    @Test
+    public void consentBannerIsDismissedOnceAndResultsAreReadFromTheCleanPage() throws Exception {
+        FakeDriver driver = new FakeDriver();
+        // The engine first shows a consent wall (only internal links); after the dismissal the SAME
+        // navigation exposes the organic result.
+        driver.byUrl.put("http://engine-one.test/find?q=pf4j", state("http://engine-one.test/find?q=pf4j",
+                "Consent", "wall", "Settings", "http://engine-one.test/settings"));
+        driver.afterConsent.put("http://engine-one.test/find?q=pf4j",
+                state("http://engine-one.test/find?q=pf4j", "Results", "results",
+                        "PF4J primer", "http://target.test/pf4j"));
+        PlaywrightBrowserSession s = session(driver, UrlSafetyPolicy.allowingPrivateNetworks(),
+                BrowserLimits.defaults(), "http://engine-one.test/find?q={query}");
+        s.setFallbackSearchTemplates(new String[0]);
+
+        WebSearchResult result = s.search("pf4j");
+
+        assertEquals("the consent button was clicked exactly once", 1, driver.consentClicks);
+        assertEquals(1, result.getItems().size());
+        assertEquals("http://target.test/pf4j", result.getItems().get(0).getUrl());
+    }
+
+    @Test
+    public void withoutABannerTheDismisserHasNoSideEffect() throws Exception {
+        FakeDriver driver = new FakeDriver();
+        driver.byUrl.put("http://engine-one.test/find?q=pf4j", state("http://engine-one.test/find?q=pf4j",
+                "Results", "results", "PF4J primer", "http://target.test/pf4j"));
+        PlaywrightBrowserSession s = session(driver, UrlSafetyPolicy.allowingPrivateNetworks(),
+                BrowserLimits.defaults(), "http://engine-one.test/find?q={query}");
+        s.setFallbackSearchTemplates(new String[0]);
+
+        assertEquals(1, s.search("pf4j").getItems().size());
+        assertEquals("no banner → no click", 0, driver.consentClicks);
+    }
+
+    @Test
+    public void aChallengeParksThePageLocksTheFamilyAndResolvesViaStatusPolling() throws Exception {
+        FakeDriver driver = new FakeDriver();
+        driver.byUrl.put("http://engine-one.test/find?q=pf4j", state("http://engine-one.test/find?q=pf4j",
+                "One last step", "verify you are human", "Help", "http://engine-one.test/help"));
+        driver.challengeUrls.add("http://engine-one.test/find?q=pf4j");
+        driver.byUrl.put("http://engine-two.test/html?q=pf4j", state("http://engine-two.test/html?q=pf4j",
+                "Results", "results", "PF4J primer", "http://target.test/pf4j"));
+        PlaywrightBrowserSession s = session(driver, UrlSafetyPolicy.allowingPrivateNetworks(),
+                BrowserLimits.defaults(), "http://engine-one.test/find?q={query}");
+        s.setFallbackSearchTemplates(new String[]{"http://engine-two.test/html?q={query}"});
+
+        WebSearchResult result = s.search("pf4j");
+        assertEquals("the fallback engine still delivered routes", 1, result.getItems().size());
+        assertTrue("the challenge page was parked for the user", driver.parked);
+
+        assertEquals("CHALLENGE: engine-one.test http://engine-one.test/find?q=pf4j",
+                s.challengeStatus().get(0));
+
+        int openedBefore = driver.opened.size();
+        s.search("pf4j");
+        for (int i = openedBefore; i < driver.opened.size(); i++) {
+            assertFalse("no new navigation to the challenged family while pending",
+                    driver.opened.get(i).contains("engine-one.test"));
+        }
+
+        driver.parkedChallengeGone = true; // the user solved it
+        assertEquals("RESOLVED: engine-one.test", s.challengeStatus().get(0));
+        assertEquals("the parked tab was closed after resolution", 1, driver.closeParkedCalls);
+        assertEquals("NONE", s.challengeStatus().get(0));
+
+        s.search("pf4j"); // the family is unlocked again
+        boolean navigatedAgain = false;
+        for (String url : driver.opened) {
+            navigatedAgain |= url.contains("engine-one.test/find");
+        }
+        assertTrue(navigatedAgain);
     }
 
     @Test

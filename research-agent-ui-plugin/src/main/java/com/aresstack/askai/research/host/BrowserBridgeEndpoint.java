@@ -66,6 +66,8 @@ public final class BrowserBridgeEndpoint {
         tools.add(capturing("web_follow", "Follow a link by its id from web_links.",
                 McpToolParameter.string("link_id", true, "The link id to follow")));
         tools.add(capturing("web_back", "Go back to the previous page."));
+        tools.add(passThrough("web_challenge_status",
+                "Poll the pending manual challenge (CAPTCHA): CHALLENGE/RESOLVED/NONE lines."));
         registry.updateTools(handle, tools);
     }
 

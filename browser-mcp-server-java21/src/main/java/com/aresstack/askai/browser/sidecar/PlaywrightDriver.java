@@ -23,6 +23,41 @@ interface PlaywrightDriver extends AutoCloseable {
     /** Browser history back. Fails readably when there is no previous page. */
     PlaywrightPageState back() throws BrowserException;
 
+    // ------------------------------------------------------------------ search-page guards (SERP only)
+    // These stay driver-level so SERP details (consent, challenge DOM) never leak into the research loop.
+
+    /**
+     * Try to dismiss a consent banner on the CURRENT page by clicking one UNAMBIGUOUSLY positive button
+     * ("Accept all", "Alle akzeptieren", …) — never a first-button-in-container guess.
+     * @return {@code "clicked:…"} when a button was clicked, {@code "none"} otherwise.
+     */
+    default String tryDismissConsent() {
+        return "none";
+    }
+
+    /** @return true when the CURRENT page shows a manual challenge (CAPTCHA / "one last step"). */
+    default boolean challengePresent() {
+        return false;
+    }
+
+    /**
+     * Park the current (challenge) page: keep it open and bring it to the user's attention ONCE, then
+     * continue on a fresh page. At most one page is parked at a time.
+     * @return false when parking is not supported or a page is already parked.
+     */
+    default boolean parkChallenge() {
+        return false;
+    }
+
+    /** @return true while a parked challenge page still shows the challenge (false = resolved or none). */
+    default boolean parkedChallengeStillPresent() {
+        return false;
+    }
+
+    /** Close the parked challenge page, if any. Idempotent. */
+    default void closeParkedChallenge() {
+    }
+
     /** Idempotent: page → context → browser → Playwright (and with it the GraalJS driver child). */
     void close();
 }

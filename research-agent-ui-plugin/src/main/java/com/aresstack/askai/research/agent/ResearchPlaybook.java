@@ -234,7 +234,31 @@ public final class ResearchPlaybook {
         if ("PAGE_SKIPPED".equals(t)) {
             return de() ? "Geprüft – nicht relevant" : "Checked – not relevant";
         }
+        if ("WAITING_FOR_USER".equals(t)) {
+            return de() ? "Warte auf deine Eingabe im Browser …"
+                    : "Waiting for your input in the browser …";
+        }
         return de() ? "Arbeite …" : "Working …";
+    }
+
+    /** Persistent notice when a website demands a manual security check (CAPTCHA) from the user. */
+    public static String attentionRequired(String domain) {
+        String site = domain == null || domain.isEmpty() ? (de() ? "Eine Website" : "A website") : domain;
+        return de()
+                ? "**Manuelle Eingabe erforderlich**\n\n" + site + " verlangt eine Sicherheitsprüfung. "
+                        + "Bitte löse die Aufgabe (z. B. „Noch ein letzter Schritt“) im geöffneten "
+                        + "Browserfenster. Die Recherche wird auf anderen Websites fortgesetzt."
+                : "**Manual input required**\n\n" + site + " requires a security check. "
+                        + "Please solve the challenge (e.g. \"One last step\") in the open browser "
+                        + "window. The research continues on other websites.";
+    }
+
+    /** Visible all-clear once the user solved the manual security check. */
+    public static String attentionResolved(String domain) {
+        String site = domain == null || domain.isEmpty() ? (de() ? "Die Website" : "The website") : domain;
+        return de()
+                ? "Sicherheitsprüfung gelöst — " + site + " steht der Recherche wieder zur Verfügung."
+                : "Security check solved — " + site + " is available to the research again.";
     }
 
     /** Summary shown when the progress card completes. */

@@ -30,6 +30,14 @@ public final class ResearchLoop {
     private final Set<String> claimedSourceIds = new HashSet<String>();
     /** Sites of the search engine(s) used this run — pure TRANSIT: never a page, host, source or link farm. */
     private final Set<String> searchProviderSites = new HashSet<String>();
+    /** Domain families with a pending MANUAL challenge: locked (no navigation/retry) until resolved. */
+    private final Set<String> challengedFamilies = new HashSet<String>();
+    /** Frontier URLs deferred because their family is challenge-locked (QUEUED_DOMAIN_BLOCKED). */
+    private final List<String> deferredUrls = new ArrayList<String>();
+    /** Time spent waiting for the USER (manual challenge) — never counted against the time budget. */
+    private long waitedForUserMillis;
+    private long lastChallengeProbeAt;
+    private static final long CHALLENGE_PROBE_INTERVAL_MILLIS = 1000L;
 
     public ResearchLoop(ToolInvoker browser, ToolInvoker research, ResearchRunBudget budget,
                         ResearchLoopClock clock, ResearchLoopListener listener, AtomicBoolean cancelled) {
@@ -95,7 +103,8 @@ public final class ResearchLoop {
             for (String providerHost : providerHostsOf(results)) {
                 searchProviderSites.add(siteOf(providerHost));
             }
-            frontier.addAll(extractUrls(results));
+            applyChallengeLines(results);
+            frontier.addAll(extractUrls(stripStatusLines(results)));
         } catch (ToolInvoker.EndpointUnavailable ex) {
             return ResearchStopReason.MCP_UNAVAILABLE;
         } catch (ToolInvoker.ToolFailure ex) {
@@ -107,6 +116,16 @@ public final class ResearchLoop {
             if (gate != null) {
                 return gate;
             }
+            probeChallengesIfDue(frontier);
+            if (frontier.isEmpty() && !deferredUrls.isEmpty() && !challengedFamilies.isEmpty()) {
+                // WAITING_FOR_USER: only challenge-bound work is left. Wait cooperatively (short
+                // cancel-aware ticks, ~1/s probes), without failing any navigation or time budget.
+                ResearchStopReason wait = waitForManualChallenge(frontier);
+                if (wait != null) {
+                    return wait;
+                }
+                continue;
+            }
             if (frontier.isEmpty()) {
                 return sufficientOr(ResearchStopReason.NO_RELEVANT_PATHS);
             }
@@ -114,6 +133,10 @@ public final class ResearchLoop {
             String canonical = canonicalish(url);
             if (progress.alreadyVisited(canonical)) {
                 continue; // already visited → never navigate again
+            }
+            if (challengedFamilies.contains(siteOf(hostOf(url)))) {
+                deferredUrls.add(url); // QUEUED_DOMAIN_BLOCKED: starts only after the challenge resolves
+                continue;
             }
             try {
                 ResearchStopReason g2 = beforeToolCall();
@@ -234,6 +257,89 @@ public final class ResearchLoop {
         return null;
     }
 
+    // ------------------------------------------------------------------ manual challenge cooperation
+
+    /** Parse typed CHALLENGE/RESOLVED lines (from web_search or web_challenge_status) and apply them. */
+    private void applyChallengeLines(String text) {
+        for (String line : (text == null ? "" : text).split("\n")) {
+            if (line.startsWith("CHALLENGE: ")) {
+                String rest = line.substring("CHALLENGE: ".length()).trim();
+                int space = rest.indexOf(' ');
+                String family = siteOf(space < 0 ? rest : rest.substring(0, space));
+                String url = space < 0 ? "" : rest.substring(space + 1).trim();
+                if (!family.isEmpty() && challengedFamilies.add(family)) {
+                    listener.status("manual challenge pending on " + family);
+                    listener.attention("CAPTCHA", family, url, false);
+                }
+            } else if (line.startsWith("RESOLVED: ")) {
+                unlockFamily(siteOf(line.substring("RESOLVED: ".length()).trim()));
+            } else if (line.equals("NONE")) {
+                // The browser has no pending challenge (it may have been consumed elsewhere): unlock all.
+                for (String family : new ArrayList<String>(challengedFamilies)) {
+                    unlockFamily(family);
+                }
+            }
+        }
+    }
+
+    private void unlockFamily(String family) {
+        if (challengedFamilies.remove(family)) {
+            listener.status("manual challenge resolved on " + family);
+            listener.attention("CAPTCHA", family, "", true);
+        }
+    }
+
+    /** Probe the parked challenge at most once per second; unlocked work returns to the frontier. */
+    private void probeChallengesIfDue(List<String> frontier) {
+        if (challengedFamilies.isEmpty()) {
+            return;
+        }
+        long now = clock.currentTimeMillis();
+        if (now - lastChallengeProbeAt < CHALLENGE_PROBE_INTERVAL_MILLIS) {
+            return;
+        }
+        lastChallengeProbeAt = now;
+        try {
+            // Deliberately WITHOUT the budget gate: polling the user's pending challenge must never
+            // exhaust a tool budget or count as research work.
+            applyChallengeLines(browser.call("web_challenge_status", args()));
+        } catch (ToolInvoker.EndpointUnavailable | ToolInvoker.ToolFailure ignored) {
+            // The probe is best-effort; the next tick retries.
+        }
+        if (!deferredUrls.isEmpty()) {
+            // Re-queue everything whose family is unlocked again (still-locked URLs re-defer on pull).
+            List<String> requeue = new ArrayList<String>();
+            for (String url : deferredUrls) {
+                if (!challengedFamilies.contains(siteOf(hostOf(url)))) {
+                    requeue.add(url);
+                }
+            }
+            deferredUrls.removeAll(requeue);
+            frontier.addAll(requeue);
+        }
+    }
+
+    /**
+     * The cooperative wait while ONLY challenge-bound work remains: cancel stays immediate, the time
+     * budget is compensated (waiting for the user is never a budget failure), the challenge is probed
+     * about once per second, and the card shows WAITING_FOR_USER. Returns a stop reason or {@code null}
+     * when the frontier has work again.
+     */
+    private ResearchStopReason waitForManualChallenge(List<String> frontier) {
+        String family = challengedFamilies.isEmpty() ? "" : challengedFamilies.iterator().next();
+        listener.progress(progress, ResearchRunActivity.waitingForUser(family, ""));
+        while (frontier.isEmpty() && !deferredUrls.isEmpty() && !challengedFamilies.isEmpty()) {
+            if (cancelled.get()) {
+                return ResearchStopReason.USER_CANCELLED;
+            }
+            long tickStart = clock.currentTimeMillis();
+            clock.sleepMillis(CHALLENGE_PROBE_INTERVAL_MILLIS);
+            waitedForUserMillis += Math.max(0, clock.currentTimeMillis() - tickStart);
+            probeChallengesIfDue(frontier);
+        }
+        return cancelled.get() ? ResearchStopReason.USER_CANCELLED : null;
+    }
+
     // ------------------------------------------------------------------ central budget gate
 
     /** Checked before EVERY tool call — the single budget gate (no scattered ifs). */
@@ -262,7 +368,8 @@ public final class ResearchLoop {
         if (progress.getConsecutiveErrors() >= budget.getMaxConsecutiveErrors()) {
             return ResearchStopReason.ERROR_BUDGET_EXHAUSTED;
         }
-        if (clock.currentTimeMillis() - startedAt >= budget.getMaxDurationMillis()) {
+        // Waiting for the USER (manual challenge) is never budgeted time.
+        if (clock.currentTimeMillis() - startedAt - waitedForUserMillis >= budget.getMaxDurationMillis()) {
             return sufficientOr(ResearchStopReason.TIME_BUDGET_EXHAUSTED);
         }
         return null;
@@ -397,6 +504,19 @@ public final class ResearchLoop {
             }
         }
         return "";
+    }
+
+    /** Remove typed status lines (PROVIDER/CHALLENGE/RESOLVED/NONE) so their URLs never enter the frontier. */
+    static String stripStatusLines(String results) {
+        StringBuilder sb = new StringBuilder();
+        for (String line : (results == null ? "" : results).split("\n")) {
+            if (line.startsWith("PROVIDER: ") || line.startsWith("CHALLENGE: ")
+                    || line.startsWith("RESOLVED: ") || line.equals("NONE")) {
+                continue;
+            }
+            sb.append(line).append('\n');
+        }
+        return sb.toString();
     }
 
     /** All {@code PROVIDER: <host>} lines of a {@code web_search} result (fallback engines add more). */

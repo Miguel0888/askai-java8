@@ -83,6 +83,16 @@ public final class ResearchAcpEventMapper {
                             Boolean.parseBoolean(f.get("recoverable")),
                             f.get("limitation"), f.get("action")));
         }
+        if (ResearchRunWire.TYPE_ATTENTION.equals(type)) {
+            java.util.Map<String, String> f = ResearchRunWire.fields(text);
+            // reason → title, state (REQUIRED|RESOLVED) → text, domain family + url → messages.
+            return ResearchBackendEvent.builder(ResearchBackendEventType.USER_ATTENTION)
+                    .activity("attention-" + f.get("domain"), ResearchActivityKind.TOOL_UPDATE,
+                            f.get("reason") == null ? "UNKNOWN" : f.get("reason"),
+                            f.get("state") == null ? "REQUIRED" : f.get("state"))
+                    .messages(f.get("domain") == null ? "" : f.get("domain"),
+                            f.get("url") == null ? "" : f.get("url"));
+        }
         // TYPE_LOG and anything unknown: technical details only.
         return ResearchBackendEvent.builder(ResearchBackendEventType.RUN_LOG)
                 .activity(activityId, ResearchActivityKind.TOOL_UPDATE, "", "")

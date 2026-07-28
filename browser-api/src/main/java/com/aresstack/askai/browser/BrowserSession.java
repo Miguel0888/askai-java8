@@ -24,5 +24,15 @@ public interface BrowserSession {
 
     BrowserPageSnapshot back() throws BrowserException;
 
+    /**
+     * Status of a pending manual challenge (CAPTCHA) parked in the browser, one typed line per state:
+     * {@code CHALLENGE: <domain-family> <url>} while the user still has to solve it,
+     * {@code RESOLVED: <domain-family>} exactly once after it disappeared, {@code NONE} otherwise.
+     * Backends without challenge support report {@code NONE}.
+     */
+    default List<String> challengeStatus() {
+        return java.util.Collections.singletonList("NONE");
+    }
+
     void close();
 }

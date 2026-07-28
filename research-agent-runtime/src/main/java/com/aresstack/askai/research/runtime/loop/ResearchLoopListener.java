@@ -16,4 +16,11 @@ public interface ResearchLoopListener {
 
     /** The loop considers the phase ready for user review. The HOST decides what happens next. */
     void phaseReady(ResearchStopReason reason);
+
+    /**
+     * The user's attention is required (or no longer required) — e.g. a search engine demands a manual
+     * CAPTCHA. {@code resolved=false} fires exactly once when the challenge appears, {@code resolved=true}
+     * exactly once when it is gone. Never a technical error, never a run failure.
+     */
+    void attention(String reason, String domainFamily, String url, boolean resolved);
 }

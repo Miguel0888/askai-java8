@@ -99,7 +99,10 @@ public class ResearchRunCardsTest {
         public void requestApproval(String approvalId, String prompt) {
         }
 
+        final List<String> problems = new ArrayList<String>();
+
         public void showProblem(String problemId, String publicMessage) {
+            problems.add(publicMessage);
         }
 
         @Override
@@ -439,6 +442,47 @@ public class ResearchRunCardsTest {
                 AgentConversationSink.ActionExecutionResult.ACCEPTED, handler.onAction("continue"));
         assertEquals("continue starts exactly one new run", promptsBefore + 1,
                 fx.backend.prompts.size());
+    }
+
+    @Test
+    public void manualChallengeAttentionShowsOneNoticeAndBeepsOncePerEpisode() {
+        Fx fx = new Fx();
+        fx.reachRunningResearch();
+        final int[] beeps = {0};
+        fx.session.setAttentionSound(new Runnable() {
+            public void run() {
+                beeps[0]++;
+            }
+        });
+
+        ResearchBackendEvent.Builder required = ResearchBackendEvent
+                .builder(ResearchBackendEventType.USER_ATTENTION)
+                .activity("attention-bing.com", null, "CAPTCHA", "REQUIRED")
+                .messages("bing.com", "https://www.bing.com/search?q=pf4j");
+        fx.event(required);
+        // A repeated REQUIRED for the SAME episode must not beep or notify again.
+        fx.event(ResearchBackendEvent.builder(ResearchBackendEventType.USER_ATTENTION)
+                .activity("attention-bing.com", null, "CAPTCHA", "REQUIRED")
+                .messages("bing.com", "https://www.bing.com/search?q=pf4j"));
+
+        assertEquals("one audible attention per episode", 1, beeps[0]);
+        assertEquals("one visible notice per episode", 1, fx.sink.problems.size());
+        assertTrue("the notice names the domain and asks for manual input",
+                fx.sink.problems.get(0).contains("bing.com"));
+        assertTrue(fx.sink.problems.get(0).contains("Manual input required"));
+
+        fx.event(ResearchBackendEvent.builder(ResearchBackendEventType.USER_ATTENTION)
+                .activity("attention-bing.com", null, "CAPTCHA", "RESOLVED")
+                .messages("bing.com", ""));
+        String lastMessage = fx.sink.assistantMessages.get(fx.sink.assistantMessages.size() - 1);
+        assertTrue("the all-clear is visible", lastMessage.contains("Security check solved"));
+
+        // A NEW episode on the same domain notifies (and beeps) again.
+        fx.event(ResearchBackendEvent.builder(ResearchBackendEventType.USER_ATTENTION)
+                .activity("attention-bing.com", null, "CAPTCHA", "REQUIRED")
+                .messages("bing.com", "https://www.bing.com/search?q=pf4j"));
+        assertEquals(2, beeps[0]);
+        assertEquals(2, fx.sink.problems.size());
     }
 
     @Test

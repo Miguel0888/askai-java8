@@ -19,5 +19,7 @@ public enum ResearchBackendEventType {
     /** Structured terminal result of an autonomous run — basis of the user-facing result card. */
     RUN_OUTCOME,
     /** A technical diagnostic line for the run's collapsible technical details — never a chat bubble. */
-    RUN_LOG
+    RUN_LOG,
+    /** The user's manual input is required (or no longer required), e.g. a CAPTCHA in the browser. */
+    USER_ATTENTION
 }

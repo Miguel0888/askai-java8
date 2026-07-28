@@ -83,6 +83,22 @@ public class ResearchRunWireRoundTripTest {
     }
 
     @Test
+    public void attentionLinesRoundTripBothStates() {
+        String required = ResearchRunWire.attention("CAPTCHA", "bing.com",
+                "https://www.bing.com/search?q=pf4j", false);
+        assertEquals("attention", com.aresstack.askai.research.acp.ResearchRunWire.typeOf(required));
+        Map<String, String> f = com.aresstack.askai.research.acp.ResearchRunWire.fields(required);
+        assertEquals("CAPTCHA", f.get("reason"));
+        assertEquals("bing.com", f.get("domain"));
+        assertEquals("REQUIRED", f.get("state"));
+        assertEquals("https://www.bing.com/search?q=pf4j", f.get("url"));
+
+        Map<String, String> resolved = com.aresstack.askai.research.acp.ResearchRunWire.fields(
+                ResearchRunWire.attention("CAPTCHA", "bing.com", "", true));
+        assertEquals("RESOLVED", resolved.get("state"));
+    }
+
+    @Test
     public void logLinesCarryFreeTextAndNewlinesAreFlattened() {
         String line = ResearchRunWire.log("accepted source-7 (duplicate content)\nsecond");
         assertEquals("log", com.aresstack.askai.research.acp.ResearchRunWire.typeOf(line));

@@ -75,6 +75,21 @@ public final class ResearchRunWire {
                 + " action=" + o.getRecommendedAction();
     }
 
+    /**
+     * A user-attention transition: a manual challenge (CAPTCHA) requires the user ({@code REQUIRED}) or was
+     * solved ({@code RESOLVED}). Never a failure, never a technical log line — the UI renders it visibly.
+     */
+    public static String attention(String reason, String domainFamily, String url, boolean resolved) {
+        StringBuilder sb = new StringBuilder(MARKER).append("attention")
+                .append(" reason=").append(reason == null || reason.isEmpty() ? "UNKNOWN" : reason)
+                .append(" domain=").append(domainFamily == null ? "" : domainFamily)
+                .append(" state=").append(resolved ? "RESOLVED" : "REQUIRED");
+        if (url != null && !url.isEmpty()) {
+            sb.append(" url=").append(url); // URLs never contain spaces; always the LAST field
+        }
+        return sb.toString();
+    }
+
     /** A technical diagnostic line (collapsible "technical details" only — never a chat bubble). */
     public static String log(String message) {
         return MARKER + "log " + (message == null ? "" : message.replace('\n', ' '));

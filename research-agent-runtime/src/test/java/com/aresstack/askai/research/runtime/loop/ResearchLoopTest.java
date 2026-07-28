@@ -42,6 +42,9 @@ public class ResearchLoopTest {
         String current;
         int captureSeq;
         boolean failEverything;
+        /** Scripted web_challenge_status responses (consumed in order; last one repeats). */
+        final List<String> challengeStatusScript = new ArrayList<String>();
+        int challengeStatusCalls;
 
         FakeBrowser() {
             List<String> aLinks = new ArrayList<String>();
@@ -85,6 +88,14 @@ public class ResearchLoopTest {
                 }
                 return "URL: " + url + " title=\"" + page.title + "\" capture_id=" + cap
                         + "\n" + page.text;
+            }
+            if ("web_challenge_status".equals(tool)) {
+                challengeStatusCalls++;
+                if (challengeStatusScript.isEmpty()) {
+                    return "NONE";
+                }
+                return challengeStatusScript.size() > 1
+                        ? challengeStatusScript.remove(0) : challengeStatusScript.get(0);
             }
             if ("web_links".equals(tool)) {
                 Page page = pages.get(current);
@@ -161,12 +172,22 @@ public class ResearchLoopTest {
         final List<String> progressTokens = new ArrayList<String>();
         final List<ResearchRunActivity> activities = new ArrayList<ResearchRunActivity>();
         final List<ResearchStopReason> ready = new ArrayList<ResearchStopReason>();
+        final List<String> attentions = new ArrayList<String>();
+        /** Runs once per simulated wait tick (lets tests resolve the challenge or cancel mid-wait). */
+        Runnable onSleepTick;
 
         ResearchLoop loop(ResearchRunBudget budget) {
             return new ResearchLoop(browser, research, budget,
                     new ResearchLoopClock() {
                         public long currentTimeMillis() {
                             return now.get();
+                        }
+
+                        public void sleepMillis(long millis) {
+                            now.addAndGet(millis); // simulated time — tests never sleep for real
+                            if (onSleepTick != null) {
+                                onSleepTick.run();
+                            }
                         }
                     },
                     new ResearchLoopListener() {
@@ -181,6 +202,11 @@ public class ResearchLoopTest {
 
                         public void phaseReady(ResearchStopReason reason) {
                             ready.add(reason);
+                        }
+
+                        public void attention(String reason, String domainFamily, String url,
+                                              boolean resolved) {
+                            attentions.add((resolved ? "RESOLVED " : "REQUIRED ") + domainFamily);
                         }
                     }, cancelled);
         }
@@ -387,6 +413,52 @@ public class ResearchLoopTest {
             }
         }
         assertTrue("the transit page is visibly reported as skipped", skippedBing);
+    }
+
+    @Test
+    public void manualChallengeLocksTheFamilyContinuesElsewhereAndWaitsForTheUser() {
+        // Bing demands a CAPTCHA: its family is locked (queued, no retries), other domains continue,
+        // and once only challenge-bound work remains the loop WAITS for the user instead of failing.
+        Fx fx = new Fx();
+        fx.browser.searchResults = "PROVIDER: html.duckduckgo.com\n"
+                + "CHALLENGE: bing.com https://www.bing.com/search?q=pf4j\n"
+                + "1: pf4j primer — https://host1.com/a\n"
+                + "2: bing extra — https://www.bing.com/deep/result";
+        fx.browser.challengeStatusScript.add("CHALLENGE: bing.com https://www.bing.com/search?q=pf4j");
+        fx.browser.challengeStatusScript.add("CHALLENGE: bing.com https://www.bing.com/search?q=pf4j");
+        fx.browser.challengeStatusScript.add("RESOLVED: bing.com");
+        fx.browser.pages.put("https://www.bing.com/deep/result",
+                new Page("pf4j on bing", "pf4j evidence behind the challenge", new ArrayList<String>()));
+
+        ResearchLoop loop = fx.loop(new ResearchRunBudget(60, 40, 8, 3, 5_000, 2, 2));
+        ResearchStopReason reason = loop.run("pf4j");
+
+        assertEquals("REQUIRED attention exactly once", 1,
+                java.util.Collections.frequency(fx.attentions, "REQUIRED bing.com"));
+        assertEquals("RESOLVED attention exactly once", 1,
+                java.util.Collections.frequency(fx.attentions, "RESOLVED bing.com"));
+        assertTrue("other domains were processed during the challenge",
+                loop.getProgress().alreadyVisited("https://host1.com/a"));
+        assertTrue("the queued bing URL was visited only AFTER resolution",
+                loop.getProgress().alreadyVisited("https://www.bing.com/deep/result"));
+        assertTrue("the wait phase was visible", fx.progressTokens.contains("WAITING_FOR_USER"));
+        assertFalse("waiting for the user must never exhaust the time budget",
+                reason == ResearchStopReason.TIME_BUDGET_EXHAUSTED);
+    }
+
+    @Test
+    public void cancelDuringTheManualChallengeWaitStopsImmediately() {
+        final Fx fx = new Fx();
+        fx.browser.searchResults = "CHALLENGE: bing.com https://www.bing.com/search?q=pf4j\n"
+                + "1: queued — https://www.bing.com/deep/only";
+        fx.browser.challengeStatusScript.add("CHALLENGE: bing.com https://www.bing.com/search?q=pf4j");
+        fx.onSleepTick = new Runnable() {
+            public void run() {
+                fx.cancelled.set(true); // the user cancels while the loop waits
+            }
+        };
+        assertEquals(ResearchStopReason.USER_CANCELLED,
+                fx.loop(ResearchRunBudget.defaults()).run("pf4j"));
     }
 
     @Test

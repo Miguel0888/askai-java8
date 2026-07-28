@@ -32,7 +32,9 @@ final class Playwright4jDriver implements PlaywrightDriver {
     private final Playwright playwright;
     private final Browser browser;
     private final BrowserContext context;
-    private final Page page;
+    private Page page;
+    /** The parked manual-challenge page (kept open for the user), or null. At most one at a time. */
+    private Page challengePage;
     private volatile boolean closed;
 
     private Playwright4jDriver(Playwright playwright, Browser browser, BrowserContext context, Page page) {
@@ -123,12 +125,98 @@ final class Playwright4jDriver implements PlaywrightDriver {
         }
     }
 
+    // ------------------------------------------------------------------ SERP guards
+
+    @Override
+    public String tryDismissConsent() {
+        if (closed) {
+            return "none";
+        }
+        try {
+            String result = String.valueOf(page.evaluate(SearchPageGuards.consentDismissScript()));
+            if (result.startsWith("clicked")) {
+                // Give the banner a moment to animate away before the caller re-reads the page.
+                page.waitForTimeout(600);
+            }
+            return result;
+        } catch (RuntimeException ex) {
+            return "none"; // a broken CMP script must never take the search down
+        }
+    }
+
+    @Override
+    public boolean challengePresent() {
+        if (closed) {
+            return false;
+        }
+        try {
+            return String.valueOf(page.evaluate(SearchPageGuards.challengeDetectScript()))
+                    .startsWith("challenge");
+        } catch (RuntimeException ex) {
+            return false;
+        }
+    }
+
+    @Override
+    public boolean parkChallenge() {
+        if (closed || challengePage != null) {
+            return false;
+        }
+        try {
+            challengePage = page;
+            page = context.newPage();
+            page.onPopup(new Consumer<Page>() {
+                public void accept(Page popup) {
+                    try {
+                        popup.close();
+                    } catch (RuntimeException ignored) {
+                    }
+                }
+            });
+            // Bring the challenge to the user's attention exactly ONCE — polls never steal focus again.
+            try {
+                challengePage.bringToFront();
+            } catch (RuntimeException ignored) {
+            }
+            return true;
+        } catch (RuntimeException ex) {
+            page = challengePage; // fresh page failed: keep working on the original page
+            challengePage = null;
+            return false;
+        }
+    }
+
+    @Override
+    public boolean parkedChallengeStillPresent() {
+        if (closed || challengePage == null) {
+            return false;
+        }
+        try {
+            return String.valueOf(challengePage.evaluate(SearchPageGuards.challengeDetectScript()))
+                    .startsWith("challenge");
+        } catch (RuntimeException ex) {
+            return false; // an unreadable/closed challenge tab counts as resolved, never blocks forever
+        }
+    }
+
+    @Override
+    public void closeParkedChallenge() {
+        if (challengePage != null) {
+            try {
+                challengePage.close();
+            } catch (RuntimeException ignored) {
+            }
+            challengePage = null;
+        }
+    }
+
     @Override
     public void close() {
         if (closed) {
             return;
         }
         closed = true;
+        closeParkedChallenge();
         try {
             page.close();
         } catch (RuntimeException ignored) {

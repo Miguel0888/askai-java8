@@ -192,6 +192,14 @@ public final class ResearchAgentMain {
                                 public long currentTimeMillis() {
                                     return System.currentTimeMillis();
                                 }
+
+                                public void sleepMillis(long millis) {
+                                    try {
+                                        Thread.sleep(millis);
+                                    } catch (InterruptedException interrupted) {
+                                        Thread.currentThread().interrupt();
+                                    }
+                                }
                             },
                             new com.aresstack.askai.research.runtime.loop.ResearchLoopListener() {
                                 public void status(String message) {
@@ -213,6 +221,13 @@ public final class ResearchAgentMain {
                                     // Event only — the HOST decides; carried in the run outcome + log.
                                     ctx.sendMessage(com.aresstack.askai.research.runtime.loop
                                             .ResearchRunWire.log("PHASE_READY: " + reason));
+                                }
+
+                                public void attention(String reason, String domainFamily, String url,
+                                                      boolean resolved) {
+                                    // Typed user-attention transition — rendered visibly by the UI.
+                                    ctx.sendMessage(com.aresstack.askai.research.runtime.loop
+                                            .ResearchRunWire.attention(reason, domainFamily, url, resolved));
                                 }
                             }, cancelled);
             // Continuation semantics: a later run of the same session never re-navigates target pages.

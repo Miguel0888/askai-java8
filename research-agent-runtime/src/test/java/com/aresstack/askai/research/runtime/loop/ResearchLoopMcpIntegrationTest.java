@@ -134,6 +134,10 @@ public class ResearchLoopMcpIntegrationTest {
                         public long currentTimeMillis() {
                             return now.get();
                         }
+
+                        public void sleepMillis(long millis) {
+                            now.addAndGet(millis);
+                        }
                     },
                     new ResearchLoopListener() {
                         public void status(String message) {
@@ -144,6 +148,10 @@ public class ResearchLoopMcpIntegrationTest {
 
                         public void phaseReady(ResearchStopReason reason) {
                             ready.add(reason);
+                        }
+
+                        public void attention(String reason, String domainFamily, String url,
+                                              boolean resolved) {
                         }
                     }, new AtomicBoolean(false));
             ResearchStopReason reason = loop.run("investigate pf4j");

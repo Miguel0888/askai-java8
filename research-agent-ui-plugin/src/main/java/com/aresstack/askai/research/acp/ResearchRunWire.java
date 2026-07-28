@@ -18,6 +18,8 @@ public final class ResearchRunWire {
     public static final String TYPE_PROGRESS = "progress";
     public static final String TYPE_OUTCOME = "outcome";
     public static final String TYPE_LOG = "log";
+    /** A user-attention transition (manual challenge required/resolved) — rendered visibly, never a log. */
+    public static final String TYPE_ATTENTION = "attention";
 
     private ResearchRunWire() {
     }

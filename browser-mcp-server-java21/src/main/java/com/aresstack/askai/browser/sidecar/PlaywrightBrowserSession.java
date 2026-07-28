@@ -32,6 +32,9 @@ final class PlaywrightBrowserSession implements BrowserSession {
     private final WebSearchProvider searchProvider;
     private List<BrowserLink> currentLinks = Collections.emptyList();
     private boolean hasPage;
+    /** MANUAL_CHALLENGE_PENDING: the domain family whose parked challenge waits for the user, or null. */
+    private String challengeFamily;
+    private String challengeUrl;
 
     PlaywrightBrowserSession(PlaywrightDriver driver, UrlSafetyPolicy policy, BrowserLimits limits,
                              String searchUrlTemplate, WebSearchProvider searchProvider) {
@@ -91,6 +94,11 @@ final class PlaywrightBrowserSession implements BrowserSession {
         List<BrowserLink> lastLinks = null;
         BrowserException lastFailure = null;
         for (String template : templates) {
+            String engineFamily = WebSearchProvider.OrganicResultSearchProvider.siteOf(
+                    WebSearchProvider.OrganicResultSearchProvider.hostOf(template));
+            if (engineFamily.equals(challengeFamily)) {
+                continue; // MANUAL_CHALLENGE_PENDING: no new search, no reload, no retry on this family
+            }
             BrowserPageSnapshot page;
             try {
                 page = open(template.replace("{query}", encoded));
@@ -98,7 +106,20 @@ final class PlaywrightBrowserSession implements BrowserSession {
                 lastFailure = engineUnreachable;
                 continue; // this engine is down/blocked — the next one may still deliver routes
             }
+            // SERP guards, encapsulated here (never in the research loop): consent first, then the
+            // challenge check — a challenge page is never read as a result page.
+            if (driver.tryDismissConsent().startsWith("clicked")) {
+                page = checkedSnapshot(driver.current()); // re-read without the consent overlay
+            }
             String host = WebSearchProvider.OrganicResultSearchProvider.hostOf(page.getUrl());
+            if (driver.challengePresent()) {
+                String family = WebSearchProvider.OrganicResultSearchProvider.siteOf(host);
+                if (challengeFamily == null && driver.parkChallenge()) {
+                    challengeFamily = family;
+                    challengeUrl = page.getUrl();
+                }
+                continue; // the user solves it manually; try the next engine meanwhile
+            }
             if (!host.isEmpty() && !providerHosts.contains(host)) {
                 providerHosts.add(host);
             }
@@ -109,6 +130,11 @@ final class PlaywrightBrowserSession implements BrowserSession {
             }
             lastPage = page;
             lastLinks = currentLinks;
+        }
+        if (lastPage == null && challengeFamily != null) {
+            // Every reachable engine is challenge-bound: report it typed instead of a generic failure.
+            throw new BrowserException("SEARCH_CHALLENGE_PENDING: " + challengeFamily
+                    + " requires manual verification in the browser.");
         }
         if (lastPage == null) {
             throw lastFailure != null ? lastFailure
@@ -151,6 +177,24 @@ final class PlaywrightBrowserSession implements BrowserSession {
     public BrowserPageSnapshot back() throws BrowserException {
         requirePage();
         return checkedSnapshot(driver.back());
+    }
+
+    /**
+     * Poll the parked manual challenge WITHOUT reloading or focusing it: while present → CHALLENGE line;
+     * on first disappearance → RESOLVED line (challenge tab closed, family unlocked); otherwise NONE.
+     */
+    public List<String> challengeStatus() {
+        if (challengeFamily == null) {
+            return Collections.singletonList("NONE");
+        }
+        if (driver.parkedChallengeStillPresent()) {
+            return Collections.singletonList("CHALLENGE: " + challengeFamily + " " + challengeUrl);
+        }
+        String resolved = challengeFamily;
+        driver.closeParkedChallenge();
+        challengeFamily = null;
+        challengeUrl = null;
+        return Collections.singletonList("RESOLVED: " + resolved);
     }
 
     public void close() {

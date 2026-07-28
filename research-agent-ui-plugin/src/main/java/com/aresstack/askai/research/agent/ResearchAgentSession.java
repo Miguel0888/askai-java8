@@ -595,6 +595,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             case RUN_OUTCOME:
                 applyRunOutcome(event);
                 break;
+            case USER_ATTENTION:
+                applyUserAttention(event);
+                break;
             case BLOCKED:
             case ERROR:
                 agentTurnInFlight = false; // a failed turn must not wedge the composer
@@ -729,6 +732,46 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                         return handleOutcomeAction(actionId, outcome);
                     }
                 });
+    }
+
+    // ------------------------------------------------------------------ user attention (manual challenge)
+
+    /** Domain families with a visible attention notice; guards the once-per-episode sound. */
+    private final java.util.Set<String> attentionEpisodes = new java.util.HashSet<String>();
+    /** Injectable for tests; default: one audible attention beep. */
+    private volatile Runnable attentionSound = new Runnable() {
+        public void run() {
+            try {
+                java.awt.Toolkit.getDefaultToolkit().beep();
+            } catch (RuntimeException ignored) {
+                // headless/CI: no sound device is never an error
+            }
+        }
+    };
+
+    /** Test seam: replace the attention sound. */
+    public void setAttentionSound(Runnable sound) {
+        this.attentionSound = sound == null ? new Runnable() {
+            public void run() {
+            }
+        } : sound;
+    }
+
+    /** REQUIRED → persistent visible notice + ONE sound per episode; RESOLVED → visible all-clear. */
+    private void applyUserAttention(ResearchBackendEvent event) {
+        String domain = event.getPublicMessage() == null ? "" : event.getPublicMessage();
+        boolean resolved = "RESOLVED".equals(event.getText());
+        if (!resolved) {
+            if (attentionEpisodes.add(domain)) {
+                attentionSound.run();
+                sink.showProblem("attention-" + domain, ResearchPlaybook.attentionRequired(domain));
+            }
+            return;
+        }
+        if (attentionEpisodes.remove(domain)) {
+            sink.appendAssistantMessage("attention-resolved-" + domain,
+                    ResearchPlaybook.attentionResolved(domain));
+        }
     }
 
     /**

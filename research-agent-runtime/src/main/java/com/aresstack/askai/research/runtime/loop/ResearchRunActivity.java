@@ -12,6 +12,8 @@ public final class ResearchRunActivity {
     public static final String READING_PAGE = "READING_PAGE";
     public static final String SOURCE_ACCEPTED = "SOURCE_ACCEPTED";
     public static final String PAGE_SKIPPED = "PAGE_SKIPPED";
+    /** Only challenge-bound work is left: the run waits for the user's manual input in the browser. */
+    public static final String WAITING_FOR_USER = "WAITING_FOR_USER";
 
     private final String token;
     private final String searchQuery;
@@ -45,6 +47,11 @@ public final class ResearchRunActivity {
     /** The current page was checked and found not relevant (host/title kept for the visible history). */
     public static ResearchRunActivity pageSkipped(String url, String host, String pageTitle) {
         return new ResearchRunActivity(PAGE_SKIPPED, null, url, host, pageTitle);
+    }
+
+    /** The run only has challenge-bound work left and waits for the user (host = the challenged family). */
+    public static ResearchRunActivity waitingForUser(String domainFamily, String url) {
+        return new ResearchRunActivity(WAITING_FOR_USER, null, url, domainFamily, null);
     }
 
     public String getToken() {
