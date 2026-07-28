@@ -11,11 +11,10 @@ java {
     }
 }
 
-// The pinned win-directml-java runtime, released to Maven Central as of 0.1.1 (the release that
-// extracted :directml-model-package so the published core is self-contained — no legacy
-// directml-inference needed anymore). mavenLocal in the root build covers the window until the
-// Central sync of a fresh release lands; `./gradlew -Pversion=<v> publishToMavenLocal` in
-// C:\Projects\win-directml-java serves local development. No sources are copied into AskAI.
+// The pinned win-directml-java runtime from MAVEN CENTRAL (0.1.1 = the release that extracted
+// :directml-model-package, so the published core is self-contained). For local development
+// against unreleased directml changes, publishToMavenLocal there and temporarily add
+// mavenLocal() to the root repositories. No sources are copied into AskAI.
 ext.directmlVersion = '0.1.1'
 
 dependencies {

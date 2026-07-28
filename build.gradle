@@ -4,9 +4,6 @@ allprojects {
 
     repositories {
         mavenCentral()
-        // Development source for the pinned com.aresstack:directml-* runtime until it is on
-        // Maven Central (see :local-model-runtime-sidecar-java21).
-        mavenLocal()
     }
 }
 
