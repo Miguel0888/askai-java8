@@ -1,0 +1,121 @@
+package com.aresstack.askai.browser.search;
+
+import org.junit.Test;
+
+import java.util.List;
+import java.util.Map;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+
+/**
+ * The A2 settings contract: central defaults validate cleanly, the flat codec round-trips
+ * losslessly with a stable digest, malformed values are REPORTED (never silently corrected),
+ * and the validator names the concrete offending setting key.
+ */
+public class LegacyBrowserSearchSettingsTest {
+
+    private final LegacyBrowserSearchSettingsValidator validator =
+            new DefaultLegacyBrowserSearchSettingsValidator();
+
+    @Test
+    public void defaultsAreCompleteAndValid() {
+        LegacyBrowserSearchSettings defaults = LegacyBrowserSearchDefaults.create();
+        SettingsValidationResult result = validator.validate(defaults);
+        assertTrue("defaults must validate cleanly, but: " + result.describe(), result.isValid());
+        // The migrated productive constants survive as defaults.
+        assertTrue(defaults.consent.positiveButtonSelectors.contains("#onetrust-accept-btn-handler"));
+        assertTrue(defaults.captcha.challengeTexts.contains("one last step"));
+        assertEquals(1_000, defaults.captcha.challengeProbeIntervalMillis);
+        assertEquals(600, defaults.consent.postClickSettleMillis);
+        assertEquals(20, defaults.navigation.searchResultLimit);
+        assertEquals(20_000, defaults.navigation.navigationCommitTimeoutMillis);
+    }
+
+    @Test
+    public void codecRoundTripsLosslesslyWithStableDigest() {
+        LegacyBrowserSearchSettings defaults = LegacyBrowserSearchDefaults.create();
+        Map<String, String> values = LegacyBrowserSearchSettingsCodec.toValues(defaults);
+        LegacyBrowserSearchSettingsCodec.Decoded decoded =
+                LegacyBrowserSearchSettingsCodec.fromValues(values);
+        assertTrue("round trip must not report violations", decoded.violations.isEmpty());
+        assertEquals(LegacyBrowserSearchSettingsCodec.digest(defaults),
+                LegacyBrowserSearchSettingsCodec.digest(decoded.settings));
+        assertEquals(defaults.consent.positiveButtonSelectors,
+                decoded.settings.consent.positiveButtonSelectors);
+        assertEquals(defaults.aiLayoutResolver.userPromptTemplate,
+                decoded.settings.aiLayoutResolver.userPromptTemplate);
+        assertEquals(defaults.reranker.retryPolicy.maximumAttempts,
+                decoded.settings.reranker.retryPolicy.maximumAttempts);
+    }
+
+    @Test
+    public void malformedValuesAreReportedNotSilentlyCorrected() {
+        Map<String, String> values = LegacyBrowserSearchSettingsCodec
+                .toValues(LegacyBrowserSearchDefaults.create());
+        values.put("consent.enabled", "banana");
+        values.put("readiness.pollIntervalMillis", "soon");
+        values.put("reranker.implementationType", "MAGIC");
+        LegacyBrowserSearchSettingsCodec.Decoded decoded =
+                LegacyBrowserSearchSettingsCodec.fromValues(values);
+        assertEquals(3, decoded.violations.size());
+        assertViolationFor(decoded.violations, "consent.enabled");
+        assertViolationFor(decoded.violations, "readiness.pollIntervalMillis");
+        assertViolationFor(decoded.violations, "reranker.implementationType");
+    }
+
+    @Test
+    public void validatorNamesTheConcreteOffendingSetting() {
+        Map<String, String> values = LegacyBrowserSearchSettingsCodec
+                .toValues(LegacyBrowserSearchDefaults.create());
+        values.put("extraction.minimumSnippetCharacters", "500");   // > maximum (400)
+        values.put("navigation.maximumEngineAttempts", "0");
+        values.put("reranker.maximumSelectedResults", "50");        // > candidate limit (20)
+        values.put("aiLayoutResolver.retry.maximumAttempts", "99"); // unbounded retries forbidden
+        values.put("analysis.minimumResultStructuralConfidence", "1.5");
+        values.put("aiLayoutResolver.userPromptTemplate", "no variables here");
+        LegacyBrowserSearchSettings settings =
+                LegacyBrowserSearchSettingsCodec.fromValues(values).settings;
+        SettingsValidationResult result = validator.validate(settings);
+        assertFalse(result.isValid());
+        assertViolationFor(result.violations, "extraction.maximumSnippetCharacters");
+        assertViolationFor(result.violations, "navigation.maximumEngineAttempts");
+        assertViolationFor(result.violations, "reranker.maximumCandidates");
+        assertViolationFor(result.violations, "aiLayoutResolver.retry.maximumAttempts");
+        assertViolationFor(result.violations, "analysis.minimumResultStructuralConfidence");
+        assertViolationFor(result.violations, "aiLayoutResolver.userPromptTemplate");
+    }
+
+    @Test
+    public void digestReactsToEveryValueChange() {
+        LegacyBrowserSearchSettings defaults = LegacyBrowserSearchDefaults.create();
+        Map<String, String> values = LegacyBrowserSearchSettingsCodec.toValues(defaults);
+        values.put("captcha.challengeProbeIntervalMillis", "2000");
+        LegacyBrowserSearchSettings changed =
+                LegacyBrowserSearchSettingsCodec.fromValues(values).settings;
+        assertFalse(LegacyBrowserSearchSettingsCodec.digest(defaults)
+                .equals(LegacyBrowserSearchSettingsCodec.digest(changed)));
+    }
+
+    @Test
+    public void missingKeysFallBackToTheSingleDefaultOrigin() {
+        LegacyBrowserSearchSettingsCodec.Decoded decoded = LegacyBrowserSearchSettingsCodec
+                .fromValues(java.util.Collections.<String, String>emptyMap());
+        assertTrue(decoded.violations.isEmpty());
+        assertEquals(LegacyBrowserSearchSettingsCodec
+                        .digest(LegacyBrowserSearchDefaults.create()),
+                LegacyBrowserSearchSettingsCodec.digest(decoded.settings));
+    }
+
+    private static void assertViolationFor(List<SettingsValidationResult.Violation> violations,
+                                           String key) {
+        for (SettingsValidationResult.Violation violation : violations) {
+            if (violation.settingKey.equals(key)) {
+                return;
+            }
+        }
+        throw new AssertionError("expected a violation for '" + key + "' but got:\n"
+                + new SettingsValidationResult(violations).describe());
+    }
+}
