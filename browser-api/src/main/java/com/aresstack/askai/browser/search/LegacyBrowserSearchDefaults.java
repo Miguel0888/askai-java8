@@ -117,6 +117,7 @@ public final class LegacyBrowserSearchDefaults {
                 1.0,    // navigationRolePenalty
                 0.6,    // resultBlockSimilarityThreshold
                 1,      // minimumDiscriminatingSignalFamilies
+                0.85,   // fullPageAreaRatio
                 600,    // textLengthSaturationCharacters
                 40,     // maximumContainerDomDepth
                 600,    // maximumCapturedContainers

@@ -206,6 +206,9 @@ public final class LegacyBrowserSearchSettingsCatalog {
                 "Result block similarity threshold",
                 "Similarity two sibling structure signatures need to count as the same block shape.",
                 0, 1);
+        decimal(f, "analysis.fullPageAreaRatio", SECTION_ANALYSIS, "Full-page area ratio",
+                "A container covering at least this ratio of the document gets the full-page "
+                        + "penalty.", 0, 1);
         integer(f, "analysis.minimumDiscriminatingSignalFamilies", SECTION_ANALYSIS,
                 "Minimum discriminating signal families",
                 "If fewer signal families discriminate, the analysis is LOW_CONFIDENCE "

@@ -38,6 +38,8 @@ public final class SearchPageAnalysisSettings {
     public final double resultBlockSimilarityThreshold;
     /** At least this many signal FAMILIES must discriminate, else the analysis is LOW_CONFIDENCE. */
     public final int minimumDiscriminatingSignalFamilies;
+    /** A container covering at least this ratio of the document area gets the full-page penalty. */
+    public final double fullPageAreaRatio;
     /** Text beyond this length adds no further score (saturation). */
     public final int textLengthSaturationCharacters;
 
@@ -59,6 +61,7 @@ public final class SearchPageAnalysisSettings {
                                       double semanticMainWeight, double navigationRolePenalty,
                                       double resultBlockSimilarityThreshold,
                                       int minimumDiscriminatingSignalFamilies,
+                                      double fullPageAreaRatio,
                                       int textLengthSaturationCharacters, int maximumContainerDomDepth,
                                       int maximumCapturedContainers, int maximumLinksPerContainer,
                                       int maximumStructureSignatureDepth) {
@@ -83,6 +86,7 @@ public final class SearchPageAnalysisSettings {
         this.navigationRolePenalty = navigationRolePenalty;
         this.resultBlockSimilarityThreshold = resultBlockSimilarityThreshold;
         this.minimumDiscriminatingSignalFamilies = minimumDiscriminatingSignalFamilies;
+        this.fullPageAreaRatio = fullPageAreaRatio;
         this.textLengthSaturationCharacters = textLengthSaturationCharacters;
         this.maximumContainerDomDepth = maximumContainerDomDepth;
         this.maximumCapturedContainers = maximumCapturedContainers;

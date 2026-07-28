@@ -117,6 +117,7 @@ public final class LegacyBrowserSearchSettingsCodec {
                 String.valueOf(s.analysis.resultBlockSimilarityThreshold));
         m.put("analysis.minimumDiscriminatingSignalFamilies",
                 String.valueOf(s.analysis.minimumDiscriminatingSignalFamilies));
+        m.put("analysis.fullPageAreaRatio", String.valueOf(s.analysis.fullPageAreaRatio));
         m.put("analysis.textLengthSaturationCharacters",
                 String.valueOf(s.analysis.textLengthSaturationCharacters));
         m.put("analysis.maximumContainerDomDepth",
@@ -289,6 +290,7 @@ public final class LegacyBrowserSearchSettingsCodec {
                         r.doubleValue("analysis.navigationRolePenalty"),
                         r.doubleValue("analysis.resultBlockSimilarityThreshold"),
                         r.intValue("analysis.minimumDiscriminatingSignalFamilies"),
+                        r.doubleValue("analysis.fullPageAreaRatio"),
                         r.intValue("analysis.textLengthSaturationCharacters"),
                         r.intValue("analysis.maximumContainerDomDepth"),
                         r.intValue("analysis.maximumCapturedContainers"),

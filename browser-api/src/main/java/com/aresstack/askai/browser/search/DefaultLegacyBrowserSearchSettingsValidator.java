@@ -88,6 +88,7 @@ public final class DefaultLegacyBrowserSearchSettingsValidator
                 s.analysis.resultBlockSimilarityThreshold);
         atLeast(v, "analysis.minimumDiscriminatingSignalFamilies",
                 s.analysis.minimumDiscriminatingSignalFamilies, 1);
+        ratio(v, "analysis.fullPageAreaRatio", s.analysis.fullPageAreaRatio);
         atLeast(v, "analysis.textLengthSaturationCharacters",
                 s.analysis.textLengthSaturationCharacters, 1);
         atLeast(v, "analysis.maximumContainerDomDepth", s.analysis.maximumContainerDomDepth, 4);
