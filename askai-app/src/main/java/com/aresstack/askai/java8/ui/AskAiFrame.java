@@ -411,10 +411,25 @@ public final class AskAiFrame extends JFrame {
                 agentRuntimeServices.shutdown();
             }
         }, "agent-runtime-services-shutdown"));
+        // The typed "open sources/config view" card actions reach the artifact area through this host
+        // service (same hook as /open); the coordinator holder is filled right below.
+        final com.aresstack.askai.plugin.host.AgentSessionCoordinator[] coordinatorRef =
+                new com.aresstack.askai.plugin.host.AgentSessionCoordinator[1];
         com.aresstack.askai.plugin.host.AgentSessionCoordinator.AgentHostContextProvider agentHostProvider =
                 new com.aresstack.askai.plugin.host.AgentSessionCoordinator.AgentHostContextProvider() {
                     public com.aresstack.askai.plugin.api.agent.AgentHostContext create(
                             String agentId, String sessionInstanceId) {
+                        java.util.Map<Class<?>, Object> services =
+                                new java.util.LinkedHashMap<Class<?>, Object>(
+                                        agentRuntimeServices.asServiceMap());
+                        services.put(com.aresstack.askai.plugin.api.service.ArtifactViewOpener.class,
+                                new com.aresstack.askai.plugin.api.service.ArtifactViewOpener() {
+                                    public void openArtifact(String artifactId) {
+                                        if (coordinatorRef[0] != null) {
+                                            coordinatorRef[0].openArtifactView(artifactId);
+                                        }
+                                    }
+                                });
                         return new com.aresstack.askai.plugin.host.DefaultAgentHostContext(
                                 agentUiExecutor,
                                 new com.aresstack.askai.java8.plugin.host.AskAiThemeService(),
@@ -424,12 +439,13 @@ public final class AskAiFrame extends JFrame {
                                         applicationState, "agent." + agentId + "."),
                                 new com.aresstack.askai.plugin.host.ScopedPluginPathService(agentDataDir, agentId),
                                 resolveActiveAgentSink(),
-                                agentRuntimeServices.asServiceMap());
+                                services);
                     }
                 };
         final com.aresstack.askai.plugin.host.AgentSessionCoordinator agentCoordinator =
                 new com.aresstack.askai.plugin.host.AgentSessionCoordinator(
                         agentResolver, agentHostProvider, uiExecutor);
+        coordinatorRef[0] = agentCoordinator;
         // Transactional refresh: the coordinator detaches the outgoing generation's sessions on the EDT and the
         // service closes them off-EDT before retiring the old classloaders, so no session survives a swap.
         pluginService.setGenerationSwapHook(agentCoordinator);

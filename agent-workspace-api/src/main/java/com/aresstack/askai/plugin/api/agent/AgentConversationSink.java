@@ -35,4 +35,38 @@ public interface AgentConversationSink {
 
     /** Render a blocked/failed condition as a readable status bubble (public message only). */
     void showProblem(String problemId, String publicMessage);
+
+    /** One typed action offered on an interactive card (stable id + localized label). */
+    final class ActionOption {
+        private final String id;
+        private final String label;
+
+        public ActionOption(String id, String label) {
+            this.id = id == null ? "" : id;
+            this.label = label == null ? "" : label;
+        }
+
+        public String getId() {
+            return id;
+        }
+
+        public String getLabel() {
+            return label;
+        }
+    }
+
+    /** Receives the id of the action the user pressed on a card (called on the UI thread). */
+    interface ActionHandler {
+        void onAction(String actionId);
+    }
+
+    /**
+     * Render ONE interactive result/decision card: readable markdown plus real buttons that dispatch typed
+     * actions back to the session — never synthetic chat messages. A host without card support falls back
+     * to the plain message (the text alone must remain understandable).
+     */
+    default void showActionCard(String cardId, String markdown, java.util.List<ActionOption> actions,
+                                ActionHandler handler) {
+        appendAssistantMessage(cardId, markdown);
+    }
 }

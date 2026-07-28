@@ -36,6 +36,12 @@ public final class ResearchAgentMain {
     private ResearchAgentEnvironment environment;
     private McpClientProvider researchMcp;
     private volatile boolean readinessAnnounced;
+    /**
+     * Canonical URLs visited across ALL runs of this agent process (one process per session): a
+     * CONTINUE_RESEARCH turn gets a fresh budget but never navigates the same target pages again.
+     */
+    private final java.util.Set<String> visitedAcrossRuns =
+            java.util.Collections.synchronizedSet(new java.util.LinkedHashSet<String>());
 
     public static void main(String[] args) {
         System.err.println("[research-agent] starting");
@@ -91,9 +97,12 @@ public final class ResearchAgentMain {
         cancelled.set(false);
         if (!readinessAnnounced) {
             readinessAnnounced = true;
-            ctx.sendMessage("RESEARCH_MCP_READY");
+            // Readiness is a technical fact, not conversation: technical details only, never a bubble.
+            ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
+                    .log("RESEARCH_MCP_READY"));
             if (!environment.hasBrowser()) {
-                ctx.sendMessage("BROWSER_NOT_AVAILABLE");
+                ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
+                        .log("BROWSER_NOT_AVAILABLE"));
             }
         }
         String text = request.text() == null ? "" : request.text();
@@ -109,7 +118,17 @@ public final class ResearchAgentMain {
         String task = explicitResearch ? text.substring("research:".length()).trim() : text.trim();
         if ((explicitResearch || hostIsInResearchRunning()) && !task.isEmpty()) {
             if (!environment.hasBrowser()) {
-                ctx.sendMessage("BROWSER_NOT_AVAILABLE: cannot run autonomous web research this turn.");
+                // An honest, STRUCTURED refusal: the host renders a readable result card from it.
+                ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
+                        .log("BROWSER_NOT_AVAILABLE: cannot run autonomous web research this turn."));
+                ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire.outcome(
+                        new com.aresstack.askai.research.runtime.loop.ResearchRunOutcome(
+                                com.aresstack.askai.research.runtime.loop.ResearchStopReason.MCP_UNAVAILABLE,
+                                0, 0, 0, 0, 0, true,
+                                com.aresstack.askai.research.runtime.loop.ResearchRunOutcome
+                                        .Limitation.NONE,
+                                com.aresstack.askai.research.runtime.loop.ResearchRunOutcome
+                                        .RecommendedAction.RETRY)));
                 return AcpSchema.PromptResponse.endTurn();
             }
             runResearchLoop(ctx, task);
@@ -117,13 +136,16 @@ public final class ResearchAgentMain {
                     ? new AcpSchema.PromptResponse(AcpSchema.StopReason.CANCELLED)
                     : AcpSchema.PromptResponse.endTurn();
         }
-        // Mirror the host state via MCP (no own state machine): report the live research status.
+        // Mirror the host state via MCP (no own state machine): technical details only — the HOST leads
+        // the conversation; this process never small-talks in the user's chat.
         try {
             ToolResult status = researchMcp.callTool("research_status",
                     Collections.<String, Object>emptyMap());
-            ctx.sendMessage("status: " + status);
+            ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
+                    .log("status: " + status));
         } catch (RuntimeException ex) {
-            ctx.sendMessage("research MCP unavailable: " + ex.getMessage());
+            ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
+                    .log("research MCP unavailable: " + ex.getMessage()));
         }
         if (text.contains("slow")) {
             for (int i = 0; i < 1_000_000 && !cancelled.get(); i++) {
@@ -133,7 +155,8 @@ public final class ResearchAgentMain {
                 return new AcpSchema.PromptResponse(AcpSchema.StopReason.CANCELLED);
             }
         }
-        ctx.sendMessage("turn done for: " + text);
+        ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
+                .log("turn done for: " + text));
         return AcpSchema.PromptResponse.endTurn();
     }
 
@@ -161,9 +184,10 @@ public final class ResearchAgentMain {
                 new com.aresstack.askai.research.runtime.loop.SolonToolInvoker(
                         environment.researchUrl, environment.researchTransport);
         try {
+            final com.aresstack.askai.research.runtime.loop.ResearchRunBudget budget =
+                    com.aresstack.askai.research.runtime.loop.ResearchRunBudget.defaults();
             com.aresstack.askai.research.runtime.loop.ResearchLoop loop =
-                    new com.aresstack.askai.research.runtime.loop.ResearchLoop(browser, research,
-                            com.aresstack.askai.research.runtime.loop.ResearchRunBudget.defaults(),
+                    new com.aresstack.askai.research.runtime.loop.ResearchLoop(browser, research, budget,
                             new com.aresstack.askai.research.runtime.loop.ResearchLoopClock() {
                                 public long currentTimeMillis() {
                                     return System.currentTimeMillis();
@@ -171,19 +195,33 @@ public final class ResearchAgentMain {
                             },
                             new com.aresstack.askai.research.runtime.loop.ResearchLoopListener() {
                                 public void status(String message) {
-                                    ctx.sendMessage("loop: " + message);
+                                    // Diagnostics: technical details only — NEVER a chat bubble.
+                                    ctx.sendMessage(com.aresstack.askai.research.runtime.loop
+                                            .ResearchRunWire.log(message));
+                                }
+
+                                public void progress(
+                                        com.aresstack.askai.research.runtime.loop.ResearchRunProgress p,
+                                        String activityToken, String url) {
+                                    // ONE in-place progress card per run, updated structurally.
+                                    ctx.sendMessage(com.aresstack.askai.research.runtime.loop
+                                            .ResearchRunWire.progress(p, budget, activityToken, url));
                                 }
 
                                 public void phaseReady(
                                         com.aresstack.askai.research.runtime.loop.ResearchStopReason reason) {
-                                    ctx.sendMessage("PHASE_READY: " + reason); // event only — host decides
+                                    // Event only — the HOST decides; carried in the run outcome + log.
+                                    ctx.sendMessage(com.aresstack.askai.research.runtime.loop
+                                            .ResearchRunWire.log("PHASE_READY: " + reason));
                                 }
                             }, cancelled);
+            // Continuation semantics: a later run of the same session never re-navigates target pages.
+            loop.excludeVisited(visitedAcrossRuns);
             com.aresstack.askai.research.runtime.loop.ResearchStopReason reason = loop.run(task);
-            ctx.sendMessage("RESEARCH_RUN_STOPPED: " + reason
-                    + " pages=" + loop.getProgress().getPagesVisited()
-                    + " sources=" + loop.getProgress().getAcceptedSources()
-                    + " hosts=" + loop.getProgress().getDistinctHosts().size());
+            visitedAcrossRuns.addAll(loop.getProgress().getVisitedCanonicalUrls());
+            // The STRUCTURED outcome is the only basis for the user-facing result card.
+            ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
+                    .outcome(loop.outcome(reason)));
         } finally {
             browser.close();
             research.close();

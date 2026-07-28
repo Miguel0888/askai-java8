@@ -132,6 +132,11 @@ final class ChatTranscript {
         panel.finishAssistantMessage();
     }
 
+    /** A left-aligned row of real action buttons (one decision per card; the row self-disables). */
+    void appendActionButtons(java.util.List<String> labels, BubbleTranscriptPanel.ActionInvoker invoker) {
+        panel.appendActionButtons(labels, invoker);
+    }
+
     // ------------------------------------------------------------------ agent activity
 
     /**

@@ -111,6 +111,27 @@ final class AskAiAgentConversationSink implements AgentConversationSink {
         refresh();
     }
 
+    @Override
+    public void showActionCard(String cardId, String markdown, final java.util.List<ActionOption> actions,
+                               final ActionHandler handler) {
+        transcript.startAssistant("Agent");
+        transcript.appendAssistantDelta(markdown);
+        transcript.finishAssistant();
+        java.util.List<String> labels = new java.util.ArrayList<String>();
+        for (ActionOption option : actions) {
+            labels.add(option.getLabel());
+        }
+        transcript.appendActionButtons(labels,
+                new BubbleTranscriptPanel.ActionInvoker() {
+                    public void invoke(int index) {
+                        if (handler != null && index >= 0 && index < actions.size()) {
+                            handler.onAction(actions.get(index).getId());
+                        }
+                    }
+                });
+        refresh();
+    }
+
     private void refresh() {
         if (afterUpdate != null) {
             afterUpdate.run();

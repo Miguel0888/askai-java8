@@ -61,6 +61,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     private boolean started;
     private boolean disposed;
     private final com.aresstack.askai.plugin.api.service.WorkspaceStateStore hostStateStore;
+    private final AgentHostContext hostContext;
     /** Productive mode only: the session's OWN generation-scoped resources (state authority + processes). */
     private final com.aresstack.askai.research.host.ProductiveResearchSessionResources productiveResources;
 
@@ -82,6 +83,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                                 com.aresstack.askai.research.host.ProductiveResearchSessionResources resources) {
         this.backend = backend;
         this.ownedScheduler = ownedScheduler;
+        this.hostContext = host;
         this.sink = host.getConversationSink();
         this.uiExecutor = host.getUiExecutor();
         this.hostStateStore = host.getStateStore();
@@ -312,7 +314,24 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 public void run() {
                     String approvalId = after.getPendingApprovalId() == null
                             ? "approval-" + after.getRevision() : after.getPendingApprovalId();
-                    sink.requestApproval(approvalId, message);
+                    // Real buttons, no slash ceremony: approve starts the research automatically.
+                    java.util.List<AgentConversationSink.ActionOption> options =
+                            new ArrayList<AgentConversationSink.ActionOption>();
+                    options.add(new AgentConversationSink.ActionOption("approve",
+                            ResearchPlaybook.actionLabel("approve")));
+                    options.add(new AgentConversationSink.ActionOption("changes",
+                            ResearchPlaybook.actionLabel("changes")));
+                    sink.showActionCard(approvalId, message, options,
+                            new AgentConversationSink.ActionHandler() {
+                                public void onAction(String actionId) {
+                                    if ("approve".equals(actionId)) {
+                                        approveCurrent();
+                                    } else {
+                                        requestChanges("");
+                                        sayAsAgent(ResearchPlaybook.refinePrompt());
+                                    }
+                                }
+                            });
                 }
             });
         }
@@ -548,11 +567,26 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 sink.appendUserMessage(event.getEventId(), event.getText());
                 break;
             case COMPLETED:
-                agentTurnInFlight = false; // the turn ended; the composer is usable again
-                sink.appendAssistantMessage(event.getEventId(), event.getText());
+                // The technical turn terminal is INVISIBLE (point 9): it only frees the composer and
+                // closes a still-open progress card. The user-facing message is the RUN_OUTCOME card.
+                agentTurnInFlight = false;
+                // Always route through the sink so the composer re-reads its availability, even when no
+                // progress card exists (the sink refresh runs also for unknown activity ids).
+                sink.completeToolActivity(currentRunActivityId != null
+                        ? currentRunActivityId : "research-turn", "");
+                currentRunActivityId = null;
                 break;
             case ASSISTANT_MESSAGE:
                 sink.appendAssistantMessage(event.getEventId(), event.getText());
+                break;
+            case RUN_LOG:
+                applyRunLog(event);
+                break;
+            case RUN_PROGRESS:
+                applyRunProgress(event);
+                break;
+            case RUN_OUTCOME:
+                applyRunOutcome(event);
                 break;
             case BLOCKED:
             case ERROR:
@@ -599,6 +633,200 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
      */
     public ResearchStateSnapshot currentResearchSnapshot() {
         return ResearchStateSnapshot.of(stateFactory.restore(state), revision, problemMessage);
+    }
+
+    // ------------------------------------------------------------------ run progress / outcome cards
+
+    /** The one in-place progress card of the active run (null when no run is being rendered). */
+    private String currentRunActivityId;
+    private boolean runCardStarted;
+    private com.aresstack.askai.research.backend.ResearchRunProgressInfo lastRunProgress;
+    /** Bounded rolling technical log of the active run (rendered inside the progress card only). */
+    private final java.util.ArrayDeque<String> runTechnicalLog = new java.util.ArrayDeque<String>();
+    private static final int RUN_LOG_LINES = 8;
+
+    private void applyRunLog(ResearchBackendEvent event) {
+        rememberRunLogLine(event.getText());
+        // Rendered inside the progress card when it exists; for an unknown activity id the transcript
+        // treats the update as a no-op, but observers (tests, alternative hosts) still see the line.
+        sink.updateToolActivity(event.getActivityId() == null ? "research-turn" : event.getActivityId(),
+                ResearchPlaybook.progressTitle(), progressCardBody());
+    }
+
+    private void applyRunProgress(ResearchBackendEvent event) {
+        lastRunProgress = event.getRunProgress();
+        String id = event.getActivityId();
+        if (!runCardStarted || !id.equals(currentRunActivityId)) {
+            currentRunActivityId = id;
+            runCardStarted = true;
+            sink.startToolActivity(id, ResearchPlaybook.progressTitle(), progressCardBody());
+        } else {
+            sink.updateToolActivity(id, ResearchPlaybook.progressTitle(), progressCardBody());
+        }
+    }
+
+    private void applyRunOutcome(ResearchBackendEvent event) {
+        agentTurnInFlight = false; // the run is over; the user decides the next step
+        final com.aresstack.askai.research.backend.ResearchRunOutcomeInfo outcome = event.getRunOutcome();
+        if (runCardStarted && currentRunActivityId != null) {
+            sink.completeToolActivity(currentRunActivityId, ResearchPlaybook.runFinishedSummary(
+                    outcome.getPagesVisited(), outcome.getAcceptedSources(), outcome.getDistinctHosts()));
+        }
+        currentRunActivityId = null;
+        runCardStarted = false;
+        runTechnicalLog.clear();
+        sink.showActionCard("research-outcome-" + outcome.getPromptId(),
+                ResearchPlaybook.outcomeCard(outcome), outcomeActions(outcome),
+                new AgentConversationSink.ActionHandler() {
+                    public void onAction(String actionId) {
+                        handleOutcomeAction(actionId, outcome);
+                    }
+                });
+    }
+
+    private void rememberRunLogLine(String line) {
+        if (line == null || line.isEmpty()) {
+            return;
+        }
+        runTechnicalLog.addLast(line);
+        while (runTechnicalLog.size() > RUN_LOG_LINES) {
+            runTechnicalLog.removeFirst();
+        }
+    }
+
+    /** Counters + readable activity, followed by the bounded technical detail lines. */
+    private String progressCardBody() {
+        StringBuilder sb = new StringBuilder();
+        if (lastRunProgress != null) {
+            sb.append(ResearchPlaybook.progressLine(lastRunProgress.getPagesVisited(),
+                    lastRunProgress.getAcceptedSources(), lastRunProgress.getDistinctHosts(),
+                    lastRunProgress.getActivityToken()));
+        }
+        if (!runTechnicalLog.isEmpty()) {
+            sb.append(sb.length() > 0 ? "\n\n" : "");
+            for (String line : runTechnicalLog) {
+                sb.append(line).append('\n');
+            }
+        }
+        return sb.toString();
+    }
+
+    /** The typed actions offered on the result card — chosen by stop situation (never enum names). */
+    private java.util.List<AgentConversationSink.ActionOption> outcomeActions(
+            com.aresstack.askai.research.backend.ResearchRunOutcomeInfo o) {
+        java.util.List<String> ids = new ArrayList<String>();
+        String stop = o.getStopReason();
+        if ("USER_CANCELLED".equals(stop)) {
+            ids.add("resume");
+            ids.add("sources");
+            ids.add("end");
+        } else if ("MCP_UNAVAILABLE".equals(stop)) {
+            ids.add("retry");
+            ids.add("config");
+        } else if ("ERROR_BUDGET_EXHAUSTED".equals(stop)) {
+            ids.add("retry");
+            ids.add("sources");
+            ids.add("end");
+        } else if ("SUFFICIENT_EVIDENCE".equals(stop)
+                || ("SOURCE_BUDGET_EXHAUSTED".equals(stop) && o.isEvidenceSufficient())) {
+            ids.add("review");
+            ids.add("sources");
+            ids.add("end");
+        } else if ("NO_RELEVANT_PATHS".equals(stop) && !o.isEvidenceSufficient()) {
+            ids.add("refine");
+            ids.add("sources");
+            ids.add("end");
+        } else {
+            // Budget exhausted with open evidence requirements — the screenshotted case.
+            ids.add("continue");
+            ids.add("sources");
+            ids.add("refine");
+            ids.add("limit");
+            ids.add("end");
+        }
+        java.util.List<AgentConversationSink.ActionOption> options =
+                new ArrayList<AgentConversationSink.ActionOption>();
+        for (String id : ids) {
+            options.add(new AgentConversationSink.ActionOption(id, ResearchPlaybook.actionLabel(id)));
+        }
+        return options;
+    }
+
+    /** Typed result-card actions — dispatched over the command port, never synthetic chat messages. */
+    private void handleOutcomeAction(String actionId,
+            com.aresstack.askai.research.backend.ResearchRunOutcomeInfo outcome) {
+        if ("continue".equals(actionId) || "retry".equals(actionId) || "resume".equals(actionId)) {
+            continueResearchTurn();
+            return;
+        }
+        if ("sources".equals(actionId) || "config".equals(actionId)) {
+            openArtifactView("sources".equals(actionId) ? "sources" : "runtime");
+            return;
+        }
+        if ("refine".equals(actionId)) {
+            sayAsAgent(ResearchPlaybook.refinePrompt()); // the composer is free; the user just types
+            return;
+        }
+        if ("limit".equals(actionId)) {
+            recordLimitation(outcome);
+            return;
+        }
+        if ("end".equals(actionId)) {
+            cancel(); // the controlled end of the research phase (state machine stays the authority)
+        }
+    }
+
+    /** Continue with the STORED question, a fresh budget and no re-visits (the agent keeps its history). */
+    private void continueResearchTurn() {
+        if (productiveResources == null || handle == null) {
+            return;
+        }
+        if (com.aresstack.askai.research.state.oo.ResearchStateIds.PAUSED
+                .equals(productiveResources.currentState().getStateId())) {
+            dispatch(ResearchCommandType.RESUME, null);
+        }
+        if (!researchQuestion.isEmpty()
+                && com.aresstack.askai.research.state.oo.ResearchStateIds.RUNNING
+                        .equals(productiveResources.currentState().getStateId())) {
+            agentTurnInFlight = true; // cleared by the next RUN_OUTCOME / terminal
+            backend.submitPrompt(handle, new ResearchPrompt(researchQuestion, ""));
+        } else {
+            sayAsAgent(ResearchPlaybook.refinePrompt());
+        }
+    }
+
+    /** Reveal an artifact tab via the host service; degrade VISIBLY when the host offers none. */
+    private void openArtifactView(String artifactId) {
+        com.aresstack.askai.plugin.api.service.ArtifactViewOpener opener = hostContext == null
+                ? null : hostContext.getService(com.aresstack.askai.plugin.api.service.ArtifactViewOpener.class);
+        if (opener != null) {
+            opener.openArtifact(artifactId);
+        } else {
+            sayAsAgent(ResearchPlaybook.getLanguage() == ResearchPlaybook.Language.GERMAN
+                    ? "Die Ansicht kann hier nicht geöffnet werden — bitte öffne den Tab \"" + artifactId
+                            + "\" im Arbeitsbereich."
+                    : "This view cannot be opened here — please open the \"" + artifactId
+                            + "\" tab in the workspace.");
+        }
+    }
+
+    /** Record the unmet evidence requirement VISIBLY and move on towards review — never silently. */
+    private void recordLimitation(com.aresstack.askai.research.backend.ResearchRunOutcomeInfo outcome) {
+        String note = ResearchPlaybook.limitationRecorded(outcome);
+        try {
+            com.aresstack.askai.plugin.api.agent.artifact.AgentArtifactStore store =
+                    productiveResources != null ? productiveResources.getArtifactStore() : artifactStore;
+            com.aresstack.askai.plugin.api.agent.artifact.ArtifactContent notes =
+                    store.read("research-notes");
+            store.replace("research-notes", notes.getRevision(),
+                    (notes.getMarkdown().isEmpty() ? "" : notes.getMarkdown() + "\n\n") + "> " + note);
+        } catch (RuntimeException ignored) {
+            // The visible chat confirmation below is the primary record; a store hiccup must not block it.
+        }
+        sayAsAgent(note);
+        if (currentAllowedCommands().contains(ResearchCommandType.REQUEST_EVIDENCE_REVIEW)) {
+            dispatch(ResearchCommandType.REQUEST_EVIDENCE_REVIEW, null);
+        }
     }
 
     private void applyActivity(ResearchBackendEvent event) {

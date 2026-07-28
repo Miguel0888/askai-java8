@@ -37,6 +37,8 @@ public class ResearchLoopTest {
     private static final class FakeBrowser implements ToolInvoker {
         final Map<String, Page> pages = new LinkedHashMap<String, Page>();
         final Map<String, String> captureByUrl = new LinkedHashMap<String, String>();
+        final Map<String, String> redirects = new LinkedHashMap<String, String>();
+        String searchResults;
         String current;
         int captureSeq;
         boolean failEverything;
@@ -65,10 +67,12 @@ public class ResearchLoopTest {
                 throw new ToolFailure("browser down");
             }
             if ("web_search".equals(tool)) {
-                return "1: PF4J primer — https://host1.com/a\n2: Cooking tips — https://host1.com/b";
+                return searchResults != null ? searchResults : "1: PF4J primer — https://host1.com/a\n2: Cooking tips — https://host1.com/b";
             }
             if ("web_open".equals(tool)) {
-                String url = String.valueOf(args.get("url"));
+                String requested = String.valueOf(args.get("url"));
+                // Like the real browser: navigation FOLLOWS redirects; the snapshot reports the FINAL URL.
+                String url = redirects.containsKey(requested) ? redirects.get(requested) : requested;
                 Page page = pages.get(url);
                 if (page == null) {
                     throw new ToolFailure("404 " + url);
@@ -154,6 +158,7 @@ public class ResearchLoopTest {
         final AtomicLong now = new AtomicLong(1000L);
         final AtomicBoolean cancelled = new AtomicBoolean(false);
         final List<String> statuses = new ArrayList<String>();
+        final List<String> progressTokens = new ArrayList<String>();
         final List<ResearchStopReason> ready = new ArrayList<ResearchStopReason>();
 
         ResearchLoop loop(ResearchRunBudget budget) {
@@ -166,6 +171,11 @@ public class ResearchLoopTest {
                     new ResearchLoopListener() {
                         public void status(String message) {
                             statuses.add(message);
+                        }
+
+                        public void progress(ResearchRunProgress progress, String activityToken,
+                                             String url) {
+                            progressTokens.add(activityToken);
                         }
 
                         public void phaseReady(ResearchStopReason reason) {
@@ -257,6 +267,37 @@ public class ResearchLoopTest {
         assertEquals(ResearchStopReason.APPROVAL_REQUIRED, reason);
         assertTrue("no finding may have been stored", fx.research.findings.isEmpty());
         assertEquals("PHASE_READY must not fire on an interrupted run", 0, fx.ready.size());
+    }
+
+    @Test
+    public void hostDiversityCountsTheFinalPostRedirectUrlNotTheRequestedSearchLink() {
+        // The user-reported counting bug: search engines link through redirect URLs (bing.com/ck/a?...), so
+        // counting hostOf(requested) yields hosts=1 ("bing.com") even when the pages come from different
+        // websites. The FINAL URL from web_open must drive pages/hosts/visited bookkeeping.
+        Fx fx = new Fx();
+        fx.browser.searchResults = "1: article https://www.bing.com/ck/a?target-a"
+                + "\n2: report https://www.bing.com/ck/a?target-b";
+        fx.browser.redirects.put("https://www.bing.com/ck/a?target-a", "https://example-a.org/article");
+        fx.browser.redirects.put("https://www.bing.com/ck/a?target-b", "https://example-b.net/report");
+        fx.browser.pages.put("https://example-a.org/article",
+                new Page("pf4j article", "pf4j evidence from site a", new ArrayList<String>()));
+        fx.browser.pages.put("https://example-b.net/report",
+                new Page("pf4j report", "pf4j evidence from site b", new ArrayList<String>()));
+
+        ResearchLoop loop = fx.loop(new ResearchRunBudget(30, 20, 8, 3, 600_000, 2, 2));
+        ResearchStopReason reason = loop.run("pf4j");
+
+        assertEquals("both FINAL hosts count", 2, loop.getProgress().getDistinctHosts().size());
+        assertTrue(loop.getProgress().getDistinctHosts().contains("example-a.org"));
+        assertTrue(loop.getProgress().getDistinctHosts().contains("example-b.net"));
+        assertFalse("the redirector must not be counted as an evidence host",
+                loop.getProgress().getDistinctHosts().contains("www.bing.com"));
+        // Both the requested redirect address and the final address are marked visited.
+        assertTrue(loop.getProgress().alreadyVisited("https://www.bing.com/ck/a?target-a"));
+        assertTrue(loop.getProgress().alreadyVisited("https://example-a.org/article"));
+        assertEquals("2 sources from 2 hosts meet the 2/2 minimums",
+                ResearchStopReason.SUFFICIENT_EVIDENCE, reason);
+        assertFalse("in-place progress updates were emitted", fx.progressTokens.isEmpty());
     }
 
     @Test

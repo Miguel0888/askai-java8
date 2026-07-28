@@ -80,6 +80,13 @@ public final class AgentSessionCoordinator
         this.artifactOpener = opener;
     }
 
+    /** Reveal an artifact tab programmatically (typed card actions use this — same hook as /open). */
+    public void openArtifactView(String artifactId) {
+        if (artifactOpener != null) {
+            artifactOpener.open(artifactId);
+        }
+    }
+
     /** @return whether an agent id currently resolves to a usable agent extension. */
     public boolean canHandle(String agentId) {
         return resolver.resolve(agentId) != null;

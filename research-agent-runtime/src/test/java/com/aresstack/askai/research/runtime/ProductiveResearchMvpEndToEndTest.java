@@ -65,13 +65,26 @@ public class ProductiveResearchMvpEndToEndTest {
             + "%LINKS%"
             + "</script></body></html>";
 
+    private static int outcomes(Collecting observer) {
+        int n = 0;
+        for (ResearchBackendEvent event : observer.events) {
+            if (event.getType() == com.aresstack.askai.research.backend.ResearchBackendEventType
+                    .RUN_OUTCOME) {
+                n++;
+            }
+        }
+        return n;
+    }
+
     private static final class Collecting implements ResearchSessionListener {
         final List<ResearchBackendEvent> events = new CopyOnWriteArrayList<ResearchBackendEvent>();
         final CountDownLatch runStopped = new CountDownLatch(1);
 
         public void onEvent(ResearchBackendEvent event) {
             events.add(event);
-            if (text(event).contains("RESEARCH_RUN_STOPPED")) {
+            if (event.getType() == com.aresstack.askai.research.backend.ResearchBackendEventType
+                    .RUN_OUTCOME) {
+                // Commit 55: the STRUCTURED outcome is the run terminal (sent after PHASE_READY).
                 runStopped.countDown();
             }
         }
@@ -177,7 +190,8 @@ public class ProductiveResearchMvpEndToEndTest {
             // ---- the mandated verifications ----
             assertEquals("exactly one PHASE_READY event", 1, observer.count("PHASE_READY:"));
             assertEquals("run must stop with sufficient evidence",
-                    1, observer.count("RESEARCH_RUN_STOPPED: SUFFICIENT_EVIDENCE"));
+                    1, observer.count("run stopped: SUFFICIENT_EVIDENCE"));
+            assertEquals("the structured outcome event arrived exactly once", 1, outcomes(observer));
             assertTrue("readiness reached the observer", observer.count("RESEARCH_MCP_READY") >= 1);
             assertTrue("observer received a full event stream", observer.events.size() >= 5);
 

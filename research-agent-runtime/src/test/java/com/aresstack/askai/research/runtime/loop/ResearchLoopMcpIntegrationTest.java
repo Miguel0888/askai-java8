@@ -139,6 +139,10 @@ public class ResearchLoopMcpIntegrationTest {
                         public void status(String message) {
                         }
 
+                        public void progress(ResearchRunProgress progress, String activityToken,
+                                             String url) {
+                        }
+
                         public void phaseReady(ResearchStopReason reason) {
                             ready.add(reason);
                         }

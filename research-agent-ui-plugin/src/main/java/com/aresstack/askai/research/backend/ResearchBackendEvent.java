@@ -32,6 +32,8 @@ public final class ResearchBackendEvent {
     private final String approvalId;
     private final String publicMessage;
     private final String technicalDetail;
+    private final ResearchRunProgressInfo runProgress;
+    private final ResearchRunOutcomeInfo runOutcome;
 
     private ResearchBackendEvent(Builder b) {
         this.eventId = b.eventId;
@@ -53,6 +55,8 @@ public final class ResearchBackendEvent {
         this.approvalId = b.approvalId;
         this.publicMessage = b.publicMessage;
         this.technicalDetail = b.technicalDetail;
+        this.runProgress = b.runProgress;
+        this.runOutcome = b.runOutcome;
     }
 
     public String getEventId() {
@@ -128,6 +132,16 @@ public final class ResearchBackendEvent {
         return technicalDetail;
     }
 
+    /** @return the structured run progress for a {@code RUN_PROGRESS} event, else {@code null}. */
+    public ResearchRunProgressInfo getRunProgress() {
+        return runProgress;
+    }
+
+    /** @return the structured run outcome for a {@code RUN_OUTCOME} event, else {@code null}. */
+    public ResearchRunOutcomeInfo getRunOutcome() {
+        return runOutcome;
+    }
+
     public static Builder builder(ResearchBackendEventType type) {
         return new Builder(type);
     }
@@ -151,6 +165,8 @@ public final class ResearchBackendEvent {
         private String approvalId;
         private String publicMessage = "";
         private String technicalDetail = "";
+        private ResearchRunProgressInfo runProgress;
+        private ResearchRunOutcomeInfo runOutcome;
 
         private Builder(ResearchBackendEventType type) {
             this.type = type;
@@ -201,6 +217,16 @@ public final class ResearchBackendEvent {
 
         public Builder text(String text) {
             this.text = text;
+            return this;
+        }
+
+        public Builder runProgress(ResearchRunProgressInfo runProgress) {
+            this.runProgress = runProgress;
+            return this;
+        }
+
+        public Builder runOutcome(ResearchRunOutcomeInfo runOutcome) {
+            this.runOutcome = runOutcome;
             return this;
         }
 

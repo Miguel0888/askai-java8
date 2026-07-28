@@ -168,6 +168,217 @@ public final class ResearchPlaybook {
         return (de() ? "Aktueller Schritt: " : "Current step: ") + phaseId + " (" + stateId + ").";
     }
 
+    // ------------------------------------------------------------------ run progress card (one per run)
+
+    /** Title of the single in-place progress card. */
+    public static String progressTitle() {
+        return de() ? "Recherche läuft" : "Research in progress";
+    }
+
+    /** The card's live counters + a readable current activity (never enum names or raw URLs). */
+    public static String progressLine(int pages, int sources, int hosts, String activityToken) {
+        String counters = de()
+                ? pages + " Seiten geprüft · " + sources + " Quellen aufgenommen · " + hosts
+                        + (hosts == 1 ? " Website" : " Websites")
+                : pages + " pages checked · " + sources + " sources recorded · " + hosts
+                        + (hosts == 1 ? " website" : " websites");
+        return counters + "\n" + activityLabel(activityToken);
+    }
+
+    private static String activityLabel(String token) {
+        String t = token == null ? "" : token;
+        if ("SEARCHING".equals(t)) {
+            return de() ? "Suche läuft …" : "Searching …";
+        }
+        if ("OPENING_PAGE".equals(t)) {
+            return de() ? "Ziel-Websites werden geprüft …" : "Checking target websites …";
+        }
+        if ("RECORDING_SOURCE".equals(t)) {
+            return de() ? "Quelle wird aufgenommen …" : "Recording a source …";
+        }
+        return de() ? "Arbeite …" : "Working …";
+    }
+
+    /** Summary shown when the progress card completes. */
+    public static String runFinishedSummary(int pages, int sources, int hosts) {
+        return de()
+                ? "Recherche-Durchlauf beendet — " + pages + " Seiten, " + sources + " Quellen, "
+                        + hosts + (hosts == 1 ? " Website" : " Websites")
+                : "Research pass finished — " + pages + " pages, " + sources + " sources, "
+                        + hosts + (hosts == 1 ? " website" : " websites");
+    }
+
+    // ------------------------------------------------------------------ run outcome card (result + decision)
+
+    /**
+     * The user-facing result card for a terminal run outcome: what was achieved, why the run ended, what is
+     * still missing and what the agent recommends — plain language, no stop-reason enum names, no internal
+     * ids, no raw URLs. The matching actions are chosen by the session.
+     */
+    public static String outcomeCard(com.aresstack.askai.research.backend.ResearchRunOutcomeInfo o) {
+        String stop = o.getStopReason();
+        boolean sufficient = o.isEvidenceSufficient();
+        StringBuilder sb = new StringBuilder();
+        if ("SUFFICIENT_EVIDENCE".equals(stop) || ("SOURCE_BUDGET_EXHAUSTED".equals(stop) && sufficient)) {
+            sb.append(de()
+                    ? "**Die Evidenzsammlung ist abgeschlossen.**\n\nIch habe " + achieved(o)
+                            + " Die Mindestanforderungen an Quellen und Quellenvielfalt sind erfüllt. "
+                            + "Ich empfehle, die Belege jetzt zu prüfen."
+                    : "**The evidence collection is complete.**\n\nI recorded " + achieved(o)
+                            + " The minimum requirements for sources and source diversity are met. "
+                            + "I recommend reviewing the evidence now.");
+            return sb.toString();
+        }
+        if ("USER_CANCELLED".equals(stop)) {
+            return de()
+                    ? "**Die Recherche wurde pausiert.**\n\nBisher habe ich " + achieved(o)
+                            + " Du kannst jederzeit fortsetzen oder die Recherche beenden."
+                    : "**The research was paused.**\n\nSo far I recorded " + achieved(o)
+                            + " You can continue at any time or end the research.";
+        }
+        if ("MCP_UNAVAILABLE".equals(stop)) {
+            return de()
+                    ? "**Die Recherche wurde durch ein technisches Problem unterbrochen.**\n\n"
+                            + "Die Browser- oder Recherche-Werkzeuge waren nicht erreichbar. Bisher habe ich "
+                            + achieved(o) + " Ich empfehle, es erneut zu versuchen; falls das Problem "
+                            + "bleibt, hilft ein Blick in die Runtime-Konfiguration."
+                    : "**The research was interrupted by a technical problem.**\n\n"
+                            + "The browser or research tools were unreachable. So far I recorded "
+                            + achieved(o) + " I recommend trying again; if the problem persists, "
+                            + "check the runtime configuration.";
+        }
+        if ("ERROR_BUDGET_EXHAUSTED".equals(stop)) {
+            return de()
+                    ? "**Die Recherche wurde nach mehreren Fehlversuchen angehalten.**\n\nBisher habe ich "
+                            + achieved(o) + " Ich empfehle, es erneut zu versuchen."
+                    : "**The research stopped after several consecutive errors.**\n\nSo far I recorded "
+                            + achieved(o) + " I recommend trying again.";
+        }
+        if ("NO_RELEVANT_PATHS".equals(stop) && !sufficient) {
+            return de()
+                    ? "**Ich habe keine weiteren passenden Seiten zu deiner Frage gefunden.**\n\n"
+                            + "Bisher habe ich " + achieved(o) + " " + missing(o)
+                            + " Ich empfehle, den Suchauftrag zu präzisieren oder andere Suchbegriffe "
+                            + "zu wählen."
+                    : "**I found no further pages matching your question.**\n\n"
+                            + "So far I recorded " + achieved(o) + " " + missing(o)
+                            + " I recommend refining the research scope or trying different search terms.";
+        }
+        // Budget exhausted (tool/page/time) or other recoverable stops with open requirements.
+        sb.append(de()
+                ? "**Die Recherche ist noch nicht belastbar abgeschlossen.**\n\nIch habe " + achieved(o)
+                        + " " + missing(o) + " Mein Budget für diesen Durchlauf ist aufgebraucht. "
+                        + recommendation(o)
+                : "**The research is not reliably complete yet.**\n\nI recorded " + achieved(o)
+                        + " " + missing(o) + " My budget for this pass is used up. "
+                        + recommendation(o));
+        return sb.toString();
+    }
+
+    private static String achieved(com.aresstack.askai.research.backend.ResearchRunOutcomeInfo o) {
+        int s = o.getAcceptedSources();
+        int h = o.getDistinctHosts();
+        return de()
+                ? s + (s == 1 ? " relevante Quelle" : " relevante Quellen") + " von " + h
+                        + (h == 1 ? " Website" : " verschiedenen Websites") + " aufgenommen."
+                : s + (s == 1 ? " relevant source" : " relevant sources") + " from " + h
+                        + (h == 1 ? " website" : " different websites") + ".";
+    }
+
+    private static String missing(com.aresstack.askai.research.backend.ResearchRunOutcomeInfo o) {
+        if ("INSUFFICIENT_SOURCES".equals(o.getLimitation())) {
+            return de()
+                    ? "Für ein belastbares Ergebnis fehlen noch Quellen (mindestens "
+                            + o.getMinimumSources() + " nötig)."
+                    : "More sources are needed for a reliable result (at least "
+                            + o.getMinimumSources() + " required).";
+        }
+        if ("INSUFFICIENT_HOST_DIVERSITY".equals(o.getLimitation())) {
+            return de()
+                    ? "Die Quellenvielfalt reicht noch nicht: Es fehlen unabhängige Websites "
+                            + "(mindestens " + o.getMinimumDistinctHosts() + " verschiedene nötig)."
+                    : "Source diversity is not sufficient yet: independent websites are missing "
+                            + "(at least " + o.getMinimumDistinctHosts() + " different ones required).";
+        }
+        return de() ? "Die Mindestanforderungen sind erfüllt." : "The minimum requirements are met.";
+    }
+
+    private static String recommendation(com.aresstack.askai.research.backend.ResearchRunOutcomeInfo o) {
+        String action = o.getRecommendedAction();
+        if ("CONTINUE_RESEARCH".equals(action)) {
+            return de()
+                    ? "Ich empfehle, gezielt nach weiteren unabhängigen Websites zu suchen."
+                    : "I recommend searching specifically for additional independent websites.";
+        }
+        if ("REFINE_RESEARCH_SCOPE".equals(action)) {
+            return de()
+                    ? "Ich empfehle, den Suchauftrag zu präzisieren."
+                    : "I recommend refining the research scope.";
+        }
+        if ("REVIEW_EVIDENCE".equals(action)) {
+            return de()
+                    ? "Ich empfehle, die vorhandenen Belege zu prüfen."
+                    : "I recommend reviewing the collected evidence.";
+        }
+        return de() ? "Du entscheidest, wie es weitergeht." : "You decide how to proceed.";
+    }
+
+    /** Localized labels for the typed result-card actions (ids are stable, labels are language-bound). */
+    public static String actionLabel(String actionId) {
+        if ("continue".equals(actionId)) {
+            return de() ? "Weiterrecherchieren" : "Continue research";
+        }
+        if ("sources".equals(actionId)) {
+            return de() ? "Quellen ansehen" : "View sources";
+        }
+        if ("refine".equals(actionId)) {
+            return de() ? "Suchauftrag ergänzen" : "Refine scope";
+        }
+        if ("limit".equals(actionId)) {
+            return de() ? "Mit Einschränkung fortfahren" : "Continue with limitation";
+        }
+        if ("end".equals(actionId)) {
+            return de() ? "Recherche beenden" : "End research";
+        }
+        if ("review".equals(actionId)) {
+            return de() ? "Belege prüfen" : "Review evidence";
+        }
+        if ("retry".equals(actionId)) {
+            return de() ? "Erneut versuchen" : "Try again";
+        }
+        if ("config".equals(actionId)) {
+            return de() ? "Konfiguration öffnen" : "Open configuration";
+        }
+        if ("resume".equals(actionId)) {
+            return de() ? "Fortsetzen" : "Resume";
+        }
+        if ("approve".equals(actionId)) {
+            return de() ? "Freigeben" : "Approve";
+        }
+        if ("changes".equals(actionId)) {
+            return de() ? "Änderungen anfordern" : "Request changes";
+        }
+        return actionId;
+    }
+
+    /** Visible confirmation once the user chose to proceed despite an unmet evidence requirement. */
+    public static String limitationRecorded(com.aresstack.askai.research.backend.ResearchRunOutcomeInfo o) {
+        return de()
+                ? "Einschränkung festgehalten: " + missing(o) + " Der aktuelle Stand wird NICHT als "
+                        + "uneingeschränkt ausreichend behandelt."
+                : "Limitation recorded: " + missing(o) + " The current state is NOT treated as "
+                        + "unconditionally sufficient.";
+    }
+
+    /** The focused follow-up when the user chose to refine the research scope. */
+    public static String refinePrompt() {
+        return de()
+                ? "Gern — welche Richtung soll ich ergänzen oder ändern? Nenne z. B. zusätzliche "
+                        + "Aspekte, andere Suchbegriffe oder Quellenarten."
+                : "Sure — which direction should I add or change? For example additional aspects, "
+                        + "different search terms or types of sources.";
+    }
+
     private static String normalize(String text) {
         return text == null ? "" : text.trim().toLowerCase(Locale.ROOT);
     }

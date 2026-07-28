@@ -17,6 +17,11 @@ public final class ResearchAcpEventMapper {
     private ResearchAcpEventMapper() {
     }
 
+    /** The one in-place progress card per run is addressed by this stable id. */
+    public static String runActivityId(String promptId) {
+        return "research-run-" + promptId;
+    }
+
     /** ACP content/thought/other update → a backend event builder (caller stamps envelope + sequence). */
     public static ResearchBackendEvent.Builder mapUpdate(AcpUpdate update) {
         switch (update.getKind()) {
@@ -25,6 +30,12 @@ public final class ResearchAcpEventMapper {
                         .activity("acp-th-" + update.getPromptId(), ResearchActivityKind.THINKING_UPDATE,
                                 "Thinking", update.getText());
             case MESSAGE:
+                // The research ACP extension travels as MESSAGE lines with a machine envelope; those are
+                // decoded into TYPED events and never rendered as chat text. Everything else stays a
+                // normal assistant message.
+                if (ResearchRunWire.isWireLine(update.getText())) {
+                    return mapWireLine(update);
+                }
                 return ResearchBackendEvent.builder(ResearchBackendEventType.ASSISTANT_MESSAGE)
                         .text(update.getText());
             case OTHER:
@@ -36,15 +47,53 @@ public final class ResearchAcpEventMapper {
         }
     }
 
+    /** Decode one machine-envelope line; unknown wire types degrade to a RUN_LOG (never a bubble). */
+    private static ResearchBackendEvent.Builder mapWireLine(AcpUpdate update) {
+        String text = update.getText();
+        String type = ResearchRunWire.typeOf(text);
+        String activityId = runActivityId(update.getPromptId());
+        if (ResearchRunWire.TYPE_PROGRESS.equals(type)) {
+            java.util.Map<String, String> f = ResearchRunWire.fields(text);
+            return ResearchBackendEvent.builder(ResearchBackendEventType.RUN_PROGRESS)
+                    .activity(activityId, ResearchActivityKind.TOOL_UPDATE, "", "")
+                    .runProgress(new com.aresstack.askai.research.backend.ResearchRunProgressInfo(
+                            update.getPromptId(),
+                            ResearchRunWire.intField(f, "pages"),
+                            ResearchRunWire.intField(f, "sources"),
+                            ResearchRunWire.intField(f, "hosts"),
+                            ResearchRunWire.intField(f, "tools"),
+                            f.get("activity"), f.get("url")));
+        }
+        if (ResearchRunWire.TYPE_OUTCOME.equals(type)) {
+            java.util.Map<String, String> f = ResearchRunWire.fields(text);
+            return ResearchBackendEvent.builder(ResearchBackendEventType.RUN_OUTCOME)
+                    .activity(activityId, ResearchActivityKind.TOOL_UPDATE, "", "")
+                    .runOutcome(new com.aresstack.askai.research.backend.ResearchRunOutcomeInfo(
+                            update.getPromptId(),
+                            f.get("stop"),
+                            ResearchRunWire.intField(f, "pages"),
+                            ResearchRunWire.intField(f, "sources"),
+                            ResearchRunWire.intField(f, "hosts"),
+                            ResearchRunWire.intField(f, "min_sources"),
+                            ResearchRunWire.intField(f, "min_hosts"),
+                            Boolean.parseBoolean(f.get("recoverable")),
+                            f.get("limitation"), f.get("action")));
+        }
+        // TYPE_LOG and anything unknown: technical details only.
+        return ResearchBackendEvent.builder(ResearchBackendEventType.RUN_LOG)
+                .activity(activityId, ResearchActivityKind.TOOL_UPDATE, "", "")
+                .text(ResearchRunWire.TYPE_LOG.equals(type) ? ResearchRunWire.logText(text) : text);
+    }
+
     /** ACP terminal → completion/failure builder ({@code null} for CANCELLED: cancel is user-driven, silent). */
     public static ResearchBackendEvent.Builder mapTerminal(AcpPromptState state, String detail) {
         switch (state) {
             case COMPLETED:
-                // MUST be the COMPLETED event type (not a plain assistant message): the session clears
-                // its turn-in-flight flag on it — otherwise the composer stays busy forever after
-                // "Agent turn completed." (user-reported). The text still renders as a normal bubble.
+                // MUST be the COMPLETED event type: the session clears its turn-in-flight flag on it.
+                // The terminal stays INVISIBLE (empty text, no bubble) — the user-facing message comes
+                // exclusively from the structured RUN_OUTCOME result card.
                 return ResearchBackendEvent.builder(ResearchBackendEventType.COMPLETED)
-                        .text("Agent turn completed.");
+                        .text("");
             case FAILED:
                 return ResearchBackendEvent.builder(ResearchBackendEventType.ERROR)
                         .messages("The research agent failed.", detail == null ? "" : detail);

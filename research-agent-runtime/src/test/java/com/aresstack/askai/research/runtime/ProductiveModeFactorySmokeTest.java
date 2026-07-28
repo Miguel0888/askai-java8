@@ -141,8 +141,10 @@ public class ProductiveModeFactorySmokeTest {
                     + messages, ready.await(120, TimeUnit.SECONDS));
             assertTrue("autonomous run must finish: " + messages, stopped.await(180, TimeUnit.SECONDS));
             assertTrue("run must reach sufficient evidence: " + messages,
-                    contains(messages, "RESEARCH_RUN_STOPPED: SUFFICIENT_EVIDENCE"));
-            assertTrue("exactly one PHASE_READY event", count(messages, "PHASE_READY:") == 1);
+                    contains(messages, "run stopped: SUFFICIENT_EVIDENCE"));
+            // The rolling card body repeats recent technical lines, so exact-once is asserted at the
+            // event level in the E2E test; here the EVENT must simply have arrived.
+            assertTrue("PHASE_READY event arrived", contains(messages, "PHASE_READY:"));
 
             // PHASE_READY was an event; the HOST state machine moves only on the user's structured action.
             assertTrue("REQUEST_EVIDENCE_REVIEW via the UI port must be accepted",
@@ -298,6 +300,15 @@ public class ProductiveModeFactorySmokeTest {
                 }
 
                 public void updateToolActivity(String activityId, String title, String explanation) {
+                    // Commit 55: run diagnostics render inside the progress card, not as bubbles.
+                    String body = explanation == null ? "" : explanation;
+                    messages.add(body);
+                    if (body.contains("RESEARCH_MCP_READY")) {
+                        ready.countDown();
+                    }
+                    if (body.contains("run stopped:")) {
+                        stopped.countDown();
+                    }
                 }
 
                 public void completeToolActivity(String activityId, String summary) {
@@ -309,6 +320,19 @@ public class ProductiveModeFactorySmokeTest {
                 public void requestApproval(String approvalId, String prompt) {
                     messages.add("APPROVAL: " + prompt);
                     approvalRequested.countDown();
+                }
+
+                @Override
+                public void showActionCard(String cardId, String markdown,
+                        java.util.List<ActionOption> actions, ActionHandler handler) {
+                    // Commit 55: approvals and run outcomes arrive as interactive cards with typed
+                    // actions; an "approve" option marks the outline gate.
+                    messages.add("CARD: " + markdown);
+                    for (ActionOption option : actions) {
+                        if ("approve".equals(option.getId())) {
+                            approvalRequested.countDown();
+                        }
+                    }
                 }
 
                 public void showProblem(String problemId, String publicMessage) {

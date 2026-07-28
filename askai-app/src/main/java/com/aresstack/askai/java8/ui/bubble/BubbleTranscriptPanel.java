@@ -215,6 +215,35 @@ public final class BubbleTranscriptPanel extends JPanel {
         activeAssistantView = null;
     }
 
+    /** Receives the index of the pressed action button of one card row. */
+    public interface ActionInvoker {
+        void invoke(int index);
+    }
+
+    /**
+     * A left-aligned row of REAL action buttons under an assistant card. One decision per card: the first
+     * click disables the whole row before the action runs, so a slow action can never be double-fired.
+     */
+    public void appendActionButtons(java.util.List<String> labels, final ActionInvoker invoker) {
+        requireEventDispatchThread();
+        final JPanel row = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 2));
+        row.setOpaque(false);
+        for (int i = 0; i < labels.size(); i++) {
+            final int index = i;
+            javax.swing.JButton button = new javax.swing.JButton(labels.get(i));
+            button.addActionListener(event -> {
+                for (java.awt.Component component : row.getComponents()) {
+                    component.setEnabled(false);
+                }
+                if (invoker != null) {
+                    invoker.invoke(index);
+                }
+            });
+            row.add(button);
+        }
+        addBubbleRow(row, BubbleSide.LEFT);
+    }
+
     public void appendInfo(String text) {
         requireEventDispatchThread();
         JLabel label = new JLabel(text == null ? "" : text, SwingConstants.CENTER);

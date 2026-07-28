@@ -13,5 +13,11 @@ public enum ResearchBackendEventType {
     ASSISTANT_MESSAGE,
     BLOCKED,
     ERROR,
-    COMPLETED
+    COMPLETED,
+    /** Structured in-place progress of the current autonomous run (ONE card per run). */
+    RUN_PROGRESS,
+    /** Structured terminal result of an autonomous run — basis of the user-facing result card. */
+    RUN_OUTCOME,
+    /** A technical diagnostic line for the run's collapsible technical details — never a chat bubble. */
+    RUN_LOG
 }

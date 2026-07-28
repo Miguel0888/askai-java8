@@ -44,6 +44,22 @@ public final class ResearchLoop {
         return progress;
     }
 
+    public ResearchRunBudget getBudget() {
+        return budget;
+    }
+
+    /**
+     * Seed already-visited canonical URLs from earlier runs of the SAME research question (continuation with
+     * a fresh budget): none of them is navigated again, and none of them counts as a page of this run.
+     */
+    public void excludeVisited(java.util.Collection<String> canonicalUrls) {
+        if (canonicalUrls != null) {
+            for (String canonical : canonicalUrls) {
+                progress.noteVisitedAlias(canonical);
+            }
+        }
+    }
+
     /** Run the loop for a task; returns the explicit stop reason (also sent through the listener). */
     public ResearchStopReason run(String task) {
         Set<String> terms = queryTerms(task);
@@ -58,6 +74,11 @@ public final class ResearchLoop {
         return reason;
     }
 
+    /** The structured, user-facing result of this run (built from the final progress vs. the budget). */
+    public ResearchRunOutcome outcome(ResearchStopReason reason) {
+        return ResearchRunOutcome.from(reason, progress, budget);
+    }
+
     private ResearchStopReason runInternal(Set<String> terms) {
         // Seed: search, else nothing to do.
         List<String> frontier = new ArrayList<String>();
@@ -66,6 +87,7 @@ public final class ResearchLoop {
             if (gate != null) {
                 return gate;
             }
+            listener.progress(progress, "SEARCHING", null);
             String results = callBrowser("web_search", args("query", join(terms)));
             frontier.addAll(extractUrls(results));
         } catch (ToolInvoker.EndpointUnavailable ex) {
@@ -94,7 +116,19 @@ public final class ResearchLoop {
                 }
                 String page = callBrowser("web_open", args("url", url));
                 progress.success();
-                progress.pageVisited(canonical, hostOf(url));
+                // Host diversity MUST come from the FINAL post-redirect URL the browser actually landed on —
+                // counting hostOf(requested) would count "bing.com" for every redirect link and make the
+                // ≥2-hosts sufficiency threshold unreachable. Both addresses are marked visited; the page
+                // and its host are counted once, under the final canonical URL.
+                String finalUrl = finalUrlOf(page);
+                String effectiveUrl = finalUrl == null || finalUrl.isEmpty() ? url : finalUrl;
+                String finalCanonical = canonicalish(effectiveUrl);
+                progress.pageVisited(finalCanonical, hostOf(effectiveUrl));
+                if (!finalCanonical.equals(canonical)) {
+                    // A redirect: the requested address is marked visited too (but never counted).
+                    progress.noteVisitedAlias(canonical);
+                }
+                listener.progress(progress, "OPENING_PAGE", effectiveUrl);
                 String captureId = field(page, "capture_id");
                 String pageText = page.toLowerCase(Locale.ROOT);
 
@@ -155,6 +189,7 @@ public final class ResearchLoop {
             }
             progress.sourceAccepted();
             listener.status("accepted " + sourceId + (duplicate ? " (duplicate content)" : ""));
+            listener.progress(progress, "RECORDING_SOURCE", null);
             // One finding per NEW claim; a duplicate source never repeats the same claim unchecked.
             String claim = "Evidence for [" + join(terms) + "] in \"" + field(page, "title") + "\"";
             if (!duplicate && claimedSourceIds.add(claim)) {
@@ -294,6 +329,28 @@ public final class ResearchLoop {
             u = u.substring(0, frag);
         }
         return u.endsWith("/") ? u.substring(0, u.length() - 1) : u;
+    }
+
+    /**
+     * The FINAL post-navigation URL out of a {@code web_open} result. Both known result shapes start with
+     * "URL: &lt;url&gt;" — the bridge appends {@code title="…" capture_id=…} on the same line, the raw sidecar
+     * puts TITLE on the next line; in both cases the URL is the token right after the prefix.
+     */
+    static String finalUrlOf(String page) {
+        if (page == null || !page.startsWith("URL: ")) {
+            return null;
+        }
+        String rest = page.substring("URL: ".length());
+        int end = rest.length();
+        for (int i = 0; i < rest.length(); i++) {
+            char c = rest.charAt(i);
+            if (c == ' ' || c == '\n' || c == '\r') {
+                end = i;
+                break;
+            }
+        }
+        String url = rest.substring(0, end).trim();
+        return url.isEmpty() ? null : url;
     }
 
     static String hostOf(String url) {

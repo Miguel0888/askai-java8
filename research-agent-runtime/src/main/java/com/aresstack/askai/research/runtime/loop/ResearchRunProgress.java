@@ -39,6 +39,16 @@ public final class ResearchRunProgress {
         return visitedCanonicalUrls.contains(canonicalUrl);
     }
 
+    /**
+     * Mark a canonical URL as visited WITHOUT counting a page or host — used for the requested (pre-redirect)
+     * address of a page whose FINAL URL was counted, and to seed exclusions when a run continues.
+     */
+    public void noteVisitedAlias(String canonicalUrl) {
+        if (canonicalUrl != null && !canonicalUrl.isEmpty()) {
+            visitedCanonicalUrls.add(canonicalUrl);
+        }
+    }
+
     public void sourceAccepted() {
         acceptedSources++;
     }
@@ -58,4 +68,5 @@ public final class ResearchRunProgress {
     public int getConsecutiveErrors() { return consecutiveErrors; }
     public int getTotalErrors() { return totalErrors; }
     public Set<String> getDistinctHosts() { return distinctHosts; }
+    public Set<String> getVisitedCanonicalUrls() { return visitedCanonicalUrls; }
 }
