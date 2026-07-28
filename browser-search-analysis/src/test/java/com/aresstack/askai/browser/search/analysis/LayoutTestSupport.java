@@ -6,6 +6,7 @@ import com.aresstack.askai.browser.search.AiRetryPolicy;
 import com.aresstack.askai.browser.search.LegacyBrowserSearchDefaults;
 import com.aresstack.askai.browser.search.LegacyBrowserSearchSettings;
 import com.aresstack.askai.browser.search.SearchDiagnosticsSettings;
+import com.aresstack.askai.browser.search.SearchPageAnalysisSettings;
 import com.aresstack.askai.browser.search.layout.EngineFamily;
 import com.aresstack.askai.browser.search.layout.MechanicalConfidenceOutcome;
 import com.aresstack.askai.browser.search.layout.SearchPageAnalysisArtifact;
@@ -37,6 +38,30 @@ final class LayoutTestSupport {
                                                             AiLayoutResolverSettings ai) {
         return new LegacyBrowserSearchSettings(base.navigation, base.consent, base.captcha,
                 base.readiness, base.analysis, base.visualAnalysis, base.extraction, ai,
+                base.reranker, base.diagnostics);
+    }
+
+    /**
+     * Force the mechanical analysis to LOW_CONFIDENCE (by demanding an impossibly high number of
+     * discriminating signal families) while leaving the strong result column a scored candidate with
+     * detectable blocks — the deterministic hook for exercising the AI repair path end-to-end.
+     */
+    static LegacyBrowserSearchSettings forcingLowConfidence(LegacyBrowserSearchSettings base) {
+        SearchPageAnalysisSettings a = base.analysis;
+        SearchPageAnalysisSettings forced = new SearchPageAnalysisSettings(a.noResultsTexts,
+                a.maximumCandidateContainers, a.minimumContainerTextCharacters,
+                a.minimumNonLinkTextCharacters, a.minimumRepeatedSiblingCount,
+                a.minimumResultStructuralConfidence, a.maximumNavigationLinkDensity,
+                a.internalLinkWeight, a.externalLinkWeight, a.sameHostPenalty,
+                a.sameRegistrableDomainPenalty, a.subdomainPenalty, a.unknownDomainPenalty,
+                a.repeatedBlockWeight, a.nonLinkTextWeight, a.titleLinkWeight, a.snippetPresenceWeight,
+                a.headingLinkWeight, a.semanticMainWeight, a.navigationRolePenalty,
+                a.resultBlockSimilarityThreshold, 99, a.fullPageAreaRatio,
+                a.textLengthSaturationCharacters, a.maximumContainerDomDepth,
+                a.maximumCapturedContainers, a.maximumLinksPerContainer,
+                a.maximumStructureSignatureDepth);
+        return new LegacyBrowserSearchSettings(base.navigation, base.consent, base.captcha,
+                base.readiness, forced, base.visualAnalysis, base.extraction, base.aiLayoutResolver,
                 base.reranker, base.diagnostics);
     }
 
