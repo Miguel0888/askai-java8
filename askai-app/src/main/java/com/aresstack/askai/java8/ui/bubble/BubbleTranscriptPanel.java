@@ -452,6 +452,12 @@ public final class BubbleTranscriptPanel extends JPanel {
         messageList.repaint();
         SwingUtilities.invokeLater(new Runnable() {
             public void run() {
+                // SECOND layout pass after the first one settled (scrollbar appearance narrows the
+                // viewport; look-and-feel fonts can wrap one line differently than the pre-layout
+                // measurement). The height math converges, so this pass removes any residual
+                // last-line clipping instead of leaving it to a later resize.
+                messageList.revalidate();
+                messageList.repaint();
                 int maximum = scrollPane.getVerticalScrollBar().getMaximum();
                 scrollPane.getVerticalScrollBar().setValue(maximum);
             }
