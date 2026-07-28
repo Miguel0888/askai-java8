@@ -215,28 +215,57 @@ public final class BubbleTranscriptPanel extends JPanel {
         activeAssistantView = null;
     }
 
-    /** Receives the index of the pressed action button of one card row. */
+    /**
+     * Receives the index of the pressed action button of one card row.
+     * @return {@code true} when the card is CONSUMED by this action (the whole row gets disabled),
+     *         {@code false} when the card stays active (navigation, rejected or failed actions).
+     */
     public interface ActionInvoker {
-        void invoke(int index);
+        boolean invoke(int index);
     }
 
     /**
-     * A left-aligned row of REAL action buttons under an assistant card. One decision per card: the first
-     * click disables the whole row before the action runs, so a slow action can never be double-fired.
+     * A left-aligned row of REAL action buttons under an assistant card. Navigation buttons (per-index
+     * flag) never consume the card — pressing "view sources" must not kill "continue research". Decision
+     * buttons guard against double-fire by disabling the row DURING the action; the row stays disabled
+     * only when the invoker reports the card as consumed, otherwise it is re-enabled.
      */
-    public void appendActionButtons(java.util.List<String> labels, final ActionInvoker invoker) {
+    public void appendActionButtons(java.util.List<String> labels, final java.util.List<Boolean> navigation,
+                                    final ActionInvoker invoker) {
         requireEventDispatchThread();
         final JPanel row = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 2));
         row.setOpaque(false);
         for (int i = 0; i < labels.size(); i++) {
             final int index = i;
-            javax.swing.JButton button = new javax.swing.JButton(labels.get(i));
+            final boolean isNavigation = navigation != null && index < navigation.size()
+                    && Boolean.TRUE.equals(navigation.get(index));
+            final javax.swing.JButton button = new javax.swing.JButton(labels.get(i));
             button.addActionListener(event -> {
+                if (isNavigation) {
+                    // Navigation shows something; the card (incl. its decisions) stays fully usable.
+                    button.setEnabled(false);
+                    try {
+                        if (invoker != null) {
+                            invoker.invoke(index);
+                        }
+                    } finally {
+                        button.setEnabled(true);
+                    }
+                    return;
+                }
+                // Decision: block double-fire during the action; keep disabled only when consumed.
                 for (java.awt.Component component : row.getComponents()) {
                     component.setEnabled(false);
                 }
-                if (invoker != null) {
-                    invoker.invoke(index);
+                boolean consumed = false;
+                try {
+                    consumed = invoker != null && invoker.invoke(index);
+                } finally {
+                    if (!consumed) {
+                        for (java.awt.Component component : row.getComponents()) {
+                            component.setEnabled(true);
+                        }
+                    }
                 }
             });
             row.add(button);

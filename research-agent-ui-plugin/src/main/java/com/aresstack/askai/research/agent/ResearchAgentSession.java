@@ -329,13 +329,14 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                             ResearchPlaybook.actionLabel("changes")));
                     sink.showActionCard(approvalId, message, options,
                             new AgentConversationSink.ActionHandler() {
-                                public void onAction(String actionId) {
+                                public AgentConversationSink.ActionExecutionResult onAction(String actionId) {
                                     if ("approve".equals(actionId)) {
                                         approveCurrent();
                                     } else {
                                         requestChanges("");
                                         sayAsAgent(ResearchPlaybook.refinePrompt());
                                     }
+                                    return AgentConversationSink.ActionExecutionResult.ACCEPTED;
                                 }
                             });
                 }
@@ -724,8 +725,8 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         sink.showActionCard("research-outcome-" + outcome.getPromptId(),
                 ResearchPlaybook.outcomeCard(outcome), outcomeActions(outcome),
                 new AgentConversationSink.ActionHandler() {
-                    public void onAction(String actionId) {
-                        handleOutcomeAction(actionId, outcome);
+                    public AgentConversationSink.ActionExecutionResult onAction(String actionId) {
+                        return handleOutcomeAction(actionId, outcome);
                     }
                 });
     }
@@ -794,33 +795,44 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         java.util.List<AgentConversationSink.ActionOption> options =
                 new ArrayList<AgentConversationSink.ActionOption>();
         for (String id : ids) {
-            options.add(new AgentConversationSink.ActionOption(id, ResearchPlaybook.actionLabel(id)));
+            // Viewing something (sources tab, configuration) never consumes the decision card.
+            AgentConversationSink.ActionKind kind = "sources".equals(id) || "config".equals(id)
+                    ? AgentConversationSink.ActionKind.NAVIGATION
+                    : AgentConversationSink.ActionKind.DECISION;
+            options.add(new AgentConversationSink.ActionOption(id, ResearchPlaybook.actionLabel(id), kind));
         }
         return options;
     }
 
     /** Typed result-card actions — dispatched over the command port, never synthetic chat messages. */
-    private void handleOutcomeAction(String actionId,
+    private AgentConversationSink.ActionExecutionResult handleOutcomeAction(String actionId,
             com.aresstack.askai.research.backend.ResearchRunOutcomeInfo outcome) {
         if ("continue".equals(actionId) || "retry".equals(actionId) || "resume".equals(actionId)) {
             continueResearchTurn();
-            return;
+            return AgentConversationSink.ActionExecutionResult.ACCEPTED;
         }
         if ("sources".equals(actionId) || "config".equals(actionId)) {
+            // Pure NAVIGATION: showing a tab never consumes the result card.
             openArtifactView("sources".equals(actionId) ? "sources" : "runtime");
-            return;
+            return AgentConversationSink.ActionExecutionResult.NO_STATE_CHANGE;
         }
         if ("refine".equals(actionId)) {
             sayAsAgent(ResearchPlaybook.refinePrompt()); // the composer is free; the user just types
-            return;
+            return AgentConversationSink.ActionExecutionResult.ACCEPTED;
         }
         if ("limit".equals(actionId)) {
             recordLimitation(outcome);
-            return;
+            return AgentConversationSink.ActionExecutionResult.ACCEPTED;
         }
         if ("end".equals(actionId)) {
             cancel(); // the controlled end of the research phase (state machine stays the authority)
+            return AgentConversationSink.ActionExecutionResult.ACCEPTED;
         }
+        if ("review".equals(actionId)) {
+            requestEvidenceReview();
+            return AgentConversationSink.ActionExecutionResult.ACCEPTED;
+        }
+        return AgentConversationSink.ActionExecutionResult.NO_STATE_CHANGE;
     }
 
     /** Continue with the STORED question, a fresh budget and no re-visits (the agent keeps its history). */
@@ -871,6 +883,11 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             // The visible chat confirmation below is the primary record; a store hiccup must not block it.
         }
         sayAsAgent(note);
+        requestEvidenceReview();
+    }
+
+    /** Move on to the evidence review when the state machine allows it (the machine stays authority). */
+    private void requestEvidenceReview() {
         if (currentAllowedCommands().contains(ResearchCommandType.REQUEST_EVIDENCE_REVIEW)) {
             dispatch(ResearchCommandType.REQUEST_EVIDENCE_REVIEW, null);
         }

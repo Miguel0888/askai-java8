@@ -132,15 +132,31 @@ final class AskAiAgentConversationSink implements AgentConversationSink {
         transcript.appendAssistantDelta(markdown);
         transcript.finishAssistant();
         java.util.List<String> labels = new java.util.ArrayList<String>();
+        java.util.List<Boolean> navigation = new java.util.ArrayList<Boolean>();
         for (ActionOption option : actions) {
             labels.add(option.getLabel());
+            navigation.add(option.getKind() == ActionKind.NAVIGATION);
         }
-        transcript.appendActionButtons(labels,
+        transcript.appendActionButtons(labels, navigation,
                 new BubbleTranscriptPanel.ActionInvoker() {
-                    public void invoke(int index) {
-                        if (handler != null && index >= 0 && index < actions.size()) {
-                            handler.onAction(actions.get(index).getId());
+                    public boolean invoke(int index) {
+                        if (handler == null || index < 0 || index >= actions.size()) {
+                            return false;
                         }
+                        ActionOption option = actions.get(index);
+                        ActionExecutionResult result = handler.onAction(option.getId());
+                        if (option.getKind() == ActionKind.NAVIGATION) {
+                            return false; // navigation never consumes the card
+                        }
+                        if (result == ActionExecutionResult.ACCEPTED) {
+                            return true;
+                        }
+                        if (result == ActionExecutionResult.REJECTED
+                                || result == ActionExecutionResult.FAILED) {
+                            transcript.appendInfo("⚠ The action could not be applied — the card stays "
+                                    + "active, please try again.");
+                        }
+                        return false;
                     }
                 });
         refresh();

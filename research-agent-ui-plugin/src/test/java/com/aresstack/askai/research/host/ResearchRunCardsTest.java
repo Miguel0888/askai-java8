@@ -409,6 +409,39 @@ public class ResearchRunCardsTest {
     }
 
     @Test
+    public void viewingSourcesIsNavigationAndKeepsTheContinueDecisionUsable() {
+        // The user-reported bug: pressing "View sources" consumed the result card, so "Continue
+        // research" was dead afterwards. Navigation actions must not consume the card.
+        Fx fx = new Fx();
+        fx.reachRunningResearch();
+        fx.event(ResearchBackendEvent.builder(ResearchBackendEventType.RUN_OUTCOME)
+                .activity("research-run-p1", null, "", "")
+                .runOutcome(new ResearchRunOutcomeInfo("p1", "TOOL_BUDGET_EXHAUSTED", 10, 7, 1, 3, 2,
+                        true, "INSUFFICIENT_HOST_DIVERSITY", "CONTINUE_RESEARCH")));
+
+        List<AgentConversationSink.ActionOption> options =
+                fx.sink.cardOptions.get(fx.sink.cardOptions.size() - 1);
+        for (AgentConversationSink.ActionOption option : options) {
+            if ("sources".equals(option.getId()) || "config".equals(option.getId())) {
+                assertEquals(AgentConversationSink.ActionKind.NAVIGATION, option.getKind());
+            } else {
+                assertEquals(AgentConversationSink.ActionKind.DECISION, option.getKind());
+            }
+        }
+
+        AgentConversationSink.ActionHandler handler =
+                fx.sink.cardHandlers.get(fx.sink.cardHandlers.size() - 1);
+        int promptsBefore = fx.backend.prompts.size();
+        assertEquals("viewing sources changes no state",
+                AgentConversationSink.ActionExecutionResult.NO_STATE_CHANGE,
+                handler.onAction("sources"));
+        assertEquals("the decision still works after navigating",
+                AgentConversationSink.ActionExecutionResult.ACCEPTED, handler.onAction("continue"));
+        assertEquals("continue starts exactly one new run", promptsBefore + 1,
+                fx.backend.prompts.size());
+    }
+
+    @Test
     public void productiveSessionExposesTheProductiveSourcesAndArtifactsNotTheDemoSeeds() {
         // The user-reported bug: the Sources tab kept showing the clickdummy seed records although the
         // productive run had accepted real sources — the session handed out its session-local demo

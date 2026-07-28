@@ -43,14 +43,42 @@ public interface AgentConversationSink {
     default void appendTechnicalLog(String line) {
     }
 
-    /** One typed action offered on an interactive card (stable id + localized label). */
+    /**
+     * How an action relates to the card: a NAVIGATION action only shows something (open the sources tab,
+     * open the configuration) and must never consume the card — its decision buttons stay usable. A
+     * DECISION action consumes the card once it is ACCEPTED.
+     */
+    enum ActionKind {
+        NAVIGATION,
+        DECISION
+    }
+
+    /** The typed outcome of a pressed card action — drives whether the card's buttons stay active. */
+    enum ActionExecutionResult {
+        /** The decision took effect; the card is consumed (its buttons are disabled). */
+        ACCEPTED,
+        /** The action was rejected by the current state; the card stays active. */
+        REJECTED,
+        /** Nothing changed (typical for NAVIGATION); the card stays active. */
+        NO_STATE_CHANGE,
+        /** The action failed; the card stays active and the failure is reported visibly. */
+        FAILED
+    }
+
+    /** One typed action offered on an interactive card (stable id + localized label + kind). */
     final class ActionOption {
         private final String id;
         private final String label;
+        private final ActionKind kind;
 
         public ActionOption(String id, String label) {
+            this(id, label, ActionKind.DECISION);
+        }
+
+        public ActionOption(String id, String label, ActionKind kind) {
             this.id = id == null ? "" : id;
             this.label = label == null ? "" : label;
+            this.kind = kind == null ? ActionKind.DECISION : kind;
         }
 
         public String getId() {
@@ -60,11 +88,15 @@ public interface AgentConversationSink {
         public String getLabel() {
             return label;
         }
+
+        public ActionKind getKind() {
+            return kind;
+        }
     }
 
     /** Receives the id of the action the user pressed on a card (called on the UI thread). */
     interface ActionHandler {
-        void onAction(String actionId);
+        ActionExecutionResult onAction(String actionId);
     }
 
     /**
