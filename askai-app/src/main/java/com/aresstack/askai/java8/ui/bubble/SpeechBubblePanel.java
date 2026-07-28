@@ -127,7 +127,8 @@ public final class SpeechBubblePanel extends JPanel
             headerRow.add(javax.swing.Box.createHorizontalStrut(6));
             headerRow.add(timestampLabel);
         }
-        timestampLabel.setText("<html><div style='line-height:90%'><b>" + time + "</b><br>" + date + "</div></html>");
+        timestampLabel.setText("<html><div style='line-height:90%;text-align:center'><b>"
+                + time + "</b><br>" + date + "</div></html>");
         // A shared, readable tooltip on the whole header so hovering the name or the stamp shows it.
         headerLabel.setToolTipText(full);
         timestampLabel.setToolTipText(full);
