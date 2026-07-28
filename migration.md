@@ -49,3 +49,25 @@ phase/run-state pairs is gone; illegal combinations are now rejected by `Researc
   and tested but not yet wired into the running session (RA-P001, RA-P002 in `problems.md`).
 - No non-migratable runtime state: the fake backend starts a fresh run on activation; restart-restore is
   available at the store level and is the remaining wiring step.
+
+## Research MVP (Commits 30–39)
+
+The clickdummy backend gained a full productive sibling; nothing user-visible was removed:
+
+- New modules: `mcp-runtime-api`, `mcp-solon-runtime`, `mcp-marketplace`, `browser-api`,
+  `browser-static-http`, `browser-mcp-server-java21` (the ONE Java-21 process), `acp-client-api`,
+  `acp-solon-client`, `acp-demo-agent`, `research-agent-runtime` (the external agent process).
+- `ResearchSessionBackend` now has two implementations behind the same port: the deterministic
+  `FakeResearchSessionBackend` (clickdummy, still the UI default — see problems.md MCP-P007) and the
+  productive `AcpResearchSessionBackend` created by
+  `research.host.ProductiveResearchBackendFactory` (generation-scoped endpoints, browser sidecar,
+  file-persisted sources).
+- `ResearchControlContext.acceptCapture` now returns the compact Commit-37 acceptance line
+  (status/source_id/…); `source_accept` forwards it verbatim (was: a bespoke "accepted sourceId=…"
+  string).
+- The browser sidecar ships as a THIN jar + `lib/` directory (a fat jar breaks GraalJS/Truffle —
+  see problems.md MCP-P005/packaging).
+- Nothing research-related is packed into the AskAI fat jar; shared APIs stay compileOnly in the
+  plugin and are host-provided.
+
+See docs/research-mvp.md for the full chain, prerequisites and the manual acceptance checklist.
