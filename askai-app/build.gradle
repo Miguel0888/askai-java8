@@ -199,6 +199,24 @@ task researchRuntimeDist(type: Sync) {
     }
 }
 
+// The LOCAL MODEL RUNTIME distribution (R0): the Java-21 sidecar thin jar + lib/ in one stable
+// layout the app auto-detects — like the research runtime, never packed into the Java-8 fat jar.
+def localRuntimeDir = rootProject.layout.buildDirectory.dir('local-runtime')
+
+task localRuntimeDist(type: Sync) {
+    group = 'build'
+    description = 'Assemble the local model runtime distribution (sidecar jar + lib/).'
+    dependsOn ':local-model-runtime-sidecar-java21:sidecarJar',
+            ':local-model-runtime-sidecar-java21:sidecarLibs'
+    into localRuntimeDir
+    from({ project(':local-model-runtime-sidecar-java21').tasks.getByName('sidecarJar').archiveFile }) {
+        rename { 'local-model-runtime-sidecar.jar' }
+    }
+    from({ project(':local-model-runtime-sidecar-java21').tasks.getByName('sidecarLibs').destinationDir }) {
+        into 'lib'
+    }
+}
+
 // Same runtime classpath, main class and (default) JVM options as the regular `run`, but pointed at the
 // shared dev-plugins directory so the externally-built research plugin is discovered by PF4J at runtime.
 task runWithDevPlugins(type: JavaExec) {
@@ -206,6 +224,7 @@ task runWithDevPlugins(type: JavaExec) {
     description = 'Run AskAI with the research plugin installed into <root>/build/dev-plugins.'
     dependsOn ':research-agent-ui-plugin:installDevPlugin'
     dependsOn researchRuntimeDist
+    dependsOn localRuntimeDist
     classpath = sourceSets.main.runtimeClasspath
     mainClass = mainClassName
     doFirst {
@@ -213,6 +232,8 @@ task runWithDevPlugins(type: JavaExec) {
         // DOCUMENTED hand-off of the assembled distribution (read by ResearchRuntimeDefaults; the
         // settings themselves stay in the typed, persisted model — this only feeds the defaults).
         systemProperty 'askai.research.runtime.dir', researchRuntimeDir.get().asFile.absolutePath
+        // Same hand-off for the Java-21 local model runtime sidecar (read by the manager defaults).
+        systemProperty 'askai.local.runtime.dir', localRuntimeDir.get().asFile.absolutePath
     }
 }
 

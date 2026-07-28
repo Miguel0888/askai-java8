@@ -1,0 +1,67 @@
+// Java-21 LOCAL MODEL RUNTIME sidecar: AskAI's virtual Ollama container for locally installed
+// models (first capability: cross-encoder RERANKING via win-directml-java). Runs as a separate
+// process started by the Java-8 host; the host only talks the Ollama-compatible HTTP API to it.
+// NOT packed into the AskAI fat jar. Deliberately NOT named "reranker-sidecar": the same container
+// will host embeddings and further locally supported model kinds later.
+apply plugin: 'application'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+// The pinned win-directml-java runtime. Until it is published to Maven Central the DEVELOPMENT
+// build consumes it from mavenLocal: run `./gradlew publishToMavenLocal` in
+// C:\Projects\win-directml-java, plus once for the (deliberately Central-unpublished)
+// directml-inference module via an init script that applies maven-publish to it:
+//   ./gradlew -I <init-that-applies-maven-publish> :directml-inference:publishToMavenLocal
+// No sources are copied into AskAI.
+ext.directmlVersion = '0.1.0-SNAPSHOT'
+
+dependencies {
+    implementation "com.aresstack:directml-runtime:${directmlVersion}"
+    implementation "com.aresstack:directml-encoder:${directmlVersion}"
+    // ModelPackageLifecycle/ModelConversionResult live here (encoder exposes them only at runtime
+    // scope in its POM, so the compile classpath needs the explicit dependency).
+    implementation "com.aresstack:directml-inference:${directmlVersion}"
+
+    testImplementation 'junit:junit:4.13.2'
+}
+
+test {
+    useJUnit()
+}
+
+mainClassName = 'com.aresstack.askai.localruntime.LocalModelRuntimeMain'
+
+jar {
+    manifest {
+        attributes('Main-Class': mainClassName)
+    }
+}
+
+// Runnable distribution mirroring the browser sidecar: a THIN jar with a Class-Path manifest plus
+// a lib/ directory next to it, so `java -jar` works without repackaging the runtime jars.
+task sidecarLibs(type: Sync) {
+    group = 'build'
+    description = 'Collects the local-runtime sidecar dependencies into build/sidecar/lib.'
+    from configurations.runtimeClasspath.filter { it.name.endsWith('.jar') }
+    into layout.buildDirectory.dir('sidecar/lib')
+}
+
+task sidecarJar(type: Jar) {
+    group = 'build'
+    description = 'Build the runnable Java-21 local model runtime sidecar jar (thin, with lib/ Class-Path).'
+    archiveBaseName = 'local-model-runtime-sidecar'
+    destinationDirectory = layout.buildDirectory.dir('sidecar')
+    dependsOn classes, sidecarLibs
+    from sourceSets.main.output
+    manifest {
+        attributes('Main-Class': mainClassName)
+        attributes('Class-Path': configurations.runtimeClasspath
+                .filter { it.name.endsWith('.jar') }
+                .collect { 'lib/' + it.name }
+                .join(' '))
+    }
+}

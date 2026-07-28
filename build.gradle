@@ -4,15 +4,23 @@ allprojects {
 
     repositories {
         mavenCentral()
+        // Development source for the pinned com.aresstack:directml-* runtime until it is on
+        // Maven Central (see :local-model-runtime-sidecar-java21).
+        mavenLocal()
     }
 }
 
 subprojects {
     apply plugin: 'java'
 
-    // The browser MCP sidecar is the one deliberate Java-21 process (playwright4j is major 65). Everything
-    // else stays strictly Java 8; the Java-8 host never compiles against or loads sidecar classes.
-    if (name != 'browser-mcp-server-java21') {
+    // The DELIBERATE Java-21 sidecar processes: the browser MCP sidecar (playwright4j is major 65)
+    // and the local model runtime (win-directml-java is Java 21). Everything else stays strictly
+    // Java 8; the Java-8 host never compiles against or loads sidecar classes.
+    def java21Modules = [
+            'browser-mcp-server-java21',
+            'local-model-runtime-sidecar-java21'
+    ]
+    if (!(name in java21Modules)) {
         sourceCompatibility = JavaVersion.VERSION_1_8
         targetCompatibility = JavaVersion.VERSION_1_8
     }
