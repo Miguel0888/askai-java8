@@ -234,6 +234,14 @@ task runWithDevPlugins(type: JavaExec) {
         systemProperty 'askai.research.runtime.dir', researchRuntimeDir.get().asFile.absolutePath
         // Same hand-off for the Java-21 local model runtime sidecar (read by the manager defaults).
         systemProperty 'askai.local.runtime.dir', localRuntimeDir.get().asFile.absolutePath
+        try {
+            def launcher21 = javaToolchains.launcherFor {
+                languageVersion = JavaLanguageVersion.of(21)
+            }.get()
+            systemProperty 'askai.local.runtime.java', launcher21.executablePath.asFile.absolutePath
+        } catch (Exception noJava21) {
+            // Without a Java-21 toolchain the manager falls back to ASKAI_LOCAL_RUNTIME_JAVA / PATH.
+        }
     }
 }
 

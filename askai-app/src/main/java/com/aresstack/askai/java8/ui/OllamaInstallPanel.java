@@ -23,6 +23,7 @@ import com.aresstack.askai.java8.service.VerificationResult;
 import com.aresstack.askai.java8.service.VerificationStatus;
 
 import javax.swing.BorderFactory;
+import javax.swing.BoxLayout;
 import javax.swing.ButtonGroup;
 import javax.swing.DefaultListModel;
 import javax.swing.JButton;
@@ -80,6 +81,8 @@ public final class OllamaInstallPanel extends JPanel {
     private final JButton cancelInstallButton;
     private final JCheckBox deleteAfterInstallCheckbox =
             new JCheckBox("Delete download after install");
+    /** R0: install the selection as a LOCAL AskAI runtime model instead of the GGUF/Ollama path. */
+    private final JCheckBox installLocallyCheckbox = new JCheckBox("Install locally in AskAI");
     private final JLabel repoCapabilityLabel = new JLabel(" ");
     private final JLabel importStatusLabel = new JLabel(" ");
     // Always-visible one-line summary of the latest step/result/error; the full history lives in the
@@ -224,7 +227,21 @@ public final class OllamaInstallPanel extends JPanel {
         deleteAfterInstallCheckbox.setToolTipText(
                 "After a successful Ollama create, delete the local GGUF, its companion/mmproj, the sidecar "
                         + "and the recovery entry. The model created in Ollama is not affected.");
-        progressRow.add(deleteAfterInstallCheckbox, BorderLayout.WEST);
+        installLocallyCheckbox.setToolTipText(
+                "Install the selected repository into AskAI's local model runtime "
+                        + "(win-directml-java) instead of creating an Ollama model. "
+                        + "Only runtime-compatible models (currently BERT cross-encoder "
+                        + "rerankers) can be installed locally.");
+        installLocallyCheckbox.addItemListener(new java.awt.event.ItemListener() {
+            public void itemStateChanged(java.awt.event.ItemEvent event) {
+                onInstallLocallyToggled();
+            }
+        });
+        JPanel installOptions = new JPanel();
+        installOptions.setLayout(new BoxLayout(installOptions, BoxLayout.Y_AXIS));
+        installOptions.add(deleteAfterInstallCheckbox);
+        installOptions.add(installLocallyCheckbox);
+        progressRow.add(installOptions, BorderLayout.WEST);
         progressRow.add(progressBar, BorderLayout.CENTER);
         progressRow.add(cancelInstallButton, BorderLayout.EAST);
         add(progressRow, BorderLayout.SOUTH);
@@ -996,6 +1013,9 @@ public final class OllamaInstallPanel extends JPanel {
         repoField.setText(selected.getId());
         installAsField.setText(suggestInstallName(selected.getId()));
         analyzeSelectedRepository(selected.getId());
+        if (installLocallyCheckbox.isSelected()) {
+            analyzeLocalCompatibilityForPanel();
+        }
         loadFiles();
     }
 
@@ -1138,6 +1158,121 @@ public final class OllamaInstallPanel extends JPanel {
         new RepositoryDetailDialog(frame, forModel, initialDecision, initialAnalysis, analyzer).setVisible(true);
     }
 
+    /** Re-evaluates the install actions when "Install locally in AskAI" is toggled. */
+    private void onInstallLocallyToggled() {
+        String repoId = repoField.getText().trim();
+        if (installLocallyCheckbox.isSelected()) {
+            if (repoId.length() == 0) {
+                setInstallActionsEnabled(false, "Pick a repository to check local compatibility.");
+            } else {
+                analyzeLocalCompatibilityForPanel();
+            }
+        } else if (repoId.length() > 0) {
+            analyzeSelectedRepository(repoId);
+        }
+    }
+
+    /** Checks the selected repository against AskAI's LOCAL runtime and gates the install button. */
+    private void analyzeLocalCompatibilityForPanel() {
+        final String repoId = repoField.getText().trim();
+        if (repoId.length() == 0) {
+            return;
+        }
+        setInstallActionsEnabled(false, "Checking local runtime compatibility of " + repoId + " ...");
+        askAiService.analyzeLocalRuntimeCompatibility(repoId,
+                new AskAiService.LocalCompatibilityListener() {
+                    public void onResult(final com.aresstack.askai.java8.localmodels
+                            .LocalModelCompatibilityResult result) {
+                        onUi(new Runnable() {
+                            public void run() {
+                                if (!installLocallyCheckbox.isSelected()
+                                        || !repoId.equals(repoField.getText().trim())) {
+                                    return; // stale answer for another selection/mode
+                                }
+                                if (result.isSupported()) {
+                                    setInstallActionsEnabled(true,
+                                            "Local runtime compatibility: Supported - Runtime: "
+                                                    + "win-directml-java, Capability: Rerank, "
+                                                    + "Backend: CPU");
+                                } else {
+                                    setInstallActionsEnabled(false,
+                                            "Local runtime compatibility: " + result.getStatus()
+                                                    + " - " + result.getReason());
+                                }
+                            }
+                        });
+                    }
+
+                    public void onError(final Exception exception) {
+                        onUi(new Runnable() {
+                            public void run() {
+                                if (installLocallyCheckbox.isSelected()) {
+                                    setInstallActionsEnabled(false,
+                                            "Local compatibility check failed: "
+                                                    + exception.getMessage());
+                                }
+                            }
+                        });
+                    }
+                });
+    }
+
+    /** The R0 local installation: staged download + compile + smoke load + atomic activation. */
+    private void installLocally() {
+        final String repoId = repoField.getText().trim();
+        if (repoId.length() == 0) {
+            append("Pick a repository to install locally.");
+            return;
+        }
+        saveTokenToConfiguration();
+        append("Installing " + repoId + " into the local AskAI runtime ...");
+        showProgress(0, "Installing locally: " + repoId);
+        setInstallActionsEnabled(false, "Installing locally ...");
+        askAiService.installLocalModel(repoId, new AskAiService.LocalInstallListener() {
+            public void onStep(final String step) {
+                onUi(new Runnable() {
+                    public void run() {
+                        append(step);
+                        statusLine.setText(step);
+                    }
+                });
+            }
+
+            public void onDownloadProgress(final String fileName, final long completed,
+                                           final long total) {
+                onUi(new Runnable() {
+                    public void run() {
+                        int percent = total > 0 ? (int) (completed * 100 / total) : 0;
+                        showProgress(percent, "Downloading " + fileName);
+                    }
+                });
+            }
+
+            public void onInstalled(final String virtualModelName) {
+                onUi(new Runnable() {
+                    public void run() {
+                        showProgress(100, "Installed");
+                        append("Installed local model: " + virtualModelName);
+                        statusLine.setText("Installed local model: " + virtualModelName);
+                        setInstallActionsEnabled(true,
+                                "Installed locally as " + virtualModelName);
+                    }
+                });
+            }
+
+            public void onError(final Exception exception) {
+                onUi(new Runnable() {
+                    public void run() {
+                        showProgress(0, "Local install failed");
+                        append("Local install failed: " + exception.getMessage());
+                        setInstallActionsEnabled(true,
+                                "Local install failed: " + exception.getMessage());
+                    }
+                });
+            }
+        });
+    }
+
     /** Enables/disables the download+install actions and shows the reason in the import-status label. */
     private void setInstallActionsEnabled(boolean enabled, String reason) {
         downloadButton.setEnabled(enabled);
@@ -1211,6 +1346,12 @@ public final class OllamaInstallPanel extends JPanel {
     }
 
     private void downloadSelected(final boolean installAfterDownload) {
+        if (installLocallyCheckbox.isSelected()) {
+            // R0 local path: no GGUF, no Ollama create - staged raw-file install into the
+            // local model runtime. The GGUF flow below stays untouched when the box is off.
+            installLocally();
+            return;
+        }
         HuggingFaceFile selected = filesList.getSelectedValue();
         if (selected == null) {
             append("Select a GGUF file first.");

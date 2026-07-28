@@ -38,6 +38,9 @@ public final class DefaultAskAiService implements AskAiService {
     private final ExecutorService executorService;
     private final ConverterService converterService = new ConverterService();
     private final CatalogRepository catalogRepository = new CatalogRepository();
+    // Shared app-wide owner of the Java-21 local model runtime process (R0).
+    private final com.aresstack.askai.java8.localmodels.LocalModelRuntimeManager localRuntimeManager =
+            new com.aresstack.askai.java8.localmodels.LocalModelRuntimeManager();
     // Single cached instance so its short-TTL page cache survives across calls.
     private volatile OllamaLibraryClient ollamaLibraryClient;
 
@@ -489,6 +492,65 @@ public final class DefaultAskAiService implements AskAiService {
         Ollama ollama = new Ollama(configuration.getOllamaBaseUrl());
         ollama.setRequestTimeoutSeconds(6L * 60L * 60L);
         return ollama;
+    }
+
+    public void analyzeLocalRuntimeCompatibility(final String modelId,
+                                                 final LocalCompatibilityListener listener) {
+        executorService.submit(new Runnable() {
+            public void run() {
+                try {
+                    HuggingFaceClient client = huggingFaceClient();
+                    String revision = client.resolveRevisionSha(modelId, "main");
+                    java.util.List<String> paths = client.listAllFiles(modelId);
+                    String config = fetchQuietly(client, modelId, revision, "config.json");
+                    String tokenizer = fetchQuietly(client, modelId, revision, "tokenizer.json");
+                    listener.onResult(new com.aresstack.askai.java8.localmodels
+                            .LocalModelCompatibilityAnalyzer()
+                            .analyze(modelId, paths, config, tokenizer));
+                } catch (Exception ex) {
+                    listener.onError(ex);
+                }
+            }
+        });
+    }
+
+    public void installLocalModel(final String modelId, final LocalInstallListener listener) {
+        executorService.submit(new Runnable() {
+            public void run() {
+                try {
+                    com.aresstack.askai.java8.localmodels.LocalModelInstaller installer =
+                            new com.aresstack.askai.java8.localmodels.LocalModelInstaller(
+                                    huggingFaceClient(), localRuntimeManager);
+                    String virtualName = installer.install(modelId,
+                            new com.aresstack.askai.java8.localmodels.LocalModelInstaller.Listener() {
+                                public void onStep(String step) {
+                                    listener.onStep(step);
+                                }
+
+                                public void onDownloadProgress(String fileName, long completed,
+                                                               long total) {
+                                    listener.onDownloadProgress(fileName, completed, total);
+                                }
+                            });
+                    listener.onInstalled(virtualName);
+                } catch (Exception ex) {
+                    listener.onError(ex);
+                }
+            }
+        });
+    }
+
+    public com.aresstack.askai.java8.localmodels.LocalModelRuntimeManager localRuntimeManager() {
+        return localRuntimeManager;
+    }
+
+    private static String fetchQuietly(HuggingFaceClient client, String modelId, String revision,
+                                       String path) {
+        try {
+            return client.fetchFileText(modelId, revision, path);
+        } catch (Exception unavailable) {
+            return null;
+        }
     }
 
     private HuggingFaceClient huggingFaceClient() {

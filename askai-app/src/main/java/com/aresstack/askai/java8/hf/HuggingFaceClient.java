@@ -687,6 +687,44 @@ public final class HuggingFaceClient implements HuggingFaceSearchGateway {
     }
 
     /**
+     * Like {@link #listFiles} but WITHOUT the GGUF filter: every regular file with its LFS-aware
+     * size and sha256 (when present) — the local-runtime installer verifies safetensors downloads
+     * against these checksums.
+     */
+    public List<HuggingFaceFile> listAllFilesDetailed(String modelId) throws IOException {
+        String url = "https://huggingface.co/api/models/" + encodePath(modelId) + "/tree/main?recursive=true";
+        Object parsed = OllamaJson.parse(getText(url));
+        List values = parsed instanceof List ? (List) parsed : new ArrayList();
+        List<HuggingFaceFile> files = new ArrayList<HuggingFaceFile>();
+        for (int i = 0; i < values.size(); i++) {
+            Object value = values.get(i);
+            if (value instanceof Map) {
+                Map map = (Map) value;
+                String type = string(map, "type");
+                String path = string(map, "path");
+                if ((type.length() == 0 || "file".equals(type)) && path.length() > 0) {
+                    long size = number(map, "size");
+                    String sha256 = "";
+                    Object lfs = map.get("lfs");
+                    if (lfs instanceof Map) {
+                        Map lfsMap = (Map) lfs;
+                        long lfsSize = number(lfsMap, "size");
+                        if (lfsSize > 0) {
+                            size = lfsSize;
+                        }
+                        String oid = string(lfsMap, "oid");
+                        if (oid.toLowerCase().startsWith("sha256:")) {
+                            sha256 = oid.substring("sha256:".length());
+                        }
+                    }
+                    files.add(new HuggingFaceFile(modelId, path, size, sha256));
+                }
+            }
+        }
+        return files;
+    }
+
+    /**
      * Lists every file path in the repository (not just GGUF), for format detection. Unlike
      * {@link #listFiles} this keeps all files (config.json, safetensors, tokenizer, etc.) so the
      * import classifier can see the real repository structure (spec §18), not only the tags.

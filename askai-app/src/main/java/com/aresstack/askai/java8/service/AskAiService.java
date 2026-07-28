@@ -48,6 +48,34 @@ public interface AskAiService {
     /** Loads the installable tag variants of an Ollama library model, off the UI thread. */
     void loadOllamaVariants(String baseName, OllamaVariantsListener listener);
 
+    /** Analyzes a repository against AskAI's LOCAL model runtime, off the UI thread (R0). */
+    void analyzeLocalRuntimeCompatibility(String modelId, LocalCompatibilityListener listener);
+
+    /**
+     * Installs a locally runnable model (staged download, wdmlpack compile + smoke load in the
+     * Java-21 sidecar, manifest, atomic activation), off the UI thread (R0).
+     */
+    void installLocalModel(String modelId, LocalInstallListener listener);
+
+    /** The owner of the Java-21 local model runtime process (shared app-wide). */
+    com.aresstack.askai.java8.localmodels.LocalModelRuntimeManager localRuntimeManager();
+
+    interface LocalCompatibilityListener {
+        void onResult(com.aresstack.askai.java8.localmodels.LocalModelCompatibilityResult result);
+
+        void onError(Exception exception);
+    }
+
+    interface LocalInstallListener {
+        void onStep(String step);
+
+        void onDownloadProgress(String fileName, long completed, long total);
+
+        void onInstalled(String virtualModelName);
+
+        void onError(Exception exception);
+    }
+
     void downloadHuggingFaceFile(HuggingFaceFile file, DownloadListener listener);
 
     /**
