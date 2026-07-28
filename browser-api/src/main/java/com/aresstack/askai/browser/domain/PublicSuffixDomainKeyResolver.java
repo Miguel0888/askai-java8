@@ -4,35 +4,47 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.net.IDN;
 import java.nio.charset.StandardCharsets;
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.Locale;
 import java.util.Set;
 
 /**
- * The productive {@link DomainKeyResolver}: registrable domains are formed against a BUNDLED snapshot of
- * multi-label public suffixes ({@code co.uk}, {@code com.au}, …) loaded once from the classpath resource
- * {@code domain/public-suffix-snapshot.txt}. The registrable domain is the longest matching public suffix
- * plus one label; a plain TLD is always a public suffix. The snapshot is deliberately a curated subset of
- * the Public Suffix List — it is NEVER fetched from the network during a research session and can be
- * extended by replacing the resource.
+ * The productive {@link DomainKeyResolver}: registrable domains are computed with the full Public Suffix
+ * List algorithm against a BUNDLED, versioned snapshot of publicsuffix.org loaded once from the classpath
+ * resource {@code domain/public-suffix-snapshot.txt}. The snapshot carries both the ICANN and the PRIVATE
+ * section — so {@code foo.github.io} and {@code bar.github.io} are DISTINCT registrable domains and a
+ * challenge on one hosted tenant never blocks unrelated tenants of the same platform. Wildcard rules
+ * ({@code *.kawasaki.jp}) and exception rules ({@code !city.kawasaki.jp}) are honoured; unicode rules are
+ * additionally indexed in their IDN/punycode form. The registrable domain is the prevailing public suffix
+ * plus one label; a host that IS a public suffix keeps itself as registrable domain. The snapshot is NEVER
+ * fetched from the network during a research session and is refreshed by replacing the bundled resource.
  */
 public final class PublicSuffixDomainKeyResolver implements DomainKeyResolver {
 
     private static final String SNAPSHOT_RESOURCE = "domain/public-suffix-snapshot.txt";
 
-    /** Multi-label public suffixes from the bundled snapshot (single-label TLDs are implicit). */
-    private final Set<String> multiLabelSuffixes;
+    /** Exact rules ({@code co.uk}, {@code github.io}, plain TLDs). */
+    private final Set<String> exactRules;
+    /** The part after {@code *.} of wildcard rules ({@code *.kawasaki.jp} → {@code kawasaki.jp}). */
+    private final Set<String> wildcardRules;
+    /** Exception rules without the {@code !} ({@code !city.kawasaki.jp} → {@code city.kawasaki.jp}). */
+    private final Set<String> exceptionRules;
+    /** The {@code // VERSION: …} line of the bundled snapshot, or empty if absent. */
+    private final String snapshotVersion;
 
     public PublicSuffixDomainKeyResolver() {
-        this(loadSnapshot());
+        Snapshot snapshot = loadSnapshot();
+        this.exactRules = snapshot.exact;
+        this.wildcardRules = snapshot.wildcard;
+        this.exceptionRules = snapshot.exception;
+        this.snapshotVersion = snapshot.version;
     }
 
-    PublicSuffixDomainKeyResolver(Set<String> multiLabelSuffixes) {
-        this.multiLabelSuffixes = Collections.unmodifiableSet(
-                new HashSet<String>(multiLabelSuffixes == null
-                        ? Collections.<String>emptySet() : multiLabelSuffixes));
+    /** The version stamp of the bundled Public Suffix List snapshot (for diagnostics), or empty. */
+    public String getSnapshotVersion() {
+        return snapshotVersion;
     }
 
     @Override
@@ -53,18 +65,39 @@ public final class PublicSuffixDomainKeyResolver implements DomainKeyResolver {
         return new DomainIdentity(host, registrableDomainOf(host), HostKind.REGISTERED_NAME);
     }
 
-    /** Longest matching public suffix + one label; the bare TLD is always a suffix. */
+    /** Prevailing public suffix + one label; a host that is itself a public suffix stays as-is. */
     private String registrableDomainOf(String host) {
         String[] labels = host.split("\\.");
-        // Try the longest candidate suffixes first: labels[i..] with i ascending keeps suffixes longest.
-        for (int i = 1; i < labels.length - 1; i++) {
-            String candidate = join(labels, i);
-            if (multiLabelSuffixes.contains(candidate)) {
-                return labels[i - 1] + "." + candidate;
+        int suffixLabels = publicSuffixLabelCount(labels);
+        if (suffixLabels >= labels.length) {
+            return host;
+        }
+        return join(labels, labels.length - suffixLabels - 1);
+    }
+
+    /**
+     * PSL algorithm: the prevailing rule is the matching exception rule if any (its suffix is the rule
+     * minus the leftmost label), otherwise the matching rule with the most labels; with no match the
+     * default rule {@code *} makes the last label the public suffix.
+     */
+    private int publicSuffixLabelCount(String[] labels) {
+        for (int i = 0; i < labels.length; i++) {
+            if (exceptionRules.contains(join(labels, i))) {
+                return labels.length - i - 1;
             }
         }
-        // Default rule: the last label is the public suffix → registrable = last two labels.
-        return labels.length < 2 ? host : labels[labels.length - 2] + "." + labels[labels.length - 1];
+        int best = 1;
+        for (int i = 0; i < labels.length; i++) {
+            int candidateLabels = labels.length - i;
+            if (candidateLabels <= best) {
+                break; // shorter candidates cannot win anymore
+            }
+            if (exactRules.contains(join(labels, i))
+                    || (i + 1 < labels.length && wildcardRules.contains(join(labels, i + 1)))) {
+                best = candidateLabels;
+            }
+        }
+        return best;
     }
 
     private static String join(String[] labels, int from) {
@@ -108,21 +141,46 @@ public final class PublicSuffixDomainKeyResolver implements DomainKeyResolver {
         return host.matches("\\d{1,3}(\\.\\d{1,3}){3}");
     }
 
-    private static Set<String> loadSnapshot() {
-        Set<String> suffixes = new HashSet<String>();
+    private static final class Snapshot {
+        final Set<String> exact = new HashSet<String>();
+        final Set<String> wildcard = new HashSet<String>();
+        final Set<String> exception = new HashSet<String>();
+        String version = "";
+    }
+
+    private static Snapshot loadSnapshot() {
+        Snapshot snapshot = new Snapshot();
         InputStream in = PublicSuffixDomainKeyResolver.class.getClassLoader()
                 .getResourceAsStream(SNAPSHOT_RESOURCE);
         if (in == null) {
-            return suffixes; // missing snapshot degrades to the default last-label rule, never crashes
+            return snapshot; // missing snapshot degrades to the default last-label rule, never crashes
         }
         BufferedReader reader = null;
         try {
             reader = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8));
             String line;
             while ((line = reader.readLine()) != null) {
-                String trimmed = line.trim().toLowerCase(Locale.ROOT);
-                if (!trimmed.isEmpty() && !trimmed.startsWith("#") && trimmed.indexOf('.') > 0) {
-                    suffixes.add(trimmed);
+                String trimmed = line.trim();
+                if (trimmed.isEmpty()) {
+                    continue;
+                }
+                if (trimmed.startsWith("//") || trimmed.startsWith("#")) {
+                    if (snapshot.version.isEmpty() && trimmed.contains("VERSION:")) {
+                        snapshot.version = trimmed.substring(
+                                trimmed.indexOf("VERSION:") + "VERSION:".length()).trim();
+                    }
+                    continue;
+                }
+                // PSL semantics: only the part up to the first whitespace is the rule.
+                int space = trimmed.indexOf(' ');
+                String rule = (space > 0 ? trimmed.substring(0, space) : trimmed)
+                        .toLowerCase(Locale.ROOT);
+                if (rule.startsWith("!")) {
+                    addWithIdnVariant(snapshot.exception, rule.substring(1));
+                } else if (rule.startsWith("*.")) {
+                    addWithIdnVariant(snapshot.wildcard, rule.substring(2));
+                } else {
+                    addWithIdnVariant(snapshot.exact, rule);
                 }
             }
         } catch (IOException ignored) {
@@ -135,6 +193,22 @@ public final class PublicSuffixDomainKeyResolver implements DomainKeyResolver {
                 }
             }
         }
-        return suffixes;
+        return snapshot;
+    }
+
+    /** Index unicode rules additionally under their punycode form — hosts from URLs arrive as ASCII. */
+    private static void addWithIdnVariant(Set<String> rules, String rule) {
+        if (rule.isEmpty()) {
+            return;
+        }
+        rules.add(rule);
+        try {
+            String ascii = IDN.toASCII(rule).toLowerCase(Locale.ROOT);
+            if (!ascii.equals(rule)) {
+                rules.add(ascii);
+            }
+        } catch (RuntimeException ignored) {
+            // a rule that IDN cannot encode simply stays unicode-only
+        }
     }
 }

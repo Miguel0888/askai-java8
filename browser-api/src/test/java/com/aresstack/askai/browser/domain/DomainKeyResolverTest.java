@@ -31,6 +31,37 @@ public class DomainKeyResolverTest {
     }
 
     @Test
+    public void privateSectionSeparatesHostedTenants() {
+        assertEquals("a challenge on one tenant must never block unrelated tenants of the platform",
+                "foo.github.io", resolver.resolve("https://foo.github.io/repo").getRegistrableDomain());
+        assertEquals("bar.github.io", resolver.resolve("bar.github.io").getRegistrableDomain());
+        assertEquals(DomainClassification.EXTERNAL_DOMAIN, DomainClassification.classify(
+                resolver.resolve("foo.github.io"), resolver.resolve("bar.github.io")));
+        assertEquals("foo.blogspot.com", resolver.resolve("foo.blogspot.com").getRegistrableDomain());
+        assertEquals("bar.blogspot.com", resolver.resolve("bar.blogspot.com").getRegistrableDomain());
+    }
+
+    @Test
+    public void wildcardAndExceptionRulesAreHonoured() {
+        // *.kawasaki.jp: every direct label is itself a public suffix …
+        assertEquals("web.city2.kawasaki.jp",
+                resolver.resolve("https://web.city2.kawasaki.jp/").getRegistrableDomain());
+        // … EXCEPT the !city.kawasaki.jp exception, which is registrable itself.
+        assertEquals("city.kawasaki.jp", resolver.resolve("city.kawasaki.jp").getRegistrableDomain());
+        assertEquals("city.kawasaki.jp", resolver.resolve("sub.city.kawasaki.jp").getRegistrableDomain());
+        // *.ck with !www.ck
+        assertEquals("www.ck", resolver.resolve("foo.www.ck").getRegistrableDomain());
+        assertEquals("shop.other.ck", resolver.resolve("shop.other.ck").getRegistrableDomain());
+    }
+
+    @Test
+    public void snapshotIsTheFullVersionedPublicSuffixList() {
+        PublicSuffixDomainKeyResolver psl = new PublicSuffixDomainKeyResolver();
+        assertTrue("bundled snapshot must carry its upstream VERSION stamp",
+                !psl.getSnapshotVersion().isEmpty());
+    }
+
+    @Test
     public void yahooSubdomainsAreSameFamilyButDifferentHosts() {
         DomainIdentity search = resolver.resolve("https://search.yahoo.com/search?p=x");
         DomainIdentity finance = resolver.resolve("https://finance.yahoo.com/quote/x");
