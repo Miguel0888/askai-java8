@@ -49,7 +49,8 @@ public final class SearchPageAnalysisArtifactBuilder {
             if (descriptor == null) {
                 continue;
             }
-            candidates.add(project(descriptor, breakdown, excerptLimit));
+            candidates.add(project(descriptor, breakdown, excerptLimit,
+                    ancestrySignature(document, descriptor.containerId)));
         }
 
         List<String> preferred = new ArrayList<String>();
@@ -77,7 +78,8 @@ public final class SearchPageAnalysisArtifactBuilder {
     }
 
     private SearchPageContainerCandidate project(RenderedContainerDescriptor c,
-                                                 HeuristicScoreBreakdown breakdown, int excerptLimit) {
+                                                 HeuristicScoreBreakdown breakdown, int excerptLimit,
+                                                 String ancestrySignature) {
         List<SearchPageSignalScore> scores = new ArrayList<SearchPageSignalScore>();
         for (SignalFamily family : SignalFamily.values()) {
             scores.add(new SearchPageSignalScore(family.name(), breakdown.familyScore(family)));
@@ -91,7 +93,31 @@ public final class SearchPageAnalysisArtifactBuilder {
                 c.horizontalCenterDistance, c.verticalCenterDistance, c.backgroundDistanceToParent,
                 c.backgroundDistanceToPage, c.borderSummary, !c.boxShadow.isEmpty(),
                 c.structureSignature == null ? "" : c.structureSignature.value, c.similarSiblingCount,
-                scores, breakdown.totalScore, "");
+                ancestrySignature, scores, breakdown.totalScore, "");
+    }
+
+    /** Tag-name ancestry from the root down to the container, e.g. {@code body>div>main}. */
+    private static String ancestrySignature(RenderedPageDocument document, String containerId) {
+        List<String> chain = new ArrayList<String>();
+        String current = containerId;
+        java.util.Set<String> visited = new java.util.LinkedHashSet<String>();
+        while (current != null && !current.isEmpty() && visited.add(current)) {
+            RenderedContainerDescriptor descriptor = document.container(current);
+            if (descriptor == null) {
+                break;
+            }
+            chain.add(descriptor.tagName.isEmpty() ? "?" : descriptor.tagName);
+            current = descriptor.parentContainerId;
+        }
+        java.util.Collections.reverse(chain);
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < chain.size(); i++) {
+            if (i > 0) {
+                sb.append('>');
+            }
+            sb.append(chain.get(i));
+        }
+        return sb.toString();
     }
 
     /**

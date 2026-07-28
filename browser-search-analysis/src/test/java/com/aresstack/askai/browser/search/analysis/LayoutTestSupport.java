@@ -97,8 +97,8 @@ final class LayoutTestSupport {
     static SearchPageContainerCandidate candidate(String id, String parent) {
         return new SearchPageContainerCandidate(id, parent, "div", "", Collections.<String>emptyList(),
                 "", 100, 60, 1, 3, 0, 0, 3, new RenderedBox(0, 0, 100, 100), 1.0, false, 0.1, 0.1,
-                0, 0, "", false, "div(a)", 2, Collections.<com.aresstack.askai.browser.search.layout
-                        .SearchPageSignalScore>emptyList(), 1.0, "");
+                0, 0, "", false, "div(a)", 2, "body>div", Collections.<com.aresstack.askai.browser
+                        .search.layout.SearchPageSignalScore>emptyList(), 1.0, "");
     }
 
     /** A synthetic low-confidence artifact bound to a snapshot, exposing the given candidates. */

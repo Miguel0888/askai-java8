@@ -52,6 +52,8 @@ public final class SearchPageContainerCandidate {
     // --- structural signature
     public final String structureSignature;
     public final int similarSiblingCount;
+    /** Tag-name ancestry from the root to this container, e.g. {@code body>div>main}. */
+    public final String ancestrySignature;
 
     // --- mechanical scoring
     public final List<SearchPageSignalScore> signalScores;
@@ -69,7 +71,7 @@ public final class SearchPageContainerCandidate {
                                         double verticalCenterDistance, double backgroundDistanceToParent,
                                         double backgroundDistanceToPage, String borderSummary,
                                         boolean hasBoxShadow, String structureSignature,
-                                        int similarSiblingCount,
+                                        int similarSiblingCount, String ancestrySignature,
                                         List<SearchPageSignalScore> signalScores, double totalScore,
                                         String rejectionReason) {
         this.containerId = safe(containerId);
@@ -98,6 +100,7 @@ public final class SearchPageContainerCandidate {
         this.hasBoxShadow = hasBoxShadow;
         this.structureSignature = safe(structureSignature);
         this.similarSiblingCount = similarSiblingCount;
+        this.ancestrySignature = safe(ancestrySignature);
         this.signalScores = signalScores == null
                 ? Collections.<SearchPageSignalScore>emptyList()
                 : Collections.unmodifiableList(signalScores);
