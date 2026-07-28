@@ -380,9 +380,20 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                                         .Status.INVALID_PHASE,
                         result.getRejectionReason());
             }
-            // PAUSE/CANCEL additionally stop the agent's running turn (transport concern, not state logic).
+            // PAUSE/CANCEL additionally stop the agent's running turn (transport concern, not state
+            // logic) — off the EDT: writing to a busy agent's transport must never freeze the UI.
             if (command == ResearchCommandType.PAUSE || command == ResearchCommandType.CANCEL) {
-                backend.cancel(handle);
+                final ResearchSessionHandle cancelHandle = handle;
+                Thread canceller = new Thread(new Runnable() {
+                    public void run() {
+                        try {
+                            backend.cancel(cancelHandle);
+                        } catch (RuntimeException ignored) {
+                        }
+                    }
+                }, "research-turn-cancel");
+                canceller.setDaemon(true);
+                canceller.start();
             }
             final com.aresstack.askai.research.state.oo.ResearchStateMemento next =
                     productiveResources.currentState();
@@ -443,7 +454,13 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     public void pause() {
         if (productiveResources != null) {
             agentTurnInFlight = false;
-            dispatch(ResearchCommandType.PAUSE, null);
+            if (dispatch(ResearchCommandType.PAUSE, null).isAccepted()) {
+                // A visible confirmation — and the sink event makes the composer re-read availability.
+                sayAsAgent(ResearchPlaybook.getLanguage() == ResearchPlaybook.Language.GERMAN
+                        ? "Pausiert. Schreib einfach weiter, wenn es weitergehen soll."
+                        : "Paused. Just type again when you want to continue.");
+            }
+            return;
         } else if (handle != null) {
             backend.pause(handle);
         }

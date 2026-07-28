@@ -108,12 +108,33 @@ public final class ProductiveResearchSessionResources {
      * Apply a host/user command to the state machine (the single authority) and republish the tool set.
      * @return the transition result; a rejection leaves state and tools untouched.
      */
+    /** Off-EDT executor for tool republication: pushing tools/list_changed writes to a connected (and
+     * possibly busy) agent over the network must NEVER run on the Swing EDT — a non-reading peer would
+     * freeze the whole UI. Authorization is re-checked server-side at call time, so the tool LIST being
+     * eventually consistent is safe. */
+    private final java.util.concurrent.ExecutorService toolRefreshExecutor =
+            java.util.concurrent.Executors.newSingleThreadExecutor(new java.util.concurrent.ThreadFactory() {
+                public Thread newThread(Runnable runnable) {
+                    Thread thread = new Thread(runnable, "research-tool-refresh");
+                    thread.setDaemon(true);
+                    return thread;
+                }
+            });
+
     public synchronized ResearchStateTransitionResult dispatch(ResearchCommandType command) {
         ResearchStateTransitionResult result = stateMachine.dispatch(state,
                 ResearchCommand.of(command, "cmd-" + System.nanoTime()));
         if (result.isAccepted()) {
             state = result.getNextMemento();
-            controlEndpoint.refreshTools();
+            toolRefreshExecutor.execute(new Runnable() {
+                public void run() {
+                    try {
+                        controlEndpoint.refreshTools();
+                    } catch (RuntimeException ignored) {
+                        // a failed republication must never break the accepted transition
+                    }
+                }
+            });
         }
         return result;
     }
@@ -159,6 +180,7 @@ public final class ProductiveResearchSessionResources {
             return;
         }
         closed = true;
+        toolRefreshExecutor.shutdownNow();
         if (backend != null) {
             backend.closeAllSessions();
         }
