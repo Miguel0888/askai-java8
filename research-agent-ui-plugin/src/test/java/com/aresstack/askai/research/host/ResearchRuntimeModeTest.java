@@ -198,6 +198,34 @@ public class ResearchRuntimeModeTest {
     }
 
     @Test
+    public void completedSettingsNeverComplainAboutTheAgentJava() throws Exception {
+        // Regression (user-reported): Save validated the RAW panel fields and demanded the removed
+        // agent-Java field. Validation must always run on the COMPLETED settings — the agent runs on
+        // AskAI's own JVM.
+        File dir = Files.createTempDirectory("askai-defaults").toFile();
+        File agentJar = touch(dir, "research-agent-runtime.jar");
+        File sidecarJar = touch(dir, "browser-mcp-sidecar.jar");
+        File java21 = touch(dir, "java21.exe");
+        assertTrue(new File(dir, "lib").mkdirs());
+        String oldJava21 = System.setProperty(ResearchRuntimeDefaults.JAVA21_PROPERTY,
+                java21.getAbsolutePath());
+        try {
+            ResearchRuntimeSettings raw = new ResearchRuntimeSettings(ResearchBackendMode.ACP,
+                    "", agentJar.getAbsolutePath(), "", sidecarJar.getAbsolutePath(),
+                    "chrome", true, "https://www.bing.com/search?q={query}");
+            java.util.List<String> problems =
+                    ResearchRuntimeDefaults.complete(raw).validateProductive();
+            assertTrue("completed settings must be fully usable: " + problems, problems.isEmpty());
+        } finally {
+            if (oldJava21 == null) {
+                System.clearProperty(ResearchRuntimeDefaults.JAVA21_PROPERTY);
+            } else {
+                System.setProperty(ResearchRuntimeDefaults.JAVA21_PROPERTY, oldJava21);
+            }
+        }
+    }
+
+    @Test
     public void panelReadsAndWritesTheSameTypedMapper() {
         MemoryStore store = new MemoryStore();
         new ResearchRuntimeSettings(ResearchBackendMode.ACP, "a", "b", "c", "d", "msedge", false,

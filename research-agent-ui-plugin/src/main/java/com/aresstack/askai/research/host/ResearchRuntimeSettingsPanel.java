@@ -120,14 +120,19 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         sidecarJar.setText(settings.getSidecarJar());
         browserChannel.setSelectedItem(settings.getBrowserChannel());
         headless.setSelected(settings.isHeadless());
-        searchUrl.setText(settings.getSearchUrlTemplate());
+        // Visible, editable default so the productive mode is saveable without typing — the loop
+        // always starts with web_search, so an empty provider would only produce a validation error.
+        searchUrl.setText(settings.getSearchUrlTemplate().isEmpty()
+                ? "https://www.bing.com/search?q={query}" : settings.getSearchUrlTemplate());
         allowPrivate.setSelected(settings.isAllowPrivateNetworks());
     }
 
     private void saveSettings() {
         ResearchRuntimeSettings settings = currentSettings();
         if (settings.getMode() == ResearchBackendMode.ACP) {
-            List<String> problems = settings.validateProductive();
+            // Validate exactly what the factory will run: the settings COMPLETED by the automatic
+            // defaults (agent Java = AskAI's own JVM, jars/Java21 discovered) — never the raw fields.
+            List<String> problems = ResearchRuntimeDefaults.complete(settings).validateProductive();
             if (!problems.isEmpty()) {
                 StringBuilder sb = new StringBuilder("Not saved — the productive configuration is not usable:\n");
                 for (String problem : problems) {
@@ -145,7 +150,7 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
     }
 
     private void runCheck() {
-        final ResearchRuntimeSettings settings = currentSettings();
+        final ResearchRuntimeSettings settings = ResearchRuntimeDefaults.complete(currentSettings());
         check.setEnabled(false);
         save.setEnabled(false);
         busy.setText("Checking requirements (starts the sidecar briefly)…");
