@@ -36,7 +36,7 @@ public class LocalModelRuntimeServerTest {
     public void start() throws IOException {
         modelRoot = Files.createTempDirectory("askai-local-models");
         writeManifest("cross-encoder-ms-marco-MiniLM-L-6-v2",
-                "local/cross-encoder/ms-marco-MiniLM-L-6-v2:latest", "RUNNABLE");
+                "local/cross-encoder/ms-marco-MiniLM-L6-v2:latest", "RUNNABLE");
         writeManifest("broken-model", "local/broken:latest", "FAILED");
         server = new LocalModelRuntimeServer(new LocalModelStore(modelRoot),
                 new LocalRerankerEngine(Backend.CPU));
@@ -58,14 +58,14 @@ public class LocalModelRuntimeServerTest {
         List<?> models = (List<?>) tags.get("models");
         assertEquals("the FAILED manifest must not be published", 1, models.size());
         Map<?, ?> model = (Map<?, ?>) models.get(0);
-        assertEquals("local/cross-encoder/ms-marco-MiniLM-L-6-v2:latest", model.get("name"));
+        assertEquals("local/cross-encoder/ms-marco-MiniLM-L6-v2:latest", model.get("name"));
         assertEquals("wdmlpack", ((Map<?, ?>) model.get("details")).get("format"));
     }
 
     @Test
     public void showCarriesTheRerankCapability() throws Exception {
         Map<String, Object> show = post("/api/show",
-                "{\"model\":\"local/cross-encoder/ms-marco-MiniLM-L-6-v2:latest\"}", 200);
+                "{\"model\":\"local/cross-encoder/ms-marco-MiniLM-L6-v2:latest\"}", 200);
         assertEquals(List.of("rerank"), show.get("capabilities"));
         assertEquals("bert", ((Map<?, ?>) show.get("details")).get("family"));
     }
@@ -73,11 +73,11 @@ public class LocalModelRuntimeServerTest {
     @Test
     public void unsupportedOperationsAnswerWithCapabilityErrorsNeverFakeResponses() throws Exception {
         Map<String, Object> chat = post("/api/chat",
-                "{\"model\":\"local/cross-encoder/ms-marco-MiniLM-L-6-v2:latest\"}", 400);
-        assertEquals("model 'local/cross-encoder/ms-marco-MiniLM-L-6-v2:latest' "
+                "{\"model\":\"local/cross-encoder/ms-marco-MiniLM-L6-v2:latest\"}", 400);
+        assertEquals("model 'local/cross-encoder/ms-marco-MiniLM-L6-v2:latest' "
                 + "does not support chat", chat.get("error"));
         Map<String, Object> embed = post("/api/embed",
-                "{\"model\":\"local/cross-encoder/ms-marco-MiniLM-L-6-v2:latest\"}", 400);
+                "{\"model\":\"local/cross-encoder/ms-marco-MiniLM-L6-v2:latest\"}", 400);
         assertTrue(String.valueOf(embed.get("error")).contains("does not support embedding"));
         Map<String, Object> pull = post("/api/pull", "{\"model\":\"x\"}", 400);
         assertTrue(String.valueOf(pull.get("error")).contains("Hugging Face pane"));
@@ -88,12 +88,12 @@ public class LocalModelRuntimeServerTest {
         Map<String, Object> ps = get("/api/ps");
         assertTrue("nothing was loaded yet", ((List<?>) ps.get("models")).isEmpty());
         Map<String, Object> unload = post("/api/generate",
-                "{\"model\":\"local/cross-encoder/ms-marco-MiniLM-L-6-v2:latest\","
+                "{\"model\":\"local/cross-encoder/ms-marco-MiniLM-L6-v2:latest\","
                         + "\"keep_alive\":0}", 200);
         assertEquals(Boolean.TRUE, unload.get("done"));
         // A REAL generate attempt stays a typed capability error.
         Map<String, Object> generate = post("/api/generate",
-                "{\"model\":\"local/cross-encoder/ms-marco-MiniLM-L-6-v2:latest\","
+                "{\"model\":\"local/cross-encoder/ms-marco-MiniLM-L6-v2:latest\","
                         + "\"prompt\":\"hi\"}", 400);
         assertTrue(String.valueOf(generate.get("error")).contains("does not support generate"));
     }
@@ -102,7 +102,7 @@ public class LocalModelRuntimeServerTest {
     public void rerankOnAnUninstalledPackageFailsReadablyInsteadOfFaking() throws Exception {
         // The manifest claims RUNNABLE but no wdmlpack exists — loading must fail with a REASON.
         Map<String, Object> response = post("/api/rerank",
-                "{\"model\":\"local/cross-encoder/ms-marco-MiniLM-L-6-v2:latest\","
+                "{\"model\":\"local/cross-encoder/ms-marco-MiniLM-L6-v2:latest\","
                         + "\"query\":\"q\",\"documents\":[\"a\",\"b\"]}", 500);
         assertFalse(String.valueOf(response.get("error")).isEmpty());
     }
@@ -123,7 +123,7 @@ public class LocalModelRuntimeServerTest {
         Files.writeString(dir.resolve(LocalModelManifest.FILE_NAME), LocalJson.write(Map.of(
                 "schemaVersion", 1,
                 "virtualName", virtualName,
-                "huggingFaceRepository", "cross-encoder/ms-marco-MiniLM-L-6-v2",
+                "huggingFaceRepository", "cross-encoder/ms-marco-MiniLM-L6-v2",
                 "resolvedRevision", "abc123",
                 "runtimeModelId", "MS_MARCO_MINILM_L6",
                 "capabilities", List.of("rerank"),

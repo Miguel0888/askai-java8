@@ -31,12 +31,30 @@ public class LocalModelCompatibilityAnalyzerTest {
     @Test
     public void msMarcoMiniLmIsSupportedWithRuntimeMapping() {
         LocalModelCompatibilityResult result = analyzer.analyze(
-                "cross-encoder/ms-marco-MiniLM-L-6-v2", ALL_FILES, BERT_CONFIG,
+                "cross-encoder/ms-marco-MiniLM-L6-v2", ALL_FILES, BERT_CONFIG,
                 WORDPIECE_TOKENIZER);
         assertTrue(result.getReason(), result.isSupported());
         assertEquals("MS_MARCO_MINILM_L6", result.getRuntimeModelId());
         assertEquals("cross-encoder-ms-marco-MiniLM-L-6-v2", result.getRuntimeDirectoryName());
         assertEquals(LocalRuntimeCapability.RERANK, result.getCapability());
+    }
+
+    @Test
+    public void theRealHuggingFaceIdMapsAndTheFormerTypoIdDoesNot() {
+        // Regression (R0.5): the REAL repository is cross-encoder/ms-marco-MiniLM-L6-v2 (no dash
+        // between L and 6). The runtime DIRECTORY keeps its own canonical L-6 name — three
+        // separate values: HF id, runtime id, runtime directory.
+        LocalModelCompatibilityResult real = analyzer.analyze(
+                "cross-encoder/ms-marco-MiniLM-L6-v2", ALL_FILES, BERT_CONFIG,
+                WORDPIECE_TOKENIZER);
+        assertTrue(real.isSupported());
+        assertEquals("MS_MARCO_MINILM_L6", real.getRuntimeModelId());
+        assertEquals("cross-encoder-ms-marco-MiniLM-L-6-v2", real.getRuntimeDirectoryName());
+        LocalModelCompatibilityResult typo = analyzer.analyze(
+                "cross-encoder/ms-marco-MiniLM-L-6-v2", ALL_FILES, BERT_CONFIG,
+                WORDPIECE_TOKENIZER);
+        assertEquals("the former typo id must not silently map anymore",
+                LocalModelCompatibilityResult.Status.UNKNOWN_CONFIGURATION, typo.getStatus());
     }
 
     @Test
@@ -54,7 +72,7 @@ public class LocalModelCompatibilityAnalyzerTest {
     @Test
     public void sentencePieceTokenizerIsRejectedEvenOnBert() {
         LocalModelCompatibilityResult result = analyzer.analyze(
-                "cross-encoder/ms-marco-MiniLM-L-6-v2", ALL_FILES, BERT_CONFIG,
+                "cross-encoder/ms-marco-MiniLM-L6-v2", ALL_FILES, BERT_CONFIG,
                 "{\"model\":{\"type\":\"Unigram\"}}");
         assertEquals(LocalModelCompatibilityResult.Status.UNSUPPORTED_TOKENIZER,
                 result.getStatus());
@@ -64,7 +82,7 @@ public class LocalModelCompatibilityAnalyzerTest {
     @Test
     public void missingRequiredFilesAreReportedConcretely() {
         LocalModelCompatibilityResult result = analyzer.analyze(
-                "cross-encoder/ms-marco-MiniLM-L-6-v2",
+                "cross-encoder/ms-marco-MiniLM-L6-v2",
                 Arrays.asList("config.json", "tokenizer.json"), BERT_CONFIG, WORDPIECE_TOKENIZER);
         assertEquals(LocalModelCompatibilityResult.Status.MISSING_REQUIRED_FILES,
                 result.getStatus());
@@ -86,7 +104,7 @@ public class LocalModelCompatibilityAnalyzerTest {
         String multiLabel = "{\"model_type\":\"bert\","
                 + "\"architectures\":[\"BertForSequenceClassification\"],\"num_labels\":3}";
         LocalModelCompatibilityResult result = analyzer.analyze(
-                "cross-encoder/ms-marco-MiniLM-L-6-v2", ALL_FILES, multiLabel,
+                "cross-encoder/ms-marco-MiniLM-L6-v2", ALL_FILES, multiLabel,
                 WORDPIECE_TOKENIZER);
         assertEquals(LocalModelCompatibilityResult.Status.UNSUPPORTED_ARCHITECTURE,
                 result.getStatus());
@@ -95,7 +113,7 @@ public class LocalModelCompatibilityAnalyzerTest {
     @Test
     public void unreadableConfigurationFailsTyped() {
         LocalModelCompatibilityResult result = analyzer.analyze(
-                "cross-encoder/ms-marco-MiniLM-L-6-v2", ALL_FILES, null, WORDPIECE_TOKENIZER);
+                "cross-encoder/ms-marco-MiniLM-L6-v2", ALL_FILES, null, WORDPIECE_TOKENIZER);
         assertEquals(LocalModelCompatibilityResult.Status.UNKNOWN_CONFIGURATION,
                 result.getStatus());
         assertEquals("empty file list never passes",

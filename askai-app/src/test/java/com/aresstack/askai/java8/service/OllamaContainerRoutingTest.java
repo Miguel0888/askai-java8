@@ -22,12 +22,12 @@ public class OllamaContainerRoutingTest {
 
     @Test
     public void localNamespaceBelongsExclusivelyToTheLocalContainer() {
-        String localName = LocalModelNames.virtualName("cross-encoder/ms-marco-MiniLM-L-6-v2");
-        assertEquals("local/cross-encoder/ms-marco-MiniLM-L-6-v2:latest", localName);
+        String localName = LocalModelNames.virtualName("cross-encoder/ms-marco-MiniLM-L6-v2");
+        assertEquals("local/cross-encoder/ms-marco-MiniLM-L6-v2:latest", localName);
         assertTrue(local.ownsModel(localName));
         assertFalse(local.ownsModel("gpt-oss:20b"));
         assertFalse("a remote model named like a local one still stays remote",
-                local.ownsModel("cross-encoder/ms-marco-MiniLM-L-6-v2:latest"));
+                local.ownsModel("cross-encoder/ms-marco-MiniLM-L6-v2:latest"));
         assertTrue(local.isLocal());
         assertEquals("askai-local", local.getContainerId());
     }

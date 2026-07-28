@@ -52,12 +52,22 @@ public final class AppConfiguration {
                     + "voxtral-mini-3b | text,audio\n"
                     + "ultravox | text,audio\n"
                     // Reranker - local CPU (installable via "Install locally in AskAI", R0):
-                    + "cross-encoder/ms-marco-MiniLM-L-6-v2 | text";
+                    + "cross-encoder/ms-marco-MiniLM-L6-v2 | text";
 
     // Earlier default suggestion lists that shipped inaccurate audio tags (e.g. gemma-3n as audio).
     // A persisted list identical to one of these was never customized, so upgrade it to the current
     // default instead of freezing the old, misleading tags.
     private static final String[] LEGACY_HF_SEARCH_SUGGESTIONS = {
+            // The briefly-shipped R0 default with the TYPO reranker id (L-6 instead of L6):
+            "openai/gpt-oss-20b | text\nLiquidAI/LFM2-24B-A2B | text\n"
+                    + "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct | text\n"
+                    + "unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF | text\n"
+                    + "unsloth/GLM-4.7-Flash-GGUF | text\n"
+                    + "mistralai/Devstral-Small-2-24B-Instruct-2512 | text\n"
+                    + "llama-3.1-8b-instruct | text\ngemma-3-12b-it | text,vision\n"
+                    + "qwen2.5-14b-instruct | text\nqwen2.5-coder-14b | text\nphi-4 | text\n"
+                    + "mistral-nemo | text\ngemma-3n-e4b | text\nvoxtral-mini-3b | text,audio\n"
+                    + "ultravox | text,audio\ncross-encoder/ms-marco-MiniLM-L-6-v2 | text",
             // The default just before the R0 local-reranker suggestion was added:
             "openai/gpt-oss-20b | text\nLiquidAI/LFM2-24B-A2B | text\n"
                     + "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct | text\n"

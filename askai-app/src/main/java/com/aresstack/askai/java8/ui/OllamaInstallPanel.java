@@ -1095,7 +1095,11 @@ public final class OllamaInstallPanel extends JPanel {
                         if (repoId.equals(repoField.getText().trim())) {
                             currentDecision = decision;
                             currentAnalysis = analysis;
-                            setInstallActionsEnabled(decision.isExecutable(), decision.getReason());
+                            // This judgement is about the OLLAMA import path only. Prefix it so
+                            // an unsupported GGUF route never reads as a rejection by the LOCAL
+                            // runtime (which has its own check when the local checkbox is active).
+                            setInstallActionsEnabled(decision.isExecutable(),
+                                    "Ollama import: " + decision.getReason());
                         }
                     }
                 });

@@ -28,7 +28,7 @@ public final class LocalModelCompatibilityAnalyzer {
     private static Map<String, String[]> buildMapping() {
         Map<String, String[]> mapping = new LinkedHashMap<String, String[]>();
         // The first productively selectable model type of the local runtime (R0):
-        mapping.put("cross-encoder/ms-marco-minilm-l-6-v2",
+        mapping.put("cross-encoder/ms-marco-minilm-l6-v2",
                 new String[]{"MS_MARCO_MINILM_L6", "cross-encoder-ms-marco-MiniLM-L-6-v2"});
         return mapping;
     }
@@ -81,7 +81,7 @@ public final class LocalModelCompatibilityAnalyzer {
         if (mapping == null) {
             return failure(LocalModelCompatibilityResult.Status.UNKNOWN_CONFIGURATION,
                     "no proven runtime mapping for '" + repositoryId
-                            + "' (supported so far: cross-encoder/ms-marco-MiniLM-L-6-v2)");
+                            + "' (supported so far: cross-encoder/ms-marco-MiniLM-L6-v2)");
         }
         return new LocalModelCompatibilityResult(LocalModelCompatibilityResult.Status.SUPPORTED,
                 LocalRuntimeCapability.RERANK, mapping[0], mapping[1],
