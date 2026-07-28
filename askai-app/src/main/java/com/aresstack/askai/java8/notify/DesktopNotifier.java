@@ -30,6 +30,12 @@ public final class DesktopNotifier {
     /** Display name for "let Java Sound pick the default output". */
     public static final String SYSTEM_DEFAULT_DEVICE = "System default";
 
+    /** Selectable notification sound types. */
+    public static final String SOUND_CLICK = "click";
+    public static final String SOUND_CHIME = "chime";
+    public static final String SOUND_BEEP = "beep";
+    public static final String SOUND_POP = "pop";
+
     private final ExecutorService executor = Executors.newSingleThreadExecutor(new ThreadFactory() {
         public Thread newThread(Runnable runnable) {
             Thread thread = new Thread(runnable, "askai-notify");
@@ -42,15 +48,22 @@ public final class DesktopNotifier {
     private volatile boolean soundEnabled;
     private volatile boolean muted;
     private volatile String deviceName = SYSTEM_DEFAULT_DEVICE;
+    private volatile String soundType = SOUND_CLICK;
+    private volatile int volumePercent = 70;
 
     private TrayIcon trayIcon; // lazily added while text notifications are on
 
-    /** Update the channel configuration (text/sound) and the selected sound output device. */
-    public synchronized void configure(boolean textEnabled, boolean soundEnabled, String deviceName) {
+    /**
+     * Update the channels, the output device, the sound type and the volume (0–100).
+     */
+    public synchronized void configure(boolean textEnabled, boolean soundEnabled, String deviceName,
+                                       String soundType, int volumePercent) {
         this.textEnabled = textEnabled;
         this.soundEnabled = soundEnabled;
         this.deviceName = deviceName == null || deviceName.trim().isEmpty()
                 ? SYSTEM_DEFAULT_DEVICE : deviceName.trim();
+        this.soundType = soundType == null || soundType.trim().isEmpty() ? SOUND_CLICK : soundType.trim();
+        this.volumePercent = Math.max(0, Math.min(100, volumePercent));
         if (!textEnabled) {
             removeTrayIcon();
         }
@@ -89,7 +102,7 @@ public final class DesktopNotifier {
                     showTrayMessage(title, body);
                 }
                 if (sound) {
-                    playChime(deviceName);
+                    playSound(deviceName, soundType, volumePercent);
                 }
             }
         });
@@ -178,10 +191,10 @@ public final class DesktopNotifier {
         return new AudioFormat(44100f, 16, 1, true, false);
     }
 
-    /** Play a short two-tone chime on the selected device (or the system default). */
-    private static void playChime(String deviceName) {
+    /** Play a one-shot notification sound of the given type/volume on the selected device. */
+    private static void playSound(String deviceName, String soundType, int volumePercent) {
         AudioFormat format = toneFormat();
-        byte[] pcm = buildChime(format);
+        byte[] pcm = buildSound(format, soundType, volumePercent / 100.0);
         SourceDataLine line = null;
         try {
             line = openLine(format, deviceName);
@@ -217,23 +230,58 @@ public final class DesktopNotifier {
         return (SourceDataLine) AudioSystem.getLine(info);
     }
 
-    /** Build a ~230 ms two-note chime (A5 → D6) with short fades to avoid clicks. */
-    private static byte[] buildChime(AudioFormat format) {
+    /** Build the PCM for a notification sound; {@code gain} is the 0–1 volume scale. */
+    static byte[] buildSound(AudioFormat format, String soundType, double gain) {
         int rate = (int) format.getSampleRate();
-        int noteSamples = rate * 115 / 1000;
-        int total = noteSamples * 2;
+        double amp = 0.9 * Math.max(0.0, Math.min(1.0, gain));
+        if (SOUND_CHIME.equals(soundType)) {
+            return tones(rate, amp, new double[] {880.0, 1174.66}, new int[] {115, 115});
+        }
+        if (SOUND_BEEP.equals(soundType)) {
+            return tones(rate, amp, new double[] {880.0}, new int[] {150});
+        }
+        if (SOUND_POP.equals(soundType)) {
+            return decayTone(rate, amp, 660.0, 70);
+        }
+        // Default: a short, dry click.
+        return decayTone(rate, amp, 1600.0, 22);
+    }
+
+    /** Concatenated fixed-amplitude tones with 8 ms fades to avoid edge clicks. */
+    private static byte[] tones(int rate, double amp, double[] freqs, int[] millis) {
+        int total = 0;
+        for (int ms : millis) {
+            total += rate * ms / 1000;
+        }
         byte[] data = new byte[total * 2];
-        double[] freqs = {880.0, 1174.66};
         int index = 0;
         for (int note = 0; note < freqs.length; note++) {
-            for (int i = 0; i < noteSamples; i++) {
-                double fade = Math.min(1.0, Math.min(i, noteSamples - i) / (rate * 0.008));
-                double sample = Math.sin(2.0 * Math.PI * freqs[note] * i / rate) * 0.35 * fade;
-                short value = (short) Math.max(Short.MIN_VALUE, Math.min(Short.MAX_VALUE, sample * Short.MAX_VALUE));
-                data[index++] = (byte) (value & 0xFF);
-                data[index++] = (byte) ((value >> 8) & 0xFF);
+            int samples = rate * millis[note] / 1000;
+            for (int i = 0; i < samples; i++) {
+                double fade = Math.min(1.0, Math.min(i, samples - i) / (rate * 0.008));
+                index = writeSample(data, index,
+                        Math.sin(2.0 * Math.PI * freqs[note] * i / rate) * amp * 0.4 * fade);
             }
         }
         return data;
+    }
+
+    /** A single tone with an exponential decay envelope — a soft click/pop. */
+    private static byte[] decayTone(int rate, double amp, double freq, int millis) {
+        int samples = rate * millis / 1000;
+        byte[] data = new byte[samples * 2];
+        int index = 0;
+        for (int i = 0; i < samples; i++) {
+            double env = Math.exp(-5.0 * i / samples);
+            index = writeSample(data, index, Math.sin(2.0 * Math.PI * freq * i / rate) * amp * env);
+        }
+        return data;
+    }
+
+    private static int writeSample(byte[] data, int index, double sample) {
+        short value = (short) Math.max(Short.MIN_VALUE, Math.min(Short.MAX_VALUE, sample * Short.MAX_VALUE));
+        data[index++] = (byte) (value & 0xFF);
+        data[index++] = (byte) ((value >> 8) & 0xFF);
+        return index;
     }
 }

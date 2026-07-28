@@ -217,7 +217,7 @@ public final class PartySettings {
 
     /** Thinking effort for the always-policy YES/NO gate ("off"/"low"/"medium"/"high"). */
     public String botGateThinking() {
-        return thinkingLevel(KEY_BOT_GATE_THINKING, "off");
+        return thinkingLevel(KEY_BOT_GATE_THINKING, "low");
     }
 
     public void setBotGateThinking(String level) {
@@ -376,6 +376,9 @@ public final class PartySettings {
     private static final String KEY_NOTIFY_SOUND = "notify.sound";
     private static final String KEY_NOTIFY_DEVICE = "notify.soundDevice";
     private static final String KEY_NOTIFY_MUTED = "notify.muted";
+    private static final String KEY_NOTIFY_BACKGROUND_ONLY = "notify.backgroundOnly";
+    private static final String KEY_NOTIFY_SOUND_TYPE = "notify.soundType";
+    private static final String KEY_NOTIFY_VOLUME = "notify.volume";
 
     /** Whether an incoming message shows a desktop (system-tray) text notification. */
     public boolean notifyText() {
@@ -386,13 +389,42 @@ public final class PartySettings {
         put(KEY_NOTIFY_TEXT, String.valueOf(enabled));
     }
 
-    /** Whether an incoming message plays a notification sound. */
+    /** Whether an incoming message plays a notification sound (default on). */
     public boolean notifySound() {
-        return state != null && state.getBoolean(KEY_NOTIFY_SOUND, false);
+        return state == null || state.getBoolean(KEY_NOTIFY_SOUND, true);
     }
 
     public void setNotifySound(boolean enabled) {
         put(KEY_NOTIFY_SOUND, String.valueOf(enabled));
+    }
+
+    /** Only fire notifications when the main window is not in the foreground (default off). */
+    public boolean notifyBackgroundOnly() {
+        return state != null && state.getBoolean(KEY_NOTIFY_BACKGROUND_ONLY, false);
+    }
+
+    public void setNotifyBackgroundOnly(boolean backgroundOnly) {
+        put(KEY_NOTIFY_BACKGROUND_ONLY, String.valueOf(backgroundOnly));
+    }
+
+    /** Notification sound type ("click" by default). */
+    public String notifySoundType() {
+        String type = state == null ? null : state.get(KEY_NOTIFY_SOUND_TYPE, null);
+        return type == null || type.trim().isEmpty()
+                ? com.aresstack.askai.java8.notify.DesktopNotifier.SOUND_CLICK : type;
+    }
+
+    public void setNotifySoundType(String type) {
+        put(KEY_NOTIFY_SOUND_TYPE, type);
+    }
+
+    /** Notification sound volume, 0–100 (default 70). */
+    public int notifyVolume() {
+        return Math.max(0, Math.min(100, intValue(KEY_NOTIFY_VOLUME, 70)));
+    }
+
+    public void setNotifyVolume(int volume) {
+        put(KEY_NOTIFY_VOLUME, String.valueOf(Math.max(0, Math.min(100, volume))));
     }
 
     /** Output device for the notification sound; empty = system default. */

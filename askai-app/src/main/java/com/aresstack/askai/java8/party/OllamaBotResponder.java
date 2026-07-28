@@ -233,13 +233,14 @@ public final class OllamaBotResponder implements BotResponder {
      * case a single retry with thinking explicitly disabled recovers the answer.
      */
     private void execute(final String model, final List<OllamaChatTurn> conversation,
-                         ThinkingOption thinking, final boolean retryWithoutThinking,
+                         final ThinkingOption thinking, final boolean retryWithoutThinking,
                          final boolean allowSilence, final Callback callback) {
+        final ThinkingOption current = thinking != null ? thinking : ThinkingOption.defaultOption();
         final StringBuilder answer = new StringBuilder();
         final StringBuilder thinkingText = new StringBuilder();
         final AtomicBoolean done = new AtomicBoolean(false);
         OllamaService.ChatRequest request = new OllamaService.ChatRequest(
-                model, keepAlive.get(), conversation, thinking);
+                model, keepAlive.get(), conversation, current);
         ollamaService.streamChat(request, new OllamaService.ChatListener() {
             public void onThinkingDelta(String delta) {
                 // Streamed to the host UI for the thought bubble; the accumulated text also tells
@@ -274,8 +275,14 @@ public final class OllamaBotResponder implements BotResponder {
                 } else if (!text.isEmpty()) {
                     callback.onResponse(text);
                 } else if (retryWithoutThinking && thinkingText.length() > 0) {
+                    // Everything went into the thinking channel — force content by disabling thinking.
                     execute(model, conversation,
                             ThinkingOption.of(ThinkingOption.Mode.DISABLED), false, allowSilence, callback);
+                } else if (retryWithoutThinking && current != null
+                        && current.getMode() != ThinkingOption.Mode.DEFAULT) {
+                    // Empty with no thinking either — some models return nothing for think=false;
+                    // retry once with the think field omitted so the model answers naturally.
+                    execute(model, conversation, ThinkingOption.defaultOption(), false, allowSilence, callback);
                 } else {
                     callback.onFailure(new IllegalStateException("The model returned no answer."));
                 }

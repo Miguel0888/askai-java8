@@ -388,6 +388,8 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
     }
 
     private boolean windowCleanupInstalled;
+    // Tracks whether this panel's window is the foreground window (for "notify only in background").
+    private volatile boolean windowActive = true;
 
     @Override
     public void addNotify() {
@@ -398,9 +400,19 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         Window window = SwingUtilities.getWindowAncestor(this);
         if (window != null) {
             windowCleanupInstalled = true;
+            windowActive = window.isActive();
             window.addWindowListener(new WindowAdapter() {
                 public void windowClosing(WindowEvent event) {
                     shutdownDictation();
+                }
+            });
+            window.addWindowFocusListener(new java.awt.event.WindowFocusListener() {
+                public void windowGainedFocus(WindowEvent event) {
+                    windowActive = true;
+                }
+
+                public void windowLostFocus(WindowEvent event) {
+                    windowActive = false;
                 }
             });
         }
@@ -661,17 +673,41 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
     private JComponent buildNotificationsCard() {
         JPanel card = settingsColumn();
 
+        // Every control persists and re-applies immediately, so what you toggle takes effect at
+        // once (no separate Apply needed) — and the notifier config always matches the UI.
         final javax.swing.JCheckBox textBox = new javax.swing.JCheckBox(
                 "Show a desktop text notification", partySettings.notifyText());
         JPanel textRow = partySettingsRow();
         textRow.add(textBox);
         card.add(textRow);
 
+        final javax.swing.JCheckBox backgroundBox = new javax.swing.JCheckBox(
+                "Only when the window is in the background", partySettings.notifyBackgroundOnly());
+        JPanel backgroundRow = partySettingsRow();
+        backgroundRow.add(backgroundBox);
+        card.add(backgroundRow);
+
         final javax.swing.JCheckBox soundBox = new javax.swing.JCheckBox(
                 "Play a notification sound", partySettings.notifySound());
         JPanel soundRow = partySettingsRow();
         soundRow.add(soundBox);
         card.add(soundRow);
+
+        final JComboBox<String> soundTypeCombo = new JComboBox<String>(new String[] {
+                com.aresstack.askai.java8.notify.DesktopNotifier.SOUND_CLICK,
+                com.aresstack.askai.java8.notify.DesktopNotifier.SOUND_POP,
+                com.aresstack.askai.java8.notify.DesktopNotifier.SOUND_BEEP,
+                com.aresstack.askai.java8.notify.DesktopNotifier.SOUND_CHIME});
+        soundTypeCombo.setSelectedItem(partySettings.notifySoundType());
+        final javax.swing.JSlider volumeSlider =
+                new javax.swing.JSlider(0, 100, partySettings.notifyVolume());
+        volumeSlider.setPreferredSize(new Dimension(120, volumeSlider.getPreferredSize().height));
+        JPanel soundConfigRow = partySettingsRow();
+        soundConfigRow.add(new JLabel("Sound"));
+        soundConfigRow.add(soundTypeCombo);
+        soundConfigRow.add(new JLabel("Volume"));
+        soundConfigRow.add(volumeSlider);
+        card.add(soundConfigRow);
 
         final JComboBox<String> deviceCombo = new JComboBox<String>();
         for (String name : com.aresstack.askai.java8.notify.DesktopNotifier.outputDeviceNames()) {
@@ -686,29 +722,43 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         deviceRow.add(deviceCombo);
         card.add(deviceRow);
 
-        JButton applyButton = new JButton("Apply notification settings");
-        applyButton.addActionListener(event -> {
-            partySettings.setNotifyText(textBox.isSelected());
-            partySettings.setNotifySound(soundBox.isSelected());
-            Object selectedDevice = deviceCombo.getSelectedItem();
-            partySettings.setNotifySoundDevice(
-                    selectedDevice == null || com.aresstack.askai.java8.notify.DesktopNotifier.SYSTEM_DEFAULT_DEVICE
-                            .equals(selectedDevice) ? "" : String.valueOf(selectedDevice));
-            applyNotificationSettings();
-            setStatus("Notification settings saved.");
+        // Persist + re-apply on any change.
+        final Runnable persist = new Runnable() {
+            public void run() {
+                partySettings.setNotifyText(textBox.isSelected());
+                partySettings.setNotifyBackgroundOnly(backgroundBox.isSelected());
+                partySettings.setNotifySound(soundBox.isSelected());
+                partySettings.setNotifySoundType(String.valueOf(soundTypeCombo.getSelectedItem()));
+                partySettings.setNotifyVolume(volumeSlider.getValue());
+                Object selectedDevice = deviceCombo.getSelectedItem();
+                partySettings.setNotifySoundDevice(
+                        selectedDevice == null || com.aresstack.askai.java8.notify.DesktopNotifier.SYSTEM_DEFAULT_DEVICE
+                                .equals(selectedDevice) ? "" : String.valueOf(selectedDevice));
+                applyNotificationSettings();
+            }
+        };
+        java.awt.event.ActionListener onChange = event -> persist.run();
+        textBox.addActionListener(onChange);
+        backgroundBox.addActionListener(onChange);
+        soundBox.addActionListener(onChange);
+        soundTypeCombo.addActionListener(onChange);
+        deviceCombo.addActionListener(onChange);
+        volumeSlider.addChangeListener(event -> {
+            if (!volumeSlider.getValueIsAdjusting()) {
+                persist.run();
+            }
         });
-        JButton testButton = new JButton("Test");
-        testButton.setToolTipText("Fire a sample notification with the current (unsaved) switches");
+
+        JButton testButton = new JButton("Test sound");
+        testButton.setToolTipText("Play the selected notification sound at the chosen volume");
         testButton.addActionListener(event -> {
-            Object selectedDevice = deviceCombo.getSelectedItem();
-            String dev = selectedDevice == null ? "" : String.valueOf(selectedDevice);
-            notifier.configure(textBox.isSelected(), soundBox.isSelected(), dev);
+            persist.run();
+            boolean wasMuted = partySettings.notificationsMuted();
             notifier.setMuted(false);
             notifier.notifyMessage("AskAI", "This is a test notification.");
-            applyNotificationSettings(); // restore the saved config + mute state
+            notifier.setMuted(wasMuted);
         });
         JPanel actionsRow = partySettingsRow();
-        actionsRow.add(applyButton);
         actionsRow.add(testButton);
         card.add(actionsRow);
 
@@ -1193,10 +1243,22 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         boolean text = partySettings.notifyText();
         boolean sound = partySettings.notifySound();
         boolean muted = partySettings.notificationsMuted();
-        notifier.configure(text, sound, partySettings.notifySoundDevice());
+        notifier.configure(text, sound, partySettings.notifySoundDevice(),
+                partySettings.notifySoundType(), partySettings.notifyVolume());
         notifier.setMuted(muted);
         composer.setNotificationsButtonVisible(text || sound);
         composer.setNotificationsMuted(muted);
+    }
+
+    /**
+     * Fire a desktop notification for an incoming message, honoring the "only when in background"
+     * preference (skipped when that is on and this window is the foreground window).
+     */
+    private void fireMessageNotification(String title, String body) {
+        if (partySettings.notifyBackgroundOnly() && windowActive) {
+            return;
+        }
+        notifier.notifyMessage(title, body);
     }
 
     /** The composer bell toggles the persisted mute state and updates the notifier + icon. */
@@ -1587,7 +1649,7 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         public void onPartyMessage(final PartySession.PartyMessageView view) {
             // Notify for incoming messages from others (and the bot), regardless of focus.
             if (!view.isLocal()) {
-                notifier.notifyMessage(
+                fireMessageNotification(
                         "Party — " + view.getSenderDisplayName(), view.getMessage().getMarkdown());
             }
             onUi(new Runnable() {
