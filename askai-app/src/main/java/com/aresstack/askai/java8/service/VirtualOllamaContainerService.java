@@ -99,7 +99,9 @@ public final class VirtualOllamaContainerService implements OllamaService {
 
     private boolean localModelCanChat(String modelName) {
         try {
-            return loadModelInfoNow(modelName).getCapabilities().contains("completion");
+            java.util.List<String> capabilities = loadModelInfoNow(modelName).getCapabilities();
+            // Capability-based, from /api/show: a chat-usable model advertises completion or chat.
+            return capabilities.contains("completion") || capabilities.contains("chat");
         } catch (Exception unknown) {
             return false;
         }

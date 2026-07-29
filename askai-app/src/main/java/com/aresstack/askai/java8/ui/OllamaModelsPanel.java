@@ -260,15 +260,20 @@ public final class OllamaModelsPanel extends JPanel {
                     lastContainer = container;
                 }
                 if (modelInfo.isLocal()) {
-                    // R0.4: local runtime models get their own card — capability/runtime line,
-                    // direct reranker test, delete. No Ollama add-ons, no chat action.
-                    OllamaModelCard localCard = OllamaModelCard.installedLocal(modelInfo,
-                            new Runnable() {
+                    // Local runtime models get their own card. The "Test reranker" action is offered ONLY
+                    // for models the catalog says can rerank — never on every local card by default.
+                    Runnable rerankerAction = com.aresstack.askai.java8.localmodels.LocalEngineModelView
+                            .hasCapability(modelInfo.getDisplayName(),
+                                    com.aresstack.windirectml.catalog.ModelCapability.RERANK)
+                            ? new Runnable() {
                                 @Override
                                 public void run() {
                                     openRerankerTestDialog(modelInfo.getDisplayName());
                                 }
-                            },
+                            }
+                            : null;
+                    OllamaModelCard localCard = OllamaModelCard.installedLocal(modelInfo,
+                            rerankerAction,
                             new Runnable() {
                                 @Override
                                 public void run() {

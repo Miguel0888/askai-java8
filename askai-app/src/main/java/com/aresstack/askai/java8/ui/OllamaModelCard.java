@@ -148,8 +148,11 @@ final class OllamaModelCard extends JPanel {
 
     static OllamaModelCard running(OllamaRunningModelInfo model) {
         if (model.isLocal()) {
-            // The local runtime runs on the CPU backend and never occupies VRAM (R0 default).
-            return new OllamaModelCard(model.getDisplayName(), "Backend: CPU",
+            // Family + backends come from the catalog (never a hardcoded "CPU"); a local runtime handle
+            // is RAM-resident and never occupies VRAM.
+            return new OllamaModelCard(model.getDisplayName(),
+                    com.aresstack.askai.java8.localmodels.LocalEngineModelView.detailLine(
+                            model.getDisplayName()),
                     join("RAM " + formatBytes(model.getSize()), "VRAM 0"), true, null, null, null,
                     null, null);
         }
@@ -163,7 +166,10 @@ final class OllamaModelCard extends JPanel {
     /** A LOCALLY installed model card: capability/runtime line, test action, delete (R0.4). */
     static OllamaModelCard installedLocal(OllamaModelInfo model, Runnable testRerankerAction,
                                           Runnable deleteAction) {
-        String details = "Capability: rerank \u00b7 Runtime: win-directml-java \u00b7 Backend: CPU";
+        // Family, capabilities and backends are read from the catalog for THIS model \u2014 never a family-blind
+        // "rerank \u00b7 CPU" string. A not-yet-linked generation family reads as runtime-integration-pending.
+        String details = com.aresstack.askai.java8.localmodels.LocalEngineModelView.detailLine(
+                model.getDisplayName());
         String meta = join(formatBytes(model.getSize()), shortDate(model.getModifiedAt()));
         return new OllamaModelCard(model.getDisplayName(), details, meta, false, model, null, null,
                 null, deleteAction, testRerankerAction);
