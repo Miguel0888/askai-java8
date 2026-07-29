@@ -83,6 +83,14 @@ public final class OllamaInstallPanel extends JPanel {
             new JCheckBox("Delete download after install");
     /** R0: install the selection as a LOCAL AskAI runtime model instead of the GGUF/Ollama path. */
     private final JCheckBox installLocallyCheckbox = new JCheckBox("Install locally in AskAI");
+    /** True once the user manually changed "Install locally" for the CURRENT selection. */
+    private boolean localInstallTouchedByUser = false;
+    /** Guards the auto-activation setSelected from being counted as a user decision. */
+    private boolean programmaticLocalToggle = false;
+    /** Suppresses auto-activation during programmatic dropdown reloads. */
+    private boolean suppressLocalAutoActivate = false;
+    /** The term of the last handled selection, so a NEW selection resets the per-selection override. */
+    private String lastHandledSuggestionTerm = "";
     private final JLabel repoCapabilityLabel = new JLabel(" ");
     private final JLabel importStatusLabel = new JLabel(" ");
     // Always-visible one-line summary of the latest step/result/error; the full history lives in the
@@ -230,10 +238,13 @@ public final class OllamaInstallPanel extends JPanel {
         installLocallyCheckbox.setToolTipText(
                 "Install the selected repository into AskAI's local model runtime "
                         + "(win-directml-java) instead of creating an Ollama model. "
-                        + "Only runtime-compatible models (currently BERT cross-encoder "
-                        + "rerankers) can be installed locally.");
+                        + "Runtime-compatible models catalogued for the AskAI local engine "
+                        + "(embeddings, rerankers and native generation families) can be installed locally.");
         installLocallyCheckbox.addItemListener(new java.awt.event.ItemListener() {
             public void itemStateChanged(java.awt.event.ItemEvent event) {
+                if (!programmaticLocalToggle) {
+                    localInstallTouchedByUser = true;
+                }
                 onInstallLocallyToggled();
             }
         });
@@ -271,6 +282,8 @@ public final class OllamaInstallPanel extends JPanel {
         searchButton.addActionListener(event -> manualSearch());
         // Enter in the editable combo editor triggers the search, matching the old text field.
         searchCombo.getEditor().addActionListener(event -> manualSearch());
+        // Selecting an AskAI-local-engine suggestion auto-activates "Install locally in AskAI".
+        searchCombo.addActionListener(event -> autoActivateLocalInstallForSelection());
 
         JPanel filterRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
         filterRow.add(new JLabel("Libraries:"));
@@ -651,13 +664,47 @@ public final class OllamaInstallPanel extends JPanel {
 
     /** Fills the dropdown with the configured suggestions, keeping any text the user typed. */
     private void reloadSearchSuggestions() {
-        Object typed = searchCombo.getEditor().getItem();
-        searchCombo.removeAllItems();
-        for (HuggingFaceSearchSuggestion suggestion
-                : configurationRepository.load().getHuggingFaceSearchSuggestions()) {
-            searchCombo.addItem(suggestion);
+        suppressLocalAutoActivate = true;
+        try {
+            Object typed = searchCombo.getEditor().getItem();
+            searchCombo.removeAllItems();
+            for (HuggingFaceSearchSuggestion suggestion
+                    : configurationRepository.load().getHuggingFaceSearchSuggestions()) {
+                searchCombo.addItem(suggestion);
+            }
+            searchCombo.setSelectedItem(typed == null ? "" : typed);
+        } finally {
+            suppressLocalAutoActivate = false;
         }
-        searchCombo.setSelectedItem(typed == null ? "" : typed);
+    }
+
+    /**
+     * Auto-activates "Install locally in AskAI" when an AskAI-local-engine suggestion is chosen. A manual
+     * change the user makes afterwards for that same selection is respected (not re-forced on every UI
+     * event); selecting a DIFFERENT suggestion is fresh intent and re-evaluates.
+     */
+    private void autoActivateLocalInstallForSelection() {
+        if (suppressLocalAutoActivate) {
+            return;
+        }
+        Object selected = searchCombo.getSelectedItem();
+        if (!(selected instanceof HuggingFaceSearchSuggestion)) {
+            return;
+        }
+        HuggingFaceSearchSuggestion suggestion = (HuggingFaceSearchSuggestion) selected;
+        if (!suggestion.getTerm().equals(lastHandledSuggestionTerm)) {
+            lastHandledSuggestionTerm = suggestion.getTerm();
+            localInstallTouchedByUser = false; // a new selection is fresh intent
+        }
+        if (suggestion.isLocalEngine() && !localInstallTouchedByUser
+                && !installLocallyCheckbox.isSelected()) {
+            programmaticLocalToggle = true;
+            try {
+                installLocallyCheckbox.setSelected(true);
+            } finally {
+                programmaticLocalToggle = false;
+            }
+        }
     }
 
     /** Opens a small editor for the dropdown suggestions (one per line) and persists the list. */
@@ -665,10 +712,14 @@ public final class OllamaInstallPanel extends JPanel {
         AppConfiguration current = configurationRepository.load();
         JTextArea editor = new JTextArea(current.getHuggingFaceSearchSuggestionsRaw(), 14, 40);
         JPanel content = new JPanel(new BorderLayout(4, 4));
-        content.add(new JLabel("<html>One suggestion per line: <b>&lt;search term&gt; | &lt;input&gt;,&lt;input&gt;</b>"
+        content.add(new JLabel("<html>One suggestion per line: "
+                + "<b>&lt;search term&gt; | &lt;input&gt;,&lt;input&gt; | &lt;target&gt;</b>"
                 + " &mdash; inputs: text, audio, vision.<br>"
                 + "Tag audio/vision only when a GGUF repo for that search ships the model's encoder"
-                + " (mmproj); otherwise the model is text-only when installed from HuggingFace.</html>"),
+                + " (mmproj); otherwise the model is text-only when installed from HuggingFace.<br>"
+                + "The optional third field <b>local</b> marks a model catalogued for AskAI's local "
+                + "win-directml engine (shown in the ASKAI LOCAL ENGINE group). Omit it for a normal "
+                + "Ollama/GGUF import.</html>"),
                 BorderLayout.NORTH);
         content.add(new JScrollPane(editor), BorderLayout.CENTER);
         JButton restoreDefaults = new JButton("Restore defaults");
@@ -687,31 +738,55 @@ public final class OllamaInstallPanel extends JPanel {
                 + configurationRepository.load().getHuggingFaceSearchSuggestions().size() + " entries).");
     }
 
+    /** The group heading shown above the first entry of each target group in the dropdown. */
+    static String groupHeader(HuggingFaceSearchSuggestion.Target target) {
+        return target == HuggingFaceSearchSuggestion.Target.ASKAI_LOCAL_ENGINE
+                ? "ASKAI LOCAL ENGINE" : "GENERAL / OLLAMA IMPORT";
+    }
+
+    /** Tooltip shown on every AskAI-local-engine suggestion (independent of colour). */
+    static final String LOCAL_ENGINE_TOOLTIP = "Runs in AskAI's local win-directml-java engine";
+
     /**
-     * Renders each suggestion with the term on the left and the fixed modality icon column
-     * (text / audio / vision) right-aligned at the dropdown's right edge.
+     * Renders each suggestion with the term on the left and the fixed modality icon column right-aligned.
+     * AskAI-local-engine entries are set apart WITHOUT relying on colour alone: a group heading
+     * ({@link #groupHeader}), a textual {@code LOCAL} badge, a theme-derived accent background (FlatLaf
+     * {@code Component.accentColor}) and a tooltip. Group headings appear at each target boundary.
      */
     private static final class SearchSuggestionRenderer extends JPanel
             implements javax.swing.ListCellRenderer<Object> {
 
+        private final JLabel headerLabel = new JLabel();
+        private final JLabel badgeLabel = new JLabel();
         private final JLabel termLabel = new JLabel();
         private final JLabel iconLabel = new JLabel();
+        private final JPanel row = new JPanel(new BorderLayout(8, 0));
 
         SearchSuggestionRenderer() {
-            super(new BorderLayout(12, 0));
+            super(new BorderLayout(0, 0));
             setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
             setOpaque(true);
+            row.setOpaque(false);
             iconLabel.setToolTipText("Model modalities (text / audio / vision). Audio/vision also needs "
                     + "the model's encoder (mmproj); the installer fetches it from the repo when present.");
-            add(termLabel, BorderLayout.CENTER);
-            add(iconLabel, BorderLayout.EAST);
+            badgeLabel.setText("LOCAL");
+            badgeLabel.setOpaque(true);
+            badgeLabel.setVisible(false);
+            headerLabel.setVisible(false);
+            row.add(badgeLabel, BorderLayout.WEST);
+            row.add(termLabel, BorderLayout.CENTER);
+            row.add(iconLabel, BorderLayout.EAST);
+            add(headerLabel, BorderLayout.NORTH);
+            add(row, BorderLayout.CENTER);
         }
 
         @Override
         public java.awt.Component getListCellRendererComponent(JList<?> list, Object value, int index,
                                                                boolean isSelected, boolean cellHasFocus) {
+            HuggingFaceSearchSuggestion.Target target = HuggingFaceSearchSuggestion.Target.GENERAL;
             if (value instanceof HuggingFaceSearchSuggestion) {
                 HuggingFaceSearchSuggestion suggestion = (HuggingFaceSearchSuggestion) value;
+                target = suggestion.getTarget();
                 termLabel.setText(suggestion.getTerm());
                 iconLabel.setIcon(CapabilityIcons.forCapabilities(
                         ModelCapability.fromModalities(suggestion.getModalities())));
@@ -719,10 +794,88 @@ public final class OllamaInstallPanel extends JPanel {
                 termLabel.setText(value == null ? "" : String.valueOf(value));
                 iconLabel.setIcon(null);
             }
-            setBackground(isSelected ? list.getSelectionBackground() : list.getBackground());
-            termLabel.setForeground(isSelected ? list.getSelectionForeground() : list.getForeground());
+            boolean local = target == HuggingFaceSearchSuggestion.Target.ASKAI_LOCAL_ENGINE;
+
+            // Group heading at each target boundary (popup only; index < 0 is the closed-combo display).
+            boolean boundary = index == 0;
+            if (index > 0 && value instanceof HuggingFaceSearchSuggestion) {
+                Object prev = list.getModel().getElementAt(index - 1);
+                HuggingFaceSearchSuggestion.Target prevTarget =
+                        prev instanceof HuggingFaceSearchSuggestion
+                                ? ((HuggingFaceSearchSuggestion) prev).getTarget()
+                                : HuggingFaceSearchSuggestion.Target.GENERAL;
+                boundary = prevTarget != target;
+            }
+            if (index >= 0 && boundary) {
+                headerLabel.setVisible(true);
+                headerLabel.setText(groupHeader(target));
+                headerLabel.setFont(list.getFont().deriveFont(java.awt.Font.BOLD,
+                        Math.max(10f, list.getFont().getSize2D() - 1f)));
+                headerLabel.setForeground(mutedForeground(list));
+                headerLabel.setBorder(BorderFactory.createEmptyBorder(4, 2, 2, 2));
+            } else {
+                headerLabel.setVisible(false);
+            }
+
+            java.awt.Color accent = accentColor(list);
+            badgeLabel.setVisible(local);
+            if (local) {
+                badgeLabel.setFont(list.getFont().deriveFont(java.awt.Font.BOLD,
+                        Math.max(9f, list.getFont().getSize2D() - 2f)));
+                badgeLabel.setBackground(accent);
+                badgeLabel.setForeground(readableOn(accent));
+                badgeLabel.setBorder(BorderFactory.createCompoundBorder(
+                        BorderFactory.createLineBorder(accent),
+                        BorderFactory.createEmptyBorder(0, 5, 0, 5)));
+                setToolTipText(LOCAL_ENGINE_TOOLTIP);
+                row.setToolTipText(LOCAL_ENGINE_TOOLTIP);
+                termLabel.setToolTipText(LOCAL_ENGINE_TOOLTIP);
+            } else {
+                setToolTipText(null);
+                row.setToolTipText(null);
+                termLabel.setToolTipText(null);
+            }
+
+            // Background: selection wins; otherwise a subtle theme-derived accent wash for local rows.
+            java.awt.Color background;
+            if (isSelected) {
+                background = list.getSelectionBackground();
+                termLabel.setForeground(list.getSelectionForeground());
+            } else {
+                background = local && index >= 0
+                        ? blend(list.getBackground(), accent, 0.12f) : list.getBackground();
+                termLabel.setForeground(list.getForeground());
+            }
+            setBackground(background);
             termLabel.setFont(list.getFont());
             return this;
+        }
+
+        private static java.awt.Color accentColor(JList<?> list) {
+            java.awt.Color accent = javax.swing.UIManager.getColor("Component.accentColor");
+            if (accent == null) {
+                accent = javax.swing.UIManager.getColor("List.selectionBackground");
+            }
+            return accent == null ? list.getSelectionBackground() : accent;
+        }
+
+        private static java.awt.Color mutedForeground(JList<?> list) {
+            java.awt.Color fg = javax.swing.UIManager.getColor("Label.disabledForeground");
+            return fg == null ? blend(list.getForeground(), list.getBackground(), 0.4f) : fg;
+        }
+
+        private static java.awt.Color readableOn(java.awt.Color background) {
+            double luminance = (0.299 * background.getRed() + 0.587 * background.getGreen()
+                    + 0.114 * background.getBlue()) / 255.0;
+            return luminance > 0.6 ? java.awt.Color.BLACK : java.awt.Color.WHITE;
+        }
+
+        private static java.awt.Color blend(java.awt.Color base, java.awt.Color other, float ratio) {
+            float inverse = 1f - ratio;
+            return new java.awt.Color(
+                    Math.round(base.getRed() * inverse + other.getRed() * ratio),
+                    Math.round(base.getGreen() * inverse + other.getGreen() * ratio),
+                    Math.round(base.getBlue() * inverse + other.getBlue() * ratio));
         }
     }
 

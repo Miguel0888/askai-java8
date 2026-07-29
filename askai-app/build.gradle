@@ -2,6 +2,10 @@ apply plugin: 'application'
 
 dependencies {
     implementation project(':ollama4j-java8')
+    // Neutral win-directml model catalog (Java-8): the single source of truth for locally runnable model
+    // families (capabilities, download manifests, runtime family, backends). DEV: 0.1.0-SNAPSHOT from
+    // mavenLocal; pinned to a fixed Maven Central version in C5 before any ff-merge.
+    implementation 'com.aresstack:directml-model-catalog:0.1.0-SNAPSHOT'
     // A5b: neutral reranker endpoint contract (DTO/codec only) shared with the research agent.
     implementation project(':agent-model-runtime-api')
     implementation project(':group-chat-api')

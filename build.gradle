@@ -3,6 +3,11 @@ allprojects {
     version = (findProperty('releaseVersion') ?: '0.1.0').toString()
 
     repositories {
+        // DEV (local-engine slice): the neutral win-directml model catalog is consumed as
+        // com.aresstack:directml-model-catalog:0.1.0-SNAPSHOT from mavenLocal while it is being built in
+        // the sibling win-directml-java repo. Development state: 0.1.0-SNAPSHOT via mavenLocal.
+        // Merge/release state: a fixed published Maven Central version (pinned in C5, before any ff-merge).
+        mavenLocal()
         mavenCentral()
     }
 }

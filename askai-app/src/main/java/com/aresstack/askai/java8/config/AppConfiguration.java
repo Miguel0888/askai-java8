@@ -4,6 +4,8 @@ import com.aresstack.askai.java8.net.CertificateTrustConfiguration;
 import com.aresstack.askai.java8.net.HttpClientConfiguration;
 import com.aresstack.askai.java8.net.ProxyConfiguration;
 import com.aresstack.askai.java8.stt.SpeechToTextConfiguration;
+import com.aresstack.windirectml.catalog.LocalModelCatalog;
+import com.aresstack.windirectml.catalog.LocalRuntimeModelDescriptor;
 
 import java.io.File;
 
@@ -35,7 +37,12 @@ public final class AppConfiguration {
      * language-only (no mmproj), so it is tagged text here; its audio/vision works via
      * {@code ollama pull gemma3n:e4b}, not the single-file HuggingFace import.</p>
      */
-    public static final String DEFAULT_HF_SEARCH_SUGGESTIONS =
+    /**
+     * The general Ollama/GGUF import suggestions (never marked local). The AskAI-local-engine group is NOT
+     * duplicated here; it is generated deterministically from {@link LocalModelCatalog#runnable()} so there
+     * is exactly one model list.
+     */
+    static final String GENERAL_HF_SEARCH_SUGGESTIONS =
             "openai/gpt-oss-20b | text\n"
                     + "LiquidAI/LFM2-24B-A2B | text\n"
                     + "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct | text\n"
@@ -50,14 +57,41 @@ public final class AppConfiguration {
                     + "mistral-nemo | text\n"
                     + "gemma-3n-e4b | text\n"
                     + "voxtral-mini-3b | text,audio\n"
-                    + "ultravox | text,audio\n"
-                    // Reranker - local CPU (installable via "Install locally in AskAI", R0):
-                    + "cross-encoder/ms-marco-MiniLM-L6-v2 | text";
+                    + "ultravox | text,audio";
+
+    /**
+     * The shipped default: the AskAI-local-engine group (deterministically catalog-generated, in catalog
+     * order) FIRST, then the general Ollama/GGUF imports. Only {@code RUNNABLE} catalog entries appear —
+     * {@code UNVERIFIED} (e.g. the L-12 reranker) is never a local recommendation.
+     */
+    public static final String DEFAULT_HF_SEARCH_SUGGESTIONS = buildDefaultSearchSuggestions();
+
+    /** Builds the shipped default from the neutral catalog + the general list. Deterministic (catalog order). */
+    static String buildDefaultSearchSuggestions() {
+        StringBuilder sb = new StringBuilder();
+        for (LocalRuntimeModelDescriptor descriptor : LocalModelCatalog.runnable()) {
+            sb.append(descriptor.huggingFaceRepositoryId()).append(" | text | local\n");
+        }
+        sb.append(GENERAL_HF_SEARCH_SUGGESTIONS);
+        return sb.toString();
+    }
 
     // Earlier default suggestion lists that shipped inaccurate audio tags (e.g. gemma-3n as audio).
     // A persisted list identical to one of these was never customized, so upgrade it to the current
     // default instead of freezing the old, misleading tags.
     private static final String[] LEGACY_HF_SEARCH_SUGGESTIONS = {
+            // The default shipped right before the AskAI-local-engine group: the general list plus the
+            // single local reranker suggestion as a plain two-column line. An unchanged persisted copy
+            // upgrades to the current catalog-generated local-engine group (local suggestions first).
+            "openai/gpt-oss-20b | text\nLiquidAI/LFM2-24B-A2B | text\n"
+                    + "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct | text\n"
+                    + "unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF | text\n"
+                    + "unsloth/GLM-4.7-Flash-GGUF | text\n"
+                    + "mistralai/Devstral-Small-2-24B-Instruct-2512 | text\n"
+                    + "llama-3.1-8b-instruct | text\ngemma-3-12b-it | text,vision\n"
+                    + "qwen2.5-14b-instruct | text\nqwen2.5-coder-14b | text\nphi-4 | text\n"
+                    + "mistral-nemo | text\ngemma-3n-e4b | text\nvoxtral-mini-3b | text,audio\n"
+                    + "ultravox | text,audio\ncross-encoder/ms-marco-MiniLM-L6-v2 | text",
             // The briefly-shipped R0 default with the TYPO reranker id (L-6 instead of L6):
             "openai/gpt-oss-20b | text\nLiquidAI/LFM2-24B-A2B | text\n"
                     + "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct | text\n"
