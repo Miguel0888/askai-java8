@@ -125,9 +125,12 @@ public final class SearchLayoutRepairJson {
     public static String encodeSubmission(SearchLayoutRepairSubmission submission) {
         StringBuilder sb = new StringBuilder("{");
         str(sb, "repairTicketId", submission.attemptId.value).append(',');
+        str(sb, "analysisId", submission.analysisId).append(',');
         str(sb, "snapshotId", submission.snapshotId).append(',');
+        num(sb, "snapshotGeneration", submission.snapshotGeneration).append(',');
         str(sb, "documentFingerprint", submission.documentFingerprint).append(',');
         str(sb, "layoutStructureFingerprint", submission.layoutStructureFingerprint).append(',');
+        str(sb, "settingsDigest", submission.settingsDigest).append(',');
         sb.append("\"decision\":");
         decision(sb, submission.decision);
         return sb.append('}').toString();
@@ -136,10 +139,10 @@ public final class SearchLayoutRepairJson {
     public static SearchLayoutRepairSubmission decodeSubmission(String json) {
         Map<String, Object> o = object(json);
         return new SearchLayoutRepairSubmission(
-                new SearchLayoutRepairAttemptId(reqStr(o, "repairTicketId")),
-                reqStr(o, "snapshotId"), reqStr(o, "documentFingerprint"),
-                reqStr(o, "layoutStructureFingerprint"),
-                decodeDecision(reqObject(o, "decision")));
+                new SearchLayoutRepairAttemptId(reqStr(o, "repairTicketId")), reqStr(o, "analysisId"),
+                reqStr(o, "snapshotId"), reqLong(o, "snapshotGeneration"),
+                reqStr(o, "documentFingerprint"), reqStr(o, "layoutStructureFingerprint"),
+                reqStr(o, "settingsDigest"), decodeDecision(reqObject(o, "decision")));
     }
 
     // ------------------------------------------------------------------ apply result
@@ -322,6 +325,9 @@ public final class SearchLayoutRepairJson {
         sb.append('{');
         str(sb, "analysisId", d.analysisId).append(',');
         str(sb, "snapshotId", d.snapshotId).append(',');
+        num(sb, "snapshotGeneration", d.snapshotGeneration).append(',');
+        str(sb, "documentFingerprint", d.documentFingerprint).append(',');
+        str(sb, "settingsDigest", d.settingsDigest).append(',');
         str(sb, "primaryOrganicContainerId", d.primaryOrganicContainerId).append(',');
         sb.append("\"organicResultContainerIds\":");
         stringArray(sb, d.organicResultContainerIds).append(',');
@@ -335,7 +341,8 @@ public final class SearchLayoutRepairJson {
 
     private static ValidatedSearchPageLayoutDecision decodeDecision(Map<String, Object> o) {
         return new ValidatedSearchPageLayoutDecision(reqStr(o, "analysisId"), reqStr(o, "snapshotId"),
-                reqStr(o, "primaryOrganicContainerId"),
+                reqLong(o, "snapshotGeneration"), reqStr(o, "documentFingerprint"),
+                reqStr(o, "settingsDigest"), reqStr(o, "primaryOrganicContainerId"),
                 stringList(reqList(o, "organicResultContainerIds"), "organic"),
                 stringList(reqList(o, "resultBlockContainerIds"), "blocks"),
                 stringList(reqList(o, "excludedContainerIds"), "excluded"),

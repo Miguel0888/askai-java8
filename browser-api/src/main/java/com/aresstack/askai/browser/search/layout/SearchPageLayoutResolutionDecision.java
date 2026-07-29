@@ -12,6 +12,8 @@ import java.util.List;
  */
 public final class SearchPageLayoutResolutionDecision {
 
+    /** The analysis id the model echoes back — a small correlation binding the runtime re-checks. */
+    public final String analysisId;
     public final String snapshotId;
     public final List<String> organicResultContainerIds;
     public final List<String> resultBlockContainerIds;
@@ -19,11 +21,12 @@ public final class SearchPageLayoutResolutionDecision {
     public final double confidence;
     public final String explanation;
 
-    public SearchPageLayoutResolutionDecision(String snapshotId,
+    public SearchPageLayoutResolutionDecision(String analysisId, String snapshotId,
                                               List<String> organicResultContainerIds,
                                               List<String> resultBlockContainerIds,
                                               List<String> excludedContainerIds, double confidence,
                                               String explanation) {
+        this.analysisId = analysisId == null ? "" : analysisId;
         this.snapshotId = snapshotId == null ? "" : snapshotId;
         this.organicResultContainerIds = unmodifiable(organicResultContainerIds);
         this.resultBlockContainerIds = unmodifiable(resultBlockContainerIds);

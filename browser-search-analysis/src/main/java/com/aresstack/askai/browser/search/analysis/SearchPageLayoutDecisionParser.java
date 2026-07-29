@@ -23,6 +23,7 @@ final class SearchPageLayoutDecisionParser {
         @SuppressWarnings("unchecked")
         Map<String, Object> object = (Map<String, Object>) root;
 
+        String analysisId = requireString(object, "analysisId");
         String snapshotId = requireString(object, "snapshotId");
         List<String> organic = requireStringArray(object, "organicResultContainerIds");
         List<String> blocks = optionalStringArray(object, "resultBlockContainerIds");
@@ -30,7 +31,7 @@ final class SearchPageLayoutDecisionParser {
         double confidence = requireNumber(object, "confidence");
         String explanation = optionalString(object, "explanation");
 
-        return new SearchPageLayoutResolutionDecision(snapshotId, organic, blocks, excluded,
+        return new SearchPageLayoutResolutionDecision(analysisId, snapshotId, organic, blocks, excluded,
                 confidence, explanation);
     }
 

@@ -50,14 +50,21 @@ public class WebSearchLayoutRepairServiceTest {
         return new WebSearchLayoutRepairService(settings, 4, 10_000L);
     }
 
-    private SearchLayoutRepairSubmission submission(String attemptId, String snapshotId,
-                                                    String fingerprint, String layoutFp,
-                                                    RenderedPageDocument doc, String organicId) {
+    private SearchLayoutRepairSubmission submission(SearchLayoutRepairRequest req, String attemptId,
+                                                    String snapshotId, String fingerprint,
+                                                    String layoutFp, RenderedPageDocument doc,
+                                                    String organicId) {
+        // Trusted binding values come from the prepared request; a null request (unknown-attempt
+        // case) is rejected before the binding check, so placeholder values are fine there.
+        String analysisId = req == null ? "analysis-x" : req.artifact.analysisId;
+        long generation = req == null ? doc.snapshotGeneration : req.snapshotGeneration;
+        String settingsDigest = req == null ? "" : req.artifact.settingsDigest;
         ValidatedSearchPageLayoutDecision decision = new ValidatedSearchPageLayoutDecision(
-                "analysis-x", doc.snapshotId, organicId, Arrays.asList(organicId),
-                Collections.<String>emptyList(), Collections.<String>emptyList(), 0.9);
+                analysisId, doc.snapshotId, generation, fingerprint, settingsDigest, organicId,
+                Arrays.asList(organicId), Collections.<String>emptyList(),
+                Collections.<String>emptyList(), 0.9);
         return new SearchLayoutRepairSubmission(new SearchLayoutRepairAttemptId(attemptId),
-                snapshotId, fingerprint, layoutFp, decision);
+                analysisId, snapshotId, generation, fingerprint, layoutFp, settingsDigest, decision);
     }
 
     @Test
@@ -99,7 +106,7 @@ public class WebSearchLayoutRepairServiceTest {
         String layoutFp = request.layoutStructureFingerprint;
 
         SearchLayoutRepairResult applied = service.apply(
-                submission(attemptId, document.snapshotId, "f", layoutFp, document, col[0]), 2000L);
+                submission(request, attemptId, document.snapshotId, "f", layoutFp, document, col[0]), 2000L);
 
         assertEquals(SearchLayoutRepairStatus.ORGANIC_RESULTS, applied.status);
         assertEquals(3, applied.candidates.size());
@@ -107,7 +114,7 @@ public class WebSearchLayoutRepairServiceTest {
         assertEquals("attempt consumed after application", 0, service.cache().size());
 
         SearchLayoutRepairResult again = service.apply(
-                submission(attemptId, document.snapshotId, "f", layoutFp, document, col[0]), 2000L);
+                submission(request, attemptId, document.snapshotId, "f", layoutFp, document, col[0]), 2000L);
         assertEquals(SearchLayoutRepairStatus.UNKNOWN_ATTEMPT, again.status);
     }
 
@@ -118,7 +125,7 @@ public class WebSearchLayoutRepairServiceTest {
 
         // unknown attempt
         assertEquals(SearchLayoutRepairStatus.UNKNOWN_ATTEMPT, service(lowConf)
-                .apply(submission("nope", document.snapshotId, "f", "", document, col[0]), 2000L)
+                .apply(submission(null, "nope", document.snapshotId, "f", "", document, col[0]), 2000L)
                 .status);
 
         // expired attempt
@@ -126,7 +133,7 @@ public class WebSearchLayoutRepairServiceTest {
         SearchLayoutRepairRequest re = expiring.prepareSingle(document, "q", "e", 1000L)
                 .repairRequests.get(0);
         assertEquals(SearchLayoutRepairStatus.EXPIRED_ATTEMPT, expiring
-                .apply(submission(re.attemptId.value, document.snapshotId, "f",
+                .apply(submission(re, re.attemptId.value, document.snapshotId, "f",
                         re.layoutStructureFingerprint, document, col[0]), 99_000L).status);
 
         // snapshot mismatch
@@ -134,7 +141,7 @@ public class WebSearchLayoutRepairServiceTest {
         SearchLayoutRepairRequest r1 =
                 s1.prepareSingle(document, "q", "e", 1000L).repairRequests.get(0);
         assertEquals(SearchLayoutRepairStatus.SNAPSHOT_MISMATCH, s1
-                .apply(submission(r1.attemptId.value, "wrong-snap", "f",
+                .apply(submission(r1, r1.attemptId.value, "wrong-snap", "f",
                         r1.layoutStructureFingerprint, document, col[0]), 2000L).status);
 
         // fingerprint mismatch
@@ -142,7 +149,7 @@ public class WebSearchLayoutRepairServiceTest {
         SearchLayoutRepairRequest r2 =
                 s2.prepareSingle(document, "q", "e", 1000L).repairRequests.get(0);
         assertEquals(SearchLayoutRepairStatus.FINGERPRINT_MISMATCH, s2
-                .apply(submission(r2.attemptId.value, document.snapshotId, "wrong-fp",
+                .apply(submission(r2, r2.attemptId.value, document.snapshotId, "wrong-fp",
                         r2.layoutStructureFingerprint, document, col[0]), 2000L).status);
 
         // invalid decision (unknown container id) — passes structure fp so it reaches the id check
@@ -150,7 +157,7 @@ public class WebSearchLayoutRepairServiceTest {
         SearchLayoutRepairRequest r3 =
                 s3.prepareSingle(document, "q", "e", 1000L).repairRequests.get(0);
         assertEquals(SearchLayoutRepairStatus.INVALID_DECISION, s3
-                .apply(submission(r3.attemptId.value, document.snapshotId, "f",
+                .apply(submission(r3, r3.attemptId.value, document.snapshotId, "f",
                         r3.layoutStructureFingerprint, document, "container-9999"), 2000L).status);
     }
 

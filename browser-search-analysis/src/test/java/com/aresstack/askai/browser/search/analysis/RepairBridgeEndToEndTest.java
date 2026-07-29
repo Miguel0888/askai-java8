@@ -44,7 +44,7 @@ public class RepairBridgeEndToEndTest {
     }
 
     private String response(String snapshotId, String organicId) {
-        return "{\"snapshotId\":\"" + snapshotId + "\","
+        return "{\"analysisId\":\"analysis-" + snapshotId + "-1\",\"snapshotId\":\"" + snapshotId + "\","
                 + "\"organicResultContainerIds\":[\"" + organicId + "\"],"
                 + "\"resultBlockContainerIds\":[],\"excludedContainerIds\":[],"
                 + "\"confidence\":0.9,\"explanation\":\"repeated blocks\"}";

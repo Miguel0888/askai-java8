@@ -11,19 +11,27 @@ import com.aresstack.askai.browser.search.layout.ValidatedSearchPageLayoutDecisi
 public final class SearchLayoutRepairSubmission {
 
     public final SearchLayoutRepairAttemptId attemptId;
+    public final String analysisId;
     public final String snapshotId;
+    public final long snapshotGeneration;
     public final String documentFingerprint;
     public final String layoutStructureFingerprint;
+    public final String settingsDigest;
     public final ValidatedSearchPageLayoutDecision decision;
 
-    public SearchLayoutRepairSubmission(SearchLayoutRepairAttemptId attemptId, String snapshotId,
+    public SearchLayoutRepairSubmission(SearchLayoutRepairAttemptId attemptId, String analysisId,
+                                        String snapshotId, long snapshotGeneration,
                                         String documentFingerprint, String layoutStructureFingerprint,
+                                        String settingsDigest,
                                         ValidatedSearchPageLayoutDecision decision) {
         this.attemptId = attemptId == null ? new SearchLayoutRepairAttemptId("") : attemptId;
+        this.analysisId = analysisId == null ? "" : analysisId;
         this.snapshotId = snapshotId == null ? "" : snapshotId;
+        this.snapshotGeneration = snapshotGeneration;
         this.documentFingerprint = documentFingerprint == null ? "" : documentFingerprint;
         this.layoutStructureFingerprint =
                 layoutStructureFingerprint == null ? "" : layoutStructureFingerprint;
+        this.settingsDigest = settingsDigest == null ? "" : settingsDigest;
         this.decision = decision;
     }
 }

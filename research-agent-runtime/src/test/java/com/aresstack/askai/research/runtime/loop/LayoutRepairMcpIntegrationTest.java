@@ -82,7 +82,8 @@ public class LayoutRepairMcpIntegrationTest {
     }
 
     private static StructuredInferenceResult decisionNaming(String container) {
-        return StructuredInferenceResult.success("{\"snapshotId\":\"snap-1-itest\","
+        return StructuredInferenceResult.success(
+                "{\"analysisId\":\"analysis-snap-1-itest-1\",\"snapshotId\":\"snap-1-itest\","
                 + "\"organicResultContainerIds\":[\"" + container + "\"],"
                 + "\"resultBlockContainerIds\":[],\"excludedContainerIds\":[],"
                 + "\"confidence\":0.9,\"explanation\":\"repeated blocks\"}");
@@ -264,11 +265,14 @@ public class LayoutRepairMcpIntegrationTest {
 
     private static String submissionJson(String ticket, String snapshotId, String fingerprint,
                                          String layoutFp, String organicId) {
+        // Used only by guard-rejection cases (unknown/consumed/snapshot) that reject before the
+        // binding check, so the analysis/generation/settings values are placeholders here.
         ValidatedSearchPageLayoutDecision decision = new ValidatedSearchPageLayoutDecision(
-                "analysis-x", snapshotId, organicId, Arrays.asList(organicId),
+                "analysis-x", snapshotId, 1L, fingerprint, "", organicId, Arrays.asList(organicId),
                 Collections.<String>emptyList(), Collections.<String>emptyList(), 0.9);
         return SearchLayoutRepairJson.encodeSubmission(new SearchLayoutRepairSubmission(
-                new SearchLayoutRepairAttemptId(ticket), snapshotId, fingerprint, layoutFp, decision));
+                new SearchLayoutRepairAttemptId(ticket), "analysis-x", snapshotId, 1L, fingerprint,
+                layoutFp, "", decision));
     }
 
     /** The structure fingerprint the sidecar will have cached for the fixture under these settings. */

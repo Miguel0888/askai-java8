@@ -46,7 +46,7 @@ public class AiSearchPageLayoutResolverTest {
 
     private String validResponse(SearchPageAnalysisArtifact artifact) {
         String id = artifact.containerCandidates.get(0).containerId;
-        return "{\"snapshotId\":\"" + artifact.snapshotId + "\","
+        return "{\"analysisId\":\"" + artifact.analysisId + "\",\"snapshotId\":\"" + artifact.snapshotId + "\","
                 + "\"organicResultContainerIds\":[\"" + id + "\"],"
                 + "\"resultBlockContainerIds\":[],"
                 + "\"excludedContainerIds\":[],"

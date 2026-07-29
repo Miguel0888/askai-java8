@@ -24,20 +24,24 @@ public final class SearchLayoutRepairCache {
         public final RenderedPageDocument document;
         public final String query;
         public final String engineHost;
+        public final String analysisId;
         public final String layoutStructureFingerprint;
+        public final String settingsDigest;
         public final long createdAtEpochMillis;
         public final long expiresAtEpochMillis;
         boolean consumed;
 
         Entry(String attemptId, RenderedPageDocument document, String query, String engineHost,
-              String layoutStructureFingerprint, long createdAtEpochMillis,
-              long expiresAtEpochMillis) {
+              String analysisId, String layoutStructureFingerprint, String settingsDigest,
+              long createdAtEpochMillis, long expiresAtEpochMillis) {
             this.attemptId = attemptId;
             this.document = document;
             this.query = query;
             this.engineHost = engineHost;
+            this.analysisId = analysisId == null ? "" : analysisId;
             this.layoutStructureFingerprint =
                     layoutStructureFingerprint == null ? "" : layoutStructureFingerprint;
+            this.settingsDigest = settingsDigest == null ? "" : settingsDigest;
             this.createdAtEpochMillis = createdAtEpochMillis;
             this.expiresAtEpochMillis = expiresAtEpochMillis;
         }
@@ -57,11 +61,13 @@ public final class SearchLayoutRepairCache {
     }
 
     public synchronized Entry put(String attemptId, RenderedPageDocument document, String query,
-                                  String engineHost, String layoutStructureFingerprint,
+                                  String engineHost, String analysisId,
+                                  String layoutStructureFingerprint, String settingsDigest,
                                   long nowEpochMillis) {
         removeExpired(nowEpochMillis);
-        Entry entry = new Entry(attemptId, document, query, engineHost, layoutStructureFingerprint,
-                nowEpochMillis, nowEpochMillis + ttlMillis);
+        Entry entry = new Entry(attemptId, document, query, engineHost, analysisId,
+                layoutStructureFingerprint, settingsDigest, nowEpochMillis,
+                nowEpochMillis + ttlMillis);
         byId.remove(attemptId);
         byId.put(attemptId, entry);
         evictOldestBeyondCapacity();

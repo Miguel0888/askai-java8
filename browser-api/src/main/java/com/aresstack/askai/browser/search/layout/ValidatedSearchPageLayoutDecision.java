@@ -14,6 +14,9 @@ public final class ValidatedSearchPageLayoutDecision {
 
     public final String analysisId;
     public final String snapshotId;
+    public final long snapshotGeneration;
+    public final String documentFingerprint;
+    public final String settingsDigest;
     public final String primaryOrganicContainerId;
     public final List<String> organicResultContainerIds;
     public final List<String> resultBlockContainerIds;
@@ -21,12 +24,16 @@ public final class ValidatedSearchPageLayoutDecision {
     public final double confidence;
 
     public ValidatedSearchPageLayoutDecision(String analysisId, String snapshotId,
-                                             String primaryOrganicContainerId,
+                                             long snapshotGeneration, String documentFingerprint,
+                                             String settingsDigest, String primaryOrganicContainerId,
                                              List<String> organicResultContainerIds,
                                              List<String> resultBlockContainerIds,
                                              List<String> excludedContainerIds, double confidence) {
         this.analysisId = analysisId == null ? "" : analysisId;
         this.snapshotId = snapshotId == null ? "" : snapshotId;
+        this.snapshotGeneration = snapshotGeneration;
+        this.documentFingerprint = documentFingerprint == null ? "" : documentFingerprint;
+        this.settingsDigest = settingsDigest == null ? "" : settingsDigest;
         this.primaryOrganicContainerId =
                 primaryOrganicContainerId == null ? "" : primaryOrganicContainerId;
         this.organicResultContainerIds = unmodifiable(organicResultContainerIds);

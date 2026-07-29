@@ -36,7 +36,7 @@ public class SearchPageLayoutProfileServiceTest {
     }
 
     private ValidatedSearchPageLayoutDecision decision(String snapshotId, String column) {
-        return new ValidatedSearchPageLayoutDecision("analysis-x", snapshotId, column,
+        return new ValidatedSearchPageLayoutDecision("analysis-x", snapshotId, 0L, "", "", column,
                 Arrays.asList(column), Collections.<String>emptyList(),
                 Collections.<String>emptyList(), 0.9);
     }

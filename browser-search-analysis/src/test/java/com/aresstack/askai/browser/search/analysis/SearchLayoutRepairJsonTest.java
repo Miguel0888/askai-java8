@@ -79,21 +79,29 @@ public class SearchLayoutRepairJsonTest {
     public void submissionRoundTripsTheDecisionAndBinding() {
         SearchLayoutRepairRequest request = aRepairRequest(null);
         ValidatedSearchPageLayoutDecision decision = new ValidatedSearchPageLayoutDecision(
-                "analysis-x", request.snapshotId, "container-0003",
+                request.artifact.analysisId, request.snapshotId, request.snapshotGeneration,
+                request.documentFingerprint, request.artifact.settingsDigest, "container-0003",
                 Arrays.asList("container-0003"), Collections.<String>emptyList(),
                 Collections.<String>emptyList(), 0.88);
         SearchLayoutRepairSubmission original = new SearchLayoutRepairSubmission(request.attemptId,
-                request.snapshotId, request.documentFingerprint, request.layoutStructureFingerprint,
-                decision);
+                request.artifact.analysisId, request.snapshotId, request.snapshotGeneration,
+                request.documentFingerprint, request.layoutStructureFingerprint,
+                request.artifact.settingsDigest, decision);
 
         SearchLayoutRepairSubmission decoded = SearchLayoutRepairJson.decodeSubmission(
                 SearchLayoutRepairJson.encodeSubmission(original));
 
         assertEquals(original.attemptId.value, decoded.attemptId.value);
+        assertEquals(original.analysisId, decoded.analysisId);
         assertEquals(original.snapshotId, decoded.snapshotId);
+        assertEquals(original.snapshotGeneration, decoded.snapshotGeneration);
         assertEquals(original.documentFingerprint, decoded.documentFingerprint);
         assertEquals(original.layoutStructureFingerprint, decoded.layoutStructureFingerprint);
+        assertEquals(original.settingsDigest, decoded.settingsDigest);
         assertEquals("container-0003", decoded.decision.primaryOrganicContainerId);
+        assertEquals(original.analysisId, decoded.decision.analysisId);
+        assertEquals(request.snapshotGeneration, decoded.decision.snapshotGeneration);
+        assertEquals(request.artifact.settingsDigest, decoded.decision.settingsDigest);
         assertEquals(0.88, decoded.decision.confidence, 1e-9);
     }
 

@@ -11,6 +11,8 @@ public final class SearchPageLayoutValidationViolation {
     public enum Kind {
         /** The echoed snapshot id does not match the artifact — a decision for another snapshot. */
         UNKNOWN_SNAPSHOT,
+        /** The echoed analysis id does not match the artifact — a decision for another analysis. */
+        ANALYSIS_MISMATCH,
         /** A referenced container id is not among the mechanically offered ids (hard invariant). */
         UNKNOWN_CONTAINER_ID,
         /** The same id appears twice within a single list. */
@@ -39,7 +41,8 @@ public final class SearchPageLayoutValidationViolation {
 
     /** Schema-shaped violations a repair prompt can plausibly fix by reformatting. */
     public boolean isSchemaViolation() {
-        return kind == Kind.UNKNOWN_SNAPSHOT || kind == Kind.DUPLICATE_ID
+        return kind == Kind.UNKNOWN_SNAPSHOT || kind == Kind.ANALYSIS_MISMATCH
+                || kind == Kind.DUPLICATE_ID
                 || kind == Kind.CONTRADICTORY_CLASSIFICATION || kind == Kind.INVALID_CONFIDENCE
                 || kind == Kind.LIMIT_EXCEEDED;
     }

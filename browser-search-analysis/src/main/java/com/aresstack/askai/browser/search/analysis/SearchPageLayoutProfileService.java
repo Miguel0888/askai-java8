@@ -49,7 +49,8 @@ public final class SearchPageLayoutProfileService {
                 continue;
             }
             SearchPageLayoutResolutionDecision decision = new SearchPageLayoutResolutionDecision(
-                    artifact.snapshotId, Collections.singletonList(candidate.containerId),
+                    artifact.analysisId, artifact.snapshotId,
+                    Collections.singletonList(candidate.containerId),
                     Collections.<String>emptyList(), Collections.<String>emptyList(),
                     profileConfidence(match.profile), "reused validated layout profile");
             SearchPageLayoutValidationResult validation = validator.validate(decision, artifact);

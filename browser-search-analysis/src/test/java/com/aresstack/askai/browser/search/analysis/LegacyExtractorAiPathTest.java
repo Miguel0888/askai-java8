@@ -42,7 +42,7 @@ public class LegacyExtractorAiPathTest {
     }
 
     private String response(String snapshotId, String organicId) {
-        return "{\"snapshotId\":\"" + snapshotId + "\","
+        return "{\"analysisId\":\"analysis-" + snapshotId + "-1\",\"snapshotId\":\"" + snapshotId + "\","
                 + "\"organicResultContainerIds\":[\"" + organicId + "\"],"
                 + "\"resultBlockContainerIds\":[],\"excludedContainerIds\":[],"
                 + "\"confidence\":0.9,\"explanation\":\"x\"}";
@@ -117,7 +117,7 @@ public class LegacyExtractorAiPathTest {
         String[] col = new String[1];
         RenderedPageDocument document = resultColumnDocument(col);
         ValidatedSearchPageLayoutDecision decision = new ValidatedSearchPageLayoutDecision(
-                "analysis-x", document.snapshotId, col[0], Arrays.asList(col[0]),
+                "analysis-x", document.snapshotId, 0L, "", "", col[0], Arrays.asList(col[0]),
                 Collections.<String>emptyList(), Collections.<String>emptyList(), 0.9);
         SearchResultExtractionResult result =
                 new LegacySearchResultExtractor(defaults).extract(document, decision);
@@ -134,7 +134,7 @@ public class LegacyExtractorAiPathTest {
                 3);
         RenderedPageDocument document = serp.build();
         ValidatedSearchPageLayoutDecision decision = new ValidatedSearchPageLayoutDecision(
-                "analysis-x", document.snapshotId, plain, Arrays.asList(plain),
+                "analysis-x", document.snapshotId, 0L, "", "", plain, Arrays.asList(plain),
                 Collections.<String>emptyList(), Collections.<String>emptyList(), 0.9);
         SearchResultExtractionResult result =
                 new LegacySearchResultExtractor(defaults).extract(document, decision);
@@ -162,7 +162,8 @@ public class LegacyExtractorAiPathTest {
     public void staleDecisionIsRefused() {
         RenderedPageDocument document = resultColumnDocument(new String[1]);
         ValidatedSearchPageLayoutDecision decision = new ValidatedSearchPageLayoutDecision(
-                "analysis-x", "snap-OTHER", "container-0003", Arrays.asList("container-0003"),
+                "analysis-x", "snap-OTHER", 0L, "", "", "container-0003",
+                Arrays.asList("container-0003"),
                 Collections.<String>emptyList(), Collections.<String>emptyList(), 0.9);
         SearchResultExtractionResult result =
                 new LegacySearchResultExtractor(defaults).extract(document, decision);

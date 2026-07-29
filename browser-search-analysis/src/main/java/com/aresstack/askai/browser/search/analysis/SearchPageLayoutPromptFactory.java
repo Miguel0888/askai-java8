@@ -53,7 +53,8 @@ final class SearchPageLayoutPromptFactory {
 
     private String constraints(SearchPageAnalysisArtifact artifact) {
         StringBuilder sb = new StringBuilder();
-        sb.append("Snapshot id (echo it EXACTLY): ").append(artifact.snapshotId);
+        sb.append("Analysis id (echo it EXACTLY): ").append(artifact.analysisId);
+        sb.append("\nSnapshot id (echo it EXACTLY): ").append(artifact.snapshotId);
         sb.append("\nChoose ONLY among these container ids — inventing an id is a hard failure:");
         sb.append('\n').append(allowedIds(artifact));
         sb.append("\nDo not invent ids, urls, css selectors or DOM paths. Do not rerank results by");
@@ -121,6 +122,7 @@ final class SearchPageLayoutPromptFactory {
     private String schema(SearchPageAnalysisArtifact artifact) {
         return "Respond with a single JSON object of this exact shape:\n"
                 + "{\n"
+                + "  \"analysisId\": \"" + artifact.analysisId + "\",\n"
                 + "  \"snapshotId\": \"" + artifact.snapshotId + "\",\n"
                 + "  \"organicResultContainerIds\": [\"<id>\"],\n"
                 + "  \"resultBlockContainerIds\": [\"<id>\"],\n"

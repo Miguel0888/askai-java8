@@ -76,8 +76,8 @@ public final class WebSearchLayoutRepairService {
                 diagnosticBuilder.build(artifact, null, "NONE", "REPAIR_REQUIRED");
         String attemptId = "repair-" + document.snapshotId;
         String layoutFingerprint = layoutStructureFingerprint(artifact);
-        SearchLayoutRepairCache.Entry entry =
-                cache.put(attemptId, document, query, engineHost, layoutFingerprint, nowEpochMillis);
+        SearchLayoutRepairCache.Entry entry = cache.put(attemptId, document, query, engineHost,
+                artifact.analysisId, layoutFingerprint, artifact.settingsDigest, nowEpochMillis);
         SearchLayoutRepairRequest request = new SearchLayoutRepairRequest(
                 new SearchLayoutRepairAttemptId(attemptId), query, engineHost, artifact.engineFamily,
                 document.snapshotId, document.snapshotGeneration,
@@ -130,9 +130,12 @@ public final class WebSearchLayoutRepairService {
             return rejected(SearchLayoutRepairStatus.FINGERPRINT_MISMATCH,
                     "fingerprint mismatch for " + attemptId);
         }
-        if (!entry.layoutStructureFingerprint.equals(submission.layoutStructureFingerprint)) {
+        if (!entry.layoutStructureFingerprint.equals(submission.layoutStructureFingerprint)
+                || !entry.analysisId.equals(submission.analysisId)
+                || !entry.settingsDigest.equals(submission.settingsDigest)
+                || entry.document.snapshotGeneration != submission.snapshotGeneration) {
             return rejected(SearchLayoutRepairStatus.INVALID_DECISION,
-                    "layout structure fingerprint mismatch for " + attemptId);
+                    "binding mismatch (analysis/generation/settings/structure) for " + attemptId);
         }
         if (submission.decision == null
                 || !entry.document.snapshotId.equals(submission.decision.snapshotId)

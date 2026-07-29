@@ -79,7 +79,11 @@ public final class SearchLayoutRepairCoordinator {
 
     private static SearchLayoutRepairSubmission submission(SearchLayoutRepairRequest request,
                                                            ValidatedSearchPageLayoutDecision decision) {
-        return new SearchLayoutRepairSubmission(request.attemptId, request.snapshotId,
-                request.documentFingerprint, request.layoutStructureFingerprint, decision);
+        // Every binding value comes from the TRUSTED request context, never from the model.
+        String analysisId = request.artifact == null ? "" : request.artifact.analysisId;
+        String settingsDigest = request.artifact == null ? "" : request.artifact.settingsDigest;
+        return new SearchLayoutRepairSubmission(request.attemptId, analysisId, request.snapshotId,
+                request.snapshotGeneration, request.documentFingerprint,
+                request.layoutStructureFingerprint, settingsDigest, decision);
     }
 }

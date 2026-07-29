@@ -38,8 +38,8 @@ public class SearchPageLayoutDecisionValidatorTest {
     private SearchPageLayoutResolutionDecision decision(String snapshotId, List<String> organic,
                                                         List<String> blocks, List<String> excluded,
                                                         double confidence) {
-        return new SearchPageLayoutResolutionDecision(snapshotId, organic, blocks, excluded,
-                confidence, "reason");
+        return new SearchPageLayoutResolutionDecision("analysis-" + snapshotId + "-1", snapshotId,
+                organic, blocks, excluded, confidence, "reason");
     }
 
     @Test
@@ -68,6 +68,16 @@ public class SearchPageLayoutDecisionValidatorTest {
         assertFalse(result.valid);
         assertTrue(result.hasUnknownContainerId());
         assertTrue(result.hasKind(Kind.UNKNOWN_CONTAINER_ID));
+    }
+
+    @Test
+    public void analysisMismatchIsHardRejected() {
+        SearchPageLayoutResolutionDecision d = new SearchPageLayoutResolutionDecision(
+                "analysis-OTHER", "snap-1-test", Arrays.asList("container-col"),
+                Collections.<String>emptyList(), Collections.<String>emptyList(), 0.9, "reason");
+        SearchPageLayoutValidationResult result = validator.validate(d, artifact());
+        assertFalse(result.valid);
+        assertTrue(result.hasKind(Kind.ANALYSIS_MISMATCH));
     }
 
     @Test

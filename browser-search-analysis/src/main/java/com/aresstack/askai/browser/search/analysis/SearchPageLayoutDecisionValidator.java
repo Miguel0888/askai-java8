@@ -41,6 +41,11 @@ final class SearchPageLayoutDecisionValidator {
                     "decision snapshot '" + decision.snapshotId + "' does not match artifact snapshot '"
                             + artifact.snapshotId + "'"));
         }
+        if (!artifact.analysisId.equals(decision.analysisId)) {
+            violations.add(new SearchPageLayoutValidationViolation(Kind.ANALYSIS_MISMATCH,
+                    "decision analysis '" + decision.analysisId + "' does not match artifact analysis '"
+                            + artifact.analysisId + "'"));
+        }
 
         Map<String, String> parentById = parentIndex(artifact);
 
@@ -120,7 +125,9 @@ final class SearchPageLayoutDecisionValidator {
                                                           SearchPageAnalysisArtifact artifact) {
         String primary = decision.organicResultContainerIds.isEmpty()
                 ? "" : decision.organicResultContainerIds.get(0);
+        // Bind the trusted values from the ARTIFACT, not from the model — the model only chose ids.
         return new ValidatedSearchPageLayoutDecision(artifact.analysisId, artifact.snapshotId,
+                artifact.snapshotGeneration, artifact.documentFingerprint, artifact.settingsDigest,
                 primary, decision.organicResultContainerIds, decision.resultBlockContainerIds,
                 decision.excludedContainerIds, decision.confidence);
     }
