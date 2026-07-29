@@ -160,7 +160,7 @@ public class ProductiveResearchMvpEndToEndTest {
                 reranker.asProvider(10));
         ResearchRuntimeConfig config = new ResearchRuntimeConfig(agentJava, agentJar,
                 sidecarJava, sidecarJar, System.getenv().getOrDefault("ASKAI_TEST_BROWSER_CHANNEL", "chrome"),
-                true, true, baseEngine + "/find?q={query}");
+                true, true, baseEngine + "/find?q={query}", reranker.modelName);
 
         File projectDir = Files.createTempDirectory("askai-e2e").toFile();
         ProductiveResearchSessionResources resources = null;

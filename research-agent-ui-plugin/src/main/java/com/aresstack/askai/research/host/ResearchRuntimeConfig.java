@@ -21,11 +21,23 @@ public final class ResearchRuntimeConfig {
     private final boolean headless;
     private final boolean allowPrivateNetworks;
     private final String searchUrlTemplate;
+    /** The EXPLICITLY selected virtual reranker model id ("" = none — the session start fails). */
+    private final String selectedRerankerModel;
 
     public ResearchRuntimeConfig(String agentJavaExecutable, String agentJar,
                                  String sidecarJavaExecutable, String sidecarJar,
                                  String browserChannel, boolean headless,
                                  boolean allowPrivateNetworks, String searchUrlTemplate) {
+        this(agentJavaExecutable, agentJar, sidecarJavaExecutable, sidecarJar, browserChannel,
+                headless, allowPrivateNetworks, searchUrlTemplate, "");
+    }
+
+    /** @param selectedRerankerModel the explicitly selected virtual reranker model id ("" = none). */
+    public ResearchRuntimeConfig(String agentJavaExecutable, String agentJar,
+                                 String sidecarJavaExecutable, String sidecarJar,
+                                 String browserChannel, boolean headless,
+                                 boolean allowPrivateNetworks, String searchUrlTemplate,
+                                 String selectedRerankerModel) {
         this.agentJavaExecutable = agentJavaExecutable;
         this.agentJar = agentJar;
         this.sidecarJavaExecutable = sidecarJavaExecutable;
@@ -34,6 +46,7 @@ public final class ResearchRuntimeConfig {
         this.headless = headless;
         this.allowPrivateNetworks = allowPrivateNetworks;
         this.searchUrlTemplate = searchUrlTemplate;
+        this.selectedRerankerModel = selectedRerankerModel == null ? "" : selectedRerankerModel.trim();
     }
 
     public String getAgentJavaExecutable() { return agentJavaExecutable; }
@@ -44,6 +57,7 @@ public final class ResearchRuntimeConfig {
     public boolean isHeadless() { return headless; }
     public boolean isAllowPrivateNetworks() { return allowPrivateNetworks; }
     public String getSearchUrlTemplate() { return searchUrlTemplate; }
+    public String getSelectedRerankerModel() { return selectedRerankerModel; }
 
     /** @return all problems (empty = usable). Never throws; the CALLER decides (prepare vs. report). */
     public List<String> validate() {

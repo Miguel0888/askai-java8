@@ -104,6 +104,11 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         return hostStateStore;
     }
 
+    /** Plugin-internal: a host runtime service (e.g. the reranker model catalog), or null. */
+    public <T> T getHostService(Class<T> type) {
+        return hostContext == null ? null : hostContext.getService(type);
+    }
+
     // ------------------------------------------------------------------ AgentSession lifecycle
 
     /** Visible one-time message shown when the session starts (e.g. the demo-mode notice). */

@@ -5,41 +5,39 @@ import com.aresstack.askai.agent.model.reranker.RerankerConfigurationException;
 import com.aresstack.askai.agent.model.reranker.RerankerConfigurationSnapshot;
 import com.aresstack.askai.agent.model.reranker.RerankerConfigurationSnapshotProvider;
 
-import io.github.ollama4j.json.OllamaJson;
-
 import java.io.File;
 import java.io.IOException;
-import java.nio.charset.Charset;
-import java.nio.file.Files;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 /**
- * A5e: the productive host implementation of {@link RerankerConfigurationSnapshotProvider}. It resolves
- * the explicitly usable rerank-capable local model, ensures its runtime is started, builds the neutral
- * descriptor and writes an atomic per-session snapshot — then hands the agent only the file path.
+ * A5e/A5g: the productive host implementation of {@link RerankerConfigurationSnapshotProvider}. It
+ * validates the EXPLICITLY selected rerank-capable local model (persisted research runtime setting),
+ * ensures its runtime is started, builds the neutral descriptor and writes an atomic per-session
+ * snapshot — then hands the agent only the file path.
  *
- * <p>There is NO silent "first found" fallback: exactly one installed model must advertise the
- * {@code RERANK} capability. Zero usable rerank models, or an ambiguous set of several, is a visible
- * {@link RerankerConfigurationException} that fails the productive session start rather than guessing.
+ * <p>There is NO silent "first found" fallback and no guessing: the selected virtual model id must
+ * resolve to an installed manifest that declares the {@code RERANK} capability and a usable state. A
+ * missing, removed or incompatible selection is a visible {@link RerankerConfigurationException} that
+ * fails the productive session start.
  */
 public final class LocalRerankerConfigurationSnapshotProvider
         implements RerankerConfigurationSnapshotProvider {
 
-    private static final Charset UTF_8 = Charset.forName("UTF-8");
     private static final String SNAPSHOT_FILE_NAME = "reranker-config.json";
 
     private final LocalModelRuntimeManager manager;
+    private final LocalRerankerModelCatalog catalog;
 
     public LocalRerankerConfigurationSnapshotProvider(LocalModelRuntimeManager manager) {
         this.manager = manager;
+        this.catalog = new LocalRerankerModelCatalog(manager);
     }
 
     @Override
-    public RerankerConfigurationSnapshot prepareForSession(String sessionId, File sessionDirectory)
+    public RerankerConfigurationSnapshot prepareForSession(String sessionId, File sessionDirectory,
+                                                           String selectedModel)
             throws RerankerConfigurationException {
-        String model = resolveRerankModel();
+        String model = resolveSelectedModel(selectedModel);
 
         String baseUrl;
         try {
@@ -74,63 +72,28 @@ public final class LocalRerankerConfigurationSnapshotProvider
     }
 
     /**
-     * The virtual name of the single installed rerank-capable local model. Fails visibly when none is
-     * installed, or when several are — an explicit selection is then required rather than a guess.
+     * The validated virtual model id of the EXPLICIT selection. Fails visibly when no selection is
+     * persisted, or when the selected model is no longer installed, lost its {@code RERANK} capability
+     * or is not in a usable state — never replaced by a first-match guess.
      */
-    private String resolveRerankModel() throws RerankerConfigurationException {
-        List<String> rerankModels = new ArrayList<String>();
-        File root = manager.getModelRoot();
-        File[] children = root == null ? null : root.listFiles();
-        if (children != null) {
-            for (File child : children) {
-                if (!child.isDirectory()) {
-                    continue;
-                }
-                String virtualName = rerankCapableModelName(new File(child, "askai-local-model.json"));
-                if (virtualName != null) {
-                    rerankModels.add(virtualName);
-                }
-            }
+    String resolveSelectedModel(String selectedModel) throws RerankerConfigurationException {
+        List<String> installed = catalog.listInstalledRerankModels();
+        if (selectedModel == null || selectedModel.trim().isEmpty()) {
+            throw new RerankerConfigurationException(installed.isEmpty()
+                    ? "No reranker model is selected and no rerank-capable local model is installed. "
+                            + "Install a reranker under \"Install locally in AskAI\" and select it in "
+                            + "the Research Runtime Settings before starting a productive session."
+                    : "No reranker model is selected. Choose one of the installed rerank models "
+                            + installed + " in the Research Runtime Settings (there is no silent "
+                            + "first-match selection).");
         }
-        if (rerankModels.isEmpty()) {
+        String selection = selectedModel.trim();
+        if (!installed.contains(selection)) {
             throw new RerankerConfigurationException(
-                    "No rerank-capable local model is installed. Install a reranker under "
-                            + "\"Install locally in AskAI\" before starting a productive research session.");
+                    "The selected reranker model \"" + selection + "\" is not an installed, usable "
+                            + "rerank-capable local model (installed: " + installed + "). Update the "
+                            + "selection in the Research Runtime Settings.");
         }
-        if (rerankModels.size() > 1) {
-            throw new RerankerConfigurationException(
-                    "Several rerank-capable local models are installed " + rerankModels
-                            + "; an explicit selection is required (no silent first-found fallback).");
-        }
-        return rerankModels.get(0);
-    }
-
-    /** The manifest's virtual name if it declares the RERANK capability, else {@code null}. */
-    @SuppressWarnings("unchecked")
-    private static String rerankCapableModelName(File manifestFile) {
-        if (!manifestFile.isFile()) {
-            return null;
-        }
-        Object parsed;
-        try {
-            parsed = OllamaJson.parse(new String(Files.readAllBytes(manifestFile.toPath()), UTF_8));
-        } catch (IOException | RuntimeException unreadable) {
-            return null; // a corrupt manifest is simply not a usable rerank model
-        }
-        if (!(parsed instanceof Map)) {
-            return null;
-        }
-        Map<String, Object> manifest = (Map<String, Object>) parsed;
-        Object virtualName = manifest.get("virtualName");
-        Object capabilities = manifest.get("capabilities");
-        if (!(virtualName instanceof String) || !(capabilities instanceof List)) {
-            return null;
-        }
-        for (Object capability : (List<Object>) capabilities) {
-            if (LocalRuntimeCapability.RERANK.getOllamaTag().equals(capability)) {
-                return (String) virtualName;
-            }
-        }
-        return null;
+        return selection;
     }
 }

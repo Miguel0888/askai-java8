@@ -10,8 +10,10 @@ import com.aresstack.askai.mcp.api.McpToolContribution;
 import com.aresstack.askai.mcp.solon.SolonMcpServerRuntime;
 import com.aresstack.askai.mcp.solon.SolonMcpToolClientFactory;
 import com.aresstack.askai.agent.model.reranker.RerankerConfigurationSnapshotProvider;
+import com.aresstack.askai.agent.model.reranker.RerankerModelCatalog;
 import com.aresstack.askai.java8.localmodels.LocalModelRuntimeManager;
 import com.aresstack.askai.java8.localmodels.LocalRerankerConfigurationSnapshotProvider;
+import com.aresstack.askai.java8.localmodels.LocalRerankerModelCatalog;
 
 import java.time.Duration;
 import java.util.Collection;
@@ -38,6 +40,8 @@ public final class AgentRuntimeServices {
             });
     /** Publishes the mandatory per-session reranker snapshot from the local model runtime. */
     private final RerankerConfigurationSnapshotProvider rerankerSnapshots;
+    /** Lists the installed rerank-capable models for the EXPLICIT selection in the settings UI. */
+    private final RerankerModelCatalog rerankerCatalog;
 
     /** @deprecated retained only for callers without the local model runtime (no reranker service). */
     @Deprecated
@@ -52,6 +56,8 @@ public final class AgentRuntimeServices {
     public AgentRuntimeServices(LocalModelRuntimeManager localModelRuntime) {
         this.rerankerSnapshots = localModelRuntime == null ? null
                 : new LocalRerankerConfigurationSnapshotProvider(localModelRuntime);
+        this.rerankerCatalog = localModelRuntime == null ? null
+                : new LocalRerankerModelCatalog(localModelRuntime);
     }
 
     /** The service map for DefaultAgentHostContext (neutral interface types as keys). */
@@ -62,6 +68,9 @@ public final class AgentRuntimeServices {
         services.put(AcpAgentConnector.class, connector);
         if (rerankerSnapshots != null) {
             services.put(RerankerConfigurationSnapshotProvider.class, rerankerSnapshots);
+        }
+        if (rerankerCatalog != null) {
+            services.put(RerankerModelCatalog.class, rerankerCatalog);
         }
         return services;
     }

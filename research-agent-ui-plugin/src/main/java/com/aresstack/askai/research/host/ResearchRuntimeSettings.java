@@ -24,6 +24,7 @@ public final class ResearchRuntimeSettings {
     static final String KEY_SEARCH_URL = "research.runtime.searchUrl";
     static final String KEY_ALLOW_PRIVATE = "research.runtime.allowPrivateNetworks";
     static final String KEY_LANGUAGE = "research.runtime.language";
+    static final String KEY_RERANKER_MODEL = "research.runtime.selectedRerankerModel";
 
     /** Agent language code ("en" default, "de" German) — read directly, independent of the path model. */
     public static String loadLanguage(WorkspaceStateStore store) {
@@ -45,6 +46,8 @@ public final class ResearchRuntimeSettings {
     private final boolean headless;
     private final String searchUrlTemplate;
     private final boolean allowPrivateNetworks;
+    /** The EXPLICITLY selected virtual reranker model id ("" = nothing selected yet). */
+    private final String selectedRerankerModel;
 
     public ResearchRuntimeSettings(ResearchBackendMode mode, String agentJavaExecutable, String agentJar,
                                    String sidecarJavaExecutable, String sidecarJar, String browserChannel,
@@ -58,6 +61,15 @@ public final class ResearchRuntimeSettings {
                                    String sidecarJavaExecutable, String sidecarJar, String browserChannel,
                                    boolean headless, String searchUrlTemplate,
                                    boolean allowPrivateNetworks) {
+        this(mode, agentJavaExecutable, agentJar, sidecarJavaExecutable, sidecarJar, browserChannel,
+                headless, searchUrlTemplate, allowPrivateNetworks, "");
+    }
+
+    /** @param selectedRerankerModel the explicitly selected virtual reranker model id ("" = none). */
+    public ResearchRuntimeSettings(ResearchBackendMode mode, String agentJavaExecutable, String agentJar,
+                                   String sidecarJavaExecutable, String sidecarJar, String browserChannel,
+                                   boolean headless, String searchUrlTemplate,
+                                   boolean allowPrivateNetworks, String selectedRerankerModel) {
         this.mode = mode == null ? ResearchBackendMode.FAKE : mode;
         this.agentJavaExecutable = nullToEmpty(agentJavaExecutable);
         this.agentJar = nullToEmpty(agentJar);
@@ -67,6 +79,7 @@ public final class ResearchRuntimeSettings {
         this.headless = headless;
         this.searchUrlTemplate = nullToEmpty(searchUrlTemplate);
         this.allowPrivateNetworks = allowPrivateNetworks;
+        this.selectedRerankerModel = nullToEmpty(selectedRerankerModel);
     }
 
     public static ResearchRuntimeSettings defaults() {
@@ -96,7 +109,25 @@ public final class ResearchRuntimeSettings {
                 store.get(KEY_BROWSER_CHANNEL, "chrome"),
                 store.getBoolean(KEY_HEADLESS, true),
                 store.get(KEY_SEARCH_URL, ""),
-                store.getBoolean(KEY_ALLOW_PRIVATE, false));
+                store.getBoolean(KEY_ALLOW_PRIVATE, false),
+                store.get(KEY_RERANKER_MODEL, ""));
+    }
+
+    /**
+     * ONE-TIME initial selection/migration: when NO reranker selection was ever persisted and exactly
+     * ONE installed rerank model exists, that model becomes the persisted selection. Afterwards the
+     * persisted selection is the single truth — it is never silently replaced, even when models are
+     * installed or removed later (an unusable selection fails the productive session start visibly).
+     */
+    public static void migrateInitialRerankerSelection(WorkspaceStateStore store,
+                                                       List<String> installedRerankModels) {
+        if (store == null || installedRerankModels == null || installedRerankModels.size() != 1) {
+            return;
+        }
+        String persisted = store.get(KEY_RERANKER_MODEL, "");
+        if (persisted == null || persisted.trim().isEmpty()) {
+            store.put(KEY_RERANKER_MODEL, installedRerankModels.get(0));
+        }
     }
 
     public void save(WorkspaceStateStore store) {
@@ -109,6 +140,7 @@ public final class ResearchRuntimeSettings {
         store.putBoolean(KEY_HEADLESS, headless);
         store.put(KEY_SEARCH_URL, searchUrlTemplate);
         store.putBoolean(KEY_ALLOW_PRIVATE, allowPrivateNetworks);
+        store.put(KEY_RERANKER_MODEL, selectedRerankerModel);
     }
 
     public ResearchBackendMode getMode() { return mode; }
@@ -120,13 +152,14 @@ public final class ResearchRuntimeSettings {
     public boolean isHeadless() { return headless; }
     public String getSearchUrlTemplate() { return searchUrlTemplate; }
     public boolean isAllowPrivateNetworks() { return allowPrivateNetworks; }
+    public String getSelectedRerankerModel() { return selectedRerankerModel; }
 
     /** The productive runtime config. The URL policy is strict unless the explicit, persisted
      * development-only override is set — never an implicit relaxation. */
     public ResearchRuntimeConfig toRuntimeConfig() {
         return new ResearchRuntimeConfig(agentJavaExecutable, agentJar, sidecarJavaExecutable, sidecarJar,
                 browserChannel, headless, allowPrivateNetworks,
-                searchUrlTemplate.isEmpty() ? null : searchUrlTemplate);
+                searchUrlTemplate.isEmpty() ? null : searchUrlTemplate, selectedRerankerModel);
     }
 
     /**

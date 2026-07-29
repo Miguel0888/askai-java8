@@ -106,6 +106,17 @@ public final class ResearchAgentSessionFactory implements AgentSessionFactory {
                 requireService(hostContext,
                         com.aresstack.askai.agent.model.reranker
                                 .RerankerConfigurationSnapshotProvider.class);
+        // A5g: one-time initial reranker selection (exactly ONE installed model, nothing persisted yet);
+        // afterwards the persisted, explicit selection is the single truth — never a first-match guess.
+        com.aresstack.askai.agent.model.reranker.RerankerModelCatalog rerankerCatalog =
+                hostContext.getService(
+                        com.aresstack.askai.agent.model.reranker.RerankerModelCatalog.class);
+        if (rerankerCatalog != null && hostContext.getStateStore() != null) {
+            ResearchRuntimeSettings.migrateInitialRerankerSelection(hostContext.getStateStore(),
+                    rerankerCatalog.listInstalledRerankModels());
+            settings = com.aresstack.askai.research.host.ResearchRuntimeDefaults.complete(
+                    ResearchRuntimeSettings.load(hostContext.getStateStore()));
+        }
 
         ProductiveResearchBackendFactory factory = new ProductiveResearchBackendFactory(
                 registry, toolClients, connector, settings.toRuntimeConfig(), generationId,

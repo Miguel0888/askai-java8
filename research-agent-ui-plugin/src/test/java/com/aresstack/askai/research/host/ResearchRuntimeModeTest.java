@@ -258,6 +258,80 @@ public class ResearchRuntimeModeTest {
     }
 
     @Test
+    public void rerankerSelectionIsPersistedThroughTheSameTypedMapper() {
+        MemoryStore store = new MemoryStore();
+        new ResearchRuntimeSettings(ResearchBackendMode.ACP, "a", "b", "c", "d", "chrome", true,
+                "http://s/{query}", false, "local/cross-encoder/ms-marco-MiniLM-L-6-v2:latest")
+                .save(store);
+        ResearchRuntimeSettings loaded = ResearchRuntimeSettings.load(store);
+        assertEquals("local/cross-encoder/ms-marco-MiniLM-L-6-v2:latest",
+                loaded.getSelectedRerankerModel());
+        assertEquals("the selection reaches the runtime config unchanged",
+                "local/cross-encoder/ms-marco-MiniLM-L-6-v2:latest",
+                loaded.toRuntimeConfig().getSelectedRerankerModel());
+        assertEquals("defaults completion must never drop the selection",
+                "local/cross-encoder/ms-marco-MiniLM-L-6-v2:latest",
+                ResearchRuntimeDefaults.complete(loaded).getSelectedRerankerModel());
+    }
+
+    @Test
+    public void initialRerankerSelectionMigratesExactlyOnceAndOnlyForASingleModel() {
+        MemoryStore store = new MemoryStore();
+        // Several installed models: NO automatic choice — an explicit selection stays required.
+        ResearchRuntimeSettings.migrateInitialRerankerSelection(store,
+                java.util.Arrays.asList("local/a:latest", "local/b:latest"));
+        assertEquals("", ResearchRuntimeSettings.load(store).getSelectedRerankerModel());
+        // Exactly one installed model: the one-time initial selection is persisted.
+        ResearchRuntimeSettings.migrateInitialRerankerSelection(store,
+                java.util.Collections.singletonList("local/a:latest"));
+        assertEquals("local/a:latest", ResearchRuntimeSettings.load(store).getSelectedRerankerModel());
+        // Afterwards the persisted selection is the TRUTH — never silently replaced.
+        ResearchRuntimeSettings.migrateInitialRerankerSelection(store,
+                java.util.Collections.singletonList("local/c:latest"));
+        assertEquals("local/a:latest", ResearchRuntimeSettings.load(store).getSelectedRerankerModel());
+    }
+
+    @Test
+    public void panelOffersOnlyRerankCapableModelsAndKeepsARemovedSelectionVisible() {
+        MemoryStore store = new MemoryStore();
+        com.aresstack.askai.agent.model.reranker.RerankerModelCatalog catalog =
+                new com.aresstack.askai.agent.model.reranker.RerankerModelCatalog() {
+                    public java.util.List<String> listInstalledRerankModels() {
+                        return java.util.Arrays.asList("local/a:latest", "local/b:latest");
+                    }
+                };
+        // Two installed models, nothing persisted: no automatic choice; the dropdown offers exactly
+        // the catalog's rerank-capable models, and saving persists the explicit selection.
+        ResearchRuntimeSettingsPanel panel = new ResearchRuntimeSettingsPanel(store, catalog);
+        assertEquals("", ResearchRuntimeSettings.load(store).getSelectedRerankerModel());
+        assertEquals("no persisted choice → NO silent first-item selection",
+                "", panel.currentSettings().getSelectedRerankerModel());
+
+        // A persisted selection that is NO LONGER installed stays visible and selected (the truth is
+        // never silently replaced); the productive session start validates and fails visibly instead.
+        store.put(ResearchRuntimeSettings.KEY_RERANKER_MODEL, "local/removed:latest");
+        ResearchRuntimeSettingsPanel panel2 = new ResearchRuntimeSettingsPanel(store, catalog);
+        assertEquals("local/removed:latest", panel2.currentSettings().getSelectedRerankerModel());
+    }
+
+    @Test
+    public void panelMigratesTheSingleInstalledRerankerOnOpen() {
+        MemoryStore store = new MemoryStore();
+        ResearchRuntimeSettingsPanel panel = new ResearchRuntimeSettingsPanel(store,
+                new com.aresstack.askai.agent.model.reranker.RerankerModelCatalog() {
+                    public java.util.List<String> listInstalledRerankModels() {
+                        return java.util.Collections.singletonList(
+                                "local/cross-encoder/ms-marco-MiniLM-L-6-v2:latest");
+                    }
+                });
+        assertEquals("exactly one installed reranker becomes the persisted initial selection",
+                "local/cross-encoder/ms-marco-MiniLM-L-6-v2:latest",
+                ResearchRuntimeSettings.load(store).getSelectedRerankerModel());
+        assertEquals("local/cross-encoder/ms-marco-MiniLM-L-6-v2:latest",
+                panel.currentSettings().getSelectedRerankerModel());
+    }
+
+    @Test
     public void browserChannelFallsBackToTheInstalledBrowserOnly() {
         // The configured channel wins whenever its browser exists.
         assertEquals("chrome", ResearchRuntimeDefaults.pickChannel("chrome", true, true, "msedge"));

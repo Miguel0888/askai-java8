@@ -4,7 +4,7 @@ import java.io.File;
 
 /**
  * The NEUTRAL host port through which the research agent host publishes a mandatory reranker start
- * snapshot for a session. The host implementation determines the explicitly selected rerank-capable
+ * snapshot for a session. The host implementation validates the explicitly selected rerank-capable
  * local model, ensures its runtime is started, and writes an atomic per-session snapshot; it returns
  * only the neutral {@link RerankerConfigurationSnapshot} (a file path plus the validated document).
  *
@@ -20,10 +20,14 @@ public interface RerankerConfigurationSnapshotProvider {
      *
      * @param sessionId        the session identifier (diagnostics/labelling only)
      * @param sessionDirectory the session's own directory; the snapshot is written beneath it
+     * @param selectedModel    the EXPLICITLY selected virtual model id (persisted research runtime
+     *                         setting); the host validates it against the installed models — an empty,
+     *                         removed or incompatible selection fails, it is never replaced by a guess
      * @return the published snapshot (absolute file path + validated document)
-     * @throws RerankerConfigurationException if no usable rerank-capable model exists, the runtime
+     * @throws RerankerConfigurationException if the selection is missing or not usable, the runtime
      *                                        cannot be started, or the snapshot cannot be written
      */
-    RerankerConfigurationSnapshot prepareForSession(String sessionId, File sessionDirectory)
+    RerankerConfigurationSnapshot prepareForSession(String sessionId, File sessionDirectory,
+                                                    String selectedModel)
             throws RerankerConfigurationException;
 }

@@ -100,8 +100,18 @@ public final class LiveLocalRerankerRuntime {
     public RerankerConfigurationSnapshotProvider asProvider(final int topN) {
         return new RerankerConfigurationSnapshotProvider() {
             public RerankerConfigurationSnapshot prepareForSession(String sessionId,
-                                                                   File sessionDirectory)
+                                                                   File sessionDirectory,
+                                                                   String selectedModel)
                     throws RerankerConfigurationException {
+                // Same explicit-selection contract as the productive host provider: an empty or
+                // foreign selection fails, it is never replaced by this runtime's model as a guess.
+                if (selectedModel == null || selectedModel.trim().isEmpty()) {
+                    throw new RerankerConfigurationException("no reranker model is selected");
+                }
+                if (!modelName.equals(selectedModel.trim())) {
+                    throw new RerankerConfigurationException("selected reranker model \""
+                            + selectedModel + "\" is not the installed model \"" + modelName + "\"");
+                }
                 RerankerConfigurationDocument document =
                         RerankerConfigurationDocument.current(0L, descriptor(topN));
                 File target = new File(sessionDirectory, "reranker-config.json");

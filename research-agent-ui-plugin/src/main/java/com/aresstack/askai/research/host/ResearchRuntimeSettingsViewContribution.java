@@ -33,6 +33,9 @@ public final class ResearchRuntimeSettingsViewContribution implements ArtifactVi
         if (!(session instanceof ResearchAgentSession)) {
             return new JLabel("Runtime settings are only available for research sessions.");
         }
-        return new ResearchRuntimeSettingsPanel(((ResearchAgentSession) session).getHostStateStore());
+        ResearchAgentSession research = (ResearchAgentSession) session;
+        return new ResearchRuntimeSettingsPanel(research.getHostStateStore(),
+                research.getHostService(
+                        com.aresstack.askai.agent.model.reranker.RerankerModelCatalog.class));
     }
 }

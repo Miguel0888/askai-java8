@@ -22,6 +22,9 @@ public class AgentRuntimeServicesRerankerTest {
         try {
             assertNotNull("the reranker snapshot provider is published to plugins",
                     services.asServiceMap().get(RerankerConfigurationSnapshotProvider.class));
+            assertNotNull("the reranker model catalog for the EXPLICIT selection is published too",
+                    services.asServiceMap().get(
+                            com.aresstack.askai.agent.model.reranker.RerankerModelCatalog.class));
         } finally {
             services.shutdown();
         }
@@ -32,6 +35,8 @@ public class AgentRuntimeServicesRerankerTest {
         AgentRuntimeServices services = new AgentRuntimeServices(null);
         try {
             assertNull(services.asServiceMap().get(RerankerConfigurationSnapshotProvider.class));
+            assertNull(services.asServiceMap().get(
+                    com.aresstack.askai.agent.model.reranker.RerankerModelCatalog.class));
         } finally {
             services.shutdown();
         }

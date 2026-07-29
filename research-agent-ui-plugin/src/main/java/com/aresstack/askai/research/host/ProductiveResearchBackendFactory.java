@@ -151,7 +151,8 @@ public final class ProductiveResearchBackendFactory {
         }
         RerankerConfigurationSnapshot rerankerSnapshot;
         try {
-            rerankerSnapshot = rerankerSnapshots.prepareForSession(sessionKey, projectDir);
+            rerankerSnapshot = rerankerSnapshots.prepareForSession(sessionKey, projectDir,
+                    config.getSelectedRerankerModel());
         } catch (RerankerConfigurationException ex) {
             throw new IOException("The mandatory reranker could not be prepared for this session: "
                     + ex.getMessage(), ex);
