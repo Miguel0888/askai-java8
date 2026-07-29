@@ -20,6 +20,8 @@ public final class SearchLayoutRepairRequest {
     public final String snapshotId;
     public final long snapshotGeneration;
     public final String documentFingerprint;
+    /** A structure-only fingerprint binding the ticket to the current layout shape. */
+    public final String layoutStructureFingerprint;
 
     public final SearchPageAnalysisArtifact artifact;
     public final SearchPageAnalysisDiagnosticArtifact diagnostics;
@@ -30,6 +32,7 @@ public final class SearchLayoutRepairRequest {
     public SearchLayoutRepairRequest(SearchLayoutRepairAttemptId attemptId, String query,
                                      String engineHost, EngineFamily engineFamily, String snapshotId,
                                      long snapshotGeneration, String documentFingerprint,
+                                     String layoutStructureFingerprint,
                                      SearchPageAnalysisArtifact artifact,
                                      SearchPageAnalysisDiagnosticArtifact diagnostics,
                                      long createdAtEpochMillis, long expiresAtEpochMillis) {
@@ -40,6 +43,8 @@ public final class SearchLayoutRepairRequest {
         this.snapshotId = snapshotId == null ? "" : snapshotId;
         this.snapshotGeneration = snapshotGeneration;
         this.documentFingerprint = documentFingerprint == null ? "" : documentFingerprint;
+        this.layoutStructureFingerprint =
+                layoutStructureFingerprint == null ? "" : layoutStructureFingerprint;
         this.artifact = artifact;
         this.diagnostics = diagnostics;
         this.createdAtEpochMillis = createdAtEpochMillis;

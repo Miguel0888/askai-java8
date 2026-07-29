@@ -80,6 +80,6 @@ public final class SearchLayoutRepairCoordinator {
     private static SearchLayoutRepairSubmission submission(SearchLayoutRepairRequest request,
                                                            ValidatedSearchPageLayoutDecision decision) {
         return new SearchLayoutRepairSubmission(request.attemptId, request.snapshotId,
-                request.documentFingerprint, decision);
+                request.documentFingerprint, request.layoutStructureFingerprint, decision);
     }
 }

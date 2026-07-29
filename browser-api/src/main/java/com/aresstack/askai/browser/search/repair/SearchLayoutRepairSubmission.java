@@ -13,14 +13,17 @@ public final class SearchLayoutRepairSubmission {
     public final SearchLayoutRepairAttemptId attemptId;
     public final String snapshotId;
     public final String documentFingerprint;
+    public final String layoutStructureFingerprint;
     public final ValidatedSearchPageLayoutDecision decision;
 
     public SearchLayoutRepairSubmission(SearchLayoutRepairAttemptId attemptId, String snapshotId,
-                                        String documentFingerprint,
+                                        String documentFingerprint, String layoutStructureFingerprint,
                                         ValidatedSearchPageLayoutDecision decision) {
         this.attemptId = attemptId == null ? new SearchLayoutRepairAttemptId("") : attemptId;
         this.snapshotId = snapshotId == null ? "" : snapshotId;
         this.documentFingerprint = documentFingerprint == null ? "" : documentFingerprint;
+        this.layoutStructureFingerprint =
+                layoutStructureFingerprint == null ? "" : layoutStructureFingerprint;
         this.decision = decision;
     }
 }

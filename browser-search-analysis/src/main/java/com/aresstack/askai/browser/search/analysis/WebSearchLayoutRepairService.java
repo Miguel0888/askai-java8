@@ -76,13 +76,14 @@ public final class WebSearchLayoutRepairService {
         SearchPageAnalysisDiagnosticArtifact diagnostics =
                 diagnosticBuilder.build(artifact, null, "NONE", "REPAIR_REQUIRED");
         String attemptId = "repair-" + document.snapshotId;
+        String layoutFingerprint = layoutStructureFingerprint(artifact);
         SearchLayoutRepairCache.Entry entry =
-                cache.put(attemptId, document, query, engineHost, nowEpochMillis);
+                cache.put(attemptId, document, query, engineHost, layoutFingerprint, nowEpochMillis);
         SearchLayoutRepairRequest request = new SearchLayoutRepairRequest(
                 new SearchLayoutRepairAttemptId(attemptId), query, engineHost, artifact.engineFamily,
                 document.snapshotId, document.snapshotGeneration,
                 document.documentFingerprint == null ? "" : document.documentFingerprint.value,
-                artifact, diagnostics, nowEpochMillis, entry.expiresAtEpochMillis);
+                layoutFingerprint, artifact, diagnostics, nowEpochMillis, entry.expiresAtEpochMillis);
         List<SearchLayoutRepairRequest> requests = Collections.singletonList(request);
         return new PreparedWebSearchResult(WebSearchPreparationStatus.REPAIR_REQUIRED,
                 Collections.<SearchResultCandidate>emptyList(), requests, extraction.diagnostics);
@@ -117,6 +118,10 @@ public final class WebSearchLayoutRepairService {
         if (!cachedFingerprint.equals(submission.documentFingerprint)) {
             return rejected(SearchLayoutRepairStatus.FINGERPRINT_MISMATCH,
                     "fingerprint mismatch for " + attemptId);
+        }
+        if (!entry.layoutStructureFingerprint.equals(submission.layoutStructureFingerprint)) {
+            return rejected(SearchLayoutRepairStatus.INVALID_DECISION,
+                    "layout structure fingerprint mismatch for " + attemptId);
         }
         if (submission.decision == null
                 || !entry.document.snapshotId.equals(submission.decision.snapshotId)
@@ -177,6 +182,43 @@ public final class WebSearchLayoutRepairService {
         return new PreparedWebSearchResult(status,
                 Collections.<SearchResultCandidate>emptyList(),
                 Collections.<SearchLayoutRepairRequest>emptyList(), diagnostics);
+    }
+
+    /**
+     * A stable, STRUCTURE-only fingerprint of the artifact's candidates (structure + ancestry
+     * signatures, order-independent) — binds a repair ticket to the layout shape without any
+     * snapshot-local id. Recomputing it on the same cached snapshot always matches.
+     */
+    static String layoutStructureFingerprint(SearchPageAnalysisArtifact artifact) {
+        java.util.List<String> parts = new ArrayList<String>();
+        for (com.aresstack.askai.browser.search.layout.SearchPageContainerCandidate candidate
+                : artifact.containerCandidates) {
+            parts.add(candidate.structureSignature + "|" + candidate.ancestrySignature);
+        }
+        java.util.Collections.sort(parts);
+        StringBuilder sb = new StringBuilder();
+        for (String part : parts) {
+            sb.append(part).append('\n');
+        }
+        return sha256Hex(sb.toString());
+    }
+
+    private static String sha256Hex(String value) {
+        try {
+            java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(value.getBytes(java.nio.charset.Charset.forName("UTF-8")));
+            StringBuilder hex = new StringBuilder(hash.length * 2);
+            for (byte b : hash) {
+                int v = b & 0xff;
+                if (v < 0x10) {
+                    hex.append('0');
+                }
+                hex.append(Integer.toHexString(v));
+            }
+            return hex.substring(0, 16);
+        } catch (java.security.NoSuchAlgorithmException e) {
+            return Integer.toHexString(value.hashCode());
+        }
     }
 
     private static WebSearchPreparationStatus statusOf(SearchPageAnalysisOutcome outcome) {

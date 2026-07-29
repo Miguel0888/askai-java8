@@ -51,13 +51,13 @@ public class WebSearchLayoutRepairServiceTest {
     }
 
     private SearchLayoutRepairSubmission submission(String attemptId, String snapshotId,
-                                                    String fingerprint, RenderedPageDocument doc,
-                                                    String organicId) {
+                                                    String fingerprint, String layoutFp,
+                                                    RenderedPageDocument doc, String organicId) {
         ValidatedSearchPageLayoutDecision decision = new ValidatedSearchPageLayoutDecision(
                 "analysis-x", doc.snapshotId, organicId, Arrays.asList(organicId),
                 Collections.<String>emptyList(), Collections.<String>emptyList(), 0.9);
         return new SearchLayoutRepairSubmission(new SearchLayoutRepairAttemptId(attemptId),
-                snapshotId, fingerprint, decision);
+                snapshotId, fingerprint, layoutFp, decision);
     }
 
     @Test
@@ -93,12 +93,13 @@ public class WebSearchLayoutRepairServiceTest {
         WebSearchLayoutRepairService service = service(lowConf);
         String[] col = new String[1];
         RenderedPageDocument document = columnDocument(col);
-        PreparedWebSearchResult prepared =
-                service.prepareSingle(document, "q", "engine.example", 1000L);
-        String attemptId = prepared.repairRequests.get(0).attemptId.value;
+        SearchLayoutRepairRequest request =
+                service.prepareSingle(document, "q", "engine.example", 1000L).repairRequests.get(0);
+        String attemptId = request.attemptId.value;
+        String layoutFp = request.layoutStructureFingerprint;
 
         SearchLayoutRepairResult applied = service.apply(
-                submission(attemptId, document.snapshotId, "f", document, col[0]), 2000L);
+                submission(attemptId, document.snapshotId, "f", layoutFp, document, col[0]), 2000L);
 
         assertEquals(SearchLayoutRepairStatus.ORGANIC_RESULTS, applied.status);
         assertEquals(3, applied.candidates.size());
@@ -106,7 +107,7 @@ public class WebSearchLayoutRepairServiceTest {
         assertEquals("attempt consumed after application", 0, service.cache().size());
 
         SearchLayoutRepairResult again = service.apply(
-                submission(attemptId, document.snapshotId, "f", document, col[0]), 2000L);
+                submission(attemptId, document.snapshotId, "f", layoutFp, document, col[0]), 2000L);
         assertEquals(SearchLayoutRepairStatus.UNKNOWN_ATTEMPT, again.status);
     }
 
@@ -117,34 +118,40 @@ public class WebSearchLayoutRepairServiceTest {
 
         // unknown attempt
         assertEquals(SearchLayoutRepairStatus.UNKNOWN_ATTEMPT, service(lowConf)
-                .apply(submission("nope", document.snapshotId, "f", document, col[0]), 2000L).status);
+                .apply(submission("nope", document.snapshotId, "f", "", document, col[0]), 2000L)
+                .status);
 
         // expired attempt
         WebSearchLayoutRepairService expiring = service(lowConf);
-        String id = expiring.prepareSingle(document, "q", "e", 1000L).repairRequests.get(0)
-                .attemptId.value;
+        SearchLayoutRepairRequest re = expiring.prepareSingle(document, "q", "e", 1000L)
+                .repairRequests.get(0);
         assertEquals(SearchLayoutRepairStatus.EXPIRED_ATTEMPT, expiring
-                .apply(submission(id, document.snapshotId, "f", document, col[0]), 99_000L).status);
+                .apply(submission(re.attemptId.value, document.snapshotId, "f",
+                        re.layoutStructureFingerprint, document, col[0]), 99_000L).status);
 
         // snapshot mismatch
         WebSearchLayoutRepairService s1 = service(lowConf);
-        String id1 = s1.prepareSingle(document, "q", "e", 1000L).repairRequests.get(0).attemptId.value;
+        SearchLayoutRepairRequest r1 =
+                s1.prepareSingle(document, "q", "e", 1000L).repairRequests.get(0);
         assertEquals(SearchLayoutRepairStatus.SNAPSHOT_MISMATCH, s1
-                .apply(submission(id1, "wrong-snap", "f", document, col[0]), 2000L).status);
+                .apply(submission(r1.attemptId.value, "wrong-snap", "f",
+                        r1.layoutStructureFingerprint, document, col[0]), 2000L).status);
 
         // fingerprint mismatch
         WebSearchLayoutRepairService s2 = service(lowConf);
-        String id2 = s2.prepareSingle(document, "q", "e", 1000L).repairRequests.get(0).attemptId.value;
+        SearchLayoutRepairRequest r2 =
+                s2.prepareSingle(document, "q", "e", 1000L).repairRequests.get(0);
         assertEquals(SearchLayoutRepairStatus.FINGERPRINT_MISMATCH, s2
-                .apply(submission(id2, document.snapshotId, "wrong-fp", document, col[0]), 2000L)
-                .status);
+                .apply(submission(r2.attemptId.value, document.snapshotId, "wrong-fp",
+                        r2.layoutStructureFingerprint, document, col[0]), 2000L).status);
 
-        // invalid decision (unknown container id)
+        // invalid decision (unknown container id) — passes structure fp so it reaches the id check
         WebSearchLayoutRepairService s3 = service(lowConf);
-        String id3 = s3.prepareSingle(document, "q", "e", 1000L).repairRequests.get(0).attemptId.value;
+        SearchLayoutRepairRequest r3 =
+                s3.prepareSingle(document, "q", "e", 1000L).repairRequests.get(0);
         assertEquals(SearchLayoutRepairStatus.INVALID_DECISION, s3
-                .apply(submission(id3, document.snapshotId, "f", document, "container-9999"), 2000L)
-                .status);
+                .apply(submission(r3.attemptId.value, document.snapshotId, "f",
+                        r3.layoutStructureFingerprint, document, "container-9999"), 2000L).status);
     }
 
     @Test
