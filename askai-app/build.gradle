@@ -2,6 +2,8 @@ apply plugin: 'application'
 
 dependencies {
     implementation project(':ollama4j-java8')
+    // A5b: neutral reranker endpoint contract (DTO/codec only) shared with the research agent.
+    implementation project(':agent-model-runtime-api')
     implementation project(':group-chat-api')
     implementation project(':group-chat-jgroups')
     implementation project(':audio-dsp')
