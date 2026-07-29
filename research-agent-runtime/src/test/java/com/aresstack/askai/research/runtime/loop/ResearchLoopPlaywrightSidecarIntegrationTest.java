@@ -7,6 +7,8 @@ import com.aresstack.askai.mcp.api.McpToolContribution;
 import com.aresstack.askai.mcp.api.McpToolHandler;
 import com.aresstack.askai.mcp.api.McpToolParameter;
 import com.aresstack.askai.mcp.api.McpToolResult;
+import com.aresstack.askai.browser.search.analysis.SearchLayoutRepairCoordination;
+import com.aresstack.askai.browser.search.analysis.SearchLayoutRepairCoordinator;
 import com.aresstack.askai.mcp.solon.SolonMcpServerRuntime;
 import com.aresstack.askai.research.capture.CaptureStore;
 import com.aresstack.askai.research.capture.ResearchSearchIndex;
@@ -306,6 +308,230 @@ public class ResearchLoopPlaywrightSidecarIntegrationTest {
             serverOne.stop(0);
             serverTwo.stop(0);
         }
+    }
+
+    /**
+     * The A4 CORE proof, LIVE: a real browser renders a mechanically UNSURE SERP (forced LOW_CONFIDENCE
+     * via a schema-v3 browser profile, without touching production defaults); the real Java-21 sidecar
+     * returns a typed REPAIR_REQUIRED ticket; a Java-8 scripted inference resolves the organic region;
+     * the sidecar re-checks the full binding and applies the EXISTING A3 extraction to the SAME cached
+     * live snapshot, returning real titles, snippets and DIRECT target urls. The target servers are
+     * never opened by the repair itself.
+     */
+    @Test
+    public void lowConfidenceRepairOnLiveSnapshotYieldsRealCandidates() throws Exception {
+        String sidecarJar = System.getProperty("browser.sidecar.jar", "");
+        String sidecarJava = System.getProperty("sidecar.java", "");
+        assumeTrue("SKIPPED: sidecar jar not built", !sidecarJar.isEmpty() && new File(sidecarJar).isFile());
+        assumeTrue("SKIPPED: no Java 21 toolchain available for the sidecar",
+                !sidecarJava.isEmpty() && new File(sidecarJava).isFile());
+
+        HttpServer engineServer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        HttpServer serverOne = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        HttpServer serverTwo = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        String baseEngine = "http://127.0.0.1:" + engineServer.getAddress().getPort();
+        String baseOne = "http://127.0.0.1:" + serverOne.getAddress().getPort();
+        String baseTwo = "http://127.0.0.1:" + serverTwo.getAddress().getPort();
+        // Three real result blocks (title link + snippet) inside a valid result region; the same DOM
+        // A3 accepts at default confidence, but the forced-high threshold makes the MECHANICS unsure.
+        engineServer.createContext("/find", serpPage(baseEngine + "/videos?q=pf4j",
+                new String[][]{
+                        {"PF4J primer", baseOne + "/a"},
+                        {"Independent pf4j review", baseTwo + "/c"},
+                        {"pf4j in production", baseTwo + "/e"}}));
+        java.util.concurrent.atomic.AtomicInteger hitA = new java.util.concurrent.atomic.AtomicInteger();
+        java.util.concurrent.atomic.AtomicInteger hitC = new java.util.concurrent.atomic.AtomicInteger();
+        java.util.concurrent.atomic.AtomicInteger hitE = new java.util.concurrent.atomic.AtomicInteger();
+        serverOne.createContext("/a", counting(hitA, page("PF4J primer",
+                "pf4j is a plugin framework.", "")));
+        serverTwo.createContext("/c", counting(hitC, page("Independent pf4j review",
+                "pf4j works well with java 8.", "")));
+        serverTwo.createContext("/e", counting(hitE, page("pf4j in production",
+                "More pf4j evidence.", "")));
+        engineServer.start();
+        serverOne.start();
+        serverTwo.start();
+
+        String configPath = writeLowConfidenceConfig();
+        int sidecarPort = freePort();
+        String token = "t-" + UUID.randomUUID();
+        Process sidecar = new ProcessBuilder(sidecarJava, "-jar", sidecarJar,
+                "--port=" + sidecarPort, "--token=" + token, "--allow-private=true", "--headless=true",
+                "--domain-key-mode=host-port", "--browser-config=" + configPath,
+                "--search-url=" + baseEngine + "/find?q={query}")
+                .redirectErrorStream(false).start();
+        final CountDownLatch ready = new CountDownLatch(1);
+        final AtomicReference<String> readinessLine = new AtomicReference<String>();
+        Thread drain = new Thread(new Runnable() {
+            public void run() {
+                try {
+                    BufferedReader reader = new BufferedReader(
+                            new InputStreamReader(sidecar.getErrorStream(), StandardCharsets.UTF_8));
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        System.err.println("[sidecar-lowconf] " + line);
+                        if (line.contains("playwright readiness:")) {
+                            readinessLine.set(line);
+                        }
+                        if (line.contains("ready on 127.0.0.1:")) {
+                            ready.countDown();
+                        }
+                    }
+                } catch (IOException ignored) {
+                }
+            }
+        }, "sidecar-lowconf-drain");
+        drain.setDaemon(true);
+        drain.start();
+
+        SolonToolInvoker sidecarClient = null;
+        try {
+            assumeTrue("SKIPPED: sidecar did not come up within 120s",
+                    ready.await(120, TimeUnit.SECONDS));
+            String readiness = readinessLine.get();
+            assumeTrue("SKIPPED (environment-gated): " + readiness,
+                    readiness != null && readiness.contains("READY"));
+            sidecarClient = new SolonToolInvoker(
+                    "http://127.0.0.1:" + sidecarPort + "/mcp/browser/" + token, "streamable");
+
+            // ---- prepare on the REAL browser render → typed REPAIR_REQUIRED ----
+            com.aresstack.askai.browser.search.repair.PreparedWebSearchResult prepared =
+                    com.aresstack.askai.browser.search.analysis.SearchLayoutRepairJson.decodePrepared(
+                            sidecarClient.call("web_search_prepare",
+                                    java.util.Collections.<String, Object>singletonMap("query", "pf4j")));
+            assertEquals("the mechanics are unsure on this snapshot",
+                    com.aresstack.askai.browser.search.repair.WebSearchPreparationStatus.REPAIR_REQUIRED,
+                    prepared.status);
+            assertEquals(1, prepared.repairRequests.size());
+            com.aresstack.askai.browser.search.repair.SearchLayoutRepairRequest request =
+                    prepared.repairRequests.get(0);
+            assertEquals("no target page is opened before applying", 0, hitA.get() + hitC.get()
+                    + hitE.get());
+
+            // ---- Java-8 runtime: scripted inference built from the ACTUAL request (no fragile ids) ----
+            final String organicId =
+                    request.artifact.mechanicallyPreferredContainerIds.get(0);
+            final java.util.concurrent.atomic.AtomicInteger inferenceCalls =
+                    new java.util.concurrent.atomic.AtomicInteger();
+            com.aresstack.askai.browser.search.inference.StructuredInferencePort port =
+                    new com.aresstack.askai.browser.search.inference.StructuredInferencePort() {
+                        public com.aresstack.askai.browser.search.inference.StructuredInferenceResult
+                                execute(com.aresstack.askai.browser.search.inference
+                                        .StructuredInferenceRequest req) {
+                            inferenceCalls.incrementAndGet();
+                            return com.aresstack.askai.browser.search.inference.StructuredInferenceResult
+                                    .success("{\"analysisId\":\"" + request.artifact.analysisId
+                                            + "\",\"snapshotId\":\"" + request.snapshotId + "\","
+                                            + "\"organicResultContainerIds\":[\"" + organicId + "\"],"
+                                            + "\"resultBlockContainerIds\":[],\"excludedContainerIds\":[],"
+                                            + "\"confidence\":0.9,\"explanation\":\"live\"}");
+                        }
+                    };
+            SearchLayoutRepairCoordinator coordinator = new SearchLayoutRepairCoordinator(
+                    RepairBridgeFixtures.highConfidenceAiEnabled(), port,
+                    com.aresstack.askai.browser.search.inference.InferenceBudgetGate.ALLOW_ALL,
+                    com.aresstack.askai.browser.search.inference.RetryDelay.IMMEDIATE, null);
+            SearchLayoutRepairCoordination coordination =
+                    coordinator.coordinate(request, com.aresstack.askai.browser.search.inference
+                            .CancellationSignal.NONE, 1000L);
+            assertEquals(SearchLayoutRepairCoordination.Outcome.SUBMIT, coordination.outcome);
+            assertEquals("exactly one inference call", 1, inferenceCalls.get());
+
+            // ---- apply on the SAME cached live snapshot → real A3 candidates ----
+            String submissionJson = com.aresstack.askai.browser.search.analysis.SearchLayoutRepairJson
+                    .encodeSubmission(coordination.submission);
+            com.aresstack.askai.browser.search.repair.SearchLayoutRepairResult applied =
+                    com.aresstack.askai.browser.search.analysis.SearchLayoutRepairJson.decodeRepairResult(
+                            sidecarClient.call("web_search_apply_layout",
+                                    java.util.Collections.<String, Object>singletonMap("submission",
+                                            submissionJson)));
+            assertEquals(com.aresstack.askai.browser.search.repair.SearchLayoutRepairStatus
+                    .ORGANIC_RESULTS, applied.status);
+            assertEquals("three live result blocks extracted", 3, applied.candidates.size());
+            java.util.List<String> titles = new ArrayList<String>();
+            java.util.List<String> urls = new ArrayList<String>();
+            for (com.aresstack.askai.browser.search.SearchResultCandidate candidate
+                    : applied.candidates) {
+                titles.add(candidate.title);
+                urls.add(candidate.resolvedTargetUrl);
+                assertTrue("snippet is taken from the block: " + candidate.snippet,
+                        candidate.snippet.contains("Explanatory snippet describing"));
+                assertTrue("resolved url is a DIRECT target, never the engine wrapper",
+                        candidate.resolvedTargetUrl.startsWith(baseOne)
+                                || candidate.resolvedTargetUrl.startsWith(baseTwo));
+            }
+            assertTrue("titles come from the live-rendered DOM",
+                    titles.contains("PF4J primer") && titles.contains("Independent pf4j review")
+                            && titles.contains("pf4j in production"));
+            assertTrue(urls.contains(baseOne + "/a") && urls.contains(baseTwo + "/c")
+                    && urls.contains(baseTwo + "/e"));
+            assertEquals("apply returns candidates only — it never opens target pages", 0,
+                    hitA.get() + hitC.get() + hitE.get());
+
+            // ---- a second apply of the SAME ticket is hard-rejected (one-shot) ----
+            com.aresstack.askai.browser.search.repair.SearchLayoutRepairResult again =
+                    com.aresstack.askai.browser.search.analysis.SearchLayoutRepairJson.decodeRepairResult(
+                            sidecarClient.call("web_search_apply_layout",
+                                    java.util.Collections.<String, Object>singletonMap("submission",
+                                            submissionJson)));
+            assertEquals(com.aresstack.askai.browser.search.repair.SearchLayoutRepairStatus
+                    .UNKNOWN_ATTEMPT, again.status);
+        } finally {
+            close(sidecarClient);
+            sidecar.destroy();
+            if (!sidecar.waitFor(15, TimeUnit.SECONDS)) {
+                sidecar.destroyForcibly();
+                sidecar.waitFor(15, TimeUnit.SECONDS);
+            }
+            engineServer.stop(0);
+            serverOne.stop(0);
+            serverTwo.stop(0);
+        }
+    }
+
+    private static HttpHandler counting(final java.util.concurrent.atomic.AtomicInteger hits,
+                                        final HttpHandler delegate) {
+        return new HttpHandler() {
+            public void handle(HttpExchange exchange) throws IOException {
+                hits.incrementAndGet();
+                delegate.handle(exchange);
+            }
+        };
+    }
+
+    /** A schema-v3 browser profile that forces LOW_CONFIDENCE (raised structural threshold) — the
+     *  production defaults are never touched. */
+    private static String writeLowConfidenceConfig() throws IOException {
+        com.aresstack.askai.browser.search.LegacyBrowserSearchSettings d =
+                com.aresstack.askai.browser.search.LegacyBrowserSearchDefaults.create();
+        com.aresstack.askai.browser.search.SearchPageAnalysisSettings a = d.analysis;
+        com.aresstack.askai.browser.search.SearchPageAnalysisSettings forced =
+                new com.aresstack.askai.browser.search.SearchPageAnalysisSettings(a.noResultsTexts,
+                        a.maximumCandidateContainers, a.minimumContainerTextCharacters,
+                        a.minimumNonLinkTextCharacters, a.minimumRepeatedSiblingCount, 0.999,
+                        a.maximumNavigationLinkDensity, a.internalLinkWeight, a.externalLinkWeight,
+                        a.sameHostPenalty, a.sameRegistrableDomainPenalty, a.subdomainPenalty,
+                        a.unknownDomainPenalty, a.repeatedBlockWeight, a.nonLinkTextWeight,
+                        a.titleLinkWeight, a.snippetPresenceWeight, a.headingLinkWeight,
+                        a.semanticMainWeight, a.navigationRolePenalty, a.resultBlockSimilarityThreshold,
+                        a.minimumDiscriminatingSignalFamilies, a.fullPageAreaRatio,
+                        a.textLengthSaturationCharacters, a.maximumContainerDomDepth,
+                        a.maximumCapturedContainers, a.maximumLinksPerContainer,
+                        a.maximumStructureSignatureDepth);
+        com.aresstack.askai.browser.search.LegacyBrowserSearchSettings low =
+                new com.aresstack.askai.browser.search.LegacyBrowserSearchSettings(d.navigation,
+                        d.consent, d.captcha, d.readiness, forced, d.visualAnalysis, d.extraction,
+                        d.aiLayoutResolver, d.reranker, d.diagnostics, d.layoutRepair);
+        java.util.Map<String, String> values =
+                com.aresstack.askai.browser.search.LegacyBrowserSearchSettingsCodec.toValues(low);
+        String json = new com.aresstack.askai.browser.search.LegacyBrowserSearchConfigDocument(
+                com.aresstack.askai.browser.search.LegacyBrowserSearchConfigDocument
+                        .CURRENT_SCHEMA_VERSION, 1L,
+                com.aresstack.askai.browser.search.LegacyBrowserSearchSettingsCodec.digest(low), values)
+                .toJson();
+        File file = File.createTempFile("askai-lowconf", ".json");
+        java.nio.file.Files.write(file.toPath(), json.getBytes(StandardCharsets.UTF_8));
+        return file.getAbsolutePath();
     }
 
     // ------------------------------------------------------------------ helpers
