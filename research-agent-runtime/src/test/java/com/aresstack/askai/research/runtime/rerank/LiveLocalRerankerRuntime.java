@@ -12,12 +12,9 @@ import com.aresstack.askai.agent.model.reranker.RerankerScoreSemantics;
 import com.aresstack.askai.agent.model.reranker.RerankerSelectionConfiguration;
 
 import java.io.BufferedReader;
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.net.HttpURLConnection;
-import java.net.URL;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.util.Arrays;
@@ -54,7 +51,12 @@ public final class LiveLocalRerankerRuntime {
                 && modelRoot.isDirectory() && hasInstalledModel(modelRoot);
     }
 
-    /** Start the runtime, or return {@code null} when prerequisites are missing. */
+    /**
+     * Start the runtime, or return {@code null} when prerequisites are missing — including when no installed
+     * RUNNABLE model publishes the {@code rerank} capability. The capability is resolved up front from the
+     * published manifests, BEFORE spawning the runtime and BEFORE any rerank call, so a non-rerank model
+     * (e.g. an embedding-only model) makes callers skip readably instead of failing later on an HTTP 400.
+     */
     public static LiveLocalRerankerRuntime startOrNull() throws Exception {
         if (!available()) {
             return null;
@@ -62,6 +64,12 @@ public final class LiveLocalRerankerRuntime {
         String java21 = System.getProperty("sidecar.java");
         String jar = System.getProperty("localmodel.sidecar.jar");
         File modelRoot = localModelRoot();
+
+        // Decide from the PUBLISHED capability, not from a runtime error and not from the model name.
+        String rerankModel = LocalModelRerankPrerequisite.firstRerankCapableModelOrNull(modelRoot);
+        if (rerankModel == null) {
+            return null;
+        }
 
         final Process process = new ProcessBuilder(Arrays.asList(java21, "-jar", jar,
                 "--host=127.0.0.1", "--port=0", "--model-root=" + modelRoot.getAbsolutePath(),
@@ -82,12 +90,9 @@ public final class LiveLocalRerankerRuntime {
             process.destroyForcibly();
             return null;
         }
-        String model = firstTaggedModel(baseUrl[0]);
-        if (model == null) {
-            process.destroyForcibly();
-            return null;
-        }
-        return new LiveLocalRerankerRuntime(process, baseUrl[0], model);
+        // The runtime serves exactly the installed RUNNABLE manifests, so the rerank-capable model chosen
+        // from the published capability above is the served model.
+        return new LiveLocalRerankerRuntime(process, baseUrl[0], rerankModel);
     }
 
     public RerankerEndpointDescriptor descriptor(int topN) {
@@ -156,20 +161,6 @@ public final class LiveLocalRerankerRuntime {
         thread.start();
     }
 
-    private static String firstTaggedModel(String baseUrl) throws Exception {
-        HttpURLConnection connection = (HttpURLConnection) new URL(join(baseUrl, "/api/tags"))
-                .openConnection();
-        connection.setRequestMethod("GET");
-        connection.setConnectTimeout(10_000);
-        connection.setReadTimeout(10_000);
-        if (connection.getResponseCode() != 200) {
-            return null;
-        }
-        String body = readAll(connection.getInputStream());
-        connection.disconnect();
-        return between(body, "\"model\":\"", "\"");
-    }
-
     static File localModelRoot() {
         String appData = System.getenv("APPDATA");
         File base = appData != null && !appData.trim().isEmpty()
@@ -200,19 +191,4 @@ public final class LiveLocalRerankerRuntime {
         return end < 0 ? null : text.substring(start, end);
     }
 
-    private static String join(String baseUrl, String path) {
-        return baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) + path
-                : baseUrl + path;
-    }
-
-    private static String readAll(InputStream stream) throws Exception {
-        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-        byte[] chunk = new byte[4096];
-        int read;
-        while ((read = stream.read(chunk)) != -1) {
-            buffer.write(chunk, 0, read);
-        }
-        stream.close();
-        return new String(buffer.toByteArray(), UTF_8);
-    }
 }
