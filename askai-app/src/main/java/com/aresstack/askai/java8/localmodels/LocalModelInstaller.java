@@ -3,7 +3,7 @@ package com.aresstack.askai.java8.localmodels;
 import com.aresstack.askai.java8.hf.DownloadProgressListener;
 import com.aresstack.askai.java8.hf.HuggingFaceClient;
 import com.aresstack.askai.java8.hf.HuggingFaceFile;
-import io.github.ollama4j.json.OllamaJson;
+import com.aresstack.windirectml.catalog.LocalRuntimeModelDescriptor;
 
 import java.io.File;
 import java.io.IOException;
@@ -33,8 +33,6 @@ public final class LocalModelInstaller {
         void onDownloadProgress(String fileName, long completed, long total);
     }
 
-    public static final int MANIFEST_SCHEMA_VERSION = 1;
-
     private final HuggingFaceClient client;
     private final LocalModelRuntimeManager manager;
     private final LocalModelCompatibilityAnalyzer analyzer = new LocalModelCompatibilityAnalyzer();
@@ -46,6 +44,20 @@ public final class LocalModelInstaller {
 
     /** @return the virtual model name after a fully verified installation. */
     public String install(String repositoryId, final Listener listener) throws IOException {
+        // Family is decided by the neutral catalog, never by a name heuristic. Generation families are
+        // catalogued but their local installer is not wired yet; encoders land with the sidecar's
+        // encoder-package path in the next commit; the reranker is installable now.
+        LocalModelInstallResolution resolution = LocalModelInstallResolution.resolve(repositoryId);
+        if (!resolution.isInstallable()) {
+            throw new IOException(resolution.getMessage() != null ? resolution.getMessage()
+                    : "'" + repositoryId + "' cannot be installed into the local runtime.");
+        }
+        if (resolution.getKind() == LocalModelInstallResolution.Kind.ENCODER) {
+            throw new IOException("Local installation of embedding encoders is not enabled yet in this "
+                    + "build (the sidecar encoder-package path lands in the next commit): " + repositoryId);
+        }
+        LocalRuntimeModelDescriptor descriptor = resolution.getDescriptor();
+
         listener.onStep("Resolving repository revision…");
         String revision = client.resolveRevisionSha(repositoryId, "main");
         List<HuggingFaceFile> remoteFiles = client.listAllFilesDetailed(repositoryId);
@@ -109,8 +121,11 @@ public final class LocalModelInstaller {
 
             listener.onStep("Writing the installation manifest…");
             String virtualName = LocalModelNames.virtualName(repositoryId);
-            writeManifest(assembly, virtualName, repositoryId, revision,
-                    localCheck.getRuntimeModelId());
+            // Manifest v2: the catalog facts (family, package, capabilities, backends, source format) plus
+            // the resolved revision and install time. Written LAST, after the verified compile + smoke-load.
+            Files.write(new File(assembly, "askai-local-model.json").toPath(),
+                    LocalModelManifest.forInstall(descriptor, virtualName, revision,
+                            System.currentTimeMillis()).toJson().getBytes(Charset.forName("UTF-8")));
 
             listener.onStep("Activating the model…");
             File finalDirectory = new File(localRoot, localCheck.getRuntimeDirectoryName());
@@ -140,22 +155,6 @@ public final class LocalModelInstaller {
         request.put("model", virtualName);
         request.put("keep_alive", 0);
         return request;
-    }
-
-    private void writeManifest(File assembly, String virtualName, String repositoryId,
-                               String revision, String runtimeModelId) throws IOException {
-        Map<String, Object> manifest = new LinkedHashMap<String, Object>();
-        manifest.put("schemaVersion", MANIFEST_SCHEMA_VERSION);
-        manifest.put("virtualName", virtualName);
-        manifest.put("huggingFaceRepository", repositoryId);
-        manifest.put("resolvedRevision", revision);
-        manifest.put("runtimeModelId", runtimeModelId);
-        manifest.put("capabilities",
-                Arrays.asList(LocalRuntimeCapability.RERANK.getOllamaTag()));
-        manifest.put("backendSupport", Arrays.asList("cpu", "directml"));
-        manifest.put("state", "RUNNABLE");
-        Files.write(new File(assembly, "askai-local-model.json").toPath(),
-                OllamaJson.toJson(manifest).getBytes(Charset.forName("UTF-8")));
     }
 
     // ------------------------------------------------------------------ helpers

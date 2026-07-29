@@ -7,7 +7,13 @@ allprojects {
         // com.aresstack:directml-model-catalog:0.1.0-SNAPSHOT from mavenLocal while it is being built in
         // the sibling win-directml-java repo. Development state: 0.1.0-SNAPSHOT via mavenLocal.
         // Merge/release state: a fixed published Maven Central version (pinned in C5, before any ff-merge).
-        mavenLocal()
+        // Restrict mavenLocal to the AresStack group so a stray local artifact of another group can never
+        // silently shadow a Central dependency.
+        mavenLocal {
+            content {
+                includeGroup 'com.aresstack'
+            }
+        }
         mavenCentral()
     }
 }

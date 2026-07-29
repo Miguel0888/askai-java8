@@ -89,8 +89,9 @@ public final class OllamaInstallPanel extends JPanel {
     private boolean programmaticLocalToggle = false;
     /** Suppresses auto-activation during programmatic dropdown reloads. */
     private boolean suppressLocalAutoActivate = false;
-    /** The term of the last handled selection, so a NEW selection resets the per-selection override. */
-    private String lastHandledSuggestionTerm = "";
+    /** Identity (term + target) of the last handled selection, so a NEW selection resets the override.
+     *  Using term+target avoids a collision when a local and a general entry share the same search term. */
+    private String lastHandledSuggestionKey = "";
     private final JLabel repoCapabilityLabel = new JLabel(" ");
     private final JLabel importStatusLabel = new JLabel(" ");
     // Always-visible one-line summary of the latest step/result/error; the full history lives in the
@@ -692,8 +693,9 @@ public final class OllamaInstallPanel extends JPanel {
             return;
         }
         HuggingFaceSearchSuggestion suggestion = (HuggingFaceSearchSuggestion) selected;
-        if (!suggestion.getTerm().equals(lastHandledSuggestionTerm)) {
-            lastHandledSuggestionTerm = suggestion.getTerm();
+        String key = suggestion.getTerm() + " " + suggestion.getTarget().name();
+        if (!key.equals(lastHandledSuggestionKey)) {
+            lastHandledSuggestionKey = key;
             localInstallTouchedByUser = false; // a new selection is fresh intent
         }
         if (suggestion.isLocalEngine() && !localInstallTouchedByUser
