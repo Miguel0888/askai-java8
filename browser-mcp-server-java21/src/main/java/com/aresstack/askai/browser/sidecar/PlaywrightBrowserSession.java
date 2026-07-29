@@ -95,7 +95,95 @@ final class PlaywrightBrowserSession implements BrowserSession {
         this.fallbackSearchTemplates = templates == null ? new String[0] : templates;
     }
 
+    @SuppressWarnings({"unchecked", "rawtypes"})
     public WebSearchResult search(String query) throws BrowserException {
+        // web_search: run the SHARED engine navigation; the consumer extracts each captured page and
+        // stops on the first organic hit — exactly the previous behaviour, no second navigation.
+        final List<com.aresstack.askai.browser.WebSearchItem>[] organic = new List[]{null};
+        EngineNavigation nav = navigateAndCaptureSearchEngines(query, new CapturedPageConsumer() {
+            public boolean accept(com.aresstack.askai.browser.render.RenderedPageDocument document,
+                    String host,
+                    List<com.aresstack.askai.browser.LegacySearchEngineAttemptResult> attempts) {
+                com.aresstack.askai.browser.search.SearchResultExtractionResult extraction =
+                        searchProvider.extract(document);
+                switch (extraction.outcome) {
+                    case ORGANIC_RESULTS:
+                        List<com.aresstack.askai.browser.WebSearchItem> items =
+                                new ArrayList<com.aresstack.askai.browser.WebSearchItem>();
+                        for (com.aresstack.askai.browser.search.SearchResultCandidate candidate
+                                : extraction.candidates) {
+                            if (items.size() >= settings.navigation.searchResultLimit) {
+                                break;
+                            }
+                            items.add(new com.aresstack.askai.browser.WebSearchItem(
+                                    String.valueOf(items.size() + 1), candidate.title,
+                                    candidate.resolvedTargetUrl, candidate.snippet));
+                        }
+                        attempts.add(attempt(host, com.aresstack.askai.browser
+                                .LegacySearchAttemptOutcome.ORGANIC_RESULTS,
+                                items.size() + " candidates"));
+                        organic[0] = items;
+                        return true;
+                    case NO_ORGANIC_RESULTS:
+                        attempts.add(attempt(host, com.aresstack.askai.browser
+                                .LegacySearchAttemptOutcome.NO_ORGANIC_RESULTS,
+                                bounded(firstDiagnostic(extraction))));
+                        return false;
+                    default:
+                        // An ununderstood layout is an extraction FAILURE, never an empty engine.
+                        attempts.add(attempt(host, com.aresstack.askai.browser
+                                .LegacySearchAttemptOutcome.EXTRACTION_FAILED,
+                                bounded(firstDiagnostic(extraction))));
+                        return false;
+                }
+            }
+        });
+        if (organic[0] != null) {
+            return new WebSearchResult(organic[0], nav.providerHosts, nav.attempts);
+        }
+        if (!nav.anyEngineReached && challengeFamily == null && nav.lastFailure != null) {
+            throw nav.lastFailure; // nothing was reachable at all — a plain technical failure
+        }
+        // HARD INVARIANT: no path ever returns the SERP's raw anchors as results.
+        return new WebSearchResult(
+                Collections.<com.aresstack.askai.browser.WebSearchItem>emptyList(),
+                nav.providerHosts, nav.attempts);
+    }
+
+    /** The captured-page hook for the shared engine navigation — returns true to STOP the loop. */
+    interface CapturedPageConsumer {
+        boolean accept(com.aresstack.askai.browser.render.RenderedPageDocument document, String host,
+                       List<com.aresstack.askai.browser.LegacySearchEngineAttemptResult> attempts);
+    }
+
+    /** The shared outcome of one engine-navigation pass. */
+    static final class EngineNavigation {
+        final List<String> providerHosts;
+        final List<com.aresstack.askai.browser.LegacySearchEngineAttemptResult> attempts;
+        final List<com.aresstack.askai.browser.search.repair.SearchChallengeState> challenges;
+        final boolean anyEngineReached;
+        final BrowserException lastFailure;
+
+        EngineNavigation(List<String> providerHosts,
+                List<com.aresstack.askai.browser.LegacySearchEngineAttemptResult> attempts,
+                List<com.aresstack.askai.browser.search.repair.SearchChallengeState> challenges,
+                boolean anyEngineReached, BrowserException lastFailure) {
+            this.providerHosts = providerHosts;
+            this.attempts = attempts;
+            this.challenges = challenges;
+            this.anyEngineReached = anyEngineReached;
+            this.lastFailure = lastFailure;
+        }
+    }
+
+    /**
+     * The SINGLE engine-navigation loop (templates, fallback engines, domain-family locks, consent,
+     * challenge detection, provider hosts, capture, per-engine attempts). web_search and
+     * web_search_prepare both drive it; the consumer decides what to do with each captured page and
+     * when to stop, so web_search behaviour is unchanged and no ticket is left behind.
+     */
+    EngineNavigation navigateAndCaptureSearchEngines(String query, CapturedPageConsumer consumer)
+            throws BrowserException {
         if (searchUrlTemplate == null) {
             throw new BrowserException("No search provider is configured for the Playwright backend "
                     + "(start the sidecar with --search-url=<template containing {query}>).");
@@ -120,6 +208,8 @@ final class PlaywrightBrowserSession implements BrowserSession {
         List<String> providerHosts = new ArrayList<String>();
         List<com.aresstack.askai.browser.LegacySearchEngineAttemptResult> attempts =
                 new ArrayList<com.aresstack.askai.browser.LegacySearchEngineAttemptResult>();
+        List<com.aresstack.askai.browser.search.repair.SearchChallengeState> challenges =
+                new ArrayList<com.aresstack.askai.browser.search.repair.SearchChallengeState>();
         boolean anyEngineReached = false;
         BrowserException lastFailure = null;
         for (String template : templates) {
@@ -157,6 +247,8 @@ final class PlaywrightBrowserSession implements BrowserSession {
                     challengeFamily = pageIdentity.getRegistrableDomain();
                     challengeUrl = page.getUrl();
                 }
+                challenges.add(new com.aresstack.askai.browser.search.repair.SearchChallengeState(
+                        pageIdentity.getRegistrableDomain(), page.getUrl()));
                 attempts.add(attempt(host,
                         com.aresstack.askai.browser.LegacySearchAttemptOutcome.CHALLENGE_PENDING,
                         "manual challenge"));
@@ -186,44 +278,14 @@ final class PlaywrightBrowserSession implements BrowserSession {
                         "structured page capture unavailable"));
                 continue;
             }
-            com.aresstack.askai.browser.search.SearchResultExtractionResult extraction =
-                    searchProvider.extract(document);
-            switch (extraction.outcome) {
-                case ORGANIC_RESULTS:
-                    List<com.aresstack.askai.browser.WebSearchItem> items =
-                            new ArrayList<com.aresstack.askai.browser.WebSearchItem>();
-                    for (com.aresstack.askai.browser.search.SearchResultCandidate candidate
-                            : extraction.candidates) {
-                        if (items.size() >= settings.navigation.searchResultLimit) {
-                            break;
-                        }
-                        items.add(new com.aresstack.askai.browser.WebSearchItem(
-                                String.valueOf(items.size() + 1), candidate.title,
-                                candidate.resolvedTargetUrl, candidate.snippet));
-                    }
-                    attempts.add(attempt(host,
-                            com.aresstack.askai.browser.LegacySearchAttemptOutcome.ORGANIC_RESULTS,
-                            items.size() + " candidates"));
-                    return new WebSearchResult(items, providerHosts, attempts);
-                case NO_ORGANIC_RESULTS:
-                    attempts.add(attempt(host, com.aresstack.askai.browser
-                            .LegacySearchAttemptOutcome.NO_ORGANIC_RESULTS,
-                            bounded(firstDiagnostic(extraction))));
-                    break;
-                default:
-                    // An ununderstood layout is an extraction FAILURE, never an empty engine.
-                    attempts.add(attempt(host, com.aresstack.askai.browser
-                            .LegacySearchAttemptOutcome.EXTRACTION_FAILED,
-                            bounded(firstDiagnostic(extraction))));
+            // The consumer decides what to do with this captured page and whether to stop the loop
+            // (web_search stops on the first organic hit; web_search_prepare keeps collecting).
+            if (consumer.accept(document, host, attempts)) {
+                break;
             }
         }
-        if (!anyEngineReached && challengeFamily == null && lastFailure != null) {
-            throw lastFailure; // nothing was reachable at all — a plain technical failure
-        }
-        // HARD INVARIANT (Gesamtanforderungen): no path ever returns the SERP's raw anchors as results.
-        // Every engine's typed outcome travels with the (empty) result instead.
-        return new WebSearchResult(Collections.<com.aresstack.askai.browser.WebSearchItem>emptyList(),
-                providerHosts, attempts);
+        return new EngineNavigation(providerHosts, attempts, challenges, anyEngineReached,
+                lastFailure);
     }
 
     private static String firstDiagnostic(
