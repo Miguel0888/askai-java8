@@ -37,6 +37,15 @@ public final class ResearchPlaybook {
     }
 
     /** First contact: friendly, takes initiative, ONE open question — never an approval. */
+    /** A failed scope commit: explain, keep the dialog repeatable — never a silent advance. */
+    public static String scopeCommitFailed(String detail) {
+        return language == Language.GERMAN
+                ? "Der Forschungsauftrag konnte nicht gespeichert werden (" + detail
+                        + "). Es wurde nichts fortgeschaltet - bitte bestaetige den Umfang erneut."
+                : "The research scope could not be saved (" + detail
+                        + "). Nothing was advanced - please confirm the scope again.";
+    }
+
     public static String greeting() {
         if (de()) {
             return "Hallo! Ich unterstütze dich bei einer strukturierten Recherche: Wir klären zuerst, "

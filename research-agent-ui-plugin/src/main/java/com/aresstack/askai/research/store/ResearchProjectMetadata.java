@@ -24,8 +24,8 @@ public final class ResearchProjectMetadata {
         this.schemaVersion = schemaVersion;
         this.projectId = projectId == null ? "" : projectId;
         this.researchQuestion = researchQuestion == null ? "" : researchQuestion;
-        this.confirmedFocusAreas = Collections.unmodifiableList(
-                new ArrayList<String>(confirmedFocusAreas));
+        this.confirmedFocusAreas = Collections.unmodifiableList(confirmedFocusAreas == null
+                ? new ArrayList<String>() : new ArrayList<String>(confirmedFocusAreas));
         this.revision = revision;
     }
 

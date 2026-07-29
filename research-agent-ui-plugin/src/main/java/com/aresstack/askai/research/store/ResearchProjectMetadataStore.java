@@ -37,34 +37,67 @@ public final class ResearchProjectMetadataStore {
         StoreIo.atomicWrite(file, writer.toString());
     }
 
-    /** @return the restored metadata, or {@code null} when the file is missing or unreadable. */
-    public ResearchProjectMetadata load() {
+    /** Sanity bound: a hand-damaged focusAreaCount must not allocate unbounded lists. */
+    private static final int MAXIMUM_FOCUS_AREAS = 1000;
+
+    /**
+     * Typed, VALIDATED load: only a missing file is a legitimate new project. Corruption, an
+     * unsupported schema and a project-id mismatch are distinct failures the productive start
+     * BLOCKS on - a damaged project never silently restarts as an empty research assignment.
+     */
+    public MetadataLoadResult load(String expectedProjectId) {
         if (!file.isFile()) {
-            return null;
+            return MetadataLoadResult.missing();
         }
+        Properties props = new Properties();
         try {
-            Properties props = new Properties();
             props.load(new StringReader(StoreIo.readUtf8(file)));
-            String projectId = props.getProperty("projectId");
-            String question = props.getProperty("researchQuestion");
-            if (projectId == null || question == null) {
-                return null; // corrupt: the contract fields are missing
-            }
-            int count = Integer.parseInt(props.getProperty("focusAreaCount", "0"));
-            List<String> areas = new ArrayList<String>();
-            for (int i = 0; i < count; i++) {
-                String area = props.getProperty("focusArea." + i);
-                if (area != null) {
-                    areas.add(area);
-                }
-            }
-            return new ResearchProjectMetadata(
-                    Integer.parseInt(props.getProperty("schemaVersion",
-                            String.valueOf(ResearchProjectMetadata.SCHEMA_VERSION))),
-                    projectId, question, areas,
-                    Long.parseLong(props.getProperty("revision", "0")));
-        } catch (Exception corrupt) {
-            return null;
+        } catch (Exception unreadable) {
+            return MetadataLoadResult.failed(MetadataLoadResult.Status.CORRUPT,
+                    "project.properties is unreadable: " + unreadable.getMessage());
         }
+        String projectId = props.getProperty("projectId");
+        String question = props.getProperty("researchQuestion");
+        if (projectId == null || question == null) {
+            return MetadataLoadResult.failed(MetadataLoadResult.Status.CORRUPT,
+                    "project.properties is missing its contract fields (projectId/researchQuestion)");
+        }
+        int schemaVersion;
+        long revision;
+        int count;
+        try {
+            schemaVersion = Integer.parseInt(props.getProperty("schemaVersion", "-1"));
+            revision = Long.parseLong(props.getProperty("revision", "-1"));
+            count = Integer.parseInt(props.getProperty("focusAreaCount", "0"));
+        } catch (NumberFormatException broken) {
+            return MetadataLoadResult.failed(MetadataLoadResult.Status.CORRUPT,
+                    "project.properties carries non-numeric schema/revision/count fields");
+        }
+        if (schemaVersion != ResearchProjectMetadata.SCHEMA_VERSION) {
+            return MetadataLoadResult.failed(MetadataLoadResult.Status.UNSUPPORTED_SCHEMA,
+                    "schemaVersion " + schemaVersion + " is not supported (expected "
+                            + ResearchProjectMetadata.SCHEMA_VERSION + ")");
+        }
+        if (expectedProjectId != null && !expectedProjectId.equals(projectId)) {
+            return MetadataLoadResult.failed(MetadataLoadResult.Status.PROJECT_ID_MISMATCH,
+                    "stored projectId '" + projectId + "' does not belong to project '"
+                            + expectedProjectId + "'");
+        }
+        if (revision < 0 || count < 0 || count > MAXIMUM_FOCUS_AREAS) {
+            return MetadataLoadResult.failed(MetadataLoadResult.Status.CORRUPT,
+                    "revision/focusAreaCount out of range (revision=" + revision
+                            + ", focusAreaCount=" + count + ")");
+        }
+        List<String> areas = new ArrayList<String>();
+        for (int i = 0; i < count; i++) {
+            String area = props.getProperty("focusArea." + i);
+            if (area == null) {
+                return MetadataLoadResult.failed(MetadataLoadResult.Status.CORRUPT,
+                        "focusArea." + i + " is missing (focusAreaCount says " + count + ")");
+            }
+            areas.add(area);
+        }
+        return MetadataLoadResult.loaded(new ResearchProjectMetadata(schemaVersion, projectId,
+                question, areas, revision));
     }
 }

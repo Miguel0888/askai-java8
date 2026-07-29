@@ -51,6 +51,13 @@ public final class ScopingConversation {
         this.stage = Stage.DONE;
     }
 
+    /** Reopen a completed dialog after a FAILED scope commit: the user can confirm again. */
+    public void reopenForRetry() {
+        if (stage == Stage.DONE) {
+            stage = Stage.CONFIRMING;
+        }
+    }
+
     public boolean isComplete() {
         return stage == Stage.DONE;
     }

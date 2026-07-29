@@ -251,10 +251,21 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                     }
                     return; // the dialog is host-side; nothing is forwarded to the agent yet
                 }
-                // Scope CONFIRMED: real artifacts from the confirmed scope, then the outline gate.
+                // Scope CONFIRMED: commit metadata + concept + outline FAIL-CLOSED. Only a
+                // fully successful commit may advance the state machine; any failure keeps the
+                // scoping repeatable and shows a localized reason.
+                ResearchScopeCommitService.ScopeCommitResult commit =
+                        new ResearchScopeCommitService(productiveResources.getProjectContext())
+                                .commit(new ConfirmedResearchScope(scoping.getQuestion(),
+                                        scoping.getAspects(), scoping.buildConceptMarkdown(),
+                                        scoping.buildOutlineMarkdown()));
+                if (!commit.isSuccess()) {
+                    scoping.reopenForRetry();
+                    sayAsAgent(ResearchPlaybook.scopeCommitFailed(
+                            commit.getStatus() + ": " + commit.getDetail()));
+                    return;
+                }
                 researchQuestion = scoping.getQuestion();
-                persistProjectMetadata();
-                writeScopedArtifacts();
                 autoAdvanceTowardsResearch(); // stops at the approval, showing the actual outline
                 return;
             }
@@ -279,30 +290,6 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     }
 
     /**
-     * Persist the TYPED research assignment (question + confirmed focus areas) as project
-     * metadata — never parsed back out of concept.md; Markdown stays presentation.
-     */
-    private void persistProjectMetadata() {
-        if (productiveResources == null) {
-            return;
-        }
-        com.aresstack.askai.research.store.ResearchProjectMetadataStore metadataStore =
-                productiveResources.getProjectContext().getMetadataStore();
-        com.aresstack.askai.research.store.ResearchProjectMetadata previous = metadataStore.load();
-        long revision = previous == null ? 1L : previous.getRevision() + 1L;
-        try {
-            metadataStore.save(new com.aresstack.askai.research.store.ResearchProjectMetadata(
-                    com.aresstack.askai.research.store.ResearchProjectMetadata.SCHEMA_VERSION,
-                    productiveResources.getProjectContext().getProjectId(),
-                    scoping.getQuestion(), scoping.getAspects(), revision));
-        } catch (java.io.IOException persistFailed) {
-            // The scope stays usable in this session; the failure is visible, never silent.
-            sayAsAgent("The research assignment could not be persisted: "
-                    + persistFailed.getMessage());
-        }
-    }
-
-    /**
      * Restore the persisted research assignment of this project, if any: the question and the
      * confirmed focus areas come back typed, the scoping dialog is marked complete — a restored
      * session never repeats the scoping ceremony.
@@ -311,25 +298,22 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         if (productiveResources == null) {
             return false;
         }
-        com.aresstack.askai.research.store.ResearchProjectMetadata metadata =
-                productiveResources.getProjectContext().getMetadataStore().load();
-        if (metadata == null || !metadata.hasResearchQuestion()) {
+        com.aresstack.askai.research.store.MetadataLoadResult loadResult =
+                productiveResources.getProjectContext().getMetadataStore()
+                        .load(productiveResources.getProjectContext().getProjectId());
+        if (loadResult.getStatus()
+                != com.aresstack.askai.research.store.MetadataLoadResult.Status.LOADED
+                || !loadResult.getMetadata().hasResearchQuestion()) {
+            // MISSING is a fresh project; damaged metadata never reaches this point because the
+            // factory blocks the productive start fail-closed.
             return false;
         }
+        com.aresstack.askai.research.store.ResearchProjectMetadata metadata =
+                loadResult.getMetadata();
         researchQuestion = metadata.getResearchQuestion();
         scoping.restoreCompleted(metadata.getResearchQuestion(),
                 metadata.getConfirmedFocusAreas());
         return true;
-    }
-
-    /** Concept + outline from the CONFIRMED scope (revision >= 1) — the approval shows real content. */
-    private void writeScopedArtifacts() {
-        com.aresstack.askai.plugin.api.agent.artifact.AgentArtifactStore store =
-                productiveResources.getArtifactStore();
-        com.aresstack.askai.plugin.api.agent.artifact.ArtifactContent concept = store.read("concept");
-        store.replace("concept", concept.getRevision(), scoping.buildConceptMarkdown());
-        com.aresstack.askai.plugin.api.agent.artifact.ArtifactContent outline = store.read("outline");
-        store.replace("outline", outline.getRevision(), scoping.buildOutlineMarkdown());
     }
 
     /**

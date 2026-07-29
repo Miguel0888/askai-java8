@@ -66,7 +66,7 @@ public class ResearchProjectContextPersistenceTest {
         ResearchProjectContext restoredContext = ResearchProjectContext.open("proj-1", projectDir);
         ProductiveResearchSessionResources restored = resources(restoredContext);
 
-        ResearchProjectMetadata metadata = restoredContext.getMetadataStore().load();
+        ResearchProjectMetadata metadata = restoredContext.getMetadataStore().load("proj-1").getMetadata();
         assertEquals("How does PF4J plugin isolation work?", metadata.getResearchQuestion());
         assertEquals(Arrays.asList("classloading", "extension points"),
                 metadata.getConfirmedFocusAreas());
@@ -106,12 +106,14 @@ public class ResearchProjectContextPersistenceTest {
         // Restore A: never B's data. Restore a brand-new project: empty everything, SCOPING/new.
         ResearchProjectContext restoredA = ResearchProjectContext.open("proj-a", dirA);
         assertEquals("A outline", restoredA.getArtifactStore().read("outline").getMarkdown());
-        assertEquals("question A", restoredA.getMetadataStore().load().getResearchQuestion());
+        assertEquals("question A",
+                restoredA.getMetadataStore().load("proj-a").getMetadata().getResearchQuestion());
 
         ResearchProjectContext fresh = ResearchProjectContext.open("proj-new", tempDir());
         assertEquals("", fresh.getArtifactStore().read("outline").getMarkdown());
         assertTrue(fresh.getSourceRepository().find(SourceQuery.all()).isEmpty());
-        assertEquals(null, fresh.getMetadataStore().load());
+        assertEquals(com.aresstack.askai.research.store.MetadataLoadResult.Status.MISSING,
+                fresh.getMetadataStore().load("proj-new").getStatus());
         ProductiveResearchSessionResources freshResources = resources(fresh);
         assertEquals(ResearchStateIds.SCOPING, freshResources.currentState().getPhaseId());
         assertEquals(ResearchStateIds.NEW, freshResources.currentState().getStateId());
@@ -138,6 +140,54 @@ public class ResearchProjectContextPersistenceTest {
         assertEquals("the previous state stays active",
                 before.getStateId(), resources.currentState().getStateId());
         assertEquals(before.getRevision(), resources.currentState().getRevision());
+    }
+
+    @Test
+    public void anUnwritableInitialStateStoreFailsTheSessionCreation() throws Exception {
+        File projectDir = tempDir();
+        // Sabotage BEFORE the first resources creation: the state file path is a non-empty
+        // directory, so the mandatory initial persist must fail — and the session must not start.
+        File stateFile = new File(new File(projectDir, "state"), "research-session.json");
+        assertTrue(stateFile.mkdirs());
+        assertTrue(new File(stateFile, "blocker").createNewFile());
+        try {
+            resources(com.aresstack.askai.research.store.ResearchProjectContext
+                    .open("proj-fail", projectDir));
+            org.junit.Assert.fail("a productive session with an unwritable state store must not start");
+        } catch (IllegalStateException expected) {
+            assertTrue(expected.getMessage().contains("must not start"));
+        }
+    }
+
+    @Test
+    public void damagedMetadataNeverLooksLikeAFreshProject() throws Exception {
+        File projectDir = tempDir();
+        ResearchProjectContext context = ResearchProjectContext.open("proj-1", projectDir);
+        // Corrupt file → CORRUPT (not MISSING).
+        java.nio.file.Files.write(new File(projectDir, "project.properties").toPath(),
+                "researchQuestion=only-half-a-contract".getBytes("UTF-8"));
+        assertEquals(com.aresstack.askai.research.store.MetadataLoadResult.Status.CORRUPT,
+                context.getMetadataStore().load("proj-1").getStatus());
+
+        // Foreign projectId → PROJECT_ID_MISMATCH.
+        context.getMetadataStore().save(new ResearchProjectMetadata(
+                ResearchProjectMetadata.SCHEMA_VERSION, "someone-else", "q",
+                java.util.Collections.<String>emptyList(), 1L));
+        assertEquals(com.aresstack.askai.research.store.MetadataLoadResult.Status
+                        .PROJECT_ID_MISMATCH,
+                context.getMetadataStore().load("proj-1").getStatus());
+
+        // Unsupported schema → UNSUPPORTED_SCHEMA.
+        context.getMetadataStore().save(new ResearchProjectMetadata(99, "proj-1", "q",
+                java.util.Collections.<String>emptyList(), 1L));
+        assertEquals(com.aresstack.askai.research.store.MetadataLoadResult.Status
+                        .UNSUPPORTED_SCHEMA,
+                context.getMetadataStore().load("proj-1").getStatus());
+
+        // Only a genuinely missing file is a fresh project.
+        assertTrue(new File(projectDir, "project.properties").delete());
+        assertEquals(com.aresstack.askai.research.store.MetadataLoadResult.Status.MISSING,
+                context.getMetadataStore().load("proj-1").getStatus());
     }
 
     @Test

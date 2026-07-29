@@ -138,6 +138,16 @@ public final class ProductiveResearchBackendFactory {
         // project directory — the productive path never constructs an in-memory artifact store.
         com.aresstack.askai.research.store.ResearchProjectContext projectContext =
                 com.aresstack.askai.research.store.ResearchProjectContext.open(sessionKey, projectDir);
+        // FAIL-CLOSED start gate: only MISSING (new project) or LOADED metadata may start. A
+        // corrupt/foreign/unsupported project.properties blocks the session with a repair hint -
+        // it never silently restarts as an empty research assignment.
+        com.aresstack.askai.research.store.MetadataLoadResult metadataResult =
+                projectContext.getMetadataStore().load(sessionKey);
+        if (!metadataResult.isUsableForStart()) {
+            throw new IOException("The stored research project metadata is unusable ("
+                    + metadataResult.getStatus() + "): " + metadataResult.getReason()
+                    + " - repair or remove " + new File(projectDir, "project.properties"));
+        }
         CaptureStore captures = new CaptureStore(200);
         final FileResearchSourceRepository repository = projectContext.getFileSourceRepository();
         ResearchSearchIndex.InMemory index = new ResearchSearchIndex.InMemory();

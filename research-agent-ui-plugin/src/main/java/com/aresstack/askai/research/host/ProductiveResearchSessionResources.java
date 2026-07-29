@@ -71,10 +71,11 @@ public final class ProductiveResearchSessionResources {
             try {
                 projectContext.getSessionStateStore().save(this.state);
             } catch (java.io.IOException persistFailed) {
-                // The session still starts; the FIRST dispatch will fail loudly if the state
-                // directory is truly unwritable (persist-before-apply below).
-                System.err.println("[research] could not persist the initial state: "
-                        + persistFailed.getMessage());
+                // FAIL-CLOSED: a productive context whose state store cannot write never
+                // activates - the factory's rollback tears everything down.
+                throw new IllegalStateException("The research project state store is not "
+                        + "writable (" + persistFailed.getMessage() + ") - the productive "
+                        + "session must not start", persistFailed);
             }
         }
         this.captures = captures;
