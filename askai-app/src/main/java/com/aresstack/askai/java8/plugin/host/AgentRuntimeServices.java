@@ -9,6 +9,9 @@ import com.aresstack.askai.mcp.api.McpToolClientFactory;
 import com.aresstack.askai.mcp.api.McpToolContribution;
 import com.aresstack.askai.mcp.solon.SolonMcpServerRuntime;
 import com.aresstack.askai.mcp.solon.SolonMcpToolClientFactory;
+import com.aresstack.askai.agent.model.reranker.RerankerConfigurationSnapshotProvider;
+import com.aresstack.askai.java8.localmodels.LocalModelRuntimeManager;
+import com.aresstack.askai.java8.localmodels.LocalRerankerConfigurationSnapshotProvider;
 
 import java.time.Duration;
 import java.util.Collection;
@@ -33,6 +36,23 @@ public final class AgentRuntimeServices {
                     System.err.println("[research-agent] " + line);
                 }
             });
+    /** Publishes the mandatory per-session reranker snapshot from the local model runtime. */
+    private final RerankerConfigurationSnapshotProvider rerankerSnapshots;
+
+    /** @deprecated retained only for callers without the local model runtime (no reranker service). */
+    @Deprecated
+    public AgentRuntimeServices() {
+        this(null);
+    }
+
+    /**
+     * @param localModelRuntime the app's local model runtime manager; when present a mandatory reranker
+     *                          snapshot provider is published for productive research sessions
+     */
+    public AgentRuntimeServices(LocalModelRuntimeManager localModelRuntime) {
+        this.rerankerSnapshots = localModelRuntime == null ? null
+                : new LocalRerankerConfigurationSnapshotProvider(localModelRuntime);
+    }
 
     /** The service map for DefaultAgentHostContext (neutral interface types as keys). */
     public Map<Class<?>, Object> asServiceMap() {
@@ -40,6 +60,9 @@ public final class AgentRuntimeServices {
         services.put(McpServerRegistry.class, registry);
         services.put(McpToolClientFactory.class, toolClients);
         services.put(AcpAgentConnector.class, connector);
+        if (rerankerSnapshots != null) {
+            services.put(RerankerConfigurationSnapshotProvider.class, rerankerSnapshots);
+        }
         return services;
     }
 

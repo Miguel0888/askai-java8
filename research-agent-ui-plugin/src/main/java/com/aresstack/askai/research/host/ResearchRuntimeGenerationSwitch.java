@@ -1,6 +1,7 @@
 package com.aresstack.askai.research.host;
 
 import com.aresstack.askai.acp.AcpAgentConnector;
+import com.aresstack.askai.agent.model.reranker.RerankerConfigurationSnapshotProvider;
 import com.aresstack.askai.mcp.api.McpServerRegistry;
 import com.aresstack.askai.mcp.api.McpToolClientFactory;
 
@@ -18,14 +19,17 @@ public final class ResearchRuntimeGenerationSwitch {
     private final McpServerRegistry registry;
     private final McpToolClientFactory toolClients;
     private final AcpAgentConnector connector;
+    private final RerankerConfigurationSnapshotProvider rerankerSnapshots;
     private final AtomicLong generationIds = new AtomicLong();
     private volatile ResearchRuntimeGeneration active;
 
     public ResearchRuntimeGenerationSwitch(McpServerRegistry registry, McpToolClientFactory toolClients,
-                                           AcpAgentConnector connector) {
+                                           AcpAgentConnector connector,
+                                           RerankerConfigurationSnapshotProvider rerankerSnapshots) {
         this.registry = registry;
         this.toolClients = toolClients;
         this.connector = connector;
+        this.rerankerSnapshots = rerankerSnapshots;
     }
 
     public ResearchRuntimeGeneration getActive() {
@@ -46,7 +50,8 @@ public final class ResearchRuntimeGenerationSwitch {
         }
         long id = generationIds.incrementAndGet();
         ResearchRuntimeGeneration next = new ResearchRuntimeGeneration(id,
-                new ProductiveResearchBackendFactory(registry, toolClients, connector, config, id));
+                new ProductiveResearchBackendFactory(registry, toolClients, connector, config, id,
+                        rerankerSnapshots));
         // b) publish.
         ResearchRuntimeGeneration previous = active;
         active = next;

@@ -37,6 +37,11 @@ public final class ResearchAgentMain {
     private McpClientProvider researchMcp;
     private volatile boolean readinessAnnounced;
     /**
+     * The MANDATORY reranker, built ONCE at session/new for a browser session (validated + endpoint
+     * readiness-checked there, not mid-prompt). Null only when this session has no browser endpoint.
+     */
+    private com.aresstack.askai.research.runtime.rerank.CandidateReranker reranker;
+    /**
      * Canonical URLs visited across ALL runs of this agent process (one process per session): a
      * CONTINUE_RESEARCH turn gets a fresh budget but never navigates the same target pages again.
      */
@@ -82,7 +87,59 @@ public final class ResearchAgentMain {
         ToolResult status = researchMcp.callTool("research_status",
                 Collections.<String, Object>emptyMap());
         System.err.println("[research-agent] research_status ok: " + status);
+
+        // A browser research session REQUIRES the mandatory reranker. Build and readiness-check it here,
+        // at session/new — a missing/invalid snapshot or an unreachable endpoint fails the session start
+        // atomically, never mid-run and never with a silent raw-order fallback.
+        if (environment.hasBrowser()) {
+            this.reranker = buildMandatoryReranker();
+        }
         return new AcpSchema.NewSessionResponse("research-acp-" + environment.sessionId, null, null);
+    }
+
+    /**
+     * Read + strictly validate the reranker start snapshot, confirm the endpoint is reachable, and build
+     * the single {@link com.aresstack.askai.research.runtime.rerank.SearchResultReranker} for this
+     * session. Every failure is a hard session/new failure.
+     */
+    private com.aresstack.askai.research.runtime.rerank.CandidateReranker buildMandatoryReranker() {
+        if (!environment.hasReranker()) {
+            throw new IllegalStateException("ASKAI_RERANKER_CONFIG is required for a browser research "
+                    + "session (the local reranker is mandatory; no raw-order fallback).");
+        }
+        com.aresstack.askai.agent.model.reranker.RerankerConfigurationDocument document;
+        try {
+            document = com.aresstack.askai.research.runtime.rerank.RerankerConfigurationLoader
+                    .load(environment.rerankerConfigPath);
+        } catch (java.io.IOException ex) {
+            throw new IllegalStateException("The reranker configuration is unusable ("
+                    + environment.rerankerConfigPath + "): " + ex.getMessage(), ex);
+        }
+        com.aresstack.askai.agent.model.reranker.RerankerEndpointDescriptor descriptor =
+                document.descriptor;
+        if (!descriptor.hasCapability(
+                com.aresstack.askai.agent.model.reranker.RerankerCapability.RERANK)) {
+            throw new IllegalStateException("The reranker endpoint does not advertise RERANK.");
+        }
+        if (descriptor.scoreSemantics
+                != com.aresstack.askai.agent.model.reranker.RerankerScoreSemantics.RAW_LOGIT) {
+            throw new IllegalStateException("The reranker endpoint must use RAW_LOGIT scores (was "
+                    + descriptor.scoreSemantics + ").");
+        }
+        com.aresstack.askai.research.runtime.rerank.HttpRerankerClient client =
+                new com.aresstack.askai.research.runtime.rerank.HttpRerankerClient(descriptor);
+        try {
+            client.probeReadiness();
+        } catch (com.aresstack.askai.research.runtime.rerank.RerankerClientException ex) {
+            throw new IllegalStateException("The reranker endpoint is not ready: " + ex.getMessage(),
+                    ex);
+        }
+        com.aresstack.askai.research.runtime.rerank.SearchResultSelectionPolicy policy =
+                new com.aresstack.askai.research.runtime.rerank.SearchResultSelectionPolicy(
+                        descriptor.selectionConfiguration);
+        System.err.println("[research-agent] reranker ready: " + descriptor.modelName);
+        return new com.aresstack.askai.research.runtime.rerank.SearchResultReranker(client, policy,
+                descriptor.modelName, descriptor.scoreSemantics);
     }
 
     @Cancel
@@ -230,13 +287,10 @@ public final class ResearchAgentMain {
                                             .ResearchRunWire.attention(reason, domainFamily, url, resolved));
                                 }
                             }, cancelled, loadBrowserSearchSettings());
-            // The MANDATORY local reranker: when the host published a start snapshot, every organic
-            // candidate is scored and only the survivors reach web_open. A missing/invalid snapshot
-            // fails the run visibly rather than silently opening pages in raw engine order.
-            com.aresstack.askai.research.runtime.rerank.SearchResultReranker configuredReranker =
-                    loadReranker();
-            if (configuredReranker != null) {
-                loop.setReranker(configuredReranker);
+            // The MANDATORY local reranker was built and readiness-checked at session/new; inject it so
+            // every organic candidate is scored before any web_open. (Non-browser turns never reach here.)
+            if (reranker != null) {
+                loop.setReranker(reranker);
             }
             // Continuation semantics: a later run of the same session never re-navigates target pages.
             loop.excludeVisited(visitedAcrossRuns);
@@ -249,33 +303,6 @@ public final class ResearchAgentMain {
             browser.close();
             research.close();
         }
-    }
-
-    /**
-     * The MANDATORY reranker for this run: reads the host's start snapshot named by
-     * {@code ASKAI_RERANKER_CONFIG} through the strict shared codec and builds an HTTP-backed reranker
-     * plus its selection policy. Returns {@code null} only when no snapshot was published (e.g. a build
-     * without a local reranker); a present-but-invalid snapshot throws, failing the run visibly rather
-     * than regressing to raw engine order.
-     */
-    private com.aresstack.askai.research.runtime.rerank.SearchResultReranker loadReranker() {
-        if (!environment.hasReranker()) {
-            return null;
-        }
-        com.aresstack.askai.agent.model.reranker.RerankerConfigurationDocument document;
-        try {
-            document = com.aresstack.askai.research.runtime.rerank.RerankerConfigurationLoader
-                    .load(environment.rerankerConfigPath);
-        } catch (java.io.IOException ex) {
-            throw new IllegalStateException("Cannot read ASKAI_RERANKER_CONFIG="
-                    + environment.rerankerConfigPath + ": " + ex.getMessage());
-        }
-        com.aresstack.askai.research.runtime.rerank.HttpRerankerClient client =
-                new com.aresstack.askai.research.runtime.rerank.HttpRerankerClient(document.descriptor);
-        com.aresstack.askai.research.runtime.rerank.SearchResultSelectionPolicy policy =
-                new com.aresstack.askai.research.runtime.rerank.SearchResultSelectionPolicy(
-                        document.descriptor.selectionConfiguration);
-        return new com.aresstack.askai.research.runtime.rerank.SearchResultReranker(client, policy);
     }
 
     /**

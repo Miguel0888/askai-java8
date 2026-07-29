@@ -3,6 +3,9 @@ package com.aresstack.askai.research.host;
 import com.aresstack.askai.acp.AcpAgentConnector;
 import com.aresstack.askai.acp.AcpEndpointDescriptor;
 import com.aresstack.askai.acp.AgentLaunchSpec;
+import com.aresstack.askai.agent.model.reranker.RerankerConfigurationException;
+import com.aresstack.askai.agent.model.reranker.RerankerConfigurationSnapshot;
+import com.aresstack.askai.agent.model.reranker.RerankerConfigurationSnapshotProvider;
 import com.aresstack.askai.mcp.api.McpServerRegistry;
 import com.aresstack.askai.mcp.api.McpToolClient;
 import com.aresstack.askai.mcp.api.McpToolClientFactory;
@@ -52,18 +55,22 @@ public final class ProductiveResearchBackendFactory {
     /** Stored browser-search overrides (canonical codec keys) + their revision, from the host store. */
     private final Map<String, String> browserSearchValues;
     private final long browserSearchRevision;
+    /** Publishes the MANDATORY per-session reranker snapshot; required for every productive session. */
+    private final RerankerConfigurationSnapshotProvider rerankerSnapshots;
 
     public ProductiveResearchBackendFactory(McpServerRegistry registry, McpToolClientFactory toolClients,
                                             AcpAgentConnector connector, ResearchRuntimeConfig config,
-                                            long generationId) {
+                                            long generationId,
+                                            RerankerConfigurationSnapshotProvider rerankerSnapshots) {
         this(registry, toolClients, connector, config, generationId,
-                Collections.<String, String>emptyMap(), 0L);
+                Collections.<String, String>emptyMap(), 0L, rerankerSnapshots);
     }
 
     public ProductiveResearchBackendFactory(McpServerRegistry registry, McpToolClientFactory toolClients,
                                             AcpAgentConnector connector, ResearchRuntimeConfig config,
                                             long generationId, Map<String, String> browserSearchValues,
-                                            long browserSearchRevision) {
+                                            long browserSearchRevision,
+                                            RerankerConfigurationSnapshotProvider rerankerSnapshots) {
         this.registry = registry;
         this.toolClients = toolClients;
         this.connector = connector;
@@ -71,6 +78,7 @@ public final class ProductiveResearchBackendFactory {
         this.generationId = generationId;
         this.browserSearchValues = browserSearchValues;
         this.browserSearchRevision = browserSearchRevision;
+        this.rerankerSnapshots = rerankerSnapshots;
     }
 
     /**
@@ -133,6 +141,21 @@ public final class ProductiveResearchBackendFactory {
                                         .LegacyBrowserSearchSettingsCodec
                                         .toValues(profile.settings))).toJson());
         File fullConfigFile = profileFile;
+
+        // MANDATORY reranker: publish the per-session snapshot BEFORE any process is started. A missing
+        // provider or an unpreparable snapshot fails the session here — there is no browser research run
+        // without a reranker, and no silent raw-order fallback.
+        if (rerankerSnapshots == null) {
+            throw new IOException("The mandatory reranker snapshot provider is not available; "
+                    + "a productive research session cannot start without a local reranker.");
+        }
+        RerankerConfigurationSnapshot rerankerSnapshot;
+        try {
+            rerankerSnapshot = rerankerSnapshots.prepareForSession(sessionKey, projectDir);
+        } catch (RerankerConfigurationException ex) {
+            throw new IOException("The mandatory reranker could not be prepared for this session: "
+                    + ex.getMessage(), ex);
+        }
 
         // 1. Session-owned stores + state machine (pure, nothing to roll back).
         CaptureStore captures = new CaptureStore(200);
@@ -208,10 +231,11 @@ public final class ProductiveResearchBackendFactory {
 
             // 4. Backend with BOTH endpoint descriptors (structured env hand-off; tokens never logged).
             String agentJava = config.getAgentJavaExecutable();
-            Map<String, String> baseEnv = new LinkedHashMap<String, String>();
             // The agent reads the FULL settings document (AI/prompt settings stay host-side only in
-            // the sense of never reaching the BROWSER process; the agent needs them).
-            baseEnv.put("ASKAI_BROWSER_SEARCH_CONFIG", fullConfigFile.getAbsolutePath());
+            // the sense of never reaching the BROWSER process; the agent needs them) plus the MANDATORY
+            // reranker start snapshot: the agent MUST rerank before opening any page.
+            Map<String, String> baseEnv = agentLaunchEnvironment(fullConfigFile.getAbsolutePath(),
+                    rerankerSnapshot.getAbsolutePath());
             AgentLaunchSpec spec = new AgentLaunchSpec(agentJava,
                     java.util.Arrays.asList("-jar", config.getAgentJar()), baseEnv);
             AcpResearchSessionBackend backend = null; // assigned after control.open()
@@ -257,6 +281,19 @@ public final class ProductiveResearchBackendFactory {
         if (sidecar != null) {
             sidecar.close();
         }
+    }
+
+    /**
+     * The agent launch environment: the browser-search config document AND the MANDATORY reranker start
+     * snapshot. Extracted so the exact env the agent receives (both keys present) is unit-testable
+     * without spawning a process.
+     */
+    static Map<String, String> agentLaunchEnvironment(String searchConfigPath,
+                                                      String rerankerSnapshotPath) {
+        Map<String, String> baseEnv = new LinkedHashMap<String, String>();
+        baseEnv.put("ASKAI_BROWSER_SEARCH_CONFIG", searchConfigPath);
+        baseEnv.put("ASKAI_RERANKER_CONFIG", rerankerSnapshotPath);
+        return baseEnv;
     }
 
     /** Used by generation preparation: validation without side effects. */

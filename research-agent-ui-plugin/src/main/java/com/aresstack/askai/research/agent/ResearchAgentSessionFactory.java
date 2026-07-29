@@ -100,13 +100,20 @@ public final class ResearchAgentSessionFactory implements AgentSessionFactory {
         McpServerRegistry registry = requireService(hostContext, McpServerRegistry.class);
         McpToolClientFactory toolClients = requireService(hostContext, McpToolClientFactory.class);
         AcpAgentConnector connector = requireService(hostContext, AcpAgentConnector.class);
+        // The reranker snapshot provider is MANDATORY for the productive browser path — a missing host
+        // service fails the session start visibly (no fallback to a reranker-less run).
+        com.aresstack.askai.agent.model.reranker.RerankerConfigurationSnapshotProvider rerankerSnapshots =
+                requireService(hostContext,
+                        com.aresstack.askai.agent.model.reranker
+                                .RerankerConfigurationSnapshotProvider.class);
 
         ProductiveResearchBackendFactory factory = new ProductiveResearchBackendFactory(
                 registry, toolClients, connector, settings.toRuntimeConfig(), generationId,
                 com.aresstack.askai.research.host.LegacyBrowserSearchSettingsStore
                         .loadValues(hostContext.getStateStore()),
                 com.aresstack.askai.research.host.LegacyBrowserSearchSettingsStore
-                        .revision(hostContext.getStateStore()));
+                        .revision(hostContext.getStateStore()),
+                rerankerSnapshots);
         final ProductiveResearchSessionResources resources;
         try {
             resources = factory.createSession(request.getSessionId(),
