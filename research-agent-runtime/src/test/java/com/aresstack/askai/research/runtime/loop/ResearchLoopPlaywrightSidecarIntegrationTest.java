@@ -264,6 +264,28 @@ public class ResearchLoopPlaywrightSidecarIntegrationTest {
                 assertTrue("capture text must be JS-rendered: " + capture.getCanonicalUrl(),
                         capture.getText().contains("Rendered by JavaScript"));
             }
+
+            // A4 tool surface on the REAL sidecar: the loop already drove web_search_prepare above;
+            // web_search stays a working compatibility surface and the repair tools are discoverable.
+            assertNotNull("web_search remains a working compatibility surface",
+                    sidecarClient.call("web_search",
+                            java.util.Collections.<String, Object>singletonMap("query", "pf4j")));
+            assertTrue("web_search_discard_repair is registered on the sidecar",
+                    sidecarClient.call("web_search_discard_repair",
+                            java.util.Collections.<String, Object>singletonMap("repairTicketId", "x"))
+                            .startsWith("DISCARDED"));
+            // A HIGH-confidence real SERP prepares organic candidates directly — zero inference.
+            com.aresstack.askai.browser.search.repair.PreparedWebSearchResult prepared =
+                    com.aresstack.askai.browser.search.analysis.SearchLayoutRepairJson.decodePrepared(
+                            sidecarClient.call("web_search_prepare",
+                                    java.util.Collections.<String, Object>singletonMap("query",
+                                            "pf4j")));
+            assertEquals("real high-confidence SERP → organic, no repair ticket",
+                    com.aresstack.askai.browser.search.repair.WebSearchPreparationStatus
+                            .ORGANIC_RESULTS, prepared.status);
+            assertTrue("real A3 candidates carry resolved target urls",
+                    !prepared.candidates.isEmpty()
+                            && prepared.candidates.get(0).resolvedTargetUrl.startsWith("http"));
         } finally {
             close(browser);
             close(research);
