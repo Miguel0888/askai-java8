@@ -49,11 +49,17 @@ test {
     // process (the Java-8 test JVM never loads sidecar classes). Without a Java-21 toolchain or an
     // installed browser the test SKIPS readably; the build stays green.
     dependsOn ':browser-mcp-server-java21:sidecarJar'
+    // A5 R0 proof: the reranker live test spawns the REAL Java-21 local-model runtime jar (backend=cpu)
+    // and calls /api/rerank against the installed cross-encoder. It SKIPS readably without a Java-21
+    // toolchain, the staged jar, or an installed reranker model; the build stays green either way.
+    dependsOn ':local-model-runtime-sidecar-java21:sidecarJar'
     doFirst {
         systemProperty 'research.agent.jar', researchAgentJar.archiveFile.get().asFile.absolutePath
         systemProperty 'acp.java.home', System.getProperty('java.home')
         def sidecarTask = project(':browser-mcp-server-java21').tasks.getByName('sidecarJar')
         systemProperty 'browser.sidecar.jar', sidecarTask.archiveFile.get().asFile.absolutePath
+        def localModelJar = project(':local-model-runtime-sidecar-java21').tasks.getByName('sidecarJar')
+        systemProperty 'localmodel.sidecar.jar', localModelJar.archiveFile.get().asFile.absolutePath
         try {
             def launcher21 = javaToolchains.launcherFor {
                 languageVersion = JavaLanguageVersion.of(21)

@@ -5,7 +5,10 @@ import com.aresstack.askai.agent.model.reranker.RerankerEndpointDescriptor;
 import com.aresstack.askai.agent.model.reranker.RerankerProvider;
 import com.aresstack.askai.agent.model.reranker.RerankerScoreSemantics;
 import com.aresstack.askai.agent.model.reranker.RerankerSelectionConfiguration;
+import com.aresstack.askai.agent.model.reranker.RerankerConfigurationDocument;
+import com.aresstack.askai.agent.model.reranker.RerankerEndpointDescriptorCodec;
 import com.aresstack.askai.research.runtime.rerank.HttpRerankerClient;
+import com.aresstack.askai.research.runtime.rerank.RerankerConfigurationLoader;
 import com.aresstack.askai.research.runtime.rerank.SearchResultReranker;
 import com.aresstack.askai.research.runtime.rerank.SearchResultSelectionPolicy;
 import com.sun.net.httpserver.HttpExchange;
@@ -15,9 +18,11 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.io.File;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.Charset;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -159,6 +164,36 @@ public class ResearchLoopRerankingTest {
         assertEquals(Arrays.asList("https://b.example/y", "https://c.example/z"), browser.opened);
         assertFalse("the lowest-scored candidate is never opened",
                 browser.opened.contains("https://a.example/x"));
+    }
+
+    @Test
+    public void fullChainFromPublishedSnapshotFileDrivesRerankedNavigation() throws Exception {
+        // Publish a start snapshot exactly as the host writer emits it (shared strict codec bytes) …
+        RerankerEndpointDescriptor descriptor = new RerankerEndpointDescriptor(
+                RerankerProvider.ASKAI_LOCAL,
+                "http://127.0.0.1:" + server.getAddress().getPort(),
+                "local/cross-encoder/ms-marco-MiniLM-L6-v2:latest",
+                Arrays.asList(RerankerCapability.RERANK), RerankerScoreSemantics.RAW_LOGIT, 5_000L,
+                RerankerSelectionConfiguration.topN(2));
+        File snapshot = File.createTempFile("reranker-config", ".json");
+        snapshot.deleteOnExit();
+        Files.write(snapshot.toPath(), RerankerEndpointDescriptorCodec.toJson(
+                RerankerConfigurationDocument.current(1L, descriptor)).getBytes(UTF_8));
+
+        // … load it through the strict loader and build the productive client + policy from it.
+        RerankerConfigurationDocument loaded = RerankerConfigurationLoader.load(snapshot.getPath());
+        SearchResultReranker fromSnapshot = new SearchResultReranker(
+                new HttpRerankerClient(loaded.descriptor),
+                new SearchResultSelectionPolicy(loaded.descriptor.selectionConfiguration));
+
+        RecordingBrowser browser = new RecordingBrowser();
+        ResearchLoop loop = loop(browser, new NoopResearch());
+        loop.setReranker(fromSnapshot);
+        loop.run("investigate pf4j plugin framework");
+
+        assertEquals(1, rerankCalls.get());
+        // Same reranking outcome, now sourced entirely from the on-disk snapshot contract.
+        assertEquals(Arrays.asList("https://b.example/y", "https://c.example/z"), browser.opened);
     }
 
     @Test
