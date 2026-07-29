@@ -189,7 +189,7 @@ public final class WebSearchLayoutRepairService {
      * signatures, order-independent) — binds a repair ticket to the layout shape without any
      * snapshot-local id. Recomputing it on the same cached snapshot always matches.
      */
-    static String layoutStructureFingerprint(SearchPageAnalysisArtifact artifact) {
+    public static String layoutStructureFingerprint(SearchPageAnalysisArtifact artifact) {
         java.util.List<String> parts = new ArrayList<String>();
         for (com.aresstack.askai.browser.search.layout.SearchPageContainerCandidate candidate
                 : artifact.containerCandidates) {
