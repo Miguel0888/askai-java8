@@ -39,7 +39,7 @@ public class LocalModelRuntimeServerTest {
                 "local/cross-encoder/ms-marco-MiniLM-L6-v2:latest", "RUNNABLE");
         writeManifest("broken-model", "local/broken:latest", "FAILED");
         server = new LocalModelRuntimeServer(new LocalModelStore(modelRoot),
-                new LocalRerankerEngine(Backend.CPU));
+                new LocalModelEngine(Backend.CPU));
         int port = server.start("127.0.0.1", 0);
         baseUrl = "http://127.0.0.1:" + port;
     }
@@ -67,7 +67,7 @@ public class LocalModelRuntimeServerTest {
         Map<String, Object> show = post("/api/show",
                 "{\"model\":\"local/cross-encoder/ms-marco-MiniLM-L6-v2:latest\"}", 200);
         assertEquals(List.of("rerank"), show.get("capabilities"));
-        assertEquals("bert", ((Map<?, ?>) show.get("details")).get("family"));
+        assertEquals("cross_encoder", ((Map<?, ?>) show.get("details")).get("family"));
     }
 
     @Test
@@ -109,9 +109,45 @@ public class LocalModelRuntimeServerTest {
 
     @Test
     public void unknownModelsAndPathsFailTyped() throws Exception {
-        Map<String, Object> show = post("/api/show", "{\"model\":\"local/ghost:latest\"}", 400);
+        Map<String, Object> show = post("/api/show", "{\"model\":\"local/ghost:latest\"}", 404);
+        assertEquals("MODEL_NOT_FOUND", show.get("code"));
         assertTrue(String.valueOf(show.get("error")).contains("not found"));
         assertEquals(404, statusOf("/api/nonsense"));
+    }
+
+    @Test
+    public void installTypedErrorsAreCatalogResolvedNotHostTrusted() throws Exception {
+        // Missing required fields.
+        Map<String, Object> invalid = post("/internal/install", "{\"repositoryId\":\"\"}", 200);
+        assertEquals("INVALID_REQUEST", invalid.get("code"));
+        // A repository that is not in the catalog.
+        Map<String, Object> missing = post("/internal/install",
+                "{\"repositoryId\":\"foo/bar\",\"modelDirectory\":\"" + tmp("foo") + "\"}", 200);
+        assertEquals("CATALOG_ENTRY_MISSING", missing.get("code"));
+        // A catalogued generation family whose local installer is not available yet.
+        Map<String, Object> generation = post("/internal/install",
+                "{\"repositoryId\":\"Qwen/Qwen2.5-Coder-0.5B-Instruct\",\"modelDirectory\":\""
+                        + tmp("qwen") + "\"}", 200);
+        assertEquals("UNSUPPORTED_FAMILY", generation.get("code"));
+    }
+
+    @Test
+    public void embedInputTypeIsValidatedBeforeAnyLoad() throws Exception {
+        // A catalog-valid MiniLM (embedding) manifest; no wdmlpack, but input_type is validated first.
+        writeEmbeddingManifest();
+        String miniLm = "local/sentence-transformers/all-MiniLM-L6-v2:latest";
+        // Unknown input_type is a typed 400 BEFORE loading.
+        Map<String, Object> unknown = post("/api/embed",
+                "{\"model\":\"" + miniLm + "\",\"input\":\"x\",\"input_type\":\"weird\"}", 400);
+        assertEquals("INVALID_INPUT_TYPE", unknown.get("code"));
+        // query/passage on a non-E5 encoder is rejected (no silent re-interpretation).
+        Map<String, Object> passage = post("/api/embed",
+                "{\"model\":\"" + miniLm + "\",\"input\":\"x\",\"input_type\":\"passage\"}", 400);
+        assertEquals("INVALID_INPUT_TYPE", passage.get("code"));
+        // A valid raw request reaches loading and fails there (no compiled package) — never a fake 200.
+        Map<String, Object> raw = post("/api/embed",
+                "{\"model\":\"" + miniLm + "\",\"input\":\"x\",\"input_type\":\"raw\"}", 500);
+        assertEquals("MODEL_NOT_LOADABLE", raw.get("code"));
     }
 
     // ------------------------------------------------------------------ HTTP helpers
@@ -120,7 +156,7 @@ public class LocalModelRuntimeServerTest {
             throws IOException {
         Path dir = modelRoot.resolve(directory);
         Files.createDirectories(dir);
-        Files.writeString(dir.resolve(LocalModelManifest.FILE_NAME), LocalJson.write(Map.of(
+        Files.writeString(dir.resolve(SidecarManifests.FILE_NAME), LocalJson.write(Map.of(
                 "schemaVersion", 1,
                 "virtualName", virtualName,
                 "huggingFaceRepository", "cross-encoder/ms-marco-MiniLM-L6-v2",
@@ -129,6 +165,32 @@ public class LocalModelRuntimeServerTest {
                 "capabilities", List.of("rerank"),
                 "backendSupport", List.of("cpu", "directml"),
                 "state", state)));
+    }
+
+    /** A catalog-valid v2 MiniLM embedding manifest (no compiled package present). */
+    private void writeEmbeddingManifest() throws IOException {
+        Path dir = modelRoot.resolve("all-MiniLM-L6-v2");
+        Files.createDirectories(dir);
+        java.util.Map<String, Object> manifest = new java.util.LinkedHashMap<>();
+        manifest.put("schemaVersion", 2);
+        manifest.put("virtualName", "local/sentence-transformers/all-MiniLM-L6-v2:latest");
+        manifest.put("huggingFaceRepository", "sentence-transformers/all-MiniLM-L6-v2");
+        manifest.put("resolvedRevision", "rev");
+        manifest.put("runtimeModelId", "MINILM_L6_V2");
+        manifest.put("runtimeFamily", "minilm");
+        manifest.put("runtimePackage", "encoder.wdmlpack");
+        manifest.put("capabilities", List.of("embedding"));
+        manifest.put("supportedBackends", List.of("cpu", "directml"));
+        manifest.put("sourceFormat", "safetensors");
+        manifest.put("state", "RUNNABLE");
+        manifest.put("installedAt", 1L);
+        Files.writeString(dir.resolve(SidecarManifests.FILE_NAME), LocalJson.write(manifest));
+    }
+
+    private String tmp(String name) throws IOException {
+        Path dir = modelRoot.resolve("_staging_" + name);
+        Files.createDirectories(dir);
+        return dir.toString().replace("\\", "/");
     }
 
     private Map<String, Object> get(String path) throws Exception {

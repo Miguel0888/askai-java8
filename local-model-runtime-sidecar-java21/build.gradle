@@ -22,6 +22,10 @@ dependencies {
     implementation "com.aresstack:directml-encoder:${directmlVersion}"
     // The wdmlpack/lifecycle contract (ModelPackageLifecycle, ModelConversionResult, …).
     implementation "com.aresstack:directml-model-package:${directmlVersion}"
+    // The neutral model catalog: the sidecar re-resolves repositoryId -> catalog itself (it never trusts
+    // the host-claimed family/capabilities) and applies the SAME manifest trust rules as the host.
+    // DEV: 0.1.0-SNAPSHOT from mavenLocal; pinned to a fixed Maven Central version in C5 before any ff-merge.
+    implementation 'com.aresstack:directml-model-catalog:0.1.0-SNAPSHOT'
 
     testImplementation 'junit:junit:4.13.2'
 }

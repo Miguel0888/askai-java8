@@ -38,7 +38,7 @@ public final class LocalModelRuntimeMain {
         }
 
         LocalModelStore store = new LocalModelStore(Path.of(modelRoot));
-        LocalRerankerEngine engine = new LocalRerankerEngine(backend);
+        LocalModelEngine engine = new LocalModelEngine(backend);
         LocalModelRuntimeServer server = new LocalModelRuntimeServer(store, engine);
         int boundPort = server.start(host, port);
         Runtime.getRuntime().addShutdownHook(new Thread(server::stop, "local-runtime-shutdown"));

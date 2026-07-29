@@ -9,9 +9,9 @@ import java.util.List;
 import java.util.stream.Stream;
 
 /**
- * Stateless view over the local model root ({@code …\models\local}): every subdirectory with a
- * RUNNABLE {@code askai-local-model.json} is one virtual model. Scanned per request so an
- * installation finished by the host appears on the next {@code /api/tags} without restarts.
+ * Stateless view over the local model root ({@code …\models\local}): every subdirectory whose
+ * {@code askai-local-model.json} passes the shared catalog validation is one virtual model. Scanned per
+ * request so an installation finished by the host appears on the next {@code /api/tags} without restarts.
  */
 final class LocalModelStore {
 
@@ -21,16 +21,17 @@ final class LocalModelStore {
         this.modelRoot = modelRoot;
     }
 
-    List<LocalModelManifest> runnableModels() {
-        List<LocalModelManifest> models = new ArrayList<>();
+    /** Every catalog-validated (VALID) installed model, in directory order. */
+    List<LocalModel> runnableModels() {
+        List<LocalModel> models = new ArrayList<>();
         if (!Files.isDirectory(modelRoot)) {
             return models;
         }
         try (Stream<Path> children = Files.list(modelRoot)) {
             children.filter(Files::isDirectory).sorted().forEach(dir -> {
-                LocalModelManifest manifest = LocalModelManifest.read(dir);
-                if (manifest != null && manifest.isRunnable()) {
-                    models.add(manifest);
+                LocalModel model = SidecarManifests.read(dir);
+                if (model != null) {
+                    models.add(model);
                 }
             });
         } catch (IOException ex) {
@@ -40,11 +41,11 @@ final class LocalModelStore {
         return models;
     }
 
-    /** @return the manifest owning this virtual name, or null. */
-    LocalModelManifest find(String virtualName) {
-        for (LocalModelManifest manifest : runnableModels()) {
-            if (manifest.virtualName().equals(virtualName)) {
-                return manifest;
+    /** @return the model owning this virtual name, or null. */
+    LocalModel find(String virtualName) {
+        for (LocalModel model : runnableModels()) {
+            if (model.virtualName().equals(virtualName)) {
+                return model;
             }
         }
         return null;
@@ -65,8 +66,8 @@ final class LocalModelStore {
     }
 
     /** Recursively delete the model directory (called AFTER the engine unloaded the model). */
-    void delete(LocalModelManifest manifest) throws IOException {
-        try (Stream<Path> files = Files.walk(manifest.modelDirectory())) {
+    void delete(LocalModel model) throws IOException {
+        try (Stream<Path> files = Files.walk(model.directory())) {
             for (Path path : files.sorted(Comparator.reverseOrder()).toList()) {
                 Files.deleteIfExists(path);
             }
