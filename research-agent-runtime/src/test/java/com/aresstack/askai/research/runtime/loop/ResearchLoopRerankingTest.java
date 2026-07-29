@@ -1,0 +1,175 @@
+package com.aresstack.askai.research.runtime.loop;
+
+import com.aresstack.askai.agent.model.reranker.RerankerCapability;
+import com.aresstack.askai.agent.model.reranker.RerankerEndpointDescriptor;
+import com.aresstack.askai.agent.model.reranker.RerankerProvider;
+import com.aresstack.askai.agent.model.reranker.RerankerScoreSemantics;
+import com.aresstack.askai.agent.model.reranker.RerankerSelectionConfiguration;
+import com.aresstack.askai.research.runtime.rerank.HttpRerankerClient;
+import com.aresstack.askai.research.runtime.rerank.SearchResultReranker;
+import com.aresstack.askai.research.runtime.rerank.SearchResultSelectionPolicy;
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpHandler;
+import com.sun.net.httpserver.HttpServer;
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
+
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
+import java.nio.charset.Charset;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+
+/**
+ * A5d proof: the mandatory reranker runs EXACTLY ONCE before any browser navigation, and the loop
+ * opens only the selected candidates, in reranked (RAW_LOGIT) order — never in raw engine order.
+ */
+public class ResearchLoopRerankingTest {
+
+    private static final Charset UTF_8 = Charset.forName("UTF-8");
+
+    private HttpServer server;
+    /** documentIndex -> raw logit; the embedded reranker echoes these. */
+    private final AtomicInteger rerankCalls = new AtomicInteger(0);
+
+    @Before
+    public void startReranker() throws Exception {
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/api/rerank", new HttpHandler() {
+            public void handle(HttpExchange exchange) throws java.io.IOException {
+                rerankCalls.incrementAndGet();
+                exchange.getRequestBody().close();
+                // Score index1 highest, then index2, then index0 — a deliberate reordering of the
+                // engine's original A,B,C order into B,C,A. Best hit is a small logit (no 0.5 gate).
+                String body = "{\"model\":\"m\",\"results\":["
+                        + "{\"index\":0,\"score\":-2.0},"
+                        + "{\"index\":1,\"score\":0.4},"
+                        + "{\"index\":2,\"score\":-0.1}]}";
+                byte[] out = body.getBytes(UTF_8);
+                exchange.sendResponseHeaders(200, out.length);
+                OutputStream os = exchange.getResponseBody();
+                os.write(out);
+                os.close();
+            }
+        });
+        server.start();
+    }
+
+    @After
+    public void stopReranker() {
+        if (server != null) {
+            server.stop(0);
+        }
+    }
+
+    private SearchResultReranker reranker(int topN) {
+        RerankerEndpointDescriptor descriptor = new RerankerEndpointDescriptor(
+                RerankerProvider.ASKAI_LOCAL,
+                "http://127.0.0.1:" + server.getAddress().getPort(),
+                "local/cross-encoder/ms-marco-MiniLM-L6-v2:latest",
+                Arrays.asList(RerankerCapability.RERANK), RerankerScoreSemantics.RAW_LOGIT, 5_000L,
+                RerankerSelectionConfiguration.topN(topN));
+        return new SearchResultReranker(new HttpRerankerClient(descriptor),
+                new SearchResultSelectionPolicy(descriptor.selectionConfiguration));
+    }
+
+    /** A browser fake that records the ORDER of web_open calls; pages carry no links (seed only). */
+    private static final class RecordingBrowser implements ToolInvoker {
+        final List<String> opened = new ArrayList<String>();
+        final List<String> urls = Arrays.asList(
+                "https://a.example/x", "https://b.example/y", "https://c.example/z");
+        int cap;
+
+        public String call(String tool, Map<String, Object> args) throws ToolFailure {
+            if ("web_search_prepare".equals(tool)) {
+                return ResearchLoopTest.preparedJson(urls, new ArrayList<String>(),
+                        new ArrayList<com.aresstack.askai.browser.search.repair.SearchChallengeState>());
+            }
+            if ("web_open".equals(tool)) {
+                String url = String.valueOf(args.get("url"));
+                opened.add(url);
+                return "URL: " + url + " title=\"pf4j page\" capture_id=cap-" + (++cap)
+                        + "\npf4j content here";
+            }
+            if ("web_links".equals(tool)) {
+                return ""; // no onward links: the frontier is exactly the reranked seed
+            }
+            if ("web_challenge_status".equals(tool)) {
+                return "NONE";
+            }
+            throw new ToolFailure("unknown tool " + tool);
+        }
+    }
+
+    /** A research fake that accepts nothing (keeps the test focused on navigation order). */
+    private static final class NoopResearch implements ToolInvoker {
+        public String call(String tool, Map<String, Object> args) {
+            if ("source_accept".equals(tool)) {
+                return "source_id=-";
+            }
+            return "ok";
+        }
+    }
+
+    private ResearchLoop loop(ToolInvoker browser, ToolInvoker research) {
+        return new ResearchLoop(browser, research, ResearchRunBudget.defaults(),
+                new ResearchLoopClock() {
+                    public long currentTimeMillis() {
+                        return 1000L;
+                    }
+
+                    public void sleepMillis(long millis) {
+                    }
+                },
+                new ResearchLoopListener() {
+                    public void status(String message) {
+                    }
+
+                    public void progress(ResearchRunProgress progress, ResearchRunActivity activity) {
+                    }
+
+                    public void phaseReady(ResearchStopReason reason) {
+                    }
+
+                    public void attention(String reason, String domainFamily, String url,
+                                          boolean resolved) {
+                    }
+                }, new AtomicBoolean(false));
+    }
+
+    @Test
+    public void opensOnlySelectedCandidatesInRerankedOrder() {
+        RecordingBrowser browser = new RecordingBrowser();
+        ResearchLoop loop = loop(browser, new NoopResearch());
+        loop.setReranker(reranker(2)); // Top-2 of the three prepared candidates
+
+        loop.run("investigate pf4j plugin framework");
+
+        assertEquals("reranker called exactly once, before any navigation", 1, rerankCalls.get());
+        // Engine order was A,B,C; reranked B,C,A; Top-2 -> only B then C are opened, A never.
+        assertEquals(Arrays.asList("https://b.example/y", "https://c.example/z"), browser.opened);
+        assertFalse("the lowest-scored candidate is never opened",
+                browser.opened.contains("https://a.example/x"));
+    }
+
+    @Test
+    public void topOneSelectionOpensOnlyTheSingleBestCandidate() {
+        RecordingBrowser browser = new RecordingBrowser();
+        ResearchLoop loop = loop(browser, new NoopResearch());
+        loop.setReranker(reranker(1));
+
+        loop.run("investigate pf4j plugin framework");
+
+        assertEquals(1, rerankCalls.get());
+        assertEquals(Collections.singletonList("https://b.example/y"), browser.opened);
+    }
+}

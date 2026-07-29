@@ -48,6 +48,19 @@ public final class ResearchLoop {
      * injects a real StructuredInferencePort-backed client later.
      */
     private McpLayoutRepairClient repairClient;
+    /**
+     * The MANDATORY local cross-encoder reranking step, injected by the productive runtime once it has
+     * read the reranker start snapshot. When present, every organic candidate is reranked and only the
+     * selected survivors — in relevance order — ever reach the frontier and {@code web_open}; a reranker
+     * failure opens NOTHING (never a raw-order fallback). When absent (unit tests, or a build without a
+     * configured reranker), the loop keeps the engine's candidate order.
+     */
+    private com.aresstack.askai.research.runtime.rerank.SearchResultReranker reranker;
+
+    /** Inject the mandatory reranker (productive runtime, and reranking integration tests). */
+    public void setReranker(com.aresstack.askai.research.runtime.rerank.SearchResultReranker reranker) {
+        this.reranker = reranker;
+    }
 
     /** Inject a different domain-key resolver (tests/dev only; production keeps the public-suffix one). */
     public void setDomainKeyResolver(com.aresstack.askai.browser.domain.DomainKeyResolver resolver) {
@@ -148,8 +161,10 @@ public final class ResearchLoop {
                 searchProviderSites.add(familyOf(providerHost));
             }
             applyChallenges(result.challenges);
+            // MANDATORY reranking BEFORE anything reaches the frontier: no page is ever opened in raw
+            // engine order. Only the selected survivors, in relevance order, become frontier URLs.
             for (com.aresstack.askai.browser.search.SearchResultCandidate candidate
-                    : result.candidates) {
+                    : rerankCandidates(query, result.candidates)) {
                 if (!candidate.resolvedTargetUrl.isEmpty()) {
                     frontier.add(candidate.resolvedTargetUrl);
                 }
@@ -262,6 +277,45 @@ public final class ResearchLoop {
                 progress.error();
                 listener.status("tool failed: " + ex.getMessage());
             }
+        }
+    }
+
+    /**
+     * The MANDATORY reranking gate between structured extraction and navigation. With no reranker
+     * injected the engine order is kept (unit tests / unconfigured builds). With one, the call is
+     * budgeted like any other tool (against the ResearchRunBudget, NOT the browser MCP) and honours
+     * cancellation via the central gate; a reranker FAILURE opens nothing — the seed frontier stays
+     * empty rather than silently regressing to raw engine order.
+     */
+    private List<com.aresstack.askai.browser.search.SearchResultCandidate> rerankCandidates(
+            String query, List<com.aresstack.askai.browser.search.SearchResultCandidate> candidates) {
+        if (reranker == null || candidates.isEmpty()) {
+            return candidates;
+        }
+        if (beforeToolCall() != null) {
+            // Budget already exhausted (or cancelled) before the very first navigation: open nothing;
+            // the main loop re-evaluates and returns the same explicit stop reason.
+            return java.util.Collections.emptyList();
+        }
+        try {
+            com.aresstack.askai.research.runtime.rerank.SearchResultRerankingResult result =
+                    reranker.rerank(query, candidates);
+            progress.success();
+            List<com.aresstack.askai.browser.search.SearchResultCandidate> selected =
+                    new ArrayList<com.aresstack.askai.browser.search.SearchResultCandidate>();
+            for (com.aresstack.askai.research.runtime.rerank.RerankedSearchResultCandidate ranked
+                    : result.selected) {
+                selected.add(ranked.candidate);
+            }
+            listener.status("reranked " + candidates.size() + " candidates → "
+                    + selected.size() + " selected for navigation");
+            return selected;
+        } catch (com.aresstack.askai.research.runtime.rerank.RerankerClientException ex) {
+            // Mandatory step failed: do NOT fall back to raw order. Open nothing this seed.
+            progress.error();
+            listener.status("mandatory reranking failed (" + ex.getFailure() + "): "
+                    + ex.getMessage());
+            return java.util.Collections.emptyList();
         }
     }
 

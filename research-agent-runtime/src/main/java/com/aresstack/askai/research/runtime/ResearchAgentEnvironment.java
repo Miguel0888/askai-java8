@@ -18,10 +18,12 @@ final class ResearchAgentEnvironment {
     final String browserTransport;
     /** Path of the legacy-browser-search config document (same file the sidecar receives), or null. */
     final String browserSearchConfigPath;
+    /** Path of the reranker start snapshot (the mandatory local cross-encoder endpoint), or null. */
+    final String rerankerConfigPath;
 
     private ResearchAgentEnvironment(String sessionId, String projectId, String researchUrl,
                                      String researchTransport, String browserUrl, String browserTransport,
-                                     String browserSearchConfigPath) {
+                                     String browserSearchConfigPath, String rerankerConfigPath) {
         this.sessionId = sessionId;
         this.projectId = projectId;
         this.researchUrl = researchUrl;
@@ -29,6 +31,7 @@ final class ResearchAgentEnvironment {
         this.browserUrl = browserUrl;
         this.browserTransport = browserTransport;
         this.browserSearchConfigPath = browserSearchConfigPath;
+        this.rerankerConfigPath = rerankerConfigPath;
     }
 
     static ResearchAgentEnvironment from(Map<String, String> env) {
@@ -41,7 +44,12 @@ final class ResearchAgentEnvironment {
                 researchUrl, researchTransport,
                 browserUrl,
                 browserUrl == null ? null : orDefault(env.get("ASKAI_BROWSER_MCP_TRANSPORT"), "streamable"),
-                blankToNull(env.get("ASKAI_BROWSER_SEARCH_CONFIG")));
+                blankToNull(env.get("ASKAI_BROWSER_SEARCH_CONFIG")),
+                blankToNull(env.get("ASKAI_RERANKER_CONFIG")));
+    }
+
+    boolean hasReranker() {
+        return rerankerConfigPath != null;
     }
 
     boolean hasBrowser() {
