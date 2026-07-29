@@ -65,6 +65,10 @@ test {
     // A5: the GUI-chain reproduction needs the MANDATORY local reranker runtime jar staged so the real
     // LocalModelRuntimeManager can start it (skips readably when no cross-encoder model is installed).
     dependsOn ':local-model-runtime-sidecar-java21:sidecarJar', ':local-model-runtime-sidecar-java21:sidecarLibs'
+    // C2c: the opt-in real-model smoke drives the productive LocalModelRuntimeManager, which needs the
+    // assembled local-runtime distribution (thin jar + lib/) and a Java-21 launcher. Gated by
+    // -Daskai.local.realModelSmoke=true, so a normal build only stages the dist, never downloads models.
+    dependsOn 'localRuntimeDist'
     doFirst {
         def agentJarTask = project(':research-agent-runtime').tasks.getByName('researchAgentJar')
         systemProperty 'research.agent.jar', agentJarTask.archiveFile.get().asFile.absolutePath
@@ -74,11 +78,17 @@ test {
         systemProperty 'localmodel.sidecar.jar', localModelJar.archiveFile.get().asFile.absolutePath
         def localModelLibs = project(':local-model-runtime-sidecar-java21').tasks.getByName('sidecarLibs')
         systemProperty 'localmodel.sidecar.libs', localModelLibs.destinationDir.absolutePath
+        systemProperty 'askai.local.runtime.dir',
+                rootProject.layout.buildDirectory.dir('local-runtime').get().asFile.absolutePath
+        // Forward the opt-in real-model-smoke flag from the Gradle CLI to the forked test JVM.
+        systemProperty 'askai.local.realModelSmoke',
+                System.getProperty('askai.local.realModelSmoke', 'false')
         try {
             def launcher21 = javaToolchains.launcherFor {
                 languageVersion = JavaLanguageVersion.of(21)
             }.get()
             systemProperty 'sidecar.java', launcher21.executablePath.asFile.absolutePath
+            systemProperty 'askai.local.runtime.java', launcher21.executablePath.asFile.absolutePath
         } catch (Exception noJava21) {
         }
     }
