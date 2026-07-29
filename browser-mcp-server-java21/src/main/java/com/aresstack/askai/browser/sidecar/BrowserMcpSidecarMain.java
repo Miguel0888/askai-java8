@@ -72,12 +72,34 @@ public final class BrowserMcpSidecarMain {
                 .mcpEndpoint("/mcp/browser/" + token)
                 .build();
         registerTools(endpoint, session);
+        // A4: the three layout-repair tools, backed by the SAME engine navigation as web_search. The
+        // sidecar stays MODEL-FREE — it only captures/extracts and applies a runtime-validated
+        // decision to a cached snapshot. web_search remains the unchanged compatibility surface.
+        final com.aresstack.askai.browser.search.analysis.SearchLayoutRepairTools repairTools =
+                session instanceof PlaywrightBrowserSession
+                        ? new com.aresstack.askai.browser.search.analysis.SearchLayoutRepairTools(
+                                searchSettings,
+                                new PlaywrightRenderedPageSource((PlaywrightBrowserSession) session),
+                                new java.util.function.LongSupplier() {
+                                    public long getAsLong() {
+                                        return System.currentTimeMillis();
+                                    }
+                                })
+                        : null;
+        if (repairTools != null) {
+            registerRepairTools(endpoint, repairTools);
+        }
         endpoint.postStart();
-        // Ordered teardown even on SIGTERM: page/context/browser/driver-child close before the JVM exits,
-        // so no Chromium process is left behind.
+        // Ordered teardown even on SIGTERM: clear the repair-ticket cache, then page/context/browser/
+        // driver-child close before the JVM exits, so no Chromium process is left behind.
         final BrowserSession toClose = session;
+        final com.aresstack.askai.browser.search.analysis.SearchLayoutRepairTools toClear =
+                repairTools;
         Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
             public void run() {
+                if (toClear != null) {
+                    toClear.clear();
+                }
                 toClose.close();
             }
         }, "browser-session-shutdown"));
@@ -129,6 +151,40 @@ public final class BrowserMcpSidecarMain {
             System.exit(2);
             throw new IllegalStateException("unreachable");
         }
+    }
+
+    /**
+     * The A4 layout-repair tool surface, additive to the legacy flat tool set. The runtime uses these
+     * for the typed two-step repair; the sidecar remains model-free.
+     */
+    static void registerRepairTools(McpServerEndpointProvider endpoint,
+            final com.aresstack.askai.browser.search.analysis.SearchLayoutRepairTools tools) {
+        endpoint.addTool(new FunctionToolDesc("web_search_prepare")
+                .description("Prepare a web search; returns typed organic candidates, or bounded "
+                        + "layout-repair tickets (JSON) for low-confidence result pages.")
+                .stringParamAdd("query", "The search query")
+                .doHandle(new ToolHandler() {
+                    public Object handle(Map<String, Object> args) throws Throwable {
+                        return tools.prepare(str(args, "query"));
+                    }
+                }));
+        endpoint.addTool(new FunctionToolDesc("web_search_apply_layout")
+                .description("Apply a runtime-validated layout decision to a cached result-page "
+                        + "snapshot; returns typed candidates or a typed rejection (JSON).")
+                .stringParamAdd("submission", "The validated repair submission (JSON)")
+                .doHandle(new ToolHandler() {
+                    public Object handle(Map<String, Object> args) throws Throwable {
+                        return tools.applyLayout(str(args, "submission"));
+                    }
+                }));
+        endpoint.addTool(new FunctionToolDesc("web_search_discard_repair")
+                .description("Discard a pending layout-repair ticket held in the sidecar.")
+                .stringParamAdd("repairTicketId", "The repair ticket id")
+                .doHandle(new ToolHandler() {
+                    public Object handle(Map<String, Object> args) throws Throwable {
+                        return tools.discard(str(args, "repairTicketId"));
+                    }
+                }));
     }
 
     static void registerTools(McpServerEndpointProvider endpoint, final BrowserSession session) {
