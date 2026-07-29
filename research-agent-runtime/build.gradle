@@ -8,6 +8,9 @@ dependencies {
     implementation 'org.noear:solon-ai-mcp:3.10.1'
     // Public-suffix aware domain families (challenge locks, transit rules) — shared with the sidecar.
     implementation project(':browser-api')
+    // A4 transport: the layout-repair codec and the model-using repair coordinator (Java-8, model-free
+    // analysis; the concrete StructuredInferencePort adapter is injected by the runtime).
+    implementation project(':browser-search-analysis')
     runtimeOnly 'org.slf4j:slf4j-nop:2.0.17'
 
     testImplementation project(':acp-client-api')
