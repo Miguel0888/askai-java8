@@ -1,5 +1,6 @@
 package com.aresstack.askai.research.runtime.search.provider;
 
+import com.aresstack.askai.research.runtime.search.provider.brave.BraveSearchProvider;
 import com.aresstack.askai.research.runtime.search.provider.brightdata.BrightDataSearchProvider;
 import com.aresstack.askai.research.runtime.search.provider.dataforseo.DataForSeoSearchProvider;
 import org.junit.Test;
@@ -22,8 +23,9 @@ import static org.junit.Assert.fail;
 public class SearchProviderRegistryTest {
 
     /** The ids that are productively bound today; every other id must fail with no object created. */
-    private static final Set<SearchProviderId> IMPLEMENTED =
-            EnumSet.of(SearchProviderId.DATA_FOR_SEO, SearchProviderId.BRIGHT_DATA);
+    private static final Set<SearchProviderId> IMPLEMENTED = EnumSet.of(
+            SearchProviderId.DATA_FOR_SEO, SearchProviderId.BRIGHT_DATA,
+            SearchProviderId.BRAVE_SEARCH_API);
 
     private SearchProviderRegistry registry() {
         return new DefaultSearchProviderRegistry(new SearchProviderConfigurationSource() {
@@ -50,6 +52,13 @@ public class SearchProviderRegistryTest {
     public void brightDataResolvesToTheProductiveProvider() {
         SearchProvider provider = registry().requireImplementedProvider(SearchProviderId.BRIGHT_DATA);
         assertTrue(provider instanceof BrightDataSearchProvider);
+        assertEquals(SearchProviderAvailability.AVAILABLE, provider.getAvailability());
+    }
+
+    @Test
+    public void braveResolvesToTheProductiveProvider() {
+        SearchProvider provider = registry().requireImplementedProvider(SearchProviderId.BRAVE_SEARCH_API);
+        assertTrue(provider instanceof BraveSearchProvider);
         assertEquals(SearchProviderAvailability.AVAILABLE, provider.getAvailability());
     }
 
@@ -83,7 +92,8 @@ public class SearchProviderRegistryTest {
                         descriptor.getImplementationStatus());
             }
         }
-        assertEquals("DataForSEO and Bright Data are productive today", IMPLEMENTED.size(), implemented);
+        assertEquals("DataForSEO, Bright Data and Brave are productive today", IMPLEMENTED.size(),
+                implemented);
         assertEquals(SearchProviderId.values().length, registry().getDescriptors().size());
     }
 }
