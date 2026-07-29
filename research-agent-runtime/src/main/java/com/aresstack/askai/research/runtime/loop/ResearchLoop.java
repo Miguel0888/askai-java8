@@ -49,17 +49,22 @@ public final class ResearchLoop {
      */
     private McpLayoutRepairClient repairClient;
     /**
-     * The MANDATORY local cross-encoder reranking step, injected by the productive runtime once it has
-     * read the reranker start snapshot. When present, every organic candidate is reranked and only the
+     * The MANDATORY local cross-encoder reranking step. Every organic candidate is reranked and only the
      * selected survivors — in relevance order — ever reach the frontier and {@code web_open}; a reranker
-     * failure opens NOTHING (never a raw-order fallback). When absent (unit tests, or a build without a
-     * configured reranker), the loop keeps the engine's candidate order.
+     * failure opens NOTHING and ends the run with a typed reranker stop reason (never a raw-order
+     * fallback). The productive runtime injects the HTTP-backed reranker at session start; the default is
+     * the EXPLICITLY named {@link com.aresstack.askai.research.runtime.rerank.EngineOrderReranker} test
+     * adapter, so the loop never infers "engine order" from the ABSENCE of a reranker — production fails
+     * earlier, at session start, when the mandatory snapshot is missing.
      */
-    private com.aresstack.askai.research.runtime.rerank.SearchResultReranker reranker;
+    private com.aresstack.askai.research.runtime.rerank.CandidateReranker reranker =
+            new com.aresstack.askai.research.runtime.rerank.EngineOrderReranker();
 
     /** Inject the mandatory reranker (productive runtime, and reranking integration tests). */
-    public void setReranker(com.aresstack.askai.research.runtime.rerank.SearchResultReranker reranker) {
-        this.reranker = reranker;
+    public void setReranker(com.aresstack.askai.research.runtime.rerank.CandidateReranker reranker) {
+        if (reranker != null) {
+            this.reranker = reranker;
+        }
     }
 
     /** Inject a different domain-key resolver (tests/dev only; production keeps the public-suffix one). */
@@ -146,6 +151,7 @@ public final class ResearchLoop {
     private ResearchStopReason runInternal(Set<String> terms) {
         // Seed: search, else nothing to do.
         List<String> frontier = new ArrayList<String>();
+        ResearchStopReason seedStop = null;
         try {
             String query = join(terms);
             listener.progress(progress, ResearchRunActivity.searching(query));
@@ -162,13 +168,9 @@ public final class ResearchLoop {
             }
             applyChallenges(result.challenges);
             // MANDATORY reranking BEFORE anything reaches the frontier: no page is ever opened in raw
-            // engine order. Only the selected survivors, in relevance order, become frontier URLs.
-            for (com.aresstack.askai.browser.search.SearchResultCandidate candidate
-                    : rerankCandidates(query, result.candidates)) {
-                if (!candidate.resolvedTargetUrl.isEmpty()) {
-                    frontier.add(candidate.resolvedTargetUrl);
-                }
-            }
+            // engine order. Only the selected survivors, in relevance order, become frontier URLs; a
+            // reranker failure ends the run with a typed reason and opens nothing.
+            seedStop = seedReranking(query, result.candidates, frontier);
         } catch (ToolInvoker.EndpointUnavailable ex) {
             return ResearchStopReason.MCP_UNAVAILABLE;
         } catch (ToolInvoker.ToolFailure ex) {
@@ -178,6 +180,9 @@ public final class ResearchLoop {
             // it is a tool-level failure; the run continues with an empty frontier.
             listener.status("web search preparation failed: " + ex.getMessage());
             progress.error();
+        }
+        if (seedStop != null) {
+            return seedStop;
         }
 
         while (true) {
@@ -281,41 +286,57 @@ public final class ResearchLoop {
     }
 
     /**
-     * The MANDATORY reranking gate between structured extraction and navigation. With no reranker
-     * injected the engine order is kept (unit tests / unconfigured builds). With one, the call is
-     * budgeted like any other tool (against the ResearchRunBudget, NOT the browser MCP) and honours
-     * cancellation via the central gate; a reranker FAILURE opens nothing — the seed frontier stays
-     * empty rather than silently regressing to raw engine order.
+     * The MANDATORY reranking gate between structured extraction and navigation. The call is budgeted
+     * like any other tool (against the ResearchRunBudget, NOT the browser MCP) and honours cancellation.
+     * On SUCCESS it fills {@code frontier} with the selected candidates in relevance order and returns
+     * {@code null}; on any reranker failure (or NO_SEMANTIC_MATCHES) it opens nothing and returns the
+     * typed stop reason — never a raw engine-order fallback. NO_CANDIDATES (an empty search) returns
+     * {@code null} so the run ends as NO_RELEVANT_PATHS, not as a reranker failure.
      */
-    private List<com.aresstack.askai.browser.search.SearchResultCandidate> rerankCandidates(
-            String query, List<com.aresstack.askai.browser.search.SearchResultCandidate> candidates) {
-        if (reranker == null || candidates.isEmpty()) {
-            return candidates;
+    private ResearchStopReason seedReranking(String query,
+            List<com.aresstack.askai.browser.search.SearchResultCandidate> candidates,
+            List<String> frontier) {
+        if (candidates.isEmpty()) {
+            return null; // nothing to rerank or open → NO_RELEVANT_PATHS via the main loop
         }
-        if (beforeToolCall() != null) {
-            // Budget already exhausted (or cancelled) before the very first navigation: open nothing;
-            // the main loop re-evaluates and returns the same explicit stop reason.
-            return java.util.Collections.emptyList();
+        ResearchStopReason gate = beforeToolCall();
+        if (gate != null) {
+            return gate; // budget/cancel before the very first tool call
         }
-        try {
-            com.aresstack.askai.research.runtime.rerank.SearchResultRerankingResult result =
-                    reranker.rerank(query, candidates);
-            progress.success();
-            List<com.aresstack.askai.browser.search.SearchResultCandidate> selected =
-                    new ArrayList<com.aresstack.askai.browser.search.SearchResultCandidate>();
-            for (com.aresstack.askai.research.runtime.rerank.RerankedSearchResultCandidate ranked
-                    : result.selected) {
-                selected.add(ranked.candidate);
-            }
-            listener.status("reranked " + candidates.size() + " candidates → "
-                    + selected.size() + " selected for navigation");
-            return selected;
-        } catch (com.aresstack.askai.research.runtime.rerank.RerankerClientException ex) {
-            // Mandatory step failed: do NOT fall back to raw order. Open nothing this seed.
-            progress.error();
-            listener.status("mandatory reranking failed (" + ex.getFailure() + "): "
-                    + ex.getMessage());
-            return java.util.Collections.emptyList();
+        com.aresstack.askai.research.runtime.rerank.SearchResultRerankingResult result =
+                reranker.rerank(query, candidates, cancellationSignal());
+        listener.status("reranking [" + result.modelName + "]: " + result.diagnostics);
+        switch (result.outcome) {
+            case SUCCESS:
+                progress.success();
+                for (com.aresstack.askai.research.runtime.rerank.RerankedSearchResultCandidate ranked
+                        : result.selected) {
+                    if (!ranked.candidate.resolvedTargetUrl.isEmpty()) {
+                        frontier.add(ranked.candidate.resolvedTargetUrl);
+                    }
+                }
+                return null;
+            case NO_CANDIDATES:
+                return null; // empty search, not a reranker failure
+            case NO_SEMANTIC_MATCHES:
+                return ResearchStopReason.NO_SEMANTIC_MATCHES;
+            case TIMEOUT:
+                progress.error();
+                return ResearchStopReason.RERANKER_TIMEOUT;
+            case INVALID_RESPONSE:
+                progress.error();
+                return ResearchStopReason.RERANKER_INVALID_RESPONSE;
+            case CONFIGURATION_ERROR:
+                progress.error();
+                return ResearchStopReason.RERANKER_CONFIGURATION_ERROR;
+            case CANCELLED:
+                return ResearchStopReason.USER_CANCELLED;
+            case BUDGET_EXHAUSTED:
+                return sufficientOr(ResearchStopReason.TOOL_BUDGET_EXHAUSTED);
+            case RERANKER_UNAVAILABLE:
+            default:
+                progress.error();
+                return ResearchStopReason.RERANKER_UNAVAILABLE;
         }
     }
 

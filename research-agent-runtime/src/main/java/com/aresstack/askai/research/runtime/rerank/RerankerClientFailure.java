@@ -7,8 +7,11 @@ package com.aresstack.askai.research.runtime.rerank;
  */
 public enum RerankerClientFailure {
 
-    /** The endpoint could not be reached, timed out, or the connection broke mid-call. */
+    /** The endpoint could not be reached or the connection broke mid-call. */
     TRANSPORT,
+
+    /** The connect/read on the endpoint exceeded the configured timeout. */
+    TIMEOUT,
 
     /** The endpoint answered with a non-2xx HTTP status (including its {@code {"error":…}} body). */
     HTTP_STATUS,

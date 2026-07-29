@@ -78,7 +78,7 @@ public class LocalRerankerRuntimeIntegrationTest {
                 "Title: Java plugins with PF4J\nSnippet: Extension points and plugin lifecycle in the "
                         + "PF4J framework for modular Java applications.");
 
-        List<RerankScore> scores = new HttpRerankerClient(descriptor).rerank(query, documents);
+        List<RerankScore> scores = new HttpRerankerClient(descriptor).rerank(query, documents).scores;
         assertEquals("the real runtime scored every submitted document", 3, scores.size());
 
         // Apply the productive selection policy and check the real model ranks the two PF4J documents
@@ -88,7 +88,7 @@ public class LocalRerankerRuntimeIntegrationTest {
             ranked.add(new RerankedSearchResultCandidate(
                     fakeCandidate(score.documentIndex), score.score, 0));
         }
-        SearchResultRerankingResult result = new SearchResultSelectionPolicy(
+        SearchResultSelection result = new SearchResultSelectionPolicy(
                 RerankerSelectionConfiguration.topN(10)).select(ranked);
 
         int soupRank = 0;

@@ -1,12 +1,14 @@
 package com.aresstack.askai.research.runtime.rerank;
 
 import com.aresstack.askai.agent.model.reranker.RerankerEndpointDescriptor;
+import com.aresstack.askai.browser.search.inference.CancellationSignal;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.SocketTimeoutException;
 import java.net.URL;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
@@ -16,12 +18,20 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * A5c: the STRICT HTTP client for the local reranker's {@code POST <baseUrl>/api/rerank} dialect. It
- * scores the submitted documents and returns validated {@link RerankScore} rows in the endpoint's
- * response order; it never sorts, thresholds or truncates (that is the selection policy's job) and it
- * never guesses around a malformed answer. Every non-usable outcome — transport error, non-2xx status,
- * or a body that is not a contract-valid rerank response (not JSON, missing results, non-finite score,
- * duplicated or out-of-range document index) — surfaces as a typed {@link RerankerClientException}.
+ * A5c/A5-hardening: the STRICT HTTP client for the local reranker's {@code POST <baseUrl>/api/rerank}
+ * dialect. It scores the submitted documents and returns a validated {@link RerankResponse}; it never
+ * sorts, thresholds or truncates (the selection policy's job) and never guesses around a malformed
+ * answer. Every non-usable outcome surfaces as a typed {@link RerankerClientException}:
+ * <ul>
+ *   <li>connect/read failure → {@code TRANSPORT}; a socket timeout → {@code TIMEOUT};</li>
+ *   <li>non-2xx status → {@code HTTP_STATUS};</li>
+ *   <li>a body that is not contract-valid → {@code INVALID_RESPONSE}: not JSON, missing results, a
+ *       response {@code model} that differs from the requested model, a non-integer / out-of-range /
+ *       duplicated index, a non-finite score, or an INCOMPLETE result set (with {@code top_n} equal to
+ *       the document count every index must be present exactly once);</li>
+ *   <li>cancellation before the call or after the response but before the scores are used →
+ *       {@code CANCELLED}.</li>
+ * </ul>
  */
 public final class HttpRerankerClient {
 
@@ -33,19 +43,81 @@ public final class HttpRerankerClient {
         this.descriptor = descriptor;
     }
 
+    /** Score {@code documents} for {@code query} with no cancellation hook. */
+    public RerankResponse rerank(String query, List<String> documents)
+            throws RerankerClientException {
+        return rerank(query, documents, CancellationSignal.NONE);
+    }
+
     /**
-     * Score {@code documents} for {@code query}. Returns validated rows in response order (NOT sorted).
-     *
-     * @throws RerankerClientException on any transport, status or contract-validity failure
+     * Confirm the endpoint is reachable and serving the configured model — used at session start so an
+     * unreachable or wrong-model runtime fails the session, not the first run. Performs a GET on
+     * {@code /api/tags} and requires a 2xx response that lists the configured model name.
+     */
+    public void probeReadiness() throws RerankerClientException {
+        URL url;
+        try {
+            url = new URL(joinUrl(descriptor.baseUrl, "/api/tags"));
+        } catch (IOException e) {
+            throw new RerankerClientException(RerankerClientFailure.TRANSPORT,
+                    "reranker base URL is unusable: " + e.getMessage(), e);
+        }
+        HttpURLConnection connection = null;
+        try {
+            connection = (HttpURLConnection) url.openConnection();
+            connection.setRequestMethod("GET");
+            connection.setRequestProperty("Accept", "application/json");
+            int timeout = (int) Math.min(Integer.MAX_VALUE, descriptor.requestTimeoutMillis);
+            connection.setConnectTimeout(timeout);
+            connection.setReadTimeout(timeout);
+            int status = connection.getResponseCode();
+            if (status < 200 || status >= 300) {
+                throw new RerankerClientException(RerankerClientFailure.HTTP_STATUS,
+                        "reranker readiness probe returned HTTP " + status);
+            }
+            String body = readAll(connection.getInputStream());
+            if (!body.contains(descriptor.modelName)) {
+                throw new RerankerClientException(RerankerClientFailure.INVALID_RESPONSE,
+                        "reranker endpoint does not serve the configured model "
+                                + descriptor.modelName);
+            }
+        } catch (RerankerClientException e) {
+            throw e;
+        } catch (SocketTimeoutException e) {
+            throw new RerankerClientException(RerankerClientFailure.TIMEOUT,
+                    "reranker readiness probe timed out", e);
+        } catch (IOException e) {
+            throw new RerankerClientException(RerankerClientFailure.TRANSPORT,
+                    "reranker readiness probe failed: " + e.getMessage(), e);
+        } finally {
+            if (connection != null) {
+                connection.disconnect();
+            }
+        }
+    }
+
+    /**
+     * Score {@code documents} for {@code query}, honouring cancellation before and after the HTTP call.
+     * Returns validated rows in response order (NOT sorted).
      */
     @SuppressWarnings("unchecked")
-    public List<RerankScore> rerank(String query, List<String> documents)
+    public RerankResponse rerank(String query, List<String> documents, CancellationSignal cancellation)
             throws RerankerClientException {
         if (documents.isEmpty()) {
-            return new ArrayList<RerankScore>();
+            return new RerankResponse(descriptor.modelName, new ArrayList<RerankScore>(), 0L, 0L);
+        }
+        if (cancellation != null && cancellation.isCancelled()) {
+            throw new RerankerClientException(RerankerClientFailure.CANCELLED,
+                    "cancelled before the reranker call");
         }
         RerankRequest request = new RerankRequest(descriptor.modelName, query, documents);
         String responseBody = post(request.toJson());
+
+        // Cancellation observed after the HTTP round-trip but before the scores are applied.
+        if (cancellation != null && cancellation.isCancelled()) {
+            throw new RerankerClientException(RerankerClientFailure.CANCELLED,
+                    "cancelled after the reranker response, before applying scores");
+        }
 
         Object root;
         try {
@@ -58,7 +130,18 @@ public final class HttpRerankerClient {
             throw new RerankerClientException(RerankerClientFailure.INVALID_RESPONSE,
                     "reranker response root is not a JSON object");
         }
-        Object resultsValue = ((Map<String, Object>) root).get("results");
+        Map<String, Object> object = (Map<String, Object>) root;
+
+        // The served model must be the one we asked for — a mismatch means the endpoint is serving a
+        // different (or reloaded) model than the snapshot promised.
+        Object modelValue = object.get("model");
+        if (!(modelValue instanceof String) || !descriptor.modelName.equals(modelValue)) {
+            throw new RerankerClientException(RerankerClientFailure.INVALID_RESPONSE,
+                    "reranker response model '" + modelValue + "' does not match requested '"
+                            + descriptor.modelName + "'");
+        }
+
+        Object resultsValue = object.get("results");
         if (!(resultsValue instanceof List)) {
             throw new RerankerClientException(RerankerClientFailure.INVALID_RESPONSE,
                     "reranker response has no 'results' array");
@@ -99,7 +182,20 @@ public final class HttpRerankerClient {
             }
             scores.add(new RerankScore(index, score));
         }
-        return scores;
+        // We requested top_n = documents.size(); the endpoint must therefore score EVERY document exactly
+        // once. An incomplete ranking would silently drop candidates from consideration.
+        if (scores.size() != documents.size()) {
+            throw new RerankerClientException(RerankerClientFailure.INVALID_RESPONSE,
+                    "reranker returned " + scores.size() + " of " + documents.size()
+                            + " requested document scores");
+        }
+        return new RerankResponse((String) modelValue, scores, longField(object, "total_duration"),
+                longField(object, "load_duration"));
+    }
+
+    private static long longField(Map<String, Object> object, String key) {
+        Object value = object.get(key);
+        return value instanceof Double ? (long) (double) (Double) value : 0L;
     }
 
     private String post(String requestBody) throws RerankerClientException {
@@ -140,6 +236,9 @@ public final class HttpRerankerClient {
             return readAll(connection.getInputStream());
         } catch (RerankerClientException e) {
             throw e;
+        } catch (SocketTimeoutException e) {
+            throw new RerankerClientException(RerankerClientFailure.TIMEOUT,
+                    "reranker call timed out after " + descriptor.requestTimeoutMillis + "ms", e);
         } catch (IOException e) {
             throw new RerankerClientException(RerankerClientFailure.TRANSPORT,
                     "reranker call failed: " + e.getMessage(), e);

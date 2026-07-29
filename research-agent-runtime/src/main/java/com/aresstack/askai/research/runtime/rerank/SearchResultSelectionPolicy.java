@@ -33,10 +33,12 @@ public final class SearchResultSelectionPolicy {
     }
 
     /**
-     * Rank {@code scored} by relevance and select the survivors. The returned result carries both the
-     * full reranked order and the admitted, Top-N-bounded selection.
+     * Rank {@code scored} by relevance and select the survivors. The returned selection carries the full
+     * reranked order, the admitted Top-N-bounded selection, and a typed outcome distinguishing an empty
+     * input ({@code NO_CANDIDATES}) from a scored set where nothing passed the cut-offs
+     * ({@code NO_SEMANTIC_MATCHES}).
      */
-    public SearchResultRerankingResult select(List<RerankedSearchResultCandidate> scored) {
+    public SearchResultSelection select(List<RerankedSearchResultCandidate> scored) {
         List<RerankedSearchResultCandidate> ordered =
                 new ArrayList<RerankedSearchResultCandidate>(scored);
         Collections.sort(ordered, BY_RELEVANCE);
@@ -49,7 +51,8 @@ public final class SearchResultSelectionPolicy {
             reranked.add(new RerankedSearchResultCandidate(c.candidate, c.score, i + 1));
         }
         if (reranked.isEmpty()) {
-            return new SearchResultRerankingResult(reranked, reranked);
+            return new SearchResultSelection(SearchResultRerankingOutcome.NO_CANDIDATES, reranked,
+                    reranked);
         }
 
         double best = reranked.get(0).score;
@@ -79,7 +82,10 @@ public final class SearchResultSelectionPolicy {
         int limit = Math.min(configuration.maximumSelectedCandidates, surviving.size());
         List<RerankedSearchResultCandidate> selected =
                 new ArrayList<RerankedSearchResultCandidate>(surviving.subList(0, limit));
-        return new SearchResultRerankingResult(reranked, selected);
+        SearchResultRerankingOutcome outcome = selected.isEmpty()
+                ? SearchResultRerankingOutcome.NO_SEMANTIC_MATCHES
+                : SearchResultRerankingOutcome.SUCCESS;
+        return new SearchResultSelection(outcome, reranked, selected);
     }
 
     /** Score descending; ties broken by lower original engine rank for a stable, deterministic order. */

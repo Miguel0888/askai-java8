@@ -33,6 +33,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 /**
  * A5d proof: the mandatory reranker runs EXACTLY ONCE before any browser navigation, and the loop
@@ -41,6 +42,8 @@ import static org.junit.Assert.assertFalse;
 public class ResearchLoopRerankingTest {
 
     private static final Charset UTF_8 = Charset.forName("UTF-8");
+
+    private static final String MODEL = "local/cross-encoder/ms-marco-MiniLM-L6-v2:latest";
 
     private HttpServer server;
     /** documentIndex -> raw logit; the embedded reranker echoes these. */
@@ -55,7 +58,7 @@ public class ResearchLoopRerankingTest {
                 exchange.getRequestBody().close();
                 // Score index1 highest, then index2, then index0 — a deliberate reordering of the
                 // engine's original A,B,C order into B,C,A. Best hit is a small logit (no 0.5 gate).
-                String body = "{\"model\":\"m\",\"results\":["
+                String body = "{\"model\":\"" + MODEL + "\",\"results\":["
                         + "{\"index\":0,\"score\":-2.0},"
                         + "{\"index\":1,\"score\":0.4},"
                         + "{\"index\":2,\"score\":-0.1}]}";
@@ -194,6 +197,46 @@ public class ResearchLoopRerankingTest {
         assertEquals(1, rerankCalls.get());
         // Same reranking outcome, now sourced entirely from the on-disk snapshot contract.
         assertEquals(Arrays.asList("https://b.example/y", "https://c.example/z"), browser.opened);
+    }
+
+    /** A stub reranker that always reports one fixed outcome and opens nothing. */
+    private static com.aresstack.askai.research.runtime.rerank.CandidateReranker stub(
+            final com.aresstack.askai.research.runtime.rerank.SearchResultRerankingOutcome outcome) {
+        return new com.aresstack.askai.research.runtime.rerank.CandidateReranker() {
+            public com.aresstack.askai.research.runtime.rerank.SearchResultRerankingResult rerank(
+                    String query,
+                    java.util.List<com.aresstack.askai.browser.search.SearchResultCandidate> candidates,
+                    com.aresstack.askai.browser.search.inference.CancellationSignal cancellation) {
+                return com.aresstack.askai.research.runtime.rerank.SearchResultRerankingResult.failure(
+                        outcome, "stub", RerankerScoreSemantics.RAW_LOGIT, "stubbed " + outcome);
+            }
+        };
+    }
+
+    @Test
+    public void rerankerUnavailableEndsTheRunWithATypedReasonAndNoPageOpens() {
+        RecordingBrowser browser = new RecordingBrowser();
+        ResearchLoop loop = loop(browser, new NoopResearch());
+        loop.setReranker(stub(com.aresstack.askai.research.runtime.rerank
+                .SearchResultRerankingOutcome.RERANKER_UNAVAILABLE));
+
+        ResearchStopReason reason = loop.run("investigate pf4j plugin framework");
+
+        assertEquals(ResearchStopReason.RERANKER_UNAVAILABLE, reason);
+        assertTrue("no page is opened when the mandatory reranker fails", browser.opened.isEmpty());
+    }
+
+    @Test
+    public void noSemanticMatchesIsTypedNotNoRelevantPaths() {
+        RecordingBrowser browser = new RecordingBrowser();
+        ResearchLoop loop = loop(browser, new NoopResearch());
+        loop.setReranker(stub(com.aresstack.askai.research.runtime.rerank
+                .SearchResultRerankingOutcome.NO_SEMANTIC_MATCHES));
+
+        ResearchStopReason reason = loop.run("investigate pf4j plugin framework");
+
+        assertEquals(ResearchStopReason.NO_SEMANTIC_MATCHES, reason);
+        assertTrue(browser.opened.isEmpty());
     }
 
     @Test

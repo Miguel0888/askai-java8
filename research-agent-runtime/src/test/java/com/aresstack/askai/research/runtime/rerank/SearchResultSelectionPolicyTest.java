@@ -44,7 +44,7 @@ public class SearchResultSelectionPolicyTest {
     @Test
     public void ordersByRawLogitEvenWithNegativeAndSubHalfScores() {
         // Best hit is 0.12 (< 0.5) and there are negative logits — pure descending order must hold.
-        SearchResultRerankingResult result = new SearchResultSelectionPolicy(
+        SearchResultSelection result = new SearchResultSelectionPolicy(
                 RerankerSelectionConfiguration.topN(10))
                 .select(scored(-3.4, 0.12, -0.5, -9.0));
 
@@ -57,7 +57,7 @@ public class SearchResultSelectionPolicyTest {
 
     @Test
     public void appliesTopN() {
-        SearchResultRerankingResult result = new SearchResultSelectionPolicy(
+        SearchResultSelection result = new SearchResultSelectionPolicy(
                 RerankerSelectionConfiguration.topN(2)).select(scored(1.0, 5.0, 3.0, 4.0));
         assertEquals(Arrays.asList("c1", "c3"), ids(result.selected));
         assertEquals(4, result.reranked.size());
@@ -67,7 +67,7 @@ public class SearchResultSelectionPolicyTest {
     public void appliesAbsoluteMinimumFloor() {
         RerankerSelectionConfiguration config = new RerankerSelectionConfiguration(10,
                 OptionalDouble.of(0.0), OptionalDouble.empty(), OptionalDouble.empty());
-        SearchResultRerankingResult result =
+        SearchResultSelection result =
                 new SearchResultSelectionPolicy(config).select(scored(2.0, -1.0, 0.5, -0.01));
         assertEquals(Arrays.asList("c0", "c2"), ids(result.selected));
     }
@@ -77,7 +77,7 @@ public class SearchResultSelectionPolicyTest {
         RerankerSelectionConfiguration config = new RerankerSelectionConfiguration(10,
                 OptionalDouble.empty(), OptionalDouble.empty(), OptionalDouble.of(1.0));
         // best = 5.0; keep only scores >= 4.0
-        SearchResultRerankingResult result =
+        SearchResultSelection result =
                 new SearchResultSelectionPolicy(config).select(scored(5.0, 4.5, 3.9, 4.0));
         assertEquals(Arrays.asList("c0", "c1", "c3"), ids(result.selected));
     }
@@ -87,7 +87,7 @@ public class SearchResultSelectionPolicyTest {
         RerankerSelectionConfiguration config = new RerankerSelectionConfiguration(10,
                 OptionalDouble.empty(), OptionalDouble.of(1.0), OptionalDouble.empty());
         // top margin 5.0 - 4.9 = 0.1 < 1.0 -> only the single winner
-        SearchResultRerankingResult result =
+        SearchResultSelection result =
                 new SearchResultSelectionPolicy(config).select(scored(5.0, 4.9, 4.8));
         assertEquals(Collections.singletonList("c0"), ids(result.selected));
         assertEquals("full order still available", 3, result.reranked.size());
@@ -95,7 +95,7 @@ public class SearchResultSelectionPolicyTest {
 
     @Test
     public void emptyInputYieldsEmptyResult() {
-        SearchResultRerankingResult result = new SearchResultSelectionPolicy(
+        SearchResultSelection result = new SearchResultSelectionPolicy(
                 RerankerSelectionConfiguration.topN(5))
                 .select(new ArrayList<RerankedSearchResultCandidate>());
         assertEquals(0, result.selected.size());

@@ -23,24 +23,33 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 /**
- * A5c proof: the strict client returns validated rows verbatim and hard-fails (never guesses) on any
- * non-2xx status or contract-invalid body — non-finite score, duplicate index, or out-of-range index.
+ * A5c/A5-hardening proof: the strict client returns validated rows verbatim and hard-fails (never
+ * guesses) on any non-2xx status, timeout, or contract-invalid body — non-finite score, duplicate or
+ * out-of-range index, a wrong response model, or an incomplete result set.
  */
 public class HttpRerankerClientTest {
 
     private static final Charset UTF_8 = Charset.forName("UTF-8");
+    private static final String MODEL = "local/cross-encoder/ms-marco-MiniLM-L6-v2:latest";
 
     private HttpServer server;
     private volatile String responseBody;
     private volatile int responseStatus;
+    private volatile long handlerSleepMillis;
 
     @Before
     public void startServer() throws Exception {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/api/rerank", new HttpHandler() {
             public void handle(HttpExchange exchange) throws java.io.IOException {
-                // Drain the request so the client's write always completes.
                 exchange.getRequestBody().close();
+                if (handlerSleepMillis > 0) {
+                    try {
+                        Thread.sleep(handlerSleepMillis);
+                    } catch (InterruptedException ignored) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
                 byte[] body = responseBody.getBytes(UTF_8);
                 exchange.sendResponseHeaders(responseStatus, body.length);
                 OutputStream out = exchange.getResponseBody();
@@ -58,14 +67,17 @@ public class HttpRerankerClientTest {
         }
     }
 
-    private HttpRerankerClient client() {
+    private HttpRerankerClient client(long timeoutMillis) {
         RerankerEndpointDescriptor descriptor = new RerankerEndpointDescriptor(
                 RerankerProvider.ASKAI_LOCAL,
-                "http://127.0.0.1:" + server.getAddress().getPort(),
-                "local/cross-encoder/ms-marco-MiniLM-L6-v2:latest",
-                Arrays.asList(RerankerCapability.RERANK), RerankerScoreSemantics.RAW_LOGIT, 5_000L,
-                RerankerSelectionConfiguration.topN(10));
+                "http://127.0.0.1:" + server.getAddress().getPort(), MODEL,
+                Arrays.asList(RerankerCapability.RERANK), RerankerScoreSemantics.RAW_LOGIT,
+                timeoutMillis, RerankerSelectionConfiguration.topN(10));
         return new HttpRerankerClient(descriptor);
+    }
+
+    private HttpRerankerClient client() {
+        return client(5_000L);
     }
 
     private List<String> docs() {
@@ -73,47 +85,59 @@ public class HttpRerankerClientTest {
     }
 
     @Test
-    public void returnsValidatedRowsInResponseOrder() throws Exception {
+    public void returnsValidatedRowsInResponseOrderWithDurations() throws Exception {
         responseStatus = 200;
-        responseBody = "{\"model\":\"m\",\"results\":["
+        responseBody = "{\"model\":\"" + MODEL + "\",\"results\":["
                 + "{\"index\":2,\"score\":-0.5},"
                 + "{\"index\":0,\"score\":0.12},"
                 + "{\"index\":1,\"score\":-3.4}],"
-                + "\"total_duration\":1,\"load_duration\":1}";
-        List<RerankScore> scores = client().rerank("q", docs());
+                + "\"total_duration\":123,\"load_duration\":45}";
+        RerankResponse response = client().rerank("q", docs());
 
-        assertEquals(3, scores.size());
-        assertEquals(2, scores.get(0).documentIndex);
-        assertEquals(-0.5, scores.get(0).score, 1e-9);
-        assertEquals(0, scores.get(1).documentIndex);
-        assertEquals(0.12, scores.get(1).score, 1e-9);
+        assertEquals(MODEL, response.model);
+        assertEquals(3, response.scores.size());
+        assertEquals(2, response.scores.get(0).documentIndex);
+        assertEquals(-0.5, response.scores.get(0).score, 1e-9);
+        assertEquals(0.12, response.scores.get(1).score, 1e-9);
+        assertEquals(123L, response.totalDurationNanos);
+        assertEquals(45L, response.loadDurationNanos);
+    }
+
+    @Test
+    public void rejectsWrongResponseModel() {
+        responseStatus = 200;
+        responseBody = "{\"model\":\"some/other-model\",\"results\":["
+                + "{\"index\":0,\"score\":1.0},{\"index\":1,\"score\":0.5},{\"index\":2,\"score\":0.1}]}";
+        expectFailure(RerankerClientFailure.INVALID_RESPONSE);
+    }
+
+    @Test
+    public void rejectsIncompleteResultSet() {
+        responseStatus = 200;
+        responseBody = "{\"model\":\"" + MODEL + "\",\"results\":[{\"index\":0,\"score\":1.0}]}";
+        expectFailure(RerankerClientFailure.INVALID_RESPONSE);
     }
 
     @Test
     public void rejectsNonFiniteScore() {
         responseStatus = 200;
-        responseBody = "{\"results\":[{\"index\":0,\"score\":1e400}]}"; // 1e400 -> Infinity
+        responseBody = "{\"model\":\"" + MODEL + "\",\"results\":["
+                + "{\"index\":0,\"score\":1e400},{\"index\":1,\"score\":0.5},{\"index\":2,\"score\":0.1}]}";
         expectFailure(RerankerClientFailure.INVALID_RESPONSE);
     }
 
     @Test
     public void rejectsDuplicateIndex() {
         responseStatus = 200;
-        responseBody = "{\"results\":[{\"index\":0,\"score\":1.0},{\"index\":0,\"score\":2.0}]}";
+        responseBody = "{\"model\":\"" + MODEL + "\",\"results\":["
+                + "{\"index\":0,\"score\":1.0},{\"index\":0,\"score\":2.0},{\"index\":2,\"score\":0.1}]}";
         expectFailure(RerankerClientFailure.INVALID_RESPONSE);
     }
 
     @Test
     public void rejectsOutOfRangeIndex() {
         responseStatus = 200;
-        responseBody = "{\"results\":[{\"index\":9,\"score\":1.0}]}";
-        expectFailure(RerankerClientFailure.INVALID_RESPONSE);
-    }
-
-    @Test
-    public void rejectsMissingResultsArray() {
-        responseStatus = 200;
-        responseBody = "{\"model\":\"m\"}";
+        responseBody = "{\"model\":\"" + MODEL + "\",\"results\":[{\"index\":9,\"score\":1.0}]}";
         expectFailure(RerankerClientFailure.INVALID_RESPONSE);
     }
 
@@ -129,6 +153,36 @@ public class HttpRerankerClientTest {
         responseStatus = 500;
         responseBody = "{\"error\":\"boom\"}";
         expectFailure(RerankerClientFailure.HTTP_STATUS);
+    }
+
+    @Test
+    public void classifiesSocketTimeoutAsTimeout() {
+        responseStatus = 200;
+        responseBody = "{\"model\":\"" + MODEL + "\",\"results\":[]}";
+        handlerSleepMillis = 1_500L;
+        try {
+            client(250L).rerank("q", docs());
+            fail("expected a TIMEOUT failure");
+        } catch (RerankerClientException e) {
+            assertEquals(e.getMessage(), RerankerClientFailure.TIMEOUT, e.getFailure());
+        }
+    }
+
+    @Test
+    public void cancellationBeforeCallYieldsCancelled() {
+        responseStatus = 200;
+        responseBody = "{\"model\":\"" + MODEL + "\",\"results\":[]}";
+        try {
+            client().rerank("q", docs(), new com.aresstack.askai.browser.search.inference
+                    .CancellationSignal() {
+                public boolean isCancelled() {
+                    return true;
+                }
+            });
+            fail("expected a CANCELLED failure");
+        } catch (RerankerClientException e) {
+            assertEquals(RerankerClientFailure.CANCELLED, e.getFailure());
+        }
     }
 
     private void expectFailure(RerankerClientFailure expected) {
