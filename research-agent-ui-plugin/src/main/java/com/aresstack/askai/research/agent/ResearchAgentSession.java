@@ -131,10 +131,18 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             });
         }
         if (productiveResources != null && problemMessage.isEmpty()) {
-            // First contact: the agent takes the initiative with ONE open question (playbook).
-            // Suppressed when the backend start already reported an error — no cheerful greeting
-            // right under a "could not be started" problem.
-            sayAsAgent(ResearchPlaybook.greeting());
+            // RESTORE is state-driven: a project with a persisted assignment/state resumes with a
+            // status line instead of the fresh-start greeting — no repeated scoping ceremony.
+            boolean restoredAssignment = restoreProjectMetadata();
+            com.aresstack.askai.research.state.oo.ResearchStateMemento current =
+                    productiveResources.currentState();
+            if (restoredAssignment || current.getRevision() > 0) {
+                sayAsAgent(ResearchPlaybook.describePhase(current.getPhaseId(),
+                        current.getStateId(), !researchQuestion.isEmpty()));
+            } else {
+                // First contact: the agent takes the initiative with ONE open question (playbook).
+                sayAsAgent(ResearchPlaybook.greeting());
+            }
         }
     }
 
@@ -245,6 +253,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 }
                 // Scope CONFIRMED: real artifacts from the confirmed scope, then the outline gate.
                 researchQuestion = scoping.getQuestion();
+                persistProjectMetadata();
                 writeScopedArtifacts();
                 autoAdvanceTowardsResearch(); // stops at the approval, showing the actual outline
                 return;
@@ -267,6 +276,50 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 sink.appendAssistantMessage("playbook-" + playbookMessageIds.incrementAndGet(), text);
             }
         });
+    }
+
+    /**
+     * Persist the TYPED research assignment (question + confirmed focus areas) as project
+     * metadata — never parsed back out of concept.md; Markdown stays presentation.
+     */
+    private void persistProjectMetadata() {
+        if (productiveResources == null) {
+            return;
+        }
+        com.aresstack.askai.research.store.ResearchProjectMetadataStore metadataStore =
+                productiveResources.getProjectContext().getMetadataStore();
+        com.aresstack.askai.research.store.ResearchProjectMetadata previous = metadataStore.load();
+        long revision = previous == null ? 1L : previous.getRevision() + 1L;
+        try {
+            metadataStore.save(new com.aresstack.askai.research.store.ResearchProjectMetadata(
+                    com.aresstack.askai.research.store.ResearchProjectMetadata.SCHEMA_VERSION,
+                    productiveResources.getProjectContext().getProjectId(),
+                    scoping.getQuestion(), scoping.getAspects(), revision));
+        } catch (java.io.IOException persistFailed) {
+            // The scope stays usable in this session; the failure is visible, never silent.
+            sayAsAgent("The research assignment could not be persisted: "
+                    + persistFailed.getMessage());
+        }
+    }
+
+    /**
+     * Restore the persisted research assignment of this project, if any: the question and the
+     * confirmed focus areas come back typed, the scoping dialog is marked complete — a restored
+     * session never repeats the scoping ceremony.
+     */
+    private boolean restoreProjectMetadata() {
+        if (productiveResources == null) {
+            return false;
+        }
+        com.aresstack.askai.research.store.ResearchProjectMetadata metadata =
+                productiveResources.getProjectContext().getMetadataStore().load();
+        if (metadata == null || !metadata.hasResearchQuestion()) {
+            return false;
+        }
+        researchQuestion = metadata.getResearchQuestion();
+        scoping.restoreCompleted(metadata.getResearchQuestion(),
+                metadata.getConfirmedFocusAreas());
+        return true;
     }
 
     /** Concept + outline from the CONFIRMED scope (revision >= 1) — the approval shows real content. */

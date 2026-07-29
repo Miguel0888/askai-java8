@@ -39,7 +39,8 @@ public final class ProductiveResearchSessionResources {
     private final CaptureStore captures;
     private final ResearchSourceRepository repository;
     private final SourceAcceptanceService acceptance;
-    private final AgentArtifactStore artifactStore;
+    /** The ONE persistent project context: artifacts, sources, state and metadata on disk. */
+    private final com.aresstack.askai.research.store.ResearchProjectContext projectContext;
     private final ResearchControlEndpoint controlEndpoint;
     private final BrowserBridgeEndpoint browserBridge;
     private final McpToolClient sidecarClient;
@@ -51,22 +52,44 @@ public final class ProductiveResearchSessionResources {
 
     ProductiveResearchSessionResources(String sessionKey, OoResearchStateMachine stateMachine,
                                        CaptureStore captures, ResearchSourceRepository repository,
-                                       SourceAcceptanceService acceptance, AgentArtifactStore artifactStore,
+                                       SourceAcceptanceService acceptance,
+                                       com.aresstack.askai.research.store.ResearchProjectContext
+                                               projectContext,
                                        ResearchControlEndpoint controlEndpoint,
                                        BrowserBridgeEndpoint browserBridge, McpToolClient sidecarClient,
                                        BrowserMcpSidecarProcess sidecar, AcpResearchSessionBackend backend) {
         this.sessionKey = sessionKey;
         this.stateMachine = stateMachine;
-        this.state = stateMachine.initialMemento();
+        this.projectContext = projectContext;
+        // RESTORE-or-init: a stored memento wins; without one the initial state is persisted
+        // immediately so the project directory always carries the truth from revision 0 on.
+        ResearchStateMemento restored = projectContext.getSessionStateStore().load();
+        if (restored != null) {
+            this.state = restored;
+        } else {
+            this.state = stateMachine.initialMemento();
+            try {
+                projectContext.getSessionStateStore().save(this.state);
+            } catch (java.io.IOException persistFailed) {
+                // The session still starts; the FIRST dispatch will fail loudly if the state
+                // directory is truly unwritable (persist-before-apply below).
+                System.err.println("[research] could not persist the initial state: "
+                        + persistFailed.getMessage());
+            }
+        }
         this.captures = captures;
         this.repository = repository;
         this.acceptance = acceptance;
-        this.artifactStore = artifactStore;
         this.controlEndpoint = controlEndpoint;
         this.browserBridge = browserBridge;
         this.sidecarClient = sidecarClient;
         this.sidecar = sidecar;
         this.backend = backend;
+    }
+
+    /** The persistent project context this session works on (single source of truth). */
+    public com.aresstack.askai.research.store.ResearchProjectContext getProjectContext() {
+        return projectContext;
     }
 
     void setSearchProfile(com.aresstack.askai.browser.search.SearchProcessingProfileSnapshot profile) {
@@ -100,7 +123,7 @@ public final class ProductiveResearchSessionResources {
     }
 
     public AgentArtifactStore getArtifactStore() {
-        return artifactStore;
+        return projectContext.getArtifactStore();
     }
 
     public ResearchControlEndpoint getControlEndpoint() {
@@ -136,6 +159,16 @@ public final class ProductiveResearchSessionResources {
         ResearchStateTransitionResult result = stateMachine.dispatch(state,
                 ResearchCommand.of(command, "cmd-" + System.nanoTime()));
         if (result.isAccepted()) {
+            // PERSIST-BEFORE-APPLY: the new memento must be on disk before anyone can observe it.
+            // If persistence fails there is NO success result, NO tool refresh and the active
+            // state stays the previous memento — a state never advances only in RAM.
+            try {
+                projectContext.getSessionStateStore().save(result.getNextMemento());
+            } catch (java.io.IOException persistFailed) {
+                return ResearchStateTransitionResult.rejected(state,
+                        "state transition not persisted (" + persistFailed.getMessage()
+                                + ") — the previous state stays active");
+            }
             state = result.getNextMemento();
             toolRefreshExecutor.execute(new Runnable() {
                 public void run() {
@@ -166,7 +199,7 @@ public final class ProductiveResearchSessionResources {
             }
 
             public AgentArtifactStore artifactStore() {
-                return artifactStore;
+                return projectContext.getArtifactStore();
             }
 
             public ResearchSourceRepository sourceRepository() {

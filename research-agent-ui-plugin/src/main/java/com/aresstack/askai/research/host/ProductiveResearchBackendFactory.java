@@ -7,7 +7,6 @@ import com.aresstack.askai.mcp.api.McpServerRegistry;
 import com.aresstack.askai.mcp.api.McpToolClient;
 import com.aresstack.askai.mcp.api.McpToolClientFactory;
 import com.aresstack.askai.research.acp.AcpResearchSessionBackend;
-import com.aresstack.askai.research.agent.ResearchArtifactStore;
 import com.aresstack.askai.research.capture.CaptureStore;
 import com.aresstack.askai.research.capture.ResearchSearchIndex;
 import com.aresstack.askai.research.capture.SourceAcceptanceService;
@@ -134,10 +133,13 @@ public final class ProductiveResearchBackendFactory {
                                         .toValues(profile.settings))).toJson());
         File fullConfigFile = profileFile;
 
-        // 1. Session-owned stores + state machine (pure, nothing to roll back).
+        // 1. THE persistent project context (Commit 1 of the guided artifact flow): exactly one
+        // file-backed artifact store, source repository, state store and metadata store per
+        // project directory — the productive path never constructs an in-memory artifact store.
+        com.aresstack.askai.research.store.ResearchProjectContext projectContext =
+                com.aresstack.askai.research.store.ResearchProjectContext.open(sessionKey, projectDir);
         CaptureStore captures = new CaptureStore(200);
-        File sourcesDir = new File(projectDir, "sources");
-        final FileResearchSourceRepository repository = new FileResearchSourceRepository(sourcesDir);
+        final FileResearchSourceRepository repository = projectContext.getFileSourceRepository();
         ResearchSearchIndex.InMemory index = new ResearchSearchIndex.InMemory();
         SourceAcceptanceService acceptance = new SourceAcceptanceService(captures, repository,
                 new SourceAcceptanceService.SourceCreator() {
@@ -149,7 +151,7 @@ public final class ProductiveResearchBackendFactory {
                                     "Cannot persist source " + record.getSourceId(), ex);
                         }
                     }
-                }, index);
+                }, index, highestSourceNumber(repository));
         OoResearchStateMachine stateMachine = new OoResearchStateMachine(sessionKey);
 
         BrowserMcpSidecarProcess sidecar = null;
@@ -227,7 +229,7 @@ public final class ProductiveResearchBackendFactory {
             backend = new AcpResearchSessionBackend(connector, spec, researchDescriptor, browserDescriptor);
 
             resources = new ProductiveResearchSessionResources(sessionKey, stateMachine, captures,
-                    repository, acceptance, new ResearchArtifactStore(), control, bridge,
+                    repository, acceptance, projectContext, control, bridge,
                     sidecarClient, sidecar, backend);
             resources.setSearchProfile(profile);
             holder[0] = resources;
@@ -257,6 +259,23 @@ public final class ProductiveResearchBackendFactory {
         if (sidecar != null) {
             sidecar.close();
         }
+    }
+
+    /** The highest persisted {@code source-N} number of this project (0 for a fresh project). */
+    private static long highestSourceNumber(FileResearchSourceRepository repository) {
+        long highest = 0;
+        for (com.aresstack.askai.research.sources.ResearchSourceRecord record
+                : repository.find(com.aresstack.askai.research.sources.SourceQuery.all())) {
+            String id = record.getSourceId();
+            if (id != null && id.startsWith("source-")) {
+                try {
+                    highest = Math.max(highest, Long.parseLong(id.substring("source-".length())));
+                } catch (NumberFormatException ignored) {
+                    // foreign id scheme — never counted, never reissued either
+                }
+            }
+        }
+        return highest;
     }
 
     /** Used by generation preparation: validation without side effects. */

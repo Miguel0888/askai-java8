@@ -205,7 +205,7 @@ public class ResearchRunCardsTest {
                     });
             control.open();
             resources = new ProductiveResearchSessionResources("s1", new OoResearchStateMachine("s1"),
-                    null, productiveSources, null, new ResearchArtifactStore(), control, null, null, null, null);
+                    null, productiveSources, null, tempProjectContext(), control, null, null, null, null);
             holder[0] = resources;
             session = new ResearchAgentSession(backend, null, new SinkHost(sink), "s1", "p1", resources);
             session.activate();
@@ -573,4 +573,61 @@ public class ResearchRunCardsTest {
     private static AgentConversationSink.ActionOption option(String id, String label) {
         return new AgentConversationSink.ActionOption(id, label);
     }
+
+    @Test
+    public void aRestoredSessionResumesWithoutRepeatingTheScopingCeremony() throws Exception {
+        ResearchPlaybook.setLanguage(ResearchPlaybook.Language.ENGLISH);
+        // Session 1 persisted an assignment + reached the outline approval gate.
+        java.io.File projectDir =
+                java.nio.file.Files.createTempDirectory("askai-restore-test").toFile();
+        com.aresstack.askai.research.store.ResearchProjectContext seeded =
+                com.aresstack.askai.research.store.ResearchProjectContext.open("s1", projectDir);
+        seeded.getMetadataStore().save(new com.aresstack.askai.research.store
+                .ResearchProjectMetadata(1, "s1", "How does PF4J isolation work?",
+                java.util.Arrays.asList("classloading"), 1L));
+        seeded.getArtifactStore().replace("outline", 0L, "# Outline - PF4J\n");
+        ProductiveResearchSessionResources first = new ProductiveResearchSessionResources("s1",
+                new OoResearchStateMachine("s1"), null, productiveSources(), null, seeded,
+                null, null, null, null, null);
+        first.dispatch(com.aresstack.askai.research.state.ResearchCommandType.START);
+        first.dispatch(com.aresstack.askai.research.state.ResearchCommandType.SUBMIT_SCOPE);
+        first.dispatch(com.aresstack.askai.research.state.ResearchCommandType.PROPOSE_OUTLINE);
+
+        // Session 2 over the same directory: fresh context, fresh resources, fresh session.
+        RecordingSink sink = new RecordingSink();
+        com.aresstack.askai.research.store.ResearchProjectContext restored =
+                com.aresstack.askai.research.store.ResearchProjectContext.open("s1", projectDir);
+        ProductiveResearchSessionResources resources = new ProductiveResearchSessionResources("s1",
+                new OoResearchStateMachine("s1"), null, productiveSources(), null, restored,
+                null, null, null, null, null);
+        ResearchAgentSession session = new ResearchAgentSession(new RecordingBackend(), null,
+                new SinkHost(sink), "s1", "p1", resources);
+        session.activate();
+
+        assertEquals("restored state is the approval gate",
+                ResearchStateIds.WAITING_APPROVAL, resources.currentState().getStateId());
+        String firstMessage = sink.assistantMessages.isEmpty() ? "" : sink.assistantMessages.get(0);
+        assertFalse("no fresh-start greeting on a restored project",
+                firstMessage.equals(ResearchPlaybook.greeting()));
+        assertFalse("no scoping paraphrase either — the assignment is already confirmed",
+                firstMessage.contains(ResearchPlaybook.paraphraseAndFocus("x")
+                        .substring(0, Math.min(12, ResearchPlaybook.paraphraseAndFocus("x").length()))));
+        session.close();
+    }
+
+    private static com.aresstack.askai.research.sources.ResearchSourceRepository productiveSources() {
+        return new com.aresstack.askai.research.sources.InMemoryResearchSourceRepository();
+    }
+
+    /** A file-backed project context in a fresh temp directory (the productive contract). */
+    private static com.aresstack.askai.research.store.ResearchProjectContext tempProjectContext() {
+        try {
+            java.io.File dir = java.nio.file.Files.createTempDirectory("askai-research-test")
+                    .toFile();
+            return com.aresstack.askai.research.store.ResearchProjectContext.open("s1", dir);
+        } catch (java.io.IOException ex) {
+            throw new IllegalStateException(ex);
+        }
+    }
+
 }

@@ -38,6 +38,19 @@ public final class ScopingConversation {
         return Collections.unmodifiableList(aspects);
     }
 
+    /**
+     * Restore a scope that was CONFIRMED in an earlier session (from the persisted project
+     * metadata): the dialog is complete, no scoping ceremony is repeated.
+     */
+    public void restoreCompleted(String restoredQuestion, java.util.List<String> restoredAspects) {
+        this.question = restoredQuestion == null ? "" : restoredQuestion;
+        this.aspects.clear();
+        if (restoredAspects != null) {
+            this.aspects.addAll(restoredAspects);
+        }
+        this.stage = Stage.DONE;
+    }
+
     public boolean isComplete() {
         return stage == Stage.DONE;
     }
