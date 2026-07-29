@@ -1,10 +1,13 @@
 package com.aresstack.askai.research.runtime.search.provider;
 
+import com.aresstack.askai.research.runtime.search.provider.brightdata.BrightDataSearchProvider;
 import com.aresstack.askai.research.runtime.search.provider.dataforseo.DataForSeoSearchProvider;
 import org.junit.Test;
 
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -18,6 +21,10 @@ import static org.junit.Assert.fail;
  */
 public class SearchProviderRegistryTest {
 
+    /** The ids that are productively bound today; every other id must fail with no object created. */
+    private static final Set<SearchProviderId> IMPLEMENTED =
+            EnumSet.of(SearchProviderId.DATA_FOR_SEO, SearchProviderId.BRIGHT_DATA);
+
     private SearchProviderRegistry registry() {
         return new DefaultSearchProviderRegistry(new SearchProviderConfigurationSource() {
             public SearchProviderConfiguration load(SearchProviderId providerId) {
@@ -25,6 +32,8 @@ public class SearchProviderRegistryTest {
                 settings.put("login", "user");
                 settings.put("password", "secret");
                 settings.put("location_name", "Germany");
+                settings.put("api_token", "token");
+                settings.put("zone", "serp");
                 return new SearchProviderConfiguration(providerId, settings);
             }
         });
@@ -38,10 +47,17 @@ public class SearchProviderRegistryTest {
     }
 
     @Test
-    public void everyOtherIdThrowsNotImplementedWithoutCreatingAnObject() {
+    public void brightDataResolvesToTheProductiveProvider() {
+        SearchProvider provider = registry().requireImplementedProvider(SearchProviderId.BRIGHT_DATA);
+        assertTrue(provider instanceof BrightDataSearchProvider);
+        assertEquals(SearchProviderAvailability.AVAILABLE, provider.getAvailability());
+    }
+
+    @Test
+    public void everyUnimplementedIdThrowsNotImplementedWithoutCreatingAnObject() {
         SearchProviderRegistry registry = registry();
         for (SearchProviderId id : SearchProviderId.values()) {
-            if (id == SearchProviderId.DATA_FOR_SEO) {
+            if (IMPLEMENTED.contains(id)) {
                 continue;
             }
             try {
@@ -55,18 +71,19 @@ public class SearchProviderRegistryTest {
     }
 
     @Test
-    public void catalogueListsEveryIdWithDataForSeoTheOnlyImplementedOne() {
+    public void catalogueListsEveryIdWithOnlyBoundProvidersImplemented() {
         int implemented = 0;
         for (SearchProviderDescriptor descriptor : registry().getDescriptors()) {
             if (descriptor.isImplemented()) {
                 implemented++;
-                assertEquals(SearchProviderId.DATA_FOR_SEO, descriptor.getProviderId());
+                assertTrue("only bound providers are implemented",
+                        IMPLEMENTED.contains(descriptor.getProviderId()));
             } else {
                 assertEquals(SearchProviderImplementationStatus.NOT_IMPLEMENTED,
                         descriptor.getImplementationStatus());
             }
         }
-        assertEquals("only DataForSEO is productive in this slice", 1, implemented);
+        assertEquals("DataForSEO and Bright Data are productive today", IMPLEMENTED.size(), implemented);
         assertEquals(SearchProviderId.values().length, registry().getDescriptors().size());
     }
 }

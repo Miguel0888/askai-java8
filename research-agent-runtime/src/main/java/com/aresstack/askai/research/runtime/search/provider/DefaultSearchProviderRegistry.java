@@ -1,5 +1,6 @@
 package com.aresstack.askai.research.runtime.search.provider;
 
+import com.aresstack.askai.research.runtime.search.provider.brightdata.BrightDataSearchProvider;
 import com.aresstack.askai.research.runtime.search.provider.dataforseo.DataForSeoSearchProvider;
 
 import java.util.ArrayList;
@@ -8,18 +9,18 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * The productive registry. It binds ONLY the implemented providers; in this slice that is DATA_FOR_SEO
- * alone, resolved to the real {@link DataForSeoSearchProvider} (built lazily from the
- * {@link SearchProviderConfigurationSource}). Every other catalogued id — including BRAVE_SEARCH_API and
- * BRIGHT_DATA, which have their own provider-specific interfaces and become productive in follow-up
- * slices — is NOT bound: {@link #requireImplementedProvider(SearchProviderId)} throws for it and creates no
- * object. The catalogue still lists ALL ids so the settings UI can show the not-yet-implemented ones.
+ * The productive registry. It binds ONLY the implemented providers; today that is DATA_FOR_SEO
+ * ({@link DataForSeoSearchProvider}) and BRIGHT_DATA ({@link BrightDataSearchProvider}), each built lazily
+ * from the {@link SearchProviderConfigurationSource}. Every other catalogued id — including BRAVE_SEARCH_API,
+ * which still has its own provider-specific interface and becomes productive in a follow-up slice — is NOT
+ * bound: {@link #requireImplementedProvider(SearchProviderId)} throws for it and creates no object. The
+ * catalogue still lists ALL ids so the settings UI can show the not-yet-implemented ones.
  */
 public final class DefaultSearchProviderRegistry implements SearchProviderRegistry {
 
     /** The single source of truth for which ids are productively bound today. */
     private static final Set<SearchProviderId> IMPLEMENTED =
-            EnumSet.of(SearchProviderId.DATA_FOR_SEO);
+            EnumSet.of(SearchProviderId.DATA_FOR_SEO, SearchProviderId.BRIGHT_DATA);
 
     private final SearchProviderConfigurationSource configurationSource;
 
@@ -37,6 +38,9 @@ public final class DefaultSearchProviderRegistry implements SearchProviderRegist
         }
         if (providerId == SearchProviderId.DATA_FOR_SEO) {
             return new DataForSeoSearchProvider(configurationSource.load(SearchProviderId.DATA_FOR_SEO));
+        }
+        if (providerId == SearchProviderId.BRIGHT_DATA) {
+            return new BrightDataSearchProvider(configurationSource.load(SearchProviderId.BRIGHT_DATA));
         }
         // No stub, no object: an unimplemented id fails explicitly here.
         throw new SearchProviderNotImplementedException(providerId);
