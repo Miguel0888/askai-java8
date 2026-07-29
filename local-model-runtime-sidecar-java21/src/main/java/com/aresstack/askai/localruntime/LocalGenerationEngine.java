@@ -35,6 +35,11 @@ final class LocalGenerationEngine implements AutoCloseable {
         this.backend = backend;
     }
 
+    /** Whether a productive generation runtime is linked behind the port (drives the UI pending state). */
+    boolean isGenerationLinked() {
+        return port.isLinked();
+    }
+
     LocalGenerationResult generate(LocalModel model, LocalGenerationRequest request,
                                    LocalGenerationTokenListener listener) throws LocalGenerationException {
         lock.lock();

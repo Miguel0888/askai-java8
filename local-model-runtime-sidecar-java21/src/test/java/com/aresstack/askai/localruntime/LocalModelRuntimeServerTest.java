@@ -56,6 +56,11 @@ public class LocalModelRuntimeServerTest {
     public void versionAndTagsListOnlyRunnableModels() throws Exception {
         Map<String, Object> version = get("/api/version");
         assertEquals("askai-local-1", version.get("version"));
+        // features reflect the ACTUAL linked ports: embedding/rerank yes, generation not linked here.
+        Map<?, ?> features = (Map<?, ?>) version.get("features");
+        assertEquals(Boolean.TRUE, features.get("embedding"));
+        assertEquals(Boolean.TRUE, features.get("rerank"));
+        assertEquals(Boolean.FALSE, features.get("generation"));
 
         Map<String, Object> tags = get("/api/tags");
         List<?> models = (List<?>) tags.get("models");

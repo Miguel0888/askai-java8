@@ -260,11 +260,18 @@ public final class OllamaModelsPanel extends JPanel {
                     lastContainer = container;
                 }
                 if (modelInfo.isLocal()) {
-                    // Local runtime models get their own card. The "Test reranker" action is offered ONLY
-                    // for models the catalog says can rerank — never on every local card by default.
-                    Runnable rerankerAction = com.aresstack.askai.java8.localmodels.LocalEngineModelView
-                            .hasCapability(modelInfo.getDisplayName(),
-                                    com.aresstack.windirectml.catalog.ModelCapability.RERANK)
+                    // The card is built from the model's catalog-validated on-disk manifest (fail-closed:
+                    // an unknown/invalid manifest shows "metadata unavailable" and offers no actions). The
+                    // "Test reranker" action appears ONLY when the manifest advertises rerank.
+                    java.io.File modelRoot = askAiService.localRuntimeManager().getModelRoot();
+                    com.aresstack.windirectml.catalog.InstalledModelManifest manifest =
+                            com.aresstack.askai.java8.localmodels.LocalInstalledModels.readByVirtualName(
+                                    modelRoot, modelInfo.getDisplayName());
+                    String detailLine = com.aresstack.askai.java8.localmodels.LocalEngineModelView
+                            .installedDetailLine(manifest, false);
+                    boolean canRerank = manifest != null && manifest.hasCapability(
+                            com.aresstack.windirectml.catalog.ModelCapability.RERANK);
+                    Runnable rerankerAction = canRerank
                             ? new Runnable() {
                                 @Override
                                 public void run() {
@@ -273,7 +280,7 @@ public final class OllamaModelsPanel extends JPanel {
                             }
                             : null;
                     OllamaModelCard localCard = OllamaModelCard.installedLocal(modelInfo,
-                            rerankerAction,
+                            detailLine, rerankerAction,
                             new Runnable() {
                                 @Override
                                 public void run() {

@@ -151,7 +151,7 @@ final class OllamaModelCard extends JPanel {
             // Family + backends come from the catalog (never a hardcoded "CPU"); a local runtime handle
             // is RAM-resident and never occupies VRAM.
             return new OllamaModelCard(model.getDisplayName(),
-                    com.aresstack.askai.java8.localmodels.LocalEngineModelView.detailLine(
+                    com.aresstack.askai.java8.localmodels.LocalEngineModelView.runningDetailLine(
                             model.getDisplayName()),
                     join("RAM " + formatBytes(model.getSize()), "VRAM 0"), true, null, null, null,
                     null, null);
@@ -164,14 +164,15 @@ final class OllamaModelCard extends JPanel {
     }
 
     /** A LOCALLY installed model card: capability/runtime line, test action, delete (R0.4). */
-    static OllamaModelCard installedLocal(OllamaModelInfo model, Runnable testRerankerAction,
-                                          Runnable deleteAction) {
-        // Family, capabilities and backends are read from the catalog for THIS model \u2014 never a family-blind
-        // "rerank \u00b7 CPU" string. A not-yet-linked generation family reads as runtime-integration-pending.
-        String details = com.aresstack.askai.java8.localmodels.LocalEngineModelView.detailLine(
-                model.getDisplayName());
+    /**
+     * A locally installed model card. {@code detailLine} is the manifest-backed family/capability/backend
+     * line computed by the caller (fail-closed to "metadata unavailable"); {@code testRerankerAction} is
+     * {@code null} unless the model can rerank.
+     */
+    static OllamaModelCard installedLocal(OllamaModelInfo model, String detailLine,
+                                          Runnable testRerankerAction, Runnable deleteAction) {
         String meta = join(formatBytes(model.getSize()), shortDate(model.getModifiedAt()));
-        return new OllamaModelCard(model.getDisplayName(), details, meta, false, model, null, null,
+        return new OllamaModelCard(model.getDisplayName(), detailLine, meta, false, model, null, null,
                 null, deleteAction, testRerankerAction);
     }
 

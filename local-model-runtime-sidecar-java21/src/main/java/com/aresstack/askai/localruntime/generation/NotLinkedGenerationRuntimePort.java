@@ -14,4 +14,9 @@ public final class NotLinkedGenerationRuntimePort implements LocalGenerationRunt
                 "no local generation runtime is linked in this build yet for '"
                         + (request == null ? "?" : request.virtualName()) + "'");
     }
+
+    @Override
+    public boolean isLinked() {
+        return false;
+    }
 }

@@ -85,7 +85,7 @@ final class LocalModelRuntimeServer {
         String method = exchange.getRequestMethod().toUpperCase(Locale.ROOT);
         try {
             switch (path) {
-                case "/api/version" -> respond(exchange, 200, Map.of("version", VERSION));
+                case "/api/version" -> handleVersion(exchange);
                 case "/api/tags" -> handleTags(exchange);
                 case "/api/show" -> handleShow(exchange);
                 case "/api/ps" -> handlePs(exchange);
@@ -110,6 +110,22 @@ final class LocalModelRuntimeServer {
     }
 
     // ------------------------------------------------------------------ Ollama surface
+
+    /**
+     * {@code /api/version} plus the runtime feature set. {@code features.generation} reflects the ACTUAL
+     * linked generation port (never a family list), so the host can drop the "pending" state automatically
+     * once a productive generation runtime is linked.
+     */
+    private void handleVersion(HttpExchange exchange) throws IOException {
+        Map<String, Object> features = new LinkedHashMap<>();
+        features.put("embedding", true);
+        features.put("rerank", true);
+        features.put("generation", generationEngine.isGenerationLinked());
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("version", VERSION);
+        body.put("features", features);
+        respond(exchange, 200, body);
+    }
 
     private void handleTags(HttpExchange exchange) throws IOException {
         List<Object> models = new ArrayList<>();
