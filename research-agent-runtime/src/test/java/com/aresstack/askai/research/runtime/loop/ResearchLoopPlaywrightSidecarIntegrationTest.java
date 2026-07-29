@@ -652,6 +652,11 @@ public class ResearchLoopPlaywrightSidecarIntegrationTest {
                     + (hitE.get() == 0 ? 1 : 0);
             assertEquals("exactly one candidate is rejected by reranking and never opened (0 hits)",
                     1, rejected);
+            // The SEMANTIC identity of the survivors — not just "two of three": the real MiniLM
+            // cross-encoder must keep both pf4j candidates and must reject the off-topic recipe.
+            assertTrue("the PF4J primer is a semantic survivor", hitA.get() > 0);
+            assertTrue("the independent PF4J review is a semantic survivor", hitC.get() > 0);
+            assertEquals("the tomato soup recipe must never be opened", 0, hitE.get());
 
             // ---- RUN 2: an UNREACHABLE reranker → typed stop reason, opens nothing ----
             int deadPort = freePort();
@@ -664,7 +669,9 @@ public class ResearchLoopPlaywrightSidecarIntegrationTest {
                             com.aresstack.askai.agent.model.reranker.RerankerScoreSemantics.RAW_LOGIT,
                             1_500L, com.aresstack.askai.agent.model.reranker
                             .RerankerSelectionConfiguration.topN(2));
-            int before = hitA.get() + hitC.get() + hitE.get();
+            int beforeA = hitA.get();
+            int beforeC = hitC.get();
+            int beforeE = hitE.get();
             ResearchLoop loop2 = rerankLoop(browser, research,
                     new com.aresstack.askai.research.runtime.rerank.SearchResultReranker(
                             new com.aresstack.askai.research.runtime.rerank.HttpRerankerClient(dead),
@@ -677,8 +684,10 @@ public class ResearchLoopPlaywrightSidecarIntegrationTest {
                     || reason == ResearchStopReason.RERANKER_TIMEOUT);
             assertTrue("a reranker failure is never NO_RELEVANT_PATHS",
                     reason != ResearchStopReason.NO_RELEVANT_PATHS);
-            assertEquals("nothing is opened when the mandatory reranker is unreachable",
-                    before, hitA.get() + hitC.get() + hitE.get());
+            // EVERY target page individually: zero additional hits during the failed run.
+            assertEquals("page A gets no additional hit without a reranker", beforeA, hitA.get());
+            assertEquals("page C gets no additional hit without a reranker", beforeC, hitC.get());
+            assertEquals("page E gets no additional hit without a reranker", beforeE, hitE.get());
         } finally {
             close(browser);
             close(research);
