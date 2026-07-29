@@ -1,8 +1,15 @@
 package com.aresstack.askai.research.runtime.loop;
 
+import com.aresstack.askai.browser.search.SearchResultCandidate;
+import com.aresstack.askai.browser.search.analysis.SearchLayoutRepairJson;
+import com.aresstack.askai.browser.search.repair.PreparedWebSearchResult;
+import com.aresstack.askai.browser.search.repair.SearchChallengeState;
+import com.aresstack.askai.browser.search.repair.WebSearchPreparationStatus;
 import org.junit.Test;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -38,7 +45,11 @@ public class ResearchLoopTest {
         final Map<String, Page> pages = new LinkedHashMap<String, Page>();
         final Map<String, String> captureByUrl = new LinkedHashMap<String, String>();
         final Map<String, String> redirects = new LinkedHashMap<String, String>();
-        String searchResults;
+        // Typed web_search_prepare fixture: candidate urls (A3-resolved), transit provider hosts and
+        // typed challenges. Null candidate urls → the default two-result SERP.
+        List<String> searchUrls;
+        List<String> searchProviders = new ArrayList<String>();
+        List<SearchChallengeState> searchChallenges = new ArrayList<SearchChallengeState>();
         String current;
         int captureSeq;
         boolean failEverything;
@@ -69,8 +80,10 @@ public class ResearchLoopTest {
             if (failEverything) {
                 throw new ToolFailure("browser down");
             }
-            if ("web_search".equals(tool)) {
-                return searchResults != null ? searchResults : "1: PF4J primer — https://host1.com/a\n2: Cooking tips — https://host1.com/b";
+            if ("web_search_prepare".equals(tool)) {
+                List<String> urls = searchUrls != null ? searchUrls
+                        : Arrays.asList("https://host1.com/a", "https://host1.com/b");
+                return preparedJson(urls, searchProviders, searchChallenges);
             }
             if ("web_open".equals(tool)) {
                 String requested = String.valueOf(args.get("url"));
@@ -109,6 +122,28 @@ public class ResearchLoopTest {
             }
             throw new ToolFailure("unknown tool " + tool);
         }
+    }
+
+    /** Encode a web_search_prepare result: A3-resolved organic candidates + transit hosts + challenges. */
+    static String preparedJson(List<String> urls, List<String> providerHosts,
+                               List<SearchChallengeState> challenges) {
+        List<SearchResultCandidate> candidates = new ArrayList<SearchResultCandidate>();
+        for (int i = 0; i < urls.size(); i++) {
+            String url = urls.get(i);
+            candidates.add(new SearchResultCandidate("c" + i, "snap", url, url, "result " + i,
+                    "snippet " + i, "", i + 1, "rc", "rb", 0.9, 0.9,
+                    Collections.<com.aresstack.askai.browser.search.SearchResultSiteLink>emptyList()));
+        }
+        WebSearchPreparationStatus status = !candidates.isEmpty()
+                ? WebSearchPreparationStatus.ORGANIC_RESULTS
+                : (!challenges.isEmpty() ? WebSearchPreparationStatus.CHALLENGE_PENDING
+                        : WebSearchPreparationStatus.NO_ORGANIC_RESULTS);
+        return SearchLayoutRepairJson.encodePrepared(new PreparedWebSearchResult(status, candidates,
+                Collections.<com.aresstack.askai.browser.search.repair.SearchLayoutRepairRequest>
+                        emptyList(),
+                providerHosts,
+                Collections.<com.aresstack.askai.browser.LegacySearchEngineAttemptResult>emptyList(),
+                challenges, Collections.<String>emptyList()));
     }
 
     /** Deterministic research backend honoring the Commit-37 result contract incl. dedup by content. */
@@ -302,10 +337,9 @@ public class ResearchLoopTest {
         // counting hostOf(requested) yields hosts=1 ("bing.com") even when the pages come from different
         // websites. The FINAL URL from web_open must drive pages/hosts/visited bookkeeping.
         Fx fx = new Fx();
-        fx.browser.searchResults = "1: article https://www.bing.com/ck/a?target-a"
-                + "\n2: report https://www.bing.com/ck/a?target-b";
-        fx.browser.redirects.put("https://www.bing.com/ck/a?target-a", "https://example-a.org/article");
-        fx.browser.redirects.put("https://www.bing.com/ck/a?target-b", "https://example-b.net/report");
+        // A4: A3 resolves engine redirects during extraction, so the loop receives the DIRECT targets.
+        fx.browser.searchUrls = java.util.Arrays.asList(
+                "https://example-a.org/article", "https://example-b.net/report");
         fx.browser.pages.put("https://example-a.org/article",
                 new Page("pf4j article", "pf4j evidence from site a", new ArrayList<String>()));
         fx.browser.pages.put("https://example-b.net/report",
@@ -319,8 +353,6 @@ public class ResearchLoopTest {
         assertTrue(loop.getProgress().getDistinctHosts().contains("example-b.net"));
         assertFalse("the redirector must not be counted as an evidence host",
                 loop.getProgress().getDistinctHosts().contains("www.bing.com"));
-        // Both the requested redirect address and the final address are marked visited.
-        assertTrue(loop.getProgress().alreadyVisited("https://www.bing.com/ck/a?target-a"));
         assertTrue(loop.getProgress().alreadyVisited("https://example-a.org/article"));
         assertEquals("2 sources from 2 hosts meet the 2/2 minimums",
                 ResearchStopReason.SUFFICIENT_EVIDENCE, reason);
@@ -331,8 +363,7 @@ public class ResearchLoopTest {
     public void progressActivitiesCarryQueryFinalHostTitleAndDispositions() {
         // Commit 56: the loop reports WHAT it searches and WHICH final page it reads — through redirects.
         Fx fx = new Fx();
-        fx.browser.searchResults = "1: article https://www.bing.com/ck/a?target-a";
-        fx.browser.redirects.put("https://www.bing.com/ck/a?target-a", "https://example-a.org/article");
+        fx.browser.searchUrls = java.util.Arrays.asList("https://example-a.org/article");
         List<String> links = new ArrayList<String>();
         links.add("pf4j cooking blog — https://host1.com/b");
         fx.browser.pages.put("https://example-a.org/article",
@@ -379,14 +410,10 @@ public class ResearchLoopTest {
         // counted bing.com as THE website and never rated real target pages. The provider host from the
         // PROVIDER line is transit: visited at most once, never counted, never accepted, links ignored.
         Fx fx = new Fx();
-        fx.browser.searchResults = "PROVIDER: www.bing.com\n"
-                + "1: pf4j Videos — https://www.bing.com/videos/search?q=pf4j\n"
-                + "2: article — https://www.bing.com/ck/a?target-a";
-        List<String> trapLinks = new ArrayList<String>();
-        trapLinks.add("pf4j trap — https://host1.com/b");
-        fx.browser.pages.put("https://www.bing.com/videos/search?q=pf4j",
-                new Page("pf4j - Videos", "pf4j video results matching every term", trapLinks));
-        fx.browser.redirects.put("https://www.bing.com/ck/a?target-a", "https://example-a.org/article");
+        // A4: A3 returns ORGANIC results only (verticals like /videos never become candidates) and
+        // resolves redirects, so the loop only ever sees the real target; www.bing.com stays transit.
+        fx.browser.searchProviders = java.util.Arrays.asList("www.bing.com");
+        fx.browser.searchUrls = java.util.Arrays.asList("https://example-a.org/article");
         fx.browser.pages.put("https://example-a.org/article",
                 new Page("pf4j article", "pf4j evidence from site a", new ArrayList<String>()));
 
@@ -395,24 +422,10 @@ public class ResearchLoopTest {
 
         assertEquals("only the real target host counts", 1, loop.getProgress().getDistinctHosts().size());
         assertTrue(loop.getProgress().getDistinctHosts().contains("example-a.org"));
-        assertEquals("the provider vertical is not a page of the research",
-                1, loop.getProgress().getPagesVisited());
-        assertTrue("the vertical is marked visited (never re-opened)",
-                loop.getProgress().alreadyVisited("https://www.bing.com/videos/search?q=pf4j"));
-        assertFalse("the vertical page must never be captured/accepted",
-                fx.browser.captureByUrl.containsKey("https://www.bing.com/videos/search?q=pf4j")
-                        && fx.research.sourceByCapture.containsKey(
-                                fx.browser.captureByUrl.get("https://www.bing.com/videos/search?q=pf4j")));
-        assertFalse("links on provider pages are not harvested",
-                fx.browser.captureByUrl.containsKey("https://host1.com/b"));
-        boolean skippedBing = false;
-        for (ResearchRunActivity activity : fx.activities) {
-            if (ResearchRunActivity.PAGE_SKIPPED.equals(activity.getToken())
-                    && "www.bing.com".equals(activity.getHost())) {
-                skippedBing = true;
-            }
-        }
-        assertTrue("the transit page is visibly reported as skipped", skippedBing);
+        assertFalse("the provider host is transit, never counted as an evidence host",
+                loop.getProgress().getDistinctHosts().contains("www.bing.com"));
+        assertFalse("the provider vertical never reaches the loop (A3 filtered it upstream)",
+                fx.browser.captureByUrl.containsKey("https://www.bing.com/videos/search?q=pf4j"));
     }
 
     @Test
@@ -420,10 +433,11 @@ public class ResearchLoopTest {
         // Bing demands a CAPTCHA: its family is locked (queued, no retries), other domains continue,
         // and once only challenge-bound work remains the loop WAITS for the user instead of failing.
         Fx fx = new Fx();
-        fx.browser.searchResults = "PROVIDER: html.duckduckgo.com\n"
-                + "CHALLENGE: bing.com https://www.bing.com/search?q=pf4j\n"
-                + "1: pf4j primer — https://host1.com/a\n"
-                + "2: bing extra — https://www.bing.com/deep/result";
+        fx.browser.searchProviders = java.util.Arrays.asList("html.duckduckgo.com");
+        fx.browser.searchChallenges = java.util.Arrays.asList(new SearchChallengeState(
+                "bing.com", "https://www.bing.com/search?q=pf4j"));
+        fx.browser.searchUrls = java.util.Arrays.asList(
+                "https://host1.com/a", "https://www.bing.com/deep/result");
         fx.browser.challengeStatusScript.add("CHALLENGE: bing.com https://www.bing.com/search?q=pf4j");
         fx.browser.challengeStatusScript.add("CHALLENGE: bing.com https://www.bing.com/search?q=pf4j");
         fx.browser.challengeStatusScript.add("RESOLVED: bing.com");
@@ -449,8 +463,9 @@ public class ResearchLoopTest {
     @Test
     public void cancelDuringTheManualChallengeWaitStopsImmediately() {
         final Fx fx = new Fx();
-        fx.browser.searchResults = "CHALLENGE: bing.com https://www.bing.com/search?q=pf4j\n"
-                + "1: queued — https://www.bing.com/deep/only";
+        fx.browser.searchChallenges = java.util.Arrays.asList(new SearchChallengeState(
+                "bing.com", "https://www.bing.com/search?q=pf4j"));
+        fx.browser.searchUrls = java.util.Arrays.asList("https://www.bing.com/deep/only");
         fx.browser.challengeStatusScript.add("CHALLENGE: bing.com https://www.bing.com/search?q=pf4j");
         fx.onSleepTick = new Runnable() {
             public void run() {

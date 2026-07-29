@@ -6,6 +6,7 @@ import com.aresstack.askai.browser.search.analysis.SearchLayoutRepairCoordinator
 import com.aresstack.askai.browser.search.analysis.SearchLayoutRepairJson;
 import com.aresstack.askai.browser.search.inference.CancellationSignal;
 import com.aresstack.askai.browser.search.repair.PreparedWebSearchResult;
+import com.aresstack.askai.browser.search.repair.SearchChallengeState;
 import com.aresstack.askai.browser.search.repair.SearchLayoutRepairRequest;
 import com.aresstack.askai.browser.search.repair.SearchLayoutRepairResult;
 
@@ -30,15 +31,30 @@ public final class McpLayoutRepairClient {
         boolean beforeToolCall();
     }
 
-    /** The typed outcome the loop routes on. */
+    /** The typed status the loop routes on — never a free-text string. */
+    public enum Outcome {
+        ORGANIC_RESULTS,
+        NO_ORGANIC_RESULTS,
+        CHALLENGE_PENDING,
+        EXTRACTION_FAILED,
+        BUDGET_EXHAUSTED,
+        CANCELLED
+    }
+
+    /** The typed outcome the loop routes on, carrying transit hosts and challenges typed. */
     public static final class Result {
-        public final String status;
+        public final Outcome status;
         public final List<SearchResultCandidate> candidates;
+        public final List<String> providerHosts;
+        public final List<SearchChallengeState> challenges;
         public final List<String> diagnostics;
 
-        Result(String status, List<SearchResultCandidate> candidates, List<String> diagnostics) {
+        Result(Outcome status, List<SearchResultCandidate> candidates, List<String> providerHosts,
+               List<SearchChallengeState> challenges, List<String> diagnostics) {
             this.status = status;
             this.candidates = Collections.unmodifiableList(candidates);
+            this.providerHosts = Collections.unmodifiableList(providerHosts);
+            this.challenges = Collections.unmodifiableList(challenges);
             this.diagnostics = Collections.unmodifiableList(diagnostics);
         }
     }
@@ -55,22 +71,31 @@ public final class McpLayoutRepairClient {
                                    long nowEpochMillis, ToolBudget budget)
             throws ToolInvoker.ToolFailure, ToolInvoker.EndpointUnavailable {
         List<String> diagnostics = new ArrayList<String>();
+        List<String> providerHosts = new ArrayList<String>();
+        List<SearchChallengeState> challenges = new ArrayList<SearchChallengeState>();
         if (!budget.beforeToolCall()) {
-            return new Result("BUDGET_EXHAUSTED", noCandidates(), diagnostics);
+            return result(Outcome.BUDGET_EXHAUSTED, noCandidates(), providerHosts, challenges,
+                    diagnostics);
         }
         PreparedWebSearchResult prepared = SearchLayoutRepairJson.decodePrepared(
                 browser.call("web_search_prepare", singletonArg("query", query)));
         diagnostics.addAll(prepared.diagnostics);
+        providerHosts.addAll(prepared.providerHosts);
+        challenges.addAll(prepared.challenges);
 
         switch (prepared.status) {
             case ORGANIC_RESULTS:
-                return new Result("ORGANIC_RESULTS", prepared.candidates, diagnostics);
+                return result(Outcome.ORGANIC_RESULTS, prepared.candidates, providerHosts, challenges,
+                        diagnostics);
             case NO_ORGANIC_RESULTS:
-                return new Result("NO_ORGANIC_RESULTS", noCandidates(), diagnostics);
+                return result(Outcome.NO_ORGANIC_RESULTS, noCandidates(), providerHosts, challenges,
+                        diagnostics);
             case CHALLENGE_PENDING:
-                return new Result("CHALLENGE_PENDING", noCandidates(), diagnostics);
+                return result(Outcome.CHALLENGE_PENDING, noCandidates(), providerHosts, challenges,
+                        diagnostics);
             case FAILED:
-                return new Result("EXTRACTION_FAILED", noCandidates(), diagnostics);
+                return result(Outcome.EXTRACTION_FAILED, noCandidates(), providerHosts, challenges,
+                        diagnostics);
             case REPAIR_REQUIRED:
             default:
                 break;
@@ -78,7 +103,8 @@ public final class McpLayoutRepairClient {
 
         for (SearchLayoutRepairRequest ticket : prepared.repairRequests) {
             if (cancellationSignal.isCancelled()) {
-                return new Result("CANCELLED", noCandidates(), diagnostics);
+                return result(Outcome.CANCELLED, noCandidates(), providerHosts, challenges,
+                        diagnostics);
             }
             SearchLayoutRepairCoordination coordination =
                     coordinator.coordinate(ticket, cancellationSignal, nowEpochMillis);
@@ -87,7 +113,8 @@ public final class McpLayoutRepairClient {
                 continue; // AI disabled/unavailable/validation-failed for this engine — try the next
             }
             if (!budget.beforeToolCall()) {
-                return new Result("BUDGET_EXHAUSTED", noCandidates(), diagnostics);
+                return result(Outcome.BUDGET_EXHAUSTED, noCandidates(), providerHosts, challenges,
+                        diagnostics);
             }
             SearchLayoutRepairResult applied = SearchLayoutRepairJson.decodeRepairResult(
                     browser.call("web_search_apply_layout",
@@ -95,11 +122,19 @@ public final class McpLayoutRepairClient {
                                     SearchLayoutRepairJson.encodeSubmission(coordination.submission))));
             diagnostics.addAll(applied.diagnostics);
             if (applied.isOrganic()) {
-                return new Result("ORGANIC_RESULTS", applied.candidates, diagnostics);
+                return result(Outcome.ORGANIC_RESULTS, applied.candidates, providerHosts, challenges,
+                        diagnostics);
             }
             // this ticket produced no valid block — try the next repair ticket / engine
         }
-        return new Result("EXTRACTION_FAILED", noCandidates(), diagnostics);
+        return result(Outcome.EXTRACTION_FAILED, noCandidates(), providerHosts, challenges,
+                diagnostics);
+    }
+
+    private static Result result(Outcome status, List<SearchResultCandidate> candidates,
+                                 List<String> providerHosts, List<SearchChallengeState> challenges,
+                                 List<String> diagnostics) {
+        return new Result(status, candidates, providerHosts, challenges, diagnostics);
     }
 
     private static List<SearchResultCandidate> noCandidates() {

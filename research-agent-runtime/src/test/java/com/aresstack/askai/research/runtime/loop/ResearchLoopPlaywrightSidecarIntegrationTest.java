@@ -166,9 +166,11 @@ public class ResearchLoopPlaywrightSidecarIntegrationTest {
             final SolonToolInvoker toSidecar = sidecarClient;
             bridgeHandle = runtime.registerEndpoint(new McpEndpointDefinition("browser.bridge36c", "Browser"));
             runtime.updateTools(bridgeHandle, Arrays.asList(
-                    McpToolContribution.of("web_search", "search", new McpToolHandler() {
+                    // A4: the loop drives the typed web_search_prepare; the bridge delegates it to the
+                    // REAL sidecar's web_search_prepare (JSON serialized over the streamable channel).
+                    McpToolContribution.of("web_search_prepare", "prepare", new McpToolHandler() {
                         public McpToolResult invoke(McpToolCall call) {
-                            return delegate(toSidecar, "web_search", call.getArguments());
+                            return delegate(toSidecar, "web_search_prepare", call.getArguments());
                         }
                     }, McpToolParameter.string("query", true, "q")),
                     McpToolContribution.of("web_open", "open", new McpToolHandler() {

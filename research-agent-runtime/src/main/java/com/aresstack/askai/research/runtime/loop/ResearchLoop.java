@@ -42,11 +42,24 @@ public final class ResearchLoop {
     /** Public-suffix aware domain families; tests may inject a fake (e.g. host:port for local worlds). */
     private com.aresstack.askai.browser.domain.DomainKeyResolver domainKeys =
             new com.aresstack.askai.browser.domain.PublicSuffixDomainKeyResolver();
+    /**
+     * The typed two-step SERP preparation/repair driver. By default it drives a model-free coordinator
+     * (no adapter wired yet → low-confidence pages fall through honestly); the research-model runtime
+     * injects a real StructuredInferencePort-backed client later.
+     */
+    private McpLayoutRepairClient repairClient;
 
     /** Inject a different domain-key resolver (tests/dev only; production keeps the public-suffix one). */
     public void setDomainKeyResolver(com.aresstack.askai.browser.domain.DomainKeyResolver resolver) {
         if (resolver != null) {
             this.domainKeys = resolver;
+        }
+    }
+
+    /** Inject a repair client (e.g. one whose coordinator has a scripted inference port, for tests). */
+    void setRepairClient(McpLayoutRepairClient client) {
+        if (client != null) {
+            this.repairClient = client;
         }
     }
 
@@ -67,6 +80,15 @@ public final class ResearchLoop {
         this.cancelled = cancelled;
         this.challengeProbeIntervalMillis = searchSettings.captcha.challengeProbeIntervalMillis;
         this.startedAt = clock.currentTimeMillis();
+        // Model-free by default: no StructuredInferencePort adapter is wired here, so a low-confidence
+        // page yields no results (honest) until the research-model runtime injects a real port.
+        this.repairClient = new McpLayoutRepairClient(browser,
+                new com.aresstack.askai.browser.search.analysis.SearchLayoutRepairCoordinator(
+                        searchSettings,
+                        new com.aresstack.askai.browser.search.analysis
+                                .UnavailableStructuredInferencePort(),
+                        com.aresstack.askai.browser.search.inference.InferenceBudgetGate.ALLOW_ALL,
+                        new com.aresstack.askai.browser.search.analysis.SleepingRetryDelay(), null));
     }
 
     public ResearchRunProgress getProgress() {
@@ -112,21 +134,34 @@ public final class ResearchLoop {
         // Seed: search, else nothing to do.
         List<String> frontier = new ArrayList<String>();
         try {
-            ResearchStopReason gate = beforeToolCall();
-            if (gate != null) {
-                return gate;
-            }
             String query = join(terms);
             listener.progress(progress, ResearchRunActivity.searching(query));
-            String results = callBrowser("web_search", args("query", query));
-            for (String providerHost : providerHostsOf(results)) {
+            // Typed two-step preparation/repair — no ATTEMPT:/CHALLENGE: text parsing, no candidate
+            // JSON round-tripped back to text: URLs come straight from typed SearchResultCandidates.
+            McpLayoutRepairClient.Result result = repairClient.searchWithRepair(query,
+                    cancellationSignal(), clock.currentTimeMillis(), new McpLayoutRepairClient.ToolBudget() {
+                        public boolean beforeToolCall() {
+                            return ResearchLoop.this.beforeToolCall() == null;
+                        }
+                    });
+            for (String providerHost : result.providerHosts) {
                 searchProviderSites.add(familyOf(providerHost));
             }
-            applyChallengeLines(results);
-            frontier.addAll(extractUrls(stripStatusLines(results)));
+            applyChallenges(result.challenges);
+            for (com.aresstack.askai.browser.search.SearchResultCandidate candidate
+                    : result.candidates) {
+                if (!candidate.resolvedTargetUrl.isEmpty()) {
+                    frontier.add(candidate.resolvedTargetUrl);
+                }
+            }
         } catch (ToolInvoker.EndpointUnavailable ex) {
             return ResearchStopReason.MCP_UNAVAILABLE;
         } catch (ToolInvoker.ToolFailure ex) {
+            progress.error();
+        } catch (RuntimeException ex) {
+            // A malformed prepare/apply payload (codec DecodeException) must not crash the loop —
+            // it is a tool-level failure; the run continues with an empty frontier.
+            listener.status("web search preparation failed: " + ex.getMessage());
             progress.error();
         }
 
@@ -278,7 +313,27 @@ public final class ResearchLoop {
 
     // ------------------------------------------------------------------ manual challenge cooperation
 
-    /** Parse typed CHALLENGE/RESOLVED lines (from web_search or web_challenge_status) and apply them. */
+    private com.aresstack.askai.browser.search.inference.CancellationSignal cancellationSignal() {
+        return new com.aresstack.askai.browser.search.inference.CancellationSignal() {
+            public boolean isCancelled() {
+                return cancelled.get();
+            }
+        };
+    }
+
+    /** Apply the TYPED challenge states carried by a prepared search — no CHALLENGE: text parsing. */
+    private void applyChallenges(
+            List<com.aresstack.askai.browser.search.repair.SearchChallengeState> challenges) {
+        for (com.aresstack.askai.browser.search.repair.SearchChallengeState challenge : challenges) {
+            String family = familyOf(challenge.family);
+            if (!family.isEmpty() && challengedFamilies.add(family)) {
+                listener.status("manual challenge pending on " + family);
+                listener.attention("CAPTCHA", family, challenge.url, false);
+            }
+        }
+    }
+
+    /** Parse typed CHALLENGE/RESOLVED lines (from web_challenge_status) and apply them. */
     private void applyChallengeLines(String text) {
         for (String line : (text == null ? "" : text).split("\n")) {
             if (line.startsWith("CHALLENGE: ")) {

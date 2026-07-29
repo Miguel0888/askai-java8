@@ -63,9 +63,14 @@ public class ResearchLoopMcpIntegrationTest {
         McpEndpointHandle browserHandle = runtime.registerEndpoint(
                 new McpEndpointDefinition("browser.itest", "Browser"));
         List<McpToolContribution> browserTools = new ArrayList<McpToolContribution>();
-        browserTools.add(McpToolContribution.of("web_search", "search", new McpToolHandler() {
+        browserTools.add(McpToolContribution.of("web_search_prepare", "prepare", new McpToolHandler() {
             public McpToolResult invoke(McpToolCall call) {
-                return McpToolResult.ok("1: PF4J primer — https://host1.com/a");
+                // A high-confidence SERP: A3-resolved organic candidate, encoded like the real sidecar.
+                return McpToolResult.ok(ResearchLoopTest.preparedJson(
+                        java.util.Arrays.asList("https://host1.com/a"),
+                        java.util.Collections.<String>emptyList(),
+                        java.util.Collections.<com.aresstack.askai.browser.search.repair
+                                .SearchChallengeState>emptyList()));
             }
         }, McpToolParameter.string("query", true, "q")));
         browserTools.add(McpToolContribution.of("web_open", "open", new McpToolHandler() {

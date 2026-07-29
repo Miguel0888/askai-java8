@@ -159,7 +159,7 @@ public class LayoutRepairMcpIntegrationTest {
             McpLayoutRepairClient.Result result = client.searchWithRepair("berlin",
                     CancellationSignal.NONE, 2000L, countingBudget(budgetChecks));
 
-            assertEquals("ORGANIC_RESULTS", result.status);
+            assertEquals(McpLayoutRepairClient.Outcome.ORGANIC_RESULTS, result.status);
             assertEquals(3, result.candidates.size());
             assertEquals("Result 0 title", result.candidates.get(0).title);
             assertEquals("https://site0.example.org/page", result.candidates.get(0).resolvedTargetUrl);
@@ -185,7 +185,7 @@ public class LayoutRepairMcpIntegrationTest {
             McpLayoutRepairClient.Result result = client.searchWithRepair("berlin",
                     CancellationSignal.NONE, 2000L, countingBudget(new AtomicInteger()));
 
-            assertEquals("ORGANIC_RESULTS", result.status);
+            assertEquals(McpLayoutRepairClient.Outcome.ORGANIC_RESULTS, result.status);
             assertEquals(3, result.candidates.size());
             assertEquals("a high-confidence page must never call the model", 0, port.calls.get());
         } finally {
@@ -207,7 +207,7 @@ public class LayoutRepairMcpIntegrationTest {
                     new McpLayoutRepairClient(browser, coordinator(settings, port));
             McpLayoutRepairClient.Result result = client.searchWithRepair("berlin",
                     CancellationSignal.NONE, 2000L, countingBudget(new AtomicInteger()));
-            assertEquals("EXTRACTION_FAILED", result.status);
+            assertEquals(McpLayoutRepairClient.Outcome.EXTRACTION_FAILED, result.status);
             assertTrue(result.candidates.isEmpty());
         } finally {
             browser.close();
@@ -235,7 +235,7 @@ public class LayoutRepairMcpIntegrationTest {
                             new ScriptedPort(decisionNaming("container-0003"))));
             McpLayoutRepairClient.Result ok = client.searchWithRepair("q",
                     CancellationSignal.NONE, 2000L, countingBudget(new AtomicInteger()));
-            assertEquals("ORGANIC_RESULTS", ok.status);
+            assertEquals(McpLayoutRepairClient.Outcome.ORGANIC_RESULTS, ok.status);
 
             // the ticket id is deterministic for the fixture snapshot
             String ticket = "repair-snap-1-itest";

@@ -59,6 +59,17 @@ public final class BrowserBridgeEndpoint {
         List<McpToolContribution> tools = new ArrayList<McpToolContribution>();
         tools.add(passThrough("web_search", "Search the web via the configured provider.",
                 McpToolParameter.string("query", true, "The search query")));
+        // A4: the typed two-step SERP layout preparation/repair — pure JSON pass-throughs (capture ids
+        // are assigned when the loop later web_opens the resolved candidate urls).
+        tools.add(passThrough("web_search_prepare",
+                "Prepare a web search; returns organic candidates or bounded layout-repair tickets (JSON).",
+                McpToolParameter.string("query", true, "The search query")));
+        tools.add(passThrough("web_search_apply_layout",
+                "Apply a runtime-validated layout decision to a cached snapshot (JSON in/out).",
+                McpToolParameter.string("submission", true, "The validated repair submission (JSON)")));
+        tools.add(passThrough("web_search_discard_repair",
+                "Discard a pending layout-repair ticket held in the sidecar.",
+                McpToolParameter.string("repairTicketId", true, "The repair ticket id")));
         tools.add(capturing("web_open", "Open a URL and return the cleaned page text with a capture id.",
                 McpToolParameter.string("url", true, "The http(s) URL to open")));
         tools.add(capturing("web_read", "Return the cleaned text of the current page with a capture id."));
