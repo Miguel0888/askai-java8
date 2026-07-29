@@ -62,6 +62,12 @@ public class ProductiveModeFactorySmokeTest {
         assumeTrue("SKIPPED: agent jar not built", new File(agentJar).isFile());
         assumeTrue("SKIPPED: sidecar jar not built", new File(sidecarJar).isFile());
         assumeTrue("SKIPPED: no Java 21 toolchain", new File(sidecarJava).isFile());
+        // The reranker snapshot provider is MANDATORY for a productive session (A5): publish the real
+        // local runtime as the host service, or skip readably when this environment lacks it.
+        com.aresstack.askai.research.runtime.rerank.LiveLocalRerankerRuntime reranker =
+                com.aresstack.askai.research.runtime.rerank.LiveLocalRerankerRuntime.startOrNull();
+        assumeTrue("SKIPPED: no live local reranker (mandatory for a productive session)",
+                reranker != null);
 
         // Two local JS servers = two distinct hosts (link chain find → a → c → e, JS-rendered only).
         com.sun.net.httpserver.HttpServer serverOne =
@@ -111,9 +117,12 @@ public class ProductiveModeFactorySmokeTest {
         }
         String oldDist = System.setProperty("askai.research.runtime.dir", dist.getAbsolutePath());
         String oldJava21 = System.setProperty("askai.research.java21", sidecarJava);
+        host.services.put(com.aresstack.askai.agent.model.reranker
+                .RerankerConfigurationSnapshotProvider.class, reranker.asProvider(10));
+        // The EXPLICIT reranker selection (A5): the persisted settings name the model to use.
         new ResearchRuntimeSettings(ResearchBackendMode.ACP, "", "", "", "",
                 System.getenv().getOrDefault("ASKAI_TEST_BROWSER_CHANNEL", "chrome"),
-                true, baseOne + "/find?q={query}", true).save(host.store);
+                true, baseOne + "/find?q={query}", true, reranker.modelName).save(host.store);
 
         AgentSession session;
         try {
@@ -121,6 +130,7 @@ public class ProductiveModeFactorySmokeTest {
                     new AgentSessionCreationRequest("smoke1", "p1", new HashMap<String, String>()), host);
         } catch (IllegalStateException notReady) {
             // The remaining external dependency is the installed browser — skip with the specific reason.
+            reranker.close();
             assumeTrue("SKIPPED (environment-gated): " + notReady.getMessage(), false);
             return;
         }
@@ -157,6 +167,7 @@ public class ProductiveModeFactorySmokeTest {
             session.close();
             session.close(); // idempotent, closes agent + endpoints + sidecar via the owned resources
             registry.shutdown();
+            reranker.close();
             serverOne.stop(0);
             serverTwo.stop(0);
             restore("askai.research.runtime.dir", oldDist);
