@@ -39,7 +39,13 @@ public final class LocalModelRuntimeMain {
 
         LocalModelStore store = new LocalModelStore(Path.of(modelRoot));
         LocalModelEngine engine = new LocalModelEngine(backend);
-        LocalModelRuntimeServer server = new LocalModelRuntimeServer(store, engine);
+        // No productive generation runtime is linked on this development branch: the port answers every
+        // load with RUNTIME_NOT_LINKED, so /api/chat and /api/generate exist and are typed-error-correct
+        // while the concrete family adapters arrive later behind the SAME port.
+        LocalGenerationEngine generationEngine = new LocalGenerationEngine(
+                new com.aresstack.askai.localruntime.generation.NotLinkedGenerationRuntimePort(),
+                com.aresstack.askai.localruntime.generation.LocalGenerationBackend.parse(backend.name()));
+        LocalModelRuntimeServer server = new LocalModelRuntimeServer(store, engine, generationEngine);
         int boundPort = server.start(host, port);
         Runtime.getRuntime().addShutdownHook(new Thread(server::stop, "local-runtime-shutdown"));
 

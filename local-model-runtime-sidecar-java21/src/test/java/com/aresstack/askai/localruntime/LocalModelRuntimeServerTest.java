@@ -39,7 +39,10 @@ public class LocalModelRuntimeServerTest {
                 "local/cross-encoder/ms-marco-MiniLM-L6-v2:latest", "RUNNABLE");
         writeManifest("broken-model", "local/broken:latest", "FAILED");
         server = new LocalModelRuntimeServer(new LocalModelStore(modelRoot),
-                new LocalModelEngine(Backend.CPU));
+                new LocalModelEngine(Backend.CPU),
+                new LocalGenerationEngine(
+                        new com.aresstack.askai.localruntime.generation.NotLinkedGenerationRuntimePort(),
+                        com.aresstack.askai.localruntime.generation.LocalGenerationBackend.CPU));
         int port = server.start("127.0.0.1", 0);
         baseUrl = "http://127.0.0.1:" + port;
     }
@@ -132,6 +135,31 @@ public class LocalModelRuntimeServerTest {
     }
 
     @Test
+    public void chatAndGenerateAreCapabilityRoutedAndTypedWhenRuntimeNotLinked() throws Exception {
+        String reranker = "local/cross-encoder/ms-marco-MiniLM-L6-v2:latest";
+        // /api/chat on a reranker is a typed capability mismatch.
+        Map<String, Object> chatMismatch = post("/api/chat",
+                "{\"model\":\"" + reranker + "\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}", 400);
+        assertEquals("MODEL_CAPABILITY_MISMATCH", chatMismatch.get("code"));
+
+        // A catalogued generation model (Qwen) routes to the generation port, which is NOT linked here.
+        writeGenerationManifest();
+        String qwen = "local/Qwen/Qwen2.5-Coder-0.5B-Instruct:latest";
+        Map<String, Object> gen = post("/api/generate",
+                "{\"model\":\"" + qwen + "\",\"prompt\":\"hi\",\"stream\":false}", 501);
+        assertEquals("RUNTIME_NOT_LINKED", gen.get("code"));
+        Map<String, Object> chat = post("/api/chat",
+                "{\"model\":\"" + qwen + "\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],"
+                        + "\"stream\":false}", 501);
+        assertEquals("RUNTIME_NOT_LINKED", chat.get("code"));
+
+        // Role validation happens before the runtime is even consulted.
+        Map<String, Object> badRole = post("/api/chat",
+                "{\"model\":\"" + qwen + "\",\"messages\":[{\"role\":\"wizard\",\"content\":\"hi\"}]}", 400);
+        assertEquals("INVALID_REQUEST", badRole.get("code"));
+    }
+
+    @Test
     public void embedInputTypeIsValidatedBeforeAnyLoad() throws Exception {
         // A catalog-valid MiniLM (embedding) manifest; no wdmlpack, but input_type is validated first.
         writeEmbeddingManifest();
@@ -182,6 +210,26 @@ public class LocalModelRuntimeServerTest {
         manifest.put("capabilities", List.of("embedding"));
         manifest.put("supportedBackends", List.of("cpu", "directml"));
         manifest.put("sourceFormat", "safetensors");
+        manifest.put("state", "RUNNABLE");
+        manifest.put("installedAt", 1L);
+        Files.writeString(dir.resolve(SidecarManifests.FILE_NAME), LocalJson.write(manifest));
+    }
+
+    /** A catalog-valid v2 Qwen (generation) manifest so /api/chat + /api/generate route to the port. */
+    private void writeGenerationManifest() throws IOException {
+        Path dir = modelRoot.resolve("qwen2.5-coder-0.5b-directml-int4");
+        Files.createDirectories(dir);
+        java.util.Map<String, Object> manifest = new java.util.LinkedHashMap<>();
+        manifest.put("schemaVersion", 2);
+        manifest.put("virtualName", "local/Qwen/Qwen2.5-Coder-0.5B-Instruct:latest");
+        manifest.put("huggingFaceRepository", "Qwen/Qwen2.5-Coder-0.5B-Instruct");
+        manifest.put("resolvedRevision", "rev");
+        manifest.put("runtimeModelId", "QWEN2_5_CODER_0_5B_INSTRUCT");
+        manifest.put("runtimeFamily", "qwen");
+        manifest.put("runtimePackage", "model_q4f16.wdmlpack");
+        manifest.put("capabilities", List.of("completion", "chat"));
+        manifest.put("supportedBackends", List.of("warp", "auto", "cpu"));
+        manifest.put("sourceFormat", "onnx_int4");
         manifest.put("state", "RUNNABLE");
         manifest.put("installedAt", 1L);
         Files.writeString(dir.resolve(SidecarManifests.FILE_NAME), LocalJson.write(manifest));

@@ -6,6 +6,12 @@ import com.aresstack.windirectml.catalog.InstalledModelManifest;
 import com.aresstack.windirectml.catalog.LocalModelCatalog;
 import com.aresstack.windirectml.catalog.LocalRuntimeModelDescriptor;
 import com.aresstack.windirectml.catalog.ModelCapability;
+import com.aresstack.askai.localruntime.generation.LocalGenerationErrorCode;
+import com.aresstack.askai.localruntime.generation.LocalGenerationException;
+import com.aresstack.askai.localruntime.generation.LocalGenerationMessage;
+import com.aresstack.askai.localruntime.generation.LocalGenerationRequest;
+import com.aresstack.askai.localruntime.generation.LocalGenerationResult;
+import com.aresstack.askai.localruntime.generation.LocalGenerationTokenListener;
 import com.aresstack.windirectml.encoder.EmbeddingException;
 import com.aresstack.windirectml.encoder.pack.EncoderPackageLifecycle;
 import com.aresstack.windirectml.modelpack.ModelConversionResult;
@@ -48,11 +54,14 @@ final class LocalModelRuntimeServer {
 
     private final LocalModelStore store;
     private final LocalModelEngine engine;
+    private final LocalGenerationEngine generationEngine;
     private HttpServer server;
 
-    LocalModelRuntimeServer(LocalModelStore store, LocalModelEngine engine) {
+    LocalModelRuntimeServer(LocalModelStore store, LocalModelEngine engine,
+                            LocalGenerationEngine generationEngine) {
         this.store = store;
         this.engine = engine;
+        this.generationEngine = generationEngine;
     }
 
     /** @return the bound port (the OS chooses one for requestedPort=0). */
@@ -68,6 +77,7 @@ final class LocalModelRuntimeServer {
             server.stop(0);
         }
         engine.close();
+        generationEngine.close();
     }
 
     private void handle(HttpExchange exchange) throws IOException {
@@ -84,7 +94,7 @@ final class LocalModelRuntimeServer {
                 case "/api/embed" -> handleEmbed(exchange, false);
                 case "/api/embeddings" -> handleEmbed(exchange, true);
                 case "/api/generate" -> handleGenerate(exchange);
-                case "/api/chat" -> capabilityMismatch(exchange, modelOf(exchange), "chat");
+                case "/api/chat" -> handleChat(exchange);
                 case "/api/pull", "/api/push", "/api/create", "/api/copy" ->
                         typed(exchange, 400, INVALID_REQUEST, "the AskAI local runtime installs models "
                                 + "through the AskAI Hugging Face pane, not through '" + path + "'");
@@ -257,22 +267,181 @@ final class LocalModelRuntimeServer {
         respond(exchange, 200, response);
     }
 
-    /** Ollama's unload convention: {@code {"model":…, "keep_alive":0}} without a prompt. */
+    /** {@code /api/generate}: the keep_alive:0 unload convention, or a raw completion for a generation model. */
     private void handleGenerate(HttpExchange exchange) throws IOException {
         Map<String, Object> request = LocalJson.parseObject(body(exchange));
-        String model = LocalJson.str(request, "model");
+        String modelName = LocalJson.str(request, "model");
+        String prompt = LocalJson.str(request, "prompt");
         boolean unload = request.get("keep_alive") instanceof Number n && n.intValue() == 0
-                && LocalJson.str(request, "prompt").isEmpty();
-        if (unload) {
-            if (find(model) == null) {
-                typed(exchange, 404, MODEL_NOT_FOUND, "model not found");
-                return;
-            }
-            engine.unload(model);
-            respond(exchange, 200, Map.of("model", model, "done", true, "done_reason", "unload"));
+                && prompt.isEmpty();
+        LocalModel model = find(modelName);
+        if (model == null) {
+            typed(exchange, 404, MODEL_NOT_FOUND, "model not found");
             return;
         }
-        capabilityMismatch(exchange, model, "generate");
+        if (unload) {
+            if (isGeneration(model)) {
+                generationEngine.unload(modelName);
+            } else {
+                engine.unload(modelName);
+            }
+            respond(exchange, 200, Map.of("model", modelName, "done", true, "done_reason", "unload"));
+            return;
+        }
+        if (!isGeneration(model)) {
+            capabilityMismatch(exchange, modelName, "generate");
+            return;
+        }
+        if (prompt.isEmpty()) {
+            typed(exchange, 400, INVALID_REQUEST, "generate needs a 'prompt'");
+            return;
+        }
+        LocalGenerationRequest.Builder builder = LocalGenerationRequest.completion(prompt);
+        applyOptions(builder, request);
+        runGeneration(exchange, model, builder.build(), false, isStream(request));
+    }
+
+    /** {@code /api/chat}: a chat turn for a model that advertises the chat capability. */
+    private void handleChat(HttpExchange exchange) throws IOException {
+        Map<String, Object> request = LocalJson.parseObject(body(exchange));
+        LocalModel model = find(LocalJson.str(request, "model"));
+        if (model == null) {
+            typed(exchange, 404, MODEL_NOT_FOUND, "model not found");
+            return;
+        }
+        if (!model.hasCapability(ModelCapability.CHAT)) {
+            capabilityMismatch(exchange, model.virtualName(), "chat");
+            return;
+        }
+        List<LocalGenerationMessage> messages = new ArrayList<>();
+        Object raw = request.get("messages");
+        if (!(raw instanceof List<?> list) || list.isEmpty()) {
+            typed(exchange, 400, INVALID_REQUEST, "chat needs a non-empty 'messages' array");
+            return;
+        }
+        boolean sawUser = false;
+        for (Object item : list) {
+            if (!(item instanceof Map<?, ?> message)) {
+                typed(exchange, 400, INVALID_REQUEST, "each message must be an object");
+                return;
+            }
+            String role = String.valueOf(message.get("role"));
+            String content = message.get("content") == null ? "" : String.valueOf(message.get("content"));
+            if (!role.equals("system") && !role.equals("user") && !role.equals("assistant")) {
+                typed(exchange, 400, INVALID_REQUEST, "unknown message role '" + role + "'");
+                return;
+            }
+            sawUser = sawUser || role.equals("user");
+            messages.add(new LocalGenerationMessage(role, content));
+        }
+        if (!sawUser) {
+            typed(exchange, 400, INVALID_REQUEST, "chat needs at least one user message");
+            return;
+        }
+        LocalGenerationRequest.Builder builder = LocalGenerationRequest.chat(messages);
+        applyOptions(builder, request);
+        runGeneration(exchange, model, builder.build(), true, isStream(request));
+    }
+
+    private boolean isGeneration(LocalModel model) {
+        return model.hasCapability(ModelCapability.COMPLETION) || model.hasCapability(ModelCapability.CHAT);
+    }
+
+    private static boolean isStream(Map<String, Object> request) {
+        // Ollama defaults stream=true; the host sets it explicitly per call.
+        return !(request.get("stream") instanceof Boolean b) || b;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void applyOptions(LocalGenerationRequest.Builder builder, Map<String, Object> request) {
+        Object options = request.get("options");
+        if (!(options instanceof Map<?, ?> map)) {
+            return;
+        }
+        if (map.get("num_predict") instanceof Number n) {
+            builder.numPredict(n.intValue());
+        }
+        if (map.get("temperature") instanceof Number n) {
+            builder.temperature(n.doubleValue());
+        }
+        if (map.get("top_p") instanceof Number n) {
+            builder.topP(n.doubleValue());
+        }
+        if (map.get("seed") instanceof Number n) {
+            builder.seed(n.longValue());
+        }
+        Object stop = map.get("stop");
+        if (stop instanceof String s) {
+            builder.stop(List.of(s));
+        } else if (stop instanceof List<?> list) {
+            List<String> stops = new ArrayList<>();
+            for (Object item : list) {
+                stops.add(String.valueOf(item));
+            }
+            builder.stop(stops);
+        }
+    }
+
+    private void runGeneration(HttpExchange exchange, LocalModel model, LocalGenerationRequest request,
+                               boolean chat, boolean stream) throws IOException {
+        if (!stream) {
+            try {
+                LocalGenerationResult result = generationEngine.generate(model, request, null);
+                respond(exchange, 200, nonStreamBody(model.virtualName(), chat, result));
+            } catch (LocalGenerationException failure) {
+                generationError(exchange, failure);
+            }
+            return;
+        }
+        StreamingSink sink = new StreamingSink(exchange, model.virtualName(), chat);
+        try {
+            generationEngine.generate(model, request, sink);
+            sink.finishIfNeeded();
+        } catch (LocalGenerationException failure) {
+            if (sink.headersSent()) {
+                sink.writeErrorLine(failure);
+            } else {
+                generationError(exchange, failure);
+            }
+        }
+    }
+
+    private static Map<String, Object> nonStreamBody(String model, boolean chat,
+                                                     LocalGenerationResult result) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("model", model);
+        if (chat) {
+            Map<String, Object> message = new LinkedHashMap<>();
+            message.put("role", "assistant");
+            message.put("content", result.text());
+            body.put("message", message);
+        } else {
+            body.put("response", result.text());
+        }
+        body.put("done", true);
+        body.put("done_reason", result.doneReason());
+        body.put("prompt_eval_count", result.promptTokens());
+        body.put("eval_count", result.generatedTokens());
+        return body;
+    }
+
+    private void generationError(HttpExchange exchange, LocalGenerationException failure) throws IOException {
+        typed(exchange, statusFor(failure.code()), failure.code().token(), failure.getMessage());
+    }
+
+    private static int statusFor(LocalGenerationErrorCode code) {
+        switch (code) {
+            case RUNTIME_NOT_LINKED:
+                return 501;
+            case MODEL_NOT_FOUND:
+                return 404;
+            case MODEL_CAPABILITY_MISMATCH:
+            case UNSUPPORTED_BACKEND:
+            case INVALID_REQUEST:
+                return 400;
+            default:
+                return 500;
+        }
     }
 
     // ------------------------------------------------------------------ host-only install
@@ -460,6 +629,136 @@ final class LocalModelRuntimeServer {
 
     private String body(HttpExchange exchange) throws IOException {
         return new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+    }
+
+    /**
+     * NDJSON streaming sink: sends the 200 header lazily on the first token, writes one Ollama-style JSON
+     * line per token, and CANCELS generation (returns {@code false}) the moment a write fails — that is how
+     * a client disconnect stops the model instead of generating into a dead socket.
+     */
+    private static final class StreamingSink implements LocalGenerationTokenListener {
+        private final HttpExchange exchange;
+        private final String model;
+        private final boolean chat;
+        private OutputStream out;
+        private boolean headersSent;
+        private boolean done;
+
+        StreamingSink(HttpExchange exchange, String model, boolean chat) {
+            this.exchange = exchange;
+            this.model = model;
+            this.chat = chat;
+        }
+
+        boolean headersSent() {
+            return headersSent;
+        }
+
+        @Override
+        public boolean onToken(String delta, String textSoFar) {
+            try {
+                ensureHeaders();
+                writeLine(tokenLine(delta));
+                return true;
+            } catch (IOException clientGone) {
+                return false; // the client disconnected — cancel generation
+            }
+        }
+
+        @Override
+        public void onComplete(LocalGenerationResult result) {
+            try {
+                ensureHeaders();
+                writeLine(doneLine(result.doneReason(), result.promptTokens(), result.generatedTokens()));
+                done = true;
+                close();
+            } catch (IOException ignored) {
+                // client gone; nothing to flush
+            }
+        }
+
+        /** Safety net if the port returned without a terminal onComplete. */
+        void finishIfNeeded() {
+            if (done) {
+                return;
+            }
+            try {
+                ensureHeaders();
+                writeLine(doneLine("stop", 0, 0));
+                done = true;
+                close();
+            } catch (IOException ignored) {
+            }
+        }
+
+        void writeErrorLine(LocalGenerationException failure) {
+            try {
+                Map<String, Object> line = new LinkedHashMap<>();
+                line.put("model", model);
+                line.put("error", failure.getMessage());
+                line.put("code", failure.code().token());
+                line.put("done", true);
+                writeLine(line);
+                close();
+            } catch (IOException ignored) {
+            }
+        }
+
+        private Map<String, Object> tokenLine(String delta) {
+            Map<String, Object> line = new LinkedHashMap<>();
+            line.put("model", model);
+            if (chat) {
+                Map<String, Object> message = new LinkedHashMap<>();
+                message.put("role", "assistant");
+                message.put("content", delta);
+                line.put("message", message);
+            } else {
+                line.put("response", delta);
+            }
+            line.put("done", false);
+            return line;
+        }
+
+        private Map<String, Object> doneLine(String reason, int promptTokens, int generatedTokens) {
+            Map<String, Object> line = new LinkedHashMap<>();
+            line.put("model", model);
+            if (chat) {
+                Map<String, Object> message = new LinkedHashMap<>();
+                message.put("role", "assistant");
+                message.put("content", "");
+                line.put("message", message);
+            } else {
+                line.put("response", "");
+            }
+            line.put("done", true);
+            line.put("done_reason", reason);
+            line.put("prompt_eval_count", promptTokens);
+            line.put("eval_count", generatedTokens);
+            return line;
+        }
+
+        private void ensureHeaders() throws IOException {
+            if (!headersSent) {
+                exchange.getResponseHeaders().add("Content-Type", "application/x-ndjson");
+                exchange.sendResponseHeaders(200, 0);
+                out = exchange.getResponseBody();
+                headersSent = true;
+            }
+        }
+
+        private void writeLine(Map<String, Object> line) throws IOException {
+            out.write((LocalJson.write(line) + "\n").getBytes(StandardCharsets.UTF_8));
+            out.flush();
+        }
+
+        private void close() {
+            try {
+                if (out != null) {
+                    out.close();
+                }
+            } catch (IOException ignored) {
+            }
+        }
     }
 
     private void respond(HttpExchange exchange, int status, Object json) throws IOException {
