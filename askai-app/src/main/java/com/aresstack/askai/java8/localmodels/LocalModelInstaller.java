@@ -3,6 +3,7 @@ package com.aresstack.askai.java8.localmodels;
 import com.aresstack.askai.java8.hf.DownloadProgressListener;
 import com.aresstack.askai.java8.hf.HuggingFaceClient;
 import com.aresstack.askai.java8.hf.HuggingFaceFile;
+import com.aresstack.windirectml.catalog.InstalledModelManifest;
 import com.aresstack.windirectml.catalog.LocalRuntimeModelDescriptor;
 
 import java.io.File;
@@ -120,12 +121,12 @@ public final class LocalModelInstaller {
             }
 
             listener.onStep("Writing the installation manifest…");
-            String virtualName = LocalModelNames.virtualName(repositoryId);
-            // Manifest v2: the catalog facts (family, package, capabilities, backends, source format) plus
-            // the resolved revision and install time. Written LAST, after the verified compile + smoke-load.
+            String virtualName = descriptor.virtualModelName();
+            // Manifest v2 (shared, catalog-validated on read): the catalog facts plus the resolved revision
+            // and install time. Written LAST, after the verified compile + smoke-load.
             Files.write(new File(assembly, "askai-local-model.json").toPath(),
-                    LocalModelManifest.forInstall(descriptor, virtualName, revision,
-                            System.currentTimeMillis()).toJson().getBytes(Charset.forName("UTF-8")));
+                    LocalModelManifestCodec.toJson(InstalledModelManifest.forInstall(descriptor, revision,
+                            System.currentTimeMillis())).getBytes(Charset.forName("UTF-8")));
 
             listener.onStep("Activating the model…");
             File finalDirectory = new File(localRoot, localCheck.getRuntimeDirectoryName());
