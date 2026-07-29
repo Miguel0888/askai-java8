@@ -1,0 +1,11 @@
+// Neutral, framework-free agent MODEL-RUNTIME contracts (Java 8): the reranker endpoint descriptor,
+// its selection policy, the versioned configuration document and its codec/validation. Pure DTOs,
+// enums and a hand-written JSON codec — NO askai-app, LocalModelRuntimeManager, Swing, Solon, Ollama,
+// win-directml-java or Playwright types. The AskAI host writes it; the research agent reads it.
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
+}
+
+test {
+    useJUnit()
+}
