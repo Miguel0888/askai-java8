@@ -316,6 +316,73 @@ public final class ResearchPlaybook {
                     : "**The research stopped after several consecutive errors.**\n\nSo far I recorded "
                             + achieved(o) + " I recommend trying again.";
         }
+        // Typed reranker stops (A5): technical failures are named as such — NEVER presented as a
+        // generic budget stop, and the semantic "nothing relevant" is not a technical failure either.
+        if ("RERANKER_UNAVAILABLE".equals(stop)) {
+            return de()
+                    ? "**Die Recherche wurde durch ein technisches Problem unterbrochen.**\n\n"
+                            + "Die lokale Relevanzbewertung (Reranker) war nicht erreichbar, deshalb "
+                            + "wurden keine Suchtreffer geöffnet. Bisher habe ich " + achieved(o)
+                            + " Ich empfehle, es erneut zu versuchen; falls das Problem bleibt, hilft "
+                            + "ein Blick in die Research-Runtime-Einstellungen."
+                    : "**The research was interrupted by a technical problem.**\n\n"
+                            + "The local relevance ranking (reranker) was not reachable, so no search "
+                            + "results were opened. So far I recorded " + achieved(o)
+                            + " I recommend trying again; if the problem persists, check the "
+                            + "research runtime settings.";
+        }
+        if ("RERANKER_TIMEOUT".equals(stop)) {
+            return de()
+                    ? "**Die Recherche wurde durch ein technisches Problem unterbrochen.**\n\n"
+                            + "Die lokale Relevanzbewertung (Reranker) hat nicht rechtzeitig "
+                            + "geantwortet. Bisher habe ich " + achieved(o)
+                            + " Ich empfehle, es erneut zu versuchen und bei wiederholtem Auftreten "
+                            + "das Zeitlimit des Rerankers in der Konfiguration zu prüfen."
+                    : "**The research was interrupted by a technical problem.**\n\n"
+                            + "The local relevance ranking (reranker) did not answer in time. "
+                            + "So far I recorded " + achieved(o)
+                            + " I recommend trying again and, if this repeats, checking the "
+                            + "reranker timeout in the configuration.";
+        }
+        if ("RERANKER_INVALID_RESPONSE".equals(stop)) {
+            return de()
+                    ? "**Die Recherche wurde durch ein technisches Problem unterbrochen.**\n\n"
+                            + "Die lokale Relevanzbewertung (Reranker) hat eine inkompatible oder "
+                            + "beschädigte Antwort geliefert. Bisher habe ich " + achieved(o)
+                            + " Ich empfehle, es erneut zu versuchen und die lokale Modell-Runtime "
+                            + "bzw. das ausgewählte Reranker-Modell zu prüfen."
+                    : "**The research was interrupted by a technical problem.**\n\n"
+                            + "The local relevance ranking (reranker) returned an incompatible or "
+                            + "corrupted answer. So far I recorded " + achieved(o)
+                            + " I recommend trying again and checking the local model runtime and "
+                            + "the selected reranker model.";
+        }
+        if ("RERANKER_CONFIGURATION_ERROR".equals(stop)) {
+            return de()
+                    ? "**Die Recherche konnte den konfigurierten Reranker nicht verwenden.**\n\n"
+                            + "Die Reranker-Konfiguration oder Modellauswahl ist ungültig oder nicht "
+                            + "mehr nutzbar. Bisher habe ich " + achieved(o)
+                            + " Bitte öffne die Research-Runtime-Einstellungen und wähle ein "
+                            + "installiertes Reranker-Modell aus."
+                    : "**The research could not use the configured reranker.**\n\n"
+                            + "The reranker configuration or model selection is invalid or no longer "
+                            + "usable. So far I recorded " + achieved(o)
+                            + " Please open the research runtime settings and select an installed "
+                            + "reranker model.";
+        }
+        if ("NO_SEMANTIC_MATCHES".equals(stop)) {
+            return de()
+                    ? "**Kein Suchtreffer war deiner Frage ähnlich genug, um geöffnet zu werden.**\n\n"
+                            + "Die Relevanzbewertung hat alle Kandidaten geprüft; keiner hat die "
+                            + "Auswahlkriterien bestanden. Bisher habe ich " + achieved(o) + " "
+                            + missing(o) + " Ich empfehle, den Suchauftrag zu präzisieren oder "
+                            + "andere Suchbegriffe zu wählen."
+                    : "**No search result was similar enough to your question to be opened.**\n\n"
+                            + "The relevance ranking checked every candidate; none passed the "
+                            + "selection criteria. So far I recorded " + achieved(o) + " "
+                            + missing(o) + " I recommend refining the research scope or trying "
+                            + "different search terms.";
+        }
         if ("NO_RELEVANT_PATHS".equals(stop) && !sufficient) {
             return de()
                     ? "**Ich habe keine weiteren passenden Seiten zu deiner Frage gefunden.**\n\n"
@@ -381,6 +448,16 @@ public final class ResearchPlaybook {
             return de()
                     ? "Ich empfehle, die vorhandenen Belege zu prüfen."
                     : "I recommend reviewing the collected evidence.";
+        }
+        if ("RETRY".equals(action)) {
+            return de()
+                    ? "Ich empfehle, es erneut zu versuchen."
+                    : "I recommend trying again.";
+        }
+        if ("OPEN_CONFIGURATION".equals(action)) {
+            return de()
+                    ? "Ich empfehle, die Research-Runtime-Einstellungen zu öffnen."
+                    : "I recommend opening the research runtime settings.";
         }
         return de() ? "Du entscheidest, wie es weitergeht." : "You decide how to proceed.";
     }

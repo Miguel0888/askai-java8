@@ -83,6 +83,17 @@ public class ResearchRunWireRoundTripTest {
     }
 
     @Test
+    public void typedRerankerOutcomeRoundTripsWithItsOwnActionAndRecoverability() {
+        String line = ResearchRunWire.outcome(ResearchRunOutcome.from(
+                ResearchStopReason.RERANKER_CONFIGURATION_ERROR, new ResearchRunProgress(),
+                ResearchRunBudget.defaults()));
+        Map<String, String> f = com.aresstack.askai.research.acp.ResearchRunWire.fields(line);
+        assertEquals("RERANKER_CONFIGURATION_ERROR", f.get("stop"));
+        assertEquals("OPEN_CONFIGURATION", f.get("action"));
+        assertEquals("false", f.get("recoverable"));
+    }
+
+    @Test
     public void attentionLinesRoundTripBothStates() {
         String required = ResearchRunWire.attention("CAPTCHA", "bing.com",
                 "https://www.bing.com/search?q=pf4j", false);

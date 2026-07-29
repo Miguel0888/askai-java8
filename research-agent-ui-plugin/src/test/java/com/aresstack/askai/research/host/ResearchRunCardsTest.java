@@ -445,6 +445,95 @@ public class ResearchRunCardsTest {
     }
 
     @Test
+    public void technicalRerankerFailuresAreNeverRenderedAsBudgetStops() {
+        // A5: RERANKER_UNAVAILABLE / RERANKER_TIMEOUT / RERANKER_INVALID_RESPONSE are technical
+        // failures — the card names the problem, never the used-up budget, and never offers
+        // "Continue with limitation" (there is no research result whose limitation could be accepted).
+        String[][] reasons = {
+                {"RERANKER_UNAVAILABLE", "not reachable"},
+                {"RERANKER_TIMEOUT", "did not answer in time"},
+                {"RERANKER_INVALID_RESPONSE", "incompatible or corrupted"}};
+        for (String[] reason : reasons) {
+            Fx fx = new Fx();
+            fx.reachRunningResearch();
+            fx.event(ResearchBackendEvent.builder(ResearchBackendEventType.RUN_OUTCOME)
+                    .activity("research-run-p1", null, "", "")
+                    .runOutcome(new ResearchRunOutcomeInfo("p1", reason[0], 0, 0, 0, 3, 2,
+                            true, "INSUFFICIENT_SOURCES", "RETRY")));
+            String card = fx.sink.cardMarkdowns.get(fx.sink.cardMarkdowns.size() - 1);
+            assertTrue(reason[0] + " names the technical problem: " + card,
+                    card.contains("technical problem") && card.contains(reason[1]));
+            assertFalse(reason[0] + " must never read like a budget stop: " + card,
+                    card.toLowerCase().contains("budget"));
+            assertFalse("no stop-reason enum names", card.contains(reason[0]));
+
+            List<String> ids = lastActionIds(fx);
+            assertTrue("retry offered", ids.contains("retry"));
+            assertTrue("configuration offered", ids.contains("config"));
+            assertFalse(reason[0] + " must not offer 'Continue with limitation'",
+                    ids.contains("limit"));
+            assertFalse("no plain continue on a technical failure", ids.contains("continue"));
+
+            int promptsBefore = fx.backend.prompts.size();
+            fx.press("retry");
+            assertEquals("retry resubmits the stored question", promptsBefore + 1,
+                    fx.backend.prompts.size());
+        }
+    }
+
+    @Test
+    public void rerankerConfigurationErrorLeadsToTheRuntimeSettingsFirst() {
+        Fx fx = new Fx();
+        fx.reachRunningResearch();
+        fx.event(ResearchBackendEvent.builder(ResearchBackendEventType.RUN_OUTCOME)
+                .activity("research-run-p1", null, "", "")
+                .runOutcome(new ResearchRunOutcomeInfo("p1", "RERANKER_CONFIGURATION_ERROR", 0, 0, 0,
+                        3, 2, false, "INSUFFICIENT_SOURCES", "OPEN_CONFIGURATION")));
+        String card = fx.sink.cardMarkdowns.get(fx.sink.cardMarkdowns.size() - 1);
+        assertTrue("the card points to the runtime settings: " + card,
+                card.contains("runtime settings"));
+        assertTrue(card.contains("configuration or model selection is invalid"));
+        assertFalse(card.toLowerCase().contains("budget"));
+        assertFalse(card.contains("RERANKER_CONFIGURATION_ERROR"));
+
+        List<String> ids = lastActionIds(fx);
+        assertEquals("fixing the configuration comes FIRST", "config", ids.get(0));
+        assertTrue(ids.contains("retry"));
+        assertFalse(ids.contains("limit"));
+    }
+
+    @Test
+    public void noSemanticMatchesIsASemanticResultWithRefineActions() {
+        Fx fx = new Fx();
+        fx.reachRunningResearch();
+        fx.event(ResearchBackendEvent.builder(ResearchBackendEventType.RUN_OUTCOME)
+                .activity("research-run-p1", null, "", "")
+                .runOutcome(new ResearchRunOutcomeInfo("p1", "NO_SEMANTIC_MATCHES", 0, 0, 0, 3, 2,
+                        true, "INSUFFICIENT_SOURCES", "REFINE_RESEARCH_SCOPE")));
+        String card = fx.sink.cardMarkdowns.get(fx.sink.cardMarkdowns.size() - 1);
+        assertTrue("the semantic outcome is explained: " + card, card.contains("similar enough"));
+        assertFalse("not presented as a technical problem", card.contains("technical problem"));
+        assertFalse("never presented as a budget stop", card.toLowerCase().contains("budget"));
+        assertFalse(card.contains("NO_SEMANTIC_MATCHES"));
+
+        List<String> ids = lastActionIds(fx);
+        assertTrue(ids.contains("refine"));
+        assertTrue(ids.contains("sources"));
+        assertTrue(ids.contains("end"));
+        assertFalse("no candidate passed the policy — there is no limitation to accept",
+                ids.contains("limit"));
+    }
+
+    private static List<String> lastActionIds(Fx fx) {
+        List<String> ids = new ArrayList<String>();
+        for (AgentConversationSink.ActionOption option
+                : fx.sink.cardOptions.get(fx.sink.cardOptions.size() - 1)) {
+            ids.add(option.getId());
+        }
+        return ids;
+    }
+
+    @Test
     public void manualChallengeAttentionShowsOneNoticeAndBeepsOncePerEpisode() {
         Fx fx = new Fx();
         fx.reachRunningResearch();

@@ -833,6 +833,23 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             ids.add("review");
             ids.add("sources");
             ids.add("end");
+        } else if ("RERANKER_UNAVAILABLE".equals(stop) || "RERANKER_TIMEOUT".equals(stop)
+                || "RERANKER_INVALID_RESPONSE".equals(stop)) {
+            // Technical reranker failures: retry or fix the configuration — NEVER "accept the
+            // limitation" (there is no research result to accept, only a failed component).
+            ids.add("retry");
+            ids.add("config");
+            ids.add("end");
+        } else if ("RERANKER_CONFIGURATION_ERROR".equals(stop)) {
+            // The snapshot/selection is invalid: fixing the configuration comes FIRST.
+            ids.add("config");
+            ids.add("retry");
+            ids.add("end");
+        } else if ("NO_SEMANTIC_MATCHES".equals(stop)) {
+            // Semantic outcome, not a failure: no candidate passed the selection policy.
+            ids.add("refine");
+            ids.add("sources");
+            ids.add("end");
         } else if ("NO_RELEVANT_PATHS".equals(stop) && !o.isEvidenceSufficient()) {
             ids.add("refine");
             ids.add("sources");

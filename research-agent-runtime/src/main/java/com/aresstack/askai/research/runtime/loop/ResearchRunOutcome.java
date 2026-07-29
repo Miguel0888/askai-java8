@@ -12,7 +12,11 @@ public final class ResearchRunOutcome {
     public enum Limitation { NONE, INSUFFICIENT_SOURCES, INSUFFICIENT_HOST_DIVERSITY }
 
     /** What the agent recommends as the next step (the UI renders matching actions). */
-    public enum RecommendedAction { REVIEW_EVIDENCE, CONTINUE_RESEARCH, REFINE_RESEARCH_SCOPE, RETRY, NONE }
+    public enum RecommendedAction {
+        REVIEW_EVIDENCE, CONTINUE_RESEARCH, REFINE_RESEARCH_SCOPE, RETRY,
+        /** Fix the research runtime configuration (e.g. an invalid reranker selection) first. */
+        OPEN_CONFIGURATION, NONE
+    }
 
     private final ResearchStopReason stopReason;
     private final int pagesVisited;
@@ -63,12 +67,25 @@ public final class ResearchRunOutcome {
                         ? RecommendedAction.REVIEW_EVIDENCE : RecommendedAction.CONTINUE_RESEARCH;
                 break;
             case NO_RELEVANT_PATHS:
+            // NO_SEMANTIC_MATCHES is the reranker's typed "nothing is relevant enough" — a semantic
+            // result, NOT a technical failure and NEVER a generic budget stop.
+            case NO_SEMANTIC_MATCHES:
                 action = progress.getAcceptedSources() > 0 && limitation == Limitation.NONE
                         ? RecommendedAction.REVIEW_EVIDENCE : RecommendedAction.REFINE_RESEARCH_SCOPE;
                 break;
             case MCP_UNAVAILABLE:
             case ERROR_BUDGET_EXHAUSTED:
+            // Transient technical reranker failures: retrying is meaningful (endpoint back, timeout
+            // passed, runtime restarted) — but they are never presented as budget stops.
+            case RERANKER_UNAVAILABLE:
+            case RERANKER_TIMEOUT:
+            case RERANKER_INVALID_RESPONSE:
                 action = RecommendedAction.RETRY;
+                break;
+            case RERANKER_CONFIGURATION_ERROR:
+                // Retrying cannot help until the snapshot/selection is fixed in the settings.
+                action = RecommendedAction.OPEN_CONFIGURATION;
+                recoverable = false;
                 break;
             case USER_CANCELLED:
             case APPROVAL_REQUIRED:
