@@ -23,6 +23,7 @@ public final class LegacyBrowserSearchSettings {
     public final AiLayoutResolverSettings aiLayoutResolver;
     public final SearchResultRerankerSettings reranker;
     public final SearchDiagnosticsSettings diagnostics;
+    public final SearchLayoutRepairSettings layoutRepair;
 
     public LegacyBrowserSearchSettings(LegacySearchNavigationSettings navigation,
                                        ConsentHandlingSettings consent, CaptchaHandlingSettings captcha,
@@ -32,7 +33,8 @@ public final class LegacyBrowserSearchSettings {
                                        SearchResultExtractionSettings extraction,
                                        AiLayoutResolverSettings aiLayoutResolver,
                                        SearchResultRerankerSettings reranker,
-                                       SearchDiagnosticsSettings diagnostics) {
+                                       SearchDiagnosticsSettings diagnostics,
+                                       SearchLayoutRepairSettings layoutRepair) {
         this.navigation = navigation;
         this.consent = consent;
         this.captcha = captcha;
@@ -43,5 +45,6 @@ public final class LegacyBrowserSearchSettings {
         this.aiLayoutResolver = aiLayoutResolver;
         this.reranker = reranker;
         this.diagnostics = diagnostics;
+        this.layoutRepair = layoutRepair;
     }
 }

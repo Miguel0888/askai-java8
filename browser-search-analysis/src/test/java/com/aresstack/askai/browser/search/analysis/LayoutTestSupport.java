@@ -31,14 +31,14 @@ final class LayoutTestSupport {
                                                        SearchDiagnosticsSettings diagnostics) {
         return new LegacyBrowserSearchSettings(base.navigation, base.consent, base.captcha,
                 base.readiness, base.analysis, base.visualAnalysis, base.extraction,
-                base.aiLayoutResolver, base.reranker, diagnostics);
+                base.aiLayoutResolver, base.reranker, diagnostics, base.layoutRepair);
     }
 
     static LegacyBrowserSearchSettings withAiLayoutResolver(LegacyBrowserSearchSettings base,
                                                             AiLayoutResolverSettings ai) {
         return new LegacyBrowserSearchSettings(base.navigation, base.consent, base.captcha,
                 base.readiness, base.analysis, base.visualAnalysis, base.extraction, ai,
-                base.reranker, base.diagnostics);
+                base.reranker, base.diagnostics, base.layoutRepair);
     }
 
     /**
@@ -62,7 +62,7 @@ final class LayoutTestSupport {
                 a.maximumStructureSignatureDepth);
         return new LegacyBrowserSearchSettings(base.navigation, base.consent, base.captcha,
                 base.readiness, forced, base.visualAnalysis, base.extraction, base.aiLayoutResolver,
-                base.reranker, base.diagnostics);
+                base.reranker, base.diagnostics, base.layoutRepair);
     }
 
     /** Default diagnostics with a specific text-excerpt cap. */

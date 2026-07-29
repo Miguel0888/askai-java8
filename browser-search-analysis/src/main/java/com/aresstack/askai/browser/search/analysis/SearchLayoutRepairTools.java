@@ -25,8 +25,9 @@ public final class SearchLayoutRepairTools {
     private final LongSupplier clock;
 
     public SearchLayoutRepairTools(LegacyBrowserSearchSettings settings, RenderedPageSource pageSource,
-                                   int maximumTickets, long ticketTtlMillis, LongSupplier clock) {
-        this.service = new WebSearchLayoutRepairService(settings, maximumTickets, ticketTtlMillis);
+                                   LongSupplier clock) {
+        this.service = new WebSearchLayoutRepairService(settings,
+                settings.layoutRepair.maximumCachedTickets, settings.layoutRepair.ticketTtlMillis);
         this.pageSource = pageSource;
         this.clock = clock;
     }

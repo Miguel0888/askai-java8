@@ -17,7 +17,13 @@ public final class LegacyBrowserSearchDefaults {
     public static LegacyBrowserSearchSettings create() {
         return new LegacyBrowserSearchSettings(navigation(), consent(), captcha(), readiness(),
                 analysis(), visualAnalysis(), extraction(), aiLayoutResolver(), reranker(),
-                diagnostics());
+                diagnostics(), layoutRepair());
+    }
+
+    private static SearchLayoutRepairSettings layoutRepair() {
+        return new SearchLayoutRepairSettings(
+                16,          // maximumCachedTickets: bounded per-session low-confidence snapshots
+                120_000L);   // ticketTtlMillis: a repair ticket is applicable for two minutes
     }
 
     private static LegacySearchNavigationSettings navigation() {

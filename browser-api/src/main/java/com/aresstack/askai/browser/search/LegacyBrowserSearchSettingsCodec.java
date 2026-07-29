@@ -225,6 +225,10 @@ public final class LegacyBrowserSearchSettingsCodec {
         m.put("diagnostics.maximumDiagnosticArtifactBytes",
                 String.valueOf(s.diagnostics.maximumDiagnosticArtifactBytes));
         m.put("diagnostics.redactUrls", String.valueOf(s.diagnostics.redactUrls));
+
+        m.put("layoutRepair.maximumCachedTickets",
+                String.valueOf(s.layoutRepair.maximumCachedTickets));
+        m.put("layoutRepair.ticketTtlMillis", String.valueOf(s.layoutRepair.ticketTtlMillis));
         return m;
     }
 
@@ -363,7 +367,10 @@ public final class LegacyBrowserSearchSettingsCodec {
                         r.boolValue("diagnostics.storeRerankerScores"),
                         r.intValue("diagnostics.maximumTextExcerptCharacters"),
                         r.intValue("diagnostics.maximumDiagnosticArtifactBytes"),
-                        r.boolValue("diagnostics.redactUrls")));
+                        r.boolValue("diagnostics.redactUrls")),
+                new SearchLayoutRepairSettings(
+                        r.intValue("layoutRepair.maximumCachedTickets"),
+                        r.longValue("layoutRepair.ticketTtlMillis")));
         return new Decoded(settings, r.violations);
     }
 
@@ -472,6 +479,17 @@ public final class LegacyBrowserSearchSettingsCodec {
                 violations.add(new SettingsValidationResult.Violation(key,
                         "not a whole number: '" + raw + "'"));
                 return Integer.parseInt(defaultFor(key));
+            }
+        }
+
+        long longValue(String key) {
+            String raw = string(key);
+            try {
+                return Long.parseLong(raw.trim());
+            } catch (NumberFormatException ex) {
+                violations.add(new SettingsValidationResult.Violation(key,
+                        "not a whole number: '" + raw + "'"));
+                return Long.parseLong(defaultFor(key));
             }
         }
 

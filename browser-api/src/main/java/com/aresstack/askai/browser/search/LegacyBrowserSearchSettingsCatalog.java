@@ -55,6 +55,7 @@ public final class LegacyBrowserSearchSettingsCatalog {
     public static final String SECTION_RERANKER = "Reranker";
     public static final String SECTION_RETRY = "Retry Policies";
     public static final String SECTION_DIAGNOSTICS = "Diagnostics";
+    public static final String SECTION_LAYOUT_REPAIR = "Layout Repair";
 
     private LegacyBrowserSearchSettingsCatalog() {
     }
@@ -63,7 +64,7 @@ public final class LegacyBrowserSearchSettingsCatalog {
     public static List<String> sections() {
         return Arrays.asList(SECTION_ENGINES, SECTION_CONSENT, SECTION_CAPTCHA, SECTION_READINESS,
                 SECTION_ANALYSIS, SECTION_VISUAL, SECTION_EXTRACTION, SECTION_AI_RESOLVER,
-                SECTION_RERANKER, SECTION_RETRY, SECTION_DIAGNOSTICS);
+                SECTION_RERANKER, SECTION_RETRY, SECTION_DIAGNOSTICS, SECTION_LAYOUT_REPAIR);
     }
 
     /** All fields in display order; keys match the codec exactly (verified by test). */
@@ -361,6 +362,12 @@ public final class LegacyBrowserSearchSettingsCatalog {
                 1_024, 10_485_760);
         bool(f, "diagnostics.redactUrls", SECTION_DIAGNOSTICS, "Redact URLs",
                 "Replace URLs by their registrable domain in stored diagnostics.");
+
+        integer(f, "layoutRepair.maximumCachedTickets", SECTION_LAYOUT_REPAIR,
+                "Maximum cached repair tickets",
+                "Bounded per-session low-confidence snapshots held for AI layout repair.", 1, 256);
+        integer(f, "layoutRepair.ticketTtlMillis", SECTION_LAYOUT_REPAIR, "Repair ticket TTL (ms)",
+                "How long a repair ticket stays applicable before it expires.", 1, 3_600_000);
         return Collections.unmodifiableList(f);
     }
 

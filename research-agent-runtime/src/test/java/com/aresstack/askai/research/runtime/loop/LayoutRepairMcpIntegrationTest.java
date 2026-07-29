@@ -126,7 +126,7 @@ public class LayoutRepairMcpIntegrationTest {
                                 emptyList());
             }
         };
-        return new SearchLayoutRepairTools(settings, source, 8, 60_000L, clock);
+        return new SearchLayoutRepairTools(settings, source, clock);
     }
 
     private SearchLayoutRepairCoordinator coordinator(LegacyBrowserSearchSettings settings,

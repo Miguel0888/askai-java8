@@ -143,7 +143,7 @@ final class RepairBridgeFixtures {
                 a.maximumStructureSignatureDepth);
         return new LegacyBrowserSearchSettings(base.navigation, base.consent, base.captcha,
                 base.readiness, forced, base.visualAnalysis, base.extraction, base.aiLayoutResolver,
-                base.reranker, base.diagnostics);
+                base.reranker, base.diagnostics, base.layoutRepair);
     }
 
     private static LegacyBrowserSearchSettings withAiEnabled(LegacyBrowserSearchSettings base) {
@@ -153,6 +153,6 @@ final class RepairBridgeFixtures {
                 d.userPromptTemplate, d.retryPolicy);
         return new LegacyBrowserSearchSettings(base.navigation, base.consent, base.captcha,
                 base.readiness, base.analysis, base.visualAnalysis, base.extraction, ai,
-                base.reranker, base.diagnostics);
+                base.reranker, base.diagnostics, base.layoutRepair);
     }
 }

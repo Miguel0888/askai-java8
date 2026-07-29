@@ -22,8 +22,12 @@ import java.util.Map;
  */
 public final class LegacyBrowserSearchConfigDocument {
 
-    /** v1 = A2 field set; v2 = A3 mechanical-analysis fields added to the analysis section. */
-    public static final int CURRENT_SCHEMA_VERSION = 2;
+    /**
+     * v1 = A2 field set; v2 = A3 mechanical-analysis fields added to the analysis section;
+     * v3 = A4 layout-repair ticket-cache settings. Older documents decode cleanly: missing keys fall
+     * back to {@link LegacyBrowserSearchDefaults}, which is the migration.
+     */
+    public static final int CURRENT_SCHEMA_VERSION = 3;
 
     public final int schemaVersion;
     public final long settingsRevision;

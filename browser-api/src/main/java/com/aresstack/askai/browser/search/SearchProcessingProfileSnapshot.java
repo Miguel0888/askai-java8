@@ -79,10 +79,11 @@ public final class SearchProcessingProfileSnapshot {
             case LegacyBrowserSearchConfigDocument.CURRENT_SCHEMA_VERSION:
                 return document;
             case 1:
-                // v1 → v2 (A3): the analysis section gained fields; every v1 value stays valid and
-                // the new keys take their central defaults during decoding. The stored digest
-                // covered the v1 key set, so it is recomputed (digest verification only applies to
-                // un-migrated current-version snapshots).
+            case 2:
+                // v1 → v2 (A3 analysis fields) and v2 → v3 (A4 layout-repair ticket-cache settings):
+                // every older value stays valid and the new keys take their central defaults during
+                // decoding. The stored digest covered the older key set, so it is recomputed (digest
+                // verification only applies to un-migrated current-version snapshots).
                 return document;
             default:
                 // parse() already rejects NEWER versions; an unknown older one has no migration path.

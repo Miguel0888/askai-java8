@@ -48,7 +48,7 @@ public class SearchProcessingProfileSnapshotTest {
     public void unknownOlderSchemaHasNoGuessedMigration() {
         String json = SearchProcessingProfileSnapshot.create(
                         "s", 1L, 1L, LegacyBrowserSearchDefaults.create()).toJson()
-                .replace("\"schemaVersion\": 2", "\"schemaVersion\": 0");
+                .replace("\"schemaVersion\": 3", "\"schemaVersion\": 0");
         try {
             SearchProcessingProfileSnapshot.parse(json);
             fail("expected missing migration path");
@@ -82,6 +82,8 @@ public class SearchProcessingProfileSnapshotTest {
         assertEquals(3000, migrated.settings.captcha.challengeProbeIntervalMillis);
         assertEquals("new A3 fields take their central defaults", 1.2,
                 migrated.settings.analysis.repeatedBlockWeight, 0.0001);
-        assertEquals(2, migrated.schemaVersion);
+        assertEquals("new A4 layout-repair fields take their central defaults", 16,
+                migrated.settings.layoutRepair.maximumCachedTickets);
+        assertEquals(3, migrated.schemaVersion);
     }
 }

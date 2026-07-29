@@ -173,6 +173,13 @@ public final class DefaultLegacyBrowserSearchSettingsValidator
         atLeast(v, "diagnostics.maximumDiagnosticArtifactBytes",
                 s.diagnostics.maximumDiagnosticArtifactBytes, 1_024);
 
+        // --- layout repair ticket cache
+        atLeast(v, "layoutRepair.maximumCachedTickets", s.layoutRepair.maximumCachedTickets, 1);
+        if (s.layoutRepair.ticketTtlMillis < 1) {
+            v.add(new SettingsValidationResult.Violation("layoutRepair.ticketTtlMillis",
+                    "must be > 0 (was " + s.layoutRepair.ticketTtlMillis + ")"));
+        }
+
         return new SettingsValidationResult(v);
     }
 
