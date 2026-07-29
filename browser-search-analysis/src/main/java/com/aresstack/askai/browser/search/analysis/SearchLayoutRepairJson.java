@@ -1,5 +1,7 @@
 package com.aresstack.askai.browser.search.analysis;
 
+import com.aresstack.askai.browser.LegacySearchAttemptOutcome;
+import com.aresstack.askai.browser.LegacySearchEngineAttemptResult;
 import com.aresstack.askai.browser.render.RenderedBox;
 import com.aresstack.askai.browser.search.SearchResultCandidate;
 import com.aresstack.askai.browser.search.SearchResultSiteLink;
@@ -16,6 +18,7 @@ import com.aresstack.askai.browser.search.repair.PreparedWebSearchResult;
 import com.aresstack.askai.browser.search.repair.SearchLayoutRepairAttemptId;
 import com.aresstack.askai.browser.search.repair.SearchLayoutRepairRequest;
 import com.aresstack.askai.browser.search.repair.SearchLayoutRepairResult;
+import com.aresstack.askai.browser.search.repair.SearchChallengeState;
 import com.aresstack.askai.browser.search.repair.SearchLayoutRepairStatus;
 import com.aresstack.askai.browser.search.repair.SearchLayoutRepairSubmission;
 import com.aresstack.askai.browser.search.repair.WebSearchPreparationStatus;
@@ -60,6 +63,33 @@ public final class SearchLayoutRepairJson {
             repairRequest(sb, prepared.repairRequests.get(i));
         }
         sb.append("],");
+        sb.append("\"providerHosts\":");
+        stringArray(sb, prepared.providerHosts).append(',');
+        sb.append("\"engineAttempts\":[");
+        for (int i = 0; i < prepared.engineAttempts.size(); i++) {
+            if (i > 0) {
+                sb.append(',');
+            }
+            LegacySearchEngineAttemptResult a = prepared.engineAttempts.get(i);
+            sb.append('{');
+            str(sb, "engineHost", a.getSearchEngineHost()).append(',');
+            str(sb, "outcome", a.getOutcome().name()).append(',');
+            str(sb, "diagnosticCode", a.getDiagnosticCode());
+            sb.append('}');
+        }
+        sb.append("],");
+        sb.append("\"challenges\":[");
+        for (int i = 0; i < prepared.challenges.size(); i++) {
+            if (i > 0) {
+                sb.append(',');
+            }
+            SearchChallengeState c = prepared.challenges.get(i);
+            sb.append('{');
+            str(sb, "family", c.family).append(',');
+            str(sb, "url", c.url);
+            sb.append('}');
+        }
+        sb.append("],");
         sb.append("\"diagnostics\":");
         stringArray(sb, prepared.diagnostics);
         return sb.append('}').toString();
@@ -73,7 +103,20 @@ public final class SearchLayoutRepairJson {
         for (Object element : reqList(o, "repairRequests")) {
             requests.add(decodeRepairRequest(asObject(element, "repairRequests[]")));
         }
+        List<LegacySearchEngineAttemptResult> attempts =
+                new ArrayList<LegacySearchEngineAttemptResult>();
+        for (Object element : reqList(o, "engineAttempts")) {
+            Map<String, Object> a = asObject(element, "engineAttempts[]");
+            attempts.add(new LegacySearchEngineAttemptResult(reqStr(a, "engineHost"),
+                    attemptOutcome(reqStr(a, "outcome")), reqStr(a, "diagnosticCode")));
+        }
+        List<SearchChallengeState> challenges = new ArrayList<SearchChallengeState>();
+        for (Object element : reqList(o, "challenges")) {
+            Map<String, Object> c = asObject(element, "challenges[]");
+            challenges.add(new SearchChallengeState(reqStr(c, "family"), reqStr(c, "url")));
+        }
         return new PreparedWebSearchResult(status, candidates, requests,
+                stringList(reqList(o, "providerHosts"), "providerHosts"), attempts, challenges,
                 stringList(reqList(o, "diagnostics"), "diagnostics"));
     }
 
@@ -466,6 +509,14 @@ public final class SearchLayoutRepairJson {
             return StructuredInferenceStatus.valueOf(value);
         } catch (IllegalArgumentException e) {
             throw new DecodeException("unknown inference status '" + value + "'");
+        }
+    }
+
+    private static LegacySearchAttemptOutcome attemptOutcome(String value) {
+        try {
+            return LegacySearchAttemptOutcome.valueOf(value);
+        } catch (IllegalArgumentException e) {
+            throw new DecodeException("unknown engine attempt outcome '" + value + "'");
         }
     }
 

@@ -62,12 +62,11 @@ public final class WebSearchLayoutRepairService {
         SearchResultExtractionResult extraction = extractor.extract(document, query);
 
         if (!resolution.lowConfidence) {
-            WebSearchPreparationStatus status = statusOf(extraction.outcome);
-            return new PreparedWebSearchResult(status, extraction.candidates,
+            return prepared(statusOf(extraction.outcome), extraction.candidates,
                     Collections.<SearchLayoutRepairRequest>emptyList(), extraction.diagnostics);
         }
         if (extraction.outcome == SearchPageAnalysisOutcome.NO_ORGANIC_RESULTS) {
-            return new PreparedWebSearchResult(WebSearchPreparationStatus.NO_ORGANIC_RESULTS,
+            return prepared(WebSearchPreparationStatus.NO_ORGANIC_RESULTS,
                     Collections.<SearchResultCandidate>emptyList(),
                     Collections.<SearchLayoutRepairRequest>emptyList(), extraction.diagnostics);
         }
@@ -85,8 +84,20 @@ public final class WebSearchLayoutRepairService {
                 document.documentFingerprint == null ? "" : document.documentFingerprint.value,
                 layoutFingerprint, artifact, diagnostics, nowEpochMillis, entry.expiresAtEpochMillis);
         List<SearchLayoutRepairRequest> requests = Collections.singletonList(request);
-        return new PreparedWebSearchResult(WebSearchPreparationStatus.REPAIR_REQUIRED,
+        return prepared(WebSearchPreparationStatus.REPAIR_REQUIRED,
                 Collections.<SearchResultCandidate>emptyList(), requests, extraction.diagnostics);
+    }
+
+    /** A per-page prepared result — navigation metadata (hosts/attempts/challenges) is added later. */
+    private static PreparedWebSearchResult prepared(WebSearchPreparationStatus status,
+                                                    List<SearchResultCandidate> candidates,
+                                                    List<SearchLayoutRepairRequest> requests,
+                                                    List<String> diagnostics) {
+        return new PreparedWebSearchResult(status, candidates, requests,
+                Collections.<String>emptyList(),
+                Collections.<com.aresstack.askai.browser.LegacySearchEngineAttemptResult>emptyList(),
+                Collections.<com.aresstack.askai.browser.search.repair.SearchChallengeState>emptyList(),
+                diagnostics);
     }
 
     /**
@@ -164,9 +175,8 @@ public final class WebSearchLayoutRepairService {
             }
             diagnostics.addAll(result.diagnostics);
             if (result.status == WebSearchPreparationStatus.ORGANIC_RESULTS) {
-                return new PreparedWebSearchResult(WebSearchPreparationStatus.ORGANIC_RESULTS,
-                        result.candidates, Collections.<SearchLayoutRepairRequest>emptyList(),
-                        diagnostics);
+                return prepared(WebSearchPreparationStatus.ORGANIC_RESULTS, result.candidates,
+                        Collections.<SearchLayoutRepairRequest>emptyList(), diagnostics);
             }
             repairs.addAll(result.repairRequests);
             if (result.status == WebSearchPreparationStatus.NO_ORGANIC_RESULTS) {
@@ -174,13 +184,12 @@ public final class WebSearchLayoutRepairService {
             }
         }
         if (!repairs.isEmpty()) {
-            return new PreparedWebSearchResult(WebSearchPreparationStatus.REPAIR_REQUIRED,
+            return prepared(WebSearchPreparationStatus.REPAIR_REQUIRED,
                     Collections.<SearchResultCandidate>emptyList(), repairs, diagnostics);
         }
         WebSearchPreparationStatus status = sawNoResults
                 ? WebSearchPreparationStatus.NO_ORGANIC_RESULTS : WebSearchPreparationStatus.FAILED;
-        return new PreparedWebSearchResult(status,
-                Collections.<SearchResultCandidate>emptyList(),
+        return prepared(status, Collections.<SearchResultCandidate>emptyList(),
                 Collections.<SearchLayoutRepairRequest>emptyList(), diagnostics);
     }
 

@@ -47,6 +47,9 @@ public class SearchLayoutRepairJsonTest {
         PreparedWebSearchResult prepared = new PreparedWebSearchResult(
                 WebSearchPreparationStatus.REPAIR_REQUIRED, Collections.<com.aresstack.askai.browser
                 .search.SearchResultCandidate>emptyList(), Arrays.asList(original),
+                Arrays.asList("bing.example"),
+                Collections.<com.aresstack.askai.browser.LegacySearchEngineAttemptResult>emptyList(),
+                Collections.<com.aresstack.askai.browser.search.repair.SearchChallengeState>emptyList(),
                 Arrays.asList("prepared one repair"));
 
         PreparedWebSearchResult decoded = SearchLayoutRepairJson.decodePrepared(

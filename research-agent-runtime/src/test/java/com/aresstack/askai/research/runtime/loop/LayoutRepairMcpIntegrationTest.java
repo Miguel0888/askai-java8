@@ -116,9 +116,14 @@ public class LayoutRepairMcpIntegrationTest {
 
     private SearchLayoutRepairTools tools(LegacyBrowserSearchSettings settings, LongSupplier clock) {
         RenderedPageSource source = new RenderedPageSource() {
-            public List<Captured> capture(String query) {
-                return Collections.singletonList(
-                        new Captured(RepairBridgeFixtures.navPlusColumn(), "engine.example"));
+            public EngineCapture capture(String query) {
+                return new EngineCapture(Collections.singletonList(
+                        new Captured(RepairBridgeFixtures.navPlusColumn(), "engine.example")),
+                        Collections.singletonList("engine.example"),
+                        Collections.<com.aresstack.askai.browser.LegacySearchEngineAttemptResult>
+                                emptyList(),
+                        Collections.<com.aresstack.askai.browser.search.repair.SearchChallengeState>
+                                emptyList());
             }
         };
         return new SearchLayoutRepairTools(settings, source, 8, 60_000L, clock);

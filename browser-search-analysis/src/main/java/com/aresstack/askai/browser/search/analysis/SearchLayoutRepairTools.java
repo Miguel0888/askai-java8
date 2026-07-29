@@ -34,12 +34,18 @@ public final class SearchLayoutRepairTools {
     /** {@code web_search_prepare(query)} → encoded {@link PreparedWebSearchResult}. */
     public String prepare(String query) {
         long now = clock.getAsLong();
+        RenderedPageSource.EngineCapture capture = pageSource.capture(query);
         List<PreparedWebSearchResult> perEngine = new ArrayList<PreparedWebSearchResult>();
-        for (RenderedPageSource.Captured captured : pageSource.capture(query)) {
+        for (RenderedPageSource.Captured captured : capture.pages) {
             perEngine.add(service.prepareSingle(captured.document, query, captured.engineHost, now));
         }
         PreparedWebSearchResult merged = WebSearchLayoutRepairService.merge(perEngine);
-        return SearchLayoutRepairJson.encodePrepared(merged);
+        // Carry the navigation metadata (provider hosts, per-engine attempts, challenges) so the
+        // research loop keeps the full legacy web_search behaviour.
+        PreparedWebSearchResult withMetadata = new PreparedWebSearchResult(merged.status,
+                merged.candidates, merged.repairRequests, capture.providerHosts,
+                capture.engineAttempts, capture.challenges, merged.diagnostics);
+        return SearchLayoutRepairJson.encodePrepared(withMetadata);
     }
 
     /** {@code web_search_apply_layout(submission)} → encoded {@link SearchLayoutRepairResult}. */
