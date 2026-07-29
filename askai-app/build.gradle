@@ -58,11 +58,18 @@ test {
     // App-classpath reproduction of the research-agent start (diagnoses -32603 from the GUI).
     dependsOn ':research-agent-runtime:researchAgentJar'
     dependsOn ':browser-mcp-server-java21:sidecarJar'
+    // A5: the GUI-chain reproduction needs the MANDATORY local reranker runtime jar staged so the real
+    // LocalModelRuntimeManager can start it (skips readably when no cross-encoder model is installed).
+    dependsOn ':local-model-runtime-sidecar-java21:sidecarJar', ':local-model-runtime-sidecar-java21:sidecarLibs'
     doFirst {
         def agentJarTask = project(':research-agent-runtime').tasks.getByName('researchAgentJar')
         systemProperty 'research.agent.jar', agentJarTask.archiveFile.get().asFile.absolutePath
         def sidecarTask = project(':browser-mcp-server-java21').tasks.getByName('sidecarJar')
         systemProperty 'browser.sidecar.jar', sidecarTask.archiveFile.get().asFile.absolutePath
+        def localModelJar = project(':local-model-runtime-sidecar-java21').tasks.getByName('sidecarJar')
+        systemProperty 'localmodel.sidecar.jar', localModelJar.archiveFile.get().asFile.absolutePath
+        def localModelLibs = project(':local-model-runtime-sidecar-java21').tasks.getByName('sidecarLibs')
+        systemProperty 'localmodel.sidecar.libs', localModelLibs.destinationDir.absolutePath
         try {
             def launcher21 = javaToolchains.launcherFor {
                 languageVersion = JavaLanguageVersion.of(21)

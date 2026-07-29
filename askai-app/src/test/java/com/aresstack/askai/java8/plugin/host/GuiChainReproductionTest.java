@@ -46,6 +46,13 @@ public class GuiChainReproductionTest {
         assumeTrue("SKIPPED: agent jar not built", new File(agentJar).isFile());
         assumeTrue("SKIPPED: sidecar jar not built", new File(sidecarJar).isFile());
         assumeTrue("SKIPPED: no Java 21", !sidecarJava.isEmpty() && new File(sidecarJava).isFile());
+        // The productive GUI path now requires the MANDATORY local reranker: its runtime jar must be
+        // staged and a cross-encoder model installed, else skip readably.
+        String localModelJar = System.getProperty("localmodel.sidecar.jar", "");
+        assumeTrue("SKIPPED: local reranker runtime jar not staged",
+                !localModelJar.isEmpty() && new File(localModelJar).isFile());
+        assumeTrue("SKIPPED: no installed local reranker model",
+                new com.aresstack.askai.java8.localmodels.LocalModelRuntimeManager().hasInstalledModels());
 
         // Distribution layout like runWithDevPlugins assembles it.
         File dist = Files.createTempDirectory("askai-guichain").toFile();
@@ -58,8 +65,29 @@ public class GuiChainReproductionTest {
         }
         String oldDist = System.setProperty("askai.research.runtime.dir", dist.getAbsolutePath());
         String oldJava21 = System.setProperty("askai.research.java21", sidecarJava);
+        // Stage the local reranker runtime jar where the real LocalModelRuntimeManager looks for it,
+        // and point it at the Java-21 launcher — exactly as the assembled distribution provides them.
+        File localRuntimeDir = new File(dist, "local-runtime");
+        assertTrue(localRuntimeDir.mkdirs());
+        Files.copy(new File(localModelJar).toPath(),
+                new File(localRuntimeDir, "local-model-runtime-sidecar.jar").toPath());
+        // The thin jar has a Class-Path pointing at a sibling lib/ — stage it too.
+        File localModelLibsDir = new File(System.getProperty("localmodel.sidecar.libs", ""));
+        File libDir = new File(localRuntimeDir, "lib");
+        assertTrue(libDir.mkdirs());
+        if (localModelLibsDir.isDirectory()) {
+            for (File jar : localModelLibsDir.listFiles()) {
+                Files.copy(jar.toPath(), new File(libDir, jar.getName()).toPath());
+            }
+        }
+        String oldLocalDir = System.setProperty("askai.local.runtime.dir",
+                localRuntimeDir.getAbsolutePath());
+        String oldLocalJava = System.setProperty("askai.local.runtime.java", sidecarJava);
 
-        AgentRuntimeServices services = new AgentRuntimeServices();
+        // EXACTLY like the GUI: the host services carry the local model runtime manager, so the
+        // mandatory reranker snapshot provider is published to the plugin.
+        AgentRuntimeServices services = new AgentRuntimeServices(
+                new com.aresstack.askai.java8.localmodels.LocalModelRuntimeManager());
         final List<String> problems = new CopyOnWriteArrayList<String>();
         final List<String> messages = new CopyOnWriteArrayList<String>();
         final CountDownLatch greeted = new CountDownLatch(1);
@@ -82,6 +110,8 @@ public class GuiChainReproductionTest {
             session.close();
             restore("askai.research.runtime.dir", oldDist);
             restore("askai.research.java21", oldJava21);
+            restore("askai.local.runtime.dir", oldLocalDir);
+            restore("askai.local.runtime.java", oldLocalJava);
         }
     }
 

@@ -118,6 +118,12 @@ public class ProductiveResearchMvpEndToEndTest {
         assumeTrue("SKIPPED: sidecar jar not built", new File(sidecarJar).isFile());
         assumeTrue("SKIPPED: no Java 21 toolchain for the sidecar",
                 !sidecarJava.isEmpty() && new File(sidecarJava).isFile());
+        // The reranker is MANDATORY for a productive browser session: start the real local reranker or
+        // skip readably (no installed cross-encoder / no Java-21 launcher).
+        com.aresstack.askai.research.runtime.rerank.LiveLocalRerankerRuntime reranker =
+                com.aresstack.askai.research.runtime.rerank.LiveLocalRerankerRuntime.startOrNull();
+        assumeTrue("SKIPPED: no live local reranker (mandatory for a browser session)",
+                reranker != null);
 
         // ---- an ENGINE server + two content servers (host:port families via the sidecar dev flag) ----
         HttpServer engineServer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -150,7 +156,8 @@ public class ProductiveResearchMvpEndToEndTest {
         SolonMcpServerRuntime registry = new SolonMcpServerRuntime();
         ResearchRuntimeGenerationSwitch switcher = new ResearchRuntimeGenerationSwitch(
                 registry, new SolonMcpToolClientFactory(),
-                new SolonAcpAgentConnector(Duration.ofSeconds(180), null));
+                new SolonAcpAgentConnector(Duration.ofSeconds(180), null),
+                reranker.asProvider(10));
         ResearchRuntimeConfig config = new ResearchRuntimeConfig(agentJava, agentJar,
                 sidecarJava, sidecarJar, System.getenv().getOrDefault("ASKAI_TEST_BROWSER_CHANNEL", "chrome"),
                 true, true, baseEngine + "/find?q={query}");
@@ -277,6 +284,7 @@ public class ProductiveResearchMvpEndToEndTest {
             }
             switcher.shutdown();
             registry.shutdown();
+            reranker.close();
             engineServer.stop(0);
             serverOne.stop(0);
             serverTwo.stop(0);

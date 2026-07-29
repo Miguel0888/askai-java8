@@ -489,6 +489,252 @@ public class ResearchLoopPlaywrightSidecarIntegrationTest {
         }
     }
 
+    /**
+     * A5 productive proof, LIVE end to end: a real Java-21 Playwright sidecar renders a JS SERP with
+     * three organic candidates (A, B, C); A3/A4 turns them into typed SearchResultCandidates; the REAL
+     * local MiniLM cross-encoder reranks them and the Top-2 selection policy admits only two — so ONLY
+     * those two target pages are ever opened (the rejected candidate stays at 0 hits), which raw engine
+     * order could never achieve. A second run against an UNREACHABLE reranker opens nothing and ends
+     * with the typed RERANKER_UNAVAILABLE stop reason — never NO_RELEVANT_PATHS.
+     */
+    @Test
+    public void livePlaywrightCandidatesFlowThroughTheRealLocalReranker() throws Exception {
+        String sidecarJar = System.getProperty("browser.sidecar.jar", "");
+        String sidecarJava = System.getProperty("sidecar.java", "");
+        assumeTrue("SKIPPED: sidecar jar not built", !sidecarJar.isEmpty() && new File(sidecarJar).isFile());
+        assumeTrue("SKIPPED: no Java 21 toolchain available for the sidecar",
+                !sidecarJava.isEmpty() && new File(sidecarJava).isFile());
+        com.aresstack.askai.research.runtime.rerank.LiveLocalRerankerRuntime reranker =
+                com.aresstack.askai.research.runtime.rerank.LiveLocalRerankerRuntime.startOrNull();
+        assumeTrue("SKIPPED: no live local reranker (Java-21 / staged jar / installed model)",
+                reranker != null);
+
+        HttpServer engineServer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        HttpServer serverOne = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        HttpServer serverTwo = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        String baseEngine = "http://127.0.0.1:" + engineServer.getAddress().getPort();
+        String baseOne = "http://127.0.0.1:" + serverOne.getAddress().getPort();
+        String baseTwo = "http://127.0.0.1:" + serverTwo.getAddress().getPort();
+        engineServer.createContext("/find", serpPage(baseEngine + "/videos?q=pf4j",
+                new String[][]{
+                        {"PF4J plugin framework primer", baseOne + "/a"},
+                        {"Independent pf4j review for java", baseTwo + "/c"},
+                        {"Tomato soup recipe with basil", baseTwo + "/e"}}));
+        // No onward links: the frontier is exactly the reranked seed, so open-counts equal selections.
+        java.util.concurrent.atomic.AtomicInteger hitA = new java.util.concurrent.atomic.AtomicInteger();
+        java.util.concurrent.atomic.AtomicInteger hitC = new java.util.concurrent.atomic.AtomicInteger();
+        java.util.concurrent.atomic.AtomicInteger hitE = new java.util.concurrent.atomic.AtomicInteger();
+        serverOne.createContext("/a", counting(hitA, page("PF4J plugin framework primer",
+                "pf4j is a plugin framework for java.", "")));
+        serverTwo.createContext("/c", counting(hitC, page("Independent pf4j review for java",
+                "pf4j works well with java 8 plugins.", "")));
+        serverTwo.createContext("/e", counting(hitE, page("Tomato soup recipe with basil",
+                "simmer tomatoes with basil and cream.", "")));
+        engineServer.start();
+        serverOne.start();
+        serverTwo.start();
+
+        int sidecarPort = freePort();
+        String token = "t-" + UUID.randomUUID();
+        Process sidecar = new ProcessBuilder(sidecarJava, "-jar", sidecarJar,
+                "--port=" + sidecarPort, "--token=" + token, "--allow-private=true", "--headless=true",
+                "--domain-key-mode=host-port", "--search-url=" + baseEngine + "/find?q={query}")
+                .redirectErrorStream(false).start();
+        final CountDownLatch ready = new CountDownLatch(1);
+        final AtomicReference<String> readinessLine = new AtomicReference<String>();
+        Thread drain = new Thread(new Runnable() {
+            public void run() {
+                try {
+                    BufferedReader reader = new BufferedReader(
+                            new InputStreamReader(sidecar.getErrorStream(), StandardCharsets.UTF_8));
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        System.err.println("[sidecar-rerank] " + line);
+                        if (line.contains("playwright readiness:")) {
+                            readinessLine.set(line);
+                        }
+                        if (line.contains("ready on 127.0.0.1:")) {
+                            ready.countDown();
+                        }
+                    }
+                } catch (IOException ignored) {
+                }
+            }
+        }, "sidecar-rerank-drain");
+        drain.setDaemon(true);
+        drain.start();
+
+        SolonMcpServerRuntime runtime = new SolonMcpServerRuntime();
+        SolonToolInvoker sidecarClient = null;
+        SolonToolInvoker browser = null;
+        SolonToolInvoker research = null;
+        McpEndpointHandle bridgeHandle = null;
+        McpEndpointHandle researchHandle = null;
+        try {
+            assumeTrue("SKIPPED: sidecar did not come up within 120s", ready.await(120, TimeUnit.SECONDS));
+            String readiness = readinessLine.get();
+            assumeTrue("SKIPPED (environment-gated): " + readiness,
+                    readiness != null && readiness.contains("READY"));
+            sidecarClient = new SolonToolInvoker(
+                    "http://127.0.0.1:" + sidecarPort + "/mcp/browser/" + token, "streamable");
+
+            final CaptureStore captures = new CaptureStore(100);
+            final InMemoryResearchSourceRepository repository = InMemoryResearchSourceRepository.empty();
+            final ResearchSearchIndex.InMemory index = new ResearchSearchIndex.InMemory();
+            final SourceAcceptanceService acceptance = new SourceAcceptanceService(captures, repository,
+                    new SourceAcceptanceService.SourceCreator() {
+                        public void create(ResearchSourceRecord record) {
+                            repository.put(record);
+                        }
+                    }, index);
+            final SolonToolInvoker toSidecar = sidecarClient;
+            bridgeHandle = runtime.registerEndpoint(new McpEndpointDefinition("browser.rerank", "Browser"));
+            runtime.updateTools(bridgeHandle, Arrays.asList(
+                    McpToolContribution.of("web_search_prepare", "prepare", new McpToolHandler() {
+                        public McpToolResult invoke(McpToolCall call) {
+                            return delegate(toSidecar, "web_search_prepare", call.getArguments());
+                        }
+                    }, McpToolParameter.string("query", true, "q")),
+                    McpToolContribution.of("web_open", "open", new McpToolHandler() {
+                        public McpToolResult invoke(McpToolCall call) {
+                            McpToolResult raw = delegate(toSidecar, "web_open", call.getArguments());
+                            if (raw.isError()) {
+                                return raw;
+                            }
+                            String[] parsed = parseSidecarPage(raw.getText());
+                            VisitedCapture capture = captures.record(parsed[0], parsed[1], parsed[2]);
+                            return McpToolResult.ok("URL: " + parsed[0] + " title=\"" + parsed[1]
+                                    + "\" capture_id=" + capture.getCaptureId() + "\n" + parsed[2]);
+                        }
+                    }, McpToolParameter.string("url", true, "u")),
+                    McpToolContribution.of("web_links", "links", new McpToolHandler() {
+                        public McpToolResult invoke(McpToolCall call) {
+                            return delegate(toSidecar, "web_links", call.getArguments());
+                        }
+                    })));
+            researchHandle = runtime.registerEndpoint(
+                    new McpEndpointDefinition("research.rerank", "Research"));
+            runtime.updateTools(researchHandle, Arrays.asList(
+                    McpToolContribution.of("source_accept", "accept", new McpToolHandler() {
+                        public McpToolResult invoke(McpToolCall call) {
+                            return McpToolResult.ok(
+                                    acceptance.accept(call.getString("capture_id")).render());
+                        }
+                    }, McpToolParameter.string("capture_id", true, "c")),
+                    McpToolContribution.of("finding_add", "finding", new McpToolHandler() {
+                        public McpToolResult invoke(McpToolCall call) {
+                            return McpToolResult.ok("appended revision=1");
+                        }
+                    }, McpToolParameter.string("source_id", true, "s"),
+                       McpToolParameter.string("text", true, "t"))));
+
+            browser = new SolonToolInvoker(runtime.endpointUrl(bridgeHandle), "streamable");
+            research = new SolonToolInvoker(runtime.endpointUrl(researchHandle), "streamable");
+
+            // ---- RUN 1: the REAL local reranker with a Top-2 policy ----
+            com.aresstack.askai.agent.model.reranker.RerankerEndpointDescriptor topTwo =
+                    reranker.descriptor(2);
+            ResearchLoop loop1 = rerankLoop(browser, research,
+                    new com.aresstack.askai.research.runtime.rerank.SearchResultReranker(
+                            new com.aresstack.askai.research.runtime.rerank.HttpRerankerClient(topTwo),
+                            new com.aresstack.askai.research.runtime.rerank.SearchResultSelectionPolicy(
+                                    topTwo.selectionConfiguration),
+                            topTwo.modelName,
+                            com.aresstack.askai.agent.model.reranker.RerankerScoreSemantics.RAW_LOGIT));
+            loop1.run("investigate pf4j plugin framework for java");
+
+            int openedTargets = (hitA.get() > 0 ? 1 : 0) + (hitC.get() > 0 ? 1 : 0)
+                    + (hitE.get() > 0 ? 1 : 0);
+            assertEquals("the real reranker Top-2 opens exactly two of the three candidates "
+                    + "(a=" + hitA.get() + " c=" + hitC.get() + " e=" + hitE.get() + ")",
+                    2, openedTargets);
+            int rejected = (hitA.get() == 0 ? 1 : 0) + (hitC.get() == 0 ? 1 : 0)
+                    + (hitE.get() == 0 ? 1 : 0);
+            assertEquals("exactly one candidate is rejected by reranking and never opened (0 hits)",
+                    1, rejected);
+
+            // ---- RUN 2: an UNREACHABLE reranker → typed stop reason, opens nothing ----
+            int deadPort = freePort();
+            com.aresstack.askai.agent.model.reranker.RerankerEndpointDescriptor dead =
+                    new com.aresstack.askai.agent.model.reranker.RerankerEndpointDescriptor(
+                            com.aresstack.askai.agent.model.reranker.RerankerProvider.ASKAI_LOCAL,
+                            "http://127.0.0.1:" + deadPort, reranker.modelName,
+                            Arrays.asList(com.aresstack.askai.agent.model.reranker
+                                    .RerankerCapability.RERANK),
+                            com.aresstack.askai.agent.model.reranker.RerankerScoreSemantics.RAW_LOGIT,
+                            1_500L, com.aresstack.askai.agent.model.reranker
+                            .RerankerSelectionConfiguration.topN(2));
+            int before = hitA.get() + hitC.get() + hitE.get();
+            ResearchLoop loop2 = rerankLoop(browser, research,
+                    new com.aresstack.askai.research.runtime.rerank.SearchResultReranker(
+                            new com.aresstack.askai.research.runtime.rerank.HttpRerankerClient(dead),
+                            new com.aresstack.askai.research.runtime.rerank.SearchResultSelectionPolicy(
+                                    dead.selectionConfiguration)));
+            ResearchStopReason reason = loop2.run("investigate pf4j plugin framework for java");
+
+            assertTrue("an unreachable mandatory reranker is a typed RERANKER_* reason (was " + reason
+                    + ")", reason == ResearchStopReason.RERANKER_UNAVAILABLE
+                    || reason == ResearchStopReason.RERANKER_TIMEOUT);
+            assertTrue("a reranker failure is never NO_RELEVANT_PATHS",
+                    reason != ResearchStopReason.NO_RELEVANT_PATHS);
+            assertEquals("nothing is opened when the mandatory reranker is unreachable",
+                    before, hitA.get() + hitC.get() + hitE.get());
+        } finally {
+            close(browser);
+            close(research);
+            close(sidecarClient);
+            if (bridgeHandle != null) {
+                runtime.unregisterEndpoint(bridgeHandle);
+            }
+            if (researchHandle != null) {
+                runtime.unregisterEndpoint(researchHandle);
+            }
+            runtime.shutdown();
+            reranker.close();
+            sidecar.destroy();
+            if (!sidecar.waitFor(15, TimeUnit.SECONDS)) {
+                sidecar.destroyForcibly();
+                sidecar.waitFor(15, TimeUnit.SECONDS);
+            }
+            engineServer.stop(0);
+            serverOne.stop(0);
+            serverTwo.stop(0);
+        }
+    }
+
+    /** A standard live-harness loop with a generous budget and a no-op listener, for the given reranker. */
+    private static ResearchLoop rerankLoop(SolonToolInvoker browser, SolonToolInvoker research,
+            com.aresstack.askai.research.runtime.rerank.CandidateReranker reranker) {
+        final AtomicLong now = new AtomicLong(0);
+        ResearchLoop loop = new ResearchLoop(browser, research,
+                new ResearchRunBudget(30, 20, 8, 3, 600_000, 2, 2),
+                new ResearchLoopClock() {
+                    public long currentTimeMillis() {
+                        return now.get();
+                    }
+
+                    public void sleepMillis(long millis) {
+                        now.addAndGet(millis);
+                    }
+                },
+                new ResearchLoopListener() {
+                    public void status(String message) {
+                    }
+
+                    public void progress(ResearchRunProgress progress, ResearchRunActivity activity) {
+                    }
+
+                    public void phaseReady(ResearchStopReason reason) {
+                    }
+
+                    public void attention(String reason, String domainFamily, String url,
+                                          boolean resolved) {
+                    }
+                }, new AtomicBoolean(false));
+        loop.setReranker(reranker);
+        return loop;
+    }
+
     private static HttpHandler counting(final java.util.concurrent.atomic.AtomicInteger hits,
                                         final HttpHandler delegate) {
         return new HttpHandler() {
