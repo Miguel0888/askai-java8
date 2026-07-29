@@ -42,6 +42,12 @@ public final class ResearchAgentMain {
      */
     private com.aresstack.askai.research.runtime.rerank.CandidateReranker reranker;
     /**
+     * The initial-search strategy chosen by the session snapshot, built ONCE at session/new (like the
+     * reranker) so a running session never switches strategy. Null means "keep the loop's default legacy
+     * browser strategy" — the unchanged browser SERP path.
+     */
+    private com.aresstack.askai.research.runtime.search.SearchStrategy searchStrategy;
+    /**
      * Canonical URLs visited across ALL runs of this agent process (one process per session): a
      * CONTINUE_RESEARCH turn gets a fresh budget but never navigates the same target pages again.
      */
@@ -93,6 +99,8 @@ public final class ResearchAgentMain {
         // atomically, never mid-run and never with a silent raw-order fallback.
         if (environment.hasBrowser()) {
             this.reranker = buildMandatoryReranker();
+            // Fix the initial-search strategy for the whole session here (null → unchanged browser path).
+            this.searchStrategy = buildSearchStrategy();
         }
         return new AcpSchema.NewSessionResponse("research-acp-" + environment.sessionId, null, null);
     }
@@ -140,6 +148,35 @@ public final class ResearchAgentMain {
         System.err.println("[research-agent] reranker ready: " + descriptor.modelName);
         return new com.aresstack.askai.research.runtime.rerank.SearchResultReranker(client, policy,
                 descriptor.modelName, descriptor.scoreSemantics);
+    }
+
+    /**
+     * Read the initial-search strategy snapshot (path named by {@code ASKAI_SEARCH_STRATEGY_CONFIG}) and
+     * build the chosen strategy ONCE for this session. Absent config → {@code null} (the loop keeps its
+     * unchanged browser strategy). A present-but-invalid snapshot is a hard session/new failure — never a
+     * silent fallback to the legacy browser search.
+     */
+    private com.aresstack.askai.research.runtime.search.SearchStrategy buildSearchStrategy() {
+        if (!environment.hasSearchStrategyConfig()) {
+            return null;
+        }
+        String json;
+        try {
+            byte[] bytes = java.nio.file.Files.readAllBytes(
+                    java.nio.file.Paths.get(environment.searchStrategyConfigPath));
+            json = new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+        } catch (java.io.IOException ex) {
+            throw new IllegalStateException("Cannot read ASKAI_SEARCH_STRATEGY_CONFIG="
+                    + environment.searchStrategyConfigPath + ": " + ex.getMessage(), ex);
+        }
+        com.aresstack.askai.research.runtime.search.SearchStrategyConfiguration config =
+                com.aresstack.askai.research.runtime.search.SearchStrategyConfigurationLoader.parse(json);
+        com.aresstack.askai.research.runtime.search.SearchStrategy strategy =
+                com.aresstack.askai.research.runtime.search.ResearchSearchStrategyFactory.create(config);
+        System.err.println("[research-agent] initial search: " + config.getStrategy()
+                + (strategy == null ? " (legacy browser)" : " / " + config.getProviderId() + " / "
+                        + config.getEngine()));
+        return strategy;
     }
 
     @Cancel
@@ -291,6 +328,10 @@ public final class ResearchAgentMain {
             // every organic candidate is scored before any web_open. (Non-browser turns never reach here.)
             if (reranker != null) {
                 loop.setReranker(reranker);
+            }
+            // Inject the session's chosen initial-search strategy (null → keep the default browser path).
+            if (searchStrategy != null) {
+                loop.setSearchStrategy(searchStrategy);
             }
             // Continuation semantics: a later run of the same session never re-navigates target pages.
             loop.excludeVisited(visitedAcrossRuns);

@@ -20,10 +20,13 @@ final class ResearchAgentEnvironment {
     final String browserSearchConfigPath;
     /** Path of the reranker start snapshot (the mandatory local cross-encoder endpoint), or null. */
     final String rerankerConfigPath;
+    /** Path of the initial-search strategy snapshot (legacy browser vs. API provider), or null. */
+    final String searchStrategyConfigPath;
 
     private ResearchAgentEnvironment(String sessionId, String projectId, String researchUrl,
                                      String researchTransport, String browserUrl, String browserTransport,
-                                     String browserSearchConfigPath, String rerankerConfigPath) {
+                                     String browserSearchConfigPath, String rerankerConfigPath,
+                                     String searchStrategyConfigPath) {
         this.sessionId = sessionId;
         this.projectId = projectId;
         this.researchUrl = researchUrl;
@@ -32,6 +35,7 @@ final class ResearchAgentEnvironment {
         this.browserTransport = browserTransport;
         this.browserSearchConfigPath = browserSearchConfigPath;
         this.rerankerConfigPath = rerankerConfigPath;
+        this.searchStrategyConfigPath = searchStrategyConfigPath;
     }
 
     static ResearchAgentEnvironment from(Map<String, String> env) {
@@ -45,7 +49,12 @@ final class ResearchAgentEnvironment {
                 browserUrl,
                 browserUrl == null ? null : orDefault(env.get("ASKAI_BROWSER_MCP_TRANSPORT"), "streamable"),
                 blankToNull(env.get("ASKAI_BROWSER_SEARCH_CONFIG")),
-                blankToNull(env.get("ASKAI_RERANKER_CONFIG")));
+                blankToNull(env.get("ASKAI_RERANKER_CONFIG")),
+                blankToNull(env.get("ASKAI_SEARCH_STRATEGY_CONFIG")));
+    }
+
+    boolean hasSearchStrategyConfig() {
+        return searchStrategyConfigPath != null;
     }
 
     boolean hasReranker() {
