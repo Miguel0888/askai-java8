@@ -53,8 +53,7 @@ public final class LocalModelManifestCodec {
             return null;
         }
         Map<String, Object> m = (Map<String, Object>) parsed;
-        int schema = intValue(m.get("schemaVersion"),
-                InstalledModelManifest.LEGACY_RERANKER_SCHEMA_VERSION);
+        int schema = schemaVersion(m);
         // v1 used "backendSupport"; v2 uses "supportedBackends".
         List<String> backends = m.containsKey("supportedBackends")
                 ? stringList(m.get("supportedBackends")) : stringList(m.get("backendSupport"));
@@ -63,6 +62,28 @@ public final class LocalModelManifestCodec {
                 str(m.get("runtimeModelId")), str(m.get("runtimeFamily")), str(m.get("runtimePackage")),
                 stringList(m.get("capabilities")), backends, str(m.get("sourceFormat")),
                 str(m.get("state")), longValue(m.get("installedAt")));
+    }
+
+    /**
+     * Distinguish an ABSENT schemaVersion (historical v1) from a PRESENT-but-invalid one. Only an absent
+     * field is legacy v1; a string, boolean or fractional number is transported as
+     * {@link InstalledModelManifest#SCHEMA_VERSION_MALFORMED} so the shared reader fails it closed rather
+     * than falling back to v1.
+     */
+    private static int schemaVersion(Map<String, Object> manifest) {
+        if (!manifest.containsKey("schemaVersion") || manifest.get("schemaVersion") == null) {
+            return InstalledModelManifest.LEGACY_RERANKER_SCHEMA_VERSION;
+        }
+        Object value = manifest.get("schemaVersion");
+        if (value instanceof Number) {
+            double d = ((Number) value).doubleValue();
+            if (!Double.isNaN(d) && !Double.isInfinite(d) && d == Math.floor(d)
+                    && d >= Integer.MIN_VALUE + 1 && d <= Integer.MAX_VALUE) {
+                return (int) d;
+            }
+            return InstalledModelManifest.SCHEMA_VERSION_MALFORMED;
+        }
+        return InstalledModelManifest.SCHEMA_VERSION_MALFORMED;
     }
 
     // ------------------------------------------------------------------ helpers
@@ -82,17 +103,6 @@ public final class LocalModelManifestCodec {
             }
         }
         return out;
-    }
-
-    private static int intValue(Object value, int fallback) {
-        if (value instanceof Number) {
-            return ((Number) value).intValue();
-        }
-        try {
-            return value == null ? fallback : Integer.parseInt(String.valueOf(value).trim());
-        } catch (NumberFormatException ex) {
-            return fallback;
-        }
     }
 
     private static long longValue(Object value) {
