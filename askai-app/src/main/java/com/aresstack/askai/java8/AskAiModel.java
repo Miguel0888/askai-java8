@@ -97,6 +97,19 @@ public final class AskAiModel {
     }
 
     /**
+     * Persists ONLY the centrally-managed main (chat) model selection, leaving every other setting on
+     * disk untouched. The chat window uses this: the model the user picks there is the global main model
+     * shared by all plugins. Surgical load-modify-save so it never clobbers unrelated in-memory edits.
+     */
+    public void persistMainModel(String modelName) {
+        String value = modelName == null ? "" : modelName.trim();
+        this.aiModelSelections = this.aiModelSelections.withMainModel(value);
+        AppConfiguration current = configurationRepository.load();
+        configurationRepository.save(current.withAiModelSelections(
+                current.getAiModelSelections().withMainModel(value)));
+    }
+
+    /**
      * Persists the buffered values, preserving every other setting (proxy, TLS trust, HTTP client,
      * HuggingFace token) exactly as currently stored.
      */

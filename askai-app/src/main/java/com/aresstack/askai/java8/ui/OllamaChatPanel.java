@@ -441,7 +441,12 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         reasoningEffort = isKnownReasoningLevel(effort) ? effort : "off";
         composer.setReasoningName(reasoningLabel(reasoningEffort));
 
-        pendingRestoreModel = applicationState.get(STATE_LAST_MODEL, null);
+        // The centrally-managed main model (set in the chat window, shared by all plugins) is the primary
+        // restore target; the per-tab last model is only a fallback when nothing is centrally selected.
+        String centralMainModel = model.getAiModelSelections().getMainModel();
+        pendingRestoreModel = centralMainModel != null && centralMainModel.trim().length() > 0
+                ? centralMainModel
+                : applicationState.get(STATE_LAST_MODEL, null);
     }
 
     private static boolean isKnownReasoningLevel(String level) {
@@ -1519,6 +1524,7 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         composer.setModelName(modelName);
         refreshReasoningForModel(modelName);
         rememberState(STATE_LAST_MODEL, modelName);
+        model.persistMainModel(modelName); // the chat model IS the global main model for all plugins
         transcript.appendInfo("Now chatting with " + modelName + ".");
         setStatus("Model set to " + modelName + ".");
     }
@@ -1541,6 +1547,7 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
                     composer.setModelName(name);
                     refreshReasoningForModel(name);
                     rememberState(STATE_LAST_MODEL, name);
+                    model.persistMainModel(name); // the chat model IS the global main model for all plugins
                 });
                 menu.add(item);
             }
