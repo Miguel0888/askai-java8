@@ -53,6 +53,9 @@ public final class ResearchAgentMain {
      * valid descriptor is present it is the honest {@code UnavailableStructuredInferencePort} fallback.
      */
     private com.aresstack.askai.browser.search.inference.StructuredInferencePort inferencePort;
+    /** Hot-reload of the inference descriptor: applied ONLY between turns, last-good retained on failure. */
+    private com.aresstack.askai.research.runtime.inference.ModelDescriptorReloadController reloadController;
+    private com.aresstack.askai.research.runtime.inference.ModelDescriptorWatcher descriptorWatcher;
 
     /** Outer bound the adapter waits on a provider future; beyond the client's own request timeout. */
     private static final long SEARCH_PROVIDER_TIMEOUT_MILLIS = 90_000L;
@@ -119,6 +122,9 @@ public final class ResearchAgentMain {
             this.searchStrategy = buildSearchStrategy();
             // OPTIONAL model-backed SERP layout repair over the central main model (honest fallback else).
             this.inferencePort = buildInferencePort();
+            // Hot-reload: watch the inference descriptor so a mid-session main-model change is picked up at
+            // the next turn boundary (never mid-request), keeping the last good config on any failure.
+            startInferenceHotReload();
         }
         return new AcpSchema.NewSessionResponse("research-acp-" + environment.sessionId, null, null);
     }
@@ -192,6 +198,95 @@ public final class ResearchAgentMain {
                     + environment.inferenceConfigPath + "): " + ex.getMessage()
                     + " — SERP layout repair stays unavailable");
             return new com.aresstack.askai.browser.search.analysis.UnavailableStructuredInferencePort();
+        }
+    }
+
+    /**
+     * Re-read the inference descriptor and rebuild the {@link #inferencePort}. Returns false (keeping the
+     * last good port) when the descriptor is absent or invalid — never a fabricated success.
+     */
+    private boolean reloadInferencePort() {
+        if (!environment.hasInference()) {
+            return false;
+        }
+        try {
+            com.aresstack.askai.agent.model.inference.InferenceConfigurationDocument document =
+                    com.aresstack.askai.research.runtime.inference.InferenceConfigurationLoader
+                            .load(environment.inferenceConfigPath);
+            this.inferencePort = new com.aresstack.askai.research.runtime.inference
+                    .HttpStructuredInferenceClient(document.descriptor);
+            System.err.println("[research-agent] inference reloaded: " + document.getModel());
+            return true;
+        } catch (java.io.IOException ex) {
+            System.err.println("[research-agent] inference reload failed, keeping the last good config: "
+                    + ex.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Register a {@link com.aresstack.askai.research.runtime.inference.ModelDescriptorWatcher} on the session
+     * config directory so a host-rewritten inference descriptor SIGNALS a reload; the switch itself is
+     * applied only between turns (see {@link #applyPendingModelReload}). The watcher is closed on the JVM
+     * shutdown hook (this agent process is one-per-session).
+     */
+    private void startInferenceHotReload() {
+        if (!environment.hasInference()) {
+            return;
+        }
+        java.io.File descriptorFile = new java.io.File(environment.inferenceConfigPath);
+        java.io.File directory = descriptorFile.getParentFile();
+        if (directory == null) {
+            return;
+        }
+        this.reloadController = new com.aresstack.askai.research.runtime.inference
+                .ModelDescriptorReloadController(
+                        new com.aresstack.askai.research.runtime.inference
+                                .ModelDescriptorReloadController.Reload() {
+                            public boolean reloadNow() {
+                                return reloadInferencePort();
+                            }
+                        });
+        try {
+            final com.aresstack.askai.research.runtime.inference.ModelDescriptorWatcher watcher =
+                    com.aresstack.askai.research.runtime.inference.ModelDescriptorWatcher.start(
+                            directory.toPath(),
+                            java.util.Collections.singleton(descriptorFile.getName()),
+                            new Runnable() {
+                                public void run() {
+                                    reloadController.signalChange();
+                                    System.err.println("[research-agent] inference descriptor changed — "
+                                            + com.aresstack.askai.research.runtime.inference
+                                                    .ModelReloadOutcome.RELOAD_PENDING_UNTIL_IDLE);
+                                }
+                            });
+            this.descriptorWatcher = watcher;
+            Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
+                public void run() {
+                    watcher.close();
+                }
+            }, "model-descriptor-watcher-close"));
+        } catch (java.io.IOException ex) {
+            System.err.println("[research-agent] could not watch the inference descriptor directory: "
+                    + ex.getMessage());
+            this.reloadController = null;
+        }
+    }
+
+    /**
+     * Apply a pending inference-descriptor reload at a turn boundary (idle). A visible outcome line is sent
+     * so a mid-session model switch is traceable in the run log.
+     */
+    private void applyPendingModelReload(SyncPromptContext ctx) {
+        if (reloadController == null) {
+            return;
+        }
+        com.aresstack.askai.research.runtime.inference.ModelReloadOutcome outcome =
+                reloadController.poll(true); // between turns → idle: safe to switch the client bundle
+        if (outcome != null) {
+            System.err.println("[research-agent] model reload: " + outcome);
+            ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
+                    .log("MODEL_RELOAD: " + outcome));
         }
     }
 
@@ -349,6 +444,9 @@ public final class ResearchAgentMain {
      * reported explicitly over ACP, never only to logs.
      */
     private void runResearchLoop(final SyncPromptContext ctx, String task) {
+        // Turn boundary (idle): apply any pending central-model descriptor reload BEFORE building the loop,
+        // so this turn uses the freshly rebuilt inference port; a switch never happens mid-run.
+        applyPendingModelReload(ctx);
         com.aresstack.askai.research.runtime.loop.SolonToolInvoker browser =
                 new com.aresstack.askai.research.runtime.loop.SolonToolInvoker(
                         environment.browserUrl, environment.browserTransport);
