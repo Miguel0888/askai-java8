@@ -50,6 +50,11 @@ public final class AppConfigurationRepository {
     private static final String CHAT_COLOR_USER_FG = "chat.color.userForeground";
     private static final String CHAT_COLOR_ASSISTANT_BG = "chat.color.assistantBackground";
     private static final String CHAT_COLOR_ASSISTANT_FG = "chat.color.assistantForeground";
+    // Centrally-managed AI model selections (owned by AskAI, shared by all plugins). Model NAMES only —
+    // never endpoints/secrets. The main model is also the chat-window selection.
+    private static final String AI_MAIN_MODEL = "ai.mainModel";
+    private static final String AI_RERANKER_MODEL = "ai.rerankerModel";
+    private static final String AI_EMBEDDINGS_MODEL = "ai.embeddingsModel";
 
     private final File configurationFile;
 
@@ -71,6 +76,11 @@ public final class AppConfigurationRepository {
             CertificateTrustConfiguration defaultTrust = defaults.getCertificateTrustConfiguration();
             HttpClientConfiguration defaultHttp = defaults.getHttpClientConfiguration();
             SpeechToTextConfiguration defaultStt = defaults.getSpeechToTextConfiguration();
+            AiModelSelections defaultModels = defaults.getAiModelSelections();
+            AiModelSelections aiModels = new AiModelSelections(
+                    properties.getProperty(AI_MAIN_MODEL, defaultModels.getMainModel()),
+                    properties.getProperty(AI_RERANKER_MODEL, defaultModels.getRerankerModel()),
+                    properties.getProperty(AI_EMBEDDINGS_MODEL, defaultModels.getEmbeddingsModel()));
             String mode = properties.getProperty(PROXY_MODE, defaultProxy.getModeName());
             SpeechToTextConfiguration stt = new SpeechToTextConfiguration(
                     parseBoolean(properties.getProperty(STT_ENABLED), defaultStt.isEnabled()),
@@ -129,7 +139,8 @@ public final class AppConfigurationRepository {
                             properties.getProperty(HF_SEARCH_SUGGESTIONS,
                                     AppConfiguration.DEFAULT_HF_SEARCH_SUGGESTIONS)))
                     .withHuggingFaceSearchFilters(properties.getProperty(HF_SEARCH_FILTERS, ""))
-                    .withChatColors(chatColors);
+                    .withChatColors(chatColors)
+                    .withAiModelSelections(aiModels);
         } catch (IOException ex) {
             return AppConfiguration.defaults();
         } finally {
@@ -185,6 +196,10 @@ public final class AppConfigurationRepository {
         properties.setProperty(CHAT_COLOR_USER_FG, ChatColorSettings.toHex(colors.getUserForeground()));
         properties.setProperty(CHAT_COLOR_ASSISTANT_BG, ChatColorSettings.toHex(colors.getAssistantBackground()));
         properties.setProperty(CHAT_COLOR_ASSISTANT_FG, ChatColorSettings.toHex(colors.getAssistantForeground()));
+        AiModelSelections aiModels = configuration.getAiModelSelections();
+        properties.setProperty(AI_MAIN_MODEL, aiModels.getMainModel());
+        properties.setProperty(AI_RERANKER_MODEL, aiModels.getRerankerModel());
+        properties.setProperty(AI_EMBEDDINGS_MODEL, aiModels.getEmbeddingsModel());
         FileOutputStream outputStream = null;
         try {
             outputStream = new FileOutputStream(configurationFile);

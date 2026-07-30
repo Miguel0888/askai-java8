@@ -23,6 +23,7 @@ public final class AppConfiguration {
     private final String huggingFaceSearchSuggestions;
     private final String huggingFaceSearchFilters;
     private final ChatColorSettings chatColors;
+    private final AiModelSelections aiModelSelections;
 
     /**
      * Default HuggingFace search suggestions for the Install panel dropdown, curated for a 16 GB
@@ -186,7 +187,7 @@ public final class AppConfiguration {
         this(ollamaBaseUrl, keepAlive, proxyConfiguration, certificateTrustConfiguration,
                 httpClientConfiguration, defaultQuantization, huggingFaceToken, modelDownloadDirectory,
                 SpeechToTextConfiguration.defaults(), DEFAULT_HF_SEARCH_SUGGESTIONS, "",
-                ChatColorSettings.defaults());
+                ChatColorSettings.defaults(), AiModelSelections.defaults());
     }
 
     private AppConfiguration(String ollamaBaseUrl, String keepAlive, ProxyConfiguration proxyConfiguration,
@@ -195,7 +196,7 @@ public final class AppConfiguration {
                              String huggingFaceToken, File modelDownloadDirectory,
                              SpeechToTextConfiguration speechToTextConfiguration,
                              String huggingFaceSearchSuggestions, String huggingFaceSearchFilters,
-                             ChatColorSettings chatColors) {
+                             ChatColorSettings chatColors, AiModelSelections aiModelSelections) {
         this.ollamaBaseUrl = normalizeBaseUrl(ollamaBaseUrl);
         this.keepAlive = keepAlive == null || keepAlive.trim().length() == 0 ? "5m" : keepAlive.trim();
         this.proxyConfiguration = proxyConfiguration == null ? ProxyConfiguration.defaults() : proxyConfiguration;
@@ -216,6 +217,7 @@ public final class AppConfiguration {
         // stored opaquely here to keep the config package free of a dependency on the hf package.
         this.huggingFaceSearchFilters = huggingFaceSearchFilters == null ? "" : huggingFaceSearchFilters;
         this.chatColors = chatColors == null ? ChatColorSettings.defaults() : chatColors;
+        this.aiModelSelections = aiModelSelections == null ? AiModelSelections.defaults() : aiModelSelections;
     }
 
     /**
@@ -226,7 +228,7 @@ public final class AppConfiguration {
         return new AppConfiguration(ollamaBaseUrl, keepAlive, proxyConfiguration,
                 certificateTrustConfiguration, httpClientConfiguration, defaultQuantization,
                 huggingFaceToken, modelDownloadDirectory, configuration, huggingFaceSearchSuggestions,
-                huggingFaceSearchFilters, chatColors);
+                huggingFaceSearchFilters, chatColors, aiModelSelections);
     }
 
     /**
@@ -237,7 +239,7 @@ public final class AppConfiguration {
         return new AppConfiguration(ollamaBaseUrl, keepAlive, proxyConfiguration,
                 certificateTrustConfiguration, httpClientConfiguration, defaultQuantization,
                 huggingFaceToken, modelDownloadDirectory, speechToTextConfiguration, suggestions,
-                huggingFaceSearchFilters, chatColors);
+                huggingFaceSearchFilters, chatColors, aiModelSelections);
     }
 
     /**
@@ -248,7 +250,7 @@ public final class AppConfiguration {
         return new AppConfiguration(ollamaBaseUrl, keepAlive, proxyConfiguration,
                 certificateTrustConfiguration, httpClientConfiguration, defaultQuantization,
                 huggingFaceToken, modelDownloadDirectory, speechToTextConfiguration,
-                huggingFaceSearchSuggestions, filters, chatColors);
+                huggingFaceSearchSuggestions, filters, chatColors, aiModelSelections);
     }
 
     /** @return a copy of this configuration with the given chat bubble colors. */
@@ -256,7 +258,19 @@ public final class AppConfiguration {
         return new AppConfiguration(ollamaBaseUrl, keepAlive, proxyConfiguration,
                 certificateTrustConfiguration, httpClientConfiguration, defaultQuantization,
                 huggingFaceToken, modelDownloadDirectory, speechToTextConfiguration,
-                huggingFaceSearchSuggestions, huggingFaceSearchFilters, colors);
+                huggingFaceSearchSuggestions, huggingFaceSearchFilters, colors, aiModelSelections);
+    }
+
+    /**
+     * @return a copy of this configuration with the given centrally-managed AI model selections
+     *         (main/chat, reranker, embeddings). Save sites that rebuild an {@code AppConfiguration}
+     *         use this to carry the selections over.
+     */
+    public AppConfiguration withAiModelSelections(AiModelSelections selections) {
+        return new AppConfiguration(ollamaBaseUrl, keepAlive, proxyConfiguration,
+                certificateTrustConfiguration, httpClientConfiguration, defaultQuantization,
+                huggingFaceToken, modelDownloadDirectory, speechToTextConfiguration,
+                huggingFaceSearchSuggestions, huggingFaceSearchFilters, chatColors, selections);
     }
 
     public static AppConfiguration defaults() {
@@ -293,6 +307,11 @@ public final class AppConfiguration {
 
     public ChatColorSettings getChatColors() {
         return chatColors;
+    }
+
+    /** @return the centrally-managed AI model selections (main/chat, reranker, embeddings). */
+    public AiModelSelections getAiModelSelections() {
+        return aiModelSelections;
     }
 
     /** @return the raw newline-separated suggestion list, as persisted. */
