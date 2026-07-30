@@ -53,11 +53,12 @@ final class RegistryMarketplaceClient {
         return new ArrayList<>(entries.values());
     }
 
-    private static String buildPageUrl(String baseUrl, String cursor) {
+    static String buildPageUrl(String baseUrl, String cursor) throws IOException {
         StringBuilder url = new StringBuilder(trimTrailingSlash(baseUrl));
         url.append("/v0.1/servers?limit=").append(PAGE_LIMIT);
         if (cursor != null && !cursor.trim().isEmpty()) {
-            url.append("&cursor=").append(URLEncoder.encode(cursor, StandardCharsets.UTF_8));
+            // Java 8: the (String, Charset) overload is Java 9+; use the charset NAME form here.
+            url.append("&cursor=").append(URLEncoder.encode(cursor, StandardCharsets.UTF_8.name()));
         }
         return url.toString();
     }
