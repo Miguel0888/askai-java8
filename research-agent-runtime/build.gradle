@@ -13,6 +13,10 @@ dependencies {
     // A4 transport: the layout-repair codec and the model-using repair coordinator (Java-8, model-free
     // analysis; the concrete StructuredInferencePort adapter is injected by the runtime).
     implementation project(':browser-search-analysis')
+    // Slice 2: the async web-search-provider module (Brave/BrightData/DataForSEO over AsyncHttpClient),
+    // consumed behind the existing SearchProvider seam via a thin adapter. File-based config + AES-GCM
+    // secrets live in the module; the runtime never carries provider credentials.
+    implementation project(':web-search-providers')
     runtimeOnly 'org.slf4j:slf4j-nop:2.0.17'
 
     testImplementation project(':acp-client-api')
@@ -37,6 +41,9 @@ task researchAgentJar(type: Jar) {
     archiveClassifier = 'all'
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     dependsOn classes
+    // Ensure every runtime dependency jar (including sibling project jars like :web-search-providers) is
+    // actually built before this fat jar tries to expand it — the lazy from{} closure does not infer it.
+    dependsOn configurations.runtimeClasspath
     from sourceSets.main.output
     from { configurations.runtimeClasspath.filter { it.name.endsWith('.jar') }.collect { zipTree(it) } }
     manifest { attributes('Main-Class': mainClassName) }

@@ -47,6 +47,16 @@ public final class ResearchAgentMain {
      * browser strategy" — the unchanged browser SERP path.
      */
     private com.aresstack.askai.research.runtime.search.SearchStrategy searchStrategy;
+
+    /** Outer bound the adapter waits on a provider future; beyond the client's own request timeout. */
+    private static final long SEARCH_PROVIDER_TIMEOUT_MILLIS = 90_000L;
+    /**
+     * Runtime-scoped async search-provider registry: ONE {@code WebSearchProvidersModule} (and its
+     * AsyncHttpClients) for the whole agent process, opened lazily when an API_PROVIDER strategy is first
+     * needed and closed once at JVM shutdown. Never one client per research run.
+     */
+    private com.aresstack.askai.research.runtime.search.provider.async.AsyncSearchProviderRegistry
+            searchProviderRegistry;
     /**
      * Canonical URLs visited across ALL runs of this agent process (one process per session): a
      * CONTINUE_RESEARCH turn gets a fresh budget but never navigates the same target pages again.
@@ -171,12 +181,45 @@ public final class ResearchAgentMain {
         }
         com.aresstack.askai.research.runtime.search.SearchStrategyConfiguration config =
                 com.aresstack.askai.research.runtime.search.SearchStrategyConfigurationLoader.parse(json);
+        // Only an API_PROVIDER selection needs the (runtime-scoped) provider registry; a legacy-browser
+        // selection never opens the module or touches the provider files.
+        com.aresstack.askai.research.runtime.search.provider.SearchProviderRegistry registry =
+                config.getStrategy()
+                        == com.aresstack.askai.research.runtime.search.StrategySelection.API_PROVIDER
+                        ? ensureSearchProviderRegistry() : null;
         com.aresstack.askai.research.runtime.search.SearchStrategy strategy =
-                com.aresstack.askai.research.runtime.search.ResearchSearchStrategyFactory.create(config);
+                com.aresstack.askai.research.runtime.search.ResearchSearchStrategyFactory.create(
+                        config, registry);
         System.err.println("[research-agent] initial search: " + config.getStrategy()
                 + (strategy == null ? " (legacy browser)" : " / " + config.getProviderId() + " / "
                         + config.getEngine()));
         return strategy;
+    }
+
+    /**
+     * Lazily open the single runtime-scoped async provider registry and register its idempotent
+     * {@code close()} on the JVM shutdown hook IMMEDIATELY, so even a later initialization failure still
+     * shuts the AsyncHttpClients down cleanly. Missing provider files are not fatal — the module opens
+     * resiliently and a selected-but-unconfigured provider surfaces a typed error at search time.
+     */
+    private synchronized
+            com.aresstack.askai.research.runtime.search.provider.async.AsyncSearchProviderRegistry
+            ensureSearchProviderRegistry() {
+        if (searchProviderRegistry == null) {
+            final com.aresstack.askai.research.runtime.search.provider.async.AsyncSearchProviderRegistry
+                    registry = new com.aresstack.askai.research.runtime.search.provider.async
+                            .AsyncSearchProviderRegistry(
+                                    com.aresstack.askai.research.runtime.search.provider.async
+                                            .ModuleAsyncSearchGenerationFactory
+                                            .userHome(SEARCH_PROVIDER_TIMEOUT_MILLIS));
+            Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
+                public void run() {
+                    registry.close();
+                }
+            }, "research-search-registry-close"));
+            searchProviderRegistry = registry;
+        }
+        return searchProviderRegistry;
     }
 
     @Cancel

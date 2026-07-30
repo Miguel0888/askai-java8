@@ -143,6 +143,22 @@ public class AcpResearchSessionBackendTest {
     }
 
     @Test
+    public void launchEnvironmentCarriesNoProviderCredentials() {
+        FakeConnector connector = new FakeConnector();
+        AcpResearchSessionBackend backend = new AcpResearchSessionBackend(connector,
+                new AgentLaunchSpec("java", null, null), RESEARCH, null);
+        backend.createSession(new ResearchProjectRequest("s1", "p1", "t"), new Rec());
+        // Provider API keys / passwords live ONLY in the provider files; they must never be transported to
+        // the agent through the ACP launch environment (neither as keys nor as values).
+        for (java.util.Map.Entry<String, String> entry : connector.seen.getEnv().entrySet()) {
+            String key = entry.getKey().toLowerCase();
+            assertFalse("no credential key in the launch env: " + entry.getKey(),
+                    key.contains("apikey") || key.contains("password") || key.contains("secret")
+                            || key.contains("subscription") || key.contains("provider_settings"));
+        }
+    }
+
+    @Test
     public void updatesMapIntoBackendEventsWithMonotonicSequence() {
         FakeConnector connector = new FakeConnector();
         AcpResearchSessionBackend backend = new AcpResearchSessionBackend(connector,

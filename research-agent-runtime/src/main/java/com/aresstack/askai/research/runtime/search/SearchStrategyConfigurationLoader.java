@@ -4,7 +4,6 @@ import com.aresstack.askai.research.runtime.search.provider.SearchEngine;
 import com.aresstack.askai.research.runtime.search.provider.SearchJson;
 import com.aresstack.askai.research.runtime.search.provider.SearchProviderId;
 
-import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -13,12 +12,11 @@ import java.util.Map;
  * switch back to the legacy browser search. Absent snapshot text is treated as {@link
  * SearchStrategyConfiguration#legacyBrowser()} so nothing changes for existing sessions.
  *
- * <p>Shape:</p>
+ * <p>Shape (SELECTION only — NO credentials; a legacy {@code provider_settings} object is still tolerated
+ * syntactically but its values are ignored entirely, never copied, logged or surfaced):</p>
  * <pre>
  * { "strategy": "API_PROVIDER", "provider": "DATA_FOR_SEO", "engine": "GOOGLE",
- *   "language": "de", "country": "de",
- *   "provider_settings": { "login": "…", "password": "…", "location_name": "Germany",
- *                          "language_code": "de", "device": "desktop", "os": "windows", "depth": "10" } }
+ *   "language": "de", "country": "de" }
  * </pre>
  */
 public final class SearchStrategyConfigurationLoader {
@@ -59,9 +57,12 @@ public final class SearchStrategyConfigurationLoader {
         SearchEngine engine = parseEngine(string(object.get("engine")));
         String language = string(object.get("language"));
         String country = string(object.get("country"));
-        Map<String, String> providerSettings = stringMap(object.get("provider_settings"));
-        return new SearchStrategyConfiguration(strategy, providerId, engine, language, country,
-                providerSettings);
+        if (object.containsKey("provider_settings")) {
+            // Legacy credential transport: read but IGNORED. Provider secrets now live only in the provider
+            // files; their values are never taken, logged, or surfaced in any exception.
+            System.err.println("[research-agent] Legacy provider settings were ignored.");
+        }
+        return new SearchStrategyConfiguration(strategy, providerId, engine, language, country);
     }
 
     private static StrategySelection parseStrategy(String value) {
@@ -103,17 +104,5 @@ public final class SearchStrategyConfigurationLoader {
         }
         String s = ((String) value).trim();
         return s.isEmpty() ? null : s;
-    }
-
-    private static Map<String, String> stringMap(Object value) {
-        Map<String, String> result = new LinkedHashMap<String, String>();
-        if (value instanceof Map) {
-            for (Map.Entry<?, ?> entry : ((Map<?, ?>) value).entrySet()) {
-                if (entry.getKey() instanceof String && entry.getValue() instanceof String) {
-                    result.put((String) entry.getKey(), (String) entry.getValue());
-                }
-            }
-        }
-        return result;
     }
 }

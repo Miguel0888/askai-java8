@@ -20,24 +20,44 @@ public final class WebSearchProvidersModule
 
     private final ProviderConfigurationService configurationService;
     private final SearchProviderFactory providerFactory;
+    private final boolean resilient;
     private WebSearchProviderRegistry providerRegistry;
 
     private WebSearchProvidersModule(
             ProviderConfigurationService configurationService,
-            SearchProviderFactory providerFactory) {
+            SearchProviderFactory providerFactory,
+            boolean resilient) {
 
         this.configurationService = configurationService;
         this.providerFactory = providerFactory;
-        this.providerRegistry = createRegistry(
-                configurationService.loadOrCreateAll());
+        this.resilient = resilient;
+        this.providerRegistry = createRegistry(loadBundle());
     }
 
     public static WebSearchProvidersModule openUserHome() {
         return open(ProviderConfigurationPaths.userHome());
     }
 
+    /** Strict open: any invalid provider configuration fails the whole open. */
     public static WebSearchProvidersModule open(
             ProviderConfigurationPaths paths) {
+
+        return create(paths, false);
+    }
+
+    /**
+     * Resilient open: a whole-module failure (the provider directory or the AES-GCM key store cannot be
+     * used) still throws, but a single invalid or unloadable provider is simply omitted from the registry
+     * instead of failing the others. Used by hosts that hot-reload provider settings.
+     */
+    public static WebSearchProvidersModule openResilient(
+            ProviderConfigurationPaths paths) {
+
+        return create(paths, true);
+    }
+
+    private static WebSearchProvidersModule create(
+            ProviderConfigurationPaths paths, boolean resilient) {
 
         Gson gson = new GsonBuilder()
                 .setPrettyPrinting()
@@ -65,7 +85,8 @@ public final class WebSearchProvidersModule
 
         return new WebSearchProvidersModule(
                 configurationService,
-                factory);
+                factory,
+                resilient);
     }
 
     public ProviderConfigurationService
@@ -81,13 +102,45 @@ public final class WebSearchProvidersModule
     }
 
     public synchronized void reloadProviders() {
-        ProviderConfigurationBundle configurations =
-                configurationService.loadOrCreateAll();
-        WebSearchProviderRegistry replacement =
-                createRegistry(configurations);
+        WebSearchProviderRegistry replacement = createRegistry(loadBundle());
         WebSearchProviderRegistry previous = providerRegistry;
         providerRegistry = replacement;
         previous.close();
+    }
+
+    /** In resilient mode, an invalid single provider config falls back to a disabled default (skipped). */
+    private ProviderConfigurationBundle loadBundle() {
+        if (!resilient) {
+            return configurationService.loadOrCreateAll();
+        }
+        return new ProviderConfigurationBundle(loadBraveOrDisabled(),
+                loadBrightDataOrDisabled(), loadDataForSeoOrDisabled());
+    }
+
+    private com.aresstack.askai.research.search.brave.BraveSearchConfiguration loadBraveOrDisabled() {
+        try {
+            return configurationService.loadOrCreateBrave();
+        } catch (RuntimeException invalid) {
+            return new com.aresstack.askai.research.search.brave.BraveSearchConfiguration();
+        }
+    }
+
+    private com.aresstack.askai.research.search.brightdata.BrightDataSearchConfiguration
+            loadBrightDataOrDisabled() {
+        try {
+            return configurationService.loadOrCreateBrightData();
+        } catch (RuntimeException invalid) {
+            return new com.aresstack.askai.research.search.brightdata.BrightDataSearchConfiguration();
+        }
+    }
+
+    private com.aresstack.askai.research.search.dataforseo.DataForSeoSearchConfiguration
+            loadDataForSeoOrDisabled() {
+        try {
+            return configurationService.loadOrCreateDataForSeo();
+        } catch (RuntimeException invalid) {
+            return new com.aresstack.askai.research.search.dataforseo.DataForSeoSearchConfiguration();
+        }
     }
 
     private WebSearchProviderRegistry createRegistry(
@@ -97,19 +150,45 @@ public final class WebSearchProvidersModule
                 new ArrayList<WebSearchProvider>();
 
         if (configurations.getBrave().isEnabled()) {
-            providers.add(providerFactory.createBrave(
-                    configurations.getBrave()));
+            addProvider(providers, new ProviderSupplier() {
+                public WebSearchProvider get() {
+                    return providerFactory.createBrave(configurations.getBrave());
+                }
+            });
         }
         if (configurations.getBrightData().isEnabled()) {
-            providers.add(providerFactory.createBrightData(
-                    configurations.getBrightData()));
+            addProvider(providers, new ProviderSupplier() {
+                public WebSearchProvider get() {
+                    return providerFactory.createBrightData(configurations.getBrightData());
+                }
+            });
         }
         if (configurations.getDataForSeo().isEnabled()) {
-            providers.add(providerFactory.createDataForSeo(
-                    configurations.getDataForSeo()));
+            addProvider(providers, new ProviderSupplier() {
+                public WebSearchProvider get() {
+                    return providerFactory.createDataForSeo(configurations.getDataForSeo());
+                }
+            });
         }
 
         return new WebSearchProviderRegistry(providers);
+    }
+
+    /** Builds and adds one provider; in resilient mode a failed build is skipped instead of propagated. */
+    private void addProvider(List<WebSearchProvider> providers, ProviderSupplier supplier) {
+        if (resilient) {
+            try {
+                providers.add(supplier.get());
+            } catch (RuntimeException unusable) {
+                // a single unusable provider must not disable the others in resilient mode
+            }
+        } else {
+            providers.add(supplier.get());
+        }
+    }
+
+    private interface ProviderSupplier {
+        WebSearchProvider get();
     }
 
     @Override
