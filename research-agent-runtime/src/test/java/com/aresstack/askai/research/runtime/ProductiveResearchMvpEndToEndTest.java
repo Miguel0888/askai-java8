@@ -181,7 +181,10 @@ public class ProductiveResearchMvpEndToEndTest {
                     registry.endpointUrl(resources.getControlEndpoint().getHandle()));
             assertNotNull("browser bridge endpoint registered",
                     registry.endpointUrl(resources.getBrowserBridge().getHandle()));
-            assertTrue("sidecar process running", resources.getSidecar().isAlive());
+            // Lazy browser: creating the session must NOT start a sidecar — it stays STOPPED until the
+            // first web_* command.
+            assertFalse("browser runtime is STOPPED at session start (lazy)",
+                    resources.getBrowser().isReady());
 
             // ---- host is the only state authority: drive the machine to RESEARCH/running ----
             for (ResearchCommandType command : new ResearchCommandType[]{
@@ -203,6 +206,12 @@ public class ProductiveResearchMvpEndToEndTest {
             resources.getBackend().submitPrompt(handle,
                     new ResearchPrompt("research: pf4j plugin framework", ""));
             assertTrue("autonomous run must finish", observer.runStopped.await(180, TimeUnit.SECONDS));
+
+            // The run drove web commands, so the lazy browser was started on demand (STOPPED → READY).
+            // This test drives the backend directly (no ResearchAgentSession), so nothing stops it until
+            // close() below — it is still READY here.
+            assertTrue("browser runtime became READY on the first web command during the run",
+                    resources.getBrowser().isReady());
 
             // ---- the mandated verifications ----
             assertEquals("exactly one PHASE_READY event", 1, observer.count("PHASE_READY:"));
@@ -248,7 +257,8 @@ public class ProductiveResearchMvpEndToEndTest {
                     resources.getControlEndpoint().getHandle();
             resources.close();
             resources.close();
-            assertFalse("sidecar process ended with the session", resources.getSidecar().isAlive());
+            assertFalse("browser runtime stopped/closed with the session (READY → STOPPED)",
+                    resources.getBrowser().isReady());
             assertNull("research endpoint unregistered (token invalid)",
                     registry.endpointUrl(controlHandle));
 
@@ -264,8 +274,9 @@ public class ProductiveResearchMvpEndToEndTest {
             assertTrue("generation 1 still active", switcher.getActive() == gen1);
             assertFalse("generation 1 not retired", gen1.isRetired());
             ProductiveResearchSessionResources second = gen1.createSession("e2e2", projectDir);
-            assertTrue("old generation still creates working sessions",
-                    second.getSidecar().isAlive());
+            assertNotNull("old generation still creates working sessions", second);
+            assertFalse("a fresh session's browser is STOPPED until first use (lazy)",
+                    second.getBrowser().isReady());
             second.close();
 
             // ---- successful switch: publish only after preparation, then lock + close the old one ----
