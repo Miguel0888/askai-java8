@@ -521,6 +521,13 @@ public final class AskAiFrame extends JFrame {
         chat.setWorkspaceModeController(chatWorkspaceHost);
         chat.setChatSubmissionRouter(agentCoordinator);
         chat.setAgentCommandRegistry(agentCoordinator);
+        // Tab close ENDS this tab's agent session(s) off-EDT (its ChatSessionId is the scope).
+        final com.aresstack.askai.plugin.host.AgentSessionCoordinator closerCoordinator = agentCoordinator;
+        chat.setTabSessionCloser(new OllamaChatPanel.TabSessionCloser() {
+            public void closeSessionsForTab(String scope) {
+                closerCoordinator.closeSessionsForScope(scope);
+            }
+        });
     }
 
     /** The conversation sink an agent session binds to: the active chat tab's (there is always one tab). */

@@ -197,6 +197,54 @@ public final class AgentSessionCoordinator
         }
     }
 
+    /**
+     * Close EVERY session belonging to one chat-tab scope (all agents that ran in that tab), because the tab
+     * is closing. Detaching (map removal + active reset) happens on the caller (EDT); the actual
+     * {@link AgentSession#close()} — which tears down the agent process and BLOCKS on the browser runtime's
+     * owner thread — runs on a dedicated background thread so tab close never freezes the UI. Late callbacks
+     * from those sessions are already gated by the session's own {@code disposed} flag.
+     */
+    public void closeSessionsForScope(String scope) {
+        final String suffix = "#" + (scope == null || scope.isEmpty() ? "session" : scope);
+        List<String> keys = new ArrayList<String>();
+        for (String key : sessions.keySet()) {
+            if (key.endsWith(suffix)) {
+                keys.add(key);
+            }
+        }
+        final List<AgentSession> toClose = new ArrayList<AgentSession>();
+        for (String key : keys) {
+            AgentSession session = sessions.remove(key);
+            if (session == null) {
+                continue;
+            }
+            if (session == activeSession) {
+                activeSession = null;
+                activeAgentId = null;
+                activeSessionKey = null;
+                activeExtension = null;
+            }
+            toClose.add(session);
+        }
+        if (toClose.isEmpty()) {
+            return;
+        }
+        fireChange();
+        Thread closer = new Thread(new Runnable() {
+            public void run() {
+                for (AgentSession session : toClose) {
+                    try {
+                        session.close();
+                    } catch (RuntimeException | Error ignored) {
+                        // tab is gone: best-effort teardown
+                    }
+                }
+            }
+        }, "agent-session-tab-close");
+        closer.setDaemon(true);
+        closer.start();
+    }
+
     /** Close and forget exactly one session key (a tab-scoped session). Returns whether one was closed. */
     private boolean closeSessionKey(String sessionKey) {
         AgentSession session = sessions.remove(sessionKey);

@@ -92,6 +92,40 @@ public class AgentSessionCoordinatorTest {
         assertEquals("no new session created when returning to a tab", 2, registry.get("agent.a").created);
     }
 
+    @Test
+    public void closingATabScopeEndsOnlyThatTabsSessionsAndAFreshTabStartsFresh() throws Exception {
+        final String[] scope = {"tab-A"};
+        AgentSessionCoordinator c = coordinator(new AgentSessionCoordinator.SessionScopeProvider() {
+            public String currentScope() {
+                return scope[0];
+            }
+        });
+        c.setActiveAgent("agent.a");
+        FakeSession tabA = registry.get("agent.a").lastSession;
+        scope[0] = "tab-B";
+        c.setActiveAgent("agent.a");
+        FakeSession tabB = registry.get("agent.a").lastSession;
+
+        c.closeSessionsForScope("tab-A"); // tab A closes: detach on this thread, close off-EDT
+        for (int i = 0; i < 100 && tabA.closeCount == 0; i++) {
+            Thread.sleep(20);
+        }
+        assertEquals("tab A's session was really closed (off-EDT)", 1, tabA.closeCount);
+        assertEquals("tab B's session is untouched", 0, tabB.closeCount);
+
+        // A fresh tab A must start a NEW session, never resume the closed one.
+        scope[0] = "tab-A";
+        c.setActiveAgent("agent.a");
+        assertNotSame("a fresh tab A gets a brand-new session", tabA, c.getActiveSession());
+        assertEquals(3, registry.get("agent.a").created);
+
+        // Tab B still has its live session (reused, not recreated).
+        scope[0] = "tab-B";
+        c.setActiveAgent("agent.a");
+        assertSame(tabB, c.getActiveSession());
+        assertEquals("tab B not recreated", 3, registry.get("agent.a").created);
+    }
+
     private static final class InlineUiExecutor
             implements com.aresstack.askai.plugin.api.service.UiExecutor {
         public boolean isUiThread() {
@@ -428,7 +462,7 @@ public class AgentSessionCoordinatorTest {
         final FakeTarget target = new FakeTarget();
         int activateCount;
         int deactivateCount;
-        int closeCount;
+        volatile int closeCount; // closeSessionsForScope closes on a background thread — read across threads
 
         public ChatSubmissionTarget getChatTarget() {
             return target;

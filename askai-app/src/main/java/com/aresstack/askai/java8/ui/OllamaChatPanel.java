@@ -694,10 +694,26 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         return this;
     }
 
+    /** Notified when this tab closes, so the host can END this tab's agent session (off-EDT), not just pause it. */
+    public interface TabSessionCloser {
+        void closeSessionsForTab(String scope);
+    }
+
+    private TabSessionCloser tabSessionCloser;
+
+    public void setTabSessionCloser(TabSessionCloser closer) {
+        this.tabSessionCloser = closer;
+    }
+
     /** Release this session's resources when its tab closes: abort the chat, dictation and file work. */
     public void disposeSession() {
         stopChat();
         shutdownDictation();
+        // END (not just pause) THIS tab's agent session so its research run, browser, agent process, model
+        // watcher and registry entry are torn down; a fresh tab starts a fresh session, never resumes this one.
+        if (tabSessionCloser != null) {
+            tabSessionCloser.closeSessionsForTab(sessionId.toString());
+        }
     }
 
     /** The always-available (collapsed) technical log shown in the header. */
