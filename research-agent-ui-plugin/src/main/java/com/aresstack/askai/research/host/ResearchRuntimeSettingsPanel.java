@@ -47,8 +47,9 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
     private final JTextField sidecarJava = new JTextField(38);
     private final JTextField sidecarJar = new JTextField(38);
     private final JComboBox<String> browserChannel = new JComboBox<String>(new String[]{"chrome", "msedge"});
-    /** EXPLICIT productive reranker selection — only installed models with the RERANK capability. */
-    private final JComboBox<String> rerankerModel = new JComboBox<String>();
+    // The reranker model is chosen centrally in AskAI (Configuration → AI models), NOT here. Any previously
+    // persisted plugin-side selection is carried through unchanged so it is never lost on save.
+    private String carriedRerankerModel = "";
     private final JCheckBox headless = new JCheckBox("Run the browser headless", true);
     private final JTextField searchUrl = new JTextField(38);
     private final JCheckBox allowPrivate = new JCheckBox(
@@ -59,27 +60,9 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
     private final JTextArea results = new JTextArea(8, 48);
 
     public ResearchRuntimeSettingsPanel(WorkspaceStateStore store) {
-        this(store, null);
-    }
-
-    /** @param rerankerCatalog the host's installed-reranker catalog (null when the host has none). */
-    public ResearchRuntimeSettingsPanel(WorkspaceStateStore store,
-            com.aresstack.askai.agent.model.reranker.RerankerModelCatalog rerankerCatalog) {
         super(new BorderLayout(8, 8));
         this.store = store;
         setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-
-        // The dropdown offers ONLY installed rerank-capable models; with exactly one installed model
-        // and no persisted choice yet, that model becomes the one-time initial selection. A persisted
-        // selection that is no longer installed stays visible (marked) — it is never silently replaced;
-        // the productive session start validates it and fails visibly when it is unusable.
-        List<String> installedRerankModels = rerankerCatalog == null
-                ? java.util.Collections.<String>emptyList()
-                : rerankerCatalog.listInstalledRerankModels();
-        ResearchRuntimeSettings.migrateInitialRerankerSelection(store, installedRerankModels);
-        for (String model : installedRerankModels) {
-            rerankerModel.addItem(model);
-        }
 
         JPanel form = new JPanel();
         form.setLayout(new BoxLayout(form, BoxLayout.Y_AXIS));
@@ -89,7 +72,6 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         form.add(pathRow("Java for browser (≥21):", sidecarJava));
         form.add(pathRow("Browser sidecar jar:", sidecarJar));
         form.add(row("Browser channel:", browserChannel));
-        form.add(row("Reranker model:", rerankerModel));
         form.add(row("", headless));
         // Transparency does not depend on a visible browser window: the chat shows the visited sites.
         JLabel headlessHint = new JLabel(com.aresstack.askai.research.agent.ResearchPlaybook.headlessHint());
@@ -147,12 +129,11 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         // Saving from the panel always persists the automatic mode (this also migrates stores where an
         // old default once wrote FAKE); the demo backend is chosen by the FACTORY only when the
         // requirements are not met.
-        Object selectedReranker = rerankerModel.getSelectedItem();
         return new ResearchRuntimeSettings(ResearchBackendMode.ACP,
                 agentJavaOverride, agentJar.getText(), sidecarJava.getText(), sidecarJar.getText(),
                 String.valueOf(browserChannel.getSelectedItem()), headless.isSelected(),
                 searchUrl.getText(), allowPrivate.isSelected(),
-                selectedReranker == null ? "" : String.valueOf(selectedReranker));
+                carriedRerankerModel);
     }
 
     /** The live projection of what NEW sessions will do — computed, never chosen. */
@@ -170,20 +151,8 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         sidecarJava.setText(settings.getSidecarJavaExecutable());
         sidecarJar.setText(settings.getSidecarJar());
         browserChannel.setSelectedItem(settings.getBrowserChannel());
-        String persistedReranker = settings.getSelectedRerankerModel();
-        if (persistedReranker.isEmpty()) {
-            // No persisted choice: the dropdown shows NO selection — never a silent first item.
-            rerankerModel.setSelectedIndex(-1);
-        } else {
-            boolean known = false;
-            for (int i = 0; i < rerankerModel.getItemCount(); i++) {
-                known = known || persistedReranker.equals(rerankerModel.getItemAt(i));
-            }
-            if (!known) {
-                rerankerModel.addItem(persistedReranker); // persisted truth stays visible, never replaced
-            }
-            rerankerModel.setSelectedItem(persistedReranker);
-        }
+        // Carry any previously persisted reranker selection through invisibly (chosen centrally now).
+        carriedRerankerModel = settings.getSelectedRerankerModel();
         headless.setSelected(settings.isHeadless());
         // Visible, editable default so the productive mode is saveable without typing — the loop
         // always starts with web_search, so an empty provider would only produce a validation error.
@@ -199,10 +168,6 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         List<String> problems = ResearchRuntimeDefaults.complete(settings).validateProductive();
         refreshBackendStatus();
         StringBuilder sb = new StringBuilder("Saved.\n");
-        if (settings.getSelectedRerankerModel().isEmpty()) {
-            sb.append("No reranker model is selected — the productive session start will fail "
-                    + "visibly until an installed rerank-capable model is chosen here.\n");
-        }
         if (problems.isEmpty()) {
             sb.append("New Research sessions run PRODUCTIVE (real browser research).\n");
         } else {

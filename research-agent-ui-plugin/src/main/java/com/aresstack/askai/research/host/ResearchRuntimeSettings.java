@@ -46,7 +46,12 @@ public final class ResearchRuntimeSettings {
     private final boolean headless;
     private final String searchUrlTemplate;
     private final boolean allowPrivateNetworks;
-    /** The EXPLICITLY selected virtual reranker model id ("" = nothing selected yet). */
+    /**
+     * A LEGACY reranker selection carried transparently ("" = none). The reranker is now chosen centrally
+     * in AskAI (Configuration → AI models); this value is no longer edited here — it only carries a
+     * previously persisted selection through to the host, which migrates it into the central store on first
+     * use. See {@code LocalRerankerConfigurationSnapshotProvider}.
+     */
     private final String selectedRerankerModel;
 
     public ResearchRuntimeSettings(ResearchBackendMode mode, String agentJavaExecutable, String agentJar,
@@ -111,23 +116,6 @@ public final class ResearchRuntimeSettings {
                 store.get(KEY_SEARCH_URL, ""),
                 store.getBoolean(KEY_ALLOW_PRIVATE, false),
                 store.get(KEY_RERANKER_MODEL, ""));
-    }
-
-    /**
-     * ONE-TIME initial selection/migration: when NO reranker selection was ever persisted and exactly
-     * ONE installed rerank model exists, that model becomes the persisted selection. Afterwards the
-     * persisted selection is the single truth — it is never silently replaced, even when models are
-     * installed or removed later (an unusable selection fails the productive session start visibly).
-     */
-    public static void migrateInitialRerankerSelection(WorkspaceStateStore store,
-                                                       List<String> installedRerankModels) {
-        if (store == null || installedRerankModels == null || installedRerankModels.size() != 1) {
-            return;
-        }
-        String persisted = store.get(KEY_RERANKER_MODEL, "");
-        if (persisted == null || persisted.trim().isEmpty()) {
-            store.put(KEY_RERANKER_MODEL, installedRerankModels.get(0));
-        }
     }
 
     public void save(WorkspaceStateStore store) {

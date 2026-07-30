@@ -34,8 +34,7 @@ public final class ResearchRuntimeSettingsViewContribution implements ArtifactVi
             return new JLabel("Runtime settings are only available for research sessions.");
         }
         ResearchAgentSession research = (ResearchAgentSession) session;
-        return new ResearchRuntimeSettingsPanel(research.getHostStateStore(),
-                research.getHostService(
-                        com.aresstack.askai.agent.model.reranker.RerankerModelCatalog.class));
+        // The AI-model selection (reranker/embeddings) lives centrally in AskAI, not here.
+        return new ResearchRuntimeSettingsPanel(research.getHostStateStore());
     }
 }

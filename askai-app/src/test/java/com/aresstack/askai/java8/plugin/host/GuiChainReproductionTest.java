@@ -51,8 +51,13 @@ public class GuiChainReproductionTest {
         String localModelJar = System.getProperty("localmodel.sidecar.jar", "");
         assumeTrue("SKIPPED: local reranker runtime jar not staged",
                 !localModelJar.isEmpty() && new File(localModelJar).isFile());
-        assumeTrue("SKIPPED: no installed local reranker model",
-                new com.aresstack.askai.java8.localmodels.LocalModelRuntimeManager().hasInstalledModels());
+        // An installed rerank-capable model is required; its virtual id becomes the explicit selection
+        // (the reranker is chosen centrally now, so nothing is auto-picked on the plugin side).
+        List<String> installedRerankers =
+                new com.aresstack.askai.java8.localmodels.LocalRerankerModelCatalog(
+                        new com.aresstack.askai.java8.localmodels.LocalModelRuntimeManager())
+                        .listInstalledRerankModels();
+        assumeTrue("SKIPPED: no installed rerank-capable local model", !installedRerankers.isEmpty());
 
         // Distribution layout like runWithDevPlugins assembles it.
         File dist = Files.createTempDirectory("askai-guichain").toFile();
@@ -92,9 +97,10 @@ public class GuiChainReproductionTest {
         final List<String> messages = new CopyOnWriteArrayList<String>();
         final CountDownLatch greeted = new CountDownLatch(1);
         FakeHost host = new FakeHost(dist, services.asServiceMap(), problems, messages, greeted);
-        // The GUI settings: productive requirements met, Bing search, strict policy (like the screenshot).
+        // The GUI settings: productive requirements met, Bing search, strict policy (like the screenshot),
+        // with the explicit reranker selection carried through to the host snapshot provider.
         new ResearchRuntimeSettings(ResearchBackendMode.ACP, "", "", "", "", "chrome", true,
-                "https://www.bing.com/search?q={query}", false).save(host.store);
+                "https://www.bing.com/search?q={query}", false, installedRerankers.get(0)).save(host.store);
 
         // REGRESSION: the REAL GUI session id contains '#' (pluginId + "#session") and an empty
         // project id. The raw '#' in the MCP endpoint URL truncated the client URL at the fragment
