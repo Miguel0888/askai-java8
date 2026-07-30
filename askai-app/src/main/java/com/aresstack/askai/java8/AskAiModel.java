@@ -110,6 +110,21 @@ public final class AskAiModel {
     }
 
     /**
+     * Persists ONLY the centrally-managed reranker + embeddings model selections, leaving every other
+     * setting on disk untouched. Used by the central AI-models settings panel. Surgical load-modify-save
+     * so it never clobbers unrelated in-memory edits (and never touches the chat-window main model).
+     */
+    public void persistRerankerAndEmbeddingsModels(String rerankerModel, String embeddingsModel) {
+        String reranker = rerankerModel == null ? "" : rerankerModel.trim();
+        String embeddings = embeddingsModel == null ? "" : embeddingsModel.trim();
+        this.aiModelSelections = this.aiModelSelections
+                .withRerankerModel(reranker).withEmbeddingsModel(embeddings);
+        AppConfiguration current = configurationRepository.load();
+        configurationRepository.save(current.withAiModelSelections(current.getAiModelSelections()
+                .withRerankerModel(reranker).withEmbeddingsModel(embeddings)));
+    }
+
+    /**
      * Persists the buffered values, preserving every other setting (proxy, TLS trust, HTTP client,
      * HuggingFace token) exactly as currently stored.
      */

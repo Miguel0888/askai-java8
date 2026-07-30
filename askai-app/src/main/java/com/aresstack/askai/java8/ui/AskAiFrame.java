@@ -70,6 +70,7 @@ public final class AskAiFrame extends JFrame {
     private static final String ACTIONS_VIEW = "actions";
     private static final String INSTALL_VIEW = "install";
     private static final String CONNECTIONS_VIEW = "connections";
+    private static final String AI_MODELS_VIEW = "ai-models";
     private static final String NETWORK_VIEW = "network";
     private static final String ABOUT_VIEW = "about";
     private static final String AUDIO_PROCESSING_VIEW = "audio-processing";
@@ -344,6 +345,7 @@ public final class AskAiFrame extends JFrame {
     private JMenu createConfigurationMenu() {
         JMenu configurationMenu = new JMenu("Configuration");
         configurationMenu.add(createScreenItem("Connections", CONNECTIONS_VIEW));
+        configurationMenu.add(createScreenItem("AI models", AI_MODELS_VIEW));
         configurationMenu.add(createScreenItem("Network", NETWORK_VIEW));
         configurationMenu.add(createScreenItem("Audio processing", AUDIO_PROCESSING_VIEW));
         configurationMenu.add(createScreenItem("Plugins", PLUGINS_VIEW));
@@ -629,6 +631,13 @@ public final class AskAiFrame extends JFrame {
         this.installSearchPanel = modelSearchPanel;
         this.configPanel = new OllamaConfigPanel(model, ollamaService);
         contentPanel.add(configPanel, CONNECTIONS_VIEW);
+        // Central AI-model selection (reranker + embeddings) owned by AskAI for all plugins. The reranker
+        // catalog needs the local runtime; when there is none, the panel simply offers no rerank models.
+        contentPanel.add(new AiModelsPanel(model,
+                askAiService.localRuntimeManager() == null ? null
+                        : new com.aresstack.askai.java8.localmodels.LocalRerankerModelCatalog(
+                                askAiService.localRuntimeManager()),
+                (VirtualOllamaContainerService) ollamaService), AI_MODELS_VIEW);
         // Java 8 port: the extended proxy panel (WScript discovery, TLS trust, HTTP client, IPv6).
         contentPanel.add(new ProxyPanel(configurationRepository), NETWORK_VIEW);
         contentPanel.add(new OllamaAboutPanel(), ABOUT_VIEW);

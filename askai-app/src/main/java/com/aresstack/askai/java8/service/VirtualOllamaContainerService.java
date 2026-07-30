@@ -107,6 +107,30 @@ public final class VirtualOllamaContainerService implements OllamaService {
         }
     }
 
+    /**
+     * EMBEDDING-capable model names: a model appears only when its /api/show capabilities include
+     * "embedding". Unlike chat, embedding is a capability EVERY source must advertise, so the filter is
+     * applied to remote and local models alike; a model whose capabilities cannot be read is EXCLUDED.
+     * Synchronous — for callers already off the EDT (the central AI-models settings panel).
+     */
+    public List<String> loadEmbeddingModelNamesNow() throws Exception {
+        List<String> names = new ArrayList<String>();
+        for (OllamaModelInfo info : loadInstalledModelsNow()) {
+            if (modelCanEmbed(info.getDisplayName())) {
+                names.add(info.getDisplayName());
+            }
+        }
+        return names;
+    }
+
+    private boolean modelCanEmbed(String modelName) {
+        try {
+            return loadModelInfoNow(modelName).getCapabilities().contains("embedding");
+        } catch (Exception unknown) {
+            return false;
+        }
+    }
+
     @Override
     public Task listInstalledModels(final InstalledModelsListener listener) {
         return submit(new Runnable() {

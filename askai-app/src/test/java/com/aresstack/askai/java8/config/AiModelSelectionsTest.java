@@ -56,6 +56,17 @@ public class AiModelSelectionsTest {
     }
 
     @Test
+    public void rerankerAndEmbeddingsPersistComposesWithoutTouchingMainModel() {
+        // Mirrors AskAiModel.persistRerankerAndEmbeddingsModels: chaining the two withers must set both
+        // and leave the chat-window main model untouched.
+        AiModelSelections start = AiModelSelections.defaults().withMainModel("gpt-oss-20b");
+        AiModelSelections after = start.withRerankerModel("rr").withEmbeddingsModel("emb");
+        assertEquals("gpt-oss-20b", after.getMainModel());
+        assertEquals("rr", after.getRerankerModel());
+        assertEquals("emb", after.getEmbeddingsModel());
+    }
+
+    @Test
     public void appConfigurationCarriesSelectionsAcrossOtherWithers() {
         AiModelSelections models = new AiModelSelections("main-x", "rerank-x", "embed-x");
         AppConfiguration configuration = AppConfiguration.defaults()
