@@ -10,10 +10,10 @@ import java.util.Map;
  * {@code Map}/{@code List}/{@code String}/{@code Double}/{@code Boolean}/{@code null} and is strict:
  * malformed input throws {@link JsonParseException} rather than guessing.
  */
-final class MiniJson {
+public final class MiniJson {
 
-    static final class JsonParseException extends RuntimeException {
-        JsonParseException(String message) {
+    public static final class JsonParseException extends RuntimeException {
+        public JsonParseException(String message) {
             super(message);
         }
     }
@@ -25,7 +25,7 @@ final class MiniJson {
         this.src = src;
     }
 
-    static Object parse(String text) {
+    public static Object parse(String text) {
         if (text == null) {
             throw new JsonParseException("null input");
         }

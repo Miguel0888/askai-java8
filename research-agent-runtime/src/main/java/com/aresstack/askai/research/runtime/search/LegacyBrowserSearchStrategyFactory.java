@@ -5,6 +5,7 @@ import com.aresstack.askai.browser.search.analysis.SearchLayoutRepairCoordinator
 import com.aresstack.askai.browser.search.analysis.SleepingRetryDelay;
 import com.aresstack.askai.browser.search.analysis.UnavailableStructuredInferencePort;
 import com.aresstack.askai.browser.search.inference.InferenceBudgetGate;
+import com.aresstack.askai.browser.search.inference.StructuredInferencePort;
 import com.aresstack.askai.research.runtime.loop.McpLayoutRepairClient;
 import com.aresstack.askai.research.runtime.loop.ToolInvoker;
 
@@ -26,8 +27,19 @@ public final class LegacyBrowserSearchStrategyFactory {
 
     public static SearchStrategy createDefault(ToolInvoker browser, LegacyBrowserSearchSettings settings,
                                                LongSupplier nowEpochMillis) {
+        // No inference port wired: a low-confidence SERP stays honestly unresolvable (never fabricated).
+        return createDefault(browser, settings, nowEpochMillis, new UnavailableStructuredInferencePort());
+    }
+
+    /**
+     * As {@link #createDefault(ToolInvoker, LegacyBrowserSearchSettings, LongSupplier)} but with an explicit
+     * structured-inference port for the model-backed SERP layout repair. AskAI publishes the port's endpoint
+     * (the central main model); when none is available the caller passes {@code UnavailableStructuredInferencePort}.
+     */
+    public static SearchStrategy createDefault(ToolInvoker browser, LegacyBrowserSearchSettings settings,
+                                               LongSupplier nowEpochMillis, StructuredInferencePort inferencePort) {
         McpLayoutRepairClient repairClient = new McpLayoutRepairClient(browser,
-                new SearchLayoutRepairCoordinator(settings, new UnavailableStructuredInferencePort(),
+                new SearchLayoutRepairCoordinator(settings, inferencePort,
                         InferenceBudgetGate.ALLOW_ALL, new SleepingRetryDelay(), null));
         return new LegacyBrowserSearchStrategy(repairClient, nowEpochMillis);
     }

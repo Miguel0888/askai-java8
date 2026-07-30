@@ -56,6 +56,9 @@ public final class ProductiveResearchBackendFactory {
     private final long browserSearchRevision;
     /** Publishes the MANDATORY per-session reranker snapshot; required for every productive session. */
     private final RerankerConfigurationSnapshotProvider rerankerSnapshots;
+    /** OPTIONAL: publishes the per-session structured-inference descriptor (central main model), or null. */
+    private final com.aresstack.askai.agent.model.inference.InferenceConfigurationSnapshotProvider
+            inferenceSnapshots;
 
     public ProductiveResearchBackendFactory(McpServerRegistry registry, McpToolClientFactory toolClients,
                                             AcpAgentConnector connector, ResearchRuntimeConfig config,
@@ -70,6 +73,17 @@ public final class ProductiveResearchBackendFactory {
                                             long generationId, Map<String, String> browserSearchValues,
                                             long browserSearchRevision,
                                             RerankerConfigurationSnapshotProvider rerankerSnapshots) {
+        this(registry, toolClients, connector, config, generationId, browserSearchValues,
+                browserSearchRevision, rerankerSnapshots, null);
+    }
+
+    public ProductiveResearchBackendFactory(McpServerRegistry registry, McpToolClientFactory toolClients,
+                                            AcpAgentConnector connector, ResearchRuntimeConfig config,
+                                            long generationId, Map<String, String> browserSearchValues,
+                                            long browserSearchRevision,
+                                            RerankerConfigurationSnapshotProvider rerankerSnapshots,
+                                            com.aresstack.askai.agent.model.inference
+                                                    .InferenceConfigurationSnapshotProvider inferenceSnapshots) {
         this.registry = registry;
         this.toolClients = toolClients;
         this.connector = connector;
@@ -78,6 +92,7 @@ public final class ProductiveResearchBackendFactory {
         this.browserSearchValues = browserSearchValues;
         this.browserSearchRevision = browserSearchRevision;
         this.rerankerSnapshots = rerankerSnapshots;
+        this.inferenceSnapshots = inferenceSnapshots;
     }
 
     /**
@@ -155,6 +170,19 @@ public final class ProductiveResearchBackendFactory {
         } catch (RerankerConfigurationException ex) {
             throw new IOException("The mandatory reranker could not be prepared for this session: "
                     + ex.getMessage(), ex);
+        }
+
+        // OPTIONAL structured-inference descriptor (the central main model for SERP layout repair). Unlike
+        // the reranker this NEVER fails the session: an absent provider or an unresolvable main model just
+        // means the agent keeps the honest unavailable-fallback (a low-confidence SERP stays unresolvable).
+        String inferenceSnapshotPath = "";
+        if (inferenceSnapshots != null) {
+            try {
+                inferenceSnapshotPath = inferenceSnapshots.prepareForSession(sessionKey, projectDir)
+                        .getAbsolutePath();
+            } catch (com.aresstack.askai.agent.model.inference.InferenceConfigurationException ex) {
+                inferenceSnapshotPath = "";
+            }
         }
 
         // 1. THE persistent project context (Commit 1 of the guided artifact flow): exactly one
@@ -249,7 +277,7 @@ public final class ProductiveResearchBackendFactory {
             // the sense of never reaching the BROWSER process; the agent needs them) plus the MANDATORY
             // reranker start snapshot: the agent MUST rerank before opening any page.
             Map<String, String> baseEnv = agentLaunchEnvironment(fullConfigFile.getAbsolutePath(),
-                    rerankerSnapshot.getAbsolutePath());
+                    rerankerSnapshot.getAbsolutePath(), inferenceSnapshotPath);
             AgentLaunchSpec spec = new AgentLaunchSpec(agentJava,
                     java.util.Arrays.asList("-jar", config.getAgentJar()), baseEnv);
             AcpResearchSessionBackend backend = null; // assigned after control.open()
@@ -303,10 +331,16 @@ public final class ProductiveResearchBackendFactory {
      * without spawning a process.
      */
     static Map<String, String> agentLaunchEnvironment(String searchConfigPath,
-                                                      String rerankerSnapshotPath) {
+                                                      String rerankerSnapshotPath,
+                                                      String inferenceSnapshotPath) {
         Map<String, String> baseEnv = new LinkedHashMap<String, String>();
         baseEnv.put("ASKAI_BROWSER_SEARCH_CONFIG", searchConfigPath);
         baseEnv.put("ASKAI_RERANKER_CONFIG", rerankerSnapshotPath);
+        // OPTIONAL: only handed over when an inference descriptor was published (else omitted entirely, so
+        // the agent's ResearchAgentEnvironment.hasInference() is false and it keeps the honest fallback).
+        if (inferenceSnapshotPath != null && !inferenceSnapshotPath.trim().isEmpty()) {
+            baseEnv.put("ASKAI_INFERENCE_CONFIG", inferenceSnapshotPath);
+        }
         return baseEnv;
     }
 

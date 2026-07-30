@@ -20,6 +20,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public final class ResearchLoop {
 
     private final ToolInvoker browser;
+    /** Kept so the productive structured-inference port can be woven into the default browser strategy. */
+    private final com.aresstack.askai.browser.search.LegacyBrowserSearchSettings searchSettings;
     private final ToolInvoker research;
     private final ResearchRunBudget budget;
     private final ResearchRunProgress progress = new ResearchRunProgress();
@@ -90,6 +92,26 @@ public final class ResearchLoop {
         }
     }
 
+    /**
+     * Weave the productive structured-inference port (the central AskAI main model, published by the host)
+     * into the DEFAULT browser SERP strategy so a low-confidence layout can be model-repaired instead of
+     * yielding zero candidates. Only meaningful on the browser path — a non-browser API-provider strategy
+     * (injected via {@link #setSearchStrategy}) does not use it. Passing {@code null} keeps the current
+     * strategy (the honest unavailable-fallback).
+     */
+    public void setStructuredInferencePort(
+            com.aresstack.askai.browser.search.inference.StructuredInferencePort port) {
+        if (port != null) {
+            this.searchStrategy = com.aresstack.askai.research.runtime.search
+                    .LegacyBrowserSearchStrategyFactory.createDefault(browser, searchSettings,
+                            new java.util.function.LongSupplier() {
+                                public long getAsLong() {
+                                    return clock.currentTimeMillis();
+                                }
+                            }, port);
+        }
+    }
+
     public ResearchLoop(ToolInvoker browser, ToolInvoker research, ResearchRunBudget budget,
                         ResearchLoopClock clock, ResearchLoopListener listener, AtomicBoolean cancelled) {
         this(browser, research, budget, clock, listener, cancelled,
@@ -105,6 +127,7 @@ public final class ResearchLoop {
         this.clock = clock;
         this.listener = listener;
         this.cancelled = cancelled;
+        this.searchSettings = searchSettings;
         this.challengeProbeIntervalMillis = searchSettings.captcha.challengeProbeIntervalMillis;
         this.startedAt = clock.currentTimeMillis();
         // Default seam: the unchanged browser SERP path. The factory owns the layout-repair client so the

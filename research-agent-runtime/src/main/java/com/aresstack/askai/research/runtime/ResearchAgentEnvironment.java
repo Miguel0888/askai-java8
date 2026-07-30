@@ -22,11 +22,13 @@ final class ResearchAgentEnvironment {
     final String rerankerConfigPath;
     /** Path of the initial-search strategy snapshot (legacy browser vs. API provider), or null. */
     final String searchStrategyConfigPath;
+    /** Path of the structured-inference descriptor (the central main model for SERP repair), or null. */
+    final String inferenceConfigPath;
 
     private ResearchAgentEnvironment(String sessionId, String projectId, String researchUrl,
                                      String researchTransport, String browserUrl, String browserTransport,
                                      String browserSearchConfigPath, String rerankerConfigPath,
-                                     String searchStrategyConfigPath) {
+                                     String searchStrategyConfigPath, String inferenceConfigPath) {
         this.sessionId = sessionId;
         this.projectId = projectId;
         this.researchUrl = researchUrl;
@@ -36,6 +38,7 @@ final class ResearchAgentEnvironment {
         this.browserSearchConfigPath = browserSearchConfigPath;
         this.rerankerConfigPath = rerankerConfigPath;
         this.searchStrategyConfigPath = searchStrategyConfigPath;
+        this.inferenceConfigPath = inferenceConfigPath;
     }
 
     static ResearchAgentEnvironment from(Map<String, String> env) {
@@ -50,7 +53,8 @@ final class ResearchAgentEnvironment {
                 browserUrl == null ? null : orDefault(env.get("ASKAI_BROWSER_MCP_TRANSPORT"), "streamable"),
                 blankToNull(env.get("ASKAI_BROWSER_SEARCH_CONFIG")),
                 blankToNull(env.get("ASKAI_RERANKER_CONFIG")),
-                blankToNull(env.get("ASKAI_SEARCH_STRATEGY_CONFIG")));
+                blankToNull(env.get("ASKAI_SEARCH_STRATEGY_CONFIG")),
+                blankToNull(env.get("ASKAI_INFERENCE_CONFIG")));
     }
 
     boolean hasSearchStrategyConfig() {
@@ -59,6 +63,10 @@ final class ResearchAgentEnvironment {
 
     boolean hasReranker() {
         return rerankerConfigPath != null;
+    }
+
+    boolean hasInference() {
+        return inferenceConfigPath != null;
     }
 
     boolean hasBrowser() {

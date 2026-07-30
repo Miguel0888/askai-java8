@@ -24,10 +24,20 @@ public class MandatoryRerankerWiringTest {
     @Test
     public void agentLaunchEnvironmentCarriesBothConfigs() {
         Map<String, String> env = ProductiveResearchBackendFactory.agentLaunchEnvironment(
-                "/tmp/search.json", "/tmp/reranker.json");
+                "/tmp/search.json", "/tmp/reranker.json", "/tmp/inference.json");
         assertEquals("/tmp/search.json", env.get("ASKAI_BROWSER_SEARCH_CONFIG"));
         assertEquals("the mandatory reranker snapshot reaches the agent launch environment",
                 "/tmp/reranker.json", env.get("ASKAI_RERANKER_CONFIG"));
+        assertEquals("the optional inference descriptor reaches the agent launch environment",
+                "/tmp/inference.json", env.get("ASKAI_INFERENCE_CONFIG"));
+    }
+
+    @Test
+    public void agentLaunchEnvironmentOmitsInferenceWhenAbsent() {
+        Map<String, String> env = ProductiveResearchBackendFactory.agentLaunchEnvironment(
+                "/tmp/search.json", "/tmp/reranker.json", "");
+        assertTrue("no inference descriptor → the key is omitted entirely (honest fallback)",
+                !env.containsKey("ASKAI_INFERENCE_CONFIG"));
     }
 
     @Test

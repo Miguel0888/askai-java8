@@ -109,6 +109,12 @@ public final class ResearchAgentSessionFactory implements AgentSessionFactory {
         // The reranker model is chosen centrally in AskAI (Configuration → AI models); the host snapshot
         // provider resolves it. Any legacy plugin-side selection still flows through settings.toRuntimeConfig()
         // as a transitional fallback and is migrated into the central store on first use.
+        // OPTIONAL structured-inference provider (the central main model for SERP layout repair): absent →
+        // the agent keeps the honest unavailable-fallback, so it is looked up leniently (never required).
+        com.aresstack.askai.agent.model.inference.InferenceConfigurationSnapshotProvider inferenceSnapshots =
+                hostContext.getService(
+                        com.aresstack.askai.agent.model.inference
+                                .InferenceConfigurationSnapshotProvider.class);
 
         ProductiveResearchBackendFactory factory = new ProductiveResearchBackendFactory(
                 registry, toolClients, connector, settings.toRuntimeConfig(), generationId,
@@ -116,7 +122,7 @@ public final class ResearchAgentSessionFactory implements AgentSessionFactory {
                         .loadValues(hostContext.getStateStore()),
                 com.aresstack.askai.research.host.LegacyBrowserSearchSettingsStore
                         .revision(hostContext.getStateStore()),
-                rerankerSnapshots);
+                rerankerSnapshots, inferenceSnapshots);
         final ProductiveResearchSessionResources resources;
         try {
             resources = factory.createSession(request.getSessionId(),

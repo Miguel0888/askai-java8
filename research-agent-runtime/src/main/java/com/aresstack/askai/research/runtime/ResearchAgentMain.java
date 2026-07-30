@@ -47,6 +47,12 @@ public final class ResearchAgentMain {
      * browser strategy" — the unchanged browser SERP path.
      */
     private com.aresstack.askai.research.runtime.search.SearchStrategy searchStrategy;
+    /**
+     * The productive structured-inference port for model-backed SERP layout repair, built ONCE at
+     * session/new from the host-published inference descriptor (the central main model). OPTIONAL: when no
+     * valid descriptor is present it is the honest {@code UnavailableStructuredInferencePort} fallback.
+     */
+    private com.aresstack.askai.browser.search.inference.StructuredInferencePort inferencePort;
 
     /** Outer bound the adapter waits on a provider future; beyond the client's own request timeout. */
     private static final long SEARCH_PROVIDER_TIMEOUT_MILLIS = 90_000L;
@@ -111,6 +117,8 @@ public final class ResearchAgentMain {
             this.reranker = buildMandatoryReranker();
             // Fix the initial-search strategy for the whole session here (null → unchanged browser path).
             this.searchStrategy = buildSearchStrategy();
+            // OPTIONAL model-backed SERP layout repair over the central main model (honest fallback else).
+            this.inferencePort = buildInferencePort();
         }
         return new AcpSchema.NewSessionResponse("research-acp-" + environment.sessionId, null, null);
     }
@@ -158,6 +166,33 @@ public final class ResearchAgentMain {
         System.err.println("[research-agent] reranker ready: " + descriptor.modelName);
         return new com.aresstack.askai.research.runtime.rerank.SearchResultReranker(client, policy,
                 descriptor.modelName, descriptor.scoreSemantics);
+    }
+
+    /**
+     * Build the OPTIONAL structured-inference port from the host-published descriptor
+     * ({@code ASKAI_INFERENCE_CONFIG}, the central main model). Unlike the mandatory reranker this NEVER
+     * fails the session: an absent or invalid descriptor keeps the honest
+     * {@code UnavailableStructuredInferencePort}, so a low-confidence SERP simply stays unresolvable rather
+     * than fabricating results.
+     */
+    private com.aresstack.askai.browser.search.inference.StructuredInferencePort buildInferencePort() {
+        if (!environment.hasInference()) {
+            System.err.println("[research-agent] no inference descriptor — SERP layout repair unavailable");
+            return new com.aresstack.askai.browser.search.analysis.UnavailableStructuredInferencePort();
+        }
+        try {
+            com.aresstack.askai.agent.model.inference.InferenceConfigurationDocument document =
+                    com.aresstack.askai.research.runtime.inference.InferenceConfigurationLoader
+                            .load(environment.inferenceConfigPath);
+            System.err.println("[research-agent] inference ready: " + document.getModel());
+            return new com.aresstack.askai.research.runtime.inference.HttpStructuredInferenceClient(
+                    document.descriptor);
+        } catch (java.io.IOException ex) {
+            System.err.println("[research-agent] inference descriptor unusable ("
+                    + environment.inferenceConfigPath + "): " + ex.getMessage()
+                    + " — SERP layout repair stays unavailable");
+            return new com.aresstack.askai.browser.search.analysis.UnavailableStructuredInferencePort();
+        }
     }
 
     /**
@@ -373,8 +408,12 @@ public final class ResearchAgentMain {
                 loop.setReranker(reranker);
             }
             // Inject the session's chosen initial-search strategy (null → keep the default browser path).
+            // On the API-provider path inference is irrelevant; on the browser path weave the productive
+            // structured-inference port into the default SERP strategy for model-backed layout repair.
             if (searchStrategy != null) {
                 loop.setSearchStrategy(searchStrategy);
+            } else if (inferencePort != null) {
+                loop.setStructuredInferencePort(inferencePort);
             }
             // Continuation semantics: a later run of the same session never re-navigates target pages.
             loop.excludeVisited(visitedAcrossRuns);

@@ -9,9 +9,11 @@ import com.aresstack.askai.mcp.api.McpToolClientFactory;
 import com.aresstack.askai.mcp.api.McpToolContribution;
 import com.aresstack.askai.mcp.solon.SolonMcpServerRuntime;
 import com.aresstack.askai.mcp.solon.SolonMcpToolClientFactory;
+import com.aresstack.askai.agent.model.inference.InferenceConfigurationSnapshotProvider;
 import com.aresstack.askai.agent.model.reranker.RerankerConfigurationSnapshotProvider;
 import com.aresstack.askai.agent.model.reranker.RerankerModelCatalog;
 import com.aresstack.askai.java8.config.AppConfigurationRepository;
+import com.aresstack.askai.java8.localmodels.LocalInferenceConfigurationSnapshotProvider;
 import com.aresstack.askai.java8.localmodels.LocalModelRuntimeManager;
 import com.aresstack.askai.java8.localmodels.LocalRerankerConfigurationSnapshotProvider;
 import com.aresstack.askai.java8.localmodels.LocalRerankerModelCatalog;
@@ -43,6 +45,8 @@ public final class AgentRuntimeServices {
     private final RerankerConfigurationSnapshotProvider rerankerSnapshots;
     /** Lists the installed rerank-capable models for the EXPLICIT selection in the settings UI. */
     private final RerankerModelCatalog rerankerCatalog;
+    /** Publishes the per-session structured-inference descriptor from the central main model (optional). */
+    private final InferenceConfigurationSnapshotProvider inferenceSnapshots;
 
     /** @deprecated retained only for callers without the local model runtime (no reranker service). */
     @Deprecated
@@ -68,6 +72,10 @@ public final class AgentRuntimeServices {
                 : new LocalRerankerConfigurationSnapshotProvider(localModelRuntime, centralConfig);
         this.rerankerCatalog = localModelRuntime == null ? null
                 : new LocalRerankerModelCatalog(localModelRuntime);
+        // Inference uses the central main model, which may live on the LOCAL sidecar or a REMOTE Ollama —
+        // so it is published whenever there is a central config, even without a local runtime.
+        this.inferenceSnapshots = centralConfig == null ? null
+                : new LocalInferenceConfigurationSnapshotProvider(localModelRuntime, centralConfig);
     }
 
     /** The service map for DefaultAgentHostContext (neutral interface types as keys). */
@@ -81,6 +89,9 @@ public final class AgentRuntimeServices {
         }
         if (rerankerCatalog != null) {
             services.put(RerankerModelCatalog.class, rerankerCatalog);
+        }
+        if (inferenceSnapshots != null) {
+            services.put(InferenceConfigurationSnapshotProvider.class, inferenceSnapshots);
         }
         return services;
     }
