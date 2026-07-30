@@ -156,6 +156,22 @@ public final class AsyncSearchProviderRegistryTest {
     }
 
     @Test
+    public void reloadProvidersReportsTypedOutcome() {
+        StubFactory factory = new StubFactory()
+                .enqueue(generation(new RecordingProvider(SearchProviderId.BRAVE_SEARCH_API)))
+                .enqueue(generation(new RecordingProvider(SearchProviderId.BRAVE_SEARCH_API)))
+                .enqueueFailure();
+        AsyncSearchProviderRegistry registry = new AsyncSearchProviderRegistry(factory);
+        assertEquals(AsyncSearchProviderRegistry.ProviderReloadOutcome.RELOADED,
+                registry.reloadProviders());
+        assertEquals(AsyncSearchProviderRegistry.ProviderReloadOutcome.RELOAD_FAILED_LAST_GOOD_RETAINED,
+                registry.reloadProviders());
+        // The last-good generation is still usable after a failed reload.
+        registry.requireImplementedProvider(SearchProviderId.BRAVE_SEARCH_API).search(request());
+        registry.close();
+    }
+
+    @Test
     public void doubleCloseIsHarmless() {
         RecordingGeneration gen = generation(new RecordingProvider(SearchProviderId.BRAVE_SEARCH_API));
         AsyncSearchProviderRegistry registry =

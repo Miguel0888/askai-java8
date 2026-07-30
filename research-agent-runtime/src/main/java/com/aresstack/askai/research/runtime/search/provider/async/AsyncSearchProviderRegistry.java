@@ -86,6 +86,29 @@ public final class AsyncSearchProviderRegistry implements SearchProviderRegistry
         return descriptors;
     }
 
+    /** Typed outcome of a best-effort provider reload (the host maps the no-agent case separately). */
+    public enum ProviderReloadOutcome {
+        RELOADED,
+        RELOAD_FAILED_LAST_GOOD_RETAINED
+    }
+
+    /**
+     * Best-effort reload for the host's {@code provider/reload} command: attempts {@link #reload()} and
+     * reports {@link ProviderReloadOutcome#RELOADED} on success or
+     * {@link ProviderReloadOutcome#RELOAD_FAILED_LAST_GOOD_RETAINED} when a global build failure left the
+     * previous generation active. A closed registry is a hard lifecycle error and still throws.
+     */
+    public ProviderReloadOutcome reloadProviders() {
+        try {
+            reload();
+            return ProviderReloadOutcome.RELOADED;
+        } catch (AsyncSearchRegistryClosedException closed) {
+            throw closed;
+        } catch (RuntimeException buildFailure) {
+            return ProviderReloadOutcome.RELOAD_FAILED_LAST_GOOD_RETAINED;
+        }
+    }
+
     /**
      * Build a new generation and swap it in atomically. A global build failure propagates and leaves the
      * current generation active; the old generation is retired and closed after its last in-flight lease.
