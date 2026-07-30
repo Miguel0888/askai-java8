@@ -161,6 +161,10 @@ public final class ResearchLoop {
         // Seed: search, else nothing to do.
         List<String> frontier = new ArrayList<String>();
         ResearchStopReason seedStop = null;
+        // How the INITIAL search concluded — kept so an empty frontier caused by a technical search failure
+        // is reported as a technical problem, never as an honest "no relevant results".
+        com.aresstack.askai.research.runtime.search.InitialSearchStatus initialStatus =
+                com.aresstack.askai.research.runtime.search.InitialSearchStatus.NO_RESULTS;
         try {
             String query = join(terms);
             listener.progress(progress, ResearchRunActivity.searching(query));
@@ -176,6 +180,7 @@ public final class ResearchLoop {
                             return ResearchLoop.this.beforeToolCall() == null;
                         }
                     });
+            initialStatus = result.status;
             for (String providerHost : result.providerHosts) {
                 searchProviderSites.add(familyOf(providerHost));
             }
@@ -190,12 +195,22 @@ public final class ResearchLoop {
             progress.error();
         } catch (RuntimeException ex) {
             // A malformed prepare/apply payload (codec DecodeException) must not crash the loop —
-            // it is a tool-level failure; the run continues with an empty frontier.
+            // it is a tool-level failure; the run continues with an empty frontier (the error budget and
+            // NO_RELEVANT_PATHS handle it as before).
             listener.status("web search preparation failed: " + ex.getMessage());
             progress.error();
         }
         if (seedStop != null) {
             return seedStop;
+        }
+        // Honest reporting: an INITIAL search that failed technically (SERP layout could not be extracted —
+        // e.g. the layout-repair model was unavailable — or every engine was blocked with nothing
+        // extractable) produced no candidates and therefore an empty frontier. That is NOT the same as
+        // "no relevant results": surface it as a technical problem the user can retry.
+        if (frontier.isEmpty()
+                && initialStatus
+                        == com.aresstack.askai.research.runtime.search.InitialSearchStatus.TECHNICAL_PROBLEM) {
+            return ResearchStopReason.SEARCH_TECHNICAL_PROBLEM;
         }
 
         while (true) {

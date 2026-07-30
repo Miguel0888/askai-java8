@@ -379,6 +379,24 @@ public final class ResearchPlaybook {
                             + " Please open the research runtime settings and select an installed "
                             + "reranker model.";
         }
+        if ("SEARCH_TECHNICAL_PROBLEM".equals(stop)) {
+            return de()
+                    ? "**Die Recherche wurde durch ein technisches Problem unterbrochen.**\n\n"
+                            + "Die Suchergebnisse konnten nicht ausgewertet werden – die Suchmaschinen-Seite "
+                            + "war nicht auslesbar (z. B. war die Layout-Analyse auf ein lokales Modell "
+                            + "angewiesen, das nicht erreichbar war, oder alle Suchmaschinen waren durch ein "
+                            + "Captcha blockiert). Das ist kein „keine Treffer\": es waren möglicherweise "
+                            + "Treffer vorhanden, die nicht ausgewertet werden konnten. Bisher habe ich "
+                            + achieved(o) + " Ich empfehle, es erneut zu versuchen; falls das Problem bleibt, "
+                            + "prüfe, ob die lokale Modell-Runtime (bzw. Ollama) läuft."
+                    : "**The research was interrupted by a technical problem.**\n\n"
+                            + "The search results could not be evaluated — the search engine page was not "
+                            + "readable (for example the layout analysis relied on a local model that was "
+                            + "unreachable, or every engine was blocked by a captcha). This is not \"no "
+                            + "results\": there may have been hits that could not be evaluated. So far I "
+                            + "recorded " + achieved(o) + " I recommend trying again; if the problem persists, "
+                            + "check that the local model runtime (or Ollama) is running.";
+        }
         if ("NO_SEMANTIC_MATCHES".equals(stop)) {
             return de()
                     ? "**Kein Suchtreffer war deiner Frage ähnlich genug, um geöffnet zu werden.**\n\n"

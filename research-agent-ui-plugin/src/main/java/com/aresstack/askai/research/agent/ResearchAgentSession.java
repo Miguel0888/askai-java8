@@ -871,8 +871,8 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             ids.add("sources");
             ids.add("end");
         } else if ("RERANKER_UNAVAILABLE".equals(stop) || "RERANKER_TIMEOUT".equals(stop)
-                || "RERANKER_INVALID_RESPONSE".equals(stop)) {
-            // Technical reranker failures: retry or fix the configuration — NEVER "accept the
+                || "RERANKER_INVALID_RESPONSE".equals(stop) || "SEARCH_TECHNICAL_PROBLEM".equals(stop)) {
+            // Technical search/reranker failures: retry or fix the configuration — NEVER "accept the
             // limitation" (there is no research result to accept, only a failed component).
             ids.add("retry");
             ids.add("config");

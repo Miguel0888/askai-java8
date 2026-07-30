@@ -9,6 +9,13 @@ public enum ResearchStopReason {
     TIME_BUDGET_EXHAUSTED,
     ERROR_BUDGET_EXHAUSTED,
     NO_RELEVANT_PATHS,
+    /**
+     * The INITIAL web search failed technically and produced no usable candidates — the SERP layout could
+     * not be extracted (e.g. the model-backed layout repair was unavailable) or every engine was blocked
+     * with nothing extractable. A technical problem the user can retry, NOT an empty search (NO_RELEVANT_PATHS)
+     * and NOT the reranker's semantic verdict (NO_SEMANTIC_MATCHES).
+     */
+    SEARCH_TECHNICAL_PROBLEM,
     /** The reranker ran but found no candidate relevant enough to open (typed, NOT NO_RELEVANT_PATHS). */
     NO_SEMANTIC_MATCHES,
     /** The mandatory reranker endpoint could not be reached or answered with an error status. */

@@ -43,6 +43,29 @@ public final class LegacyBrowserSearchStrategy implements SearchStrategy {
                     }
                 });
         return new InitialSearchResult(result.candidates, result.providerHosts, result.challenges,
-                result.diagnostics);
+                result.diagnostics, statusOf(result.status));
+    }
+
+    /**
+     * Map the repair client's typed outcome onto the neutral search status. A layout that could not be
+     * extracted ({@code EXTRACTION_FAILED} — e.g. the model-backed repair was unavailable) or an engine
+     * blocked by a challenge with nothing extractable ({@code CHALLENGE_PENDING}) is a TECHNICAL_PROBLEM,
+     * NOT an empty search: reporting those as "no relevant results" hides a technical failure the user can
+     * retry. {@code NO_ORGANIC_RESULTS} is the only honest empty. Budget/cancel stops stay neutral — the
+     * loop's own gates report the accurate budget/cancel reason.
+     */
+    private static InitialSearchStatus statusOf(McpLayoutRepairClient.Outcome outcome) {
+        switch (outcome) {
+            case ORGANIC_RESULTS:
+                return InitialSearchStatus.RESULTS;
+            case EXTRACTION_FAILED:
+            case CHALLENGE_PENDING:
+                return InitialSearchStatus.TECHNICAL_PROBLEM;
+            case NO_ORGANIC_RESULTS:
+            case BUDGET_EXHAUSTED:
+            case CANCELLED:
+            default:
+                return InitialSearchStatus.NO_RESULTS;
+        }
     }
 }

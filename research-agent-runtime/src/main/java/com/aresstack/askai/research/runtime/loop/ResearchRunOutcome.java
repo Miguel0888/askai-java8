@@ -75,6 +75,10 @@ public final class ResearchRunOutcome {
                 break;
             case MCP_UNAVAILABLE:
             case ERROR_BUDGET_EXHAUSTED:
+            // A technical search failure (SERP unparseable / layout-repair model unavailable / all engines
+            // blocked): retrying is meaningful once the model is back or the challenge clears — never a
+            // budget stop and never an honest empty search.
+            case SEARCH_TECHNICAL_PROBLEM:
             // Transient technical reranker failures: retrying is meaningful (endpoint back, timeout
             // passed, runtime restarted) — but they are never presented as budget stops.
             case RERANKER_UNAVAILABLE:

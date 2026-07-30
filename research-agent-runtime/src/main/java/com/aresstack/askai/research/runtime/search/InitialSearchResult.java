@@ -28,14 +28,33 @@ public final class InitialSearchResult {
     public final List<SearchChallengeState> challenges;
     /** Human-readable provenance/diagnostics for the run log. */
     public final List<String> diagnostics;
+    /**
+     * Whether the search produced results, was genuinely empty, or failed technically — so the loop never
+     * reports a technical search failure (e.g. a SERP that could not be extracted) as "no relevant results".
+     */
+    public final InitialSearchStatus status;
 
+    /**
+     * Backward-compatible constructor: the status is inferred from the candidate list ({@code RESULTS} when
+     * candidates were produced, otherwise the honest {@code NO_RESULTS}). Strategies that can distinguish a
+     * technical failure from an empty search must use the {@link #InitialSearchResult(List, List, List, List,
+     * InitialSearchStatus) explicit-status constructor}.
+     */
     public InitialSearchResult(List<SearchResultCandidate> candidates, List<String> providerHosts,
                                List<SearchChallengeState> challenges, List<String> diagnostics) {
+        this(candidates, providerHosts, challenges, diagnostics,
+                candidates.isEmpty() ? InitialSearchStatus.NO_RESULTS : InitialSearchStatus.RESULTS);
+    }
+
+    public InitialSearchResult(List<SearchResultCandidate> candidates, List<String> providerHosts,
+                               List<SearchChallengeState> challenges, List<String> diagnostics,
+                               InitialSearchStatus status) {
         this.candidates = Collections.unmodifiableList(
                 new ArrayList<SearchResultCandidate>(candidates));
         this.providerHosts = Collections.unmodifiableList(new ArrayList<String>(providerHosts));
         this.challenges = Collections.unmodifiableList(new ArrayList<SearchChallengeState>(challenges));
         this.diagnostics = Collections.unmodifiableList(new ArrayList<String>(diagnostics));
+        this.status = status == null ? InitialSearchStatus.NO_RESULTS : status;
     }
 
     /** An empty result (no candidates, no transit, no challenges) with the given diagnostics. */
