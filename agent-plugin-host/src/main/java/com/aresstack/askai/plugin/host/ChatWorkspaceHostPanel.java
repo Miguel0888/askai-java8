@@ -66,6 +66,8 @@ public final class ChatWorkspaceHostPanel extends JPanel implements WorkspaceMod
     private String activeAgentId;
     /** The active agent's display name, restored synchronously and kept in sync with the catalog. */
     private String activeAgentLabel;
+    /** The active chat tab's id: mode/agent are held and persisted PER TAB, keyed by this. */
+    private String activeChatSessionId;
     private String activeWorkspaceAgentId;
     private boolean userSwitched;
     // New agent model (Commit 11): when set, Questing keeps the SHARED chat and routes to an agent session
@@ -221,11 +223,11 @@ public final class ChatWorkspaceHostPanel extends JPanel implements WorkspaceMod
         userSwitched = true;
         if (WorkspaceModeEntry.QUESTING_ID.equals(modeId)) {
             interactionMode = WorkspaceModeEntry.QUESTING_ID;
-            persist(STATE_INTERACTION_MODE, interactionMode);
+            persistMode("interactionMode", STATE_INTERACTION_MODE, interactionMode);
             activateQuesting();
         } else {
             interactionMode = WorkspaceModeEntry.YAPPING_ID;
-            persist(STATE_INTERACTION_MODE, interactionMode);
+            persistMode("interactionMode", STATE_INTERACTION_MODE, interactionMode);
             if (agentCoordinator != null) {
                 agentCoordinator.deactivateActive();
             }
@@ -240,7 +242,7 @@ public final class ChatWorkspaceHostPanel extends JPanel implements WorkspaceMod
     public void selectAgent(String agentId) {
         userSwitched = true;
         activeAgentId = agentId;
-        persist(STATE_QUESTING_AGENT, agentId);
+        persistMode("questingAgentId", STATE_QUESTING_AGENT, agentId);
         rememberAgentLabel(agentId);
         if (WorkspaceModeEntry.QUESTING_ID.equals(interactionMode)) {
             activateQuesting();
@@ -253,7 +255,7 @@ public final class ChatWorkspaceHostPanel extends JPanel implements WorkspaceMod
         String label = labelFor(agentId);
         if (label != null) {
             activeAgentLabel = label;
-            persist(STATE_QUESTING_AGENT_LABEL, label);
+            persistMode("questingAgentLabel", STATE_QUESTING_AGENT_LABEL, label);
         }
     }
 
@@ -350,7 +352,7 @@ public final class ChatWorkspaceHostPanel extends JPanel implements WorkspaceMod
         }
         if (!agentId.equals(activeAgentId)) {
             activeAgentId = agentId;
-            persist(STATE_QUESTING_AGENT, agentId);
+            persistMode("questingAgentId", STATE_QUESTING_AGENT, agentId);
         }
         rememberAgentLabel(agentId); // keep the persisted label in sync with the resolved agent
         // New model: keep the shared chat and route to the agent session. Only fall back to the standalone
@@ -403,7 +405,7 @@ public final class ChatWorkspaceHostPanel extends JPanel implements WorkspaceMod
 
     private void fallbackToYapping() {
         interactionMode = WorkspaceModeEntry.YAPPING_ID;
-        persist(STATE_INTERACTION_MODE, interactionMode);
+        persistMode("interactionMode", STATE_INTERACTION_MODE, interactionMode);
         showNormalChat();
         fireChange();
     }
@@ -494,6 +496,56 @@ public final class ChatWorkspaceHostPanel extends JPanel implements WorkspaceMod
     }
 
     // ------------------------------------------------------------------ helpers
+
+    /**
+     * Make {@code chatSessionId} the active tab: load ITS persisted workspace mode + agent (falling back to
+     * the global default for a fresh tab) and reflect/activate it. This makes the mode PER-TAB — switching
+     * tabs shows and runs that tab's own mode, and a fresh replacement tab starts its own research session
+     * with its own greeting.
+     */
+    public void setActiveChatSession(String chatSessionId) {
+        this.activeChatSessionId = chatSessionId;
+        interactionMode =
+                tabOrGlobal("interactionMode", STATE_INTERACTION_MODE, WorkspaceModeEntry.YAPPING_ID);
+        activeAgentId = tabOrGlobal("questingAgentId", STATE_QUESTING_AGENT, null);
+        activeAgentLabel = tabOrGlobal("questingAgentLabel", STATE_QUESTING_AGENT_LABEL, null);
+        userSwitched = false; // a tab activation, not a manual switch — the catalog may still (re)activate
+        if (WorkspaceModeEntry.QUESTING_ID.equals(interactionMode)) {
+            if (!agents.isEmpty()) {
+                activateQuesting(); // catalog ready → start THIS tab's research session now
+            } else {
+                fireChange(); // catalog not ready: the synchronous label shows; applyCatalog activates
+            }
+        } else {
+            if (agentCoordinator != null) {
+                agentCoordinator.deactivateActive();
+            }
+            deactivateActiveWorkspace();
+            showNormalChat();
+            fireChange();
+        }
+    }
+
+    private String tabOrGlobal(String shortName, String globalKey, String fallback) {
+        if (hostState == null) {
+            return fallback;
+        }
+        if (activeChatSessionId != null) {
+            String tabValue = hostState.get("chat." + activeChatSessionId + "." + shortName, null);
+            if (tabValue != null) {
+                return tabValue;
+            }
+        }
+        return hostState.get(globalKey, fallback);
+    }
+
+    /** Persist a mode value both TAB-LOCAL (the active tab) and as the GLOBAL default for new tabs. */
+    private void persistMode(String shortName, String globalKey, String value) {
+        if (activeChatSessionId != null) {
+            persist("chat." + activeChatSessionId + "." + shortName, value);
+        }
+        persist(globalKey, value);
+    }
 
     private void persist(String key, String value) {
         if (hostState != null) {

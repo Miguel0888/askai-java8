@@ -628,6 +628,17 @@ public final class AskAiFrame extends JFrame {
                 wireChatTabToAgentHost((OllamaChatPanel) session);
             }
         }
+        // The workspace mode (Yapping/Questing) + agent is held PER TAB: on every tab switch (and on the
+        // initial selection) the host loads and activates that tab's own mode. Closing the last research tab
+        // therefore opens a fresh tab whose default mode restarts the agent with a new greeting.
+        final com.aresstack.askai.plugin.host.ChatWorkspaceHostPanel hostForTabs = this.chatWorkspaceHost;
+        chatWorkspace.setActiveSessionListener(new ChatWorkspacePanel.ActiveSessionListener() {
+            public void activeSessionChanged(ChatSessionId id) {
+                if (hostForTabs != null) {
+                    hostForTabs.setActiveChatSession(id.toString());
+                }
+            }
+        });
         contentPanel.add(chatWorkspaceHost, CHAT_VIEW);
         // One-click "Use in chat" from an installed model card: switch to Chat and select the model.
         modelsPanel.setUseInChatHandler(new OllamaModelsPanel.UseInChatHandler() {

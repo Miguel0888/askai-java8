@@ -162,6 +162,56 @@ public class ChatWorkspacePanelTest {
         });
     }
 
+    @Test
+    public void theActiveSessionListenerFiresWithEachNewlySelectedTab() throws Exception {
+        onEdt(new Runnable() {
+            public void run() {
+                ChatWorkspacePanel workspace = build();
+                final List<ChatSessionId> notified = new ArrayList<ChatSessionId>();
+                workspace.setActiveSessionListener(new ChatWorkspacePanel.ActiveSessionListener() {
+                    public void activeSessionChanged(ChatSessionId id) {
+                        notified.add(id);
+                    }
+                });
+                // Registering fires immediately with the current selection.
+                assertEquals(1, notified.size());
+                ChatSessionId first = notified.get(0);
+
+                ChatSessionComponent second = workspace.openNewChat(); // selecting it fires again
+                assertEquals(second.getSessionId(), notified.get(notified.size() - 1));
+
+                JTabbedPane tabs = workspace.tabsForTest();
+                tabs.setSelectedIndex(0); // back to the first tab
+                assertEquals(first, notified.get(notified.size() - 1));
+            }
+        });
+    }
+
+    @Test
+    public void closingTheLastTabNotifiesTheFreshReplacementId() throws Exception {
+        onEdt(new Runnable() {
+            public void run() {
+                ChatWorkspacePanel workspace = build();
+                final List<ChatSessionId> notified = new ArrayList<ChatSessionId>();
+                workspace.setActiveSessionListener(new ChatWorkspacePanel.ActiveSessionListener() {
+                    public void activeSessionChanged(ChatSessionId id) {
+                        notified.add(id);
+                    }
+                });
+                ChatSessionId original = workspace.openSessionIds().get(0);
+
+                for (ChatSessionId id : workspace.openSessionIds()) {
+                    workspace.closeSession(id); // closing the last one opens a fresh replacement
+                }
+
+                ChatSessionId replacement = workspace.openSessionIds().get(0);
+                assertNotEquals("the replacement tab has a new id", original, replacement);
+                assertEquals("the listener was told about the fresh tab",
+                        replacement, notified.get(notified.size() - 1));
+            }
+        });
+    }
+
     // --- helpers ---
 
     private static int disabledTabs(JTabbedPane tabs) {

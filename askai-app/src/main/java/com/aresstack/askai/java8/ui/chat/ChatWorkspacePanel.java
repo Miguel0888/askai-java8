@@ -32,10 +32,17 @@ public final class ChatWorkspacePanel extends JPanel {
         ChatSessionComponent create(ChatSessionId id);
     }
 
+    /** Notified when the active chat tab changes (switch, open or close), with the newly active id. */
+    public interface ActiveSessionListener {
+        void activeSessionChanged(ChatSessionId id);
+    }
+
     private final JTabbedPane tabs = new JTabbedPane();
     private final ChatSessionFactory factory;
     private final Map<ChatSessionId, ChatSessionComponent> sessionsById =
             new LinkedHashMap<ChatSessionId, ChatSessionComponent>();
+    private ActiveSessionListener activeSessionListener;
+    private ChatSessionId lastNotifiedSessionId;
 
     public ChatWorkspacePanel(ChatSessionFactory factory) {
         this(factory, null);
@@ -57,6 +64,7 @@ public final class ChatWorkspacePanel extends JPanel {
         tabs.addChangeListener(new ChangeListener() {
             public void stateChanged(ChangeEvent event) {
                 keepSelectionOffPlusTab();
+                fireActiveSessionChanged();
             }
         });
         if (restoreIds != null && !restoreIds.isEmpty()) {
@@ -86,6 +94,7 @@ public final class ChatWorkspacePanel extends JPanel {
         tabs.setTabComponentAt(insertIndex, createChatTabHeader(id));
         sessionsById.put(id, session);
         tabs.setSelectedIndex(insertIndex);
+        fireActiveSessionChanged(); // authoritative fire once the map + selection are consistent
         return session;
     }
 
@@ -98,6 +107,7 @@ public final class ChatWorkspacePanel extends JPanel {
         tabs.setTabComponentAt(insertIndex, createChatTabHeader(id));
         sessionsById.put(id, session);
         tabs.setSelectedIndex(insertIndex);
+        fireActiveSessionChanged(); // authoritative fire once the map + selection are consistent
         return session;
     }
 
@@ -116,10 +126,33 @@ public final class ChatWorkspacePanel extends JPanel {
             }
         }
         if (sessionsById.isEmpty()) {
-            openNewChat();
+            openNewChat(); // fires the active-session change for the fresh replacement itself
         } else {
             keepSelectionOffPlusTab();
+            fireActiveSessionChanged(); // the surviving tab that inherited the selection
         }
+    }
+
+    /**
+     * Register the active-session listener; fires immediately with the current selection so the host can
+     * restore that tab's mode/agent synchronously. Switching, opening or closing tabs re-fires it.
+     */
+    public void setActiveSessionListener(ActiveSessionListener listener) {
+        this.activeSessionListener = listener;
+        fireActiveSessionChanged();
+    }
+
+    private void fireActiveSessionChanged() {
+        if (activeSessionListener == null) {
+            return;
+        }
+        ChatSessionComponent active = activeSession();
+        ChatSessionId id = active == null ? null : active.getSessionId();
+        if (id == null || id.equals(lastNotifiedSessionId)) {
+            return;
+        }
+        lastNotifiedSessionId = id;
+        activeSessionListener.activeSessionChanged(id);
     }
 
     /** @return the currently selected chat session (never the plus tab), or null if none. */
