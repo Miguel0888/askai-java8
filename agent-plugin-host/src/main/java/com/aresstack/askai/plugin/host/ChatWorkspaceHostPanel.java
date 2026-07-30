@@ -37,6 +37,9 @@ public final class ChatWorkspaceHostPanel extends JPanel implements WorkspaceMod
 
     private static final String STATE_INTERACTION_MODE = "chat.interactionMode";
     private static final String STATE_QUESTING_AGENT = "chat.questingAgentId";
+    // The active agent's DISPLAY NAME, persisted alongside its id so a restart can show it SYNCHRONOUSLY
+    // (before the async plugin catalog loads) — no generic "Questing" flicker followed by a later switch.
+    private static final String STATE_QUESTING_AGENT_LABEL = "chat.questingAgentLabel";
     private static final String STATE_ARTIFACT_VISIBLE = "chat.artifactArea.visible";
     private static final String STATE_ARTIFACT_WIDTH = "chat.artifactArea.width";
     private static final int DEFAULT_ARTIFACT_WIDTH = 380;
@@ -61,6 +64,8 @@ public final class ChatWorkspaceHostPanel extends JPanel implements WorkspaceMod
     private List<WorkspaceModeEntry> agents = new ArrayList<WorkspaceModeEntry>();
     private String interactionMode;
     private String activeAgentId;
+    /** The active agent's display name, restored synchronously and kept in sync with the catalog. */
+    private String activeAgentLabel;
     private String activeWorkspaceAgentId;
     private boolean userSwitched;
     // New agent model (Commit 11): when set, Questing keeps the SHARED chat and routes to an agent session
@@ -87,6 +92,8 @@ public final class ChatWorkspaceHostPanel extends JPanel implements WorkspaceMod
         this.interactionMode = hostState == null ? WorkspaceModeEntry.YAPPING_ID
                 : hostState.get(STATE_INTERACTION_MODE, WorkspaceModeEntry.YAPPING_ID);
         this.activeAgentId = hostState == null ? null : hostState.get(STATE_QUESTING_AGENT, null);
+        // Restored TOGETHER with the id so the composer can render the exact agent name at first paint.
+        this.activeAgentLabel = hostState == null ? null : hostState.get(STATE_QUESTING_AGENT_LABEL, null);
 
         this.normalChatComponentRef = wrap(normalChatComponent);
         this.normalChatContainer.add(normalChatComponentRef, BorderLayout.CENTER);
@@ -170,6 +177,17 @@ public final class ChatWorkspaceHostPanel extends JPanel implements WorkspaceMod
         return activeAgentId;
     }
 
+    @Override
+    public String getActiveAgentLabel() {
+        // Prefer the live catalog name; before the async catalog loads (restore), the persisted label lets
+        // the composer render the exact agent synchronously instead of flashing the generic "Questing".
+        String live = labelFor(activeAgentId);
+        if (live != null) {
+            return live;
+        }
+        return activeAgentLabel;
+    }
+
     public boolean hasAgents() {
         return !agents.isEmpty();
     }
@@ -223,10 +241,33 @@ public final class ChatWorkspaceHostPanel extends JPanel implements WorkspaceMod
         userSwitched = true;
         activeAgentId = agentId;
         persist(STATE_QUESTING_AGENT, agentId);
+        rememberAgentLabel(agentId);
         if (WorkspaceModeEntry.QUESTING_ID.equals(interactionMode)) {
             activateQuesting();
         }
         fireChange();
+    }
+
+    /** Persist the display name of {@code agentId} (when known) so a restart can render it synchronously. */
+    private void rememberAgentLabel(String agentId) {
+        String label = labelFor(agentId);
+        if (label != null) {
+            activeAgentLabel = label;
+            persist(STATE_QUESTING_AGENT_LABEL, label);
+        }
+    }
+
+    /** The display name of the agent id in the current catalog, or null when not (yet) known. */
+    private String labelFor(String agentId) {
+        if (agentId == null) {
+            return null;
+        }
+        for (WorkspaceModeEntry agent : agents) {
+            if (agent.getId().equals(agentId)) {
+                return agent.getDisplayName();
+            }
+        }
+        return null;
     }
 
     // ------------------------------------------------------------------ discovery
@@ -311,6 +352,7 @@ public final class ChatWorkspaceHostPanel extends JPanel implements WorkspaceMod
             activeAgentId = agentId;
             persist(STATE_QUESTING_AGENT, agentId);
         }
+        rememberAgentLabel(agentId); // keep the persisted label in sync with the resolved agent
         // New model: keep the shared chat and route to the agent session. Only fall back to the standalone
         // workspace path for legacy plugins that have no agent extension.
         if (agentCoordinator != null && agentCoordinator.canHandle(agentId)) {

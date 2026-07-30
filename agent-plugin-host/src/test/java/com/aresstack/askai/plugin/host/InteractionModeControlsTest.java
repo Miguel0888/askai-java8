@@ -77,6 +77,16 @@ public class InteractionModeControlsTest {
         }
 
         @Override
+        public String getActiveAgentLabel() {
+            for (WorkspaceModeEntry agent : agents) {
+                if (agent.getId().equals(agentId)) {
+                    return agent.getDisplayName();
+                }
+            }
+            return null;
+        }
+
+        @Override
         public List<WorkspaceModeEntry> getAvailableAgents() {
             return new ArrayList<WorkspaceModeEntry>(agents);
         }

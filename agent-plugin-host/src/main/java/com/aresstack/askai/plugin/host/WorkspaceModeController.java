@@ -15,6 +15,13 @@ public interface WorkspaceModeController {
     /** @return the selected agent id, or {@code null} if none. */
     String getActiveAgentId();
 
+    /**
+     * The active agent's display name, resolvable even before the async plugin catalog has loaded (from a
+     * persisted label), so a restart renders the exact agent instead of a generic "Questing" flicker.
+     * Returns null when there is no active agent.
+     */
+    String getActiveAgentLabel();
+
     /** @return a snapshot of the currently available agents. */
     List<WorkspaceModeEntry> getAvailableAgents();
 
