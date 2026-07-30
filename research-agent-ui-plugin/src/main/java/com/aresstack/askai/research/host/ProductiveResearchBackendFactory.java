@@ -217,18 +217,16 @@ public final class ProductiveResearchBackendFactory {
                 }, index, highestSourceNumber(repository));
         OoResearchStateMachine stateMachine = new OoResearchStateMachine(sessionKey);
 
-        BrowserMcpSidecarProcess sidecar = null;
-        McpToolClient sidecarClient = null;
         BrowserBridgeEndpoint bridge = null;
         com.aresstack.askai.research.mcp.ResearchControlEndpoint control = null;
+        // 2. LAZY browser runtime: created STOPPED — selecting the Research agent must NOT spawn a browser
+        // or block the EDT. The Playwright sidecar starts on the FIRST browser command (on the runtime's
+        // own owner thread) and is stopped again when the browsing phase ends; a broken generation restarts.
+        final BrowserRuntimePort browser = new LazyRestartableBrowserRuntime(config,
+                SIDECAR_READY_TIMEOUT_SECONDS, sidecarConfigFile.getAbsolutePath(), toolClients);
         try {
-            // 2. Browser sidecar process (fails with its specific readiness status when not READY).
-            sidecar = BrowserMcpSidecarProcess.start(config, SIDECAR_READY_TIMEOUT_SECONDS,
-                    sidecarConfigFile.getAbsolutePath());
-            sidecarClient = toolClients.connect(sidecar.getMcpUrl(), "streamable");
-
-            // 3. Host endpoints for this session+generation.
-            bridge = new BrowserBridgeEndpoint(registry, sidecarClient, captures, sessionKey, generationId);
+            // 3. Host endpoints for this session+generation (the bridge forwards through the lazy runtime).
+            bridge = new BrowserBridgeEndpoint(registry, browser, captures, sessionKey, generationId);
             bridge.open();
 
             // The control endpoint needs the live-state context; resources are created first with a
@@ -294,34 +292,29 @@ public final class ProductiveResearchBackendFactory {
 
             resources = new ProductiveResearchSessionResources(sessionKey, stateMachine, captures,
                     repository, acceptance, projectContext, control, bridge,
-                    sidecarClient, sidecar, backend);
+                    browser, backend);
             resources.setSearchProfile(profile);
             holder[0] = resources;
             control.refreshTools(); // now that the live context resolves, publish the initial tool set
             return resources;
-        } catch (IOException ex) {
-            rollback(control, bridge, sidecarClient, sidecar);
-            throw ex;
         } catch (RuntimeException ex) {
-            rollback(control, bridge, sidecarClient, sidecar);
+            // The lazy browser runtime no longer starts a process here, so the only failures are endpoint
+            // registration / agent-backend wiring (runtime) — rolled back the same way.
+            rollback(control, bridge, browser);
             throw ex;
         }
     }
 
     private static void rollback(com.aresstack.askai.research.mcp.ResearchControlEndpoint control,
-                                 BrowserBridgeEndpoint bridge, McpToolClient sidecarClient,
-                                 BrowserMcpSidecarProcess sidecar) {
+                                 BrowserBridgeEndpoint bridge, BrowserRuntimePort browser) {
         if (control != null) {
             control.close();
         }
         if (bridge != null) {
             bridge.close();
         }
-        if (sidecarClient != null) {
-            sidecarClient.close();
-        }
-        if (sidecar != null) {
-            sidecar.close();
+        if (browser != null) {
+            browser.close(); // STOPPED runtime → just releases the owner thread; started → tears the sidecar down
         }
     }
 

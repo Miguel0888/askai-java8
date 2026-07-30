@@ -1,6 +1,5 @@
 package com.aresstack.askai.research.host;
 
-import com.aresstack.askai.mcp.api.McpToolClient;
 import com.aresstack.askai.plugin.api.agent.artifact.AgentArtifactStore;
 import com.aresstack.askai.research.acp.AcpResearchSessionBackend;
 import com.aresstack.askai.research.backend.ResearchSessionBackend;
@@ -43,8 +42,8 @@ public final class ProductiveResearchSessionResources {
     private final com.aresstack.askai.research.store.ResearchProjectContext projectContext;
     private final ResearchControlEndpoint controlEndpoint;
     private final BrowserBridgeEndpoint browserBridge;
-    private final McpToolClient sidecarClient;
-    private final BrowserMcpSidecarProcess sidecar;
+    /** The LAZY, restartable browser runtime (STOPPED until the first browser command); owned here. */
+    private final BrowserRuntimePort browser;
     private final AcpResearchSessionBackend backend;
     /** The session's immutable settings snapshot (A2c); set once by the factory right after creation. */
     private volatile com.aresstack.askai.browser.search.SearchProcessingProfileSnapshot searchProfile;
@@ -56,8 +55,8 @@ public final class ProductiveResearchSessionResources {
                                        com.aresstack.askai.research.store.ResearchProjectContext
                                                projectContext,
                                        ResearchControlEndpoint controlEndpoint,
-                                       BrowserBridgeEndpoint browserBridge, McpToolClient sidecarClient,
-                                       BrowserMcpSidecarProcess sidecar, AcpResearchSessionBackend backend) {
+                                       BrowserBridgeEndpoint browserBridge, BrowserRuntimePort browser,
+                                       AcpResearchSessionBackend backend) {
         this.sessionKey = sessionKey;
         this.stateMachine = stateMachine;
         this.projectContext = projectContext;
@@ -83,8 +82,7 @@ public final class ProductiveResearchSessionResources {
         this.acceptance = acceptance;
         this.controlEndpoint = controlEndpoint;
         this.browserBridge = browserBridge;
-        this.sidecarClient = sidecarClient;
-        this.sidecar = sidecar;
+        this.browser = browser;
         this.backend = backend;
     }
 
@@ -135,8 +133,19 @@ public final class ProductiveResearchSessionResources {
         return browserBridge;
     }
 
-    public BrowserMcpSidecarProcess getSidecar() {
-        return sidecar;
+    /** The lazy, restartable browser runtime (STOPPED until the first browser command). */
+    public BrowserRuntimePort getBrowser() {
+        return browser;
+    }
+
+    /**
+     * End the current browsing phase: stop the sidecar/browser but keep the TeamAgent and session alive. A
+     * later research run lazily starts a fresh browser generation. Called when a research run finishes.
+     */
+    public void stopBrowserPhase() {
+        if (browser != null) {
+            browser.stop();
+        }
     }
 
     /**
@@ -235,11 +244,8 @@ public final class ProductiveResearchSessionResources {
         if (browserBridge != null) {
             browserBridge.close();
         }
-        if (sidecarClient != null) {
-            sidecarClient.close();
-        }
-        if (sidecar != null) {
-            sidecar.close();
+        if (browser != null) {
+            browser.close(); // stops any running sidecar generation and releases the owner thread
         }
     }
 }

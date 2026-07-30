@@ -133,7 +133,7 @@ public class ProductiveCommandBridgeTest {
                     });
             control.open();
             resources = new ProductiveResearchSessionResources("s1", new OoResearchStateMachine("s1"),
-                    null, null, null, tempProjectContext(), control, null, null, null, null);
+                    null, null, null, tempProjectContext(), control, null, null, null);
             holder[0] = resources;
             session = new ResearchAgentSession(backend, null, new PlainHost(), "s1", "p1", resources);
             session.activate();

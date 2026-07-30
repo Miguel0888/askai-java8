@@ -36,7 +36,7 @@ public class ResearchProjectContextPersistenceTest {
         // on a background executor and isolates failures, so nulls are safe here.
         return new ProductiveResearchSessionResources(context.getProjectId(),
                 new OoResearchStateMachine(context.getProjectId()), null,
-                context.getSourceRepository(), null, context, null, null, null, null, null);
+                context.getSourceRepository(), null, context, null, null, null, null);
     }
 
     @Test

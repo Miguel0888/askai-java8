@@ -219,6 +219,28 @@ public final class ResearchPlaybook {
                         + "chat while the research runs.";
     }
 
+    /** Transient activity while the lazy browser sidecar starts for a research run. */
+    public static String browserStarting() {
+        return de() ? "Starte Browser …" : "Starting browser…";
+    }
+
+    /** Finishes the "Starte Browser" bubble once the sidecar is ready. */
+    public static String browserReady() {
+        return de() ? "Browser bereit." : "Browser ready.";
+    }
+
+    /** A visible, honest failure when the browser could not be started (no success, no state progress). */
+    public static String browserFailed(String detail) {
+        String suffix = detail == null || detail.trim().isEmpty() ? "" : " (" + detail.trim() + ")";
+        return de()
+                ? "**Der Browser konnte nicht gestartet werden.**" + suffix
+                        + " Ich empfehle, die Recherche erneut zu starten; falls das Problem bleibt, prüfe "
+                        + "die Browser-Einstellungen (Sidecar-Jar, Java ≥21, Browser-Kanal)."
+                : "**The browser could not be started.**" + suffix
+                        + " I recommend starting the research again; if the problem persists, check the "
+                        + "browser settings (sidecar jar, Java ≥21, browser channel).";
+    }
+
     /** The card's live counters + a readable current activity (never enum names or raw URLs). */
     public static String progressLine(int pages, int sources, int hosts, String activityToken) {
         String counters = de()

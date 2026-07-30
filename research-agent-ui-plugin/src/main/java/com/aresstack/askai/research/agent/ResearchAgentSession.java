@@ -94,6 +94,61 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         this.request = new ResearchProjectRequest(sessionId, projectId, "Research project");
         if (resources != null) {
             this.state = resources.currentState(); // one truth from the start
+            wireBrowserActivity(resources);
+        }
+    }
+
+    /**
+     * Surface the lazy browser lifecycle as a transient chat activity: a "Starte Browser…" thinking bubble
+     * when the sidecar starts on the first browser command, finished with "Browser bereit." on READY (or a
+     * visible problem on failure). The runtime fires these on its owner thread; we marshal onto the EDT.
+     */
+    private void wireBrowserActivity(
+            com.aresstack.askai.research.host.ProductiveResearchSessionResources resources) {
+        if (resources.getBrowser() == null) {
+            return; // fake/unit resources without a browser runtime
+        }
+        resources.getBrowser().setListener(
+                new com.aresstack.askai.research.host.BrowserRuntimePort.Listener() {
+                    public void onStarting(long generation) {
+                        final String id = "browser-start-" + generation;
+                        onUi(new Runnable() {
+                            public void run() {
+                                sink.startThinking(id, ResearchPlaybook.browserStarting());
+                            }
+                        });
+                    }
+
+                    public void onReady(final long generation) {
+                        onUi(new Runnable() {
+                            public void run() {
+                                sink.finishThinking("browser-start-" + generation,
+                                        ResearchPlaybook.browserReady());
+                            }
+                        });
+                    }
+
+                    public void onFailed(final long generation, final String detail) {
+                        onUi(new Runnable() {
+                            public void run() {
+                                sink.finishThinking("browser-start-" + generation, "");
+                                sink.showProblem("browser-start-" + generation,
+                                        ResearchPlaybook.browserFailed(detail));
+                            }
+                        });
+                    }
+
+                    public void onStopped(long generation) {
+                        // Nothing to show: the run outcome card already tells the user the run ended.
+                    }
+                });
+    }
+
+    private void onUi(Runnable runnable) {
+        if (uiExecutor != null) {
+            uiExecutor.execute(runnable);
+        } else {
+            runnable.run();
         }
     }
 
@@ -651,6 +706,11 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 break;
             case RUN_OUTCOME:
                 applyRunOutcome(event);
+                // The research/browsing run ended: stop the browser phase (async, off-EDT) but keep the
+                // TeamAgent alive; a later research run lazily starts a fresh browser generation.
+                if (productiveResources != null) {
+                    productiveResources.stopBrowserPhase();
+                }
                 break;
             case USER_ATTENTION:
                 applyUserAttention(event);

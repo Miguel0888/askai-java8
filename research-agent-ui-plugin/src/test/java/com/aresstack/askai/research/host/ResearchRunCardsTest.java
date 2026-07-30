@@ -205,7 +205,7 @@ public class ResearchRunCardsTest {
                     });
             control.open();
             resources = new ProductiveResearchSessionResources("s1", new OoResearchStateMachine("s1"),
-                    null, productiveSources, null, tempProjectContext(), control, null, null, null, null);
+                    null, productiveSources, null, tempProjectContext(), control, null, null, null);
             holder[0] = resources;
             session = new ResearchAgentSession(backend, null, new SinkHost(sink), "s1", "p1", resources);
             session.activate();
@@ -677,7 +677,7 @@ public class ResearchRunCardsTest {
         seeded.getArtifactStore().replace("outline", 0L, "# Outline - PF4J\n");
         ProductiveResearchSessionResources first = new ProductiveResearchSessionResources("s1",
                 new OoResearchStateMachine("s1"), null, productiveSources(), null, seeded,
-                null, null, null, null, null);
+                null, null, null, null);
         first.dispatch(com.aresstack.askai.research.state.ResearchCommandType.START);
         first.dispatch(com.aresstack.askai.research.state.ResearchCommandType.SUBMIT_SCOPE);
         first.dispatch(com.aresstack.askai.research.state.ResearchCommandType.PROPOSE_OUTLINE);
@@ -688,7 +688,7 @@ public class ResearchRunCardsTest {
                 com.aresstack.askai.research.store.ResearchProjectContext.open("s1", projectDir);
         ProductiveResearchSessionResources resources = new ProductiveResearchSessionResources("s1",
                 new OoResearchStateMachine("s1"), null, productiveSources(), null, restored,
-                null, null, null, null, null);
+                null, null, null, null);
         ResearchAgentSession session = new ResearchAgentSession(new RecordingBackend(), null,
                 new SinkHost(sink), "s1", "p1", resources);
         session.activate();

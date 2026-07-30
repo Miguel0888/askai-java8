@@ -4,7 +4,6 @@ import com.aresstack.askai.mcp.api.McpEndpointDefinition;
 import com.aresstack.askai.mcp.api.McpEndpointHandle;
 import com.aresstack.askai.mcp.api.McpServerRegistry;
 import com.aresstack.askai.mcp.api.McpToolCall;
-import com.aresstack.askai.mcp.api.McpToolClient;
 import com.aresstack.askai.mcp.api.McpToolContribution;
 import com.aresstack.askai.mcp.api.McpToolHandler;
 import com.aresstack.askai.mcp.api.McpToolParameter;
@@ -28,16 +27,16 @@ import java.util.Map;
 public final class BrowserBridgeEndpoint {
 
     private final McpServerRegistry registry;
-    private final McpToolClient sidecar;
+    private final BrowserRuntimePort browser;
     private final CaptureStore captures;
     private final String endpointId;
     private McpEndpointHandle handle;
     private boolean closed;
 
-    public BrowserBridgeEndpoint(McpServerRegistry registry, McpToolClient sidecar, CaptureStore captures,
+    public BrowserBridgeEndpoint(McpServerRegistry registry, BrowserRuntimePort browser, CaptureStore captures,
                                  String sessionKey, long generationId) {
         this.registry = registry;
-        this.sidecar = sidecar;
+        this.browser = browser;
         this.captures = captures;
         this.endpointId = "browser." + sessionKey + ".g" + generationId;
     }
@@ -123,9 +122,11 @@ public final class BrowserBridgeEndpoint {
     }
 
     private McpToolResult delegate(String tool, Map<String, Object> arguments) {
+        // The FIRST browser command lazily starts the sidecar on the runtime's dedicated owner thread
+        // (never the EDT); a dead generation is restarted+retried once inside the port.
         try {
-            return McpToolResult.ok(sidecar.callTool(tool, arguments));
-        } catch (McpToolClient.McpToolCallException ex) {
+            return McpToolResult.ok(browser.execute(tool, arguments));
+        } catch (BrowserRuntimePort.BrowserRuntimeException ex) {
             return McpToolResult.error(ex.isEndpointUnavailable()
                     ? "Browser sidecar unavailable: " + ex.getMessage() : ex.getMessage());
         }
