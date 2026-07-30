@@ -32,11 +32,13 @@ public class LocalModelInstallResolutionTest {
     }
 
     @Test
-    public void generationFamiliesAreTypedNotAvailableYet() {
+    public void runnableGenerationFamiliesAreTypedNotAvailableYet() {
+        // Catalogued RUNNABLE generation families (per the published 0.2.0 catalog) that the host installer
+        // does not install yet — encoder/reranker are installed today; generation install lands in C6.
         for (String repo : new String[]{"Qwen/Qwen2.5-Coder-0.5B-Instruct",
-                "HuggingFaceTB/SmolLM2-135M-Instruct", "google/gemma-3-270m-it",
-                "microsoft/Phi-3-mini-4k-instruct-onnx", "google-t5/t5-small",
-                "Salesforce/codet5-small"}) {
+                "HuggingFaceTB/SmolLM2-135M-Instruct", "HuggingFaceTB/SmolLM2-360M-Instruct",
+                "google-t5/t5-small", "google/flan-t5-small", "Salesforce/codet5-small",
+                "Salesforce/codet5-base-multi-sum"}) {
             LocalModelInstallResolution r = LocalModelInstallResolution.resolve(repo);
             assertEquals(repo, LocalModelInstallResolution.Kind.LOCAL_RUNTIME_FAMILY_NOT_AVAILABLE_YET,
                     r.getKind());
@@ -46,11 +48,15 @@ public class LocalModelInstallResolutionTest {
     }
 
     @Test
-    public void unverifiedL12IsNotRunnable() {
-        LocalModelInstallResolution r =
-                LocalModelInstallResolution.resolve("cross-encoder/ms-marco-MiniLM-L12-v2");
-        assertEquals(LocalModelInstallResolution.Kind.NOT_RUNNABLE, r.getKind());
-        assertFalse(r.isInstallable());
+    public void unverifiedModelsAreNotRunnable() {
+        // The catalog decides runnability; unverified models (L12 reranker, Gemma-3-270m-it, Phi-3-mini in
+        // the 0.2.0 release) are never offered for local installation.
+        for (String repo : new String[]{"cross-encoder/ms-marco-MiniLM-L12-v2",
+                "google/gemma-3-270m-it", "microsoft/Phi-3-mini-4k-instruct-onnx"}) {
+            LocalModelInstallResolution r = LocalModelInstallResolution.resolve(repo);
+            assertEquals(repo, LocalModelInstallResolution.Kind.NOT_RUNNABLE, r.getKind());
+            assertFalse(repo, r.isInstallable());
+        }
     }
 
     @Test

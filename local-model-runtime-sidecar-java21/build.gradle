@@ -15,17 +15,19 @@ java {
 // :directml-model-package, so the published core is self-contained). For local development
 // against unreleased directml changes, publishToMavenLocal there and temporarily add
 // mavenLocal() to the root repositories. No sources are copied into AskAI.
-ext.directmlVersion = '0.1.1'
+ext.directmlVersion = '0.2.0'
 
 dependencies {
     implementation "com.aresstack:directml-runtime:${directmlVersion}"
     implementation "com.aresstack:directml-encoder:${directmlVersion}"
     // The wdmlpack/lifecycle contract (ModelPackageLifecycle, ModelConversionResult, …).
     implementation "com.aresstack:directml-model-package:${directmlVersion}"
+    // The published win-directml text-generation runtime (GenerationRuntime + request/result + streaming);
+    // consumed ONLY here, in the Java-21 sidecar. No Java-21/DirectML class reaches the Java-8 host.
+    implementation "com.aresstack:directml-inference:${directmlVersion}"
     // The neutral model catalog: the sidecar re-resolves repositoryId -> catalog itself (it never trusts
     // the host-claimed family/capabilities) and applies the SAME manifest trust rules as the host.
-    // DEV: 0.1.0-SNAPSHOT from mavenLocal; pinned to a fixed Maven Central version in C5 before any ff-merge.
-    implementation 'com.aresstack:directml-model-catalog:0.1.0-SNAPSHOT'
+    implementation "com.aresstack:directml-model-catalog:${directmlVersion}"
 
     testImplementation 'junit:junit:4.13.2'
 }
