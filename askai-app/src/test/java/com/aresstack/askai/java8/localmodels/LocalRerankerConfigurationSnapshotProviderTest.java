@@ -133,6 +133,54 @@ public class LocalRerankerConfigurationSnapshotProviderTest {
     }
 
     @Test
+    public void theCentralSelectionWinsOverThePluginPassedSelection() throws Exception {
+        // AskAI is the source of truth: when ai.rerankerModel is set centrally it decides, even if the
+        // plugin passes a different (also-installed) legacy selection.
+        File root = folder.newFolder("models");
+        installModel(root, "r1", "local/cross-encoder/a:latest", "rerank");
+        installModel(root, "r2", "local/cross-encoder/b:latest", "rerank", "RUNNABLE");
+        RecordingCentralStore central = new RecordingCentralStore("local/cross-encoder/b:latest");
+        LocalRerankerConfigurationSnapshotProvider provider =
+                new LocalRerankerConfigurationSnapshotProvider(new LocalModelRuntimeManager(root), central);
+        assertEquals("local/cross-encoder/b:latest",
+                provider.resolveSelectedModel("local/cross-encoder/a:latest"));
+        assertEquals("central selection already set — no migration", null, central.migrated);
+    }
+
+    @Test
+    public void aLegacyPluginSelectionMigratesIntoTheCentralStoreWhenNoneIsSet() throws Exception {
+        // Transitional: with no central selection the (valid) plugin-passed one is used AND copied into
+        // the central store, so removing the plugin picker later never strands it.
+        File root = folder.newFolder("models");
+        installModel(root, "r1", "local/cross-encoder/a:latest", "rerank");
+        RecordingCentralStore central = new RecordingCentralStore("");
+        LocalRerankerConfigurationSnapshotProvider provider =
+                new LocalRerankerConfigurationSnapshotProvider(new LocalModelRuntimeManager(root), central);
+        assertEquals("local/cross-encoder/a:latest",
+                provider.resolveSelectedModel("local/cross-encoder/a:latest"));
+        assertEquals("local/cross-encoder/a:latest", central.migrated);
+    }
+
+    /** A fake central store: returns a fixed selection and records any migration. */
+    private static final class RecordingCentralStore
+            implements LocalRerankerConfigurationSnapshotProvider.CentralRerankerSelectionStore {
+        private final String selection;
+        private String migrated;
+
+        RecordingCentralStore(String selection) {
+            this.selection = selection;
+        }
+
+        public String currentSelection() {
+            return selection;
+        }
+
+        public void migrateSelection(String model) {
+            this.migrated = model;
+        }
+    }
+
+    @Test
     public void catalogListsOnlyUsableRerankModelsSorted() throws Exception {
         File root = folder.newFolder("models");
         installModel(root, "r2", "local/cross-encoder/b:latest", "rerank");

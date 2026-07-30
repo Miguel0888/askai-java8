@@ -11,6 +11,7 @@ import com.aresstack.askai.mcp.solon.SolonMcpServerRuntime;
 import com.aresstack.askai.mcp.solon.SolonMcpToolClientFactory;
 import com.aresstack.askai.agent.model.reranker.RerankerConfigurationSnapshotProvider;
 import com.aresstack.askai.agent.model.reranker.RerankerModelCatalog;
+import com.aresstack.askai.java8.config.AppConfigurationRepository;
 import com.aresstack.askai.java8.localmodels.LocalModelRuntimeManager;
 import com.aresstack.askai.java8.localmodels.LocalRerankerConfigurationSnapshotProvider;
 import com.aresstack.askai.java8.localmodels.LocalRerankerModelCatalog;
@@ -49,13 +50,22 @@ public final class AgentRuntimeServices {
         this(null);
     }
 
+    /** @deprecated legacy overload without the central config; the reranker selection is then plugin-driven. */
+    @Deprecated
+    public AgentRuntimeServices(LocalModelRuntimeManager localModelRuntime) {
+        this(localModelRuntime, null);
+    }
+
     /**
      * @param localModelRuntime the app's local model runtime manager; when present a mandatory reranker
      *                          snapshot provider is published for productive research sessions
+     * @param centralConfig     the central AskAI configuration store; the reranker snapshot provider takes
+     *                          its selection from {@code ai.rerankerModel} (AskAI → Configuration → AI models)
      */
-    public AgentRuntimeServices(LocalModelRuntimeManager localModelRuntime) {
+    public AgentRuntimeServices(LocalModelRuntimeManager localModelRuntime,
+                                AppConfigurationRepository centralConfig) {
         this.rerankerSnapshots = localModelRuntime == null ? null
-                : new LocalRerankerConfigurationSnapshotProvider(localModelRuntime);
+                : new LocalRerankerConfigurationSnapshotProvider(localModelRuntime, centralConfig);
         this.rerankerCatalog = localModelRuntime == null ? null
                 : new LocalRerankerModelCatalog(localModelRuntime);
     }

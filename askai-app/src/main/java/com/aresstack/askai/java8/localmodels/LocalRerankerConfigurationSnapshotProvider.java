@@ -4,6 +4,8 @@ import com.aresstack.askai.agent.model.reranker.RerankerConfigurationDocument;
 import com.aresstack.askai.agent.model.reranker.RerankerConfigurationException;
 import com.aresstack.askai.agent.model.reranker.RerankerConfigurationSnapshot;
 import com.aresstack.askai.agent.model.reranker.RerankerConfigurationSnapshotProvider;
+import com.aresstack.askai.java8.config.AppConfiguration;
+import com.aresstack.askai.java8.config.AppConfigurationRepository;
 
 import java.io.File;
 import java.io.IOException;
@@ -27,10 +29,69 @@ public final class LocalRerankerConfigurationSnapshotProvider
 
     private final LocalModelRuntimeManager manager;
     private final LocalRerankerModelCatalog catalog;
+    private final CentralRerankerSelectionStore central;
+
+    /**
+     * The central reranker selection seam: read the authoritative {@code ai.rerankerModel} and migrate a
+     * legacy selection into it. Kept minimal so the resolver is unit-testable without the real config file.
+     */
+    interface CentralRerankerSelectionStore {
+        /** The trimmed central selection, or "" when none is set. */
+        String currentSelection();
+
+        /** Persists {@code model} as the central reranker selection (one-time migration). */
+        void migrateSelection(String model);
+
+        /** Legacy behaviour: no central store, so the plugin-passed selection is authoritative. */
+        CentralRerankerSelectionStore NONE = new CentralRerankerSelectionStore() {
+            public String currentSelection() {
+                return "";
+            }
+
+            public void migrateSelection(String model) {
+            }
+        };
+    }
 
     public LocalRerankerConfigurationSnapshotProvider(LocalModelRuntimeManager manager) {
+        this(manager, (AppConfigurationRepository) null);
+    }
+
+    /**
+     * @param centralConfig the central AskAI configuration store. When present the reranker selection is
+     *                      taken from {@code ai.rerankerModel} (chosen in AskAI → Configuration → AI models);
+     *                      the plugin-passed selection is only a transitional fallback that is migrated into
+     *                      the central store the first time it is used. Null preserves the legacy behaviour
+     *                      of trusting the passed selection.
+     */
+    public LocalRerankerConfigurationSnapshotProvider(LocalModelRuntimeManager manager,
+                                                      AppConfigurationRepository centralConfig) {
+        this(manager, adapt(centralConfig));
+    }
+
+    LocalRerankerConfigurationSnapshotProvider(LocalModelRuntimeManager manager,
+                                               CentralRerankerSelectionStore central) {
         this.manager = manager;
         this.catalog = new LocalRerankerModelCatalog(manager);
+        this.central = central == null ? CentralRerankerSelectionStore.NONE : central;
+    }
+
+    private static CentralRerankerSelectionStore adapt(final AppConfigurationRepository repository) {
+        if (repository == null) {
+            return CentralRerankerSelectionStore.NONE;
+        }
+        return new CentralRerankerSelectionStore() {
+            public String currentSelection() {
+                String selection = repository.load().getAiModelSelections().getRerankerModel();
+                return selection == null ? "" : selection.trim();
+            }
+
+            public void migrateSelection(String model) {
+                AppConfiguration current = repository.load();
+                repository.save(current.withAiModelSelections(
+                        current.getAiModelSelections().withRerankerModel(model)));
+            }
+        };
     }
 
     @Override
@@ -72,28 +133,38 @@ public final class LocalRerankerConfigurationSnapshotProvider
     }
 
     /**
-     * The validated virtual model id of the EXPLICIT selection. Fails visibly when no selection is
-     * persisted, or when the selected model is no longer installed, lost its {@code RERANK} capability
-     * or is not in a usable state — never replaced by a first-match guess.
+     * The validated virtual model id of the EXPLICIT selection. The central AskAI selection
+     * ({@code ai.rerankerModel}) is authoritative; the plugin-passed selection is only a transitional
+     * fallback used when nothing is centrally selected yet (and then migrated into the central store).
+     * Fails visibly when neither yields a selection, or when the resolved model is no longer installed,
+     * lost its {@code RERANK} capability or is not in a usable state — never a first-match guess.
      */
     String resolveSelectedModel(String selectedModel) throws RerankerConfigurationException {
         List<String> installed = catalog.listInstalledRerankModels();
-        if (selectedModel == null || selectedModel.trim().isEmpty()) {
+        String centralSelection = central.currentSelection();
+        String effective = !centralSelection.isEmpty()
+                ? centralSelection
+                : (selectedModel == null ? "" : selectedModel.trim());
+        if (effective.isEmpty()) {
             throw new RerankerConfigurationException(installed.isEmpty()
                     ? "No reranker model is selected and no rerank-capable local model is installed. "
                             + "Install a reranker under \"Install locally in AskAI\" and select it in "
-                            + "the Research Runtime Settings before starting a productive session."
+                            + "AskAI → Configuration → AI models before starting a productive session."
                     : "No reranker model is selected. Choose one of the installed rerank models "
-                            + installed + " in the Research Runtime Settings (there is no silent "
-                            + "first-match selection).");
+                            + installed + " in AskAI → Configuration → AI models (there is no "
+                            + "silent first-match selection).");
         }
-        String selection = selectedModel.trim();
-        if (!installed.contains(selection)) {
+        if (!installed.contains(effective)) {
             throw new RerankerConfigurationException(
-                    "The selected reranker model \"" + selection + "\" is not an installed, usable "
+                    "The selected reranker model \"" + effective + "\" is not an installed, usable "
                             + "rerank-capable local model (installed: " + installed + "). Update the "
-                            + "selection in the Research Runtime Settings.");
+                            + "selection in AskAI → Configuration → AI models.");
         }
-        return selection;
+        // One-time self-healing migration: a valid legacy (plugin-side) selection is copied into the
+        // central store the first time it is used, so removing the plugin picker never strands it.
+        if (centralSelection.isEmpty()) {
+            central.migrateSelection(effective);
+        }
+        return effective;
     }
 }

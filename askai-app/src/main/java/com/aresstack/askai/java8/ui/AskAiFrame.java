@@ -432,7 +432,7 @@ public final class AskAiFrame extends JFrame {
         // MCP tool-client factory, ACP connector). Plugins look them up via AgentHostContext.getService.
         final com.aresstack.askai.java8.plugin.host.AgentRuntimeServices agentRuntimeServices =
                 new com.aresstack.askai.java8.plugin.host.AgentRuntimeServices(
-                        askAiService.localRuntimeManager());
+                        askAiService.localRuntimeManager(), configurationRepository);
         Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
             public void run() {
                 agentRuntimeServices.shutdown();
