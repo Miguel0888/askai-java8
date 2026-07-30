@@ -123,13 +123,22 @@ public final class ResearchAgentSessionFactory implements AgentSessionFactory {
                 com.aresstack.askai.research.host.LegacyBrowserSearchSettingsStore
                         .revision(hostContext.getStateStore()),
                 rerankerSnapshots, inferenceSnapshots);
+        java.io.File sessionDirectory =
+                hostContext.getPluginPathService().getWorkspaceDirectory(request.getSessionId());
         final ProductiveResearchSessionResources resources;
         try {
-            resources = factory.createSession(request.getSessionId(),
-                    hostContext.getPluginPathService().getWorkspaceDirectory(request.getSessionId()));
+            resources = factory.createSession(request.getSessionId(), sessionDirectory);
         } catch (IOException ex) {
             throw new IllegalStateException("The productive research backend could not be started "
                     + "(no fallback to the fake backend): " + ex.getMessage(), ex);
+        }
+        // Register the now-running session so AskAI can re-publish its descriptors on a central model change
+        // (unregistered in ResearchAgentSession.close()). Registration happens ONLY after a successful start.
+        com.aresstack.askai.agent.model.session.ActiveResearchSessionRegistry activeSessions =
+                hostContext.getService(
+                        com.aresstack.askai.agent.model.session.ActiveResearchSessionRegistry.class);
+        if (activeSessions != null) {
+            activeSessions.register(request.getSessionId(), sessionDirectory);
         }
         // The session OWNS the resources: structured commands route to their state machine, close() tears
         // them down last (endpoints → sidecar client → sidecar process).

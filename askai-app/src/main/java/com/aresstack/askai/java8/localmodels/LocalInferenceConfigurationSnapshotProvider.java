@@ -41,6 +41,9 @@ public final class LocalInferenceConfigurationSnapshotProvider
     }
 
     private final EndpointSources sources;
+    /** Rising configuration revision so a re-published descriptor is recognisably newer than the last. */
+    private final java.util.concurrent.atomic.AtomicLong revision =
+            new java.util.concurrent.atomic.AtomicLong();
 
     public LocalInferenceConfigurationSnapshotProvider(LocalModelRuntimeManager manager,
                                                        AppConfigurationRepository centralConfig) {
@@ -68,7 +71,8 @@ public final class LocalInferenceConfigurationSnapshotProvider
                             + "(no usable base URL).");
         }
 
-        InferenceConfigurationDocument document = InferenceConfigurationDocument.current(1L,
+        InferenceConfigurationDocument document = InferenceConfigurationDocument.current(
+                revision.incrementAndGet(),
                 new InferenceEndpointDescriptor(model, baseUrl, CHAT_PATH, DEFAULT_TIMEOUT_MILLIS));
         File target = new File(sessionDirectory, SNAPSHOT_FILE_NAME);
         try {

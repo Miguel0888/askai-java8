@@ -12,7 +12,9 @@ import com.aresstack.askai.mcp.solon.SolonMcpToolClientFactory;
 import com.aresstack.askai.agent.model.inference.InferenceConfigurationSnapshotProvider;
 import com.aresstack.askai.agent.model.reranker.RerankerConfigurationSnapshotProvider;
 import com.aresstack.askai.agent.model.reranker.RerankerModelCatalog;
+import com.aresstack.askai.agent.model.session.ActiveResearchSessionRegistry;
 import com.aresstack.askai.java8.config.AppConfigurationRepository;
+import com.aresstack.askai.java8.localmodels.LocalActiveResearchSessionRegistry;
 import com.aresstack.askai.java8.localmodels.LocalInferenceConfigurationSnapshotProvider;
 import com.aresstack.askai.java8.localmodels.LocalModelRuntimeManager;
 import com.aresstack.askai.java8.localmodels.LocalRerankerConfigurationSnapshotProvider;
@@ -47,6 +49,8 @@ public final class AgentRuntimeServices {
     private final RerankerModelCatalog rerankerCatalog;
     /** Publishes the per-session structured-inference descriptor from the central main model (optional). */
     private final InferenceConfigurationSnapshotProvider inferenceSnapshots;
+    /** Tracks running research sessions so their descriptors can be re-published on a model change. */
+    private final LocalActiveResearchSessionRegistry activeSessions;
 
     /** @deprecated retained only for callers without the local model runtime (no reranker service). */
     @Deprecated
@@ -76,6 +80,15 @@ public final class AgentRuntimeServices {
         // so it is published whenever there is a central config, even without a local runtime.
         this.inferenceSnapshots = centralConfig == null ? null
                 : new LocalInferenceConfigurationSnapshotProvider(localModelRuntime, centralConfig);
+        // The active-session registry re-publishes descriptors on a central model change; it needs a
+        // central config to know what to publish and is only useful alongside the snapshot providers.
+        this.activeSessions = centralConfig == null ? null
+                : new LocalActiveResearchSessionRegistry(inferenceSnapshots, rerankerSnapshots, centralConfig);
+    }
+
+    /** The running-session registry, for AskAI to trigger a descriptor refresh on a model change. */
+    public LocalActiveResearchSessionRegistry activeSessionRegistry() {
+        return activeSessions;
     }
 
     /** The service map for DefaultAgentHostContext (neutral interface types as keys). */
@@ -92,6 +105,9 @@ public final class AgentRuntimeServices {
         }
         if (inferenceSnapshots != null) {
             services.put(InferenceConfigurationSnapshotProvider.class, inferenceSnapshots);
+        }
+        if (activeSessions != null) {
+            services.put(ActiveResearchSessionRegistry.class, activeSessions);
         }
         return services;
     }

@@ -438,6 +438,21 @@ public final class AskAiFrame extends JFrame {
                 agentRuntimeServices.shutdown();
             }
         }, "agent-runtime-services-shutdown"));
+        // Central model change → re-publish the running research sessions' descriptors (no direct UI→research
+        // coupling: the event flows AskAiModel → this listener → the host session registry).
+        final com.aresstack.askai.java8.localmodels.LocalActiveResearchSessionRegistry activeResearchSessions =
+                agentRuntimeServices.activeSessionRegistry();
+        if (activeResearchSessions != null) {
+            model.addAiModelSelectionListener(new com.aresstack.askai.java8.AiModelSelectionListener() {
+                public void onMainModelChanged() {
+                    activeResearchSessions.refreshInference();
+                }
+
+                public void onRerankerOrEmbeddingsChanged() {
+                    activeResearchSessions.refreshReranker();
+                }
+            });
+        }
         // The typed "open sources/config view" card actions reach the artifact area through this host
         // service (same hook as /open); the coordinator holder is filled right below.
         final com.aresstack.askai.plugin.host.AgentSessionCoordinator[] coordinatorRef =

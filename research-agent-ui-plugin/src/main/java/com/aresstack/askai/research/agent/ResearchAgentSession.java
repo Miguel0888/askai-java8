@@ -62,6 +62,8 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     private boolean disposed;
     private final com.aresstack.askai.plugin.api.service.WorkspaceStateStore hostStateStore;
     private final AgentHostContext hostContext;
+    /** This session's id — used to unregister from the host active-session registry on close. */
+    private final String sessionId;
     /** Productive mode only: the session's OWN generation-scoped resources (state authority + processes). */
     private final com.aresstack.askai.research.host.ProductiveResearchSessionResources productiveResources;
 
@@ -84,6 +86,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         this.backend = backend;
         this.ownedScheduler = ownedScheduler;
         this.hostContext = host;
+        this.sessionId = sessionId;
         this.sink = host.getConversationSink();
         this.uiExecutor = host.getUiExecutor();
         this.hostStateStore = host.getStateStore();
@@ -162,6 +165,13 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             return;
         }
         disposed = true;
+        // No longer a running session: stop AskAI from re-publishing descriptors to a torn-down dir.
+        com.aresstack.askai.agent.model.session.ActiveResearchSessionRegistry activeSessions =
+                hostContext.getService(
+                        com.aresstack.askai.agent.model.session.ActiveResearchSessionRegistry.class);
+        if (activeSessions != null) {
+            activeSessions.unregister(sessionId);
+        }
         if (handle != null) {
             backend.close(handle);
             handle = null;

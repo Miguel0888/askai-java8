@@ -25,6 +25,8 @@ public final class AskAiModel {
     private SpeechToTextConfiguration speechToTextConfiguration;
     private ChatColorSettings chatColors;
     private AiModelSelections aiModelSelections;
+    private final java.util.List<AiModelSelectionListener> modelSelectionListeners =
+            new java.util.concurrent.CopyOnWriteArrayList<AiModelSelectionListener>();
 
     public AskAiModel(AppConfigurationRepository configurationRepository) {
         this.configurationRepository = configurationRepository;
@@ -92,6 +94,17 @@ public final class AskAiModel {
         return aiModelSelections;
     }
 
+    /** Subscribe to central model-selection changes (e.g. to refresh running research descriptors). */
+    public void addAiModelSelectionListener(AiModelSelectionListener listener) {
+        if (listener != null) {
+            modelSelectionListeners.add(listener);
+        }
+    }
+
+    public void removeAiModelSelectionListener(AiModelSelectionListener listener) {
+        modelSelectionListeners.remove(listener);
+    }
+
     public void setAiModelSelections(AiModelSelections aiModelSelections) {
         this.aiModelSelections = aiModelSelections == null ? AiModelSelections.defaults() : aiModelSelections;
     }
@@ -107,6 +120,9 @@ public final class AskAiModel {
         AppConfiguration current = configurationRepository.load();
         configurationRepository.save(current.withAiModelSelections(
                 current.getAiModelSelections().withMainModel(value)));
+        for (AiModelSelectionListener listener : modelSelectionListeners) {
+            listener.onMainModelChanged();
+        }
     }
 
     /**
@@ -122,6 +138,9 @@ public final class AskAiModel {
         AppConfiguration current = configurationRepository.load();
         configurationRepository.save(current.withAiModelSelections(current.getAiModelSelections()
                 .withRerankerModel(reranker).withEmbeddingsModel(embeddings)));
+        for (AiModelSelectionListener listener : modelSelectionListeners) {
+            listener.onRerankerOrEmbeddingsChanged();
+        }
     }
 
     /**
