@@ -12,12 +12,12 @@ dependencies {
 
 test {
     useJUnit()
-    // The classloader integration test must load the research plugin from a real plugin directory, NOT from
-    // the test classpath. We hand it the freshly built plugin JAR's path via a system property; the plugin is
-    // deliberately NOT a dependency of this module.
-    dependsOn ':research-agent-ui-plugin:pluginJar'
+    // The classloader integration test must load the research plugin from a real PF4J plugin DIRECTORY
+    // (classes/ + lib/), NOT from the test classpath. We hand it the freshly built plugin distribution
+    // directory via a system property; the plugin is deliberately NOT a dependency of this module.
+    dependsOn ':research-agent-ui-plugin:pluginDistribution'
     doFirst {
-        def pluginJarTask = project(':research-agent-ui-plugin').tasks.getByName('pluginJar')
-        systemProperty 'research.plugin.jar', pluginJarTask.archiveFile.get().asFile.absolutePath
+        def distTask = project(':research-agent-ui-plugin').tasks.getByName('pluginDistribution')
+        systemProperty 'research.plugin.dir', distTask.destinationDir.absolutePath
     }
 }

@@ -10,6 +10,11 @@ dependencies {
     // bundled INTO the plugin jar below (no other classloader in the host loads them — no identity
     // split).
     implementation project(':browser-api')
+    // The async web-search-provider module (Brave/BrightData/DataForSEO over AsyncHttpClient) powers the
+    // provider settings UI + host-side connection test. It and its transitive deps (AsyncHttpClient, Gson,
+    // Netty) are NOT bundled into a fat jar — they ship in the plugin's lib/ directory (see pluginDistribution
+    // below) and load via the plugin classloader. The runtime process keeps its own separate copy.
+    implementation project(':web-search-providers')
     compileOnly project(':agent-workspace-api')
     compileOnly project(':agent-plugin-pf4j-api')
     compileOnly project(':mcp-runtime-api')      // host-provided, like the other shared APIs
@@ -45,56 +50,62 @@ test {
 
 ext.researchPluginId = 'com.aresstack.askai.research'
 ext.researchPluginClass = 'com.aresstack.askai.research.plugin.ResearchPlugin'
-// Stable file name so re-installing replaces exactly this plugin's artifact and leaves foreign plugin JARs.
-ext.devPluginFileName = 'research-agent-ui-plugin.jar'
+// PF4J DIRECTORY-layout plugin: <plugin>/classes (this module's classes + the PF4J descriptor manifest +
+// generated extensions.idx) and <plugin>/lib/*.jar (ALL runtime dependencies — browser-api,
+// web-search-providers and the AsyncHttpClient/Netty/Gson transitives). No shading, no class copying, no
+// Netty relocation: the plugin classloader loads the lib/ jars as-is. The runtime process keeps its own
+// separate copy of these libraries — nothing is shared across the process boundary.
+ext.researchPluginDirName = 'research-agent-ui-plugin'
 
-task pluginJar(type: Jar) {
+// PF4J reads a directory plugin's descriptor from <plugin>/classes/META-INF/MANIFEST.MF.
+def pluginManifestFile = layout.buildDirectory.file('plugin-manifest/MANIFEST.MF')
+task pluginManifest {
     group = 'build'
-    description = 'Assemble the external PF4J plugin JAR (plugin classes + extensions.idx only, PF4J manifest).'
-    dependsOn classes
-    archiveBaseName = 'research-agent-ui-plugin'
-    archiveClassifier = 'plugin'
-    archiveVersion = project.version.toString()
-    from sourceSets.main.output
-    // Bundle browser-api (settings domain + PSL snapshot resource) — the host classloader does not
-    // provide it. Duplicate-safe: only this one dependency jar is unpacked.
-    from(configurations.runtimeClasspath
-            .filter { it.name.startsWith('browser-api') }
-            .collect { zipTree(it) }) {
-        exclude 'META-INF/MANIFEST.MF'
-    }
-
-    manifest {
-        attributes(
-                'Plugin-Id': researchPluginId,
-                'Plugin-Class': researchPluginClass,
-                'Plugin-Version': project.version.toString(),
-                'Plugin-Provider': 'AresStack',
-                'Plugin-Description': 'AskAI Research Agent'
-                // Plugin-Requires deliberately omitted: the host does not yet publish/enforce a stable
-                // version binding. Compatibility is gated by the descriptor's pluginApiVersion instead.
-        )
+    description = 'Generate the PF4J plugin descriptor manifest.'
+    outputs.file(pluginManifestFile)
+    doLast {
+        def file = pluginManifestFile.get().asFile
+        file.parentFile.mkdirs()
+        file.text = [
+                'Manifest-Version: 1.0',
+                "Plugin-Id: ${researchPluginId}",
+                "Plugin-Class: ${researchPluginClass}",
+                "Plugin-Version: ${project.version}",
+                'Plugin-Provider: AresStack',
+                'Plugin-Description: AskAI Research Agent',
+                ''
+                // Plugin-Requires deliberately omitted: compatibility is gated by the descriptor's
+                // pluginApiVersion instead.
+        ].join('\r\n')
     }
 }
 
-task installDevPlugin {
+task pluginDistribution(type: Sync) {
+    group = 'build'
+    description = 'Assemble the external PF4J plugin as a directory layout (classes/ + lib/).'
+    dependsOn classes, pluginManifest
+    into layout.buildDirectory.dir("plugin-dist/${researchPluginDirName}")
+    into('classes') {
+        from sourceSets.main.output // plugin classes + resources incl. the generated META-INF/extensions.idx
+    }
+    into('classes/META-INF') {
+        from pluginManifestFile
+        rename { 'MANIFEST.MF' }
+    }
+    into('lib') {
+        from configurations.runtimeClasspath // browser-api + web-search-providers + gson + AHC + netty + …
+    }
+}
+
+task installDevPlugin(type: Sync) {
     group = 'application'
-    description = 'Install the research plugin JAR into the shared dev-plugins dir (leaves other plugins).'
-    dependsOn pluginJar
-    doLast {
-        def destDir = rootProject.layout.buildDirectory.dir('dev-plugins').get().asFile
-        destDir.mkdirs()
-        def source = pluginJar.archiveFile.get().asFile
-        def finalFile = new File(destDir, devPluginFileName)
-        def tmpFile = new File(destDir, devPluginFileName + '.tmp')
-        // Clear only THIS plugin's target artifact; foreign plugin JARs are untouched.
-        finalFile.delete()
-        tmpFile.delete()
-        java.nio.file.Files.copy(source.toPath(), tmpFile.toPath())
-        // Atomic swap so a concurrent scan never sees a half-written JAR.
-        java.nio.file.Files.move(tmpFile.toPath(), finalFile.toPath(),
-                java.nio.file.StandardCopyOption.ATOMIC_MOVE,
-                java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-        logger.lifecycle("Installed research plugin -> ${finalFile}")
+    description = 'Install the research plugin DIRECTORY into the shared dev-plugins dir (leaves other plugins).'
+    dependsOn pluginDistribution
+    into rootProject.layout.buildDirectory.dir("dev-plugins/${researchPluginDirName}")
+    from layout.buildDirectory.dir("plugin-dist/${researchPluginDirName}")
+    doFirst {
+        // Remove any stale SINGLE-JAR install of THIS plugin so PF4J never sees two copies of the same id.
+        rootProject.layout.buildDirectory.file('dev-plugins/research-agent-ui-plugin.jar')
+                .get().asFile.delete()
     }
 }

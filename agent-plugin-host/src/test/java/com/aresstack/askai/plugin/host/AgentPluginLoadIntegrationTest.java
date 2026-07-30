@@ -50,42 +50,47 @@ public class AgentPluginLoadIntegrationTest {
     @Rule
     public final TemporaryFolder folder = new TemporaryFolder();
 
-    private File pluginJar;
+    private File pluginDir;
 
     @Before
-    public void resolvePluginJar() {
-        String path = System.getProperty("research.plugin.jar");
-        assumeTrue("research.plugin.jar system property not set (run via Gradle)",
+    public void resolvePluginDir() {
+        String path = System.getProperty("research.plugin.dir");
+        assumeTrue("research.plugin.dir system property not set (run via Gradle)",
                 path != null && path.trim().length() > 0);
-        pluginJar = new File(path.trim());
-        assumeTrue("built plugin jar not found: " + pluginJar, pluginJar.isFile());
+        pluginDir = new File(path.trim());
+        assumeTrue("built plugin directory not found: " + pluginDir,
+                pluginDir.isDirectory() && new File(pluginDir, "classes").isDirectory()
+                        && new File(pluginDir, "lib").isDirectory());
     }
 
     @Test
-    public void pluginJarHasPf4jManifestAndOnlyTheAgentExtension() throws Exception {
-        java.util.jar.JarFile jar = new java.util.jar.JarFile(pluginJar);
+    public void pluginDirHasPf4jManifestAndOnlyTheAgentExtension() throws Exception {
+        java.util.jar.Manifest manifest;
+        java.io.InputStream in = new java.io.FileInputStream(
+                new File(pluginDir, "classes/META-INF/MANIFEST.MF"));
         try {
-            java.util.jar.Attributes attrs = jar.getManifest().getMainAttributes();
-            assertEquals(AGENT_ID, attrs.getValue("Plugin-Id"));
-            assertEquals("com.aresstack.askai.research.plugin.ResearchPlugin", attrs.getValue("Plugin-Class"));
-            assertNotNull(jar.getEntry("META-INF/extensions.idx"));
-            String idx = readEntry(jar, "META-INF/extensions.idx");
-            assertTrue("agent extension must be registered", idx.contains(EXTENSION_CLASS));
-            // Commit 17: the standalone workspace extension is gone.
-            assertFalse("workspace extension must no longer be registered",
-                    idx.contains("ResearchWorkspacePluginExtension"));
+            manifest = new java.util.jar.Manifest(in);
         } finally {
-            jar.close();
+            in.close();
         }
+        java.util.jar.Attributes attrs = manifest.getMainAttributes();
+        assertEquals(AGENT_ID, attrs.getValue("Plugin-Id"));
+        assertEquals("com.aresstack.askai.research.plugin.ResearchPlugin", attrs.getValue("Plugin-Class"));
+        File idxFile = new File(pluginDir, "classes/META-INF/extensions.idx");
+        assertTrue("extensions.idx must be generated", idxFile.isFile());
+        String idx = new String(Files.readAllBytes(idxFile.toPath()), "UTF-8");
+        assertTrue("agent extension must be registered", idx.contains(EXTENSION_CLASS));
+        assertFalse("workspace extension must no longer be registered",
+                idx.contains("ResearchWorkspacePluginExtension"));
     }
 
     @Test
-    public void pluginJarHasNoLegacyWorkspaceShellClassesAndNoBundledApi() throws Exception {
-        java.util.jar.JarFile jar = new java.util.jar.JarFile(pluginJar);
+    public void pluginClassesHaveNoBundledHostApiOrLegacyShell() throws Exception {
+        final Path classesDir = new File(pluginDir, "classes").toPath();
+        java.util.stream.Stream<Path> files = Files.walk(classesDir);
         try {
-            java.util.Enumeration<java.util.jar.JarEntry> entries = jar.entries();
-            while (entries.hasMoreElements()) {
-                String name = entries.nextElement().getName();
+            files.filter(Files::isRegularFile).forEach(p -> {
+                String name = classesDir.relativize(p).toString().replace('\\', '/');
                 assertFalse("bundled PF4J: " + name, name.startsWith("org/pf4j/"));
                 assertFalse("bundled workspace API: " + name,
                         name.startsWith("com/aresstack/askai/plugin/api/"));
@@ -95,9 +100,9 @@ public class AgentPluginLoadIntegrationTest {
                 assertFalse("orphan legacy workspace class: " + name,
                         name.contains("ResearchWorkspace") || name.contains("ResearchDemoData")
                                 || name.contains("/research/domain/"));
-            }
+            });
         } finally {
-            jar.close();
+            files.close();
         }
     }
 
@@ -134,6 +139,15 @@ public class AgentPluginLoadIntegrationTest {
             assertEquals(EXTENSION_CLASS, extension.getClass().getName());
             assertTrue("extension must come from its own plugin classloader",
                     extension.getClass().getClassLoader() != AgentPluginExtension.class.getClassLoader());
+
+            // Prove the plugin's lib/ dependencies are on its classloader: a web-search-providers class
+            // (lib/web-search-providers.jar, which drags in AsyncHttpClient/Netty/Gson) loads through the
+            // plugin classloader — not the host, which does not provide it.
+            Class<?> providerModule = Class.forName(
+                    "com.aresstack.askai.research.search.application.WebSearchProvidersModule",
+                    false, extension.getClass().getClassLoader());
+            assertEquals("lib/ classes load via the plugin classloader",
+                    extension.getClass().getClassLoader(), providerModule.getClassLoader());
 
             AgentPluginDescriptor descriptor = extension.getAgentDescriptor();
             assertEquals(AGENT_ID, descriptor.getId());
@@ -201,8 +215,26 @@ public class AgentPluginLoadIntegrationTest {
 
     private Path installIntoTempPluginsDir() throws Exception {
         Path root = folder.newFolder("plugins").toPath();
-        Files.copy(pluginJar.toPath(), root.resolve("research-agent-ui-plugin.jar"),
-                StandardCopyOption.REPLACE_EXISTING);
+        final Path dest = root.resolve("research-agent-ui-plugin");
+        final Path src = pluginDir.toPath();
+        java.util.stream.Stream<Path> walk = Files.walk(src);
+        try {
+            walk.forEach(p -> {
+                try {
+                    Path target = dest.resolve(src.relativize(p).toString());
+                    if (Files.isDirectory(p)) {
+                        Files.createDirectories(target);
+                    } else {
+                        Files.createDirectories(target.getParent());
+                        Files.copy(p, target, StandardCopyOption.REPLACE_EXISTING);
+                    }
+                } catch (java.io.IOException e) {
+                    throw new java.io.UncheckedIOException(e);
+                }
+            });
+        } finally {
+            walk.close();
+        }
         return root;
     }
 
