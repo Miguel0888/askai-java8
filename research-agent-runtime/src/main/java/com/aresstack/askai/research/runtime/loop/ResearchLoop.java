@@ -43,11 +43,16 @@ public final class ResearchLoop {
     private com.aresstack.askai.browser.domain.DomainKeyResolver domainKeys =
             new com.aresstack.askai.browser.domain.PublicSuffixDomainKeyResolver();
     /**
-     * The typed two-step SERP preparation/repair driver. By default it drives a model-free coordinator
-     * (no adapter wired yet → low-confidence pages fall through honestly); the research-model runtime
-     * injects a real StructuredInferencePort-backed client later.
+     * The interchangeable INITIAL-search seam — the ONLY way the loop obtains its start URLs. It defaults to
+     * the browser SERP path built by {@link
+     * com.aresstack.askai.research.runtime.search.LegacyBrowserSearchStrategyFactory} (so the loop itself
+     * knows nothing about the layout-repair client); the productive runtime injects an API-provider strategy
+     * at session start when the snapshot selects one. From {@code result.candidates} onward the loop behaves
+     * identically no matter which strategy produced the URLs.
      */
-    private McpLayoutRepairClient repairClient;
+    private com.aresstack.askai.research.runtime.search.SearchStrategy searchStrategy;
+    /** The neutral per-run result count hint handed to the strategy (a provider may cap it further). */
+    private static final int INITIAL_SEARCH_RESULT_COUNT = 10;
     /**
      * The MANDATORY local cross-encoder reranking step. Every organic candidate is reranked and only the
      * selected survivors — in relevance order — ever reach the frontier and {@code web_open}; a reranker
@@ -74,10 +79,14 @@ public final class ResearchLoop {
         }
     }
 
-    /** Inject a repair client (e.g. one whose coordinator has a scripted inference port, for tests). */
-    void setRepairClient(McpLayoutRepairClient client) {
-        if (client != null) {
-            this.repairClient = client;
+    /**
+     * Inject an initial-search strategy (productive runtime selects the API-provider strategy; tests inject
+     * fakes, incl. a legacy-browser strategy over a scripted repair client). Passing {@code null} keeps the
+     * current strategy — there is never a silent fallback.
+     */
+    public void setSearchStrategy(com.aresstack.askai.research.runtime.search.SearchStrategy strategy) {
+        if (strategy != null) {
+            this.searchStrategy = strategy;
         }
     }
 
@@ -98,15 +107,15 @@ public final class ResearchLoop {
         this.cancelled = cancelled;
         this.challengeProbeIntervalMillis = searchSettings.captcha.challengeProbeIntervalMillis;
         this.startedAt = clock.currentTimeMillis();
-        // Model-free by default: no StructuredInferencePort adapter is wired here, so a low-confidence
-        // page yields no results (honest) until the research-model runtime injects a real port.
-        this.repairClient = new McpLayoutRepairClient(browser,
-                new com.aresstack.askai.browser.search.analysis.SearchLayoutRepairCoordinator(
-                        searchSettings,
-                        new com.aresstack.askai.browser.search.analysis
-                                .UnavailableStructuredInferencePort(),
-                        com.aresstack.askai.browser.search.inference.InferenceBudgetGate.ALLOW_ALL,
-                        new com.aresstack.askai.browser.search.analysis.SleepingRetryDelay(), null));
+        // Default seam: the unchanged browser SERP path. The factory owns the layout-repair client so the
+        // loop depends only on the neutral SearchStrategy — never on McpLayoutRepairClient directly.
+        this.searchStrategy = com.aresstack.askai.research.runtime.search
+                .LegacyBrowserSearchStrategyFactory.createDefault(browser, searchSettings,
+                        new java.util.function.LongSupplier() {
+                            public long getAsLong() {
+                                return clock.currentTimeMillis();
+                            }
+                        });
     }
 
     public ResearchRunProgress getProgress() {
@@ -155,10 +164,14 @@ public final class ResearchLoop {
         try {
             String query = join(terms);
             listener.progress(progress, ResearchRunActivity.searching(query));
-            // Typed two-step preparation/repair — no ATTEMPT:/CHALLENGE: text parsing, no candidate
-            // JSON round-tripped back to text: URLs come straight from typed SearchResultCandidates.
-            McpLayoutRepairClient.Result result = repairClient.searchWithRepair(query,
-                    cancellationSignal(), clock.currentTimeMillis(), new McpLayoutRepairClient.ToolBudget() {
+            // Interchangeable INITIAL search: whether these candidates come from the browser SERP path or an
+            // API provider, the code below (reranking → frontier → Playwright) is identical. URLs come
+            // straight from typed SearchResultCandidates — no ATTEMPT:/CHALLENGE: text parsing.
+            com.aresstack.askai.research.runtime.search.InitialSearchResult result = searchStrategy.search(
+                    new com.aresstack.askai.research.runtime.search.InitialSearchRequest(
+                            query, INITIAL_SEARCH_RESULT_COUNT, null, null),
+                    cancellationSignal(),
+                    new com.aresstack.askai.research.runtime.search.SearchBudgetGate() {
                         public boolean beforeToolCall() {
                             return ResearchLoop.this.beforeToolCall() == null;
                         }
