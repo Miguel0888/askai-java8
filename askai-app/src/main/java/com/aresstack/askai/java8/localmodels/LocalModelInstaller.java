@@ -92,35 +92,11 @@ public final class LocalModelInstaller {
                         StandardCopyOption.REPLACE_EXISTING);
             }
 
-            listener.onStep("Compiling the runtime package (" + descriptor.runtimePackageFileName()
-                    + ") and smoke-loading it…");
-            String baseUrl = manager.ensureStarted();
-            Map<String, Object> installRequest = new LinkedHashMap<String, Object>();
-            // The sidecar re-derives family/capabilities/package from the catalog; these are identifiers.
-            installRequest.put("repositoryId", descriptor.huggingFaceRepositoryId());
-            installRequest.put("runtimeModelId", descriptor.runtimeModelId());
-            installRequest.put("virtualName", descriptor.virtualModelName());
-            installRequest.put("modelDirectory", assembly.getAbsolutePath());
-            installRequest.put("force", Boolean.TRUE);
-            Map<String, Object> installed =
-                    LocalRuntimeHttp.postJson(baseUrl, "/internal/install", installRequest);
-            if (!Boolean.TRUE.equals(installed.get("ok"))) {
-                throw new IOException("Local install failed [" + String.valueOf(installed.get("code"))
-                        + "]: " + String.valueOf(installed.get("reason")));
-            }
-
-            listener.onStep("Writing the installation manifest…");
             String virtualName = descriptor.virtualModelName();
-            // Manifest v2 (shared, catalog-validated on read): the catalog facts plus the resolved revision
-            // and install time. Written LAST, after the verified compile + package-backed smoke-load.
-            Files.write(new File(assembly, "askai-local-model.json").toPath(),
-                    LocalModelManifestCodec.toJson(InstalledModelManifest.forInstall(descriptor, revision,
-                            System.currentTimeMillis())).getBytes(Charset.forName("UTF-8")));
-
-            listener.onStep("Activating the model…");
+            String baseUrl = manager.ensureStarted();
             File finalDirectory = new File(localRoot, directoryName);
             if (finalDirectory.exists()) {
-                // Reinstallation: ask the sidecar to unload the previous installation first.
+                // Reinstallation: ask the sidecar to unload the previous installation, then remove it.
                 try {
                     LocalRuntimeHttp.postJson(baseUrl, "/api/generate", unloadRequest(virtualName));
                 } catch (IOException ignored) {
@@ -128,16 +104,80 @@ public final class LocalModelInstaller {
                 }
                 deleteRecursively(finalDirectory);
             }
+            // Move the raw assets into their FINAL home BEFORE the sidecar compiles + smoke-loads them. A
+            // generation smoke memory-maps the compiled package and the win-directml runtime keeps that file
+            // locked for the sidecar's lifetime, so renaming the directory AFTER the smoke is impossible on
+            // Windows. Compiling in place and writing the manifest LAST preserves the "nothing half-installed
+            // is visible" guarantee: the fail-closed reader ignores any directory without a valid manifest.
+            activate(assembly, finalDirectory);
+            boolean committed = false;
             try {
-                Files.move(assembly.toPath(), finalDirectory.toPath(),
-                        StandardCopyOption.ATOMIC_MOVE);
-            } catch (IOException notAtomic) {
-                Files.move(assembly.toPath(), finalDirectory.toPath());
+                listener.onStep("Compiling the runtime package (" + descriptor.runtimePackageFileName()
+                        + ") and smoke-loading it…");
+                Map<String, Object> installRequest = new LinkedHashMap<String, Object>();
+                // The sidecar re-derives family/capabilities/package from the catalog; these are identifiers.
+                installRequest.put("repositoryId", descriptor.huggingFaceRepositoryId());
+                installRequest.put("runtimeModelId", descriptor.runtimeModelId());
+                installRequest.put("virtualName", virtualName);
+                installRequest.put("modelDirectory", finalDirectory.getAbsolutePath());
+                installRequest.put("force", Boolean.TRUE);
+                Map<String, Object> installed =
+                        LocalRuntimeHttp.postJson(baseUrl, "/internal/install", installRequest);
+                if (!Boolean.TRUE.equals(installed.get("ok"))) {
+                    throw new IOException("Local install failed [" + String.valueOf(installed.get("code"))
+                            + "]: " + String.valueOf(installed.get("reason")));
+                }
+
+                listener.onStep("Writing the installation manifest…");
+                // Manifest v2 (shared, catalog-validated on read): the catalog facts plus the resolved
+                // revision and install time. Written LAST — the commit marker after the verified compile +
+                // package-backed smoke-load.
+                Files.write(new File(finalDirectory, "askai-local-model.json").toPath(),
+                        LocalModelManifestCodec.toJson(InstalledModelManifest.forInstall(descriptor, revision,
+                                System.currentTimeMillis())).getBytes(Charset.forName("UTF-8")));
+                committed = true;
+                return virtualName;
+            } finally {
+                if (!committed) {
+                    // A manifest-less directory is invisible to the reader, but remove it so a failed install
+                    // does not leave gigabytes of raw assets behind.
+                    deleteRecursively(finalDirectory);
+                }
             }
-            return virtualName;
         } finally {
             deleteRecursively(staging);
         }
+    }
+
+    /**
+     * Rename the staged raw-asset directory into its final home (before the sidecar compiles/smokes it). A
+     * few retries absorb the transient {@link java.nio.file.AccessDeniedException} Windows raises when an
+     * antivirus/search indexer momentarily holds a just-downloaded file.
+     */
+    private static void activate(File assembly, File finalDirectory) throws IOException {
+        IOException last = null;
+        for (int attempt = 0; attempt < 25; attempt++) {
+            try {
+                Files.move(assembly.toPath(), finalDirectory.toPath(), StandardCopyOption.ATOMIC_MOVE);
+                return;
+            } catch (IOException notAtomic) {
+                try {
+                    Files.move(assembly.toPath(), finalDirectory.toPath());
+                    return;
+                } catch (IOException retryable) {
+                    last = retryable;
+                }
+            }
+            try {
+                Thread.sleep(200);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        throw new IOException("Could not activate the installed model directory " + finalDirectory
+                + " (the runtime may still hold the compiled package): "
+                + (last != null ? last.getMessage() : "unknown"), last);
     }
 
     private static Map<String, Object> unloadRequest(String virtualName) {

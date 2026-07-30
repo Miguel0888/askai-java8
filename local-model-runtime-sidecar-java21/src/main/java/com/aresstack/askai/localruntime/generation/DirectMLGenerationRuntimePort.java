@@ -3,6 +3,10 @@ package com.aresstack.askai.localruntime.generation;
 import com.aresstack.windirectml.catalog.CatalogBackend;
 import com.aresstack.windirectml.catalog.LocalModelCatalog;
 import com.aresstack.windirectml.catalog.LocalRuntimeModelDescriptor;
+import com.aresstack.windirectml.inference.artifact.DefaultModelArtifactService;
+import com.aresstack.windirectml.inference.artifact.ModelArtifactService;
+import com.aresstack.windirectml.modelpack.ModelConversionResult;
+import com.aresstack.windirectml.modelpack.ModelFamily;
 import com.aresstack.windirectml.inference.api.GenerationErrorCode;
 import com.aresstack.windirectml.inference.api.GenerationException;
 import com.aresstack.windirectml.inference.api.GenerationModelHandle;
@@ -15,15 +19,21 @@ import com.aresstack.windirectml.inference.api.LoadPolicy;
 
 /**
  * The productive generation port: bridges the AskAI-owned {@link LocalGenerationRuntimePort} to the
- * published {@code com.aresstack:directml-inference} public API ({@code inference.api}). It uses ONLY that
- * public API — no internal family adapter, no workbench class. The win-directml runtime renders the
- * family's own chat template (AskAI never duplicates prompt logic); the ACTUAL backend the runtime used is
- * read back from the result, never assumed from the request. Load enforces PACKAGE_ONLY; install allows a
- * one-time compile.
+ * published {@code com.aresstack:directml-inference} public API. It uses ONLY that public API — no internal
+ * family class. The win-directml runtime renders the family's own chat template (AskAI never duplicates
+ * prompt logic); the ACTUAL backend the runtime used is read back from the result, never assumed from the
+ * request.
+ *
+ * <p>The generation {@code inference} module separates COMPILE from LOAD: {@code GenerationRuntime.open}
+ * (and its family adapters) only ever open a pre-built {@code model.wdmlpack} — {@code ALLOW_COMPILE} merely
+ * defers the missing-package check, it does NOT compile. Compilation is the explicit
+ * {@link ModelArtifactService#convert} step. So install compiles the package ONCE (convert) and then
+ * package-backed smoke-loads it; a later runtime load is always {@code PACKAGE_ONLY} against that package.</p>
  */
 public final class DirectMLGenerationRuntimePort implements LocalGenerationRuntimePort {
 
     private final GenerationRuntime runtime = GenerationRuntime.create();
+    private final ModelArtifactService artifacts = DefaultModelArtifactService.createDefault();
 
     @Override
     public boolean isLinked() {
@@ -37,11 +47,39 @@ public final class DirectMLGenerationRuntimePort implements LocalGenerationRunti
 
     @Override
     public void compileAndSmokeLoad(LocalGenerationLoadRequest request) throws LocalGenerationException {
-        LoadedGenerationHandle handle = open(request, LoadPolicy.ALLOW_COMPILE);
+        compile(request);
+        LoadedGenerationHandle handle = open(request, LoadPolicy.PACKAGE_ONLY);
         try {
             handle.generate(LocalGenerationRequest.completion("ok").numPredict(1).build());
         } finally {
+            // The win-directml runtime keeps the compiled package memory-mapped (file-locked on Windows) for
+            // this process's lifetime even after close(), so the host compiles + smokes in the model's FINAL
+            // directory and never renames it afterwards — see LocalModelInstaller.
             handle.close();
+        }
+    }
+
+    /** Compile the family's {@code model.wdmlpack} from the downloaded raw assets (the one-time install step). */
+    private void compile(LocalGenerationLoadRequest request) throws LocalGenerationException {
+        LocalRuntimeModelDescriptor descriptor = descriptorFor(request);
+        ModelFamily family;
+        try {
+            family = ModelFamily.valueOf(descriptor.runtimeFamily().name());
+        } catch (IllegalArgumentException notAGenerationFamily) {
+            throw new LocalGenerationException(LocalGenerationErrorCode.MODEL_CAPABILITY_MISMATCH,
+                    "family " + descriptor.runtimeFamily() + " has no generation package compiler");
+        }
+        try {
+            ModelConversionResult result = artifacts.convert(family, request.modelDirectory(), true);
+            if (!result.ok()) {
+                throw new LocalGenerationException(LocalGenerationErrorCode.PACKAGE_NOT_LOADABLE,
+                        "could not compile " + descriptor.runtimePackageFileName() + ": " + result.message());
+            }
+        } catch (LocalGenerationException already) {
+            throw already;
+        } catch (RuntimeException ex) {
+            throw new LocalGenerationException(LocalGenerationErrorCode.PACKAGE_NOT_LOADABLE,
+                    "compile of " + descriptor.runtimePackageFileName() + " failed: " + ex.getMessage(), ex);
         }
     }
 
