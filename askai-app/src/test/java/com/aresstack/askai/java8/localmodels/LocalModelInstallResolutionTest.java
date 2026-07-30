@@ -32,18 +32,16 @@ public class LocalModelInstallResolutionTest {
     }
 
     @Test
-    public void runnableGenerationFamiliesAreTypedNotAvailableYet() {
-        // Catalogued RUNNABLE generation families (per the published 0.2.0 catalog) that the host installer
-        // does not install yet — encoder/reranker are installed today; generation install lands in C6.
+    public void runnableGenerationFamiliesAreInstallable() {
+        // Catalogued RUNNABLE generation families (per the published 0.2.0 catalog) install via the
+        // sidecar's generation runtime (compile + package-backed smoke).
         for (String repo : new String[]{"Qwen/Qwen2.5-Coder-0.5B-Instruct",
                 "HuggingFaceTB/SmolLM2-135M-Instruct", "HuggingFaceTB/SmolLM2-360M-Instruct",
                 "google-t5/t5-small", "google/flan-t5-small", "Salesforce/codet5-small",
                 "Salesforce/codet5-base-multi-sum"}) {
             LocalModelInstallResolution r = LocalModelInstallResolution.resolve(repo);
-            assertEquals(repo, LocalModelInstallResolution.Kind.LOCAL_RUNTIME_FAMILY_NOT_AVAILABLE_YET,
-                    r.getKind());
-            assertFalse(repo, r.isInstallable());
-            assertTrue(r.getMessage().toLowerCase().contains("not available yet"));
+            assertEquals(repo, LocalModelInstallResolution.Kind.GENERATION, r.getKind());
+            assertTrue(repo, r.isInstallable());
         }
     }
 

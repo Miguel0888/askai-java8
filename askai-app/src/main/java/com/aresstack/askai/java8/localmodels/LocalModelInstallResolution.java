@@ -17,11 +17,14 @@ public final class LocalModelInstallResolution {
 
     /** The outcome kind of resolving a repository against the catalog. */
     public enum Kind {
-        /** An embedding encoder (encoder.wdmlpack) — installable in C2. */
+        /** An embedding encoder (encoder.wdmlpack). */
         ENCODER,
-        /** A cross-encoder reranker (reranker.wdmlpack) — installable in C2. */
+        /** A cross-encoder reranker (reranker.wdmlpack). */
         RERANKER,
-        /** A catalogued native generation family whose local installer is not implemented yet. */
+        /** A native text-generation family (Qwen/SmolLM2/Gemma3/Phi-3/T5) — installed via the sidecar's
+         *  generation runtime (compile + package-backed smoke). */
+        GENERATION,
+        /** Retained for compatibility; no longer returned now the generation runtime is linked. */
         LOCAL_RUNTIME_FAMILY_NOT_AVAILABLE_YET,
         /** Present in the catalog but not RUNNABLE (e.g. the UNVERIFIED L-12 reranker). */
         NOT_RUNNABLE,
@@ -52,9 +55,9 @@ public final class LocalModelInstallResolution {
         return message;
     }
 
-    /** Whether C2's encoder/reranker installer can install this repository right now. */
+    /** Whether the local installer can install this repository (encoder, reranker or generation family). */
     public boolean isInstallable() {
-        return kind == Kind.ENCODER || kind == Kind.RERANKER;
+        return kind == Kind.ENCODER || kind == Kind.RERANKER || kind == Kind.GENERATION;
     }
 
     /** Resolve a repository id against the catalog. */
@@ -76,9 +79,8 @@ public final class LocalModelInstallResolution {
         if (family == CatalogModelFamily.CROSS_ENCODER) {
             return new LocalModelInstallResolution(Kind.RERANKER, descriptor, null);
         }
-        return new LocalModelInstallResolution(Kind.LOCAL_RUNTIME_FAMILY_NOT_AVAILABLE_YET, descriptor,
-                "The local runtime family '" + family.token() + "' ("
-                        + descriptor.huggingFaceRepositoryId() + ") is catalogued but its local installer "
-                        + "is not available yet; it will be enabled in a later commit.");
+        // Every remaining RUNNABLE family is a native text-generation family (Qwen/SmolLM2/T5); Gemma-3-it
+        // and Phi-3 are UNVERIFIED in the catalog and were already rejected as NOT_RUNNABLE above.
+        return new LocalModelInstallResolution(Kind.GENERATION, descriptor, null);
     }
 }

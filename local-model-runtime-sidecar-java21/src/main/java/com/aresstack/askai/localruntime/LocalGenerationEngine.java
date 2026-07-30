@@ -40,6 +40,20 @@ final class LocalGenerationEngine implements AutoCloseable {
         return port.isLinked();
     }
 
+    /**
+     * Install-time compile + package-backed smoke-load for a generation model (does NOT keep it warm).
+     * Any currently-warm generation model is unloaded first (single-memory policy).
+     */
+    void compileAndSmokeLoad(LocalModel model) throws LocalGenerationException {
+        lock.lock();
+        try {
+            closeWarm();
+            port.compileAndSmokeLoad(loadRequest(model));
+        } finally {
+            lock.unlock();
+        }
+    }
+
     LocalGenerationResult generate(LocalModel model, LocalGenerationRequest request,
                                    LocalGenerationTokenListener listener) throws LocalGenerationException {
         lock.lock();

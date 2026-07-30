@@ -39,11 +39,11 @@ public final class LocalModelRuntimeMain {
 
         LocalModelStore store = new LocalModelStore(Path.of(modelRoot));
         LocalModelEngine engine = new LocalModelEngine(backend);
-        // No productive generation runtime is linked on this development branch: the port answers every
-        // load with RUNTIME_NOT_LINKED, so /api/chat and /api/generate exist and are typed-error-correct
-        // while the concrete family adapters arrive later behind the SAME port.
+        // The productive win-directml generation runtime (directml-inference), linked behind the AskAI
+        // port. /api/version reports features.generation=true and /api/chat + /api/generate run real local
+        // generation through this port.
         LocalGenerationEngine generationEngine = new LocalGenerationEngine(
-                new com.aresstack.askai.localruntime.generation.NotLinkedGenerationRuntimePort(),
+                new com.aresstack.askai.localruntime.generation.DirectMLGenerationRuntimePort(),
                 com.aresstack.askai.localruntime.generation.LocalGenerationBackend.parse(backend.name()));
         LocalModelRuntimeServer server = new LocalModelRuntimeServer(store, engine, generationEngine);
         int boundPort = server.start(host, port);

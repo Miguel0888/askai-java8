@@ -438,6 +438,9 @@ final class LocalModelRuntimeServer {
         body.put("done_reason", result.doneReason());
         body.put("prompt_eval_count", result.promptTokens());
         body.put("eval_count", result.generatedTokens());
+        if (!result.backend().isEmpty()) {
+            body.put("backend", result.backend()); // the backend the runtime ACTUALLY used
+        }
         return body;
     }
 
@@ -490,7 +493,8 @@ final class LocalModelRuntimeServer {
         CatalogModelFamily family = descriptor.runtimeFamily();
         boolean encoder = family == CatalogModelFamily.MINILM || family == CatalogModelFamily.E5;
         boolean reranker = family == CatalogModelFamily.CROSS_ENCODER;
-        if (!encoder && !reranker) {
+        boolean generation = !encoder && !reranker && isGenerationFamily(family);
+        if (!encoder && !reranker && !generation) {
             respond(exchange, 200, installError("UNSUPPORTED_FAMILY",
                     "local installation of family '" + family.token() + "' is not available yet"));
             return;
@@ -504,6 +508,22 @@ final class LocalModelRuntimeServer {
         }
         boolean force = Boolean.TRUE.equals(request.get("force"));
         Path directory = Path.of(modelDir);
+        if (generation) {
+            // A generation model: the win-directml runtime compiles its wdmlpack and proves it loads
+            // (package-backed) through the AskAI generation port. The compiled model is not kept warm.
+            try {
+                LocalModel installed = new LocalModel(
+                        InstalledModelManifest.forInstall(descriptor, "install", System.currentTimeMillis()),
+                        directory);
+                generationEngine.compileAndSmokeLoad(installed);
+            } catch (LocalGenerationException failure) {
+                respond(exchange, 200, installError(failure.code().name(), failure.getMessage()));
+                return;
+            }
+            respond(exchange, 200, installReady(repositoryId, descriptor, effectiveBackend,
+                    descriptor.runtimePackageFileName()));
+            return;
+        }
         try {
             ModelConversionResult conversion = (encoder ? EncoderPackageLifecycle.embedding()
                     : EncoderPackageLifecycle.reranker()).convert(directory, force);
@@ -531,18 +551,8 @@ final class LocalModelRuntimeServer {
                         "smoke inference failed: " + smokeFailure.getMessage()));
                 return;
             }
-            Map<String, Object> ok = new LinkedHashMap<>();
-            ok.put("ok", true); // kept for backward compatibility with the current host reader
-            ok.put("status", "READY");
-            ok.put("repositoryId", repositoryId);
-            ok.put("virtualName", descriptor.virtualModelName());
-            ok.put("runtimeModelId", descriptor.runtimeModelId());
-            ok.put("runtimeFamily", descriptor.runtimeFamily().token());
-            ok.put("runtimePackage", descriptor.runtimePackageFileName());
-            ok.put("capabilities", InstalledModelManifest.expectedCapabilityTokens(descriptor));
-            ok.put("backend", effectiveBackend.name().toLowerCase(Locale.ROOT));
-            ok.put("packagePath", String.valueOf(conversion.output()));
-            respond(exchange, 200, ok);
+            respond(exchange, 200, installReady(repositoryId, descriptor, effectiveBackend,
+                    String.valueOf(conversion.output())));
         } catch (Exception failure) {
             respond(exchange, 200, installError("PACKAGE_COMPILE_FAILED",
                     "compile/smoke failed: " + failure.getMessage()));
@@ -557,6 +567,28 @@ final class LocalModelRuntimeServer {
         } catch (IllegalArgumentException unknown) {
             return false;
         }
+    }
+
+    private static boolean isGenerationFamily(CatalogModelFamily family) {
+        return family == CatalogModelFamily.QWEN || family == CatalogModelFamily.SMOLLM2
+                || family == CatalogModelFamily.GEMMA3 || family == CatalogModelFamily.PHI3
+                || family == CatalogModelFamily.T5;
+    }
+
+    private static Map<String, Object> installReady(String repositoryId,
+            LocalRuntimeModelDescriptor descriptor, Backend backend, String packagePath) {
+        Map<String, Object> ok = new LinkedHashMap<>();
+        ok.put("ok", true); // kept for backward compatibility with the current host reader
+        ok.put("status", "READY");
+        ok.put("repositoryId", repositoryId);
+        ok.put("virtualName", descriptor.virtualModelName());
+        ok.put("runtimeModelId", descriptor.runtimeModelId());
+        ok.put("runtimeFamily", descriptor.runtimeFamily().token());
+        ok.put("runtimePackage", descriptor.runtimePackageFileName());
+        ok.put("capabilities", InstalledModelManifest.expectedCapabilityTokens(descriptor));
+        ok.put("backend", backend.name().toLowerCase(Locale.ROOT));
+        ok.put("packagePath", packagePath);
+        return ok;
     }
 
     private static Map<String, Object> installError(String code, String reason) {
@@ -685,7 +717,8 @@ final class LocalModelRuntimeServer {
         public void onComplete(LocalGenerationResult result) {
             try {
                 ensureHeaders();
-                writeLine(doneLine(result.doneReason(), result.promptTokens(), result.generatedTokens()));
+                writeLine(doneLine(result.doneReason(), result.promptTokens(), result.generatedTokens(),
+                        result.backend()));
                 done = true;
                 close();
             } catch (IOException ignored) {
@@ -700,7 +733,7 @@ final class LocalModelRuntimeServer {
             }
             try {
                 ensureHeaders();
-                writeLine(doneLine("stop", 0, 0));
+                writeLine(doneLine("stop", 0, 0, ""));
                 done = true;
                 close();
             } catch (IOException ignored) {
@@ -735,7 +768,8 @@ final class LocalModelRuntimeServer {
             return line;
         }
 
-        private Map<String, Object> doneLine(String reason, int promptTokens, int generatedTokens) {
+        private Map<String, Object> doneLine(String reason, int promptTokens, int generatedTokens,
+                String backend) {
             Map<String, Object> line = new LinkedHashMap<>();
             line.put("model", model);
             if (chat) {
@@ -750,6 +784,9 @@ final class LocalModelRuntimeServer {
             line.put("done_reason", reason);
             line.put("prompt_eval_count", promptTokens);
             line.put("eval_count", generatedTokens);
+            if (backend != null && !backend.isEmpty()) {
+                line.put("backend", backend);
+            }
             return line;
         }
 

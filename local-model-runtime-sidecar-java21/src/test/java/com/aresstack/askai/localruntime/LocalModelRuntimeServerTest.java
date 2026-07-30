@@ -132,11 +132,13 @@ public class LocalModelRuntimeServerTest {
         Map<String, Object> missing = post("/internal/install",
                 "{\"repositoryId\":\"foo/bar\",\"modelDirectory\":\"" + tmp("foo") + "\"}", 200);
         assertEquals("CATALOG_ENTRY_MISSING", missing.get("code"));
-        // A catalogued generation family whose local installer is not available yet.
+        // A catalogued generation family routes to the generation runtime; this server wires the
+        // NOT-linked port, so install reports the typed RUNTIME_NOT_LINKED (the productive DirectML port
+        // would compile + smoke it instead).
         Map<String, Object> generation = post("/internal/install",
                 "{\"repositoryId\":\"Qwen/Qwen2.5-Coder-0.5B-Instruct\",\"modelDirectory\":\""
                         + tmp("qwen") + "\"}", 200);
-        assertEquals("UNSUPPORTED_FAMILY", generation.get("code"));
+        assertEquals("RUNTIME_NOT_LINKED", generation.get("code"));
     }
 
     @Test

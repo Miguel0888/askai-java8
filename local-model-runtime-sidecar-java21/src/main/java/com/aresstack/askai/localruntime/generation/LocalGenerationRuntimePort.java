@@ -20,4 +20,13 @@ public interface LocalGenerationRuntimePort {
     default boolean isLinked() {
         return true;
     }
+
+    /**
+     * Compile the model's runtime package (if needed) and prove it loads with a smoke, then release it.
+     * Used by the install path. The default performs a PACKAGE_ONLY load + close (fine for a fake/linked
+     * port whose package already exists); the productive adapter overrides it to allow compilation.
+     */
+    default void compileAndSmokeLoad(LocalGenerationLoadRequest request) throws LocalGenerationException {
+        load(request).close();
+    }
 }
