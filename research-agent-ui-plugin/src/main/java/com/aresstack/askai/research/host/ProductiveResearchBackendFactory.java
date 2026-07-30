@@ -10,7 +10,6 @@ import com.aresstack.askai.mcp.api.McpServerRegistry;
 import com.aresstack.askai.mcp.api.McpToolClient;
 import com.aresstack.askai.mcp.api.McpToolClientFactory;
 import com.aresstack.askai.research.acp.AcpResearchSessionBackend;
-import com.aresstack.askai.research.agent.ResearchArtifactStore;
 import com.aresstack.askai.research.capture.CaptureStore;
 import com.aresstack.askai.research.capture.ResearchSearchIndex;
 import com.aresstack.askai.research.capture.SourceAcceptanceService;
@@ -158,10 +157,24 @@ public final class ProductiveResearchBackendFactory {
                     + ex.getMessage(), ex);
         }
 
-        // 1. Session-owned stores + state machine (pure, nothing to roll back).
+        // 1. THE persistent project context (Commit 1 of the guided artifact flow): exactly one
+        // file-backed artifact store, source repository, state store and metadata store per
+        // project directory — the productive path never constructs an in-memory artifact store. The
+        // mandatory reranker snapshot above is prepared first so a session still fails closed without it.
+        com.aresstack.askai.research.store.ResearchProjectContext projectContext =
+                com.aresstack.askai.research.store.ResearchProjectContext.open(sessionKey, projectDir);
+        // FAIL-CLOSED start gate: only MISSING (new project) or LOADED metadata may start. A
+        // corrupt/foreign/unsupported project.properties blocks the session with a repair hint -
+        // it never silently restarts as an empty research assignment.
+        com.aresstack.askai.research.store.MetadataLoadResult metadataResult =
+                projectContext.getMetadataStore().load(sessionKey);
+        if (!metadataResult.isUsableForStart()) {
+            throw new IOException("The stored research project metadata is unusable ("
+                    + metadataResult.getStatus() + "): " + metadataResult.getReason()
+                    + " - repair or remove " + new File(projectDir, "project.properties"));
+        }
         CaptureStore captures = new CaptureStore(200);
-        File sourcesDir = new File(projectDir, "sources");
-        final FileResearchSourceRepository repository = new FileResearchSourceRepository(sourcesDir);
+        final FileResearchSourceRepository repository = projectContext.getFileSourceRepository();
         ResearchSearchIndex.InMemory index = new ResearchSearchIndex.InMemory();
         SourceAcceptanceService acceptance = new SourceAcceptanceService(captures, repository,
                 new SourceAcceptanceService.SourceCreator() {
@@ -173,7 +186,7 @@ public final class ProductiveResearchBackendFactory {
                                     "Cannot persist source " + record.getSourceId(), ex);
                         }
                     }
-                }, index);
+                }, index, highestSourceNumber(repository));
         OoResearchStateMachine stateMachine = new OoResearchStateMachine(sessionKey);
 
         BrowserMcpSidecarProcess sidecar = null;
@@ -252,7 +265,7 @@ public final class ProductiveResearchBackendFactory {
             backend = new AcpResearchSessionBackend(connector, spec, researchDescriptor, browserDescriptor);
 
             resources = new ProductiveResearchSessionResources(sessionKey, stateMachine, captures,
-                    repository, acceptance, new ResearchArtifactStore(), control, bridge,
+                    repository, acceptance, projectContext, control, bridge,
                     sidecarClient, sidecar, backend);
             resources.setSearchProfile(profile);
             holder[0] = resources;
@@ -295,6 +308,23 @@ public final class ProductiveResearchBackendFactory {
         baseEnv.put("ASKAI_BROWSER_SEARCH_CONFIG", searchConfigPath);
         baseEnv.put("ASKAI_RERANKER_CONFIG", rerankerSnapshotPath);
         return baseEnv;
+    }
+
+    /** The highest persisted {@code source-N} number of this project (0 for a fresh project). */
+    private static long highestSourceNumber(FileResearchSourceRepository repository) {
+        long highest = 0;
+        for (com.aresstack.askai.research.sources.ResearchSourceRecord record
+                : repository.find(com.aresstack.askai.research.sources.SourceQuery.all())) {
+            String id = record.getSourceId();
+            if (id != null && id.startsWith("source-")) {
+                try {
+                    highest = Math.max(highest, Long.parseLong(id.substring("source-".length())));
+                } catch (NumberFormatException ignored) {
+                    // foreign id scheme — never counted, never reissued either
+                }
+            }
+        }
+        return highest;
     }
 
     /** Used by generation preparation: validation without side effects. */

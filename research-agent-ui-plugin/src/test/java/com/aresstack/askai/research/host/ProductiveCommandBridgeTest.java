@@ -133,7 +133,7 @@ public class ProductiveCommandBridgeTest {
                     });
             control.open();
             resources = new ProductiveResearchSessionResources("s1", new OoResearchStateMachine("s1"),
-                    null, null, null, new ResearchArtifactStore(), control, null, null, null, null);
+                    null, null, null, tempProjectContext(), control, null, null, null, null);
             holder[0] = resources;
             session = new ResearchAgentSession(backend, null, new PlainHost(), "s1", "p1", resources);
             session.activate();
@@ -265,4 +265,16 @@ public class ProductiveCommandBridgeTest {
             return null;
         }
     }
+
+    /** A file-backed project context in a fresh temp directory (the productive contract). */
+    private static com.aresstack.askai.research.store.ResearchProjectContext tempProjectContext() {
+        try {
+            java.io.File dir = java.nio.file.Files.createTempDirectory("askai-research-test")
+                    .toFile();
+            return com.aresstack.askai.research.store.ResearchProjectContext.open("s1", dir);
+        } catch (java.io.IOException ex) {
+            throw new IllegalStateException(ex);
+        }
+    }
+
 }

@@ -67,6 +67,16 @@ public final class SourceAcceptanceService {
 
     public SourceAcceptanceService(CaptureStore captures,
                                    com.aresstack.askai.research.sources.ResearchSourceRepository repository,
+                                   SourceCreator creator, ResearchSearchIndex index,
+                                   long sourceIdSeed) {
+        this(captures, repository, creator, index);
+        // Restore-safe ids: continue AFTER the highest persisted source number so a resumed
+        // project never reissues an existing source id.
+        this.sourceIds.set(sourceIdSeed);
+    }
+
+    public SourceAcceptanceService(CaptureStore captures,
+                                   com.aresstack.askai.research.sources.ResearchSourceRepository repository,
                                    SourceCreator creator, ResearchSearchIndex index) {
         this.captures = captures;
         this.repository = repository;

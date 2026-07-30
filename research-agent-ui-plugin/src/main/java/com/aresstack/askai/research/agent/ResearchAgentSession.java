@@ -136,10 +136,18 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             });
         }
         if (productiveResources != null && problemMessage.isEmpty()) {
-            // First contact: the agent takes the initiative with ONE open question (playbook).
-            // Suppressed when the backend start already reported an error — no cheerful greeting
-            // right under a "could not be started" problem.
-            sayAsAgent(ResearchPlaybook.greeting());
+            // RESTORE is state-driven: a project with a persisted assignment/state resumes with a
+            // status line instead of the fresh-start greeting — no repeated scoping ceremony.
+            boolean restoredAssignment = restoreProjectMetadata();
+            com.aresstack.askai.research.state.oo.ResearchStateMemento current =
+                    productiveResources.currentState();
+            if (restoredAssignment || current.getRevision() > 0) {
+                sayAsAgent(ResearchPlaybook.describePhase(current.getPhaseId(),
+                        current.getStateId(), !researchQuestion.isEmpty()));
+            } else {
+                // First contact: the agent takes the initiative with ONE open question (playbook).
+                sayAsAgent(ResearchPlaybook.greeting());
+            }
         }
     }
 
@@ -248,9 +256,21 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                     }
                     return; // the dialog is host-side; nothing is forwarded to the agent yet
                 }
-                // Scope CONFIRMED: real artifacts from the confirmed scope, then the outline gate.
+                // Scope CONFIRMED: commit metadata + concept + outline FAIL-CLOSED. Only a
+                // fully successful commit may advance the state machine; any failure keeps the
+                // scoping repeatable and shows a localized reason.
+                ResearchScopeCommitService.ScopeCommitResult commit =
+                        new ResearchScopeCommitService(productiveResources.getProjectContext())
+                                .commit(new ConfirmedResearchScope(scoping.getQuestion(),
+                                        scoping.getAspects(), scoping.buildConceptMarkdown(),
+                                        scoping.buildOutlineMarkdown()));
+                if (!commit.isSuccess()) {
+                    scoping.reopenForRetry();
+                    sayAsAgent(ResearchPlaybook.scopeCommitFailed(
+                            commit.getStatus() + ": " + commit.getDetail()));
+                    return;
+                }
                 researchQuestion = scoping.getQuestion();
-                writeScopedArtifacts();
                 autoAdvanceTowardsResearch(); // stops at the approval, showing the actual outline
                 return;
             }
@@ -274,14 +294,31 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         });
     }
 
-    /** Concept + outline from the CONFIRMED scope (revision >= 1) — the approval shows real content. */
-    private void writeScopedArtifacts() {
-        com.aresstack.askai.plugin.api.agent.artifact.AgentArtifactStore store =
-                productiveResources.getArtifactStore();
-        com.aresstack.askai.plugin.api.agent.artifact.ArtifactContent concept = store.read("concept");
-        store.replace("concept", concept.getRevision(), scoping.buildConceptMarkdown());
-        com.aresstack.askai.plugin.api.agent.artifact.ArtifactContent outline = store.read("outline");
-        store.replace("outline", outline.getRevision(), scoping.buildOutlineMarkdown());
+    /**
+     * Restore the persisted research assignment of this project, if any: the question and the
+     * confirmed focus areas come back typed, the scoping dialog is marked complete — a restored
+     * session never repeats the scoping ceremony.
+     */
+    private boolean restoreProjectMetadata() {
+        if (productiveResources == null) {
+            return false;
+        }
+        com.aresstack.askai.research.store.MetadataLoadResult loadResult =
+                productiveResources.getProjectContext().getMetadataStore()
+                        .load(productiveResources.getProjectContext().getProjectId());
+        if (loadResult.getStatus()
+                != com.aresstack.askai.research.store.MetadataLoadResult.Status.LOADED
+                || !loadResult.getMetadata().hasResearchQuestion()) {
+            // MISSING is a fresh project; damaged metadata never reaches this point because the
+            // factory blocks the productive start fail-closed.
+            return false;
+        }
+        com.aresstack.askai.research.store.ResearchProjectMetadata metadata =
+                loadResult.getMetadata();
+        researchQuestion = metadata.getResearchQuestion();
+        scoping.restoreCompleted(metadata.getResearchQuestion(),
+                metadata.getConfirmedFocusAreas());
+        return true;
     }
 
     /**
