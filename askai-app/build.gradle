@@ -5,7 +5,7 @@ dependencies {
     // Neutral win-directml model catalog (Java-8: no DirectML/Java-21 classes leak into the host): the
     // single source of truth for locally runnable model families (capabilities, download manifests,
     // runtime family, backends). Pinned to the published Maven Central release.
-    implementation 'com.aresstack:directml-model-catalog:0.2.0'
+    implementation 'com.aresstack:directml-model-catalog:0.2.1'
     // A5b: neutral reranker endpoint contract (DTO/codec only) shared with the research agent.
     implementation project(':agent-model-runtime-api')
     implementation project(':group-chat-api')

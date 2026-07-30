@@ -4,7 +4,7 @@ allprojects {
 
     repositories {
         // The win-directml-java model catalog + generation runtime are consumed from the PUBLISHED
-        // Maven Central release (com.aresstack:*:0.2.0). No mavenLocal / SNAPSHOT — the build must
+        // Maven Central release (com.aresstack:*:0.2.1). No mavenLocal / SNAPSHOT — the build must
         // resolve reproducibly on a fresh machine.
         mavenCentral()
     }

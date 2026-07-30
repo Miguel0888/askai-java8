@@ -15,7 +15,7 @@ java {
 // :directml-model-package, so the published core is self-contained). For local development
 // against unreleased directml changes, publishToMavenLocal there and temporarily add
 // mavenLocal() to the root repositories. No sources are copied into AskAI.
-ext.directmlVersion = '0.2.0'
+ext.directmlVersion = '0.2.1'
 
 dependencies {
     implementation "com.aresstack:directml-runtime:${directmlVersion}"

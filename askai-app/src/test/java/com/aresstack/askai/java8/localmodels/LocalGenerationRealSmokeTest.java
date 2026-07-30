@@ -35,22 +35,21 @@ import static org.junit.Assume.assumeTrue;
 public class LocalGenerationRealSmokeTest {
 
     /**
-     * One RUNNABLE model per generation runtime whose productive install path works against the published
-     * 0.2.0 stack: SMOLLM2 (native safetensors → wdmlpack) and T5 — plus CodeT5, which shares the T5 runtime
-     * with a distinct tokenizer. The models load one at a time and are unloaded before the next, which also
-     * exercises the single-generation-model switch.
+     * One RUNNABLE model per catalogued generation runtime, against the published 0.2.1 stack: SMOLLM2
+     * (native safetensors → wdmlpack), QWEN (self-contained INT4 ONNX → model_q4f16.wdmlpack) and T5 — plus
+     * CodeT5, which shares the T5 runtime with a distinct tokenizer. The models load one at a time and are
+     * unloaded before the next, which also exercises the single-generation-model switch.
      *
-     * <p>QWEN (Qwen2.5-Coder, ONNX-INT4) is catalogued RUNNABLE but is NOT exercised here because its
-     * productive install is blocked by an upstream 0.2.0 mismatch: the catalog's download manifest fetches
-     * {@code model_q4f16.onnx}, while {@code QwenModelDirValidator}/{@code QwenWdmlPackCompiler} require
-     * {@code model.onnx} (+ {@code model.onnx_data}). That is a win-directml catalog/library defect to fix
-     * upstream, not in AskAI. Gemma-3-it and Phi-3 are UNVERIFIED and likewise absent (no forced tests for
-     * non-RUNNABLE models).</p>
+     * <p>Qwen requires win-directml 0.2.1: on 0.2.0 its compile lifecycle defaulted the ONNX source to
+     * {@code model.onnx} (missing, and — being named {@code model.onnx} — demanding a non-existent
+     * {@code model.onnx_data}); 0.2.1 resolves the actual {@code model_q4f16.onnx} the catalog ships. Gemma-3
+     * -it and Phi-3 stay UNVERIFIED and absent (no forced tests for non-RUNNABLE models).</p>
      */
     private static final String[] RUNNABLE_GENERATION_MODELS = {
             "HuggingFaceTB/SmolLM2-135M-Instruct",
             "google-t5/t5-small",
             "Salesforce/codet5-small",
+            "Qwen/Qwen2.5-Coder-0.5B-Instruct",
     };
 
     @Test
