@@ -484,9 +484,19 @@ public final class AskAiFrame extends JFrame {
                                 services);
                     }
                 };
+        // PER-TAB session scope: the session id (and thus its project directory + sink) is derived from the
+        // ACTIVE chat tab's ChatSessionId, so two tabs of the same agent get distinct research sessions and a
+        // closed tab's session is never resumed by a fresh tab. Falls back to "session" when no tab is active.
+        final com.aresstack.askai.plugin.host.AgentSessionCoordinator.SessionScopeProvider sessionScope =
+                new com.aresstack.askai.plugin.host.AgentSessionCoordinator.SessionScopeProvider() {
+                    public String currentScope() {
+                        OllamaChatPanel chat = activeChat();
+                        return chat != null ? chat.getSessionId().toString() : "session";
+                    }
+                };
         final com.aresstack.askai.plugin.host.AgentSessionCoordinator agentCoordinator =
                 new com.aresstack.askai.plugin.host.AgentSessionCoordinator(
-                        agentResolver, agentHostProvider, uiExecutor);
+                        agentResolver, agentHostProvider, uiExecutor, sessionScope);
         coordinatorRef[0] = agentCoordinator;
         // Transactional refresh: the coordinator detaches the outgoing generation's sessions on the EDT and the
         // service closes them off-EDT before retiring the old classloaders, so no session survives a swap.

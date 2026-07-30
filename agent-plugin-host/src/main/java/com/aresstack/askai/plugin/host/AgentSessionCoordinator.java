@@ -47,6 +47,22 @@ public final class AgentSessionCoordinator
         AgentHostContext create(String agentId, String sessionInstanceId);
     }
 
+    /**
+     * Supplies the current session SCOPE so a session is identified by agent id AND scope — the active chat
+     * tab's {@code ChatSessionId} in the productive wiring — instead of the agent id alone. This is what makes
+     * research sessions per-tab: two tabs of the same agent get distinct sessions, ids and project directories.
+     * The default scope {@code "session"} preserves the historical single-session-per-agent behaviour.
+     */
+    public interface SessionScopeProvider {
+        String currentScope();
+
+        SessionScopeProvider DEFAULT = new SessionScopeProvider() {
+            public String currentScope() {
+                return "session";
+            }
+        };
+    }
+
     /** Host hook to reveal an artifact tab (wired to the artifact area in Commit 13; no-op before that). */
     public interface ArtifactOpener {
         void open(String artifactId);
@@ -55,11 +71,15 @@ public final class AgentSessionCoordinator
     private final AgentExtensionResolver resolver;
     private final AgentHostContextProvider hostContextProvider;
     private final UiExecutor uiExecutor;
+    private final SessionScopeProvider scopeProvider;
+    /** Keyed by the SESSION KEY {@code agentId + "#" + scope} (per-tab), not by agent id alone. */
     private final Map<String, AgentSession> sessions = new LinkedHashMap<String, AgentSession>();
     private final CopyOnWriteArrayList<Runnable> listeners = new CopyOnWriteArrayList<Runnable>();
     private final AgentSessionContext commandContext = new ActiveContext();
 
     private String activeAgentId;
+    /** The active session's key {@code agentId + "#" + scope}, so reuse/replace is scope-aware. */
+    private String activeSessionKey;
     private AgentSession activeSession;
     private AgentPluginExtension activeExtension;
     private ArtifactOpener artifactOpener;
@@ -70,9 +90,28 @@ public final class AgentSessionCoordinator
 
     public AgentSessionCoordinator(AgentExtensionResolver resolver,
                                    AgentHostContextProvider hostContextProvider, UiExecutor uiExecutor) {
+        this(resolver, hostContextProvider, uiExecutor, SessionScopeProvider.DEFAULT);
+    }
+
+    public AgentSessionCoordinator(AgentExtensionResolver resolver,
+                                   AgentHostContextProvider hostContextProvider, UiExecutor uiExecutor,
+                                   SessionScopeProvider scopeProvider) {
         this.resolver = resolver;
         this.hostContextProvider = hostContextProvider;
         this.uiExecutor = uiExecutor;
+        this.scopeProvider = scopeProvider == null ? SessionScopeProvider.DEFAULT : scopeProvider;
+    }
+
+    /** The per-tab session key: agent id + the current scope (active chat tab id, or "session" by default). */
+    private String sessionKeyFor(String agentId) {
+        String scope = scopeProvider.currentScope();
+        return agentId + "#" + (scope == null || scope.isEmpty() ? "session" : scope);
+    }
+
+    /** The agent id embedded in a session key (everything before the first '#'). */
+    private static String agentIdOf(String sessionKey) {
+        int hash = sessionKey.indexOf('#');
+        return hash < 0 ? sessionKey : sessionKey.substring(0, hash);
     }
 
     /** Set (or replace) the host hook invoked by {@code /open <artifact>}; may be null (no-op). */
@@ -107,22 +146,23 @@ public final class AgentSessionCoordinator
             deactivateActive();
             return;
         }
-        if (agentId.equals(activeAgentId) && activeSession != null) {
-            return; // already active; nothing to switch
+        String sessionKey = sessionKeyFor(agentId);
+        if (sessionKey.equals(activeSessionKey) && activeSession != null) {
+            return; // this tab's session is already active; nothing to switch
         }
         if (activeSession != null) {
             activeSession.deactivate();
         }
-        AgentSession session = sessions.get(agentId);
+        AgentSession session = sessions.get(sessionKey);
         if (session == null) {
-            String sessionInstanceId = agentId + "#session";
-            AgentHostContext host = hostContextProvider.create(agentId, sessionInstanceId);
+            AgentHostContext host = hostContextProvider.create(agentId, sessionKey);
             session = extension.getSessionFactory().create(
-                    new AgentSessionCreationRequest(sessionInstanceId, "", null), host);
-            sessions.put(agentId, session);
+                    new AgentSessionCreationRequest(sessionKey, "", null), host);
+            sessions.put(sessionKey, session);
         }
         session.activate();
         activeAgentId = agentId;
+        activeSessionKey = sessionKey;
         activeSession = session;
         activeExtension = extension;
         fireChange();
@@ -135,22 +175,42 @@ public final class AgentSessionCoordinator
         }
         activeSession = null;
         activeAgentId = null;
+        activeSessionKey = null;
         activeExtension = null;
         fireChange();
     }
 
-    /** Close and forget one agent's session (plugin disabled/removed). Falls back if it was active. */
+    /** Close and forget ALL of one agent's sessions (plugin disabled/removed), across every tab scope. */
     public void closeAgent(String agentId) {
-        AgentSession session = sessions.remove(agentId);
-        if (session != null) {
-            if (session == activeSession) {
-                activeSession = null;
-                activeAgentId = null;
-                activeExtension = null;
+        List<String> keys = new ArrayList<String>();
+        for (String key : sessions.keySet()) {
+            if (agentIdOf(key).equals(agentId)) {
+                keys.add(key);
             }
-            session.close();
+        }
+        boolean any = false;
+        for (String key : keys) {
+            any = closeSessionKey(key) || any;
+        }
+        if (any) {
             fireChange();
         }
+    }
+
+    /** Close and forget exactly one session key (a tab-scoped session). Returns whether one was closed. */
+    private boolean closeSessionKey(String sessionKey) {
+        AgentSession session = sessions.remove(sessionKey);
+        if (session == null) {
+            return false;
+        }
+        if (session == activeSession) {
+            activeSession = null;
+            activeAgentId = null;
+            activeSessionKey = null;
+            activeExtension = null;
+        }
+        session.close();
+        return true;
     }
 
     /**
@@ -159,13 +219,17 @@ public final class AgentSessionCoordinator
      */
     public void retainOnly(Collection<String> keepIds) {
         List<String> toClose = new ArrayList<String>();
-        for (String id : sessions.keySet()) {
-            if (keepIds == null || !keepIds.contains(id)) {
-                toClose.add(id);
+        for (String key : sessions.keySet()) {
+            if (keepIds == null || !keepIds.contains(agentIdOf(key))) {
+                toClose.add(key);
             }
         }
-        for (String id : toClose) {
-            closeAgent(id);
+        boolean any = false;
+        for (String key : toClose) {
+            any = closeSessionKey(key) || any;
+        }
+        if (any) {
+            fireChange();
         }
     }
 
@@ -235,6 +299,7 @@ public final class AgentSessionCoordinator
     private List<AgentSession> detachAllInternal() {
         activeSession = null;
         activeAgentId = null;
+        activeSessionKey = null;
         activeExtension = null;
         List<AgentSession> detached = new ArrayList<AgentSession>(sessions.values());
         sessions.clear();

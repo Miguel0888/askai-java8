@@ -26,6 +26,7 @@ import java.util.Map;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
@@ -50,6 +51,45 @@ public class AgentSessionCoordinatorTest {
                     }
                 };
         return new AgentSessionCoordinator(resolver, provider, new InlineUiExecutor());
+    }
+
+    private AgentSessionCoordinator coordinator(AgentSessionCoordinator.SessionScopeProvider scope) {
+        registry.put("agent.a", new FakeExtension("agent.a"));
+        registry.put("agent.b", new FakeExtension("agent.b"));
+        AgentSessionCoordinator.AgentExtensionResolver resolver =
+                new AgentSessionCoordinator.AgentExtensionResolver() {
+                    public AgentPluginExtension resolve(String agentId) {
+                        return registry.get(agentId);
+                    }
+                };
+        AgentSessionCoordinator.AgentHostContextProvider provider =
+                new AgentSessionCoordinator.AgentHostContextProvider() {
+                    public AgentHostContext create(String agentId, String sessionInstanceId) {
+                        return null;
+                    }
+                };
+        return new AgentSessionCoordinator(resolver, provider, new InlineUiExecutor(), scope);
+    }
+
+    @Test
+    public void differentTabScopesGetDistinctSessionsAndReuseWithinAScope() {
+        final String[] scope = {"tab-A"};
+        AgentSessionCoordinator c = coordinator(new AgentSessionCoordinator.SessionScopeProvider() {
+            public String currentScope() {
+                return scope[0];
+            }
+        });
+        c.setActiveAgent("agent.a");                     // tab A → session 1
+        FakeSession tabA = registry.get("agent.a").lastSession;
+        scope[0] = "tab-B";
+        c.setActiveAgent("agent.a");                     // tab B, SAME agent → a DISTINCT session
+        FakeSession tabB = registry.get("agent.a").lastSession;
+        assertNotSame("two tabs of the same agent get distinct sessions", tabA, tabB);
+        assertEquals(2, registry.get("agent.a").created);
+        scope[0] = "tab-A";
+        c.setActiveAgent("agent.a");                     // back to tab A → reuse its own session
+        assertSame("returning to tab A reactivates ITS session", tabA, c.getActiveSession());
+        assertEquals("no new session created when returning to a tab", 2, registry.get("agent.a").created);
     }
 
     private static final class InlineUiExecutor
