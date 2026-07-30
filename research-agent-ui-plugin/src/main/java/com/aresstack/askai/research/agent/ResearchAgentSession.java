@@ -59,7 +59,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
 
     private ResearchSessionHandle handle;
     private boolean started;
-    private boolean disposed;
+    // Volatile: set on close() (possibly off-EDT) and read by late async browser/ACP callbacks on the EDT —
+    // a callback that arrives after the tab closed must apply nothing.
+    private volatile boolean disposed;
     private final com.aresstack.askai.plugin.api.service.WorkspaceStateStore hostStateStore;
     private final AgentHostContext hostContext;
     /** This session's id — used to unregister from the host active-session registry on close. */
@@ -114,6 +116,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                         final String id = "browser-start-" + generation;
                         onUi(new Runnable() {
                             public void run() {
+                                if (disposed) {
+                                    return; // tab closed while the browser was starting: post nothing
+                                }
                                 sink.startThinking(id, ResearchPlaybook.browserStarting());
                             }
                         });
@@ -122,6 +127,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                     public void onReady(final long generation) {
                         onUi(new Runnable() {
                             public void run() {
+                                if (disposed) {
+                                    return; // a late READY after close must not post into a closed sink
+                                }
                                 sink.finishThinking("browser-start-" + generation,
                                         ResearchPlaybook.browserReady());
                             }
@@ -131,6 +139,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                     public void onFailed(final long generation, final String detail) {
                         onUi(new Runnable() {
                             public void run() {
+                                if (disposed) {
+                                    return; // a late failure after close applies nothing
+                                }
                                 sink.finishThinking("browser-start-" + generation, "");
                                 sink.showProblem("browser-start-" + generation,
                                         ResearchPlaybook.browserFailed(detail));
