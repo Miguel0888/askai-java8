@@ -8,6 +8,10 @@ dependencies {
     implementation 'org.pf4j:pf4j:3.15.0'
 
     testImplementation 'junit:junit:4.13.2'
+    // The classloader integration test loads the research plugin, which references host-provided
+    // agent-model-runtime-api types (reranker/inference snapshot providers, the active-session registry) as
+    // compileOnly — so the test HOST classpath must provide them, exactly as the real host (askai-app) does.
+    testImplementation project(':agent-model-runtime-api')
 }
 
 test {
