@@ -1691,14 +1691,23 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         if (com.aresstack.askai.plugin.host.WorkspaceModeEntry.QUESTING_ID
                 .equals(modeController.getInteractionMode())) {
             String agentId = modeController.getActiveAgentId();
-            String label = "Questing";
-            for (com.aresstack.askai.plugin.host.WorkspaceModeEntry agent : modeController.getAvailableAgents()) {
+            java.util.List<com.aresstack.askai.plugin.host.WorkspaceModeEntry> agents =
+                    modeController.getAvailableAgents();
+            String label = null;
+            for (com.aresstack.askai.plugin.host.WorkspaceModeEntry agent : agents) {
                 if (agent.getId().equals(agentId)) {
                     label = agent.getDisplayName();
                     break;
                 }
             }
-            composer.setModeName(label);
+            // Questing ALWAYS routes to an agent. When the active id is not (yet) resolvable — e.g. the
+            // plugin catalog has not finished loading on restore — show the first available agent's name
+            // instead of collapsing to the generic "Questing" label; this re-resolves to the exact agent
+            // once the catalog change fires reflectMode() again. Only a truly empty catalog shows "Questing".
+            if (label == null && !agents.isEmpty()) {
+                label = agents.get(0).getDisplayName();
+            }
+            composer.setModeName(label != null ? label : "Questing");
         } else if (GroupChatMode.PARTYING.equals(chatMode)) {
             // The LAN party overlays plain Yapping on the controller; its label must survive
             // unrelated controller change events.
