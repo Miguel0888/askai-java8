@@ -139,10 +139,11 @@ public final class ResearchAgentMain {
             this.searchStrategy = buildSearchStrategy();
             // OPTIONAL model-backed SERP layout repair over the central main model (honest fallback else).
             this.inferencePort = buildInferencePort();
-            // Hot-reload: watch the inference descriptor so a mid-session main-model change is picked up at
-            // the next turn boundary (never mid-request), keeping the last good config on any failure.
-            startInferenceHotReload();
         }
+        // Hot-reload is INDEPENDENT of the browser: a mid-session main-model change must reach the TeamAgent
+        // too. Watch the inference descriptor so the switch is picked up at the next turn boundary (never
+        // mid-request), keeping the last good config on any failure.
+        startInferenceHotReload();
         return new AcpSchema.NewSessionResponse("research-acp-" + environment.sessionId, null, null);
     }
 
@@ -259,9 +260,16 @@ public final class ResearchAgentMain {
             com.aresstack.askai.agent.model.inference.InferenceConfigurationDocument document =
                     com.aresstack.askai.research.runtime.inference.InferenceConfigurationLoader
                             .load(environment.inferenceConfigPath);
+            // Swap the SERP-repair port (browser path) AND the TeamAgent's main-model transport. The swap is
+            // a single atomic reference set at this turn boundary: the agent's conversation history,
+            // proposed/confirmed scope and pending turn are untouched — only the client underneath changes.
             this.inferencePort = new com.aresstack.askai.research.runtime.inference
                     .HttpStructuredInferenceClient(document.descriptor);
-            System.err.println("[research-agent] inference reloaded: " + document.getModel());
+            if (mainModelChat != null) {
+                mainModelChat.swap(new com.aresstack.askai.research.runtime.team.HttpMainModelChatClient(
+                        document.descriptor));
+            }
+            System.err.println("[research-agent] main model + inference reloaded: " + document.getModel());
             return true;
         } catch (java.io.IOException ex) {
             System.err.println("[research-agent] inference reload failed, keeping the last good config: "
