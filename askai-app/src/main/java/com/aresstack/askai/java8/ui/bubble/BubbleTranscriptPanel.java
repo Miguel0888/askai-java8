@@ -497,35 +497,53 @@ public final class BubbleTranscriptPanel extends JPanel {
         private final JComponent bubble;
 
         private MarkdownAnswerRow(JComponent bubble) {
-            super(new BorderLayout());
+            // Absolute positioning + a FULL-WIDTH row (getMaximumSize below), so the bubble is always
+            // LEFT-anchored by doLayout. A capped-width row would, in a BoxLayout.Y_AXIS mixed with the
+            // 0.5-aligned vertical struts between rows, be positioned by alignmentX RELATIVE to its
+            // neighbours — which right-shifted the assistant bubble when it was the first/dominant row (the
+            // reported "agent on the right" bug). Filling the width removes that interaction entirely.
+            super(null);
             this.bubble = bubble;
             setOpaque(false);
-            setBorder(BorderFactory.createEmptyBorder(0, LEFT_MARGIN, 0, 0));
-            add(bubble, BorderLayout.CENTER);
+            add(bubble);
+        }
+
+        private int available() {
+            if (getWidth() > 0) {
+                return getWidth();
+            }
+            return getParent() != null && getParent().getWidth() > 0 ? getParent().getWidth() : 720;
         }
 
         private int targetWidth() {
-            int available = getParent() != null && getParent().getWidth() > 0
-                    ? getParent().getWidth() : 720;
+            int available = available();
             int byGap = available - LEFT_MARGIN - RIGHT_GAP;
             int byRatio = (int) Math.round((available - LEFT_MARGIN) * MAX_WIDTH_RATIO);
             return Math.max(160, Math.min(byGap, byRatio));
         }
 
+        private int bubbleHeight(int width) {
+            return bubble instanceof com.aresstack.askai.java8.ui.markdown.WidthAwareHeight
+                    ? ((com.aresstack.askai.java8.ui.markdown.WidthAwareHeight) bubble)
+                            .preferredHeightForWidth(width)
+                    : bubble.getPreferredSize().height;
+        }
+
         @Override
         public Dimension getMaximumSize() {
-            return new Dimension(LEFT_MARGIN + targetWidth(), getPreferredSize().height);
+            // Fill the transcript width (like BubbleMessageRow); the bubble itself is capped in doLayout.
+            return new Dimension(Integer.MAX_VALUE, getPreferredSize().height);
         }
 
         @Override
         public Dimension getPreferredSize() {
+            return new Dimension(Math.max(1, available()), bubbleHeight(targetWidth()));
+        }
+
+        @Override
+        public void doLayout() {
             int width = targetWidth();
-            // Measure the bubble's Markdown height at exactly the width it will get (the BorderLayout CENTER
-            // occupies the row width minus the left margin), so the first layout is already correct.
-            int height = bubble instanceof com.aresstack.askai.java8.ui.markdown.WidthAwareHeight
-                    ? ((com.aresstack.askai.java8.ui.markdown.WidthAwareHeight) bubble).preferredHeightForWidth(width)
-                    : super.getPreferredSize().height;
-            return new Dimension(LEFT_MARGIN + width, height);
+            bubble.setBounds(LEFT_MARGIN, 0, width, bubbleHeight(width));
         }
     }
 
