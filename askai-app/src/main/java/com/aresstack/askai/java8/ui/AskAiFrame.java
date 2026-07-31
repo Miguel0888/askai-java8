@@ -530,7 +530,7 @@ public final class AskAiFrame extends JFrame {
                                 new com.aresstack.askai.java8.plugin.host.ApplicationStateWorkspaceStateStore(
                                         applicationState, "agent." + agentId + "."),
                                 new com.aresstack.askai.plugin.host.ScopedPluginPathService(agentDataDir, agentId),
-                                resolveActiveAgentSink(),
+                                resolveAgentSinkForSessionKey(sessionInstanceId),
                                 services);
                     }
                 };
@@ -580,7 +580,32 @@ public final class AskAiFrame extends JFrame {
         });
     }
 
-    /** The conversation sink an agent session binds to: the active chat tab's (there is always one tab). */
+    /**
+     * The conversation sink an agent session binds to: the tab the session BELONGS to, identified by the
+     * scope embedded in the coordinator's session key ({@code agentId#<ChatSessionId>}). Resolving via the
+     * ACTIVE tab instead put another tab's bubbles/action buttons into whichever tab happened to be selected
+     * when a session was (re)created with several chat tabs open. Falls back to the active tab only when no
+     * tab matches the scope (e.g. the legacy "session" scope with no tab id).
+     */
+    private com.aresstack.askai.plugin.api.agent.AgentConversationSink resolveAgentSinkForSessionKey(
+            String sessionKey) {
+        String scope = null;
+        if (sessionKey != null) {
+            int hash = sessionKey.indexOf('#');
+            scope = hash < 0 ? sessionKey : sessionKey.substring(hash + 1);
+        }
+        if (scope != null && !scope.isEmpty() && chatWorkspace != null) {
+            for (ChatSessionComponent session : chatWorkspace.sessions()) {
+                if (session instanceof OllamaChatPanel
+                        && scope.equals(((OllamaChatPanel) session).getSessionId().toString())) {
+                    return ((OllamaChatPanel) session).getAgentConversationSink();
+                }
+            }
+        }
+        return resolveActiveAgentSink();
+    }
+
+    /** Fallback sink: the active chat tab's (there is always one tab). */
     private com.aresstack.askai.plugin.api.agent.AgentConversationSink resolveActiveAgentSink() {
         OllamaChatPanel chat = activeChat();
         if (chat == null && chatWorkspace != null) {
