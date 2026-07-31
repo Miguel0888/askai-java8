@@ -1485,6 +1485,10 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         String restored = consumePendingRestoreModel(names);
         if (restored != null) {
             modelCombo.setSelectedItem(restored);
+            // Self-healing sync: the restored chat model IS the global main model for all plugins. Persist it
+            // so ai.mainModel is never empty while the chat actually uses a model — otherwise the research
+            // agent (which reads ai.mainModel) reports "no main model" even though Yapping works fine.
+            model.persistMainModel(restored);
         } else if (previous != null) {
             modelCombo.setSelectedItem(previous);
         }
