@@ -114,6 +114,10 @@ public final class AgentRuntimeServices {
 
     public void shutdown() {
         registry.shutdown();
+        // FINAL app teardown: also stop the process-global Solon server so its non-daemon HTTP-Dispatcher
+        // thread dies and the JVM exits naturally. Without this the app hangs on close once research booted
+        // Solon; without the plugin Solon never boots and the app already exits cleanly.
+        SolonMcpServerRuntime.stopSharedServer();
     }
 
     /** Starts the real Solon MCP runtime on first use; thread-safe; idempotent shutdown. */

@@ -137,7 +137,7 @@ public final class SolonMcpServerRuntime implements McpServerRegistry {
         }
     }
 
-    /** Idempotent shutdown: stop every endpoint, then the Solon app. */
+    /** Idempotent shutdown: stop every endpoint. Does NOT stop the shared Solon app (see below). */
     public synchronized void shutdown() {
         if (shutdown) {
             return;
@@ -151,9 +151,31 @@ public final class SolonMcpServerRuntime implements McpServerRegistry {
             }
         }
         byId.clear();
-        // The shared Solon app is deliberately NOT stopped: Solon is process-global and a stop-then-
-        // restart within one JVM is unreliable. Without registrations it serves no route (all tokens
-        // invalidated); it ends with the JVM.
+        // The shared Solon app is deliberately NOT stopped here: Solon is process-global and a stop-then-
+        // restart within one JVM is unreliable (order-dependent test failures). Without registrations it
+        // serves no route (all tokens invalidated). For the FINAL JVM teardown use stopSharedServer().
+    }
+
+    /**
+     * FINAL JVM teardown ONLY: stop the process-global Solon app so its non-daemon {@code HTTP-Dispatcher}
+     * server thread dies and the JVM can exit naturally. Without this the GUI hangs on close once research
+     * has booted Solon (the dispatcher is a non-daemon thread that is never released); without the plugin
+     * Solon is never booted and the app already exits cleanly. Call this ONCE at real application shutdown
+     * only — never between tests that re-boot Solon (a stop-then-restart within one JVM is unreliable, see
+     * {@link #shutdown()}). Idempotent and best-effort (we are exiting regardless).
+     */
+    public static void stopSharedServer() {
+        synchronized (BOOT_LOCK) {
+            if (sharedPort < 0) {
+                return; // never booted, or already stopped — nothing to release
+            }
+            sharedPort = -1;
+            try {
+                Solon.stopBlock(false, 0); // false: don't fire app stop-hooks (we own this teardown), no delay
+            } catch (Throwable ignored) {
+                // best-effort: the JVM is on its way out anyway
+            }
+        }
     }
 
     // ------------------------------------------------------------------ helpers

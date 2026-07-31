@@ -252,11 +252,6 @@ task runWithDevPlugins(type: JavaExec) {
     mainClass = mainClassName
     doFirst {
         systemProperty 'askai.pluginsDir', devPluginsDir.get().asFile.absolutePath
-        // Diagnostics: -PautoQuitMillis=N triggers the app's shutdown path after N ms (traces the [shutdown]
-        // log lines). Harmless in normal runs (only active when the property is passed).
-        if (project.hasProperty('autoQuitMillis')) {
-            systemProperty 'askai.diagnostic.autoQuitMillis', project.property('autoQuitMillis')
-        }
         // DOCUMENTED hand-off of the assembled distribution (read by ResearchRuntimeDefaults; the
         // settings themselves stay in the typed, persisted model — this only feeds the defaults).
         systemProperty 'askai.research.runtime.dir', researchRuntimeDir.get().asFile.absolutePath

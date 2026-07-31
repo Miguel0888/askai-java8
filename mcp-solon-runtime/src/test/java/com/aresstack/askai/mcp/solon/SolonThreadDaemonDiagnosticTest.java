@@ -1,0 +1,76 @@
+package com.aresstack.askai.mcp.solon;
+
+import com.aresstack.askai.mcp.api.McpEndpointDefinition;
+import com.aresstack.askai.mcp.api.McpEndpointHandle;
+import com.aresstack.askai.mcp.api.McpTestTools;
+
+import org.junit.Test;
+
+import java.util.Collections;
+
+/**
+ * Regression guard for the "app hangs on close" bug: booting Solon spawns a NON-daemon {@code HTTP-Dispatcher}
+ * thread that survives the per-instance {@link SolonMcpServerRuntime#shutdown()} and keeps the JVM alive.
+ * {@link SolonMcpServerRuntime#stopSharedServer()} (the FINAL JVM-teardown call) must release it so the process
+ * can exit naturally. Sorts alphabetically AFTER {@code SolonMcpServerRuntimeTest}, so it stops the shared
+ * server last — nothing re-boots Solon afterwards in the same JVM (the stop-then-restart is unreliable).
+ */
+public class SolonThreadDaemonDiagnosticTest {
+
+    @Test
+    public void listNonDaemonThreadsAfterBoot() {
+        System.out.println("=== NON-DAEMON before boot ===");
+        dump();
+
+        SolonMcpServerRuntime runtime = new SolonMcpServerRuntime();
+        McpEndpointHandle handle = runtime.registerEndpoint(
+                new McpEndpointDefinition("research", "Research Control"));
+        runtime.updateTools(handle, Collections.singletonList(McpTestTools.ping()));
+
+        System.out.println("=== NON-DAEMON after boot ===");
+        dump();
+
+        runtime.unregisterEndpoint(handle);
+        runtime.shutdown();
+
+        System.out.println("=== NON-DAEMON after shutdown (HTTP-Dispatcher still alive — this is the hang) ===");
+        boolean dispatcherAfterShutdown = hasHttpDispatcher();
+        dump();
+        org.junit.Assert.assertTrue(
+                "shutdown() must NOT stop the shared server (test restart safety)", dispatcherAfterShutdown);
+
+        // FINAL teardown: stopSharedServer() must release the non-daemon HTTP-Dispatcher so the JVM can exit.
+        SolonMcpServerRuntime.stopSharedServer();
+        // Give the JDK HttpServer a brief moment to unwind its dispatcher.
+        for (int i = 0; i < 50 && hasHttpDispatcher(); i++) {
+            try { Thread.sleep(100); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+        }
+        System.out.println("=== NON-DAEMON after stopSharedServer (HTTP-Dispatcher must be gone) ===");
+        dump();
+        org.junit.Assert.assertFalse(
+                "stopSharedServer() must release the non-daemon HTTP-Dispatcher", hasHttpDispatcher());
+    }
+
+    private static boolean hasHttpDispatcher() {
+        for (Thread t : Thread.getAllStackTraces().keySet()) {
+            if (t != null && t.isAlive() && !t.isDaemon() && "HTTP-Dispatcher".equals(t.getName())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static void dump() {
+        int n = 0;
+        for (Thread t : Thread.getAllStackTraces().keySet()) {
+            if (t == null || !t.isAlive() || t.isDaemon()) continue;
+            StackTraceElement[] s = t.getStackTrace();
+            String top = s.length > 0 ? s[0].toString() : "(no frame)";
+            System.out.println("  NONDAEMON '" + t.getName() + "' state=" + t.getState()
+                    + " group=" + (t.getThreadGroup() == null ? "?" : t.getThreadGroup().getName())
+                    + " @ " + top);
+            n++;
+        }
+        System.out.println("  total non-daemon = " + n);
+    }
+}
