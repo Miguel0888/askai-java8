@@ -20,6 +20,8 @@ public final class ResearchRunWire {
     public static final String TYPE_LOG = "log";
     /** A user-attention transition (manual challenge required/resolved) — rendered visibly, never a log. */
     public static final String TYPE_ATTENTION = "attention";
+    /** A validated workflow proposal from the TeamAgent (command + scope) — re-validated + executed host-side. */
+    public static final String TYPE_SCOPE = "scope";
 
     private ResearchRunWire() {
     }
@@ -71,6 +73,29 @@ public final class ResearchRunWire {
         } catch (Exception ex) {
             return value; // a malformed encoding degrades to the raw token, never crashes the mapper
         }
+    }
+
+    /**
+     * A comma-joined list of URL-encoded values (a comma never appears inside a value — it encodes to
+     * {@code %2C}). Each element is decoded; a malformed element degrades to its raw token, never crashes.
+     */
+    public static java.util.List<String> decodedList(Map<String, String> fields, String key) {
+        java.util.List<String> out = new java.util.ArrayList<String>();
+        String value = fields.get(key);
+        if (value == null || value.isEmpty()) {
+            return out;
+        }
+        for (String part : value.split(",")) {
+            if (part.isEmpty()) {
+                continue;
+            }
+            try {
+                out.add(java.net.URLDecoder.decode(part, "UTF-8"));
+            } catch (Exception ex) {
+                out.add(part);
+            }
+        }
+        return out;
     }
 
     public static int intField(Map<String, String> fields, String key) {

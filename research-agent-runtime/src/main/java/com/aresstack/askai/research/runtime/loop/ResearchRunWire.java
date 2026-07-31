@@ -90,6 +90,47 @@ public final class ResearchRunWire {
         return sb.toString();
     }
 
+    /**
+     * A VALIDATED workflow proposal from the model-backed TeamAgent: a command the model chose from the live
+     * allowed set (e.g. {@code SUBMIT_SCOPE}) together with the scope it wants confirmed. This is only a
+     * PROPOSAL — the host re-validates it against its own state machine and executes it there; the runtime
+     * never transitions state. The scope travels URL-encoded (question) and as a comma-joined list of
+     * URL-encoded aspects (so no field ever contains a space).
+     */
+    public static String scopeProposal(String command, String question, java.util.List<String> aspects) {
+        StringBuilder sb = new StringBuilder(MARKER).append("scope")
+                .append(" command=").append(command == null || command.isEmpty() ? "NONE" : command);
+        appendEncoded(sb, "question", question);
+        String joined = joinEncoded(aspects);
+        if (!joined.isEmpty()) {
+            sb.append(" aspects=").append(joined);
+        }
+        return sb.toString();
+    }
+
+    /** Comma-join a list of URL-encoded values; commas never appear inside a value (they encode to %2C). */
+    private static String joinEncoded(java.util.List<String> values) {
+        if (values == null) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (String value : values) {
+            if (value == null || value.isEmpty()) {
+                continue;
+            }
+            try {
+                String encoded = java.net.URLEncoder.encode(value, "UTF-8");
+                if (sb.length() > 0) {
+                    sb.append(',');
+                }
+                sb.append(encoded);
+            } catch (java.io.UnsupportedEncodingException ex) {
+                // UTF-8 is guaranteed; a value is simply omitted if it were missing.
+            }
+        }
+        return sb.toString();
+    }
+
     /** A technical diagnostic line (collapsible "technical details" only — never a chat bubble). */
     public static String log(String message) {
         return MARKER + "log " + (message == null ? "" : message.replace('\n', ' '));
