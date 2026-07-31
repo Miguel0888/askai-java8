@@ -183,6 +183,44 @@ public class NarrationCoordinatorTest {
     }
 
     @Test
+    public void anInvalidNarrationGetsOneRetryThenTheFallback() {
+        RecordingSink sink = new RecordingSink();
+        ScriptedNarrator narrator = new ScriptedNarrator();
+        Presented presented = new Presented();
+        NarrationCoordinator coordinator = new NarrationCoordinator(narrator, new NarrationValidator(),
+                sink, new InlineUi(), new ManualResearchScheduler(), 5000L);
+        NarrationPayload payload = new NarrationPayload("outline ready",
+                java.util.Collections.singletonList("fact"),
+                java.util.Collections.singletonMap("sources", "7"), "approve", 4, null);
+        coordinator.narrate(new NarrationRequest("n1", "thinking …", "FALLBACK", payload), presented);
+
+        narrator.callbacks.get(0).onNarration("Great progress, no numbers here!"); // invalid: 7 missing
+        assertEquals("an invalid answer triggers a retry, not a message", 2, narrator.callbacks.size());
+        assertTrue(presented.texts.isEmpty());
+
+        narrator.callbacks.get(1).onNarration("Still no numbers, sorry."); // invalid again
+        assertEquals("after the single retry the fallback is presented",
+                java.util.Collections.singletonList("FALLBACK"), presented.texts);
+        assertEquals("one bubble, closed once", 1, sink.thinkingFinished.size());
+    }
+
+    @Test
+    public void aValidRetryAnswerIsPresented() {
+        ScriptedNarrator narrator = new ScriptedNarrator();
+        Presented presented = new Presented();
+        NarrationCoordinator coordinator = new NarrationCoordinator(narrator, new NarrationValidator(),
+                new RecordingSink(), new InlineUi(), new ManualResearchScheduler(), 5000L);
+        NarrationPayload payload = new NarrationPayload("outline ready", null,
+                java.util.Collections.singletonMap("sources", "7"), "approve", 4, null);
+        coordinator.narrate(new NarrationRequest("n1", "thinking …", "FALLBACK", payload), presented);
+
+        narrator.callbacks.get(0).onNarration("No facts, just vibes!");
+        narrator.callbacks.get(1).onNarration("All 7 sources are in. Shall we review them?");
+        assertEquals(java.util.Collections.singletonList("All 7 sources are in. Shall we review them?"),
+                presented.texts);
+    }
+
+    @Test
     public void withoutAnAsyncNarratorTheFallbackIsPresentedDirectlyWithoutABubble() {
         RecordingSink sink = new RecordingSink();
         Presented presented = new Presented();

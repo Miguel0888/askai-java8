@@ -34,6 +34,7 @@ public final class NarrationCoordinator {
     }
 
     private final AsyncNarrator asyncNarrator;
+    private final NarrationValidator validator;
     private final AgentConversationSink sink;
     private final UiExecutor uiExecutor;
     private final ResearchScheduler scheduler;
@@ -43,7 +44,15 @@ public final class NarrationCoordinator {
 
     public NarrationCoordinator(AsyncNarrator asyncNarrator, AgentConversationSink sink,
                                 UiExecutor uiExecutor, ResearchScheduler scheduler, long timeoutMillis) {
+        this(asyncNarrator, null, sink, uiExecutor, scheduler, timeoutMillis);
+    }
+
+    /** With a validator, invalid narrations get ONE retry (violation appended), then the fallback. */
+    public NarrationCoordinator(AsyncNarrator asyncNarrator, NarrationValidator validator,
+                                AgentConversationSink sink, UiExecutor uiExecutor,
+                                ResearchScheduler scheduler, long timeoutMillis) {
         this.asyncNarrator = asyncNarrator;
+        this.validator = validator;
         this.sink = sink;
         this.uiExecutor = uiExecutor;
         this.scheduler = scheduler;
@@ -78,9 +87,25 @@ public final class NarrationCoordinator {
                 finish(active, request.getFallbackText());
             }
         }, timeoutMillis);
+        submitAttempt(active, request);
+    }
+
+    /** One generation attempt; an invalid result re-submits ONCE with the violation, then falls back. */
+    private void submitAttempt(final Active active, final NarrationRequest request) {
         NarrationHandle handle = asyncNarrator.narrate(request, new AsyncNarrator.Callback() {
             public void onNarration(String text) {
                 boolean usable = text != null && !text.trim().isEmpty();
+                if (usable && validator != null && request.getPayload() != null) {
+                    NarrationValidator.Result result = validator.validate(text, request.getPayload());
+                    if (!result.isValid()) {
+                        if (!active.done.get() && active.retried.compareAndSet(false, true)) {
+                            submitAttempt(active, request.withRetryHint(result.describe()));
+                        } else {
+                            finish(active, request.getFallbackText());
+                        }
+                        return;
+                    }
+                }
                 finish(active, usable ? text : request.getFallbackText());
             }
 
@@ -132,6 +157,7 @@ public final class NarrationCoordinator {
         private final Presenter presenter;
         private final int generation;
         private final AtomicBoolean done = new AtomicBoolean();
+        private final AtomicBoolean retried = new AtomicBoolean();
         private volatile boolean bubbleShown;
         private volatile ResearchScheduler.Cancellable timeout;
         private volatile NarrationHandle handle;
