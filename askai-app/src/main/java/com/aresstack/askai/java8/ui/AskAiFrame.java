@@ -87,6 +87,8 @@ public final class AskAiFrame extends JFrame {
     private final JPanel contentPanel;
     private final OllamaModelsPanel modelsPanel;
     private final AudioProfileRepository audioProfileRepository;
+    /** Persisted CSV of the currently open chat-tab ids, so "closed stays closed" survives a crash. */
+    private static final String STATE_OPEN_CHAT_TABS = "chat.openTabs";
     private final ApplicationStateService applicationState;
     private OllamaConfigPanel configPanel;
     private ChatWorkspacePanel chatWorkspace;
@@ -607,9 +609,18 @@ public final class AskAiFrame extends JFrame {
                 return chat;
             }
         };
-        // Restore previously persisted chats (most recent first) so tabs survive a restart.
+        // Restore previously persisted chats (most recent first) so tabs survive a restart — but only the
+        // tabs that were OPEN at the last change. "Closed stays closed": the open set is persisted
+        // immediately on every open/close (below), so a crash never resurrects a tab the user closed. On
+        // first run with no persisted set (migration) we fall back to ALL history, the historical behaviour.
+        String openCsv = applicationState.get(STATE_OPEN_CHAT_TABS, null);
+        java.util.Set<String> openIds = openCsv == null ? null
+                : new java.util.HashSet<String>(java.util.Arrays.asList(openCsv.split(",")));
         List<ChatSessionId> restoreIds = new ArrayList<ChatSessionId>();
         for (com.aresstack.askai.java8.history.ChatRecord record : historyStore.list()) {
+            if (openIds != null && !openIds.contains(record.getId())) {
+                continue; // this chat's tab was closed — kept in history, but not reopened
+            }
             try {
                 restoreIds.add(new ChatSessionId(java.util.UUID.fromString(record.getId())));
             } catch (IllegalArgumentException ignored) {
@@ -618,6 +629,20 @@ public final class AskAiFrame extends JFrame {
         }
         this.chatWorkspace = new ChatWorkspacePanel(chatFactory, restoreIds);
         workspaceRef[0] = this.chatWorkspace;
+        // Persist the open-tab set immediately on every open/close (and once now for the restored set), so a
+        // later crash/kill never brings a closed tab back.
+        this.chatWorkspace.setTabSetListener(new ChatWorkspacePanel.TabSetListener() {
+            public void tabSetChanged(List<ChatSessionId> ids) {
+                StringBuilder csv = new StringBuilder();
+                for (ChatSessionId id : ids) {
+                    if (csv.length() > 0) {
+                        csv.append(',');
+                    }
+                    csv.append(id.toString());
+                }
+                applicationState.putAndSave(STATE_OPEN_CHAT_TABS, csv.toString());
+            }
+        });
         // The Chat view is a generic workspace host: "Normal Chat" (the tabbed chat workspace) plus any
         // installed, compatible workspace plugins. The host never constructs the chats itself.
         this.chatWorkspaceHost = buildChatWorkspaceHost(chatWorkspace);

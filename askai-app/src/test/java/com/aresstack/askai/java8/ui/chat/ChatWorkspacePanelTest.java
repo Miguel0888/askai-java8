@@ -51,6 +51,31 @@ public class ChatWorkspacePanelTest {
     }
 
     @Test
+    public void theTabSetListenerReportsOpenIdsOnEveryOpenAndClose() throws Exception {
+        onEdt(new Runnable() {
+            public void run() {
+                ChatWorkspacePanel workspace = build();
+                final List<List<ChatSessionId>> fires = new ArrayList<List<ChatSessionId>>();
+                workspace.setTabSetListener(new ChatWorkspacePanel.TabSetListener() {
+                    public void tabSetChanged(List<ChatSessionId> ids) {
+                        fires.add(ids);
+                    }
+                });
+                assertFalse("registering fires once with the current set", fires.isEmpty());
+                assertEquals(1, fires.get(fires.size() - 1).size());
+
+                ChatSessionComponent a = workspace.openNewChat();
+                assertEquals("open reports the grown set", 2, fires.get(fires.size() - 1).size());
+                assertTrue(fires.get(fires.size() - 1).contains(a.getSessionId()));
+
+                workspace.closeSession(a.getSessionId());
+                assertFalse("a closed tab is immediately dropped from the open set",
+                        fires.get(fires.size() - 1).contains(a.getSessionId()));
+            }
+        });
+    }
+
+    @Test
     public void newChatsAreInsertedBeforeTheAlwaysLastPlusTab() throws Exception {
         onEdt(new Runnable() {
             public void run() {

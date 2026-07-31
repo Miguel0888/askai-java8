@@ -39,11 +39,20 @@ public final class ChatWorkspacePanel extends JPanel {
         void activeSessionChanged(ChatSessionId id);
     }
 
+    /**
+     * Notified whenever the SET of open tabs changes (open or close), with the current open ids in tab order.
+     * The host persists this immediately so a crash never resurrects a closed tab — "closed stays closed".
+     */
+    public interface TabSetListener {
+        void tabSetChanged(List<ChatSessionId> openIds);
+    }
+
     private final JTabbedPane tabs = new JTabbedPane();
     private final ChatSessionFactory factory;
     private final Map<ChatSessionId, ChatSessionComponent> sessionsById =
             new LinkedHashMap<ChatSessionId, ChatSessionComponent>();
     private ActiveSessionListener activeSessionListener;
+    private TabSetListener tabSetListener;
     private ChatSessionId lastNotifiedSessionId;
 
     public ChatWorkspacePanel(ChatSessionFactory factory) {
@@ -97,6 +106,7 @@ public final class ChatWorkspacePanel extends JPanel {
         sessionsById.put(id, session);
         tabs.setSelectedIndex(insertIndex);
         fireActiveSessionChanged(); // authoritative fire once the map + selection are consistent
+        fireTabSetChanged();
         return session;
     }
 
@@ -110,6 +120,7 @@ public final class ChatWorkspacePanel extends JPanel {
         sessionsById.put(id, session);
         tabs.setSelectedIndex(insertIndex);
         fireActiveSessionChanged(); // authoritative fire once the map + selection are consistent
+        fireTabSetChanged();
         return session;
     }
 
@@ -128,10 +139,11 @@ public final class ChatWorkspacePanel extends JPanel {
             }
         }
         if (sessionsById.isEmpty()) {
-            openNewChat(); // fires the active-session change for the fresh replacement itself
+            openNewChat(); // fires the active-session + tab-set change for the fresh replacement itself
         } else {
             keepSelectionOffPlusTab();
             fireActiveSessionChanged(); // the surviving tab that inherited the selection
+            fireTabSetChanged();        // persist "this tab is closed" immediately
         }
     }
 
@@ -142,6 +154,21 @@ public final class ChatWorkspacePanel extends JPanel {
     public void setActiveSessionListener(ActiveSessionListener listener) {
         this.activeSessionListener = listener;
         fireActiveSessionChanged();
+    }
+
+    /**
+     * Register the tab-set listener; fires immediately with the currently open ids so the host can persist
+     * the restored set. Every later open/close re-fires it so "closed stays closed" survives a crash.
+     */
+    public void setTabSetListener(TabSetListener listener) {
+        this.tabSetListener = listener;
+        fireTabSetChanged();
+    }
+
+    private void fireTabSetChanged() {
+        if (tabSetListener != null) {
+            tabSetListener.tabSetChanged(new ArrayList<ChatSessionId>(sessionsById.keySet()));
+        }
     }
 
     private void fireActiveSessionChanged() {
