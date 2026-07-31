@@ -52,6 +52,9 @@ public final class BubbleTranscriptPanel extends JPanel {
     // The streaming assistant answer renders as native Markdown (headings, lists, code, tables, links,
     // Mermaid) inside a speech bubble. Thinking/tool/user messages keep the plain speech bubble.
     private MarkdownMessageView activeAssistantView;
+    // Exactly ONE action bar is ever visible — the CURRENT possibilities. A new bar replaces this one and a
+    // consumed bar clears it, so a live chat looks like a restored chat: no stack of stale grayed buttons.
+    private BubbleMessageRow currentActionsRow;
 
     public BubbleTranscriptPanel() {
         this(BubblePalette.windowsPhoneInspired());
@@ -96,6 +99,7 @@ public final class BubbleTranscriptPanel extends JPanel {
         messageList.removeAll();
         activityRows.clear();
         activeAssistantView = null;
+        currentActionsRow = null;
         refreshTranscript();
     }
 
@@ -233,8 +237,15 @@ public final class BubbleTranscriptPanel extends JPanel {
     public void appendActionButtons(java.util.List<String> labels, final java.util.List<Boolean> navigation,
                                     final ActionInvoker invoker) {
         requireEventDispatchThread();
+        // Keep exactly ONE action bar: a new bar replaces the previous possibilities. The card TEXT above
+        // stays as history; only the buttons are deduped to the current decision.
+        if (currentActionsRow != null) {
+            removeRowAndFollowingSpacer(currentActionsRow);
+            currentActionsRow = null;
+        }
         final JPanel row = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 2));
         row.setOpaque(false);
+        final BubbleMessageRow[] holder = new BubbleMessageRow[1];
         for (int i = 0; i < labels.size(); i++) {
             final int index = i;
             final boolean isNavigation = navigation != null && index < navigation.size()
@@ -253,7 +264,7 @@ public final class BubbleTranscriptPanel extends JPanel {
                     }
                     return;
                 }
-                // Decision: block double-fire during the action; keep disabled only when consumed.
+                // Decision: block double-fire during the action.
                 for (java.awt.Component component : row.getComponents()) {
                     component.setEnabled(false);
                 }
@@ -261,7 +272,16 @@ public final class BubbleTranscriptPanel extends JPanel {
                 try {
                     consumed = invoker != null && invoker.invoke(index);
                 } finally {
-                    if (!consumed) {
+                    if (consumed) {
+                        // Consumed: drop the whole bar — no lingering grayed buttons (uniform with restore).
+                        if (holder[0] != null) {
+                            removeRowAndFollowingSpacer(holder[0]);
+                            if (currentActionsRow == holder[0]) {
+                                currentActionsRow = null;
+                            }
+                            refreshTranscript();
+                        }
+                    } else {
                         for (java.awt.Component component : row.getComponents()) {
                             component.setEnabled(true);
                         }
@@ -270,7 +290,8 @@ public final class BubbleTranscriptPanel extends JPanel {
             });
             row.add(button);
         }
-        addBubbleRow(row, BubbleSide.LEFT);
+        holder[0] = addBubbleRow(row, BubbleSide.LEFT);
+        currentActionsRow = holder[0];
     }
 
     public void appendInfo(String text) {
