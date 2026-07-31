@@ -40,18 +40,37 @@ public final class TeamAgentPlaybook {
                 + "direction, the choice of sources or the result form. Do not fabricate sources or results.";
     }
 
-    /** The per-turn context (not persisted in history): the live host state + the confirmed scope so far. */
-    public static String stateContext(TeamAgentStateView state, String question, List<String> aspects) {
+    /**
+     * The per-turn context (not persisted in history): the live host state, the scope the HOST has confirmed
+     * so far, and — kept strictly separate — the scope the MODEL has last proposed but that nobody has
+     * confirmed yet. Only the host (via the user + its state pattern) may promote a proposal to "confirmed":
+     * the model is told what it proposed so it can build on it, but it must never treat its own proposal as
+     * settled.
+     */
+    public static String stateContext(TeamAgentStateView state,
+                                      String confirmedQuestion, List<String> confirmedAspects,
+                                      String proposedQuestion, List<String> proposedAspects) {
         StringBuilder sb = new StringBuilder("Current research state — phase: ")
                 .append(state.getPhaseId().isEmpty() ? "(unknown)" : state.getPhaseId())
                 .append(", run-state: ")
                 .append(state.getStateId().isEmpty() ? "(unknown)" : state.getStateId())
                 .append(".\nAllowed commands right now: ").append(state.allowedCommandsLine()).append(".\n");
+        appendQuestion(sb, "Confirmed research question (host-approved): ", confirmedQuestion);
+        appendAspects(sb, "Confirmed focus areas (host-approved): ", confirmedAspects);
+        appendQuestion(sb, "Proposed research question (awaiting host/user confirmation): ", proposedQuestion);
+        appendAspects(sb, "Proposed focus areas (awaiting host/user confirmation): ", proposedAspects);
+        return sb.toString();
+    }
+
+    private static void appendQuestion(StringBuilder sb, String label, String question) {
         if (question != null && !question.trim().isEmpty()) {
-            sb.append("Confirmed research question: ").append(question).append('\n');
+            sb.append(label).append(question).append('\n');
         }
+    }
+
+    private static void appendAspects(StringBuilder sb, String label, List<String> aspects) {
         if (aspects != null && !aspects.isEmpty()) {
-            sb.append("Confirmed focus areas: ");
+            sb.append(label);
             for (int i = 0; i < aspects.size(); i++) {
                 if (i > 0) {
                     sb.append("; ");
@@ -60,7 +79,6 @@ public final class TeamAgentPlaybook {
             }
             sb.append('\n');
         }
-        return sb.toString();
     }
 
     /** The bootstrap instruction that elicits the opening greeting + first scoping question. */
@@ -75,5 +93,18 @@ public final class TeamAgentPlaybook {
     public static String repairNudge() {
         return "Your previous answer could not be parsed. Respond again with ONE valid JSON object matching "
                 + "the schema exactly — no prose, no code fences, nothing outside the object.";
+    }
+
+    /**
+     * The single bounded-repair nudge sent when the model proposed a command the host does not allow in the
+     * current state. It names the illegal command and the exact legal set, and forbids claiming any action
+     * happened — so a rejected command never leaves a misleading "I started it" message behind.
+     */
+    public static String illegalCommandNudge(String proposedCommand, TeamAgentStateView state) {
+        return "You proposed the command '" + proposedCommand + "', but the host does NOT allow it in the "
+                + "current state. The only commands allowed right now are: " + state.allowedCommandsLine()
+                + ". Respond again with ONE valid JSON object that either proposes one of those allowed "
+                + "commands or proposes no command at all, and does NOT claim any action has already "
+                + "happened.";
     }
 }

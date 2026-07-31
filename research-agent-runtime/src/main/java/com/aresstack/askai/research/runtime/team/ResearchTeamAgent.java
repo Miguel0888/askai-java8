@@ -5,15 +5,27 @@ import java.util.List;
 
 /**
  * The per-session model-backed research conversation engine. It owns ONE session's conversation state — the
- * system prompt, the running user/assistant history and the confirmed scope so far — and turns each user
- * message into a validated {@link TeamAgentTurn} by calling the configured main model ({@link MainModelChat}).
+ * system prompt, the running user/assistant history and the scope so far — and turns each user message into a
+ * validated {@link TeamAgentTurn} by calling the configured main model ({@link MainModelChat}).
  *
  * <p>It is deliberately transport-agnostic and Solon/ACP-free so the whole conversation can be driven in a unit
- * test with a scripted fake model. The host's two nested state patterns stay the authority: this engine only
- * PROPOSES a command, and it pre-validates that proposal against the live allowed set ({@link TeamAgentStateView})
- * — an out-of-set command is dropped, never run and never invented. Model or transport failures never fabricate
- * a turn; they surface as {@link TeamAgentResult.Status#MODEL_UNAVAILABLE} or
- * {@link TeamAgentResult.Status#UNUSABLE_ANSWER}.</p>
+ * test with a scripted fake model. The host's two nested state patterns stay the authority in three ways:</p>
+ * <ul>
+ *   <li><b>Commands.</b> The engine only PROPOSES a command and pre-validates that proposal against the live
+ *       allowed set ({@link TeamAgentStateView}). An out-of-set command triggers ONE bounded repair; if the
+ *       model insists, the turn is a {@link TeamAgentResult.Status#COMMAND_REJECTED} whose misleading message
+ *       is withheld — never run, never invented, never falsely claimed.</li>
+ *   <li><b>Scope.</b> The model may only PROPOSE a scope ({@link #getProposedQuestion()} /
+ *       {@link #getProposedAspects()}). Only the host promotes a proposal to confirmed via
+ *       {@link #applyConfirmedScope(String, List)}; the model is never allowed to mark its own scope as
+ *       confirmed.</li>
+ *   <li><b>Retries.</b> A user message is held as a single pending turn and only committed to history once the
+ *       model answers usably, so {@link #retryPendingTurn(TeamAgentStateView)} after a failure never
+ *       duplicates the user's message.</li>
+ * </ul>
+ *
+ * <p>Model or transport failures never fabricate a turn; they surface as
+ * {@link TeamAgentResult.Status#MODEL_UNAVAILABLE} or {@link TeamAgentResult.Status#UNUSABLE_ANSWER}.</p>
  *
  * <p>Not thread-safe: one instance per research session, driven from that session's single turn at a time.</p>
  */
@@ -26,9 +38,19 @@ public final class ResearchTeamAgent {
     private final MainModelChat model;
     private final List<ChatMessage> history = new ArrayList<ChatMessage>();
 
-    private String question = "";
-    private final List<String> aspects = new ArrayList<String>();
+    /** Scope the HOST has confirmed (never set by the model). */
+    private String confirmedQuestion = "";
+    private final List<String> confirmedAspects = new ArrayList<String>();
+
+    /** Scope the MODEL last proposed but that nobody has confirmed yet. */
+    private String proposedQuestion = "";
+    private final List<String> proposedAspects = new ArrayList<String>();
+
     private boolean greeted;
+    private TeamAgentResult greetingResult;
+
+    /** The user's message for the current turn, held until the model answers usably (retry-safe). */
+    private ChatMessage pendingUserTurn;
 
     public ResearchTeamAgent(MainModelChat model) {
         if (model == null) {
@@ -41,104 +63,208 @@ public final class ResearchTeamAgent {
         return model.modelName();
     }
 
-    public String getQuestion() {
-        return question;
+    public String getProposedQuestion() {
+        return proposedQuestion;
     }
 
-    public List<String> getAspects() {
-        return new ArrayList<String>(aspects);
+    public List<String> getProposedAspects() {
+        return new ArrayList<String>(proposedAspects);
+    }
+
+    public String getConfirmedQuestion() {
+        return confirmedQuestion;
+    }
+
+    public List<String> getConfirmedAspects() {
+        return new ArrayList<String>(confirmedAspects);
     }
 
     /**
-     * Produce the opening greeting + first scoping question from the model. Idempotent within a session: a
-     * second call re-greets only if the first never succeeded (so a MODEL_UNAVAILABLE greeting can be retried).
+     * Promote a scope to confirmed. Only the HOST calls this — after the user (via the host state pattern) has
+     * approved it. The model is then told this scope is settled, but it can never set it itself.
      */
-    public TeamAgentResult greet(TeamAgentStateView state) {
-        List<ChatMessage> messages = baseMessages(state);
-        messages.add(ChatMessage.user(TeamAgentPlaybook.greetingInstruction()));
-        TeamAgentResult result = callAndParse(messages, state);
-        if (result.isOk()) {
-            greeted = true;
-            recordAssistant(result.getTurn());
+    public void applyConfirmedScope(String question, List<String> aspects) {
+        confirmedQuestion = question == null ? "" : question.trim();
+        confirmedAspects.clear();
+        if (aspects != null) {
+            for (String aspect : aspects) {
+                if (aspect != null && !aspect.trim().isEmpty()) {
+                    confirmedAspects.add(aspect.trim());
+                }
+            }
         }
-        return result;
     }
 
     public boolean hasGreeted() {
         return greeted;
     }
 
+    public boolean hasPendingTurn() {
+        return pendingUserTurn != null;
+    }
+
     /**
-     * Advance the conversation with the user's message. The user turn is appended to history first (so a retry
-     * after MODEL_UNAVAILABLE re-sends the same context); a successful, parseable answer appends the assistant
-     * turn and folds any scope update into the confirmed scope.
+     * Produce the opening greeting + first scoping question from the model. Truly idempotent within a session:
+     * once a greeting has succeeded it is cached and returned as-is, so a second call neither re-asks the model
+     * nor writes a second assistant turn. A greeting that FAILED (MODEL_UNAVAILABLE / UNUSABLE_ANSWER) leaves
+     * {@link #hasGreeted()} false, so it can be retried.
      */
-    public TeamAgentResult respond(String userText, TeamAgentStateView state) {
-        String text = userText == null ? "" : userText.trim();
-        history.add(ChatMessage.user(text));
+    public TeamAgentResult greet(TeamAgentStateView state) {
+        if (greeted) {
+            return greetingResult;
+        }
         List<ChatMessage> messages = baseMessages(state);
-        TeamAgentResult result = callAndParse(messages, state);
+        messages.add(ChatMessage.user(TeamAgentPlaybook.greetingInstruction()));
+        TeamAgentResult result = runTurn(messages, state);
         if (result.isOk()) {
+            greeted = true;
+            greetingResult = result;
             recordAssistant(result.getTurn());
-            foldScope(result.getTurn());
+            foldProposal(result.getTurn());
         }
         return result;
     }
 
+    /**
+     * Advance the conversation with the user's message. The message becomes the single pending turn and is only
+     * committed to history once the model answers usably; a successful answer also folds any scope update into
+     * the PROPOSED scope (never the confirmed one).
+     */
+    public TeamAgentResult respond(String userText, TeamAgentStateView state) {
+        pendingUserTurn = ChatMessage.user(userText == null ? "" : userText.trim());
+        return runUserTurn(state);
+    }
+
+    /**
+     * Re-run the pending user turn after a failure (MODEL_UNAVAILABLE / UNUSABLE_ANSWER / COMMAND_REJECTED)
+     * without re-appending the user's message. Requires a pending turn — an OK turn clears it.
+     */
+    public TeamAgentResult retryPendingTurn(TeamAgentStateView state) {
+        if (pendingUserTurn == null) {
+            throw new IllegalStateException("no pending user turn to retry");
+        }
+        return runUserTurn(state);
+    }
+
     // ------------------------------------------------------------------ internals
 
-    /** system(playbook) + system(live state context) + the running user/assistant history. */
+    private TeamAgentResult runUserTurn(TeamAgentStateView state) {
+        List<ChatMessage> messages = baseMessages(state);
+        messages.add(pendingUserTurn);
+        TeamAgentResult result = runTurn(messages, state);
+        if (result.isOk()) {
+            history.add(pendingUserTurn);
+            pendingUserTurn = null;
+            recordAssistant(result.getTurn());
+            foldProposal(result.getTurn());
+        }
+        return result;
+    }
+
+    /** system(playbook) + system(live state + confirmed/proposed scope) + the running user/assistant history. */
     private List<ChatMessage> baseMessages(TeamAgentStateView state) {
         List<ChatMessage> messages = new ArrayList<ChatMessage>();
         messages.add(ChatMessage.system(TeamAgentPlaybook.systemPrompt()));
-        messages.add(ChatMessage.system(TeamAgentPlaybook.stateContext(state, question, aspects)));
+        messages.add(ChatMessage.system(TeamAgentPlaybook.stateContext(
+                state, confirmedQuestion, confirmedAspects, proposedQuestion, proposedAspects)));
         messages.addAll(history);
         return messages;
     }
 
     /**
-     * Call the model, parse the structured turn, and on a parse failure make EXACTLY ONE bounded repair
-     * attempt (appending a nudge) before returning an honest UNUSABLE_ANSWER. A non-OK model call is
-     * MODEL_UNAVAILABLE. Neither failure mutates the history's assistant side or fabricates a turn.
+     * The full turn pipeline: get a parseable turn (with one bounded parse repair), then enforce command
+     * legality (with one bounded command repair). A non-OK model call is MODEL_UNAVAILABLE; an unparseable
+     * answer after repair is UNUSABLE_ANSWER; an illegal command the model keeps proposing is COMMAND_REJECTED.
+     * None of these fabricate or surface a misleading turn.
      */
-    private TeamAgentResult callAndParse(List<ChatMessage> messages, TeamAgentStateView state) {
-        MainModelChatResult call = model.complete(messages, TEMPERATURE, MAX_OUTPUT_TOKENS);
-        if (!call.isOk()) {
-            return TeamAgentResult.modelUnavailable(call.getDetail());
+    private TeamAgentResult runTurn(List<ChatMessage> messages, TeamAgentStateView state) {
+        Parsed parsed = callParseWithRepair(messages);
+        if (parsed.failure != null) {
+            return parsed.failure;
         }
-        TeamAgentTurnParser.Result parsed = TeamAgentTurnParser.parse(call.getText());
-        if (!parsed.isOk()) {
-            // One bounded repair: re-ask with the same context plus a "valid JSON only" nudge.
+        TeamAgentTurn turn = parsed.turn;
+        if (turn.hasProposedCommand() && !state.allows(turn.getProposedCommand())) {
+            // The model named a command the host does not allow here. ONE bounded repair, naming the legal set.
             List<ChatMessage> repair = new ArrayList<ChatMessage>(messages);
-            repair.add(ChatMessage.assistant(call.getText()));
-            repair.add(ChatMessage.user(TeamAgentPlaybook.repairNudge()));
-            MainModelChatResult retry = model.complete(repair, TEMPERATURE, MAX_OUTPUT_TOKENS);
-            if (!retry.isOk()) {
-                return TeamAgentResult.modelUnavailable(retry.getDetail());
+            repair.add(ChatMessage.assistant(parsed.raw));
+            repair.add(ChatMessage.user(TeamAgentPlaybook.illegalCommandNudge(turn.getProposedCommand(), state)));
+            Parsed repaired = callParseOnce(repair);
+            if (repaired.failure != null) {
+                return repaired.failure;
             }
-            parsed = TeamAgentTurnParser.parse(retry.getText());
-            if (!parsed.isOk()) {
-                return TeamAgentResult.unusableAnswer(parsed.getError());
+            if (repaired.turn.hasProposedCommand() && !state.allows(repaired.turn.getProposedCommand())) {
+                // Still illegal: drop the command AND its misleading message; report a typed rejection.
+                return TeamAgentResult.commandRejected(turn.getProposedCommand());
             }
+            turn = repaired.turn;
         }
-        TeamAgentTurn turn = parsed.getTurn();
         String validatedCommand = turn.hasProposedCommand() && state.allows(turn.getProposedCommand())
                 ? turn.getProposedCommand() : null;
         return TeamAgentResult.ok(turn, validatedCommand);
+    }
+
+    /** One model call + parse, with EXACTLY ONE bounded parse-repair on failure. */
+    private Parsed callParseWithRepair(List<ChatMessage> messages) {
+        MainModelChatResult call = model.complete(messages, TEMPERATURE, MAX_OUTPUT_TOKENS);
+        if (!call.isOk()) {
+            return Parsed.fail(TeamAgentResult.modelUnavailable(call.getDetail()));
+        }
+        TeamAgentTurnParser.Result parsed = TeamAgentTurnParser.parse(call.getText());
+        if (parsed.isOk()) {
+            return Parsed.ok(parsed.getTurn(), call.getText());
+        }
+        List<ChatMessage> repair = new ArrayList<ChatMessage>(messages);
+        repair.add(ChatMessage.assistant(call.getText()));
+        repair.add(ChatMessage.user(TeamAgentPlaybook.repairNudge()));
+        return callParseOnce(repair);
+    }
+
+    /** One model call + parse, with NO further repair (used for the second, bounded repair attempts). */
+    private Parsed callParseOnce(List<ChatMessage> messages) {
+        MainModelChatResult call = model.complete(messages, TEMPERATURE, MAX_OUTPUT_TOKENS);
+        if (!call.isOk()) {
+            return Parsed.fail(TeamAgentResult.modelUnavailable(call.getDetail()));
+        }
+        TeamAgentTurnParser.Result parsed = TeamAgentTurnParser.parse(call.getText());
+        if (!parsed.isOk()) {
+            return Parsed.fail(TeamAgentResult.unusableAnswer(parsed.getError()));
+        }
+        return Parsed.ok(parsed.getTurn(), call.getText());
     }
 
     private void recordAssistant(TeamAgentTurn turn) {
         history.add(ChatMessage.assistant(turn.getAssistantMessage()));
     }
 
-    /** Fold a scope update from the model into the confirmed scope (last statement wins for the question). */
-    private void foldScope(TeamAgentTurn turn) {
+    /** Fold a scope update from the model into the PROPOSED scope (last statement wins for the question). */
+    private void foldProposal(TeamAgentTurn turn) {
         if (turn.getQuestion() != null) {
-            question = turn.getQuestion();
+            proposedQuestion = turn.getQuestion();
         }
         if (!turn.getAspects().isEmpty()) {
-            aspects.clear();
-            aspects.addAll(turn.getAspects());
+            proposedAspects.clear();
+            proposedAspects.addAll(turn.getAspects());
+        }
+    }
+
+    /** A parsed turn (with its raw text, for repair context) OR a typed failure result — never both. */
+    private static final class Parsed {
+        final TeamAgentResult failure;
+        final TeamAgentTurn turn;
+        final String raw;
+
+        private Parsed(TeamAgentResult failure, TeamAgentTurn turn, String raw) {
+            this.failure = failure;
+            this.turn = turn;
+            this.raw = raw;
+        }
+
+        static Parsed fail(TeamAgentResult failure) {
+            return new Parsed(failure, null, null);
+        }
+
+        static Parsed ok(TeamAgentTurn turn, String raw) {
+            return new Parsed(null, turn, raw);
         }
     }
 }

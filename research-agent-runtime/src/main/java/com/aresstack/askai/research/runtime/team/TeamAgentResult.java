@@ -10,6 +10,9 @@ package com.aresstack.askai.research.runtime.team;
  *       the caller shows an honest status and offers a retry, never a fabricated outline;</li>
  *   <li>{@link Status#UNUSABLE_ANSWER} — the model answered but, even after one bounded repair, produced no
  *       parseable turn; again an honest error, never invented content.</li>
+ *   <li>{@link Status#COMMAND_REJECTED} — the model insisted on a command the host does not allow in the
+ *       current state (even after a bounded repair). The illegal command is dropped AND its potentially
+ *       misleading assistant message is withheld, so the model can never claim a step happened that did not.</li>
  * </ul>
  */
 public final class TeamAgentResult {
@@ -17,7 +20,8 @@ public final class TeamAgentResult {
     public enum Status {
         OK,
         MODEL_UNAVAILABLE,
-        UNUSABLE_ANSWER
+        UNUSABLE_ANSWER,
+        COMMAND_REJECTED
     }
 
     private final Status status;
@@ -42,6 +46,14 @@ public final class TeamAgentResult {
 
     public static TeamAgentResult unusableAnswer(String detail) {
         return new TeamAgentResult(Status.UNUSABLE_ANSWER, null, null, detail);
+    }
+
+    /**
+     * The model kept proposing a command the host does not allow here. The {@code detail} is that rejected
+     * command name; the turn (and its misleading message) is deliberately withheld.
+     */
+    public static TeamAgentResult commandRejected(String rejectedCommand) {
+        return new TeamAgentResult(Status.COMMAND_REJECTED, null, null, rejectedCommand);
     }
 
     public Status getStatus() {
