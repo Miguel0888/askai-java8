@@ -140,12 +140,20 @@ final class AskAiAgentConversationSink implements AgentConversationSink {
         transcript.appendAssistantDelta(prompt
                 + "\n\n_Type_ `/approve` _or_ `/request-changes` _to respond._");
         transcript.finishAssistant();
+        if (persister != null && prompt != null && !prompt.trim().isEmpty()) {
+            persister.persistAssistant(prompt);
+        }
         refresh();
     }
 
     @Override
     public void showProblem(String problemId, String publicMessage) {
         transcript.appendInfo("⚠ " + publicMessage);
+        if (persister != null && publicMessage != null && !publicMessage.trim().isEmpty()) {
+            // Persist the problem TEXT so it survives a restart (as content). The live warning styling is
+            // ephemeral; the information is not lost.
+            persister.persistAssistant("⚠ " + publicMessage);
+        }
         refresh();
     }
 
@@ -155,6 +163,11 @@ final class AskAiAgentConversationSink implements AgentConversationSink {
         transcript.startAssistant("Agent");
         transcript.appendAssistantDelta(markdown);
         transcript.finishAssistant();
+        if (persister != null && markdown != null && !markdown.trim().isEmpty()) {
+            // Persist the CARD TEXT (outline, run outcome/error, …) so it survives a restart. The buttons are
+            // tied to the live state and are not persisted — the restored card is static content.
+            persister.persistAssistant(markdown);
+        }
         java.util.List<String> labels = new java.util.ArrayList<String>();
         java.util.List<Boolean> navigation = new java.util.ArrayList<Boolean>();
         for (ActionOption option : actions) {
