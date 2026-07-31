@@ -154,18 +154,70 @@ public final class AgentSessionCoordinator
             activeSession.deactivate();
         }
         AgentSession session = sessions.get(sessionKey);
-        if (session == null) {
-            AgentHostContext host = hostContextProvider.create(agentId, sessionKey);
-            session = extension.getSessionFactory().create(
-                    new AgentSessionCreationRequest(sessionKey, "", null), host);
-            sessions.put(sessionKey, session);
+        // The host context carries the shared conversation sink; build it for a new session (and, only when a
+        // failure must be reported, for an existing one too) so a startup error can reach the user as a bubble.
+        AgentHostContext host = session == null ? hostContextProvider.create(agentId, sessionKey) : null;
+        try {
+            if (session == null) {
+                session = extension.getSessionFactory().create(
+                        new AgentSessionCreationRequest(sessionKey, "", null), host);
+                sessions.put(sessionKey, session);
+            }
+            session.activate();
+        } catch (RuntimeException startupFailure) {
+            // GENERIC startup-error mapping: a failure while a session starts (e.g. a mandatory model not
+            // selected) must INFORM the user via a chat bubble instead of crashing the mode switch on the EDT.
+            // The half-started session is never kept, so the next activation attempt retries from scratch and,
+            // if it fails again, shows the same message.
+            sessions.remove(sessionKey);
+            activeSession = null;
+            activeSessionKey = null;
+            activeAgentId = null;
+            activeExtension = null;
+            if (host == null) {
+                host = hostContextProvider.create(agentId, sessionKey);
+            }
+            reportStartupFailure(host, startupFailure);
+            fireChange();
+            return;
         }
-        session.activate();
         activeAgentId = agentId;
         activeSessionKey = sessionKey;
         activeSession = session;
         activeExtension = extension;
         fireChange();
+    }
+
+    /**
+     * Map a session-startup failure to a user-facing chat bubble via the shared conversation sink, so the user
+     * learns WHAT to fix (e.g. "select a reranker model") instead of only seeing a stack trace in the terminal.
+     * Falls back to STDERR when no sink is reachable — a startup error is never swallowed silently.
+     */
+    private void reportStartupFailure(AgentHostContext host, Throwable failure) {
+        String detail = deepestMessage(failure);
+        com.aresstack.askai.plugin.api.agent.AgentConversationSink sink =
+                host == null ? null : host.getConversationSink();
+        if (sink != null) {
+            sink.appendAssistantMessage("agent-start-failed-" + System.identityHashCode(failure),
+                    "Ich kann den Agenten gerade nicht starten:\n\n" + detail
+                    + "\n\nSobald das behoben ist, wechsle einfach erneut in den Questing-Modus — "
+                    + "ich versuche es dann von vorne.");
+        } else {
+            System.err.println("[agent-host] session startup failed: " + detail);
+        }
+    }
+
+    /** The deepest non-empty message in the cause chain — the actionable root reason, not the wrapper. */
+    private static String deepestMessage(Throwable failure) {
+        Throwable current = failure;
+        String message = failure.getMessage();
+        while (current.getCause() != null) {
+            current = current.getCause();
+            if (current.getMessage() != null && !current.getMessage().trim().isEmpty()) {
+                message = current.getMessage();
+            }
+        }
+        return message == null || message.trim().isEmpty() ? failure.toString() : message;
     }
 
     /** Deactivate the active session (kept for reuse) and route back to Yapping / no agent. */

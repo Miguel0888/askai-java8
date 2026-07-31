@@ -251,6 +251,70 @@ public class AgentSessionCoordinatorTest {
     }
 
     @Test
+    public void aStartupFailureIsReportedAsAChatBubbleAndRetriesCleanly() {
+        final List<String> bubbles = new ArrayList<String>();
+        final RecordingSink sink = new RecordingSink(bubbles);
+        final boolean[] failNext = {true};
+        final FakeSession[] good = {null};
+        // An extension whose factory THROWS on the first attempt (a mandatory model not selected), then works.
+        final AgentPluginExtension flaky = new AgentPluginExtension() {
+            public AgentPluginDescriptor getAgentDescriptor() {
+                return AgentPluginDescriptor.builder().id("agent.x").displayName("agent.x").version("1").build();
+            }
+
+            public AgentSessionFactory getSessionFactory() {
+                return new AgentSessionFactory() {
+                    public AgentSession create(AgentSessionCreationRequest request, AgentHostContext host) {
+                        if (failNext[0]) {
+                            throw new IllegalStateException(
+                                    "The productive research backend could not be started",
+                                    new java.io.IOException("No reranker model is selected. Choose one in "
+                                            + "AskAI → Configuration → AI models"));
+                        }
+                        good[0] = new FakeSession();
+                        return good[0];
+                    }
+                };
+            }
+
+            public List<ChatCommandContribution> getChatCommands() {
+                return Collections.emptyList();
+            }
+
+            public List<ArtifactViewContribution> getArtifactViews() {
+                return Collections.emptyList();
+            }
+        };
+        AgentSessionCoordinator.AgentExtensionResolver resolver =
+                new AgentSessionCoordinator.AgentExtensionResolver() {
+                    public AgentPluginExtension resolve(String agentId) {
+                        return "agent.x".equals(agentId) ? flaky : null;
+                    }
+                };
+        AgentSessionCoordinator.AgentHostContextProvider provider =
+                new AgentSessionCoordinator.AgentHostContextProvider() {
+                    public AgentHostContext create(String agentId, String sessionInstanceId) {
+                        return new SinkHost(sink);
+                    }
+                };
+        AgentSessionCoordinator c = new AgentSessionCoordinator(resolver, provider, new InlineUiExecutor());
+
+        // First attempt fails: no EDT crash, no active session, and the user is told the actionable reason.
+        c.setActiveAgent("agent.x");
+        assertFalse("a failed startup leaves no active session", c.isActive());
+        assertEquals(1, bubbles.size());
+        assertTrue("the deepest, actionable reason reaches the user",
+                bubbles.get(0).contains("No reranker model is selected"));
+
+        // The user fixes the configuration; retrying now starts a fresh session cleanly.
+        failNext[0] = false;
+        c.setActiveAgent("agent.x");
+        assertTrue(c.isActive());
+        assertSame(good[0], c.getActiveSession());
+        assertEquals("no extra bubble on the successful retry", 1, bubbles.size());
+    }
+
+    @Test
     public void availabilityComesFromTheActiveTarget() {
         AgentSessionCoordinator c = coordinator();
         c.setActiveAgent("agent.a");
@@ -490,6 +554,87 @@ public class AgentSessionCoordinatorTest {
 
         public void close() {
             closeCount++;
+        }
+    }
+
+    /** Records assistant bubbles so the startup-failure mapping can be asserted. */
+    private static final class RecordingSink
+            implements com.aresstack.askai.plugin.api.agent.AgentConversationSink {
+        private final List<String> bubbles;
+
+        RecordingSink(List<String> bubbles) {
+            this.bubbles = bubbles;
+        }
+
+        public void appendUserMessage(String messageId, String markdown) {
+        }
+
+        public void appendAssistantMessage(String messageId, String markdown) {
+            bubbles.add(markdown);
+        }
+
+        public void startThinking(String activityId, String title) {
+        }
+
+        public void updateThinking(String activityId, String text) {
+        }
+
+        public void finishThinking(String activityId, String summary) {
+        }
+
+        public void startToolActivity(String activityId, String title, String explanation) {
+        }
+
+        public void updateToolActivity(String activityId, String title, String explanation) {
+        }
+
+        public void completeToolActivity(String activityId, String summary) {
+        }
+
+        public void failToolActivity(String activityId, String summary) {
+        }
+
+        public void requestApproval(String approvalId, String prompt) {
+        }
+
+        public void showProblem(String problemId, String publicMessage) {
+        }
+    }
+
+    /** Minimal host exposing only the shared conversation sink (the rest is unused by these tests). */
+    private static final class SinkHost implements AgentHostContext {
+        private final com.aresstack.askai.plugin.api.agent.AgentConversationSink sink;
+
+        SinkHost(com.aresstack.askai.plugin.api.agent.AgentConversationSink sink) {
+            this.sink = sink;
+        }
+
+        public com.aresstack.askai.plugin.api.service.UiExecutor getUiExecutor() {
+            return new InlineUiExecutor();
+        }
+
+        public com.aresstack.askai.plugin.api.service.ThemeService getThemeService() {
+            return null;
+        }
+
+        public com.aresstack.askai.plugin.api.service.MarkdownViewFactory getMarkdownViewFactory() {
+            return null;
+        }
+
+        public com.aresstack.askai.plugin.api.service.NotificationService getNotificationService() {
+            return null;
+        }
+
+        public com.aresstack.askai.plugin.api.service.WorkspaceStateStore getStateStore() {
+            return null;
+        }
+
+        public com.aresstack.askai.plugin.api.service.PluginPathService getPluginPathService() {
+            return null;
+        }
+
+        public com.aresstack.askai.plugin.api.agent.AgentConversationSink getConversationSink() {
+            return sink;
         }
     }
 
