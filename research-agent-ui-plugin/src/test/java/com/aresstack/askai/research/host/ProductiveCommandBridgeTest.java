@@ -169,6 +169,57 @@ public class ProductiveCommandBridgeTest {
     }
 
     @Test
+    public void aValidatedScopeProposalFromTheAgentCommitsScopeAndReachesTheOutlineGate() {
+        Fx fx = new Fx();
+        // The runtime TeamAgent proposes a validated scope (as it arrives over the ACP "scope" wire line and
+        // is mapped to a SCOPE_PROPOSAL event): the host RE-VALIDATES against its own state machine, commits
+        // the model-confirmed scope and advances to the outline approval gate. The model never confirmed it
+        // itself — only the host executing the proposal does.
+        ResearchBackendEvent proposal = ResearchBackendEvent.builder(
+                com.aresstack.askai.research.backend.ResearchBackendEventType.SCOPE_PROPOSAL)
+                .envelope("evt-scope-1", "s1", "p1", 1L, 0L, 1L, null)
+                .title("SUBMIT_SCOPE")
+                .text("How does pf4j isolate plugins?")
+                .messages("", "class isolation\nversioning")
+                .build();
+        fx.session.onEvent(proposal);
+
+        assertEquals(ResearchStateIds.OUTLINE, fx.resources.currentState().getPhaseId());
+        assertEquals(ResearchStateIds.WAITING_APPROVAL, fx.resources.currentState().getStateId());
+        String outline = fx.resources.getArtifactStore().read("outline").getMarkdown();
+        assertTrue("the outline reflects the model-confirmed question",
+                outline.contains("How does pf4j isolate plugins?"));
+        assertTrue("the confirmed aspect is part of the outline", outline.contains("class isolation"));
+        assertEquals("nothing is forwarded to the agent before approval", 0, fx.backend.prompts.size());
+
+        // The host stays the authority: approving advances to RESEARCH/running and auto-continues with the
+        // stored question exactly once.
+        fx.session.approveCurrent();
+        assertEquals(ResearchStateIds.RESEARCH, fx.resources.currentState().getPhaseId());
+        assertEquals(ResearchStateIds.RUNNING, fx.resources.currentState().getStateId());
+        assertEquals(1, fx.backend.prompts.size());
+        assertEquals("How does pf4j isolate plugins?", fx.backend.prompts.get(0));
+    }
+
+    @Test
+    public void aScopeProposalOutsideScopingIsDroppedNotExecuted() {
+        Fx fx = new Fx();
+        assertTrue(fx.session.dispatch(ResearchCommandType.START, null).isAccepted());
+        assertTrue(fx.session.dispatch(ResearchCommandType.SUBMIT_SCOPE, null).isAccepted());
+        // Now past SCOPING (in OUTLINE): a late scope proposal must be dropped, never re-committed.
+        assertFalse(ResearchStateIds.SCOPING.equals(fx.resources.currentState().getPhaseId()));
+        String phaseBefore = fx.resources.currentState().getPhaseId();
+        String stateBefore = fx.resources.currentState().getStateId();
+        fx.session.onEvent(ResearchBackendEvent.builder(
+                com.aresstack.askai.research.backend.ResearchBackendEventType.SCOPE_PROPOSAL)
+                .envelope("evt-scope-late", "s1", "p1", 5L, 0L, 5L, null)
+                .title("SUBMIT_SCOPE").text("too late").messages("", "").build());
+        assertEquals("a late proposal changes nothing", phaseBefore,
+                fx.resources.currentState().getPhaseId());
+        assertEquals(stateBefore, fx.resources.currentState().getStateId());
+    }
+
+    @Test
     public void invalidAndLateCommandsAreRejectedStructurally() {
         Fx fx = new Fx();
         ResearchCommandDispatchResult wrongPhase =

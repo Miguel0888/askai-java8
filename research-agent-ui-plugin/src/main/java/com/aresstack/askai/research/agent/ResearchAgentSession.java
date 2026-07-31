@@ -358,6 +358,46 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         backend.submitPrompt(handle, new ResearchPrompt(text, activeSectionId));
     }
 
+    /**
+     * Execute a VALIDATED scope proposal from the runtime TeamAgent. The host is the only command authority:
+     * a proposal only applies while still SCOPING (else the state moved on and it is dropped), and the commit
+     * + {@link #autoAdvanceTowardsResearch()} only issue transitions the state machine actually allows. The
+     * concept + outline are built deterministically FROM the model-confirmed scope — no host-side dialogue.
+     * The model never confirms its own scope: this is triggered only by the host executing the proposal.
+     */
+    private void handleScopeProposal(String question, String aspectsBlock) {
+        if (productiveResources == null || productiveResources.isClosed() || handle == null) {
+            return;
+        }
+        if (!com.aresstack.askai.research.state.oo.ResearchStateIds.SCOPING
+                .equals(productiveResources.currentState().getPhaseId())) {
+            return; // a scope proposal only applies during scoping; the host state has moved on
+        }
+        if (question == null || question.trim().isEmpty()) {
+            return;
+        }
+        java.util.List<String> aspects = new ArrayList<String>();
+        if (aspectsBlock != null && !aspectsBlock.isEmpty()) {
+            for (String part : aspectsBlock.split("\n")) {
+                if (!part.trim().isEmpty()) {
+                    aspects.add(part.trim());
+                }
+            }
+        }
+        ScopingConversation built = new ScopingConversation();
+        built.restoreCompleted(question.trim(), aspects);
+        ResearchScopeCommitService.ScopeCommitResult commit =
+                new ResearchScopeCommitService(productiveResources.getProjectContext())
+                        .commit(new ConfirmedResearchScope(question.trim(), aspects,
+                                built.buildConceptMarkdown(), built.buildOutlineMarkdown()));
+        if (!commit.isSuccess()) {
+            sayAsAgent(ResearchPlaybook.scopeCommitFailed(commit.getStatus() + ": " + commit.getDetail()));
+            return;
+        }
+        researchQuestion = question.trim();
+        autoAdvanceTowardsResearch(); // → the outline approval gate (existing machinery)
+    }
+
     /** An agent utterance from the playbook/dialog, routed through the shared sink on the UI thread. */
     private void sayAsAgent(final String text) {
         if (sink == null) {
@@ -725,6 +765,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 break;
             case USER_ATTENTION:
                 applyUserAttention(event);
+                break;
+            case SCOPE_PROPOSAL:
+                handleScopeProposal(event.getText(), event.getTechnicalDetail());
                 break;
             case BLOCKED:
             case ERROR:
