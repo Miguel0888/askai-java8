@@ -131,6 +131,15 @@ public final class ResearchRunWire {
         return sb.toString();
     }
 
+    /**
+     * A one-shot signal that the model-backed greeting was delivered SUCCESSFULLY. The host advances the
+     * scope state one step (so the greeting depends only on the state and is never repeated on a restart);
+     * a failed greeting emits nothing, so the state stays fresh and the greeting is retried.
+     */
+    public static String greeted() {
+        return MARKER + "greeted";
+    }
+
     /** A technical diagnostic line (collapsible "technical details" only — never a chat bubble). */
     public static String log(String message) {
         return MARKER + "log " + (message == null ? "" : message.replace('\n', ' '));

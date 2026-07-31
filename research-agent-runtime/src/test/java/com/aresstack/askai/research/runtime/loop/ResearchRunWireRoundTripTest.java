@@ -117,6 +117,14 @@ public class ResearchRunWireRoundTripTest {
     }
 
     @Test
+    public void greetedSignalRoundTrips() {
+        String line = ResearchRunWire.greeted();
+        assertTrue(com.aresstack.askai.research.acp.ResearchRunWire.isWireLine(line));
+        assertEquals(com.aresstack.askai.research.acp.ResearchRunWire.TYPE_GREETED,
+                com.aresstack.askai.research.acp.ResearchRunWire.typeOf(line));
+    }
+
+    @Test
     public void attentionLinesRoundTripBothStates() {
         String required = ResearchRunWire.attention("CAPTCHA", "bing.com",
                 "https://www.bing.com/search?q=pf4j", false);

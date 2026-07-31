@@ -99,6 +99,9 @@ public final class ResearchAcpEventMapper {
                     .text(ResearchRunWire.decodedField(f, "question"))
                     .messages("", aspects.toString());
         }
+        if (ResearchRunWire.TYPE_GREETED.equals(type)) {
+            return ResearchBackendEvent.builder(ResearchBackendEventType.GREETING_DONE);
+        }
         if (ResearchRunWire.TYPE_ATTENTION.equals(type)) {
             java.util.Map<String, String> f = ResearchRunWire.fields(text);
             // reason → title, state (REQUIRED|RESOLVED) → text, domain family + url → messages.

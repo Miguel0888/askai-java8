@@ -27,5 +27,10 @@ public enum ResearchBackendEventType {
      * technicalDetail=newline-joined aspects). The host re-validates it against its own state machine and
      * executes it — the runtime never transitions state.
      */
-    SCOPE_PROPOSAL
+    SCOPE_PROPOSAL,
+    /**
+     * The model-backed greeting was delivered successfully. The host advances the scope state one step so the
+     * greeting (which depends only on the state) is never repeated on a restart.
+     */
+    GREETING_DONE
 }

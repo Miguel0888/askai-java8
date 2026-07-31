@@ -208,12 +208,21 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             // Still restore the persisted assignment (question + focus areas) so a resumed project keeps its
             // scope for continuation; the scoping ceremony is no longer host-driven.
             restoreProjectMetadata();
-            // Productive mode: the model-backed TeamAgent (runtime process) OWNS the greeting. Send ONE
-            // bootstrap turn (no user text) so its model-generated greeting arrives as an assistant message.
-            // The host adds NO greeting of its own — exactly one greeting, from the agent, which reads the
-            // live research_status and adapts to a fresh vs. restored project.
-            agentTurnInFlight = true; // cleared by the greeting turn's terminal event
-            backend.submitPrompt(handle, new ResearchPrompt("", ""));
+            // The greeting depends ONLY on the state: greet exactly once, when the scope state is still fresh
+            // (SCOPING/NEW). A restored session whose state already advanced past NEW is NOT greeted again —
+            // its prior greeting comes back from the persisted chat transcript instead (no double greeting).
+            com.aresstack.askai.research.state.oo.ResearchStateMemento current =
+                    productiveResources.currentState();
+            boolean freshState =
+                    com.aresstack.askai.research.state.oo.ResearchStateIds.SCOPING.equals(current.getPhaseId())
+                    && com.aresstack.askai.research.state.oo.ResearchStateIds.NEW.equals(current.getStateId());
+            if (freshState) {
+                // The model-backed TeamAgent (runtime process) OWNS the greeting: send ONE bootstrap turn so
+                // its model-generated greeting arrives as an assistant message. On success the runtime signals
+                // GREETING_DONE and the host advances the state one step (see handleGreetingDone).
+                agentTurnInFlight = true; // cleared by the greeting turn's terminal event
+                backend.submitPrompt(handle, new ResearchPrompt("", ""));
+            }
         }
     }
 
@@ -373,6 +382,25 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         }
         researchQuestion = question.trim();
         autoAdvanceTowardsResearch(); // → the outline approval gate (existing machinery)
+    }
+
+    /**
+     * The model-backed greeting was delivered successfully: advance the scope state ONE step (SCOPING/NEW →
+     * SCOPING/RUNNING via START). The greeting depends only on the state, so after this a restart sees a
+     * non-fresh state and never greets again (the persisted chat shows the prior greeting instead). Idempotent
+     * and only meaningful while still at SCOPING/NEW.
+     */
+    private void handleGreetingDone() {
+        if (productiveResources == null || productiveResources.isClosed()) {
+            return;
+        }
+        com.aresstack.askai.research.state.oo.ResearchStateMemento current =
+                productiveResources.currentState();
+        if (com.aresstack.askai.research.state.oo.ResearchStateIds.SCOPING.equals(current.getPhaseId())
+                && com.aresstack.askai.research.state.oo.ResearchStateIds.NEW.equals(current.getStateId())
+                && currentAllowedCommands().contains(ResearchCommandType.START)) {
+            dispatch(ResearchCommandType.START, null);
+        }
     }
 
     /**
@@ -760,6 +788,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 break;
             case SCOPE_PROPOSAL:
                 handleScopeProposal(event.getText(), event.getTechnicalDetail());
+                break;
+            case GREETING_DONE:
+                handleGreetingDone();
                 break;
             case BLOCKED:
             case ERROR:

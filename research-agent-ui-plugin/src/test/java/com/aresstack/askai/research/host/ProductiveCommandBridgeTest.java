@@ -210,6 +210,27 @@ public class ProductiveCommandBridgeTest {
     }
 
     @Test
+    public void aGreetingDoneEventAdvancesTheScopeStateOneStepAndIsIdempotent() {
+        Fx fx = new Fx();
+        assertEquals(ResearchStateIds.SCOPING, fx.resources.currentState().getPhaseId());
+        assertEquals(ResearchStateIds.NEW, fx.resources.currentState().getStateId());
+
+        // The runtime signals a successful greeting: the state advances one step (still SCOPING, now RUNNING)
+        // so the greeting depends only on the state and is never repeated on a restart.
+        fx.session.onEvent(ResearchBackendEvent.builder(
+                com.aresstack.askai.research.backend.ResearchBackendEventType.GREETING_DONE)
+                .envelope("evt-greet", "s1", "p1", 1L, 0L, 1L, null).build());
+        assertEquals(ResearchStateIds.SCOPING, fx.resources.currentState().getPhaseId());
+        assertEquals(ResearchStateIds.RUNNING, fx.resources.currentState().getStateId());
+
+        // A second GREETING_DONE is a no-op — the state is no longer fresh.
+        fx.session.onEvent(ResearchBackendEvent.builder(
+                com.aresstack.askai.research.backend.ResearchBackendEventType.GREETING_DONE)
+                .envelope("evt-greet2", "s1", "p1", 2L, 0L, 2L, null).build());
+        assertEquals(ResearchStateIds.RUNNING, fx.resources.currentState().getStateId());
+    }
+
+    @Test
     public void aScopeProposalOutsideScopingIsDroppedNotExecuted() {
         Fx fx = new Fx();
         assertTrue(fx.session.dispatch(ResearchCommandType.START, null).isAccepted());

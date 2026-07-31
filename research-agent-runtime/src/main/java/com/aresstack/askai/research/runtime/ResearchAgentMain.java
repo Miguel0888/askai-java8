@@ -473,14 +473,23 @@ public final class ResearchAgentMain {
         applyPendingModelReload(ctx);
         com.aresstack.askai.research.runtime.team.TeamAgentStateView view = readStateView(ctx);
         reconcileConfirmedScope(view);
+        // The greeting depends ONLY on the host state: greet solely when the scope state is still fresh
+        // (SCOPING/NEW). A restored session (fresh process, but the host state already advanced past NEW)
+        // responds directly and is never greeted again — the prior greeting comes from the persisted chat.
+        boolean freshState = "scoping".equalsIgnoreCase(view.getPhaseId())
+                && "new".equalsIgnoreCase(view.getStateId());
         com.aresstack.askai.research.runtime.team.TeamAgentResult result;
-        if (!teamAgent.hasGreeted()) {
+        if (!teamAgent.hasGreeted() && freshState) {
             result = teamAgent.greet(view);
             emitTeamAgentResult(ctx, result);
-            // A greeting bootstrap carries no user text; if this first turn DID carry a real message and the
-            // greeting succeeded, answer it in the same turn so nothing the user typed is dropped.
-            if (result.isOk() && !text.trim().isEmpty()) {
-                emitTeamAgentResult(ctx, teamAgent.respond(text, view));
+            if (result.isOk()) {
+                // Signal the host to advance the scope state one step, so this greeting is never repeated.
+                ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire.greeted());
+                // A greeting bootstrap carries no user text; if this first turn DID carry a real message,
+                // answer it in the same turn so nothing the user typed is dropped.
+                if (!text.trim().isEmpty()) {
+                    emitTeamAgentResult(ctx, teamAgent.respond(text, view));
+                }
             }
         } else {
             emitTeamAgentResult(ctx, teamAgent.respond(text, view));
