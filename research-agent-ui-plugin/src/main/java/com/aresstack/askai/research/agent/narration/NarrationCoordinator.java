@@ -93,6 +93,18 @@ public final class NarrationCoordinator {
     /** One generation attempt; an invalid result re-submits ONCE with the violation, then falls back. */
     private void submitAttempt(final Active active, final NarrationRequest request) {
         NarrationHandle handle = asyncNarrator.narrate(request, new AsyncNarrator.Callback() {
+            public void onThinking(final String delta) {
+                onUi(new Runnable() {
+                    public void run() {
+                        // Live model thinking inside the (ephemeral) bubble — bounded, stale-guarded.
+                        if (sink != null && active.bubbleShown && !active.done.get()
+                                && generation.get() == active.generation) {
+                            sink.updateThinking(request.getActivityId(), active.appendThinking(delta));
+                        }
+                    }
+                });
+            }
+
             public void onNarration(String text) {
                 boolean usable = text != null && !text.trim().isEmpty();
                 if (usable && validator != null && request.getPayload() != null) {
@@ -166,6 +178,20 @@ public final class NarrationCoordinator {
             this.request = request;
             this.presenter = presenter;
             this.generation = generation;
+        }
+
+        /** Rolling thinking tail (UI thread only): the bubble shows the last few hundred chars. */
+        private final StringBuilder thinking = new StringBuilder();
+
+        private String appendThinking(String delta) {
+            if (delta != null) {
+                thinking.append(delta);
+            }
+            int over = thinking.length() - 400;
+            if (over > 0) {
+                thinking.delete(0, over);
+            }
+            return thinking.toString();
         }
     }
 }

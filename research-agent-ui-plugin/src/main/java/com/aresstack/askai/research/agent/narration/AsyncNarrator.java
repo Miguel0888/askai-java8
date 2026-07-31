@@ -9,6 +9,10 @@ package com.aresstack.askai.research.agent.narration;
 public interface AsyncNarrator {
 
     interface Callback {
+        /** Live reasoning of a thinking model — shown inside the thought bubble, never persisted. */
+        default void onThinking(String delta) {
+        }
+
         void onNarration(String text);
 
         void onFailure(String reason);

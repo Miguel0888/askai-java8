@@ -219,6 +219,11 @@ public final class ResearchPlaybook {
                         + "chat while the research runs.";
     }
 
+    /** Static title of the narration thought bubble while the LLM narrator phrases a milestone. */
+    public static String narratorThinking() {
+        return de() ? "überlegt, wie es das am besten formuliert …" : "thinking about how to put this …";
+    }
+
     /** Transient activity while the lazy browser sidecar starts for a research run. */
     public static String browserStarting() {
         return de() ? "Starte Browser …" : "Starting browser…";

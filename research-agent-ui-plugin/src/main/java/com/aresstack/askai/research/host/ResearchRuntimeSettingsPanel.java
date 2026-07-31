@@ -38,6 +38,9 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
     /** Agent language (English default, German translation) — applies immediately and is persisted. */
     private final JComboBox<String> agentLanguage =
             new JComboBox<String>(new String[]{"English", "Deutsch"});
+    /** LLM narration (default off): milestone texts phrased by the main model, validated, with fallback. */
+    private final JCheckBox llmNarration = new JCheckBox(
+            "AI-phrased guidance (uses the main model; applies to new sessions)", false);
     // Deliberately NO agent-Java field: the agent is Java-8 bytecode and simply runs on AskAI's own
     // JVM. A persisted override (store key) stays possible for special cases, but it is not a user
     // decision — the ONE configurable runtime is the Java >= 21 for the browser sidecar (GraalJS),
@@ -68,6 +71,7 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         form.setLayout(new BoxLayout(form, BoxLayout.Y_AXIS));
         form.add(row("Backend:", backendStatus));
         form.add(row("Language / Sprache:", agentLanguage));
+        form.add(row("", llmNarration));
         form.add(pathRow("Research agent jar:", agentJar));
         form.add(pathRow("Java for browser (≥21):", sidecarJava));
         form.add(pathRow("Browser sidecar jar:", sidecarJar));
@@ -108,6 +112,14 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
                 String code = agentLanguage.getSelectedIndex() == 1 ? "de" : "en";
                 ResearchRuntimeSettings.saveLanguage(ResearchRuntimeSettingsPanel.this.store, code);
                 com.aresstack.askai.research.agent.ResearchPlaybook.setLanguage(code);
+            }
+        });
+        llmNarration.setSelected(ResearchRuntimeSettings.loadLlmNarration(store));
+        llmNarration.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent event) {
+                // Like the language: persisted immediately; running sessions keep their narrator.
+                ResearchRuntimeSettings.saveLlmNarration(ResearchRuntimeSettingsPanel.this.store,
+                        llmNarration.isSelected());
             }
         });
         refreshBackendStatus();

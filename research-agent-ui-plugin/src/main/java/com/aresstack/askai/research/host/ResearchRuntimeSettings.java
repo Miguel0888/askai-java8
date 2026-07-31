@@ -26,6 +26,8 @@ public final class ResearchRuntimeSettings {
     static final String KEY_LANGUAGE = "research.runtime.language";
     static final String KEY_RERANKER_MODEL = "research.runtime.selectedRerankerModel";
 
+    static final String KEY_LLM_NARRATION = "research.runtime.llmNarration";
+
     /** Agent language code ("en" default, "de" German) — read directly, independent of the path model. */
     public static String loadLanguage(WorkspaceStateStore store) {
         return store == null ? "en" : store.get(KEY_LANGUAGE, "en");
@@ -34,6 +36,21 @@ public final class ResearchRuntimeSettings {
     public static void saveLanguage(WorkspaceStateStore store, String code) {
         if (store != null) {
             store.put(KEY_LANGUAGE, "de".equalsIgnoreCase(code) ? "de" : "en");
+        }
+    }
+
+    /**
+     * LLM narration toggle (default OFF until burned in): when on AND the host provides an inference
+     * port, milestone texts are phrased by the main model — always validated, always with the static
+     * fallback. Read directly like the language, independent of the path model.
+     */
+    public static boolean loadLlmNarration(WorkspaceStateStore store) {
+        return store != null && store.getBoolean(KEY_LLM_NARRATION, false);
+    }
+
+    public static void saveLlmNarration(WorkspaceStateStore store, boolean enabled) {
+        if (store != null) {
+            store.putBoolean(KEY_LLM_NARRATION, enabled);
         }
     }
 

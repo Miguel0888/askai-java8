@@ -522,6 +522,18 @@ public final class AskAiFrame extends JFrame {
                                         }
                                     }
                                 });
+                        // Narrow streaming inference for in-process plugins (e.g. the research narrator):
+                        // the existing chat stack + the centrally selected main model, read per call.
+                        services.put(com.aresstack.askai.agent.model.inference.AgentInferencePort.class,
+                                new com.aresstack.askai.java8.plugin.host.OllamaAgentInferencePort(
+                                        ollamaService,
+                                        new com.aresstack.askai.java8.plugin.host
+                                                .OllamaAgentInferencePort.ModelSource() {
+                                            public String mainModelName() {
+                                                return configurationRepository.load()
+                                                        .getAiModelSelections().getMainModel();
+                                            }
+                                        }));
                         return new com.aresstack.askai.plugin.host.DefaultAgentHostContext(
                                 agentUiExecutor,
                                 new com.aresstack.askai.java8.plugin.host.AskAiThemeService(),

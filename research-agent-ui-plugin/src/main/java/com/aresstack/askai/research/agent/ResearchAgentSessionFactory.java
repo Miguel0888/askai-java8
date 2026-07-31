@@ -83,7 +83,25 @@ public final class ResearchAgentSessionFactory implements AgentSessionFactory {
         if (visibleNotice != null) {
             session.setStartupNotice(visibleNotice);
         }
+        configureNarration(session, hostContext);
         return session;
+    }
+
+    /**
+     * LLM narration is strictly opt-in (settings toggle) AND host-dependent (inference port present).
+     * Both absent/off → the session keeps the static narrator, visibly identical.
+     */
+    private static void configureNarration(ResearchAgentSession session, AgentHostContext hostContext) {
+        if (!com.aresstack.askai.research.host.ResearchRuntimeSettings
+                .loadLlmNarration(hostContext.getStateStore())) {
+            return;
+        }
+        com.aresstack.askai.agent.model.inference.AgentInferencePort port = hostContext.getService(
+                com.aresstack.askai.agent.model.inference.AgentInferencePort.class);
+        if (port != null) {
+            session.configureNarration(
+                    new com.aresstack.askai.research.agent.narration.LlmNarrator(port));
+        }
     }
 
     private AgentSession createProductive(ResearchRuntimeSettings settings,
@@ -142,8 +160,10 @@ public final class ResearchAgentSessionFactory implements AgentSessionFactory {
         }
         // The session OWNS the resources: structured commands route to their state machine, close() tears
         // them down last (endpoints → sidecar client → sidecar process).
-        return new ResearchAgentSession(resources.getBackend(), null, hostContext,
+        ResearchAgentSession session = new ResearchAgentSession(resources.getBackend(), null, hostContext,
                 request.getSessionId(), request.getProjectId(), resources);
+        configureNarration(session, hostContext);
+        return session;
     }
 
     private static <T> T requireService(AgentHostContext hostContext, Class<T> type) {

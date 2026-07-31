@@ -282,7 +282,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                     approveCurrent();
                 } else if ("changes".equals(actionId)) {
                     requestChanges("");
-                    sayAsAgent(narrator.refinePrompt());
+                    narrateAsAgent("refine", narrator.refinePrompt());
                 } else {
                     if (!dispatch(action.getCommand(), null).isAccepted()) {
                         return AgentConversationSink.ActionExecutionResult.REJECTED;
@@ -316,6 +316,10 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         if (handle != null) {
             backend.close(handle);
             handle = null;
+        }
+        invalidateNarration();
+        if (narrationScheduler != null) {
+            narrationScheduler.shutdown();
         }
         if (ownedScheduler != null) {
             ownedScheduler.shutdown();
@@ -383,6 +387,48 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     private final ResearchNarrator narrator = new StaticNarrator();
     /** The consultative scoping dialog (productive mode). */
     private final ScopingConversation scoping = new ScopingConversation(narrator);
+    /** Optional warm phrasing (LLM): set once by the factory when the toggle is on and the port exists. */
+    private com.aresstack.askai.research.agent.narration.NarrationCoordinator narration;
+    private ResearchScheduler narrationScheduler;
+    private static final long NARRATION_TIMEOUT_MILLIS = 6000L;
+
+    /**
+     * Enable LLM narration: milestone texts go through the coordinator (thought bubble → validated warm
+     * text, static fallback on timeout/violation). Without this call every text stays static — identical
+     * visible behavior, that is the contract.
+     */
+    public void configureNarration(com.aresstack.askai.research.agent.narration.AsyncNarrator asyncNarrator) {
+        if (asyncNarrator == null || narration != null) {
+            return;
+        }
+        narrationScheduler = new com.aresstack.askai.research.backend.RealResearchScheduler();
+        narration = new com.aresstack.askai.research.agent.narration.NarrationCoordinator(
+                asyncNarrator, new com.aresstack.askai.research.agent.narration.NarrationValidator(),
+                sink, uiExecutor, narrationScheduler, NARRATION_TIMEOUT_MILLIS);
+    }
+
+    /** Milestone text through the narration lifecycle; without narration exactly {@link #sayAsAgent}. */
+    private void narrateAsAgent(String kind, String fallbackText) {
+        if (narration == null) {
+            sayAsAgent(fallbackText);
+            return;
+        }
+        narration.narrate(new com.aresstack.askai.research.agent.narration.NarrationRequest(
+                        "narration-" + kind + "-" + playbookMessageIds.incrementAndGet(),
+                        ResearchPlaybook.narratorThinking(), fallbackText),
+                new com.aresstack.askai.research.agent.narration.NarrationCoordinator.Presenter() {
+                    public void present(String text) {
+                        sayAsAgent(text);
+                    }
+                });
+    }
+
+    /** The situation moved on: in-flight narrations are stale (bubbles close silently, model freed). */
+    private void invalidateNarration() {
+        if (narration != null) {
+            narration.invalidate();
+        }
+    }
     private final java.util.concurrent.atomic.AtomicLong playbookMessageIds =
             new java.util.concurrent.atomic.AtomicLong();
 
@@ -409,7 +455,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 !scoping.getQuestion().isEmpty());
         String explanation = narrator.explainOrNull(text, phaseDescription);
         if (explanation != null) {
-            sayAsAgent(explanation);
+            narrateAsAgent("explain", explanation);
             return;
         }
         backend.submitPrompt(handle, new ResearchPrompt(text, activeSectionId));
@@ -588,7 +634,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                                         approveCurrent();
                                     } else {
                                         requestChanges("");
-                                        sayAsAgent(narrator.refinePrompt());
+                                        narrateAsAgent("refine", narrator.refinePrompt());
                                     }
                                     return AgentConversationSink.ActionExecutionResult.ACCEPTED;
                                 }
@@ -681,6 +727,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 public void run() {
                     state = next; // mirror the single truth into the view model, then notify observers
                     revision = next.getRevision();
+                    invalidateNarration(); // in-flight warm texts belong to the previous situation
                     fireStateChanged();
                 }
             });
@@ -748,7 +795,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             agentTurnInFlight = false;
             if (dispatch(ResearchCommandType.PAUSE, null).isAccepted()) {
                 // A visible confirmation — and the sink event makes the composer re-read availability.
-                sayAsAgent(narrator.pausedNotice());
+                narrateAsAgent("paused", narrator.pausedNotice());
             }
             return;
         } else if (handle != null) {
@@ -1152,7 +1199,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             return AgentConversationSink.ActionExecutionResult.NO_STATE_CHANGE;
         }
         if ("refine".equals(actionId)) {
-            sayAsAgent(narrator.refinePrompt()); // the composer is free; the user just types
+            narrateAsAgent("refine", narrator.refinePrompt()); // the composer is free; the user just types
             return AgentConversationSink.ActionExecutionResult.ACCEPTED;
         }
         if ("limit".equals(actionId)) {
@@ -1185,7 +1232,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             agentTurnInFlight = true; // cleared by the next RUN_OUTCOME / terminal
             backend.submitPrompt(handle, new ResearchPrompt(researchQuestion, ""));
         } else {
-            sayAsAgent(narrator.refinePrompt());
+            narrateAsAgent("refine", narrator.refinePrompt());
         }
     }
 
