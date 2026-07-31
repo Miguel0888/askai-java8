@@ -205,7 +205,26 @@ public final class ProductiveResearchSessionResources {
             }
 
             public String statusLine() {
-                return state.getPhaseId() + "/" + state.getStateId() + " rev=" + state.getRevision();
+                // Publish the live allowed workflow commands too, so the model-backed TeamAgent (in the
+                // runtime process) can propose only a legal next step. The host stays the authority: it
+                // re-validates any proposal against this same state machine before executing it.
+                StringBuilder line = new StringBuilder(state.getPhaseId()).append('/')
+                        .append(state.getStateId()).append(" rev=").append(state.getRevision());
+                java.util.Set<com.aresstack.askai.research.state.ResearchCommandType> allowed =
+                        com.aresstack.askai.research.state.oo.ResearchStateFactory.getInstance()
+                                .restore(state).getCurrentState().getAllowedCommands();
+                if (!allowed.isEmpty()) {
+                    line.append(" cmds=");
+                    boolean first = true;
+                    for (com.aresstack.askai.research.state.ResearchCommandType command : allowed) {
+                        if (!first) {
+                            line.append(',');
+                        }
+                        first = false;
+                        line.append(command.name());
+                    }
+                }
+                return line.toString();
             }
 
             public AgentArtifactStore artifactStore() {

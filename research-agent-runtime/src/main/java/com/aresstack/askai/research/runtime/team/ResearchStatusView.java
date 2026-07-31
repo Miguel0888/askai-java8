@@ -18,6 +18,8 @@ public final class ResearchStatusView {
     /** The first {@code word/word} pair in the status line is {@code phaseId/stateId}. */
     private static final Pattern PHASE_STATE =
             Pattern.compile("([A-Za-z_][A-Za-z0-9_]*)/([A-Za-z_][A-Za-z0-9_]*)");
+    /** The optional {@code cmds=A,B,C} field lists the live allowed workflow commands. */
+    private static final Pattern COMMANDS = Pattern.compile("cmds=([A-Za-z0-9_,]+)");
 
     private ResearchStatusView() {
     }
@@ -27,9 +29,21 @@ public final class ResearchStatusView {
         return new TeamAgentStateView("", "", Collections.<String>emptyList());
     }
 
-    /** Parse phase/state from the status text; allowed commands stay empty until the status line carries them. */
+    /** Parse phase/state AND the {@code cmds=...} allowed set (if present) from the status text. */
     public static TeamAgentStateView parse(String statusText) {
-        return parse(statusText, Collections.<String>emptyList());
+        if (statusText == null) {
+            return empty();
+        }
+        List<String> commands = new ArrayList<String>();
+        Matcher commandMatcher = COMMANDS.matcher(statusText);
+        if (commandMatcher.find()) {
+            for (String command : commandMatcher.group(1).split(",")) {
+                if (!command.isEmpty()) {
+                    commands.add(command);
+                }
+            }
+        }
+        return parse(statusText, commands);
     }
 
     /** Parse phase/state and attach an explicitly-known allowed-command set. */

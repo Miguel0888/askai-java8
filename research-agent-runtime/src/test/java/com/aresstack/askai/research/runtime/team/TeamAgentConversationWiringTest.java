@@ -36,6 +36,19 @@ public class TeamAgentConversationWiringTest {
     }
 
     @Test
+    public void statusLineAllowedCommandsAreParsedFromTheCmdsField() {
+        TeamAgentStateView view =
+                ResearchStatusView.parse("scoping/running rev=3 cmds=SUBMIT_SCOPE,CANCEL,PAUSE");
+        assertEquals("scoping", view.getPhaseId());
+        assertEquals("running", view.getStateId());
+        assertTrue(view.allows("SUBMIT_SCOPE"));
+        assertTrue(view.allows("CANCEL"));
+        assertTrue(view.allows("PAUSE"));
+        // A status line without a cmds field yields no allowed commands (never invents any).
+        assertTrue(ResearchStatusView.parse("RESEARCH/running rev=7").getAllowedCommands().isEmpty());
+    }
+
+    @Test
     public void explicitAllowedCommandsAreCarriedIntoTheView() {
         TeamAgentStateView view = ResearchStatusView.parse("SCOPING/running rev=2",
                 Arrays.asList("SUBMIT_SCOPE", "CANCEL"));

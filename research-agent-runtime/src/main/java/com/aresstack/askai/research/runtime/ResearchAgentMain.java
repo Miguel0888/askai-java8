@@ -454,6 +454,7 @@ public final class ResearchAgentMain {
         // authority — this only reads research_status and speaks the model's own words.
         applyPendingModelReload(ctx);
         com.aresstack.askai.research.runtime.team.TeamAgentStateView view = readStateView(ctx);
+        reconcileConfirmedScope(view);
         com.aresstack.askai.research.runtime.team.TeamAgentResult result;
         if (!teamAgent.hasGreeted()) {
             result = teamAgent.greet(view);
@@ -494,15 +495,32 @@ public final class ResearchAgentMain {
     /**
      * Send one TeamAgent turn to the user: the model's own message on OK (a plain ACP MESSAGE the host renders
      * as an assistant bubble), or an honest typed line on MODEL_UNAVAILABLE / UNUSABLE_ANSWER /
-     * COMMAND_REJECTED. A validated command is logged for the host to execute (B3) — never claimed as done here.
+     * COMMAND_REJECTED. A validated command travels as a STRUCTURED scope proposal (the model's proposed
+     * question + aspects) for the host to re-validate and execute — never claimed as done here, never a state
+     * transition in this process.
      */
     private void emitTeamAgentResult(SyncPromptContext ctx,
             com.aresstack.askai.research.runtime.team.TeamAgentResult result) {
         ctx.sendMessage(com.aresstack.askai.research.runtime.team.TeamAgentReply.visible(result));
         if (result.getStatus() == com.aresstack.askai.research.runtime.team.TeamAgentResult.Status.OK
                 && result.getValidatedCommand() != null) {
-            ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
-                    .log("PROPOSED_COMMAND: " + result.getValidatedCommand()));
+            ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire.scopeProposal(
+                    result.getValidatedCommand(),
+                    teamAgent.getProposedQuestion(), teamAgent.getProposedAspects()));
+        }
+    }
+
+    /**
+     * Promote the TeamAgent's PROPOSED scope to CONFIRMED only when the HOST's authoritative state has moved
+     * past scoping — i.e. the host actually accepted the scope. The model can never confirm its own scope;
+     * this reconciliation is driven purely by the read-only {@code research_status} the host publishes.
+     */
+    private void reconcileConfirmedScope(com.aresstack.askai.research.runtime.team.TeamAgentStateView view) {
+        String phase = view.getPhaseId();
+        boolean pastScoping = !phase.isEmpty() && !"scoping".equalsIgnoreCase(phase);
+        if (pastScoping && teamAgent.getConfirmedQuestion().isEmpty()
+                && !teamAgent.getProposedQuestion().isEmpty()) {
+            teamAgent.applyConfirmedScope(teamAgent.getProposedQuestion(), teamAgent.getProposedAspects());
         }
     }
 
