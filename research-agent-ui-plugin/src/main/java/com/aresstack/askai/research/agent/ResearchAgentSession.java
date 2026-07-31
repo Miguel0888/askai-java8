@@ -224,52 +224,75 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 backend.submitPrompt(handle, new ResearchPrompt("", ""));
             } else {
                 // Restored session: the conversation text comes back from the persisted transcript, but the
-                // interactive buttons do not. Re-derive the pending-approval buttons from the live state
+                // interactive buttons do not. Re-derive the decision buttons from the live state
                 // (non-persisted, so they never duplicate/accumulate across restarts).
-                showRestoredApprovalIfPending();
+                showRestoredActionsIfAny();
             }
         }
     }
 
+    /** Seam for restored decision buttons; the event-bus card model (issue #13) replaces this later. */
+    private final RestoredActionsProvider restoredActionsProvider = new AllowedCommandsActionsProvider();
+
     /**
-     * On restore, re-show the pending-approval buttons re-derived from the LIVE state (a compact,
-     * NON-persisted card — the outline text is already in the restored transcript). No pending approval →
-     * nothing shown. This brings back the "approve / request changes" buttons without duplicating content.
+     * On restore, re-show the decision buttons re-derived from the LIVE state through
+     * {@link RestoredActionsProvider} (a compact, NON-persisted card — the content is already in the
+     * restored transcript). States without a user decision (running, terminal) show nothing. Covers every
+     * decision state: approval gates, ready-to-start waits, paused/blocked/failed interruptions.
      */
-    private void showRestoredApprovalIfPending() {
+    private void showRestoredActionsIfAny() {
         if (productiveResources == null || sink == null) {
             return;
         }
         final com.aresstack.askai.research.state.oo.ResearchStateMemento current =
                 productiveResources.currentState();
-        if (!com.aresstack.askai.research.state.oo.ResearchStateIds.WAITING_APPROVAL
-                .equals(current.getStateId())) {
+        final java.util.List<RestoredActionsProvider.RestoredAction> actions =
+                restoredActionsProvider.deriveFrom(stateFactory.restore(current));
+        if (actions.isEmpty()) {
             return;
         }
         uiExecutor.execute(new Runnable() {
             public void run() {
                 java.util.List<AgentConversationSink.ActionOption> options =
                         new ArrayList<AgentConversationSink.ActionOption>();
-                options.add(new AgentConversationSink.ActionOption("approve",
-                        ResearchPlaybook.actionLabel("approve")));
-                options.add(new AgentConversationSink.ActionOption("changes",
-                        ResearchPlaybook.actionLabel("changes")));
-                String approvalId = current.getPendingApprovalId() == null
-                        ? "approval-restored-" + current.getRevision() : current.getPendingApprovalId();
-                sink.showLiveActionCard(approvalId, "Approve to continue, or request changes.", options,
+                for (RestoredActionsProvider.RestoredAction action : actions) {
+                    options.add(new AgentConversationSink.ActionOption(action.getActionId(),
+                            ResearchPlaybook.actionLabel(action.getActionId())));
+                }
+                String cardId = current.getPendingApprovalId() == null
+                        ? "actions-restored-" + current.getRevision() : current.getPendingApprovalId();
+                String text = ResearchPlaybook.describePhase(current.getPhaseId(), current.getStateId(),
+                        !researchQuestion.isEmpty());
+                sink.showLiveActionCard(cardId, text, options,
                         new AgentConversationSink.ActionHandler() {
                             public AgentConversationSink.ActionExecutionResult onAction(String actionId) {
-                                if ("approve".equals(actionId)) {
-                                    approveCurrent();
-                                } else {
-                                    requestChanges("");
-                                    sayAsAgent(ResearchPlaybook.refinePrompt());
-                                }
-                                return AgentConversationSink.ActionExecutionResult.ACCEPTED;
+                                return applyRestoredAction(actions, actionId);
                             }
                         });
             }
         });
+    }
+
+    /** Applies a restored button press; unknown/no-longer-allowed actions reject and keep the card. */
+    private AgentConversationSink.ActionExecutionResult applyRestoredAction(
+            java.util.List<RestoredActionsProvider.RestoredAction> actions, String actionId) {
+        for (RestoredActionsProvider.RestoredAction action : actions) {
+            if (action.getActionId().equals(actionId)) {
+                if ("approve".equals(actionId)) {
+                    approveCurrent();
+                } else if ("changes".equals(actionId)) {
+                    requestChanges("");
+                    sayAsAgent(ResearchPlaybook.refinePrompt());
+                } else {
+                    if (!dispatch(action.getCommand(), null).isAccepted()) {
+                        return AgentConversationSink.ActionExecutionResult.REJECTED;
+                    }
+                    maybeStartResearchTurn();
+                }
+                return AgentConversationSink.ActionExecutionResult.ACCEPTED;
+            }
+        }
+        return AgentConversationSink.ActionExecutionResult.REJECTED;
     }
 
     @Override
@@ -677,18 +700,26 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 // type it a second time. Auto-advance reaches RESEARCH/running, then the question
                 // goes to the agent, which starts the autonomous web research.
                 autoAdvanceTowardsResearch();
-                if (!researchQuestion.isEmpty() && handle != null
-                        && com.aresstack.askai.research.state.oo.ResearchStateIds.RUNNING
-                                .equals(productiveResources.currentState().getStateId())) {
-                    agentTurnInFlight = true; // cleared by the turn's terminal event
-                    backend.submitPrompt(handle, new ResearchPrompt(researchQuestion, ""));
-                }
+                maybeStartResearchTurn();
             }
             return;
         }
         String pendingApprovalId = state.getPendingApprovalId();
         if (handle != null && pendingApprovalId != null) {
             backend.approve(handle, pendingApprovalId);
+        }
+    }
+
+    /** Sends the stored research question to the agent once the state actually reached RUNNING. */
+    private void maybeStartResearchTurn() {
+        if (productiveResources == null) {
+            return;
+        }
+        if (!researchQuestion.isEmpty() && handle != null
+                && com.aresstack.askai.research.state.oo.ResearchStateIds.RUNNING
+                        .equals(productiveResources.currentState().getStateId())) {
+            agentTurnInFlight = true; // cleared by the turn's terminal event
+            backend.submitPrompt(handle, new ResearchPrompt(researchQuestion, ""));
         }
     }
 
