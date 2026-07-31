@@ -119,6 +119,33 @@ public class ProductiveModeFactorySmokeTest {
         String oldJava21 = System.setProperty("askai.research.java21", sidecarJava);
         host.services.put(com.aresstack.askai.agent.model.reranker
                 .RerankerConfigurationSnapshotProvider.class, reranker.asProvider(10));
+        // The model-backed TeamAgent now OWNS the productive conversation: publish an inference descriptor
+        // pointing at a mock /api/chat (gemma4:e2b) so the real spawned agent greets and proposes a scope.
+        final com.aresstack.askai.research.runtime.team.MockMainModelServer mockModel =
+                new com.aresstack.askai.research.runtime.team.MockMainModelServer();
+        mockModel.enqueueMessage("Hi! I'm your research assistant. What would you like to find out?");
+        // At scoping/new only START is allowed, so the model uses that slot to submit its confirmed scope;
+        // the host executes the proposal (commit + auto-advance) to the outline gate.
+        mockModel.enqueueScopeProposal("Let me put together an outline for your approval.", "START",
+                "pf4j plugin framework",
+                java.util.Arrays.asList("plugin isolation", "java 8 compatibility"));
+        host.services.put(com.aresstack.askai.agent.model.inference.InferenceConfigurationSnapshotProvider.class,
+                new com.aresstack.askai.agent.model.inference.InferenceConfigurationSnapshotProvider() {
+                    public com.aresstack.askai.agent.model.inference.InferenceConfigurationSnapshot
+                            prepareForSession(String sid, File dir)
+                            throws com.aresstack.askai.agent.model.inference.InferenceConfigurationException {
+                        try {
+                            File cfg = mockModel.writeInferenceConfig(
+                                    new File(dir, "inference-config.json"), "gemma4:e2b");
+                            return new com.aresstack.askai.agent.model.inference.InferenceConfigurationSnapshot(
+                                    cfg, com.aresstack.askai.research.runtime.inference
+                                            .InferenceConfigurationLoader.load(cfg.getAbsolutePath()));
+                        } catch (java.io.IOException ex) {
+                            throw new com.aresstack.askai.agent.model.inference
+                                    .InferenceConfigurationException(ex.getMessage());
+                        }
+                    }
+                });
         // The EXPLICIT reranker selection (A5): the persisted settings name the model to use.
         new ResearchRuntimeSettings(ResearchBackendMode.ACP, "", "", "", "",
                 System.getenv().getOrDefault("ASKAI_TEST_BROWSER_CHANNEL", "chrome"),
@@ -137,14 +164,21 @@ public class ProductiveModeFactorySmokeTest {
         try {
             session.activate();
             ResearchAgentSession research = (ResearchAgentSession) session;
-            // 47: the CONSULTATIVE flow — the agent greets with an open question; the user's first
-            // message is the research question and gets a paraphrase + focused follow-up; "start"
-            // skips further questions; the approval shows the REAL outline; approving continues
-            // automatically (the first ACP prompt happens only now).
-            research.submitPrompt("pf4j plugin framework"); // → paraphrase + focused question
-            research.submitPrompt("start");                  // → real artifacts + outline gate
+            // Model-driven flow: activate() sends the greeting bootstrap turn to the agent, which greets from
+            // the mock model; the user's message is FORWARDED to the agent, which returns a validated scope
+            // proposal; the host executes it (commit + auto-advance) and shows the REAL outline approval;
+            // approving continues automatically with the stored question.
+            research.submitPrompt("pf4j plugin framework"); // → agent proposes a validated scope
             assertTrue("the outline approval must reach the chat: " + messages,
                     host.approvalRequested.await(30, TimeUnit.SECONDS));
+            assertTrue("the mock /api/chat received model=gemma4:e2b", mockModel.sawModel("gemma4:e2b"));
+            // Model-driven conversation: the mock was called for BOTH the greeting bootstrap turn and the
+            // user turn (the outline gate above came from the model's validated scope proposal, not a static
+            // host dialogue). The greeting CONTENT reaching the chat is covered non-flakily by the in-process
+            // passthrough test; here the delivery is async and races the approval card, so we assert the
+            // model was actually consulted for the greeting instead.
+            assertTrue("the greeting turn and the user turn both reached the model: " + mockModel.requests(),
+                    mockModel.requests().size() >= 2);
             research.approveCurrent(); // approve — auto-continues with the stored question
             // RA-P003: the first ACP prompt's response path occasionally wedges; skip loudly then.
             assumeTrue("SKIPPED (RA-P003: first-prompt response path wedged; see problems.md): "
@@ -168,6 +202,7 @@ public class ProductiveModeFactorySmokeTest {
             session.close(); // idempotent, closes agent + endpoints + sidecar via the owned resources
             registry.shutdown();
             reranker.close();
+            mockModel.close();
             serverOne.stop(0);
             serverTwo.stop(0);
             restore("askai.research.runtime.dir", oldDist);

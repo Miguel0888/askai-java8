@@ -205,18 +205,15 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             });
         }
         if (productiveResources != null && problemMessage.isEmpty()) {
-            // RESTORE is state-driven: a project with a persisted assignment/state resumes with a
-            // status line instead of the fresh-start greeting — no repeated scoping ceremony.
-            boolean restoredAssignment = restoreProjectMetadata();
-            com.aresstack.askai.research.state.oo.ResearchStateMemento current =
-                    productiveResources.currentState();
-            if (restoredAssignment || current.getRevision() > 0) {
-                sayAsAgent(ResearchPlaybook.describePhase(current.getPhaseId(),
-                        current.getStateId(), !researchQuestion.isEmpty()));
-            } else {
-                // First contact: the agent takes the initiative with ONE open question (playbook).
-                sayAsAgent(ResearchPlaybook.greeting());
-            }
+            // Still restore the persisted assignment (question + focus areas) so a resumed project keeps its
+            // scope for continuation; the scoping ceremony is no longer host-driven.
+            restoreProjectMetadata();
+            // Productive mode: the model-backed TeamAgent (runtime process) OWNS the greeting. Send ONE
+            // bootstrap turn (no user text) so its model-generated greeting arrives as an assistant message.
+            // The host adds NO greeting of its own — exactly one greeting, from the agent, which reads the
+            // live research_status and adapts to a fresh vs. restored project.
+            agentTurnInFlight = true; // cleared by the greeting turn's terminal event
+            backend.submitPrompt(handle, new ResearchPrompt("", ""));
         }
     }
 
@@ -313,47 +310,24 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         if (handle == null) {
             return;
         }
-        // Explainability (both modes): meta questions are answered from the playbook + live state,
-        // in plain language — never with internal command or phase identifiers.
+        if (productiveResources != null && !productiveResources.isClosed()) {
+            // Productive mode: the model-backed TeamAgent LEADS the whole conversation (greeting, scoping,
+            // outline proposal, meta questions). Forward the user's text to the runtime agent; its reply
+            // returns as an assistant message and any validated proposal returns as a SCOPE_PROPOSAL the host
+            // executes. The host no longer runs ScopingConversation or the playbook greeting/outline here —
+            // those stay for FAKE mode and the legacy tests only.
+            agentTurnInFlight = true; // cleared by the turn's terminal event
+            backend.submitPrompt(handle, new ResearchPrompt(text, activeSectionId));
+            return;
+        }
+        // FAKE mode: host-side explainability + the deterministic backend, unchanged. Meta questions are
+        // answered from the playbook + live state, in plain language — never with internal identifiers.
         String phaseDescription = ResearchPlaybook.describePhase(state.getPhaseId(), state.getStateId(),
-                productiveResources == null || !scoping.getQuestion().isEmpty());
+                !scoping.getQuestion().isEmpty());
         String explanation = ResearchPlaybook.explain(text, phaseDescription);
         if (explanation != null) {
             sayAsAgent(explanation);
             return;
-        }
-        if (productiveResources != null && !productiveResources.isClosed()) {
-            if (!scoping.isComplete()) {
-                // Consultative scoping: paraphrase, ONE focused question, summary, "anything missing?".
-                ScopingConversation.Reply reply = scoping.next(text);
-                if (!reply.scopingComplete) {
-                    if (reply.text != null) {
-                        sayAsAgent(reply.text);
-                    }
-                    return; // the dialog is host-side; nothing is forwarded to the agent yet
-                }
-                // Scope CONFIRMED: commit metadata + concept + outline FAIL-CLOSED. Only a
-                // fully successful commit may advance the state machine; any failure keeps the
-                // scoping repeatable and shows a localized reason.
-                ResearchScopeCommitService.ScopeCommitResult commit =
-                        new ResearchScopeCommitService(productiveResources.getProjectContext())
-                                .commit(new ConfirmedResearchScope(scoping.getQuestion(),
-                                        scoping.getAspects(), scoping.buildConceptMarkdown(),
-                                        scoping.buildOutlineMarkdown()));
-                if (!commit.isSuccess()) {
-                    scoping.reopenForRetry();
-                    sayAsAgent(ResearchPlaybook.scopeCommitFailed(
-                            commit.getStatus() + ": " + commit.getDetail()));
-                    return;
-                }
-                researchQuestion = scoping.getQuestion();
-                autoAdvanceTowardsResearch(); // stops at the approval, showing the actual outline
-                return;
-            }
-            // Gate-FREE forward transitions advance automatically; genuine approval gates stay with
-            // the user. No /do ceremony.
-            autoAdvanceTowardsResearch();
-            agentTurnInFlight = true; // cleared by the turn's terminal event
         }
         backend.submitPrompt(handle, new ResearchPrompt(text, activeSectionId));
     }

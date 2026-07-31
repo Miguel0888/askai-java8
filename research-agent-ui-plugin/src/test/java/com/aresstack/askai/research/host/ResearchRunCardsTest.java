@@ -211,12 +211,12 @@ public class ResearchRunCardsTest {
             session.activate();
         }
 
-        /** Drive the consultative flow to a running research with the stored question. */
+        /** Drive to a running research the model-driven way: a validated scope proposal from the agent is
+         *  executed host-side to the outline gate, then the user approves. */
         void reachRunningResearch() {
-            session.submitPrompt("investigate pf4j");
-            session.submitPrompt("focus on isolation");
-            session.submitPrompt("no");
-            // The outline approval is now a card with real buttons — press "Approve".
+            event(ResearchBackendEvent.builder(ResearchBackendEventType.SCOPE_PROPOSAL)
+                    .title("SUBMIT_SCOPE").text("investigate pf4j").messages("", "focus on isolation"));
+            // The outline approval is a card with real buttons — press "Approve".
             press(lastCardActionId("approve"));
             assertEquals(ResearchStateIds.RESEARCH, resources.currentState().getPhaseId());
             assertEquals(ResearchStateIds.RUNNING, resources.currentState().getStateId());

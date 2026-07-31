@@ -141,36 +141,42 @@ public class ProductiveCommandBridgeTest {
     }
 
     @Test
-    public void aPlainQuestionAdvancesGateFreeTransitionsAndStopsAtTheApprovalGate() {
+    public void aUserTurnIsForwardedToTheAgentAndScopeCommitsOnlyOnTheHostValidatedProposal() {
         Fx fx = new Fx();
-        // The consultative flow (Commit 47): question → paraphrase + focused question → summary +
-        // "anything missing?" → confirmation. Only then do artifacts exist and the gate appears —
-        // the dialog is host-side, so NOTHING is forwarded to the agent during scoping.
+        // The model-backed TeamAgent now LEADS the conversation: a user turn is FORWARDED to the agent (not
+        // swallowed by a host-side scoping dialogue), and a plain turn commits nothing on its own.
+        int afterActivate = fx.backend.prompts.size(); // activate() sent the greeting bootstrap turn
         fx.session.submitPrompt("just a question");
-        assertEquals(0, fx.backend.prompts.size());
-        assertEquals(ResearchStateIds.SCOPING, fx.resources.currentState().getPhaseId());
-        fx.session.submitPrompt("focus on isolation"); // focused answer → summary + missing check
-        assertEquals(0, fx.backend.prompts.size());
-        fx.session.submitPrompt("no"); // nothing missing → REAL artifacts + the outline gate
+        assertEquals("the user turn reaches the agent", afterActivate + 1, fx.backend.prompts.size());
+        assertEquals("just a question", fx.backend.prompts.get(fx.backend.prompts.size() - 1));
+        assertEquals("a plain turn commits no scope", ResearchStateIds.SCOPING,
+                fx.resources.currentState().getPhaseId());
+
+        // Only the HOST executing a VALIDATED agent proposal commits the scope and reaches the outline gate.
+        fx.session.onEvent(ResearchBackendEvent.builder(
+                com.aresstack.askai.research.backend.ResearchBackendEventType.SCOPE_PROPOSAL)
+                .envelope("evt-1", "s1", "p1", 1L, 0L, 1L, null)
+                .title("SUBMIT_SCOPE").text("just a question").messages("", "focus on isolation").build());
         assertEquals(ResearchStateIds.OUTLINE, fx.resources.currentState().getPhaseId());
         assertEquals(ResearchStateIds.WAITING_APPROVAL, fx.resources.currentState().getStateId());
         String outline = fx.resources.getArtifactStore().read("outline").getMarkdown();
         assertTrue(outline.contains("just a question"));
         assertTrue("the confirmed aspect is part of the outline", outline.contains("focus on isolation"));
 
-        // The user's approve advances to RESEARCH/running AND automatically submits the STORED
-        // question — the user never types it twice.
+        // The user's approve advances to RESEARCH/running AND automatically submits the STORED question —
+        // the user never types it twice.
         fx.session.approveCurrent();
         assertEquals(ResearchStateIds.RESEARCH, fx.resources.currentState().getPhaseId());
         assertEquals(ResearchStateIds.RUNNING, fx.resources.currentState().getStateId());
         assertEquals("RESEARCH", fx.session.getState().getPhaseLabel());
-        assertEquals("the stored question was auto-continued", 1, fx.backend.prompts.size());
-        assertEquals("just a question", fx.backend.prompts.get(0));
+        assertEquals("the stored question was auto-continued", "just a question",
+                fx.backend.prompts.get(fx.backend.prompts.size() - 1));
     }
 
     @Test
     public void aValidatedScopeProposalFromTheAgentCommitsScopeAndReachesTheOutlineGate() {
         Fx fx = new Fx();
+        int afterActivate = fx.backend.prompts.size(); // the greeting bootstrap turn
         // The runtime TeamAgent proposes a validated scope (as it arrives over the ACP "scope" wire line and
         // is mapped to a SCOPE_PROPOSAL event): the host RE-VALIDATES against its own state machine, commits
         // the model-confirmed scope and advances to the outline approval gate. The model never confirmed it
@@ -190,15 +196,17 @@ public class ProductiveCommandBridgeTest {
         assertTrue("the outline reflects the model-confirmed question",
                 outline.contains("How does pf4j isolate plugins?"));
         assertTrue("the confirmed aspect is part of the outline", outline.contains("class isolation"));
-        assertEquals("nothing is forwarded to the agent before approval", 0, fx.backend.prompts.size());
+        assertEquals("the proposal itself forwards no new prompt before approval",
+                afterActivate, fx.backend.prompts.size());
 
         // The host stays the authority: approving advances to RESEARCH/running and auto-continues with the
         // stored question exactly once.
         fx.session.approveCurrent();
         assertEquals(ResearchStateIds.RESEARCH, fx.resources.currentState().getPhaseId());
         assertEquals(ResearchStateIds.RUNNING, fx.resources.currentState().getStateId());
-        assertEquals(1, fx.backend.prompts.size());
-        assertEquals("How does pf4j isolate plugins?", fx.backend.prompts.get(0));
+        assertEquals(afterActivate + 1, fx.backend.prompts.size());
+        assertEquals("How does pf4j isolate plugins?",
+                fx.backend.prompts.get(fx.backend.prompts.size() - 1));
     }
 
     @Test
