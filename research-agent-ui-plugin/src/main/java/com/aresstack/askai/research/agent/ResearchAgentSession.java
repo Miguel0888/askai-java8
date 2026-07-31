@@ -316,6 +316,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             // returns as an assistant message and any validated proposal returns as a SCOPE_PROPOSAL the host
             // executes. The host no longer runs ScopingConversation or the playbook greeting/outline here —
             // those stay for FAKE mode and the legacy tests only.
+            // The productive ACP agent cannot echo the user's OWN message back, so show it in the shared chat
+            // here (right-aligned, by role) before the agent replies — otherwise the user's turn is invisible.
+            echoUserMessage(text);
             agentTurnInFlight = true; // cleared by the turn's terminal event
             backend.submitPrompt(handle, new ResearchPrompt(text, activeSectionId));
             return;
@@ -370,6 +373,21 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         }
         researchQuestion = question.trim();
         autoAdvanceTowardsResearch(); // → the outline approval gate (existing machinery)
+    }
+
+    /**
+     * Show the user's OWN turn in the shared chat (right-aligned, by role) — the productive ACP agent never
+     * echoes it back. Empty bootstrap turns carry no text and are ignored, so no blank user bubble appears.
+     */
+    private void echoUserMessage(final String text) {
+        if (sink == null || text == null || text.trim().isEmpty()) {
+            return;
+        }
+        uiExecutor.execute(new Runnable() {
+            public void run() {
+                sink.appendUserMessage("user-" + playbookMessageIds.incrementAndGet(), text);
+            }
+        });
     }
 
     /** An agent utterance from the playbook/dialog, routed through the shared sink on the UI thread. */

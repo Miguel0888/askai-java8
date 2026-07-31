@@ -48,6 +48,7 @@ public class ResearchRunCardsTest {
 
     /** Records every sink interaction; showActionCard keeps options + handler for pressing buttons. */
     private static final class RecordingSink implements AgentConversationSink {
+        final List<String> userMessages = new ArrayList<String>();
         final List<String> assistantMessages = new ArrayList<String>();
         final List<String> startedActivities = new ArrayList<String>();
         final List<String> updatedActivities = new ArrayList<String>();
@@ -64,6 +65,7 @@ public class ResearchRunCardsTest {
         }
 
         public void appendUserMessage(String messageId, String markdown) {
+            userMessages.add(markdown);
         }
 
         public void appendAssistantMessage(String messageId, String markdown) {
@@ -241,6 +243,18 @@ public class ResearchRunCardsTest {
             session.onEvent(builder
                     .envelope("e-" + sequence, "s1", "p1", 0L, 0L, ++sequence, null).build());
         }
+    }
+
+    @Test
+    public void aProductiveUserTurnIsEchoedAsAUserBubbleButAnEmptyBootstrapIsNot() {
+        Fx fx = new Fx();
+        int before = fx.sink.userMessages.size();
+        fx.session.submitPrompt("Alles über Wearables");
+        assertTrue("the user's own turn appears in the shared chat (right-aligned, by role)",
+                fx.sink.userMessages.contains("Alles über Wearables"));
+        // An empty/whitespace turn (e.g. a greeting bootstrap) must not add a blank user bubble.
+        fx.session.submitPrompt("   ");
+        assertEquals("no blank user bubble for an empty turn", before + 1, fx.sink.userMessages.size());
     }
 
     @Test
