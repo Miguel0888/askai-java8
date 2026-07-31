@@ -39,21 +39,34 @@ public class SolonThreadDaemonDiagnosticTest {
         org.junit.Assert.assertTrue(
                 "shutdown() must NOT stop the shared server (test restart safety)", dispatcherAfterShutdown);
 
-        // FINAL teardown: stopSharedServer() must release the non-daemon HTTP-Dispatcher so the JVM can exit.
+        // FINAL teardown: stopSharedServer() must release EVERY non-daemon server thread so the JVM can exit:
+        // the HTTP-Dispatcher (via Solon.stopBlock) AND the jdkhttp-N worker pool (via the reflective
+        // executor shutdown — Solon itself never stops it; verified as the exact cause of the GUI exit hang).
         SolonMcpServerRuntime.stopSharedServer();
-        // Give the JDK HttpServer a brief moment to unwind its dispatcher.
-        for (int i = 0; i < 50 && hasHttpDispatcher(); i++) {
+        // Give the dispatcher and the interrupted pool workers a brief moment to unwind.
+        for (int i = 0; i < 50 && (hasHttpDispatcher() || hasJdkHttpWorker()); i++) {
             try { Thread.sleep(100); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
         }
-        System.out.println("=== NON-DAEMON after stopSharedServer (HTTP-Dispatcher must be gone) ===");
+        System.out.println("=== NON-DAEMON after stopSharedServer (HTTP-Dispatcher + jdkhttp-* must be gone) ===");
         dump();
         org.junit.Assert.assertFalse(
                 "stopSharedServer() must release the non-daemon HTTP-Dispatcher", hasHttpDispatcher());
+        org.junit.Assert.assertFalse(
+                "stopSharedServer() must shut down the non-daemon jdkhttp worker pool", hasJdkHttpWorker());
     }
 
     private static boolean hasHttpDispatcher() {
         for (Thread t : Thread.getAllStackTraces().keySet()) {
             if (t != null && t.isAlive() && !t.isDaemon() && "HTTP-Dispatcher".equals(t.getName())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean hasJdkHttpWorker() {
+        for (Thread t : Thread.getAllStackTraces().keySet()) {
+            if (t != null && t.isAlive() && !t.isDaemon() && t.getName().startsWith("jdkhttp-")) {
                 return true;
             }
         }

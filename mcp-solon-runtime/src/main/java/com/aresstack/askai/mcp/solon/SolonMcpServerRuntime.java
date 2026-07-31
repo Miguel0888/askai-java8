@@ -157,12 +157,17 @@ public final class SolonMcpServerRuntime implements McpServerRegistry {
     }
 
     /**
-     * FINAL JVM teardown ONLY: stop the process-global Solon app so its non-daemon {@code HTTP-Dispatcher}
-     * server thread dies and the JVM can exit naturally. Without this the GUI hangs on close once research
-     * has booted Solon (the dispatcher is a non-daemon thread that is never released); without the plugin
-     * Solon is never booted and the app already exits cleanly. Call this ONCE at real application shutdown
-     * only — never between tests that re-boot Solon (a stop-then-restart within one JVM is unreliable, see
-     * {@link #shutdown()}). Idempotent and best-effort (we are exiting regardless).
+     * FINAL JVM teardown ONLY: stop the process-global Solon app AND its HTTP worker pool so no non-daemon
+     * server thread survives and the JVM can exit naturally. Two thread families otherwise keep the JVM
+     * alive forever once research has booted Solon (debugger-verified on the hung GUI): the
+     * {@code HTTP-Dispatcher} selector thread (released by {@code Solon.stopBlock}) and the
+     * {@code jdkhttp-N} worker pool — solon-server's {@code newWorkExecutor} builds it with a non-daemon
+     * {@code NamedThreadFactory} and {@code JdkHttpPlugin.stop()} never shuts the executor down
+     * ({@code HttpServer.stop} does not stop a user-supplied executor), so its core threads park forever.
+     * The executor is only reachable through the plugin's private fields, so it is captured reflectively
+     * BEFORE the stop (stop nulls the server field) and {@code shutdownNow()}n after. Call this ONCE at real
+     * application shutdown only — never between tests that re-boot Solon (a stop-then-restart within one JVM
+     * is unreliable, see {@link #shutdown()}). Idempotent and best-effort (we are exiting regardless).
      */
     public static void stopSharedServer() {
         synchronized (BOOT_LOCK) {
@@ -170,12 +175,54 @@ public final class SolonMcpServerRuntime implements McpServerRegistry {
                 return; // never booted, or already stopped — nothing to release
             }
             sharedPort = -1;
+            java.util.concurrent.ExecutorService workers = findJdkHttpWorkerPool();
             try {
                 Solon.stopBlock(false, 0); // false: don't fire app stop-hooks (we own this teardown), no delay
             } catch (Throwable ignored) {
                 // best-effort: the JVM is on its way out anyway
             }
+            if (workers != null) {
+                try {
+                    workers.shutdownNow();
+                } catch (Throwable ignored) {
+                    // best-effort
+                }
+            }
         }
+    }
+
+    /**
+     * The jdkhttp worker {@code ExecutorService} that Solon never shuts down, reached via the only path that
+     * exists: JdkHttpPlugin (plugin registry) → package-private {@code _server} (JdkHttpServerComb) → private
+     * {@code executor}. Returns null when Solon/the plugin/the fields are absent (e.g. after a lib upgrade
+     * that fixes or restructures this) — then there is simply nothing extra to stop.
+     */
+    private static java.util.concurrent.ExecutorService findJdkHttpWorkerPool() {
+        try {
+            if (Solon.app() == null) {
+                return null;
+            }
+            for (org.noear.solon.core.PluginEntity entry : Solon.cfg().plugs()) {
+                org.noear.solon.core.Plugin plugin = entry.getPlugin();
+                if (plugin == null || !plugin.getClass().getName().endsWith(".JdkHttpPlugin")) {
+                    continue;
+                }
+                java.lang.reflect.Field serverField = plugin.getClass().getDeclaredField("_server");
+                serverField.setAccessible(true);
+                Object comb = serverField.get(plugin);
+                if (comb == null) {
+                    return null;
+                }
+                java.lang.reflect.Field executorField = comb.getClass().getDeclaredField("executor");
+                executorField.setAccessible(true);
+                Object executor = executorField.get(comb);
+                return executor instanceof java.util.concurrent.ExecutorService
+                        ? (java.util.concurrent.ExecutorService) executor : null;
+            }
+        } catch (Throwable ignored) {
+            // best-effort discovery; absence just means nothing extra to stop
+        }
+        return null;
     }
 
     // ------------------------------------------------------------------ helpers
