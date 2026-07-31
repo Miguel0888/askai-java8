@@ -419,7 +419,6 @@ public final class ResearchAgentMain {
             }
         }
         String text = request.text() == null ? "" : request.text();
-        ctx.sendThought("planning: " + text);
         if (cancelled.get()) {
             return new AcpSchema.PromptResponse(AcpSchema.StopReason.CANCELLED);
         }
@@ -449,28 +448,62 @@ public final class ResearchAgentMain {
                     ? new AcpSchema.PromptResponse(AcpSchema.StopReason.CANCELLED)
                     : AcpSchema.PromptResponse.endTurn();
         }
-        // Mirror the host state via MCP (no own state machine): technical details only — the HOST leads
-        // the conversation; this process never small-talks in the user's chat.
+        // Productive conversation: the model-backed TeamAgent LEADS the greeting, scoping and outline dialog.
+        // Apply any pending central-model reload at this turn boundary (never mid-request), mirror the live
+        // host state, then greet on the first turn / respond on later turns. The host stays the state
+        // authority — this only reads research_status and speaks the model's own words.
+        applyPendingModelReload(ctx);
+        com.aresstack.askai.research.runtime.team.TeamAgentStateView view = readStateView(ctx);
+        com.aresstack.askai.research.runtime.team.TeamAgentResult result;
+        if (!teamAgent.hasGreeted()) {
+            result = teamAgent.greet(view);
+            emitTeamAgentResult(ctx, result);
+            // A greeting bootstrap carries no user text; if this first turn DID carry a real message and the
+            // greeting succeeded, answer it in the same turn so nothing the user typed is dropped.
+            if (result.isOk() && !text.trim().isEmpty()) {
+                emitTeamAgentResult(ctx, teamAgent.respond(text, view));
+            }
+        } else {
+            emitTeamAgentResult(ctx, teamAgent.respond(text, view));
+        }
+        return cancelled.get()
+                ? new AcpSchema.PromptResponse(AcpSchema.StopReason.CANCELLED)
+                : AcpSchema.PromptResponse.endTurn();
+    }
+
+    /**
+     * Read the host's authoritative {@code research_status} once for this turn, echo the raw line as a
+     * technical log (collapsed diagnostics, never a chat bubble) and parse it into the read-only
+     * {@link TeamAgentStateView} the TeamAgent is given. An unreachable endpoint yields a neutral view and an
+     * honest log line — never a fabricated state.
+     */
+    private com.aresstack.askai.research.runtime.team.TeamAgentStateView readStateView(SyncPromptContext ctx) {
         try {
             ToolResult status = researchMcp.callTool("research_status",
                     Collections.<String, Object>emptyMap());
-            ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
-                    .log("status: " + status));
+            String raw = String.valueOf(status);
+            ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire.log("status: " + raw));
+            return com.aresstack.askai.research.runtime.team.ResearchStatusView.parse(raw);
         } catch (RuntimeException ex) {
             ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
                     .log("research MCP unavailable: " + ex.getMessage()));
+            return com.aresstack.askai.research.runtime.team.ResearchStatusView.empty();
         }
-        if (text.contains("slow")) {
-            for (int i = 0; i < 1_000_000 && !cancelled.get(); i++) {
-                ctx.sendMessage("working " + i);
-            }
-            if (cancelled.get()) {
-                return new AcpSchema.PromptResponse(AcpSchema.StopReason.CANCELLED);
-            }
+    }
+
+    /**
+     * Send one TeamAgent turn to the user: the model's own message on OK (a plain ACP MESSAGE the host renders
+     * as an assistant bubble), or an honest typed line on MODEL_UNAVAILABLE / UNUSABLE_ANSWER /
+     * COMMAND_REJECTED. A validated command is logged for the host to execute (B3) — never claimed as done here.
+     */
+    private void emitTeamAgentResult(SyncPromptContext ctx,
+            com.aresstack.askai.research.runtime.team.TeamAgentResult result) {
+        ctx.sendMessage(com.aresstack.askai.research.runtime.team.TeamAgentReply.visible(result));
+        if (result.getStatus() == com.aresstack.askai.research.runtime.team.TeamAgentResult.Status.OK
+                && result.getValidatedCommand() != null) {
+            ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
+                    .log("PROPOSED_COMMAND: " + result.getValidatedCommand()));
         }
-        ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
-                .log("turn done for: " + text));
-        return AcpSchema.PromptResponse.endTurn();
     }
 
     /** Mirror the host state: research phase in run state — the only condition for an autonomous turn. */
