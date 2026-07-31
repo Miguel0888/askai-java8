@@ -568,11 +568,16 @@ public final class WorkspacePluginService {
         Runnable work = new Runnable() {
             public void run() {
                 try {
+                    System.err.println("[shutdown] plugin-worker: outgoing.closeAll() begin");
                     SessionCloseResult close = outgoing == null
                             ? SessionCloseResult.ok() : outgoing.closeAll();
+                    System.err.println("[shutdown] plugin-worker: closeAll done successful="
+                            + close.isSuccessful());
                     if (generation != null) {
                         if (close.isSuccessful()) {
+                            System.err.println("[shutdown] plugin-worker: generation.retire() begin");
                             trackIfIncomplete(generation, generation.retire());
+                            System.err.println("[shutdown] plugin-worker: generation.retire() done");
                             sweepRetiringGenerations();
                         } else {
                             // A failed session close must NOT be followed by a classloader unload; keep the
@@ -583,6 +588,7 @@ public final class WorkspacePluginService {
                         sweepRetiringGenerations();
                     }
                 } finally {
+                    System.err.println("[shutdown] plugin-worker: complete");
                     complete.countDown();
                 }
             }

@@ -90,7 +90,25 @@ public final class AskAiFrame extends JFrame {
     /** Persisted CSV of the currently open chat-tab ids, so "closed stays closed" survives a crash. */
     private static final String STATE_OPEN_CHAT_TABS = "chat.openTabs";
     /** Grace period for graceful plugin/runtime teardown on close before the JVM is force-exited. */
-    private static final long FORCE_EXIT_GRACE_MILLIS = 3500L;
+    private static final long FORCE_EXIT_GRACE_MILLIS = 3000L;
+    /** After System.exit(0), if a shutdown HOOK blocks this long, halt(0) the JVM unconditionally. */
+    private static final long HALT_GRACE_MILLIS = 2500L;
+    /** Shutdown runs exactly once (from the window close OR the File > Beenden menu). */
+    private final java.util.concurrent.atomic.AtomicBoolean shuttingDown =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
+
+    /** One traceable shutdown log line to STDERR (the runWithDevPlugins console), timestamped. */
+    private static void shutdownLog(String message) {
+        System.err.println("[shutdown] +" + System.currentTimeMillis() % 100000 + "ms " + message);
+    }
+
+    private static void sleepQuiet(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+        }
+    }
     private final ApplicationStateService applicationState;
     private OllamaConfigPanel configPanel;
     private ChatWorkspacePanel chatWorkspace;
@@ -158,7 +176,9 @@ public final class AskAiFrame extends JFrame {
         }
         Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
             public void run() {
+                shutdownLog("hook local-runtime.stop() begin");
                 localRuntime.stop();
+                shutdownLog("hook local-runtime.stop() done");
             }
         }, "askai-local-runtime-shutdown"));
         this.catalogRefreshService.subscribe(new GlobalCatalogRefreshService.Listener() {
@@ -170,42 +190,7 @@ public final class AskAiFrame extends JFrame {
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
         addWindowListener(new WindowAdapter() {
             public void windowClosed(WindowEvent event) {
-                // Explicit, bounded shutdown order: tear down the plugin host first (force-dispose,
-                // no unbounded wait on a plugin's close callback), then the chat tabs, then the service.
-                if (chatWorkspaceHost != null) {
-                    try {
-                        chatWorkspaceHost.shutdown();
-                    } catch (RuntimeException ignored) {
-                        // never let plugin teardown block application shutdown
-                    }
-                }
-                if (chatWorkspace != null) {
-                    for (ChatSessionComponent session : chatWorkspace.sessions()) {
-                        session.disposeSession();
-                    }
-                }
-                if (batchPanel != null) {
-                    batchPanel.dispose();
-                }
-                askAiService.shutdown();
-                // The plugin/runtime teardown runs on NON-daemon threads that deliberately keep the JVM alive
-                // to finish (WorkspacePluginService's "askai-plugin-shutdown" worker; the process-global Solon
-                // MCP runtime lives until JVM exit). If any of that hangs, the window closes but the process
-                // lingers and must be killed. Guarantee termination: give the graceful cleanup a short window,
-                // then force the JVM to exit. System.exit runs the shutdown hooks (local-model + agent
-                // runtimes / their sidecars) first; in the good case the JVM has already exited by then.
-                Thread forceExit = new Thread(new Runnable() {
-                    public void run() {
-                        try {
-                            Thread.sleep(FORCE_EXIT_GRACE_MILLIS);
-                        } catch (InterruptedException interrupted) {
-                            Thread.currentThread().interrupt();
-                        }
-                        System.exit(0);
-                    }
-                }, "askai-force-exit");
-                forceExit.setDaemon(true);
-                forceExit.start();
+                performShutdown();
             }
         });
         setSize(1180, 820);
@@ -214,6 +199,79 @@ public final class AskAiFrame extends JFrame {
         buildUserInterface();
         showScreen(CHAT_VIEW);
         catalogRefreshService.refresh(); // initial catalog load, distributed to the chat + batch panels
+        // Diagnostics: -Daskai.diagnostic.autoQuitMillis=N triggers the exact shutdown path after N ms so the
+        // hang can be reproduced/traced headlessly (the [shutdown] log lines show where it blocks).
+        String autoQuit = System.getProperty("askai.diagnostic.autoQuitMillis");
+        if (autoQuit != null && !autoQuit.trim().isEmpty()) {
+            javax.swing.Timer timer = new javax.swing.Timer(Integer.parseInt(autoQuit.trim()),
+                    new ActionListener() {
+                        public void actionPerformed(ActionEvent event) {
+                            shutdownLog("diagnostic auto-quit firing (dispose -> performShutdown)");
+                            dispose();
+                        }
+                    });
+            timer.setRepeats(false);
+            timer.start();
+        }
+    }
+
+    /**
+     * The single shutdown path (window close OR File &gt; Beenden), fully logged so a hang is traceable, with a
+     * hard guarantee that the process terminates. The plugin/runtime teardown runs on NON-daemon threads that
+     * deliberately keep the JVM alive to finish (WorkspacePluginService's "askai-plugin-shutdown" worker; the
+     * process-global Solon MCP runtime lives until JVM exit). If any of that — or a shutdown HOOK — blocks, the
+     * window closes but the process lingers and must be killed. So: attempt the graceful teardown, then after a
+     * grace force {@code System.exit(0)} (which runs the shutdown hooks), and if a hook itself blocks, a final
+     * watchdog {@code Runtime.halt(0)}s the JVM unconditionally.
+     */
+    private void performShutdown() {
+        if (!shuttingDown.compareAndSet(false, true)) {
+            return; // idempotent
+        }
+        shutdownLog("performShutdown begin");
+        if (chatWorkspaceHost != null) {
+            try {
+                shutdownLog("chatWorkspaceHost.shutdown() ...");
+                chatWorkspaceHost.shutdown();
+                shutdownLog("chatWorkspaceHost.shutdown() returned");
+            } catch (RuntimeException ex) {
+                shutdownLog("chatWorkspaceHost.shutdown() threw: " + ex);
+            }
+        }
+        if (chatWorkspace != null) {
+            shutdownLog("disposeSession for all tabs ...");
+            for (ChatSessionComponent session : chatWorkspace.sessions()) {
+                session.disposeSession();
+            }
+            shutdownLog("disposeSession done");
+        }
+        if (batchPanel != null) {
+            batchPanel.dispose();
+        }
+        shutdownLog("askAiService.shutdown() ...");
+        askAiService.shutdown();
+        shutdownLog("askAiService.shutdown() returned; arming exit backstop (grace="
+                + FORCE_EXIT_GRACE_MILLIS + "ms)");
+        Thread forceExit = new Thread(new Runnable() {
+            public void run() {
+                sleepQuiet(FORCE_EXIT_GRACE_MILLIS);
+                // If System.exit hangs in a blocking shutdown hook, this daemon halts the JVM regardless.
+                Thread halt = new Thread(new Runnable() {
+                    public void run() {
+                        sleepQuiet(HALT_GRACE_MILLIS);
+                        shutdownLog("System.exit still not done after " + HALT_GRACE_MILLIS
+                                + "ms (a shutdown hook is blocking) -> Runtime.halt(0)");
+                        Runtime.getRuntime().halt(0);
+                    }
+                }, "askai-halt-watchdog");
+                halt.setDaemon(true);
+                halt.start();
+                shutdownLog("grace elapsed -> System.exit(0) (running shutdown hooks)");
+                System.exit(0);
+            }
+        }, "askai-force-exit");
+        forceExit.setDaemon(true);
+        forceExit.start();
     }
 
     /** Kept for the existing launcher: builds the frame and makes it visible. */
@@ -229,6 +287,7 @@ public final class AskAiFrame extends JFrame {
 
     private JMenuBar createMenuBar() {
         JMenuBar menuBar = new JMenuBar();
+        menuBar.add(createFileMenu());
         menuBar.add(createTopLevelMenu("Chat", CHAT_VIEW));
         menuBar.add(createTopLevelMenu("Batch", BATCH_VIEW));
         menuBar.add(createModelsMenu());
@@ -238,6 +297,21 @@ public final class AskAiFrame extends JFrame {
         menuBar.add(connectionStatusView);
         menuBar.add(globalRefreshButton); // one refresh for connection, models and audio profiles
         return menuBar;
+    }
+
+    /** Far-left "Datei" menu with an explicit "Beenden" that runs the same logged shutdown as the window X. */
+    private JMenu createFileMenu() {
+        JMenu menu = new JMenu("Datei");
+        javax.swing.JMenuItem quit = new javax.swing.JMenuItem("Beenden");
+        quit.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent event) {
+                shutdownLog("quit requested via File > Beenden");
+                performShutdown();
+                dispose();
+            }
+        });
+        menu.add(quit);
+        return menu;
     }
 
     private JButton createGlobalRefreshButton() {
@@ -457,7 +531,9 @@ public final class AskAiFrame extends JFrame {
                         askAiService.localRuntimeManager(), configurationRepository);
         Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
             public void run() {
+                shutdownLog("hook agentRuntimeServices.shutdown() begin");
                 agentRuntimeServices.shutdown();
+                shutdownLog("hook agentRuntimeServices.shutdown() done");
             }
         }, "agent-runtime-services-shutdown"));
         // Central model change → re-publish the running research sessions' descriptors (no direct UI→research
