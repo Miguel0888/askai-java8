@@ -146,13 +146,7 @@ public final class LocalRerankerConfigurationSnapshotProvider
                 ? centralSelection
                 : (selectedModel == null ? "" : selectedModel.trim());
         if (effective.isEmpty()) {
-            throw new RerankerConfigurationException(installed.isEmpty()
-                    ? "No reranker model is selected and no rerank-capable local model is installed. "
-                            + "Install a reranker under \"Install locally in AskAI\" and select it in "
-                            + "AskAI → Configuration → AI models before starting a productive session."
-                    : "No reranker model is selected. Choose one of the installed rerank models "
-                            + installed + " in AskAI → Configuration → AI models (there is no "
-                            + "silent first-match selection).");
+            throw new RerankerConfigurationException(noSelectionMessage(installed));
         }
         if (!installed.contains(effective)) {
             throw new RerankerConfigurationException(
@@ -166,5 +160,28 @@ public final class LocalRerankerConfigurationSnapshotProvider
             central.migrateSelection(effective);
         }
         return effective;
+    }
+
+    /**
+     * The user-facing hint for a missing reranker selection. When exactly one rerank-capable model is
+     * installed it is suggested BY NAME (still no silent auto-selection — the user confirms it); several are
+     * listed; none points to the local install. In every case the Ollama limitation is named, so it is clear
+     * WHY the reranker must run locally.
+     */
+    private static String noSelectionMessage(List<String> installed) {
+        String ollamaNote = " Note: Ollama has no native reranker yet, so the reranker runs locally in AskAI.";
+        if (installed.isEmpty()) {
+            return "No reranker model is selected and no rerank-capable local model is installed. Install a "
+                    + "reranker under \"Install locally in AskAI\" — e.g. cross-encoder/ms-marco-MiniLM-L6-v2 "
+                    + "— and select it in AskAI → Configuration → AI models before starting a research "
+                    + "session." + ollamaNote;
+        }
+        if (installed.size() == 1) {
+            return "No reranker model is selected yet. Select the installed model \"" + installed.get(0)
+                    + "\" in AskAI → Configuration → AI models to start a research session." + ollamaNote;
+        }
+        return "No reranker model is selected. Choose one of the installed rerank models " + installed
+                + " in AskAI → Configuration → AI models (there is no silent first-match selection)."
+                + ollamaNote;
     }
 }
