@@ -32,6 +32,9 @@ public final class FakeResearchSessionBackend implements ResearchSessionBackend 
     private final ResearchIdGenerator idGenerator;
     private final long stepDelayMillis;
     private final Map<String, FakeSession> sessions = new ConcurrentHashMap<String, FakeSession>();
+    /** Phrases the fake agent's conversational texts (variant 0 = the playbook wording). */
+    private final com.aresstack.askai.research.agent.ResearchNarrator narrator =
+            new com.aresstack.askai.research.agent.StaticNarrator();
 
     public FakeResearchSessionBackend(ResearchScheduler scheduler, ResearchClock clock,
                                       ResearchIdGenerator idGenerator, long stepDelayMillis) {
@@ -51,7 +54,7 @@ public final class FakeResearchSessionBackend implements ResearchSessionBackend 
         // activation. The session waits for the USER'S research question; guidance is visible instead.
         synchronized (session) {
             emit(session, ResearchBackendEvent.builder(ResearchBackendEventType.ASSISTANT_MESSAGE)
-                    .text(com.aresstack.askai.research.agent.ResearchPlaybook.greeting()), null);
+                    .text(narrator.greeting()), null);
         }
         return session;
     }

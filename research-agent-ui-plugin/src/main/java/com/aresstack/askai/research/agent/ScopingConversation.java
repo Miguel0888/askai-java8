@@ -26,9 +26,19 @@ public final class ScopingConversation {
 
     private enum Stage { AWAITING_QUESTION, CLARIFYING, CONFIRMING, DONE }
 
+    private final ResearchNarrator narrator;
     private Stage stage = Stage.AWAITING_QUESTION;
     private String question = "";
     private final List<String> aspects = new ArrayList<String>();
+
+    public ScopingConversation() {
+        this(new StaticNarrator());
+    }
+
+    /** The narrator phrases every reply; the dialog structure stays deterministic here. */
+    public ScopingConversation(ResearchNarrator narrator) {
+        this.narrator = narrator == null ? new StaticNarrator() : narrator;
+    }
 
     public String getQuestion() {
         return question;
@@ -66,7 +76,7 @@ public final class ScopingConversation {
     public Reply next(String userText) {
         String text = userText == null ? "" : userText.trim();
         if (text.isEmpty()) {
-            return new Reply(ResearchPlaybook.greeting(), false);
+            return new Reply(narrator.greeting(), false);
         }
         switch (stage) {
             case AWAITING_QUESTION:
@@ -74,11 +84,10 @@ public final class ScopingConversation {
                 if (ResearchPlaybook.isStartRequest(text)) {
                     // "start" without a question is not researchable — keep asking, honestly.
                     question = "";
-                    return new Reply("I need a research question first — what would you like to "
-                            + "find out?", false);
+                    return new Reply(narrator.needQuestionFirst(), false);
                 }
                 stage = Stage.CLARIFYING;
-                return new Reply(ResearchPlaybook.paraphraseAndFocus(question), false);
+                return new Reply(narrator.paraphraseAndFocus(question), false);
             case CLARIFYING:
                 if (!ResearchPlaybook.isConfirmation(text)) {
                     aspects.add(text);
@@ -88,14 +97,14 @@ public final class ScopingConversation {
                     stage = Stage.DONE;
                     return new Reply(null, true); // the caller proposes the outline now
                 }
-                return new Reply(ResearchPlaybook.summarizeAndCheck(question, aspects), false);
+                return new Reply(narrator.summarizeAndCheck(question, aspects), false);
             case CONFIRMING:
                 if (ResearchPlaybook.isConfirmation(text)) {
                     stage = Stage.DONE;
                     return new Reply(null, true);
                 }
                 aspects.add(text); // the user added something — work it in and re-check
-                return new Reply(ResearchPlaybook.summarizeAndCheck(question, aspects), false);
+                return new Reply(narrator.summarizeAndCheck(question, aspects), false);
             default:
                 return new Reply(null, true);
         }

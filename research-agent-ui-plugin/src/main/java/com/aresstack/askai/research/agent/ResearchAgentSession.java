@@ -261,7 +261,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 }
                 String cardId = current.getPendingApprovalId() == null
                         ? "actions-restored-" + current.getRevision() : current.getPendingApprovalId();
-                String text = ResearchPlaybook.describePhase(current.getPhaseId(), current.getStateId(),
+                String text = narrator.describePhase(current.getPhaseId(), current.getStateId(),
                         !researchQuestion.isEmpty());
                 sink.showLiveActionCard(cardId, text, options,
                         new AgentConversationSink.ActionHandler() {
@@ -282,7 +282,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                     approveCurrent();
                 } else if ("changes".equals(actionId)) {
                     requestChanges("");
-                    sayAsAgent(ResearchPlaybook.refinePrompt());
+                    sayAsAgent(narrator.refinePrompt());
                 } else {
                     if (!dispatch(action.getCommand(), null).isAccepted()) {
                         return AgentConversationSink.ActionExecutionResult.REJECTED;
@@ -379,8 +379,10 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     private volatile String researchQuestion = "";
     /** True while an agent TURN is in flight (productive composer busy-state; cleared on terminal events). */
     private volatile boolean agentTurnInFlight;
+    /** The narration seam: all conversational milestone texts; replaceable by an LLM-backed narrator. */
+    private final ResearchNarrator narrator = new StaticNarrator();
     /** The consultative scoping dialog (productive mode). */
-    private final ScopingConversation scoping = new ScopingConversation();
+    private final ScopingConversation scoping = new ScopingConversation(narrator);
     private final java.util.concurrent.atomic.AtomicLong playbookMessageIds =
             new java.util.concurrent.atomic.AtomicLong();
 
@@ -403,9 +405,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         }
         // FAKE mode: host-side explainability + the deterministic backend, unchanged. Meta questions are
         // answered from the playbook + live state, in plain language — never with internal identifiers.
-        String phaseDescription = ResearchPlaybook.describePhase(state.getPhaseId(), state.getStateId(),
+        String phaseDescription = narrator.describePhase(state.getPhaseId(), state.getStateId(),
                 !scoping.getQuestion().isEmpty());
-        String explanation = ResearchPlaybook.explain(text, phaseDescription);
+        String explanation = narrator.explainOrNull(text, phaseDescription);
         if (explanation != null) {
             sayAsAgent(explanation);
             return;
@@ -586,7 +588,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                                         approveCurrent();
                                     } else {
                                         requestChanges("");
-                                        sayAsAgent(ResearchPlaybook.refinePrompt());
+                                        sayAsAgent(narrator.refinePrompt());
                                     }
                                     return AgentConversationSink.ActionExecutionResult.ACCEPTED;
                                 }
@@ -746,9 +748,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             agentTurnInFlight = false;
             if (dispatch(ResearchCommandType.PAUSE, null).isAccepted()) {
                 // A visible confirmation — and the sink event makes the composer re-read availability.
-                sayAsAgent(ResearchPlaybook.getLanguage() == ResearchPlaybook.Language.GERMAN
-                        ? "Pausiert. Schreib einfach weiter, wenn es weitergehen soll."
-                        : "Paused. Just type again when you want to continue.");
+                sayAsAgent(narrator.pausedNotice());
             }
             return;
         } else if (handle != null) {
@@ -1001,7 +1001,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         runCardStarted = false;
         resetRunActivityContext();
         sink.showActionCard("research-outcome-" + outcome.getPromptId(),
-                ResearchPlaybook.outcomeCard(outcome), outcomeActions(outcome),
+                narrator.outcomeNarrative(outcome), outcomeActions(outcome),
                 new AgentConversationSink.ActionHandler() {
                     public AgentConversationSink.ActionExecutionResult onAction(String actionId) {
                         return handleOutcomeAction(actionId, outcome);
@@ -1152,7 +1152,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             return AgentConversationSink.ActionExecutionResult.NO_STATE_CHANGE;
         }
         if ("refine".equals(actionId)) {
-            sayAsAgent(ResearchPlaybook.refinePrompt()); // the composer is free; the user just types
+            sayAsAgent(narrator.refinePrompt()); // the composer is free; the user just types
             return AgentConversationSink.ActionExecutionResult.ACCEPTED;
         }
         if ("limit".equals(actionId)) {
@@ -1185,7 +1185,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             agentTurnInFlight = true; // cleared by the next RUN_OUTCOME / terminal
             backend.submitPrompt(handle, new ResearchPrompt(researchQuestion, ""));
         } else {
-            sayAsAgent(ResearchPlaybook.refinePrompt());
+            sayAsAgent(narrator.refinePrompt());
         }
     }
 
