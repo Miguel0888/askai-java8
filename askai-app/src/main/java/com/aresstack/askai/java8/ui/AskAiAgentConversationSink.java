@@ -19,18 +19,36 @@ final class AskAiAgentConversationSink implements AgentConversationSink {
         void line(String line);
     }
 
+    /**
+     * Persists the CONVERSATION bubbles (user + assistant) to the durable chat store, exactly like the normal
+     * chat, so an agent conversation survives a restart. Transient run activity (thinking, tools, cards) stays
+     * ephemeral and is never persisted.
+     */
+    interface MessagePersister {
+        void persistUser(String text);
+
+        void persistAssistant(String text);
+    }
+
     private final ChatTranscript transcript;
     private final Runnable afterUpdate;
     private final TechnicalLog technicalLog;
+    private final MessagePersister persister;
     private final Map<String, BubbleTranscriptPanel.ThinkingHandle> thinking =
             new HashMap<String, BubbleTranscriptPanel.ThinkingHandle>();
     private final Map<String, BubbleTranscriptPanel.AgentActivityHandle> tools =
             new HashMap<String, BubbleTranscriptPanel.AgentActivityHandle>();
 
     AskAiAgentConversationSink(ChatTranscript transcript, Runnable afterUpdate, TechnicalLog technicalLog) {
+        this(transcript, afterUpdate, technicalLog, null);
+    }
+
+    AskAiAgentConversationSink(ChatTranscript transcript, Runnable afterUpdate, TechnicalLog technicalLog,
+                              MessagePersister persister) {
         this.transcript = transcript;
         this.afterUpdate = afterUpdate;
         this.technicalLog = technicalLog;
+        this.persister = persister;
     }
 
     @Override
@@ -43,6 +61,9 @@ final class AskAiAgentConversationSink implements AgentConversationSink {
     @Override
     public void appendUserMessage(String messageId, String markdown) {
         transcript.appendUser(markdown);
+        if (persister != null) {
+            persister.persistUser(markdown);
+        }
         refresh();
     }
 
@@ -51,6 +72,9 @@ final class AskAiAgentConversationSink implements AgentConversationSink {
         transcript.startAssistant("Agent");
         transcript.appendAssistantDelta(markdown);
         transcript.finishAssistant();
+        if (persister != null) {
+            persister.persistAssistant(markdown);
+        }
         refresh();
     }
 

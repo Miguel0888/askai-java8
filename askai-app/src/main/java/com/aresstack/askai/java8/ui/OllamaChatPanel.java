@@ -1617,6 +1617,16 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
                 public void line(String line) {
                     appendTech(line);
                 }
+            }, new AskAiAgentConversationSink.MessagePersister() {
+                // Persist the agent CONVERSATION exactly like a normal chat, so it survives a restart. The
+                // research phase/state is persisted separately by the plugin; here we only save the bubbles.
+                public void persistUser(String text) {
+                    persistUserMessage(text, java.util.Collections.<ImageAttachment>emptyList());
+                }
+
+                public void persistAssistant(String text) {
+                    persistAssistantMessage(text, "Agent");
+                }
             });
         }
         return agentConversationSink;
