@@ -1,0 +1,78 @@
+package com.aresstack.askai.research.runtime.team;
+
+import com.aresstack.askai.agent.model.inference.InferenceConfigurationDocument;
+import com.aresstack.askai.research.runtime.inference.InferenceConfigurationLoader;
+
+import org.junit.Rule;
+import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
+
+import java.io.File;
+import java.util.Arrays;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+
+/**
+ * The model-backed TeamAgent driven end to end over REAL HTTP against the mock {@code /api/chat}, through the
+ * real inference-config loader and {@link HttpMainModelChatClient}. Proves the descriptor's model reaches the
+ * endpoint, the greeting and a scope proposal come from the model, prior turns are carried in the history, and
+ * an illegal command the model insists on is rejected without surfacing its misleading message.
+ */
+public class MockMainModelPassthroughTest {
+
+    @Rule
+    public final TemporaryFolder folder = new TemporaryFolder();
+
+    private static TeamAgentStateView scopingNew() {
+        return new TeamAgentStateView("scoping", "new", Arrays.asList("START"));
+    }
+
+    private static TeamAgentStateView scopingRunning() {
+        return new TeamAgentStateView("scoping", "running", Arrays.asList("SUBMIT_SCOPE", "CANCEL"));
+    }
+
+    @Test
+    public void teamAgentGreetsProposesScopeAndRejectsIllegalCommandsOverRealHttp() throws Exception {
+        MockMainModelServer mock = new MockMainModelServer();
+        try {
+            mock.enqueueMessage("Hi! What would you like to research?");
+            mock.enqueueScopeProposal("Great, let me confirm the scope.", "SUBMIT_SCOPE",
+                    "How does pf4j isolate plugins?", Arrays.asList("class isolation", "versioning"));
+
+            File cfg = mock.writeInferenceConfig(folder.newFile("inference-config.json"), "gemma4:e2b");
+            InferenceConfigurationDocument document = InferenceConfigurationLoader.load(cfg.getAbsolutePath());
+            assertEquals("gemma4:e2b", document.getModel());
+            ResearchTeamAgent agent = new ResearchTeamAgent(new HttpMainModelChatClient(document.descriptor));
+
+            TeamAgentResult greeting = agent.greet(scopingNew());
+            assertEquals(TeamAgentResult.Status.OK, greeting.getStatus());
+            assertTrue(greeting.getTurn().getAssistantMessage().contains("What would you like to research"));
+
+            TeamAgentResult reply = agent.respond("pf4j isolation", scopingRunning());
+            assertEquals(TeamAgentResult.Status.OK, reply.getStatus());
+            assertEquals("SUBMIT_SCOPE", reply.getValidatedCommand());
+            assertEquals("How does pf4j isolate plugins?", agent.getProposedQuestion());
+
+            // The descriptor's model actually reached /api/chat, and the greeting was carried in the second
+            // turn's message history (a real conversation, not a fresh one).
+            assertTrue("mock received model=gemma4:e2b", mock.sawModel("gemma4:e2b"));
+            assertTrue("the greeting is carried in the follow-up turn's history",
+                    mock.requests().get(1).historyContains("What would you like to research"));
+
+            // An illegal command the model keeps proposing is rejected; its misleading message is withheld.
+            mock.enqueueScopeProposal("Starting research now.", "START_RESEARCH", "q", Arrays.asList("a"));
+            mock.enqueueScopeProposal("Kicking it off anyway.", "START_RESEARCH", "q", Arrays.asList("a"));
+            TeamAgentResult illegal = agent.respond("go", scopingRunning());
+            assertEquals(TeamAgentResult.Status.COMMAND_REJECTED, illegal.getStatus());
+            assertNull(illegal.getValidatedCommand());
+            assertNull("the misleading message must be withheld", illegal.getTurn());
+            assertFalse("no scope proposal leaks for a rejected command",
+                    "START_RESEARCH".equals(illegal.getValidatedCommand()));
+        } finally {
+            mock.close();
+        }
+    }
+}
