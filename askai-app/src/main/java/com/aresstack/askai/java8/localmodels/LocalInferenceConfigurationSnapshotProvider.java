@@ -61,8 +61,8 @@ public final class LocalInferenceConfigurationSnapshotProvider
         if (model.isEmpty()) {
             throw new InferenceConfigurationException(
                     "No main model is selected. Choose a chat model in the AskAI chat window "
-                            + "(it is the shared main model for all plugins) before starting a productive "
-                            + "research session, or the SERP layout repair stays unavailable.");
+                            + "(it is the shared main model for all plugins) before starting a research "
+                            + "session — the research assistant needs it to talk to you.");
         }
         String baseUrl = resolveBaseUrl(model);
         if (baseUrl == null || baseUrl.trim().isEmpty()) {

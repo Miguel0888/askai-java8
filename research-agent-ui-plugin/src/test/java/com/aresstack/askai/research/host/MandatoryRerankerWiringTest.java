@@ -41,6 +41,24 @@ public class MandatoryRerankerWiringTest {
     }
 
     @Test
+    public void agentLaunchEnvironmentCarriesTheInferenceUnavailableReasonInsteadOfADescriptor() {
+        Map<String, String> env = ProductiveResearchBackendFactory.agentLaunchEnvironment(
+                "/tmp/search.json", "/tmp/reranker.json", "", "No main model is selected.");
+        assertTrue("no descriptor → the key is omitted", !env.containsKey("ASKAI_INFERENCE_CONFIG"));
+        assertEquals("the actionable reason reaches the agent so its MODEL_UNAVAILABLE message can use it",
+                "No main model is selected.", env.get("ASKAI_INFERENCE_UNAVAILABLE_REASON"));
+    }
+
+    @Test
+    public void aPublishedInferenceDescriptorNeverCarriesAnUnavailableReason() {
+        Map<String, String> env = ProductiveResearchBackendFactory.agentLaunchEnvironment(
+                "/tmp/search.json", "/tmp/reranker.json", "/tmp/inference.json", "ignored reason");
+        assertEquals("/tmp/inference.json", env.get("ASKAI_INFERENCE_CONFIG"));
+        assertTrue("a present descriptor wins; no reason key",
+                !env.containsKey("ASKAI_INFERENCE_UNAVAILABLE_REASON"));
+    }
+
+    @Test
     public void createSessionWithoutARerankerProviderFailsVisibly() throws Exception {
         File exe = folder.newFile("java");
         File jar = folder.newFile("agent.jar");

@@ -24,11 +24,14 @@ final class ResearchAgentEnvironment {
     final String searchStrategyConfigPath;
     /** Path of the structured-inference descriptor (the central main model for SERP repair), or null. */
     final String inferenceConfigPath;
+    /** Actionable reason the main model is unavailable when no descriptor was published, or null. */
+    final String inferenceUnavailableReason;
 
     private ResearchAgentEnvironment(String sessionId, String projectId, String researchUrl,
                                      String researchTransport, String browserUrl, String browserTransport,
                                      String browserSearchConfigPath, String rerankerConfigPath,
-                                     String searchStrategyConfigPath, String inferenceConfigPath) {
+                                     String searchStrategyConfigPath, String inferenceConfigPath,
+                                     String inferenceUnavailableReason) {
         this.sessionId = sessionId;
         this.projectId = projectId;
         this.researchUrl = researchUrl;
@@ -39,6 +42,7 @@ final class ResearchAgentEnvironment {
         this.rerankerConfigPath = rerankerConfigPath;
         this.searchStrategyConfigPath = searchStrategyConfigPath;
         this.inferenceConfigPath = inferenceConfigPath;
+        this.inferenceUnavailableReason = inferenceUnavailableReason;
     }
 
     static ResearchAgentEnvironment from(Map<String, String> env) {
@@ -54,7 +58,8 @@ final class ResearchAgentEnvironment {
                 blankToNull(env.get("ASKAI_BROWSER_SEARCH_CONFIG")),
                 blankToNull(env.get("ASKAI_RERANKER_CONFIG")),
                 blankToNull(env.get("ASKAI_SEARCH_STRATEGY_CONFIG")),
-                blankToNull(env.get("ASKAI_INFERENCE_CONFIG")));
+                blankToNull(env.get("ASKAI_INFERENCE_CONFIG")),
+                blankToNull(env.get("ASKAI_INFERENCE_UNAVAILABLE_REASON")));
     }
 
     boolean hasSearchStrategyConfig() {

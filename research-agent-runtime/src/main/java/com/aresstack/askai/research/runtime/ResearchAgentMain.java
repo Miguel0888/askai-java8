@@ -203,8 +203,13 @@ public final class ResearchAgentMain {
     private com.aresstack.askai.research.runtime.team.MainModelChat buildMainModelChat() {
         if (!environment.hasInference()) {
             System.err.println("[research-agent] no inference descriptor — TeamAgent main model unavailable");
-            return new com.aresstack.askai.research.runtime.team.UnavailableMainModelChat(
-                    "no main-model descriptor (ASKAI_INFERENCE_CONFIG) is configured");
+            // Prefer the actionable reason the host passed (e.g. "No main model is selected. Choose a chat
+            // model…"); fall back to a self-explanatory default that still points the user at the selector.
+            String reason = environment.inferenceUnavailableReason != null
+                    ? environment.inferenceUnavailableReason
+                    : "No main (chat) model is selected. Choose one in the model selector at the top of the "
+                            + "chat, then reopen the research tab.";
+            return new com.aresstack.askai.research.runtime.team.UnavailableMainModelChat(reason);
         }
         try {
             com.aresstack.askai.agent.model.inference.InferenceConfigurationDocument document =

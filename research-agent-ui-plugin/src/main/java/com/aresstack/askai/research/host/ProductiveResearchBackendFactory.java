@@ -176,13 +176,21 @@ public final class ProductiveResearchBackendFactory {
         // the reranker this NEVER fails the session: an absent provider or an unresolvable main model just
         // means the agent keeps the honest unavailable-fallback (a low-confidence SERP stays unresolvable).
         String inferenceSnapshotPath = "";
+        // When the main model cannot be prepared, keep the honest reason (e.g. "No main model is selected…")
+        // and hand it to the agent so the TeamAgent's MODEL_UNAVAILABLE bubble tells the user WHAT to fix,
+        // instead of a bare "no descriptor configured".
+        String inferenceUnavailableReason = "";
         if (inferenceSnapshots != null) {
             try {
                 inferenceSnapshotPath = inferenceSnapshots.prepareForSession(sessionKey, projectDir)
                         .getAbsolutePath();
             } catch (com.aresstack.askai.agent.model.inference.InferenceConfigurationException ex) {
                 inferenceSnapshotPath = "";
+                inferenceUnavailableReason = ex.getMessage() == null ? "" : ex.getMessage();
             }
+        } else {
+            inferenceUnavailableReason = "This host has no main-model provider "
+                    + "(no central chat model is configured).";
         }
 
         // 1. THE persistent project context (Commit 1 of the guided artifact flow): exactly one
@@ -275,7 +283,7 @@ public final class ProductiveResearchBackendFactory {
             // the sense of never reaching the BROWSER process; the agent needs them) plus the MANDATORY
             // reranker start snapshot: the agent MUST rerank before opening any page.
             Map<String, String> baseEnv = agentLaunchEnvironment(fullConfigFile.getAbsolutePath(),
-                    rerankerSnapshot.getAbsolutePath(), inferenceSnapshotPath);
+                    rerankerSnapshot.getAbsolutePath(), inferenceSnapshotPath, inferenceUnavailableReason);
             AgentLaunchSpec spec = new AgentLaunchSpec(agentJava,
                     java.util.Arrays.asList("-jar", config.getAgentJar()), baseEnv);
             AcpResearchSessionBackend backend = null; // assigned after control.open()
@@ -326,6 +334,13 @@ public final class ProductiveResearchBackendFactory {
     static Map<String, String> agentLaunchEnvironment(String searchConfigPath,
                                                       String rerankerSnapshotPath,
                                                       String inferenceSnapshotPath) {
+        return agentLaunchEnvironment(searchConfigPath, rerankerSnapshotPath, inferenceSnapshotPath, "");
+    }
+
+    static Map<String, String> agentLaunchEnvironment(String searchConfigPath,
+                                                      String rerankerSnapshotPath,
+                                                      String inferenceSnapshotPath,
+                                                      String inferenceUnavailableReason) {
         Map<String, String> baseEnv = new LinkedHashMap<String, String>();
         baseEnv.put("ASKAI_BROWSER_SEARCH_CONFIG", searchConfigPath);
         baseEnv.put("ASKAI_RERANKER_CONFIG", rerankerSnapshotPath);
@@ -333,6 +348,10 @@ public final class ProductiveResearchBackendFactory {
         // the agent's ResearchAgentEnvironment.hasInference() is false and it keeps the honest fallback).
         if (inferenceSnapshotPath != null && !inferenceSnapshotPath.trim().isEmpty()) {
             baseEnv.put("ASKAI_INFERENCE_CONFIG", inferenceSnapshotPath);
+        } else if (inferenceUnavailableReason != null && !inferenceUnavailableReason.trim().isEmpty()) {
+            // No descriptor: hand over the actionable REASON so the agent's MODEL_UNAVAILABLE message can
+            // tell the user what to fix (e.g. select a chat model), never just "no descriptor configured".
+            baseEnv.put("ASKAI_INFERENCE_UNAVAILABLE_REASON", inferenceUnavailableReason.trim());
         }
         return baseEnv;
     }
