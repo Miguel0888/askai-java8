@@ -37,6 +37,15 @@ public final class ResearchAgentMain {
     private McpClientProvider researchMcp;
     private volatile boolean readinessAnnounced;
     /**
+     * The session's hot-swappable main-model transport and the single model-backed conversation engine built
+     * on top of it. Both are created at session/new for EVERY session, INDEPENDENT of the browser: the
+     * greeting, scoping and outline conversation runs on the central main model while the browser stays
+     * STOPPED. When no valid descriptor is configured the transport is an {@code UnavailableMainModelChat}, so
+     * the agent surfaces an honest, retryable {@code MODEL_UNAVAILABLE} rather than a static fake dialogue.
+     */
+    private com.aresstack.askai.research.runtime.team.ReloadableMainModelChat mainModelChat;
+    private com.aresstack.askai.research.runtime.team.ResearchTeamAgent teamAgent;
+    /**
      * The MANDATORY reranker, built ONCE at session/new for a browser session (validated + endpoint
      * readiness-checked there, not mid-prompt). Null only when this session has no browser endpoint.
      */
@@ -113,6 +122,14 @@ public final class ResearchAgentMain {
                 Collections.<String, Object>emptyMap());
         System.err.println("[research-agent] research_status ok: " + status);
 
+        // The model-backed TeamAgent is created for EVERY session, BEFORE (and independent of) the browser:
+        // the conversation runs on the central main model even while the browser stays STOPPED. It must NOT
+        // live under hasBrowser() or the research loop.
+        this.mainModelChat = new com.aresstack.askai.research.runtime.team.ReloadableMainModelChat(
+                buildMainModelChat());
+        this.teamAgent = new com.aresstack.askai.research.runtime.team.ResearchTeamAgent(mainModelChat);
+        System.err.println("[research-agent] TeamAgent ready on main model: " + mainModelChat.modelName());
+
         // A browser research session REQUIRES the mandatory reranker. Build and readiness-check it here,
         // at session/new — a missing/invalid snapshot or an unreachable endpoint fails the session start
         // atomically, never mid-run and never with a silent raw-order fallback.
@@ -172,6 +189,35 @@ public final class ResearchAgentMain {
         System.err.println("[research-agent] reranker ready: " + descriptor.modelName);
         return new com.aresstack.askai.research.runtime.rerank.SearchResultReranker(client, policy,
                 descriptor.modelName, descriptor.scoreSemantics);
+    }
+
+    /**
+     * Build the session's main-model chat transport from the host-published inference descriptor
+     * ({@code ASKAI_INFERENCE_CONFIG}, the central main model — e.g. {@code gemma4:e2b}). This is the SAME
+     * descriptor the SERP-repair inference port uses, but here it drives the TeamAgent conversation. An absent
+     * or invalid descriptor is NOT fatal and NEVER a static fake dialogue: it yields an
+     * {@code UnavailableMainModelChat}, so the very first greeting is an honest, retryable
+     * {@code MODEL_UNAVAILABLE}. A later valid descriptor is swapped in via {@link ReloadableMainModelChat}.
+     */
+    private com.aresstack.askai.research.runtime.team.MainModelChat buildMainModelChat() {
+        if (!environment.hasInference()) {
+            System.err.println("[research-agent] no inference descriptor — TeamAgent main model unavailable");
+            return new com.aresstack.askai.research.runtime.team.UnavailableMainModelChat(
+                    "no main-model descriptor (ASKAI_INFERENCE_CONFIG) is configured");
+        }
+        try {
+            com.aresstack.askai.agent.model.inference.InferenceConfigurationDocument document =
+                    com.aresstack.askai.research.runtime.inference.InferenceConfigurationLoader
+                            .load(environment.inferenceConfigPath);
+            System.err.println("[research-agent] TeamAgent main model: " + document.getModel());
+            return new com.aresstack.askai.research.runtime.team.HttpMainModelChatClient(document.descriptor);
+        } catch (java.io.IOException ex) {
+            System.err.println("[research-agent] main-model descriptor unusable ("
+                    + environment.inferenceConfigPath + "): " + ex.getMessage()
+                    + " — TeamAgent starts in MODEL_UNAVAILABLE");
+            return new com.aresstack.askai.research.runtime.team.UnavailableMainModelChat(
+                    "main-model descriptor unusable: " + ex.getMessage());
+        }
     }
 
     /**
