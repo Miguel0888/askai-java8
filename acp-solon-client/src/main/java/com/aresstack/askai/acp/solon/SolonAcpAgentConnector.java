@@ -43,6 +43,8 @@ import java.util.function.Consumer;
 public final class SolonAcpAgentConnector implements AcpAgentConnector {
 
     private static final int STDERR_RING_LIMIT = 200;
+    /** Upper bound on a connection close: a graceful transport shutdown must never wedge the caller. */
+    private static final long CLOSE_TIMEOUT_MILLIS = 2500L;
 
     private final Duration requestTimeout;
     private final Consumer<String> hostLog;
@@ -189,12 +191,29 @@ public final class SolonAcpAgentConnector implements AcpAgentConnector {
 
         private void closeQuietly() {
             processAlive = false;
-            try {
-                if (client != null) {
-                    client.close();
+            final AcpSyncClient toClose = client;
+            if (toClose != null) {
+                // BOUNDED teardown: a graceful client.close() can block when the agent process is stuck
+                // (e.g. mid /api/chat model call), and this runs on the CALLER's thread — the EDT on a tab
+                // close, the shutdown thread on app exit. Never let that wedge the app: close on a daemon
+                // thread and move on after a short budget. A lingering child is reaped by the OS; the app
+                // still exits and its shutdown persistence still runs.
+                Thread closer = new Thread(new Runnable() {
+                    public void run() {
+                        try {
+                            toClose.close();
+                        } catch (RuntimeException ignored) {
+                            // best-effort
+                        }
+                    }
+                }, "acp-connection-close");
+                closer.setDaemon(true);
+                closer.start();
+                try {
+                    closer.join(CLOSE_TIMEOUT_MILLIS);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
                 }
-            } catch (RuntimeException ignored) {
-                // best-effort
             }
             executor.shutdownNow();
         }
