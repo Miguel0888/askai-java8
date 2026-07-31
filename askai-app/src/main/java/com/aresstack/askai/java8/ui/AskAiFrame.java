@@ -89,6 +89,8 @@ public final class AskAiFrame extends JFrame {
     private final AudioProfileRepository audioProfileRepository;
     /** Persisted CSV of the currently open chat-tab ids, so "closed stays closed" survives a crash. */
     private static final String STATE_OPEN_CHAT_TABS = "chat.openTabs";
+    /** Grace period for graceful plugin/runtime teardown on close before the JVM is force-exited. */
+    private static final long FORCE_EXIT_GRACE_MILLIS = 3500L;
     private final ApplicationStateService applicationState;
     private OllamaConfigPanel configPanel;
     private ChatWorkspacePanel chatWorkspace;
@@ -186,6 +188,24 @@ public final class AskAiFrame extends JFrame {
                     batchPanel.dispose();
                 }
                 askAiService.shutdown();
+                // The plugin/runtime teardown runs on NON-daemon threads that deliberately keep the JVM alive
+                // to finish (WorkspacePluginService's "askai-plugin-shutdown" worker; the process-global Solon
+                // MCP runtime lives until JVM exit). If any of that hangs, the window closes but the process
+                // lingers and must be killed. Guarantee termination: give the graceful cleanup a short window,
+                // then force the JVM to exit. System.exit runs the shutdown hooks (local-model + agent
+                // runtimes / their sidecars) first; in the good case the JVM has already exited by then.
+                Thread forceExit = new Thread(new Runnable() {
+                    public void run() {
+                        try {
+                            Thread.sleep(FORCE_EXIT_GRACE_MILLIS);
+                        } catch (InterruptedException interrupted) {
+                            Thread.currentThread().interrupt();
+                        }
+                        System.exit(0);
+                    }
+                }, "askai-force-exit");
+                forceExit.setDaemon(true);
+                forceExit.start();
             }
         });
         setSize(1180, 820);
