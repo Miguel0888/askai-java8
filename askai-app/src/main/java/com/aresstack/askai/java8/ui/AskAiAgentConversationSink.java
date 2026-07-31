@@ -158,16 +158,30 @@ final class AskAiAgentConversationSink implements AgentConversationSink {
     }
 
     @Override
-    public void showActionCard(String cardId, String markdown, final java.util.List<ActionOption> actions,
-                               final ActionHandler handler) {
-        transcript.startAssistant("Agent");
-        transcript.appendAssistantDelta(markdown);
-        transcript.finishAssistant();
+    public void showActionCard(String cardId, String markdown, java.util.List<ActionOption> actions,
+                               ActionHandler handler) {
+        renderActionCard(markdown, actions, handler);
         if (persister != null && markdown != null && !markdown.trim().isEmpty()) {
             // Persist the CARD TEXT (outline, run outcome/error, …) so it survives a restart. The buttons are
             // tied to the live state and are not persisted — the restored card is static content.
             persister.persistAssistant(markdown);
         }
+    }
+
+    @Override
+    public void showLiveActionCard(String cardId, String markdown, java.util.List<ActionOption> actions,
+                                   ActionHandler handler) {
+        // Re-derived from the live state on restore (e.g. a pending approval): render the interactive card
+        // but NEVER persist it — its content is already in the restored transcript, so persisting would
+        // duplicate and accumulate it across restarts.
+        renderActionCard(markdown, actions, handler);
+    }
+
+    private void renderActionCard(String markdown, final java.util.List<ActionOption> actions,
+                                  final ActionHandler handler) {
+        transcript.startAssistant("Agent");
+        transcript.appendAssistantDelta(markdown);
+        transcript.finishAssistant();
         java.util.List<String> labels = new java.util.ArrayList<String>();
         java.util.List<Boolean> navigation = new java.util.ArrayList<Boolean>();
         for (ActionOption option : actions) {

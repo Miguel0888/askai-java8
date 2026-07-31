@@ -108,4 +108,15 @@ public interface AgentConversationSink {
                                 ActionHandler handler) {
         appendAssistantMessage(cardId, markdown);
     }
+
+    /**
+     * Like {@link #showActionCard} but for a card RE-DERIVED from the live state on restore (e.g. a pending
+     * approval). Its underlying content is already in the persisted transcript, so the host renders the
+     * interactive buttons WITHOUT persisting the card again — otherwise a re-shown card would duplicate and
+     * accumulate across restarts. Defaults to {@link #showActionCard}.
+     */
+    default void showLiveActionCard(String cardId, String markdown, java.util.List<ActionOption> actions,
+                                    ActionHandler handler) {
+        showActionCard(cardId, markdown, actions, handler);
+    }
 }

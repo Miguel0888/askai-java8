@@ -246,6 +246,34 @@ public class ResearchRunCardsTest {
     }
 
     @Test
+    public void aRestoredSessionAtTheApprovalGateReShowsTheApprovalButtons() {
+        Fx fx = new Fx();
+        // Reach the outline approval gate via a validated scope proposal (without approving).
+        fx.event(ResearchBackendEvent.builder(ResearchBackendEventType.SCOPE_PROPOSAL)
+                .title("SUBMIT_SCOPE").text("investigate pf4j").messages("", "focus on isolation"));
+        assertEquals(ResearchStateIds.WAITING_APPROVAL, fx.resources.currentState().getStateId());
+
+        // Simulate a restart: a NEW session on the SAME (persisted) resources with a fresh sink. Its
+        // conversation text would come back from the persisted transcript; here we only assert that the
+        // interactive approval buttons are re-derived from the live state.
+        RecordingSink restoredSink = new RecordingSink();
+        ResearchAgentSession restored = new ResearchAgentSession(
+                fx.backend, null, new SinkHost(restoredSink), "s1", "p1", fx.resources);
+        restored.activate();
+
+        assertFalse("the restored session re-shows an approval card", restoredSink.cardOptions.isEmpty());
+        List<AgentConversationSink.ActionOption> options =
+                restoredSink.cardOptions.get(restoredSink.cardOptions.size() - 1);
+        boolean hasApprove = false;
+        for (AgentConversationSink.ActionOption option : options) {
+            if ("approve".equals(option.getId())) {
+                hasApprove = true;
+            }
+        }
+        assertTrue("the approve button is re-derived from the WAITING_APPROVAL state", hasApprove);
+    }
+
+    @Test
     public void aProductiveUserTurnIsEchoedAsAUserBubbleButAnEmptyBootstrapIsNot() {
         Fx fx = new Fx();
         int before = fx.sink.userMessages.size();

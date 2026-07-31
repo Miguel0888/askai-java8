@@ -222,8 +222,54 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 // GREETING_DONE and the host advances the state one step (see handleGreetingDone).
                 agentTurnInFlight = true; // cleared by the greeting turn's terminal event
                 backend.submitPrompt(handle, new ResearchPrompt("", ""));
+            } else {
+                // Restored session: the conversation text comes back from the persisted transcript, but the
+                // interactive buttons do not. Re-derive the pending-approval buttons from the live state
+                // (non-persisted, so they never duplicate/accumulate across restarts).
+                showRestoredApprovalIfPending();
             }
         }
+    }
+
+    /**
+     * On restore, re-show the pending-approval buttons re-derived from the LIVE state (a compact,
+     * NON-persisted card — the outline text is already in the restored transcript). No pending approval →
+     * nothing shown. This brings back the "approve / request changes" buttons without duplicating content.
+     */
+    private void showRestoredApprovalIfPending() {
+        if (productiveResources == null || sink == null) {
+            return;
+        }
+        final com.aresstack.askai.research.state.oo.ResearchStateMemento current =
+                productiveResources.currentState();
+        if (!com.aresstack.askai.research.state.oo.ResearchStateIds.WAITING_APPROVAL
+                .equals(current.getStateId())) {
+            return;
+        }
+        uiExecutor.execute(new Runnable() {
+            public void run() {
+                java.util.List<AgentConversationSink.ActionOption> options =
+                        new ArrayList<AgentConversationSink.ActionOption>();
+                options.add(new AgentConversationSink.ActionOption("approve",
+                        ResearchPlaybook.actionLabel("approve")));
+                options.add(new AgentConversationSink.ActionOption("changes",
+                        ResearchPlaybook.actionLabel("changes")));
+                String approvalId = current.getPendingApprovalId() == null
+                        ? "approval-restored-" + current.getRevision() : current.getPendingApprovalId();
+                sink.showLiveActionCard(approvalId, "Approve to continue, or request changes.", options,
+                        new AgentConversationSink.ActionHandler() {
+                            public AgentConversationSink.ActionExecutionResult onAction(String actionId) {
+                                if ("approve".equals(actionId)) {
+                                    approveCurrent();
+                                } else {
+                                    requestChanges("");
+                                    sayAsAgent(ResearchPlaybook.refinePrompt());
+                                }
+                                return AgentConversationSink.ActionExecutionResult.ACCEPTED;
+                            }
+                        });
+            }
+        });
     }
 
     @Override
