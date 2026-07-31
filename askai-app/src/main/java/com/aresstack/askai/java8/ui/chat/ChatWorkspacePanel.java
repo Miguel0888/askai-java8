@@ -13,6 +13,8 @@ import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.FlowLayout;
 import java.awt.Insets;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -206,7 +208,26 @@ public final class ChatWorkspacePanel extends JPanel {
         close.setBorder(BorderFactory.createEmptyBorder(0, 4, 0, 0));
         close.addActionListener(event -> closeSession(id)); // resolve by id, not by a captured index
         header.add(close);
+
+        MouseAdapter selectTabOnClick = new MouseAdapter() {
+            public void mousePressed(MouseEvent event) {
+                selectSession(id);
+            }
+        };
+        header.addMouseListener(selectTabOnClick);
+        label.addMouseListener(selectTabOnClick);
         return header;
+    }
+
+    private void selectSession(ChatSessionId id) {
+        ChatSessionComponent session = sessionsById.get(id);
+        if (session == null) {
+            return;
+        }
+        int index = tabs.indexOfComponent(session.getComponent());
+        if (index >= 0 && tabs.getSelectedIndex() != index) {
+            tabs.setSelectedIndex(index);
+        }
     }
 
     private void keepSelectionOffPlusTab() {

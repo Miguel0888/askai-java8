@@ -3,11 +3,13 @@ package com.aresstack.askai.java8.ui.chat;
 import org.junit.Test;
 
 import javax.swing.JButton;
+import javax.swing.JLabel;
 import javax.swing.JTabbedPane;
 import javax.swing.SwingUtilities;
 import java.awt.Component;
 import java.awt.Container;
 import java.awt.Panel;
+import java.awt.event.MouseEvent;
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.List;
@@ -188,6 +190,27 @@ public class ChatWorkspacePanelTest {
     }
 
     @Test
+    public void clickingTheTabTextSelectsThatChatTab() throws Exception {
+        onEdt(new Runnable() {
+            public void run() {
+                ChatWorkspacePanel workspace = build();
+                ChatSessionComponent second = workspace.openNewChat();
+                JTabbedPane tabs = workspace.tabsForTest();
+                tabs.setSelectedIndex(0);
+                assertNotEquals(second.getSessionId(), workspace.activeSession().getSessionId());
+
+                int secondIndex = tabs.indexOfComponent(second.getComponent());
+                JLabel label = findLabel((Container) tabs.getTabComponentAt(secondIndex));
+                assertNotNull("chat tab label present", label);
+                label.dispatchEvent(new MouseEvent(label, MouseEvent.MOUSE_PRESSED,
+                        System.currentTimeMillis(), 0, 1, 1, 1, false, MouseEvent.BUTTON1));
+
+                assertEquals(second.getSessionId(), workspace.activeSession().getSessionId());
+            }
+        });
+    }
+
+    @Test
     public void closingTheLastTabNotifiesTheFreshReplacementId() throws Exception {
         onEdt(new Runnable() {
             public void run() {
@@ -231,6 +254,21 @@ public class ChatWorkspacePanelTest {
             }
             if (child instanceof Container) {
                 JButton nested = findButton((Container) child);
+                if (nested != null) {
+                    return nested;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static JLabel findLabel(Container container) {
+        for (Component child : container.getComponents()) {
+            if (child instanceof JLabel) {
+                return (JLabel) child;
+            }
+            if (child instanceof Container) {
+                JLabel nested = findLabel((Container) child);
                 if (nested != null) {
                     return nested;
                 }
