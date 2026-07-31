@@ -410,6 +410,11 @@ public final class ResearchAgentMain {
     public void cancel() {
         System.err.println("[research-agent] cancel");
         cancelled.set(true);
+        // Abort any in-flight main-model /api/chat so a pause/cancel or a session/tab close returns promptly
+        // instead of waiting out the full model timeout; the aborted call surfaces as an honest non-OK turn.
+        if (mainModelChat != null) {
+            mainModelChat.cancelInFlight();
+        }
     }
 
     @Prompt

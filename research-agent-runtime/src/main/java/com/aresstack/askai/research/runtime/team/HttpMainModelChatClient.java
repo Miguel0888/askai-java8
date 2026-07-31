@@ -27,12 +27,34 @@ public final class HttpMainModelChatClient implements MainModelChat {
     private static final Charset UTF_8 = Charset.forName("UTF-8");
 
     private final InferenceEndpointDescriptor descriptor;
+    /** The connection of the call in flight (if any), so a cancel/close can abort it promptly. */
+    private final java.util.concurrent.atomic.AtomicReference<HttpURLConnection> inFlight =
+            new java.util.concurrent.atomic.AtomicReference<HttpURLConnection>();
+    /** Set by {@link #cancelInFlight()}; reset at the start of each call so it is never sticky. */
+    private volatile boolean cancelled;
 
     public HttpMainModelChatClient(InferenceEndpointDescriptor descriptor) {
         if (descriptor == null) {
             throw new IllegalArgumentException("descriptor must not be null");
         }
         this.descriptor = descriptor;
+    }
+
+    /**
+     * Abort the call in flight (if any) so a session/tab close or a pause/cancel returns promptly instead of
+     * waiting out the full model timeout. The aborted call surfaces as an honest non-OK result, never a
+     * fabricated answer. Safe to call when no call is in flight.
+     */
+    public void cancelInFlight() {
+        cancelled = true;
+        HttpURLConnection connection = inFlight.get();
+        if (connection != null) {
+            try {
+                connection.disconnect();
+            } catch (RuntimeException ignored) {
+                // best-effort abort; the blocked read then fails and the call returns non-OK
+            }
+        }
     }
 
     @Override
@@ -46,6 +68,7 @@ public final class HttpMainModelChatClient implements MainModelChat {
             return MainModelChatResult.failure(MainModelChatResult.Status.INVALID_RESPONSE,
                     "no messages to send");
         }
+        cancelled = false; // per-call: a previous cancel never poisons a fresh turn after a client swap
         String body = buildChatBody(messages, temperature, maxOutputTokens);
         String responseJson;
         try {
@@ -115,6 +138,10 @@ public final class HttpMainModelChatClient implements MainModelChat {
         HttpURLConnection connection = null;
         try {
             connection = (HttpURLConnection) url.openConnection();
+            inFlight.set(connection);
+            if (cancelled) {
+                throw new IOException("cancelled before sending");
+            }
             connection.setRequestMethod("POST");
             connection.setDoOutput(true);
             connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
@@ -140,6 +167,7 @@ public final class HttpMainModelChatClient implements MainModelChat {
             return readAll(connection.getInputStream());
         } finally {
             if (connection != null) {
+                inFlight.compareAndSet(connection, null);
                 connection.disconnect();
             }
         }
