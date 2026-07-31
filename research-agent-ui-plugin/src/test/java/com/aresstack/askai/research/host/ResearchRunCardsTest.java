@@ -454,6 +454,32 @@ public class ResearchRunCardsTest {
     }
 
     @Test
+    public void reviewingEvidenceOpensTheEvidenceGateWithButtons() {
+        // The reported bug: pressing "Belege prüfen" advanced the state to EVIDENCE/waiting_approval but
+        // showed nothing ("geht nicht weiter"). The gate must present its decision buttons.
+        Fx fx = new Fx();
+        fx.reachRunningResearch();
+        fx.event(ResearchBackendEvent.builder(ResearchBackendEventType.RUN_OUTCOME)
+                .activity("research-run-p1", null, "", "")
+                .runOutcome(new ResearchRunOutcomeInfo("p1", "SUFFICIENT_EVIDENCE", 10, 7, 3, 3, 2,
+                        true, "NONE", "REVIEW_EVIDENCE")));
+
+        fx.press("review"); // the outcome card offers "review" for SUFFICIENT_EVIDENCE
+        assertEquals(ResearchStateIds.EVIDENCE, fx.resources.currentState().getPhaseId());
+        assertEquals(ResearchStateIds.WAITING_APPROVAL, fx.resources.currentState().getStateId());
+
+        List<AgentConversationSink.ActionOption> options =
+                fx.sink.cardOptions.get(fx.sink.cardOptions.size() - 1);
+        boolean hasApprove = false;
+        for (AgentConversationSink.ActionOption option : options) {
+            if ("approve".equals(option.getId())) {
+                hasApprove = true;
+            }
+        }
+        assertTrue("the evidence gate re-derives its approve button (no dead end)", hasApprove);
+    }
+
+    @Test
     public void viewingSourcesIsNavigationAndKeepsTheContinueDecisionUsable() {
         // The user-reported bug: pressing "View sources" consumed the result card, so "Continue
         // research" was dead afterwards. Navigation actions must not consume the card.

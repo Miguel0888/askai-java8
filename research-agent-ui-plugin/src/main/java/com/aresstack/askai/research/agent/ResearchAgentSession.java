@@ -701,6 +701,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 // goes to the agent, which starts the autonomous web research.
                 autoAdvanceTowardsResearch();
                 maybeStartResearchTurn();
+                // Present the NEXT decision gate's buttons (e.g. evidence -> draft): a gate reached by an
+                // approval must never be a dead end. Working/terminal states show nothing.
+                showRestoredActionsIfAny();
             }
             return;
         }
@@ -726,8 +729,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     public void requestChanges(String reason) {
         if (productiveResources != null) {
             ResearchCommandType request = firstAllowedWithPrefix("REQUEST_");
-            if (request != null) {
-                dispatch(request, reason);
+            if (request != null && dispatch(request, reason).isAccepted()) {
+                // The resulting state may itself be a decision gate — present its buttons.
+                showRestoredActionsIfAny();
             }
             return;
         }
@@ -1219,8 +1223,11 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
 
     /** Move on to the evidence review when the state machine allows it (the machine stays authority). */
     private void requestEvidenceReview() {
-        if (currentAllowedCommands().contains(ResearchCommandType.REQUEST_EVIDENCE_REVIEW)) {
-            dispatch(ResearchCommandType.REQUEST_EVIDENCE_REVIEW, null);
+        if (currentAllowedCommands().contains(ResearchCommandType.REQUEST_EVIDENCE_REVIEW)
+                && dispatch(ResearchCommandType.REQUEST_EVIDENCE_REVIEW, null).isAccepted()) {
+            // The evidence gate (EVIDENCE/waiting_approval) now presents its approve/request-changes buttons —
+            // without this the review click advanced the state but showed nothing ("geht nicht weiter").
+            showRestoredActionsIfAny();
         }
     }
 
