@@ -264,12 +264,13 @@ public final class LazyRestartableBrowserRuntime implements BrowserRuntimePort {
                         }
 
                         public void close() {
-                            if (client instanceof java.io.Closeable) {
-                                try {
-                                    ((java.io.Closeable) client).close();
-                                } catch (Exception ignored) {
-                                    // best-effort
-                                }
+                            // McpToolClient has its OWN close() and is NOT java.io.Closeable — an instanceof
+                            // Closeable check silently skipped it, leaking the Solon client's non-daemon
+                            // heartbeat scheduler ("pool-N-thread-1") and keeping the JVM alive after exit.
+                            try {
+                                client.close();
+                            } catch (RuntimeException ignored) {
+                                // best-effort
                             }
                             process.close();
                         }
