@@ -2,6 +2,9 @@ apply plugin: 'application'
 
 dependencies {
     implementation project(':ollama4j-java8')
+    // Video recording: JCodec is the PORTABLE default backend (pure Java, no native deps, works without
+    // VLC/FFmpeg installed). VLC/FFmpeg are optional providers detected at runtime, never bundled.
+    implementation 'org.jcodec:jcodec-javase:0.2.5'
     // Neutral win-directml model catalog (Java-8: no DirectML/Java-21 classes leak into the host): the
     // single source of truth for locally runnable model families (capabilities, download manifests,
     // runtime family, backends). Pinned to the published Maven Central release.

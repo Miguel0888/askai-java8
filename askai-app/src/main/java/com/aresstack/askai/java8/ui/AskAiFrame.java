@@ -113,6 +113,8 @@ public final class AskAiFrame extends JFrame {
     private BatchTranscriptionPanel batchPanel;
     private final GlobalCatalogRefreshService catalogRefreshService;
     private final JButton globalRefreshButton;
+    /** The general-purpose video recorder controller; created lazily on first use of Help → Record Video. */
+    private com.aresstack.askai.java8.video.VideoRecordingController videoRecordingController;
 
     public AskAiFrame(AppConfigurationRepository configurationRepository, final AskAiService askAiService) {
         super("AskAI");
@@ -217,6 +219,10 @@ public final class AskAiFrame extends JFrame {
         }
         if (batchPanel != null) {
             batchPanel.dispose();
+        }
+        // A running recording must be finalized, not left corrupt, when AskAI exits.
+        if (videoRecordingController != null) {
+            videoRecordingController.stopIfRecordingForShutdown();
         }
         askAiService.shutdown();
         // Release the non-daemon Solon HTTP-Dispatcher so the JVM can terminate naturally (see method javadoc).
@@ -403,9 +409,34 @@ public final class AskAiFrame extends JFrame {
     private JMenu createHelpMenu() {
         JMenu helpMenu = new JMenu("Help");
         helpMenu.add(createScreenItem("Actions", ACTIONS_VIEW));
+        JMenuItem recordVideo = new JMenuItem("Record Video...");
+        recordVideo.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent event) {
+                openRecordVideoDialog();
+            }
+        });
+        helpMenu.add(recordVideo);
         helpMenu.addSeparator();
         helpMenu.add(createScreenItem("About", ABOUT_VIEW));
         return helpMenu;
+    }
+
+    /** The general-purpose video recorder (first entry point: Help). Works over the abstract recording layer. */
+    private void openRecordVideoDialog() {
+        if (videoRecordingController == null) {
+            videoRecordingController = new com.aresstack.askai.java8.video.VideoRecordingController(
+                    com.aresstack.askai.java8.video.MediaRecorderProviders.defaults());
+        }
+        String fileName = "askai-recording-" + videoTimestamp() + ".mp4";
+        // Neutral source: only the frame's screen bounds are handed over, never the AskAiFrame itself.
+        com.aresstack.askai.java8.video.ui.RecordVideoDialog dialog =
+                new com.aresstack.askai.java8.video.ui.RecordVideoDialog(
+                        this, videoRecordingController, getBounds(), fileName);
+        dialog.setVisible(true);
+    }
+
+    private static String videoTimestamp() {
+        return new java.text.SimpleDateFormat("yyyy-MM-dd-HHmmss").format(new java.util.Date());
     }
 
     private JMenuItem createScreenItem(String title, String screenName) {
