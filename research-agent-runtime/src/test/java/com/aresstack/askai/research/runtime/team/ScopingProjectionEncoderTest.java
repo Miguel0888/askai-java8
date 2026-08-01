@@ -59,15 +59,17 @@ public class ScopingProjectionEncoderTest {
     }
 
     @Test
-    public void anEmptyMapAndNoSuggestionsStillProduceAValidProjection() {
+    public void aMinimalCompleteSnapshotProjectsMapAndOneSuggestion() {
         String line = ScopingProjectionEncoder.wireLineFor("scoping",
-                scoping("", Collections.<SearchSuggestion>emptyList(), PhaseAdvice.neutral()));
+                scoping("mindmap\n  root((X))",
+                        Collections.singletonList(new SearchSuggestion("x current", "", 1)),
+                        PhaseAdvice.neutral()));
         Map<String, String> f = ResearchRunWire.fields(line);
 
         assertTrue("still a scopeassist line", ResearchRunWire.TYPE_SCOPEASSIST.equals(
                 ResearchRunWire.typeOf(line)));
-        assertEquals("", ResearchRunWire.decodedField(f, "map"));
-        assertTrue(ResearchRunWire.decodedSuggestions(f).isEmpty());
+        assertEquals("mindmap\n  root((X))", ResearchRunWire.decodedField(f, "map"));
+        assertEquals(1, ResearchRunWire.decodedSuggestions(f).size());
         assertEquals("NEUTRAL", f.get("advice"));
     }
 }

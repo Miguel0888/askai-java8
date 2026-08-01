@@ -12,16 +12,8 @@ public final class ScopingPhaseOutputContract implements PhaseOutputContract {
 
     public PhaseParseResult parse(String rawModelText) {
         ScopingAssistantOutputParser.Result result = ScopingAssistantOutputParser.parse(rawModelText);
-        if (!result.isOk()) {
-            return PhaseParseResult.fail(result.getError());
-        }
-        ScopingAssistantOutput output = result.getOutput();
-        if (output.getExplorationMapMermaid().trim().isEmpty()) {
-            return PhaseParseResult.fail("scoping turn must include an exploration map");
-        }
-        if (output.getSearchSuggestions().isEmpty()) {
-            return PhaseParseResult.fail("scoping turn must include at least one search suggestion");
-        }
-        return PhaseParseResult.ok(output);
+        return result.isOk()
+                ? PhaseParseResult.ok(result.getOutput())
+                : PhaseParseResult.fail(result.getError());
     }
 }

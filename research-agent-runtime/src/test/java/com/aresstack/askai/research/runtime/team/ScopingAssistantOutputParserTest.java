@@ -12,15 +12,17 @@ import static org.junit.Assert.assertTrue;
 public class ScopingAssistantOutputParserTest {
 
     @Test
-    public void minimalOutputWithMessageAndBriefIsValid() {
+    public void aCompleteSnapshotWithMessageBriefMapAndSuggestionIsValid() {
         ScopingAssistantOutputParser.Result r = ScopingAssistantOutputParser.parse(
                 "{\"assistantMessage\":\"You want to explore wearables.\","
-                        + "\"researchBriefMarkdown\":\"# Research Brief\\n\\n## Fragestellung\\n\\nWearables?\"}");
+                        + "\"researchBriefMarkdown\":\"# Research Brief\\n\\n## Fragestellung\\n\\nWearables?\","
+                        + "\"explorationMapMermaid\":\"mindmap\\n  root((Wearables))\","
+                        + "\"searchSuggestions\":[{\"query\":\"wearables 2026\",\"priority\":1}]}");
         assertTrue(r.getError(), r.isOk());
         assertEquals("You want to explore wearables.", r.getOutput().getAssistantMessage());
         assertTrue(r.getOutput().getResearchBriefMarkdown().contains("Wearables?"));
-        assertTrue(r.getOutput().getExplorationMapMermaid().isEmpty());
-        assertTrue(r.getOutput().getSearchSuggestions().isEmpty());
+        assertTrue(r.getOutput().getExplorationMapMermaid().startsWith("mindmap"));
+        assertEquals(1, r.getOutput().getSearchSuggestions().size());
         assertEquals(PhaseAdviceRecommendation.NEUTRAL, r.getOutput().getAdvice().getRecommendation());
     }
 
@@ -59,19 +61,30 @@ public class ScopingAssistantOutputParserTest {
     }
 
     @Test
-    public void emptySearchSuggestionsAndEmptyMapAreAllowed() {
+    public void anEmptyExplorationMapIsRejected() {
+        // A complete snapshot is required (RA-P6.5): a brief-only reply that omits map/suggestions (the
+        // reported interview signature) is no longer a valid scoping turn.
+        ScopingAssistantOutputParser.Result r = ScopingAssistantOutputParser.parse(
+                "{\"assistantMessage\":\"Which subtopic?\",\"researchBriefMarkdown\":\"# Brief\\nX\","
+                        + "\"explorationMapMermaid\":\"\",\"searchSuggestions\":[]}");
+        assertFalse(r.isOk());
+        assertTrue(r.getError(), r.getError().contains("exploration map"));
+    }
+
+    @Test
+    public void missingSearchSuggestionsAreRejected() {
         ScopingAssistantOutputParser.Result r = ScopingAssistantOutputParser.parse(
                 "{\"assistantMessage\":\"Hi.\",\"researchBriefMarkdown\":\"# Brief\\nX\","
-                        + "\"explorationMapMermaid\":\"\",\"searchSuggestions\":[]}");
-        assertTrue(r.getError(), r.isOk());
-        assertTrue(r.getOutput().getExplorationMapMermaid().isEmpty());
-        assertTrue(r.getOutput().getSearchSuggestions().isEmpty());
+                        + "\"explorationMapMermaid\":\"mindmap\\n  root((X))\"}");
+        assertFalse(r.isOk());
+        assertTrue(r.getError(), r.getError().contains("search suggestion"));
     }
 
     @Test
     public void aSearchSuggestionWithABlankQueryIsRejected() {
         ScopingAssistantOutputParser.Result r = ScopingAssistantOutputParser.parse(
                 "{\"assistantMessage\":\"Hi.\",\"researchBriefMarkdown\":\"# Brief\\nX\","
+                        + "\"explorationMapMermaid\":\"mindmap\\n  root((X))\","
                         + "\"searchSuggestions\":[{\"query\":\"   \",\"priority\":1}]}");
         assertFalse(r.isOk());
         assertTrue(r.getError().contains("query"));
@@ -105,6 +118,8 @@ public class ScopingAssistantOutputParserTest {
     private static PhaseAdviceRecommendation adviceOf(String token) {
         ScopingAssistantOutputParser.Result r = ScopingAssistantOutputParser.parse(
                 "{\"assistantMessage\":\"Hi.\",\"researchBriefMarkdown\":\"# B\\nX\","
+                        + "\"explorationMapMermaid\":\"mindmap\\n  root((X))\","
+                        + "\"searchSuggestions\":[{\"query\":\"x\",\"priority\":1}],"
                         + "\"advice\":{\"recommendation\":\"" + token + "\"}}");
         assertTrue(r.getError(), r.isOk());
         return r.getOutput().getAdvice().getRecommendation();

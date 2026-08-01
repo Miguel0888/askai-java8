@@ -76,6 +76,12 @@ public final class ScopingAssistantOutputParser {
         if (mermaid != null && mermaid.length() > MAX_FIELD_CHARS) {
             return fail("explorationMapMermaid exceeds the size limit");
         }
+        // A scoping answer is the COMPLETE current snapshot (RA-P6.5): map + at least one suggestion are
+        // required, so a helpful turn never blanks the workspace projection and a brief-only interview reply
+        // is not a valid scoping turn.
+        if (mermaid == null || mermaid.trim().isEmpty()) {
+            return fail("scoping answer needs an exploration map");
+        }
 
         List<SearchSuggestion> suggestions = new ArrayList<SearchSuggestion>();
         Object rawSuggestions = object.get("searchSuggestions");
@@ -95,6 +101,9 @@ public final class ScopingAssistantOutputParser {
                 }
                 suggestions.add(new SearchSuggestion(query, asString(suggestion.get("purpose")), priority));
             }
+        }
+        if (suggestions.isEmpty()) {
+            return fail("scoping answer needs at least one search suggestion");
         }
 
         PhaseAdvice advice = PhaseAdvice.neutral();

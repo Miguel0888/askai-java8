@@ -35,6 +35,15 @@ public final class ScopingAssistantOutput implements PhaseAssistantOutput {
         if (researchBriefMarkdown == null || researchBriefMarkdown.trim().isEmpty()) {
             throw new IllegalArgumentException("researchBriefMarkdown must not be blank");
         }
+        // A scoping output is the COMPLETE current snapshot of the phase (RA-P6.5): it always carries an
+        // exploration map and at least one search suggestion, so a later turn can never blank a working
+        // projection. Incomplete states are simply not representable.
+        if (explorationMapMermaid == null || explorationMapMermaid.trim().isEmpty()) {
+            throw new IllegalArgumentException("explorationMapMermaid must not be blank");
+        }
+        if (searchSuggestions == null || searchSuggestions.isEmpty()) {
+            throw new IllegalArgumentException("searchSuggestions must not be empty");
+        }
         this.assistantMessage = assistantMessage.trim();
         this.researchBriefMarkdown = researchBriefMarkdown.trim();
         this.explorationMapMermaid = explorationMapMermaid == null ? "" : explorationMapMermaid.trim();
