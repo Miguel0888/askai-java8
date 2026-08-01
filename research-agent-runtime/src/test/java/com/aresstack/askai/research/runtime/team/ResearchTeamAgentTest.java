@@ -109,7 +109,7 @@ public class ResearchTeamAgentTest {
 
         agent.respond("no", defaultPhase());
         // The SECOND call's state-context carries the proposal back, explicitly labelled as NOT yet confirmed.
-        String context = model.calls.get(1).get(1).getContent();
+        String context = model.calls.get(1).get(2).getContent();
         assertTrue(context, context.contains("How do EVs age?"));
         assertTrue(context, context.contains("battery"));
         assertTrue(context, context.contains("not yet confirmed"));
@@ -128,7 +128,7 @@ public class ResearchTeamAgentTest {
 
         assertEquals("How do EVs age?", agent.getConfirmedQuestion());
         assertEquals(Arrays.asList("battery", "cost"), agent.getConfirmedAspects());
-        String context = model.calls.get(0).get(1).getContent();
+        String context = model.calls.get(0).get(2).getContent();
         assertTrue(context, context.contains("Confirmed research question"));
         assertTrue(context, context.contains("How do EVs age?"));
     }
@@ -200,7 +200,7 @@ public class ResearchTeamAgentTest {
         model.enqueueOk("{\"assistantMessage\":\"Hi! What would you like to find out?\"}");
         new ResearchTeamAgent(model).greet(scoping());
         String systemAndState = model.calls.get(0).get(0).getContent()
-                + "\n" + model.calls.get(0).get(1).getContent();
+                + "\n" + model.calls.get(0).get(2).getContent();
         assertFalse("no allowed-command policing", systemAndState.contains("Allowed commands"));
         assertFalse("no command names in the prompt", systemAndState.contains("SUBMIT_SCOPE"));
         assertFalse("no run-state machine framing", systemAndState.contains("run-state"));

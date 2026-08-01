@@ -12,9 +12,31 @@ import java.util.List;
  */
 public final class PhaseContextAssembler {
 
+    /** Supplies the current date ({@code YYYY-MM-DD}) as runtime context — never inferred from model memory. */
+    public interface CurrentDate {
+        String today();
+    }
+
+    private final CurrentDate currentDate;
+
+    public PhaseContextAssembler() {
+        this(new CurrentDate() {
+            public String today() {
+                return java.time.LocalDate.now().toString();
+            }
+        });
+    }
+
+    /** Inject a fixed date (tests / deterministic runs). */
+    public PhaseContextAssembler(CurrentDate currentDate) {
+        this.currentDate = currentDate;
+    }
+
     /**
-     * system(phase prompt) + system(live research context) + the running user/assistant history. The profile
-     * decides the FIRST system message, so a different active phase yields a different assistant context.
+     * system(phase prompt) + system(current date) + system(live research context) + the running history. The
+     * profile decides the FIRST system message, so a different active phase yields a different assistant
+     * context. The current date is supplied from the host clock so the model never invents a year in, e.g.,
+     * search queries.
      */
     public List<ChatMessage> assemble(PhaseAssistantProfile profile, TeamAgentStateView state,
                                       String confirmedQuestion, List<String> confirmedAspects,
@@ -22,6 +44,7 @@ public final class PhaseContextAssembler {
                                       List<ChatMessage> history) {
         List<ChatMessage> messages = new ArrayList<ChatMessage>();
         messages.add(ChatMessage.system(profile.getSystemPrompt()));
+        messages.add(ChatMessage.system("Current date: " + currentDate.today()));
         messages.add(ChatMessage.system(TeamAgentPlaybook.stateContext(
                 state, confirmedQuestion, confirmedAspects, proposedQuestion, proposedAspects)));
         if (history != null) {
