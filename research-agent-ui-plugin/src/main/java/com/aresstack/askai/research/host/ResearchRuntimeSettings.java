@@ -54,6 +54,39 @@ public final class ResearchRuntimeSettings {
         }
     }
 
+    static final String KEY_SEARCH_STRATEGY = "research.search.strategy";
+    static final String KEY_SEARCH_PROVIDER = "research.search.provider";
+    static final String KEY_SEARCH_ENGINE = "research.search.engine";
+    static final String KEY_SEARCH_LANGUAGE = "research.search.language";
+    static final String KEY_SEARCH_COUNTRY = "research.search.country";
+
+    /**
+     * The persisted initial-search strategy selection (default: legacy browser SERP — nothing changes for
+     * existing installations). Read directly like the language; applies to NEW sessions.
+     */
+    public static SearchStrategySelection loadSearchStrategy(WorkspaceStateStore store) {
+        if (store == null) {
+            return SearchStrategySelection.legacyBrowser();
+        }
+        return new SearchStrategySelection(
+                store.get(KEY_SEARCH_STRATEGY, SearchStrategySelection.STRATEGY_LEGACY_BROWSER),
+                store.get(KEY_SEARCH_PROVIDER, ""),
+                store.get(KEY_SEARCH_ENGINE, ""),
+                store.get(KEY_SEARCH_LANGUAGE, ""),
+                store.get(KEY_SEARCH_COUNTRY, ""));
+    }
+
+    public static void saveSearchStrategy(WorkspaceStateStore store, SearchStrategySelection selection) {
+        if (store == null || selection == null) {
+            return;
+        }
+        store.put(KEY_SEARCH_STRATEGY, selection.getStrategy());
+        store.put(KEY_SEARCH_PROVIDER, selection.getProvider());
+        store.put(KEY_SEARCH_ENGINE, selection.getEngine());
+        store.put(KEY_SEARCH_LANGUAGE, selection.getLanguage());
+        store.put(KEY_SEARCH_COUNTRY, selection.getCountry());
+    }
+
     private final ResearchBackendMode mode;
     private final String agentJavaExecutable;
     private final String agentJar;

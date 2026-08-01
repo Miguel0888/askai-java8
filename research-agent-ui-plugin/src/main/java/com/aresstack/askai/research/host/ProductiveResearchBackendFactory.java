@@ -59,6 +59,8 @@ public final class ProductiveResearchBackendFactory {
     /** OPTIONAL: publishes the per-session structured-inference descriptor (central main model), or null. */
     private final com.aresstack.askai.agent.model.inference.InferenceConfigurationSnapshotProvider
             inferenceSnapshots;
+    /** The initial-search strategy selection; legacy browser publishes NO snapshot (today's behavior). */
+    private final SearchStrategySelection searchStrategy;
 
     public ProductiveResearchBackendFactory(McpServerRegistry registry, McpToolClientFactory toolClients,
                                             AcpAgentConnector connector, ResearchRuntimeConfig config,
@@ -84,6 +86,19 @@ public final class ProductiveResearchBackendFactory {
                                             RerankerConfigurationSnapshotProvider rerankerSnapshots,
                                             com.aresstack.askai.agent.model.inference
                                                     .InferenceConfigurationSnapshotProvider inferenceSnapshots) {
+        this(registry, toolClients, connector, config, generationId, browserSearchValues,
+                browserSearchRevision, rerankerSnapshots, inferenceSnapshots,
+                SearchStrategySelection.legacyBrowser());
+    }
+
+    public ProductiveResearchBackendFactory(McpServerRegistry registry, McpToolClientFactory toolClients,
+                                            AcpAgentConnector connector, ResearchRuntimeConfig config,
+                                            long generationId, Map<String, String> browserSearchValues,
+                                            long browserSearchRevision,
+                                            RerankerConfigurationSnapshotProvider rerankerSnapshots,
+                                            com.aresstack.askai.agent.model.inference
+                                                    .InferenceConfigurationSnapshotProvider inferenceSnapshots,
+                                            SearchStrategySelection searchStrategy) {
         this.registry = registry;
         this.toolClients = toolClients;
         this.connector = connector;
@@ -93,6 +108,8 @@ public final class ProductiveResearchBackendFactory {
         this.browserSearchRevision = browserSearchRevision;
         this.rerankerSnapshots = rerankerSnapshots;
         this.inferenceSnapshots = inferenceSnapshots;
+        this.searchStrategy = searchStrategy == null
+                ? SearchStrategySelection.legacyBrowser() : searchStrategy;
     }
 
     /**
@@ -193,6 +210,17 @@ public final class ProductiveResearchBackendFactory {
                     + "(no central chat model is configured).";
         }
 
+        // OPTIONAL initial-search strategy snapshot: published ONLY for an API-provider selection. The
+        // legacy browser selection hands over nothing — the absent env var IS the agent's documented
+        // legacy path, so existing sessions keep today's behavior exactly. The snapshot carries the
+        // SELECTION only; provider credentials stay in ${user.home}/agents/research/providers/.
+        String searchStrategySnapshotPath = "";
+        if (searchStrategy.isApiProvider()) {
+            File strategyFile = new File(projectDir, "search-strategy.json");
+            writeUtf8(strategyFile, searchStrategy.toSnapshotJson());
+            searchStrategySnapshotPath = strategyFile.getAbsolutePath();
+        }
+
         // 1. THE persistent project context (Commit 1 of the guided artifact flow): exactly one
         // file-backed artifact store, source repository, state store and metadata store per
         // project directory — the productive path never constructs an in-memory artifact store. The
@@ -283,7 +311,8 @@ public final class ProductiveResearchBackendFactory {
             // the sense of never reaching the BROWSER process; the agent needs them) plus the MANDATORY
             // reranker start snapshot: the agent MUST rerank before opening any page.
             Map<String, String> baseEnv = agentLaunchEnvironment(fullConfigFile.getAbsolutePath(),
-                    rerankerSnapshot.getAbsolutePath(), inferenceSnapshotPath, inferenceUnavailableReason);
+                    rerankerSnapshot.getAbsolutePath(), inferenceSnapshotPath, inferenceUnavailableReason,
+                    searchStrategySnapshotPath);
             AgentLaunchSpec spec = new AgentLaunchSpec(agentJava,
                     java.util.Arrays.asList("-jar", config.getAgentJar()), baseEnv);
             AcpResearchSessionBackend backend = null; // assigned after control.open()
@@ -341,6 +370,15 @@ public final class ProductiveResearchBackendFactory {
                                                       String rerankerSnapshotPath,
                                                       String inferenceSnapshotPath,
                                                       String inferenceUnavailableReason) {
+        return agentLaunchEnvironment(searchConfigPath, rerankerSnapshotPath, inferenceSnapshotPath,
+                inferenceUnavailableReason, "");
+    }
+
+    static Map<String, String> agentLaunchEnvironment(String searchConfigPath,
+                                                      String rerankerSnapshotPath,
+                                                      String inferenceSnapshotPath,
+                                                      String inferenceUnavailableReason,
+                                                      String searchStrategySnapshotPath) {
         Map<String, String> baseEnv = new LinkedHashMap<String, String>();
         baseEnv.put("ASKAI_BROWSER_SEARCH_CONFIG", searchConfigPath);
         baseEnv.put("ASKAI_RERANKER_CONFIG", rerankerSnapshotPath);
@@ -352,6 +390,10 @@ public final class ProductiveResearchBackendFactory {
             // No descriptor: hand over the actionable REASON so the agent's MODEL_UNAVAILABLE message can
             // tell the user what to fix (e.g. select a chat model), never just "no descriptor configured".
             baseEnv.put("ASKAI_INFERENCE_UNAVAILABLE_REASON", inferenceUnavailableReason.trim());
+        }
+        // OPTIONAL: only for an API-provider selection; absent → the agent's documented legacy browser path.
+        if (searchStrategySnapshotPath != null && !searchStrategySnapshotPath.trim().isEmpty()) {
+            baseEnv.put("ASKAI_SEARCH_STRATEGY_CONFIG", searchStrategySnapshotPath);
         }
         return baseEnv;
     }

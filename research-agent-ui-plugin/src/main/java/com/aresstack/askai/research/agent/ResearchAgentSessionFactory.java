@@ -140,7 +140,10 @@ public final class ResearchAgentSessionFactory implements AgentSessionFactory {
                         .loadValues(hostContext.getStateStore()),
                 com.aresstack.askai.research.host.LegacyBrowserSearchSettingsStore
                         .revision(hostContext.getStateStore()),
-                rerankerSnapshots, inferenceSnapshots);
+                rerankerSnapshots, inferenceSnapshots,
+                // The persisted initial-search selection (legacy browser default): an API-provider
+                // selection is published as a per-session snapshot; the agent's implementation is ready.
+                ResearchRuntimeSettings.loadSearchStrategy(hostContext.getStateStore()));
         java.io.File sessionDirectory =
                 hostContext.getPluginPathService().getWorkspaceDirectory(request.getSessionId());
         final ProductiveResearchSessionResources resources;
