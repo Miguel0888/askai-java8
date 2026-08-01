@@ -151,7 +151,7 @@ public final class AskAiFrame extends JFrame {
         // when locally installed models exist, and it always ends with AskAI.
         final com.aresstack.askai.java8.localmodels.LocalModelRuntimeManager localRuntime =
                 askAiService.localRuntimeManager();
-        if (localRuntime.hasInstalledModels()) {
+        if (localRuntime.hasInstalledModels() && localRuntime.isAvailable()) {
             Thread localRuntimeBoot = new Thread(new Runnable() {
                 public void run() {
                     try {
