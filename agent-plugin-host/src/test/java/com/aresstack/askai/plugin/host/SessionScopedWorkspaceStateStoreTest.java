@@ -10,9 +10,9 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 /**
- * Session-based settings semantics: a fresh session READS the agent-global template, every WRITE stays in
- * the session scope, two sessions never reconfigure each other, and a restored session (same scope) finds
- * exactly its own values again.
+ * Session-based settings, LAST-SETTING-WINS for new chats: a NEW chat starts with the user's latest
+ * choice, an EXISTING chat is frozen at first use and never reconfigured from outside, and a restored
+ * chat finds exactly its own values again.
  */
 public class SessionScopedWorkspaceStateStoreTest {
 
@@ -49,53 +49,64 @@ public class SessionScopedWorkspaceStateStoreTest {
     }
 
     @Test
-    public void aFreshSessionReadsTheAgentTemplate() {
+    public void aNewChatStartsWithTheUsersLastSetting() {
         MemoryStore template = new MemoryStore();
-        template.put("research.search.strategy", "API_PROVIDER");
-        SessionScopedWorkspaceStateStore store =
-                new SessionScopedWorkspaceStateStore(template, new MemoryStore());
-        assertEquals("API_PROVIDER", store.get("research.search.strategy", "LEGACY_BROWSER"));
-    }
-
-    @Test
-    public void writesStayInTheSessionAndNeverTouchTheTemplate() {
-        MemoryStore template = new MemoryStore();
-        template.put("k", "template");
-        MemoryStore session = new MemoryStore();
-        SessionScopedWorkspaceStateStore store = new SessionScopedWorkspaceStateStore(template, session);
-        store.put("k", "mine");
-        assertEquals("mine", store.get("k", ""));
-        assertEquals("the template is read-only", "template", template.values.get("k"));
-        assertEquals("mine", session.values.get("k"));
-    }
-
-    @Test
-    public void twoSessionsOfTheSameAgentNeverReconfigureEachOther() {
-        MemoryStore template = new MemoryStore();
-        template.put("research.search.strategy", "LEGACY_BROWSER");
         SessionScopedWorkspaceStateStore tabA =
                 new SessionScopedWorkspaceStateStore(template, new MemoryStore());
-        SessionScopedWorkspaceStateStore tabB =
-                new SessionScopedWorkspaceStateStore(template, new MemoryStore());
-
         tabA.put("research.search.strategy", "API_PROVIDER");
-        tabA.put("research.search.provider", "BRAVE_SEARCH_API");
 
-        assertEquals("tab A changed", "API_PROVIDER", tabA.get("research.search.strategy", ""));
-        assertEquals("tab B is untouched", "LEGACY_BROWSER", tabB.get("research.search.strategy", ""));
-        assertEquals("tab B falls back to its default", "",
-                tabB.get("research.search.provider", ""));
+        // A chat opened AFTERWARDS starts from the user's latest choice (write-through template).
+        SessionScopedWorkspaceStateStore newChat =
+                new SessionScopedWorkspaceStateStore(template, new MemoryStore());
+        assertEquals("API_PROVIDER", newChat.get("research.search.strategy", "LEGACY_BROWSER"));
     }
 
     @Test
-    public void aRestoredSessionFindsExactlyItsOwnValues() {
+    public void anExistingChatKeepsItsSettingsWhenAnotherChatChangesThem() {
+        MemoryStore template = new MemoryStore();
+        SessionScopedWorkspaceStateStore oldChat =
+                new SessionScopedWorkspaceStateStore(template, new MemoryStore());
+        // The old chat resolved its value once (browser default) — frozen from now on.
+        assertEquals("LEGACY_BROWSER", oldChat.get("research.search.strategy", "LEGACY_BROWSER"));
+
+        SessionScopedWorkspaceStateStore otherChat =
+                new SessionScopedWorkspaceStateStore(template, new MemoryStore());
+        otherChat.put("research.search.strategy", "API_PROVIDER");
+
+        assertEquals("the old chat keeps ITS settings", "LEGACY_BROWSER",
+                oldChat.get("research.search.strategy", "LEGACY_BROWSER"));
+    }
+
+    @Test
+    public void writesReachTheSessionAndTheTemplate() {
+        MemoryStore template = new MemoryStore();
+        MemoryStore session = new MemoryStore();
+        new SessionScopedWorkspaceStateStore(template, session).put("k", "mine");
+        assertEquals("mine", session.values.get("k"));
+        assertEquals("the last setting becomes the default for new chats", "mine",
+                template.values.get("k"));
+    }
+
+    @Test
+    public void aRestoredChatFindsExactlyItsOwnValues() {
         MemoryStore template = new MemoryStore();
         MemoryStore persistedSessionScope = new MemoryStore(); // survives, keyed by the stable scope id
         new SessionScopedWorkspaceStateStore(template, persistedSessionScope)
                 .putBoolean("research.runtime.llmNarration", true);
-        // Restart: a NEW layered store over the SAME persisted session scope.
+        // Meanwhile the user changed the setting elsewhere — the template moved on.
+        template.put("research.runtime.llmNarration", "false");
+        // Restart: a NEW layered store over the SAME persisted session scope → its own value wins.
         SessionScopedWorkspaceStateStore restored =
                 new SessionScopedWorkspaceStateStore(template, persistedSessionScope);
         assertTrue(restored.getBoolean("research.runtime.llmNarration", false));
+    }
+
+    @Test
+    public void theSearchSourceDefaultIsTheBrowserNeverARestApi() {
+        // Nothing configured anywhere → the shipped default is the browser SERP path.
+        SessionScopedWorkspaceStateStore fresh =
+                new SessionScopedWorkspaceStateStore(new MemoryStore(), new MemoryStore());
+        assertEquals("LEGACY_BROWSER", fresh.get("research.search.strategy", "LEGACY_BROWSER"));
+        assertEquals("", fresh.get("research.search.provider", ""));
     }
 }

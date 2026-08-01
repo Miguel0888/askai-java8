@@ -539,8 +539,9 @@ public final class AskAiFrame extends JFrame {
                                 new com.aresstack.askai.java8.plugin.host.AskAiThemeService(),
                                 new com.aresstack.askai.java8.plugin.host.AskAiMarkdownViewFactory(),
                                 agentNotify,
-                                // SESSION-scoped settings with the agent-global values as read-only
-                                // template: two tabs of the same agent never reconfigure each other.
+                                // SESSION-scoped settings, last-setting-wins: a NEW chat starts from
+                                // the user's latest choice (write-through template), an EXISTING chat is
+                                // frozen at first use and keeps its own values.
                                 new com.aresstack.askai.plugin.host.SessionScopedWorkspaceStateStore(
                                         new com.aresstack.askai.java8.plugin.host
                                                 .ApplicationStateWorkspaceStateStore(
