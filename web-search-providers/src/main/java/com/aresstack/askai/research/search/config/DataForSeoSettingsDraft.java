@@ -2,6 +2,7 @@ package com.aresstack.askai.research.search.config;
 
 import com.aresstack.askai.research.search.dataforseo.DataForSeoSearchConfiguration;
 import com.aresstack.askai.research.search.security.SecretArrays;
+import com.aresstack.askai.research.search.security.SecretValueService;
 
 /**
  * One EDIT DRAFT of the DataForSEO provider settings, held for the lifetime of an open settings dialog: the
@@ -53,6 +54,17 @@ public final class DataForSeoSettingsDraft {
 
     public boolean hasPendingPassword() {
         return newPassword != null;
+    }
+
+    /**
+     * Encrypt a freshly typed (unsaved) password INTO the working config so a playground run uses it —
+     * without persisting. No-op when nothing new was typed (the run then uses the stored secret). The
+     * later {@link #save} re-encrypts from the pending password, so this stays consistent.
+     */
+    public void applyPendingPasswordForRun(SecretValueService secrets) {
+        if (newPassword != null && secrets != null) {
+            configuration.setPassword(secrets.encrypt(newPassword.clone()));
+        }
     }
 
     /**

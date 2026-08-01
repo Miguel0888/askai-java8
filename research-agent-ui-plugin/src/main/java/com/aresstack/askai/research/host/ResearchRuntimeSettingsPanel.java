@@ -46,17 +46,6 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
      * REST search providers. Provider credentials are NOT configured here — they live in
      * {@code ${user.home}/agents/research/providers/} (brave.json, brightdata.json, dataforseo.json).
      */
-    private final JComboBox<String> searchSource = new JComboBox<String>(new String[]{
-            "Browser (SERP)", "Brave Search API", "Bright Data", "DataForSEO"});
-    private final JComboBox<String> searchEngineChoice = new JComboBox<String>(new String[]{
-            "Provider default", "Google", "Bing", "Brave", "DuckDuckGo", "Yandex", "Yahoo"});
-    private final JTextField searchLanguage = new JTextField(3);
-    private final JTextField searchCountry = new JTextField(3);
-    /** Agent-side enum names, index-aligned with the combos above ("" = legacy browser). */
-    private static final String[] SEARCH_PROVIDER_IDS =
-            {"", "BRAVE_SEARCH_API", "BRIGHT_DATA", "DATA_FOR_SEO"};
-    private static final String[] SEARCH_ENGINE_IDS =
-            {"PROVIDER_DEFAULT", "GOOGLE", "BING", "BRAVE", "DUCK_DUCK_GO", "YANDEX", "YAHOO"};
     // Deliberately NO agent-Java field: the agent is Java-8 bytecode and simply runs on AskAI's own
     // JVM. A persisted override (store key) stays possible for special cases, but it is not a user
     // decision — the ONE configurable runtime is the Java >= 21 for the browser sidecar (GraalJS),
@@ -88,21 +77,8 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         form.add(row("Backend:", backendStatus));
         form.add(row("Language / Sprache:", agentLanguage));
         form.add(row("", llmNarration));
-        form.add(row("Search source:", searchSource));
-        form.add(row("Search engine:", searchEngineChoice));
-        JPanel searchLocale = new JPanel();
-        searchLocale.setLayout(new BoxLayout(searchLocale, BoxLayout.X_AXIS));
-        searchLocale.add(searchLanguage);
-        searchLocale.add(Box.createHorizontalStrut(4));
-        searchLocale.add(new JLabel("language / country"));
-        searchLocale.add(Box.createHorizontalStrut(4));
-        searchLocale.add(searchCountry);
-        form.add(row("Search locale (e.g. de):", searchLocale));
-        // Credentials never appear here: the selection is persisted, secrets stay in the provider files.
-        JLabel providerHint = new JLabel(
-                "Provider credentials: ~/agents/research/providers/ (applies to new sessions)");
-        providerHint.setEnabled(false);
-        form.add(row("", providerHint));
+        // The initial-search PROVIDER selection + its provider-specific settings live on their own
+        // "Search" gear tab (SearchProviderCardsPanel), not as shared fields here.
         form.add(pathRow("Research agent jar:", agentJar));
         form.add(pathRow("Java for browser (≥21):", sidecarJava));
         form.add(pathRow("Browser sidecar jar:", sidecarJar));
@@ -153,21 +129,6 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
                         llmNarration.isSelected());
             }
         });
-        applySearchStrategy(ResearchRuntimeSettings.loadSearchStrategy(store));
-        ActionListener persistSearchStrategy = new ActionListener() {
-            public void actionPerformed(ActionEvent event) {
-                persistSearchStrategy();
-            }
-        };
-        searchSource.addActionListener(persistSearchStrategy);
-        searchEngineChoice.addActionListener(persistSearchStrategy);
-        java.awt.event.FocusAdapter persistOnFocusLost = new java.awt.event.FocusAdapter() {
-            public void focusLost(java.awt.event.FocusEvent event) {
-                persistSearchStrategy();
-            }
-        };
-        searchLanguage.addFocusListener(persistOnFocusLost);
-        searchCountry.addFocusListener(persistOnFocusLost);
         refreshBackendStatus();
 
         save.addActionListener(new ActionListener() {
@@ -180,50 +141,6 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
                 runCheck();
             }
         });
-    }
-
-    /** Mirrors a persisted selection into the controls (index 0 = legacy browser). */
-    private void applySearchStrategy(SearchStrategySelection selection) {
-        int providerIndex = 0;
-        for (int i = 1; i < SEARCH_PROVIDER_IDS.length; i++) {
-            if (SEARCH_PROVIDER_IDS[i].equals(selection.getProvider()) && selection.isApiProvider()) {
-                providerIndex = i;
-            }
-        }
-        searchSource.setSelectedIndex(providerIndex);
-        int engineIndex = 0;
-        for (int i = 1; i < SEARCH_ENGINE_IDS.length; i++) {
-            if (SEARCH_ENGINE_IDS[i].equals(selection.getEngine())) {
-                engineIndex = i;
-            }
-        }
-        searchEngineChoice.setSelectedIndex(engineIndex);
-        searchLanguage.setText(selection.getLanguage());
-        searchCountry.setText(selection.getCountry());
-        refreshSearchStrategyEnablement();
-    }
-
-    /** Persisted immediately like the agent language; applies to NEW sessions only. */
-    private void persistSearchStrategy() {
-        int providerIndex = Math.max(0, searchSource.getSelectedIndex());
-        int engineIndex = Math.max(0, searchEngineChoice.getSelectedIndex());
-        boolean api = providerIndex > 0;
-        ResearchRuntimeSettings.saveSearchStrategy(store, new SearchStrategySelection(
-                api ? SearchStrategySelection.STRATEGY_API_PROVIDER
-                        : SearchStrategySelection.STRATEGY_LEGACY_BROWSER,
-                SEARCH_PROVIDER_IDS[providerIndex],
-                SEARCH_ENGINE_IDS[engineIndex],
-                searchLanguage.getText().trim(),
-                searchCountry.getText().trim()));
-        refreshSearchStrategyEnablement();
-    }
-
-    /** Engine and locale only matter for an API provider; the legacy browser keeps its own URL field. */
-    private void refreshSearchStrategyEnablement() {
-        boolean api = searchSource.getSelectedIndex() > 0;
-        searchEngineChoice.setEnabled(api);
-        searchLanguage.setEnabled(api);
-        searchCountry.setEnabled(api);
     }
 
     /** The panel state as the SAME typed model the factory reads — no second mapping. */

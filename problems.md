@@ -926,3 +926,36 @@ without rolling back the model/ACP infrastructure:
 
 This role split now also governs the coming Concept, Gap Analysis, Evidence Review and Drafting
 integration (RA-P3): the domain owns the process, the AI interprets/proposes/fills gaps.
+
+## RA-P6 — Provider-specific search settings + DataForSEO editor/playground (in progress)
+
+Done (2026-08-01, branch arch → dev):
+- Correctness: DataForSEO Organic Live Advanced depth default 100 → 10 (max stays 200; 100/700 was
+  wrong for this endpoint). The request mapper still caps effective depth at min(maximumResults,
+  depth), which also caps request cost.
+- Per-provider edit-draft model (DataForSeoSettingsDraft): loaded once, edited in place (switching
+  provider cards never reloads/discards), saved through the existing ProviderConfigurationService.
+  The stored secret is never decrypted into the UI; a freshly typed password is encrypted on save,
+  otherwise the stored one is preserved. Playground backend (DataForSeoPlayground) runs ONE search
+  over the SAME productive adapter, with an auth-free request preview.
+- UI: the shared "Search engine / Search locale" fields are removed from the Runtime tab. A new
+  "Search" gear tab (SearchProviderCardsPanel) has ONE provider picker + a CardLayout: Browser (SERP,
+  default) and a full DataForSEO editor (Account / SERP / Advanced / Playground). Selecting a
+  provider persists the strategy selection (browser default); the provider combo only picks the card.
+
+Deferred to follow-ups (per the spec's own staging — Brave/BrightData only after DataForSEO is
+solid), tracked here:
+- The full DataForSEO Advanced grid (stop-crawl targets table, PAA click depth, calculate_rectangles
+  + screen width/height/ratio, max_crawl_pages, search_param/se_domain/tag/target, find/ignore
+  targets). The underlying DTO fields are preserved untouched; the Advanced tab currently states this.
+- Searchable location/language pickers backed by the DataForSEO catalog endpoints
+  (/serp/{engine}/locations, /languages). Current editor uses name + code fields with the Germany
+  (2276) / German (de) defaults.
+- Brave and Bright Data provider cards (their own host panels) after the DataForSEO slice is verified.
+- The gear dialog has no explicit Save/Cancel hook; the panel currently commits the DataForSEO draft
+  and the provider selection when the dialog stops showing. If the host adds a real Save/Cancel, wire
+  save()/dispose() to those instead.
+
+Not verifiable here: the Swing layout and the live DataForSEO playground HTTP call could not be
+exercised headlessly. The non-Swing logic (depth/mapper, draft save/secret-preserve, playground
+request preview) is unit-tested.

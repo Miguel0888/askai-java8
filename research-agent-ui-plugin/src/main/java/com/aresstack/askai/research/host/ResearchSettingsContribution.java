@@ -26,10 +26,26 @@ public final class ResearchSettingsContribution implements AgentSettingsContribu
             return null; // not this plugin's session → the host omits the category
         }
         ResearchAgentSession research = (ResearchAgentSession) session;
+        final SearchProviderCardsPanel searchProviders =
+                new SearchProviderCardsPanel(research.getHostStateStore());
         JTabbedPane tabs = new JTabbedPane();
         tabs.addTab("Runtime", new ResearchRuntimeSettingsPanel(research.getHostStateStore()));
-        tabs.addTab("Search", new LegacyBrowserSearchSettingsPanel(research.getHostStateStore(),
+        // The provider PICKER + each provider's own settings card (browser default, full DataForSEO
+        // editor). The old shared engine/locale fields are gone — each provider owns its full config.
+        tabs.addTab("Search", searchProviders);
+        tabs.addTab("Browser SERP", new LegacyBrowserSearchSettingsPanel(research.getHostStateStore(),
                 research.getActiveSearchProfile()));
+        // The DataForSEO draft + provider selection persist when the gear dialog is disposed; unsaved
+        // provider drafts are dropped. The host's settings dialog does not expose an explicit Save hook,
+        // so the panel commits on removal from the hierarchy (dialog close).
+        tabs.addHierarchyListener(new java.awt.event.HierarchyListener() {
+            public void hierarchyChanged(java.awt.event.HierarchyEvent event) {
+                if ((event.getChangeFlags() & java.awt.event.HierarchyEvent.SHOWING_CHANGED) != 0
+                        && !searchProviders.isShowing()) {
+                    searchProviders.save();
+                }
+            }
+        });
         return tabs;
     }
 }
