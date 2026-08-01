@@ -860,55 +860,36 @@ Open questions (need an answer before further work here):
    Should a search-strategy change reconfigure the RUNNING session's next research run too
    (snapshot re-publish mid-session), or stay next-session-only?
 
-## RA-P3 — Missing research methodology domain core (the central gap)
+## RA-P3 — Research methodology domain core (CORE IMPLEMENTED; integration next)
 
-The workflow skeleton (state machine, gates, buttons) is ahead of the business logic. Agreed chain
-still lacking a real domain core:
+Implemented (2026-08-01) as `:research-domain`, `:research-knowledge-pipeline` and
+`:research-text-opennlp` — pure Java 8, no Swing/ACP/MCP/Solon/Ollama/OpenNLP/Lucene in the core:
+aggregates with stable ids + revisions, no-delete as a domain invariant (supersede/exclude/stale,
+never delete), approval-gated confirmed-state changes, buildEvidenceReview + EvidenceBaseline-first,
+structural+semantic passage segmentation (window similarity, min/max sizes), HAC topic clustering,
+evidence-led concept/outline proposals, gap analysis producing detail-research plans. Proven by the
+deterministic fachliche vertical slice test (brief → captures → sentences → passages → topics →
+outline → claims/evidence → review → baseline) plus nine domain-invariant tests.
 
-    Research Brief → orientation research → corpus → sentences → passages → topic clusters
-    → concept paper → approved outline → per-chapter gap analysis → detailed research
-    → claims + evidence links → approved EvidenceBaseline → paragraph-wise draft with citations
-    → review → approved FinalRevision
+NEXT (separate integration commits, in order — each needs no open questions):
+1. File repository adapter (project directory stays source of truth; Lucene/vector/cluster indexes as
+   rebuildable derived views under `derived/`).
+2. Embedding adapter over the central AskAI embedding selection (port exists; central seam may need a
+   hand-off like the reranker snapshot).
+3. Runtime orchestration: ResearchLoop/agent feed captures into the pipeline and consume
+   DetailedResearchPlans as search orders (no if-cascades in the loop).
+4. State-graph mapping + memento migration to SCOPING → ORIENTATION → CONCEPT → DETAILED_RESEARCH →
+   EVIDENCE → DRAFT → REVIEW → FINALIZATION (deliberately NOT in the core slice; no second state
+   machine).
+5. Evidence-review UI on top of buildEvidenceReview (the real "Belege pruefen").
 
-Agreed decisions (2026-08-01):
-- Phase model gains ORIENTATION and CONCEPT; today's OUTLINE conflates the pre-search research plan
-  with the post-orientation document outline — two different artifacts.
-- Concept paper: produced by the AGENT after orientation, user-editable, approval-gated; project
-  context for planner/analyzer/drafting — NOT part of the static system prompt.
-- Evidence chain `SourceCapture → Passage → Claim → EvidenceLink → Section → DraftParagraph` with
-  stable IDs/revisions; relations SUPPORTS/CONTRADICTS/QUALIFIES/PROVIDES_CONTEXT.
-- "Belege prüfen" opens a real evidence review (claims per chapter, coverage, contradictions,
-  user actions); approval first persists an immutable `EvidenceBaseline`, only then
-  `APPROVE_EVIDENCE`.
-- No-delete: automatic analysis may ADD freely (captures, sentences/passages, embeddings, clusters,
-  proposals, findings, dedup marks, plan-covered runs, STALE marks); changing the ACTIVE CONFIRMED
-  state needs approval (brief, orientation start/budget, concept, outline, removing/merging a
-  confirmed chapter, excluding accepted evidence, EvidenceBaseline, proceeding despite gaps,
-  DraftBaseline, FinalRevision, replacing any baseline). Nothing is physically deleted — lifecycle
-  PROPOSED/ACCEPTED/REJECTED/EXCLUDED/SUPERSEDED/STALE/TOMBSTONED; purge is a separate maintenance
-  function.
-- Module cut: `:research-domain` (pure Java: objects, IDs, revisions, operations, invariants,
-  events, baselines, change requests, stale tracking) + `:research-knowledge-pipeline`
-  (segmentation port, passage boundaries from source structure FIRST then semantic sentence windows
-  of 2–4 sentences with min/max sizes, embedding port, hierarchical agglomerative clustering with
-  cosine distance, topic/outline proposals, gap analysis, query planning). Adapters:
-  `:research-text-opennlp`, embeddings via the local model runtime, file stores, Lucene/vector
-  store strictly as REBUILDABLE projections (`derived/embeddings/<model-fingerprint>/`).
-- SERP snippets are DISCOVERY data only (reranking, topic hints, query expansion) — never citable;
-  citable evidence requires the opened page persisted as `SourceCapture`.
-
-Open questions (NOT yet decided):
-- Storage for structured domain objects: keep file-per-object stores or introduce H2 (Lucene stays
-  a projection either way)?
-- WHERE does the knowledge pipeline run — inside the research-agent runtime (owns the captures) or
-  host-side (owns the artifact stores)? Affects module dependencies and the MCP surface.
-- Which local model serves SENTENCE/PASSAGE embeddings (an embedding port for the agent does not
-  exist yet; the central embeddings selection does).
-- Migration path from `concept.md`/`outline.md`/`findings.md` as primary artifacts to projections
-  of structured objects without breaking existing sessions.
-- `/research-depth` mapping: which budget knobs (pages, sources, hosts, time, provider cost)?
-- When exactly the OUTLINE phase of the current state graph is re-cut into ORIENTATION/CONCEPT
-  (state-graph surgery + memento migration for restored sessions).
+Open questions (blocking only the steps that need them):
+- Embedding model hand-off: session snapshot file like reranker/inference, or direct port via
+  AgentHostContext? (affects step 2)
+- Where the pipeline RUNS — agent runtime process (owns captures) vs host (owns artifact stores)?
+  (affects step 3)
+- Migration of existing markdown artifacts (concept.md/outline.md/findings.md) to projections of the
+  structured objects without breaking restored sessions. (affects step 4)
 
 ## RA-P4 — Recurring on-disk corruption on this machine (X:)
 
