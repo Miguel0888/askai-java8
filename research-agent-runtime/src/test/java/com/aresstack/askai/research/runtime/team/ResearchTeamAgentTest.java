@@ -25,9 +25,11 @@ public class ResearchTeamAgentTest {
         return new TeamAgentStateView("outline", "running", Arrays.asList("START", "SUBMIT_SCOPE"));
     }
 
-    /** A minimal valid scoping answer (message + a short brief) for the scoping output contract. */
+    /** A valid substantive scoping answer: message + brief + exploration map + one search suggestion. */
     private static String scopingJson(String message, String brief) {
-        return "{\"assistantMessage\":\"" + message + "\",\"researchBriefMarkdown\":\"" + brief + "\"}";
+        return "{\"assistantMessage\":\"" + message + "\",\"researchBriefMarkdown\":\"" + brief + "\","
+                + "\"explorationMapMermaid\":\"mindmap\\n  root((Topic))\","
+                + "\"searchSuggestions\":[{\"query\":\"topic current developments\",\"priority\":1}]}";
     }
 
     @Test
@@ -362,6 +364,8 @@ public class ResearchTeamAgentTest {
         FakeModel model = new FakeModel();
         model.enqueueOk("{\"assistantMessage\":\"Looks precise enough.\","
                 + "\"researchBriefMarkdown\":\"# Brief\\nWearables audio\","
+                + "\"explorationMapMermaid\":\"mindmap\\n  root((Wearables))\\n    Audio\","
+                + "\"searchSuggestions\":[{\"query\":\"wearables audio\",\"priority\":1}],"
                 + "\"advice\":{\"recommendation\":\"CONTINUE\",\"reason\":\"the question is precise\"}}");
         ResearchTeamAgent agent = new ResearchTeamAgent(model);
 

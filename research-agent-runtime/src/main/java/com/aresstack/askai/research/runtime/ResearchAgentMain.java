@@ -556,7 +556,28 @@ public final class ResearchAgentMain {
             if (projection != null) {
                 ctx.sendMessage(projection);
             }
+            emitScopingDiagnostics(ctx, phaseId, result.getOutput(), projection != null);
         }
+    }
+
+    /**
+     * A collapsible TECHNICAL trace of the scoping projection chain for one turn (never a chat bubble, never
+     * the prompt or any secret): phase, output class and the field sizes that decide whether a projection was
+     * emitted. Lets a GUI run pinpoint the first deviating point (phase / profile / contract / output / emit).
+     */
+    private void emitScopingDiagnostics(SyncPromptContext ctx, String phaseId,
+            com.aresstack.askai.research.runtime.team.PhaseAssistantOutput output, boolean emitted) {
+        StringBuilder sb = new StringBuilder("scopeassist diag phase=").append(phaseId)
+                .append(" outputClass=").append(output == null ? "null" : output.getClass().getSimpleName());
+        if (output instanceof com.aresstack.askai.research.runtime.team.ScopingAssistantOutput) {
+            com.aresstack.askai.research.runtime.team.ScopingAssistantOutput scoping =
+                    (com.aresstack.askai.research.runtime.team.ScopingAssistantOutput) output;
+            sb.append(" briefLen=").append(scoping.getResearchBriefMarkdown().length())
+                    .append(" mapLen=").append(scoping.getExplorationMapMermaid().length())
+                    .append(" suggestions=").append(scoping.getSearchSuggestions().size());
+        }
+        sb.append(" emitted=").append(emitted);
+        ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire.log(sb.toString()));
     }
 
     /**
