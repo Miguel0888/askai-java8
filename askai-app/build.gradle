@@ -240,6 +240,30 @@ task localRuntimeDist(type: Sync) {
     }
 }
 
+// The local model runtime (DirectML engine sidecar) is CORE APP functionality, not a plugin concern:
+// the plain `run` stages it exactly like runWithDevPlugins. It stays OPTIONAL nonetheless — Java 21
+// cannot be assumed on every machine, so without a resolvable 21 toolchain `run` simply starts
+// without the local runtime (the manager degrades gracefully) instead of failing the build.
+def java21Launcher = null
+try {
+    java21Launcher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(21)
+    }.get()
+} catch (Exception noJava21) {
+    logger.lifecycle('askai-app: no Java 21 toolchain — `run` starts without the local model runtime.')
+}
+run {
+    if (java21Launcher != null) {
+        dependsOn localRuntimeDist
+    }
+    doFirst {
+        systemProperty 'askai.local.runtime.dir', localRuntimeDir.get().asFile.absolutePath
+        if (java21Launcher != null) {
+            systemProperty 'askai.local.runtime.java', java21Launcher.executablePath.asFile.absolutePath
+        }
+    }
+}
+
 // Same runtime classpath, main class and (default) JVM options as the regular `run`, but pointed at the
 // shared dev-plugins directory so the externally-built research plugin is discovered by PF4J at runtime.
 task runWithDevPlugins(type: JavaExec) {

@@ -36,9 +36,13 @@ public final class LocalAskAiContainerSource implements OllamaContainerSource {
         return true;
     }
 
-    /** True when this source should contribute to lists (running, or installable models exist). */
+    /**
+     * True when this source should contribute to lists: running, or installed models exist AND the
+     * runtime is actually startable. The local runtime is optional — when it is not staged, the source
+     * simply contributes nothing and every list loads from the other sources without any wait.
+     */
     public boolean hasAnythingToServe() {
-        return manager.isRunning() || manager.hasInstalledModels();
+        return manager.isRunning() || (manager.hasInstalledModels() && manager.isAvailable());
     }
 
     public AskAiOllamaClient createClient() throws Exception {

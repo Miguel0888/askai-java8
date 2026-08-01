@@ -90,15 +90,40 @@ public final class LocalModelRuntimeManager {
         return process != null && process.isAlive() && baseUrl != null;
     }
 
+    /**
+     * True when the runtime can serve at all: already running, or its sidecar jar exists to be started.
+     * The runtime is an OPTIONAL component — callers that only aggregate (model lists, boot start) skip
+     * it silently when it is not staged; nothing waits, nothing fails.
+     */
+    public boolean isAvailable() {
+        return isRunning() || sidecarJar().isFile();
+    }
+
     /** The base URL of the RUNNING sidecar, or null. */
     public synchronized String getBaseUrl() {
         return isRunning() ? baseUrl : null;
     }
 
+    /** A failed start is not retried for this long — N queued callers fail fast instead of serially. */
+    private static final long START_RETRY_BACKOFF_MILLIS = 15_000L;
+    private long lastStartFailureMillis;
+
     /** Start the sidecar if it is not running; @return the base URL. */
     public synchronized String ensureStarted() throws IOException {
         if (isRunning()) {
             return baseUrl;
+        }
+        if (System.currentTimeMillis() - lastStartFailureMillis < START_RETRY_BACKOFF_MILLIS) {
+            // The monitor serializes callers: without this, every model-list capability probe would
+            // re-run the whole failing start and stall the queue behind it.
+            throw new IOException("local model runtime start failed recently; retry postponed");
+        }
+        File jar = sidecarJar();
+        if (!jar.isFile()) {
+            // Without the jar the child JVM dies instantly but the ready-await would still burn the
+            // full timeout while holding this monitor — answer immediately instead.
+            throw new IOException("local model runtime is not staged (missing " + jar.getAbsolutePath()
+                    + ")");
         }
         stop();
         List<String> command = new ArrayList<String>();
@@ -149,31 +174,47 @@ public final class LocalModelRuntimeManager {
         stderr.setDaemon(true);
         stderr.start();
 
-        boolean up;
+        boolean up = false;
+        long deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(READY_TIMEOUT_SECONDS);
         try {
-            up = ready.await(READY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            while (System.nanoTime() < deadlineNanos) {
+                if (ready.await(250, TimeUnit.MILLISECONDS)) {
+                    up = true;
+                    break;
+                }
+                if (!started.isAlive()) {
+                    break; // died during startup (wrong Java, missing DirectML, …): fail NOW, not at timeout
+                }
+            }
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
-            up = false;
         }
         if (!up || readyBaseUrl[0] == null) {
+            boolean diedOnItsOwn = !started.isAlive();
             started.destroyForcibly();
-            throw new IOException("The local model runtime did not report ready within "
-                    + READY_TIMEOUT_SECONDS + "s (jar: " + sidecarJar() + ")");
+            lastStartFailureMillis = System.currentTimeMillis();
+            throw new IOException(diedOnItsOwn
+                    ? "The local model runtime exited during startup (jar: " + sidecarJar() + ")"
+                    : "The local model runtime did not report ready within "
+                            + READY_TIMEOUT_SECONDS + "s (jar: " + sidecarJar() + ")");
         }
         this.process = started;
         this.baseUrl = readyBaseUrl[0];
         return baseUrl;
     }
 
-    /** Idempotent shutdown: destroy → bounded wait → forced kill. */
+    /**
+     * Idempotent shutdown: destroy → SHORT grace → forced kill, then return without waiting for the
+     * kill to complete. Sidecar teardown must never delay or block the application exit; the forced
+     * kill is asynchronous and the child is a daemon of this app either way.
+     */
     public synchronized void stop() {
         if (process == null) {
             return;
         }
         process.destroy();
         try {
-            if (!process.waitFor(10, TimeUnit.SECONDS)) {
+            if (!process.waitFor(2, TimeUnit.SECONDS)) {
                 process.destroyForcibly();
             }
         } catch (InterruptedException interrupted) {
