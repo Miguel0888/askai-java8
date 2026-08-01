@@ -36,4 +36,14 @@ public interface AgentPluginExtension extends ExtensionPoint {
     default List<com.aresstack.askai.plugin.api.agent.AgentSettingsContribution> getSettingsContributions() {
         return java.util.Collections.emptyList();
     }
+
+    /**
+     * Persistent components shown ABOVE the chat composer while this agent is the active one of the current
+     * tab (e.g. active-phase controls). Generic and session-based; the host builds and disposes them on
+     * session/agent/tab change. Default: none.
+     */
+    default List<com.aresstack.askai.plugin.api.agent.composer.ComposerAccessoryContribution>
+            getComposerAccessories() {
+        return java.util.Collections.emptyList();
+    }
 }

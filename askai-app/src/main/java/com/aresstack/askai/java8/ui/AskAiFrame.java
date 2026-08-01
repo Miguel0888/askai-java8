@@ -106,6 +106,10 @@ public final class AskAiFrame extends JFrame {
     private com.aresstack.askai.plugin.host.PluginEnablementService pluginEnablement;
     private java.io.File pluginsDirectory;
     private com.aresstack.askai.plugin.host.AgentSessionCoordinator agentCoordinator;
+    /** Builds the active agent's composer accessories above the active tab's composer (kept to avoid GC). */
+    private com.aresstack.askai.plugin.host.AgentComposerAccessoryArea composerAccessoryArea;
+    /** The tab currently showing a composer accessory, so it can be cleared when the active tab changes. */
+    private OllamaChatPanel accessoryTargetTab;
     /** Host runtime services (owns the process-global Solon MCP server); stopped synchronously on close. */
     private com.aresstack.askai.java8.plugin.host.AgentRuntimeServices agentRuntimeServices;
     private AudioProcessingPanel audioProcessingPanel;
@@ -577,6 +581,36 @@ public final class AskAiFrame extends JFrame {
                 new com.aresstack.askai.java8.plugin.host.AskAiThemeService(),
                 new com.aresstack.askai.java8.plugin.host.AskAiMarkdownViewFactory());
         this.agentCoordinator = agentCoordinator;
+        // Generic composer accessories: place the ACTIVE agent's accessory above the active tab's composer.
+        // The area rebuilds on every coordinator change (tab/agent switch); the frame routes it to the active
+        // tab and clears the previously-targeted one.
+        final com.aresstack.askai.plugin.host.ComposerAccessoryHost accessoryHost =
+                new com.aresstack.askai.plugin.host.ComposerAccessoryHost() {
+                    public void setAccessory(javax.swing.JComponent component) {
+                        OllamaChatPanel active = activeChat();
+                        if (accessoryTargetTab != null && accessoryTargetTab != active) {
+                            accessoryTargetTab.clearComposerAccessory();
+                        }
+                        if (active != null) {
+                            active.setComposerAccessory(component);
+                            accessoryTargetTab = active;
+                        } else {
+                            accessoryTargetTab = null;
+                        }
+                    }
+
+                    public void clearAccessory() {
+                        if (accessoryTargetTab != null) {
+                            accessoryTargetTab.clearComposerAccessory();
+                            accessoryTargetTab = null;
+                        }
+                    }
+                };
+        this.composerAccessoryArea = new com.aresstack.askai.plugin.host.AgentComposerAccessoryArea(
+                agentCoordinator, uiExecutor,
+                new com.aresstack.askai.java8.plugin.host.AskAiThemeService(),
+                new com.aresstack.askai.java8.plugin.host.AskAiMarkdownViewFactory(),
+                accessoryHost);
         return host;
     }
 

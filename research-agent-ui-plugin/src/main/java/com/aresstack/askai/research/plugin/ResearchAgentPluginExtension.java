@@ -55,8 +55,7 @@ public final class ResearchAgentPluginExtension implements AgentPluginExtension 
         // contribution below; the artifact area holds work products only.
         return Arrays.<ArtifactViewContribution>asList(
                 new ResearchSourcesViewContribution(),
-                new ResearchStateViewContribution(),
-                new com.aresstack.askai.research.agent.ScopingViewContribution());
+                new ResearchStateViewContribution());
     }
 
     @Override
@@ -65,5 +64,14 @@ public final class ResearchAgentPluginExtension implements AgentPluginExtension 
         return java.util.Collections
                 .<com.aresstack.askai.plugin.api.agent.AgentSettingsContribution>singletonList(
                         new com.aresstack.askai.research.host.ResearchSettingsContribution());
+    }
+
+    @Override
+    public List<com.aresstack.askai.plugin.api.agent.composer.ComposerAccessoryContribution>
+            getComposerAccessories() {
+        // The scoping controls (map + suggestions + query) live above the composer, not in the artifact area.
+        return java.util.Collections
+                .<com.aresstack.askai.plugin.api.agent.composer.ComposerAccessoryContribution>singletonList(
+                        new com.aresstack.askai.research.agent.ScopingComposerAccessoryContribution());
     }
 }
