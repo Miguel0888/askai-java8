@@ -1669,12 +1669,24 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         return agentConversationSink;
     }
 
+    /** Tracks the agent busy state so the busy→idle edge can restore the editor focus (like yapping). */
+    private boolean agentComposerBusy;
+
     /** Reflects the active agent's availability onto the composer's busy (Send/Stop) state when routing to it. */
     private void refreshAgentComposerState() {
         if (chatSubmissionRouter != null && chatSubmissionRouter.isActive()) {
-            composer.setChatBusy(chatSubmissionRouter.getAvailability()
-                    == com.aresstack.askai.plugin.api.agent.SubmissionAvailability.BUSY);
+            boolean busy = chatSubmissionRouter.getAvailability()
+                    == com.aresstack.askai.plugin.api.agent.SubmissionAvailability.BUSY;
+            boolean turnJustEnded = agentComposerBusy && !busy;
+            agentComposerBusy = busy;
+            composer.setChatBusy(busy);
+            if (turnJustEnded && isShowing()) {
+                // The editor was disabled during the agent turn and lost the focus with that; give it
+                // back exactly like the yapping path's setBusy(false) does, so the user can just type.
+                composer.focusEditor();
+            }
         } else {
+            agentComposerBusy = false;
             // Not routing to an agent: the normal Ollama busy state governs Send/Stop again.
             composer.setChatBusy(chatBusy);
         }
