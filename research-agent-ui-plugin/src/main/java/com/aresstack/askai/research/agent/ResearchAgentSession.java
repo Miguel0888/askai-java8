@@ -429,6 +429,100 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             narration.invalidate();
         }
     }
+
+    // ------------------------------------------------------------------ /settings (chat-near options)
+
+    /** Stable option ids of the settings card, index-aligned with the panel's provider list. */
+    private static final String[] SETTINGS_SOURCE_IDS =
+            {"", "BRAVE_SEARCH_API", "BRIGHT_DATA", "DATA_FOR_SEO"};
+    private static final String[] SETTINGS_SOURCE_LABELS =
+            {"Browser (SERP)", "Brave Search API", "Bright Data", "DataForSEO"};
+
+    /**
+     * The compact settings card in the chat ({@code /settings}): shows the CURRENT project options and
+     * offers the user-relevant choices as buttons — search source and AI phrasing. Buttons persist
+     * through the SAME typed mapper the panel and the session factory use, confirm in the chat, and the
+     * card stays active (NO_STATE_CHANGE) so several options can be adjusted in one go. Fine-tuning
+     * (paths, SERP parameters) deliberately stays in the Runtime tab.
+     */
+    public void showSettingsCard() {
+        if (sink == null) {
+            return;
+        }
+        uiExecutor.execute(new Runnable() {
+            public void run() {
+                com.aresstack.askai.research.host.SearchStrategySelection selection =
+                        com.aresstack.askai.research.host.ResearchRuntimeSettings
+                                .loadSearchStrategy(hostStateStore);
+                boolean narrationOn = com.aresstack.askai.research.host.ResearchRuntimeSettings
+                        .loadLlmNarration(hostStateStore);
+                java.util.List<AgentConversationSink.ActionOption> options =
+                        new ArrayList<AgentConversationSink.ActionOption>();
+                for (int i = 0; i < SETTINGS_SOURCE_IDS.length; i++) {
+                    options.add(new AgentConversationSink.ActionOption("settings-source-" + i,
+                            SETTINGS_SOURCE_LABELS[i], AgentConversationSink.ActionKind.NAVIGATION));
+                }
+                options.add(new AgentConversationSink.ActionOption("settings-narration",
+                        ResearchPlaybook.getLanguage() == ResearchPlaybook.Language.GERMAN
+                                ? "KI-Formulierung an/aus" : "AI phrasing on/off",
+                        AgentConversationSink.ActionKind.NAVIGATION));
+                sink.showLiveActionCard("settings-" + playbookMessageIds.incrementAndGet(),
+                        ResearchPlaybook.settingsCard(currentSourceLabel(selection),
+                                selection.isApiProvider() ? selection.getEngine() : "",
+                                (selection.getLanguage() + " " + selection.getCountry()).trim(),
+                                narrationOn),
+                        options,
+                        new AgentConversationSink.ActionHandler() {
+                            public AgentConversationSink.ActionExecutionResult onAction(String actionId) {
+                                return applySettingsAction(actionId);
+                            }
+                        });
+            }
+        });
+    }
+
+    private String currentSourceLabel(com.aresstack.askai.research.host.SearchStrategySelection selection) {
+        if (selection.isApiProvider()) {
+            for (int i = 1; i < SETTINGS_SOURCE_IDS.length; i++) {
+                if (SETTINGS_SOURCE_IDS[i].equals(selection.getProvider())) {
+                    return SETTINGS_SOURCE_LABELS[i];
+                }
+            }
+        }
+        return SETTINGS_SOURCE_LABELS[0];
+    }
+
+    private AgentConversationSink.ActionExecutionResult applySettingsAction(String actionId) {
+        if ("settings-narration".equals(actionId)) {
+            boolean enabled = !com.aresstack.askai.research.host.ResearchRuntimeSettings
+                    .loadLlmNarration(hostStateStore);
+            com.aresstack.askai.research.host.ResearchRuntimeSettings
+                    .saveLlmNarration(hostStateStore, enabled);
+            sayAsAgent(ResearchPlaybook.settingsNarrationChanged(enabled));
+            return AgentConversationSink.ActionExecutionResult.NO_STATE_CHANGE;
+        }
+        for (int i = 0; i < SETTINGS_SOURCE_IDS.length; i++) {
+            if (("settings-source-" + i).equals(actionId)) {
+                com.aresstack.askai.research.host.SearchStrategySelection current =
+                        com.aresstack.askai.research.host.ResearchRuntimeSettings
+                                .loadSearchStrategy(hostStateStore);
+                // Engine/locale survive a source switch; only the strategy/provider pair changes.
+                com.aresstack.askai.research.host.ResearchRuntimeSettings.saveSearchStrategy(
+                        hostStateStore,
+                        new com.aresstack.askai.research.host.SearchStrategySelection(
+                                i == 0 ? com.aresstack.askai.research.host.SearchStrategySelection
+                                                .STRATEGY_LEGACY_BROWSER
+                                        : com.aresstack.askai.research.host.SearchStrategySelection
+                                                .STRATEGY_API_PROVIDER,
+                                SETTINGS_SOURCE_IDS[i], current.getEngine(),
+                                current.getLanguage(), current.getCountry()));
+                narrateAsAgent("settings",
+                        ResearchPlaybook.settingsSearchChanged(SETTINGS_SOURCE_LABELS[i]));
+                return AgentConversationSink.ActionExecutionResult.NO_STATE_CHANGE;
+            }
+        }
+        return AgentConversationSink.ActionExecutionResult.NO_STATE_CHANGE;
+    }
     private final java.util.concurrent.atomic.AtomicLong playbookMessageIds =
             new java.util.concurrent.atomic.AtomicLong();
 

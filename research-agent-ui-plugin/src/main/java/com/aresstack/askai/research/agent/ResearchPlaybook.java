@@ -239,6 +239,52 @@ public final class ResearchPlaybook {
                         + "chat while the research runs.";
     }
 
+    // ------------------------------------------------------------------ /settings card (project options)
+
+    /** The compact, chat-near settings card: CURRENT selection in plain words, options as buttons. */
+    public static String settingsCard(String sourceLabel, String engineLabel, String locale,
+                                      boolean llmNarration) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(de() ? "**Research-Einstellungen**\n\n" : "**Research settings**\n\n");
+        sb.append(de() ? "Suchquelle: " : "Search source: ").append(sourceLabel);
+        if (engineLabel != null && !engineLabel.isEmpty()) {
+            sb.append(" · ").append(de() ? "Engine: " : "engine: ").append(engineLabel);
+        }
+        if (locale != null && !locale.isEmpty()) {
+            sb.append(" · ").append(locale);
+        }
+        sb.append('\n');
+        sb.append(de() ? "KI-Formulierung: " : "AI phrasing: ")
+                .append(llmNarration ? (de() ? "an" : "on") : (de() ? "aus" : "off"));
+        sb.append(de()
+                ? "\n\nÄnderungen gelten ab der nächsten Session; Feineinstellungen im Runtime-Tab."
+                : "\n\nChanges apply to the next session; fine-tuning lives in the Runtime tab.");
+        return sb.toString();
+    }
+
+    /** Confirmation after a search-source change from the settings card (next run, browser untouched). */
+    public static String settingsSearchChanged(String sourceLabel) {
+        return de()
+                ? "Ab dem nächsten Suchlauf verwende ich " + sourceLabel + ". Bereits laufende "
+                        + "Browserarbeit bleibt unverändert."
+                : "From the next search run on I will use " + sourceLabel + ". Browser work already "
+                        + "in progress stays untouched.";
+    }
+
+    /** Confirmation after toggling the LLM narration from the settings card. */
+    public static String settingsNarrationChanged(boolean enabled) {
+        if (enabled) {
+            return de()
+                    ? "KI-Formulierung ist an — neue Sessions formulieren ihre Hinweise über das "
+                            + "Hauptmodell (mit festem Fallback)."
+                    : "AI phrasing is on — new sessions phrase their guidance through the main model "
+                            + "(with the fixed fallback).";
+        }
+        return de()
+                ? "KI-Formulierung ist aus — neue Sessions nutzen die festen Formulierungen."
+                : "AI phrasing is off — new sessions use the fixed wording.";
+    }
+
     /** Static title of the narration thought bubble while the LLM narrator phrases a milestone. */
     public static String narratorThinking() {
         return de() ? "überlegt, wie es das am besten formuliert …" : "thinking about how to put this …";

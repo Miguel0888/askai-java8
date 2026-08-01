@@ -36,6 +36,7 @@ public final class ResearchChatCommands {
         commands.add(new CancelCommand());
         commands.add(new OpenCommand());
         commands.add(new DoCommand());
+        commands.add(new SettingsCommand());
         return commands;
     }
 
@@ -48,6 +49,22 @@ public final class ResearchChatCommands {
     private abstract static class Base implements ChatCommandContribution {
         public CommandCompletionResult complete(CommandCompletionRequest request, AgentSessionContext context) {
             return CommandCompletionResult.empty();
+        }
+    }
+
+    private static final class SettingsCommand extends Base {
+        public ChatCommandDescriptor getDescriptor() {
+            return ChatCommandDescriptor.of("settings",
+                    "Show and change the research project options in the chat");
+        }
+
+        public CommandExecutionResult execute(CommandInvocation invocation, AgentSessionContext context) {
+            ResearchAgentSession session = research(context);
+            if (session == null) {
+                return CommandExecutionResult.unknown();
+            }
+            session.showSettingsCard();
+            return CommandExecutionResult.handled("");
         }
     }
 

@@ -813,3 +813,108 @@ automatisches Prompt-Resend (Gefahr doppelter Turns).
 ### Spätere Entscheidung
 Transport-Analyse an der acp-sdk/Stdio-Grenze (Initialisierungs-/Prompt-Race direkt nach `session/new`):
 Request-Journal im Connector, ggf. Ready-Handshake vor dem ersten Prompt oder Upstream-Issue an acp-sdk.
+
+---
+
+# Research Agent — problems and open questions (2026-08-01)
+
+## RA-P1 — BUG: agent timeout when opening a NEW research session
+
+Symptom (user report): with an active research session the main chat runs into an agent timeout;
+plain (non-agent) chat works. A fresh research session reproduces it.
+
+Diagnosis so far: the headless end-to-end reproduction (`GuiChainReproductionTest`: real session
+factory + ACP agent + sidecar + reranker on the app classpath) PASSES on
+`feature/search-strategy-wiring` with freshly staged jars — session/new, greeting and activation
+work. The bug is environmental or Swing/PF4J-side. Prime suspects, in order:
+
+1. MIXED runtime paths in the Runtime tab: `agentJar` switched to
+   `X:\Projects\askai-java8-main\build\research-runtime\research-agent-runtime.jar` while
+   `sidecarJar`/`sidecarJava` may still point at the old checkout
+   `C:\Projects\askai-java8\build\research-runtime\…` — mixed generations are untested. Both paths
+   must come from the SAME dist directory.
+2. The greeting turn (TeamAgent on the main model) exceeding the 180 s ACP request timeout when the
+   main model cold-loads while the DirectML runtime occupies the GPU.
+3. Plain `run` now also boots the local model runtime (since the DirectML staging fix) — GPU
+   contention at session start.
+
+Needed to close: the first `[research-agent] …` / `session/new` error line from the app console of a
+failing start + the effective `agentJar`/`sidecarJar` values from the Runtime tab.
+
+## RA-P2 — Settings scattered / wrong altitude (agreed target, partially built)
+
+DONE: `/settings` chat command → compact live card (search-source buttons, AI-phrasing toggle,
+current summary), persisting through the SAME typed mapper as panel + session factory.
+
+OPEN:
+- Remove `Runtime` and `Search Settings` from the ARTIFACT catalog (not artifacts); the artifact
+  area holds work products only (Outline…Final, Sources, State).
+- Split the Runtime tab: user preferences / per-project research options / central AskAI config /
+  developer diagnostics ("Advanced"); hide agent/sidecar/Java paths when the dist is auto-detected.
+- Direct slash commands over a typed settings port: `/search-strategy …`, `/search-region ll cc`,
+  `/browser headless|visible`, `/research-depth quick|standard|deep`, `/language …`,
+  `/narration on|off`.
+- Natural-language setting changes as PROPOSALS only (TeamAgent emits a structured
+  `proposedSettingChange`; host validates; confirmation card for costly/sensitive changes).
+- Provider credential MANAGEMENT centrally in AskAI (today: encrypted files under
+  `~/agents/research/providers/`, no UI).
+- Test debt: the `/settings` card lacks an automated test (RecordingSink harness).
+
+## RA-P3 — Missing research methodology domain core (the central gap)
+
+The workflow skeleton (state machine, gates, buttons) is ahead of the business logic. Agreed chain
+still lacking a real domain core:
+
+    Research Brief → orientation research → corpus → sentences → passages → topic clusters
+    → concept paper → approved outline → per-chapter gap analysis → detailed research
+    → claims + evidence links → approved EvidenceBaseline → paragraph-wise draft with citations
+    → review → approved FinalRevision
+
+Agreed decisions (2026-08-01):
+- Phase model gains ORIENTATION and CONCEPT; today's OUTLINE conflates the pre-search research plan
+  with the post-orientation document outline — two different artifacts.
+- Concept paper: produced by the AGENT after orientation, user-editable, approval-gated; project
+  context for planner/analyzer/drafting — NOT part of the static system prompt.
+- Evidence chain `SourceCapture → Passage → Claim → EvidenceLink → Section → DraftParagraph` with
+  stable IDs/revisions; relations SUPPORTS/CONTRADICTS/QUALIFIES/PROVIDES_CONTEXT.
+- "Belege prüfen" opens a real evidence review (claims per chapter, coverage, contradictions,
+  user actions); approval first persists an immutable `EvidenceBaseline`, only then
+  `APPROVE_EVIDENCE`.
+- No-delete: automatic analysis may ADD freely (captures, sentences/passages, embeddings, clusters,
+  proposals, findings, dedup marks, plan-covered runs, STALE marks); changing the ACTIVE CONFIRMED
+  state needs approval (brief, orientation start/budget, concept, outline, removing/merging a
+  confirmed chapter, excluding accepted evidence, EvidenceBaseline, proceeding despite gaps,
+  DraftBaseline, FinalRevision, replacing any baseline). Nothing is physically deleted — lifecycle
+  PROPOSED/ACCEPTED/REJECTED/EXCLUDED/SUPERSEDED/STALE/TOMBSTONED; purge is a separate maintenance
+  function.
+- Module cut: `:research-domain` (pure Java: objects, IDs, revisions, operations, invariants,
+  events, baselines, change requests, stale tracking) + `:research-knowledge-pipeline`
+  (segmentation port, passage boundaries from source structure FIRST then semantic sentence windows
+  of 2–4 sentences with min/max sizes, embedding port, hierarchical agglomerative clustering with
+  cosine distance, topic/outline proposals, gap analysis, query planning). Adapters:
+  `:research-text-opennlp`, embeddings via the local model runtime, file stores, Lucene/vector
+  store strictly as REBUILDABLE projections (`derived/embeddings/<model-fingerprint>/`).
+- SERP snippets are DISCOVERY data only (reranking, topic hints, query expansion) — never citable;
+  citable evidence requires the opened page persisted as `SourceCapture`.
+
+Open questions (NOT yet decided):
+- Storage for structured domain objects: keep file-per-object stores or introduce H2 (Lucene stays
+  a projection either way)?
+- WHERE does the knowledge pipeline run — inside the research-agent runtime (owns the captures) or
+  host-side (owns the artifact stores)? Affects module dependencies and the MCP surface.
+- Which local model serves SENTENCE/PASSAGE embeddings (an embedding port for the agent does not
+  exist yet; the central embeddings selection does).
+- Migration path from `concept.md`/`outline.md`/`findings.md` as primary artifacts to projections
+  of structured objects without breaking existing sessions.
+- `/research-depth` mapping: which budget knobs (pages, sources, hosts, time, provider cost)?
+- When exactly the OUTLINE phase of the current state graph is re-cut into ORIENTATION/CONCEPT
+  (state-graph surgery + memento migration for restored sessions).
+
+## RA-P4 — Recurring on-disk corruption on this machine (X:)
+
+Six incidents in one working day: four corrupt `.class` files (zeroed/bit-flipped constant pools)
+in four modules, one corrupt git blob (repaired via `git fetch --refetch` from origin), and one
+SOURCE file (`ResearchProjectMetadata.java`) fully zero-filled in place — hidden from `git status`
+by the stat cache (same size+mtime). A scan of all tracked files found no further zeroed file.
+Action: `chkdsk X: /f`, SMART check, ideally a RAM test. Until then: push early, run `git fsck`
+occasionally, treat impossible compile errors as possible corruption.
