@@ -189,6 +189,26 @@ public final class ResearchPlaybook {
         return (de() ? "Suche im Web nach:\n" : "Searching the web for:\n") + "„" + query + "“";
     }
 
+    /** REST-provider search: no browser is involved in this step, and the card says so. */
+    public static String progressApiSearchLine(String provider, String query) {
+        return (de() ? "Suche per " + provider + " (ohne Browser) nach:\n"
+                : "Searching via " + provider + " (no browser) for:\n") + "„" + query + "“";
+    }
+
+    /** Thought bubble while a REST provider answers the search — the browser stays closed here. */
+    public static String apiSearchThinking(String provider, String query) {
+        return de()
+                ? "fragt " + provider + " nach „" + query + "“ …"
+                : "asking " + provider + " about “" + query + "” …";
+    }
+
+    /** Closes the REST-search thought bubble once the provider answered. */
+    public static String apiSearchDone(String provider) {
+        return de()
+                ? "Ergebnisse von " + provider + " erhalten."
+                : "Results from " + provider + " received.";
+    }
+
     /** The real target website the browser is on right now (final host + page title, never raw URLs). */
     public static String progressPageLine(String host, String pageTitle) {
         String head = de() ? "Gerade geöffnet:\n" : "Currently open:\n";
@@ -260,6 +280,9 @@ public final class ResearchPlaybook {
         String t = token == null ? "" : token;
         if ("SEARCHING".equals(t)) {
             return de() ? "Suche läuft …" : "Searching …";
+        }
+        if ("SEARCHING_API".equals(t)) {
+            return de() ? "Suche läuft (per API, ohne Browser) …" : "Searching (via API, no browser) …";
         }
         if ("READING_PAGE".equals(t) || "OPENING_PAGE".equals(t)) {
             return de() ? "Seite wird gelesen …" : "Reading the page …";

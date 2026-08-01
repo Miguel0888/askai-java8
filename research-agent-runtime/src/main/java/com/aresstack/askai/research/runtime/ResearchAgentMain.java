@@ -379,10 +379,24 @@ public final class ResearchAgentMain {
         com.aresstack.askai.research.runtime.search.SearchStrategy strategy =
                 com.aresstack.askai.research.runtime.search.ResearchSearchStrategyFactory.create(
                         config, registry);
+        this.searchProviderLabel = strategy == null ? null : providerLabel(config.getProviderId());
         System.err.println("[research-agent] initial search: " + config.getStrategy()
                 + (strategy == null ? " (legacy browser)" : " / " + config.getProviderId() + " / "
                         + config.getEngine()));
         return strategy;
+    }
+
+    /** User-facing REST provider name for the search progress ("via DataForSEO", no browser shown). */
+    private String searchProviderLabel;
+
+    private static String providerLabel(
+            com.aresstack.askai.research.runtime.search.provider.SearchProviderId providerId) {
+        switch (providerId) {
+            case DATA_FOR_SEO: return "DataForSEO";
+            case BRAVE_SEARCH_API: return "Brave Search";
+            case BRIGHT_DATA: return "Bright Data";
+            default: return providerId.name();
+        }
     }
 
     /**
@@ -633,7 +647,7 @@ public final class ResearchAgentMain {
             // On the API-provider path inference is irrelevant; on the browser path weave the productive
             // structured-inference port into the default SERP strategy for model-backed layout repair.
             if (searchStrategy != null) {
-                loop.setSearchStrategy(searchStrategy);
+                loop.setSearchStrategy(searchStrategy, searchProviderLabel);
             } else if (inferencePort != null) {
                 loop.setStructuredInferencePort(inferencePort);
             }

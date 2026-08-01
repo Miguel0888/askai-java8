@@ -977,6 +977,10 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     private String runSearchQuery = "";
     private String runCurrentHost = "";
     private String runCurrentPageTitle = "";
+    /** Non-empty while the run searches over a REST provider — the search shows NO browser. */
+    private String runApiSearchProvider = "";
+    /** The open thought bubble of the REST search, or null (closed when the results are in). */
+    private String apiSearchBubbleId;
     /** Bounded, user-readable history of the last processed websites (accepted/skipped) in the card. */
     private final java.util.ArrayDeque<String> runActivityHistory = new java.util.ArrayDeque<String>();
     private static final int RUN_HISTORY_LINES = 5;
@@ -996,6 +1000,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         }
         lastRunProgress = info;
         rememberRunActivity(info);
+        updateApiSearchBubble(info, id);
         if (newCard) {
             currentRunActivityId = id;
             runCardStarted = true;
@@ -1005,10 +1010,35 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         }
     }
 
+    /**
+     * The REST search is a THOUGHT BUBBLE, not browser activity: it opens with the first SEARCHING_API
+     * progress and closes as soon as the run moves on (results in → the browser then only opens the
+     * individual result pages, exactly as before).
+     */
+    private void updateApiSearchBubble(
+            com.aresstack.askai.research.backend.ResearchRunProgressInfo info, String runId) {
+        boolean searchingViaApi = "SEARCHING_API".equals(info.getActivityToken());
+        if (searchingViaApi && apiSearchBubbleId == null) {
+            apiSearchBubbleId = "api-search-" + runId;
+            sink.startThinking(apiSearchBubbleId, ResearchPlaybook.apiSearchThinking(
+                    runApiSearchProvider, runSearchQuery));
+        } else if (!searchingViaApi && apiSearchBubbleId != null) {
+            sink.finishThinking(apiSearchBubbleId,
+                    ResearchPlaybook.apiSearchDone(runApiSearchProvider));
+            apiSearchBubbleId = null;
+        }
+    }
+
     private void resetRunActivityContext() {
+        if (apiSearchBubbleId != null && sink != null) {
+            // A run that ends while the bubble is open (cancel, provider error) must not leave it thinking.
+            sink.finishThinking(apiSearchBubbleId, ResearchPlaybook.apiSearchDone(runApiSearchProvider));
+            apiSearchBubbleId = null;
+        }
         runSearchQuery = "";
         runCurrentHost = "";
         runCurrentPageTitle = "";
+        runApiSearchProvider = "";
         runActivityHistory.clear();
     }
 
@@ -1016,6 +1046,12 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     private void rememberRunActivity(com.aresstack.askai.research.backend.ResearchRunProgressInfo info) {
         if (!info.getSearchQuery().isEmpty()) {
             runSearchQuery = info.getSearchQuery();
+        }
+        if ("SEARCHING_API".equals(info.getActivityToken())) {
+            // The provider LABEL travels in the host field — it is not a website and never becomes
+            // "currently open"; the search step involves no browser at all.
+            runApiSearchProvider = info.getCurrentHost();
+            return;
         }
         if (!info.getCurrentHost().isEmpty()) {
             runCurrentHost = info.getCurrentHost();
@@ -1105,7 +1141,10 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         StringBuilder sb = new StringBuilder();
         if (lastRunProgress != null) {
             if (!runSearchQuery.isEmpty()) {
-                sb.append(ResearchPlaybook.progressSearchLine(runSearchQuery)).append("\n\n");
+                sb.append(runApiSearchProvider.isEmpty()
+                        ? ResearchPlaybook.progressSearchLine(runSearchQuery)
+                        : ResearchPlaybook.progressApiSearchLine(runApiSearchProvider, runSearchQuery))
+                        .append("\n\n");
             }
             if (!runCurrentHost.isEmpty()) {
                 sb.append(ResearchPlaybook.progressPageLine(runCurrentHost, runCurrentPageTitle))

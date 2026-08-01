@@ -87,10 +87,24 @@ public final class ResearchLoop {
      * current strategy — there is never a silent fallback.
      */
     public void setSearchStrategy(com.aresstack.askai.research.runtime.search.SearchStrategy strategy) {
+        setSearchStrategy(strategy, null);
+    }
+
+    /**
+     * @param apiProviderLabel the user-facing REST provider name ("DataForSEO", …) when the strategy is an
+     *                         API provider — the search progress then says so (and shows NO browser), or
+     *                         {@code null} for the browser SERP path.
+     */
+    public void setSearchStrategy(com.aresstack.askai.research.runtime.search.SearchStrategy strategy,
+                                  String apiProviderLabel) {
         if (strategy != null) {
             this.searchStrategy = strategy;
+            this.apiProviderLabel = apiProviderLabel;
         }
     }
+
+    /** Non-null exactly when the injected strategy is a REST provider (no browser during the search). */
+    private String apiProviderLabel;
 
     /**
      * Weave the productive structured-inference port (the central AskAI main model, published by the host)
@@ -190,7 +204,9 @@ public final class ResearchLoop {
                 com.aresstack.askai.research.runtime.search.InitialSearchStatus.NO_RESULTS;
         try {
             String query = join(terms);
-            listener.progress(progress, ResearchRunActivity.searching(query));
+            listener.progress(progress, apiProviderLabel == null
+                    ? ResearchRunActivity.searching(query)
+                    : ResearchRunActivity.searchingViaApi(query, apiProviderLabel));
             // Interchangeable INITIAL search: whether these candidates come from the browser SERP path or an
             // API provider, the code below (reranking → frontier → Playwright) is identical. URLs come
             // straight from typed SearchResultCandidates — no ATTEMPT:/CHALLENGE: text parsing.

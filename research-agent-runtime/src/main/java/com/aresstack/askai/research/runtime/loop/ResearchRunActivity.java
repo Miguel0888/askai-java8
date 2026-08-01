@@ -9,6 +9,8 @@ package com.aresstack.askai.research.runtime.loop;
 public final class ResearchRunActivity {
 
     public static final String SEARCHING = "SEARCHING";
+    /** The initial search runs over a REST provider — NO browser is involved in this step. */
+    public static final String SEARCHING_API = "SEARCHING_API";
     public static final String READING_PAGE = "READING_PAGE";
     public static final String SOURCE_ACCEPTED = "SOURCE_ACCEPTED";
     public static final String PAGE_SKIPPED = "PAGE_SKIPPED";
@@ -32,6 +34,14 @@ public final class ResearchRunActivity {
     /** About to run a web search with exactly this query (the query the user can recognize). */
     public static ResearchRunActivity searching(String query) {
         return new ResearchRunActivity(SEARCHING, query, null, null, null);
+    }
+
+    /**
+     * About to query a REST search provider (NO browser in this step): the provider label travels in the
+     * HOST field, so the UI can say "via DataForSEO" instead of showing a website.
+     */
+    public static ResearchRunActivity searchingViaApi(String query, String providerLabel) {
+        return new ResearchRunActivity(SEARCHING_API, query, null, providerLabel, null);
     }
 
     /** A page was opened; url/host/title are the FINAL post-redirect values the browser reported. */
