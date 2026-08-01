@@ -30,19 +30,18 @@ public final class TeamAgentTurn {
     private final List<String> understoodFacts;
     private final List<String> suggestedFacts;
     private final List<String> openQuestions;
-    private final boolean readyForBrief;
 
     public TeamAgentTurn(String assistantMessage, String proposedCommand, String question,
                          List<String> aspects, boolean approvalRequested, String approvalSubject,
                          List<String> searchQueries) {
         this(assistantMessage, proposedCommand, question, aspects, approvalRequested, approvalSubject,
-                searchQueries, null, null, null, false);
+                searchQueries, null, null, null);
     }
 
     public TeamAgentTurn(String assistantMessage, String proposedCommand, String question,
                          List<String> aspects, boolean approvalRequested, String approvalSubject,
                          List<String> searchQueries, List<String> understoodFacts,
-                         List<String> suggestedFacts, List<String> openQuestions, boolean readyForBrief) {
+                         List<String> suggestedFacts, List<String> openQuestions) {
         this.assistantMessage = assistantMessage == null ? "" : assistantMessage;
         this.proposedCommand = emptyToNull(proposedCommand);
         this.question = emptyToNull(question);
@@ -53,7 +52,6 @@ public final class TeamAgentTurn {
         this.understoodFacts = immutableCopy(understoodFacts);
         this.suggestedFacts = immutableCopy(suggestedFacts);
         this.openQuestions = immutableCopy(openQuestions);
-        this.readyForBrief = readyForBrief;
     }
 
     /** A plain assistant message with no proposed command/scope/approval (e.g. an honest fallback line). */
@@ -73,11 +71,6 @@ public final class TeamAgentTurn {
 
     public List<String> getOpenQuestions() {
         return openQuestions;
-    }
-
-    /** The assistant's read that the scope is summarized and the user signalled nothing is missing. */
-    public boolean isReadyForBrief() {
-        return readyForBrief;
     }
 
     public String getAssistantMessage() {

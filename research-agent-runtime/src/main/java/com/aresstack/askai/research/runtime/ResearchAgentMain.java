@@ -536,24 +536,17 @@ public final class ResearchAgentMain {
     /**
      * Send one TeamAgent turn to the user: the model's own message on OK (a plain ACP MESSAGE the host renders
      * as an assistant bubble), or an honest typed line on MODEL_UNAVAILABLE / UNUSABLE_ANSWER /
-     * COMMAND_REJECTED. A validated command travels as a STRUCTURED scope proposal (the model's proposed
-     * question + aspects) for the host to re-validate and execute — never claimed as done here, never a state
-     * transition in this process.
+     * COMMAND_REJECTED.
+     *
+     * <p>This emits NOTHING that can move the workflow. The model is prozessual machtlos: it advises, it
+     * paraphrases, it keeps the scope sharp — but only an explicit user action (a host-owned button that
+     * runs a command through the state machine) may advance a phase. There is deliberately no
+     * {@code readyForBrief} flag, no proceed-word analysis and no auto-emitted scope proposal here; the
+     * user owns every transition.</p>
      */
     private void emitTeamAgentResult(SyncPromptContext ctx,
             com.aresstack.askai.research.runtime.team.TeamAgentResult result) {
         ctx.sendMessage(com.aresstack.askai.research.runtime.team.TeamAgentReply.visible(result));
-        // The PROCESS step is decided by CODE, not by the model policing a command: when the assistant
-        // reports the scope is ready (summarized + user signalled nothing missing) and a working question
-        // exists, the runtime offers the scope as a proposal. The host re-validates and owns the actual
-        // transition — the model never confirms its own scope.
-        if (result.getStatus() == com.aresstack.askai.research.runtime.team.TeamAgentResult.Status.OK
-                && result.getTurn() != null && result.getTurn().isReadyForBrief()
-                && !teamAgent.getProposedQuestion().trim().isEmpty()) {
-            ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire.scopeProposal(
-                    "SUBMIT_SCOPE",
-                    teamAgent.getProposedQuestion(), teamAgent.getProposedAspects()));
-        }
     }
 
     /**

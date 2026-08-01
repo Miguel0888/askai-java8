@@ -213,7 +213,7 @@ public class ResearchTeamAgentTest {
                 + "and price. I'll take these to start.\","
                 + "\"suggestedFacts\":[\"battery\",\"audio quality\",\"privacy\",\"price\"],"
                 + "\"scope\":{\"question\":\"smartwatches\",\"aspects\":[\"audio\",\"video\","
-                + "\"battery\",\"privacy\"]},\"readyForBrief\":true}");
+                + "\"battery\",\"privacy\"]}}");
         ResearchTeamAgent agent = new ResearchTeamAgent(model);
 
         assertTrue(agent.respond("wearables", scoping()).isOk());
@@ -230,8 +230,9 @@ public class ResearchTeamAgentTest {
         String lastCallText = flatten(model.calls.get(model.calls.size() - 1));
         assertTrue("audio focus carried forward", lastCallText.contains("focus: audio"));
         assertTrue("device carried forward", lastCallText.contains("device: smartwatches"));
-        // "keine ahnung" -> defaults offered, and the scope is now ready for the host to summarize.
-        assertTrue(last.getTurn().isReadyForBrief());
+        // "keine ahnung" -> defaults offered as SUGGESTIONS; nothing here advances the workflow (no
+        // readyForBrief flag exists anymore — only a user button can move a phase).
+        assertTrue(last.isOk());
         assertFalse(last.getTurn().getSuggestedFacts().isEmpty());
         assertEquals("smartwatches", agent.getProposedQuestion());
         assertTrue(agent.getProposedAspects().contains("battery"));

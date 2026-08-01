@@ -48,11 +48,12 @@ public final class TeamAgentPlaybook {
                 + "  \"suggestedFacts\": string[],   // defaults/options YOU propose to fill a gap (not yet "
                 + "confirmed)\n"
                 + "  \"openQuestions\": string[],    // what is still genuinely open (may be empty)\n"
-                + "  \"scope\": { \"question\": string, \"aspects\": string[] } | null,  // the accumulated "
+                + "  \"scope\": { \"question\": string, \"aspects\": string[] } | null  // the accumulated "
                 + "research scope so far\n"
-                + "  \"readyForBrief\": boolean       // true only once the scope is summarized AND the user "
-                + "signalled nothing is missing\n"
-                + "}";
+                + "}\n\n"
+                + "You never advance, gate or approve anything: the application gives the user their own "
+                + "buttons for that. Do not ask whether the user wants to start or continue — just keep "
+                + "helping them sharpen the scope.";
     }
 
     /**
