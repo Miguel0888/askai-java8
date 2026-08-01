@@ -26,10 +26,12 @@ public final class DataForSeoSearchConfiguration {
     private String languageCode =
             "de";
     private String languageName;
-    // DataForSEO's documented default organic depth is 100 (max 700). The previous default of 10 silently
-    // capped every request via Math.min(maximumResults, depth) below what the caller asked for.
+    // Organic Live Advanced (/v3/serp/{engine}/organic/live/advanced): DataForSEO documents default 10,
+    // maximum 200 (NOT 100/700 — that was wrong for this endpoint). DataForSEO bills organic SERPs in
+    // result blocks of up to 10, so a depth above 10 can increase the request cost. The request mapper
+    // caps the effective depth at Math.min(maximumResults, depth), so this never over-asks.
     private int depth =
-            100;
+            10;
     private DataForSeoDevice device =
             DataForSeoDevice.DESKTOP;
     private DataForSeoOperatingSystem operatingSystem =

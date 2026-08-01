@@ -29,7 +29,9 @@ public final class DataForSeoRequestMapperTest {
                 "\"keyword\":\"Wearables Forschung\""));
         assertTrue(body.contains(
                 "\"location_code\":2276"));
-        assertTrue(body.contains("\"depth\":20"));
+        // Effective depth = min(maximumResults, configured depth) = min(20, 10) = 10. The corrected
+        // Organic Live Advanced default is 10 (was wrongly 100), and it also caps the request cost.
+        assertTrue(body, body.contains("\"depth\":10"));
         assertTrue(mapper.createEndpoint(configuration)
                 .endsWith(
                         "/v3/serp/google/organic/live/advanced"));
