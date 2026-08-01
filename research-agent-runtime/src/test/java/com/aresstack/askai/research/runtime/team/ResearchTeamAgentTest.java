@@ -285,6 +285,27 @@ public class ResearchTeamAgentTest {
         assertEquals("wearables", reparsed.getTurn().getQuestion());
     }
 
+    @Test
+    public void theActivePhaseSelectsTheAssistantProfileAndSystemPrompt() {
+        // Active phase -> its own assistant profile -> its own system prompt. The phase is the host's
+        // (state.getPhaseId()); the model never chooses it. A phase without its own profile gets the fallback.
+        FakeModel model = new FakeModel();
+        model.enqueueOk("{\"assistantMessage\":\"Hi from scoping.\"}");
+        model.enqueueOk("{\"assistantMessage\":\"Hi from another phase.\"}");
+        ResearchTeamAgent agent = new ResearchTeamAgent(model);
+
+        agent.respond("hello", scoping());
+        agent.respond("hello", new TeamAgentStateView("outline", "new", Arrays.<String>asList()));
+
+        String scopingPrompt = model.calls.get(0).get(0).getContent();
+        String otherPrompt = model.calls.get(1).get(0).getContent();
+        assertTrue("the scoping profile prompt is used in the scoping phase",
+                scopingPrompt.contains("sharpen their research scope"));
+        assertFalse(scopingPrompt.contains("working alongside the user within the current research phase"));
+        assertTrue("a phase without its own profile falls back to the neutral profile",
+                otherPrompt.contains("working alongside the user within the current research phase"));
+    }
+
     /** The content of the last ASSISTANT message in a captured call (the recorded canonical turn). */
     private static String assistantHistory(List<ChatMessage> messages) {
         for (int i = messages.size() - 1; i >= 0; i--) {

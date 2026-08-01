@@ -36,6 +36,8 @@ public final class ResearchTeamAgent {
     private static final int MAX_OUTPUT_TOKENS = 1024;
 
     private final MainModelChat model;
+    private final PhaseAssistantProfileRegistry profiles;
+    private final PhaseContextAssembler contextAssembler;
     private final List<ChatMessage> history = new ArrayList<ChatMessage>();
 
     /** Scope the HOST has confirmed (never set by the model). */
@@ -53,10 +55,21 @@ public final class ResearchTeamAgent {
     private ChatMessage pendingUserTurn;
 
     public ResearchTeamAgent(MainModelChat model) {
+        this(model, PhaseAssistantProfileRegistry.defaults(), new PhaseContextAssembler());
+    }
+
+    /** Inject a custom profile registry/assembler — mainly to prove per-phase context selection in tests. */
+    public ResearchTeamAgent(MainModelChat model, PhaseAssistantProfileRegistry profiles,
+                             PhaseContextAssembler contextAssembler) {
         if (model == null) {
             throw new IllegalArgumentException("model must not be null");
         }
+        if (profiles == null || contextAssembler == null) {
+            throw new IllegalArgumentException("profiles and contextAssembler must not be null");
+        }
         this.model = model;
+        this.profiles = profiles;
+        this.contextAssembler = contextAssembler;
     }
 
     public String modelName() {
@@ -161,14 +174,15 @@ public final class ResearchTeamAgent {
         return result;
     }
 
-    /** system(playbook) + system(live state + confirmed/proposed scope) + the running user/assistant history. */
+    /**
+     * The per-turn model context, assembled from the ACTIVE phase's assistant profile: the phase decides the
+     * system prompt (and, later, its readable/writable artifacts and tools). The active phase is the host's,
+     * read from {@code state.getPhaseId()} — the model never chooses it.
+     */
     private List<ChatMessage> baseMessages(TeamAgentStateView state) {
-        List<ChatMessage> messages = new ArrayList<ChatMessage>();
-        messages.add(ChatMessage.system(TeamAgentPlaybook.systemPrompt()));
-        messages.add(ChatMessage.system(TeamAgentPlaybook.stateContext(
-                state, confirmedQuestion, confirmedAspects, proposedQuestion, proposedAspects)));
-        messages.addAll(history);
-        return messages;
+        PhaseAssistantProfile profile = profiles.forPhase(state.getPhaseId());
+        return contextAssembler.assemble(profile, state, confirmedQuestion, confirmedAspects,
+                proposedQuestion, proposedAspects, history);
     }
 
     /**
