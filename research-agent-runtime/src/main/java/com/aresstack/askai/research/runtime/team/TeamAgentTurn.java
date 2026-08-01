@@ -18,7 +18,7 @@ import java.util.List;
  *   <li>{@link #getSearchQueries()} — varying search queries proposed AFTER approval.</li>
  * </ul>
  */
-public final class TeamAgentTurn {
+public final class TeamAgentTurn implements PhaseAssistantOutput {
 
     private final String assistantMessage;
     private final String proposedCommand;
@@ -75,6 +75,11 @@ public final class TeamAgentTurn {
 
     public String getAssistantMessage() {
         return assistantMessage;
+    }
+
+    /** The canonical, round-trippable JSON of this generic turn (its slot in the model history). */
+    public String canonicalJson() {
+        return TeamAgentTurnCodec.toJson(this);
     }
 
     public String getProposedCommand() {

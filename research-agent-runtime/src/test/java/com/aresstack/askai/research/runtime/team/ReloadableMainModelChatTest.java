@@ -19,8 +19,10 @@ import static org.junit.Assert.assertTrue;
  */
 public class ReloadableMainModelChatTest {
 
+    // A non-scoping phase: this test pins the hot-reload seam via the GENERIC scope mechanism (the scoping
+    // phase now has its own brief-based contract, covered elsewhere).
     private static TeamAgentStateView scoping() {
-        return new TeamAgentStateView("scoping", "running", Arrays.asList("SUBMIT_SCOPE"));
+        return new TeamAgentStateView("outline", "running", Arrays.asList("SUBMIT_SCOPE"));
     }
 
     @Test

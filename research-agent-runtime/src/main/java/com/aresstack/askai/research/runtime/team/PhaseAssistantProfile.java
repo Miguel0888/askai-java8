@@ -20,19 +20,24 @@ public final class PhaseAssistantProfile {
 
     private final String phaseId;
     private final String systemPrompt;
+    private final PhaseOutputContract outputContract;
     private final String writableArtifactId;
     private final List<String> readableArtifactIds;
     private final Set<String> allowedCapabilities;
     private final PhaseContextPolicy contextPolicy;
 
-    public PhaseAssistantProfile(String phaseId, String systemPrompt, String writableArtifactId,
-                                 List<String> readableArtifactIds, Set<String> allowedCapabilities,
-                                 PhaseContextPolicy contextPolicy) {
+    public PhaseAssistantProfile(String phaseId, String systemPrompt, PhaseOutputContract outputContract,
+                                 String writableArtifactId, List<String> readableArtifactIds,
+                                 Set<String> allowedCapabilities, PhaseContextPolicy contextPolicy) {
         if (systemPrompt == null || systemPrompt.trim().isEmpty()) {
             throw new IllegalArgumentException("systemPrompt must not be empty");
         }
+        if (outputContract == null) {
+            throw new IllegalArgumentException("outputContract must not be null");
+        }
         this.phaseId = phaseId == null ? "" : phaseId.trim();
         this.systemPrompt = systemPrompt;
+        this.outputContract = outputContract;
         this.writableArtifactId = writableArtifactId == null ? "" : writableArtifactId.trim();
         this.readableArtifactIds = immutableStrings(readableArtifactIds);
         this.allowedCapabilities = immutableSet(allowedCapabilities);
@@ -47,6 +52,11 @@ public final class PhaseAssistantProfile {
 
     public String getSystemPrompt() {
         return systemPrompt;
+    }
+
+    /** How this phase's raw model output is parsed/validated — selected together with the system prompt. */
+    public PhaseOutputContract getOutputContract() {
+        return outputContract;
     }
 
     /** The single artifact this phase may write (forward hook — not enforced yet). Empty when none. */

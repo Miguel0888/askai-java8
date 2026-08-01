@@ -45,6 +45,7 @@ public final class PhaseAssistantProfileRegistry {
         PhaseAssistantProfile scoping = new PhaseAssistantProfile(
                 SCOPING_PHASE_ID,
                 TeamAgentPlaybook.scopingSystemPrompt(),
+                new ScopingPhaseOutputContract(),
                 "research-brief",
                 Collections.<String>emptyList(),
                 Collections.<String>emptySet(),
@@ -52,6 +53,7 @@ public final class PhaseAssistantProfileRegistry {
         PhaseAssistantProfile fallback = new PhaseAssistantProfile(
                 "",
                 TeamAgentPlaybook.defaultSystemPrompt(),
+                new DefaultPhaseOutputContract(),
                 "",
                 Collections.<String>emptyList(),
                 Collections.<String>emptySet(),
@@ -59,6 +61,14 @@ public final class PhaseAssistantProfileRegistry {
         Map<String, PhaseAssistantProfile> profiles = new LinkedHashMap<String, PhaseAssistantProfile>();
         profiles.put(SCOPING_PHASE_ID, scoping);
         return new PhaseAssistantProfileRegistry(profiles, fallback);
+    }
+
+    /**
+     * The neutral fallback profile. Also used for the opening GREETING, which is a phase-agnostic bootstrap
+     * (there is no topic yet, so no scoping brief can exist) and therefore keeps the generic contract.
+     */
+    public PhaseAssistantProfile fallback() {
+        return fallback;
     }
 
     /** The profile for {@code phaseId} (case-insensitive), or the neutral fallback when none is registered. */
