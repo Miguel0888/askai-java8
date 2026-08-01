@@ -3,13 +3,12 @@ package com.aresstack.askai.java8.video.optional;
 import com.aresstack.askai.java8.video.MediaRecorder;
 import com.aresstack.askai.java8.video.MediaRecorderProvider;
 
-import java.io.File;
-
 /**
- * OPTIONAL FFmpeg backend, prepared but not bundled. AskAI never downloads or starts an FFmpeg runtime on
- * its own; this provider is available only when the user pointed AskAI at an ffmpeg binary via
- * {@code -Daskai.video.ffmpeg=/path/to/ffmpeg} (or {@code ASKAI_VIDEO_FFMPEG}). Otherwise it is unavailable
- * and never offered — no silent fallback. The productive capture is wired in a later slice.
+ * OPTIONAL FFmpeg/JavaCV backend. The native libraries are NEVER bundled and NEVER fetched silently:
+ * they arrive exclusively through the user-confirmed download in {@link FfmpegRuntimeLoader} (triggered
+ * from the Record Video dialog with an explicit Yes/No prompt). Until then this backend reports
+ * unavailable and is never used as a fallback. After that one confirmed download the persisted jars are
+ * re-attached on later runs, so availability sticks.
  */
 public final class FfmpegRecorderProvider implements MediaRecorderProvider {
 
@@ -22,20 +21,20 @@ public final class FfmpegRecorderProvider implements MediaRecorderProvider {
 
     @Override
     public String getDisplayName() {
-        return "FFmpeg (uses your configured ffmpeg)";
+        return "FFmpeg (native, downloaded on request)";
     }
 
     @Override
     public boolean isAvailable() {
-        String configured = System.getProperty("askai.video.ffmpeg",
-                System.getenv("ASKAI_VIDEO_FFMPEG"));
-        return configured != null && !configured.trim().isEmpty()
-                && new File(configured.trim()).isFile();
+        return FfmpegRuntimeLoader.isReady();
     }
 
     @Override
     public MediaRecorder createRecorder() {
-        throw new UnsupportedOperationException(
-                "The FFmpeg backend is prepared but its capture is not wired yet; use JCodec.");
+        if (!FfmpegRuntimeLoader.isReady()) {
+            throw new IllegalStateException("The FFmpeg libraries are not installed. The Record Video "
+                    + "dialog offers the download — it runs only on your explicit confirmation.");
+        }
+        return new FfmpegRecorder();
     }
 }

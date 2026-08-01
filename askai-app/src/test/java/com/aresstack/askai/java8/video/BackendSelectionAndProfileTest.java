@@ -29,18 +29,75 @@ public class BackendSelectionAndProfileTest {
     }
 
     @Test
-    public void vlcAndFfmpegAreUnavailableUntilTheirRuntimeIsPresent() {
-        // No vlcj/VLC on the test classpath, no configured ffmpeg → both optional backends are unavailable.
-        assertFalse(new VlcRecorderProvider().isAvailable());
-        assertFalse(new FfmpegRecorderProvider().isAvailable());
+    public void ffmpegNeverBecomesAvailableWithoutTheUserConfirmedDownload() {
+        // The FFmpeg backend depends on natives that only FfmpegRuntimeLoader may fetch — and only on
+        // the user's explicit confirmation. Unless that download already happened on this machine,
+        // isAvailable() (which never downloads) must stay false, and createRecorder() must refuse.
+        FfmpegRecorderProvider ffmpeg = new FfmpegRecorderProvider();
+        boolean downloaded = com.aresstack.askai.java8.video.optional.FfmpegRuntimeLoader.isReady();
+        assertEquals(downloaded, ffmpeg.isAvailable());
+        if (!downloaded) {
+            try {
+                ffmpeg.createRecorder();
+                fail("createRecorder must refuse while the libs are missing");
+            } catch (IllegalStateException expected) {
+                assertTrue(expected.getMessage().contains("explicit confirmation"));
+            }
+        }
+    }
+
+    @Test
+    public void theFfmpegDownloadSetIsExplicitHttpsMavenCentral() {
+        // What the user is asked to confirm is a fixed, inspectable list of Maven Central HTTPS URLs —
+        // no opaque installers, no side channels.
+        java.util.List<String> urls =
+                com.aresstack.askai.java8.video.optional.FfmpegRuntimeLoader.requiredDownloadUrls();
+        if (com.aresstack.askai.java8.video.optional.FfmpegRuntimeLoader.platformClassifier() == null) {
+            assertTrue(urls.isEmpty()); // unsupported platform → nothing offered at all
+            return;
+        }
+        assertEquals(5, urls.size());
+        for (String url : urls) {
+            assertTrue(url, url.startsWith("https://repo1.maven.org/maven2/"));
+            assertTrue(url, url.endsWith(".jar"));
+        }
+    }
+
+    @Test
+    public void vlcAvailabilityTracksAnInstalledVlcOnly() {
+        // vlcj (the binding) is always on the classpath now; availability must reduce to "is VLC
+        // installed on this machine" and createRecorder must refuse cleanly when it is not.
+        VlcRecorderProvider vlc = new VlcRecorderProvider();
+        if (!vlc.isAvailable()) {
+            try {
+                vlc.createRecorder();
+                fail("createRecorder must refuse without a VLC installation");
+            } catch (IllegalStateException expected) {
+                assertTrue(expected.getMessage().contains("VLC"));
+            }
+        }
     }
 
     @Test
     public void anUnavailableBackendCannotBeSelectedAndThereIsNoSilentFallback() {
-        // Only an (unavailable) vlc provider: selecting it is refused, the selection does not change to
+        // Only an unavailable provider: selecting it is refused, the selection does not change to
         // some other backend behind the user's back.
+        MediaRecorderProvider unavailable = new MediaRecorderProvider() {
+            public String getId() {
+                return "unavailable";
+            }
+            public String getDisplayName() {
+                return "unavailable";
+            }
+            public boolean isAvailable() {
+                return false;
+            }
+            public MediaRecorder createRecorder() {
+                throw new IllegalStateException("unavailable");
+            }
+        };
         VideoRecordingController controller = new VideoRecordingController(
-                java.util.Collections.<MediaRecorderProvider>singletonList(new VlcRecorderProvider()));
+                java.util.Collections.<MediaRecorderProvider>singletonList(unavailable));
         final boolean[] errored = {false};
         controller.setListener(new VideoRecordingController.Listener() {
             public void onStateChanged(VideoRecordingController.State state) {
@@ -53,7 +110,7 @@ public class BackendSelectionAndProfileTest {
                 errored[0] = true;
             }
         });
-        controller.selectProvider("vlc");
+        controller.selectProvider("unavailable");
         assertTrue("selecting an unavailable backend is refused", errored[0]);
     }
 
@@ -64,11 +121,6 @@ public class BackendSelectionAndProfileTest {
         List<MediaRecorderProvider> available = controller.availableProviders();
         for (MediaRecorderProvider provider : available) {
             assertTrue(provider.isAvailable());
-        }
-        // VLC/FFmpeg are never in the available list on a plain test machine.
-        for (MediaRecorderProvider provider : available) {
-            assertFalse("vlc".equals(provider.getId()));
-            assertFalse("ffmpeg".equals(provider.getId()));
         }
     }
 

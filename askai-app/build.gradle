@@ -5,6 +5,17 @@ dependencies {
     // Video recording: JCodec is the PORTABLE default backend (pure Java, no native deps, works without
     // VLC/FFmpeg installed). VLC/FFmpeg are optional providers detected at runtime, never bundled.
     implementation 'org.jcodec:jcodec-javase:0.2.5'
+    // VLC backend: vlcj is only the Java BINDING (pure Java + JNA, same line as the WD4J/corenth
+    // reference) — AskAI still ships no VLC; the backend is available only when the user has VLC
+    // installed themselves.
+    implementation 'uk.co.caprica:vlcj:3.12.1'
+    // FFmpeg backend: compiled against JavaCV, but the jars (incl. ~100+ MB natives) are NEVER shipped
+    // or fetched silently — FfmpegRuntimeLoader downloads them from Maven Central ONLY after the user's
+    // explicit, confirmed request (reference: WD4J/corenth VideoRuntimeLoader), then attaches them to
+    // the Java-8 system classloader. compileOnly keeps them out of the fat jar.
+    compileOnly 'org.bytedeco:javacv:1.5.10'
+    compileOnly 'org.bytedeco:javacpp:1.5.10'
+    compileOnly 'org.bytedeco:ffmpeg:6.1.1-1.5.10'
     // Neutral win-directml model catalog (Java-8: no DirectML/Java-21 classes leak into the host): the
     // single source of truth for locally runnable model families (capabilities, download manifests,
     // runtime family, backends). Pinned to the published Maven Central release.

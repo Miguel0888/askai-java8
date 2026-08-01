@@ -4,10 +4,9 @@ import com.aresstack.askai.java8.video.MediaRecorder;
 import com.aresstack.askai.java8.video.MediaRecorderProvider;
 
 /**
- * OPTIONAL VLC backend, prepared but not bundled. It reports availability strictly through
- * {@link LibVlcLocator}; when the VLC runtime/binding is absent it is unavailable and never offered — the
- * app never silently switches to another backend. The productive VLC capture (vlcj) is wired in a later
- * slice; until then {@link #createRecorder()} refuses clearly instead of pretending to record.
+ * OPTIONAL VLC backend. AskAI bundles only the vlcj binding — libvlc must already be installed by the
+ * user, and availability is reported strictly through {@link LibVlcLocator}. When VLC is absent this
+ * backend is unavailable and the app never silently switches to another one.
  */
 public final class VlcRecorderProvider implements MediaRecorderProvider {
 
@@ -30,7 +29,10 @@ public final class VlcRecorderProvider implements MediaRecorderProvider {
 
     @Override
     public MediaRecorder createRecorder() {
-        throw new UnsupportedOperationException(
-                "The VLC backend is prepared but its capture is not wired yet; use JCodec.");
+        if (!LibVlcLocator.configureRuntime()) {
+            throw new IllegalStateException(
+                    "No VLC installation was found. Install VLC or choose another backend.");
+        }
+        return new VlcRecorder();
     }
 }

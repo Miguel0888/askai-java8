@@ -4,6 +4,9 @@ import com.aresstack.askai.java8.video.MediaRecorderProvider;
 import com.aresstack.askai.java8.video.RecordingProfile;
 import com.aresstack.askai.java8.video.RecordingSource;
 import com.aresstack.askai.java8.video.VideoRecordingController;
+import com.aresstack.askai.java8.video.optional.FfmpegRecorderProvider;
+import com.aresstack.askai.java8.video.optional.FfmpegRuntimeLoader;
+import com.aresstack.askai.java8.video.optional.VlcRecorderProvider;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -47,8 +50,9 @@ public final class RecordVideoDialog extends JDialog {
     private final JButton openFolder = new JButton("Open Folder");
     private final JLabel status = new JLabel(" ");
 
-    private List<MediaRecorderProvider> available;
+    private List<MediaRecorderProvider> providers;
     private Path lastOutput;
+    private volatile boolean downloading;
 
     public RecordVideoDialog(Window owner, VideoRecordingController controller, Rectangle ownerBounds,
                              String defaultFileName) {
@@ -69,13 +73,14 @@ public final class RecordVideoDialog extends JDialog {
         sourceCombo.addItem("Screen / Monitor");
         form.add(row("Source:", sourceCombo));
 
-        available = controller.availableProviders();
-        for (int i = 0; i < available.size(); i++) {
-            backendCombo.addItem(available.get(i).getDisplayName());
-        }
+        // ALL backends are listed so the optional ones stay discoverable; unavailable ones are marked
+        // and starting them either refuses (VLC without an install) or asks the user to CONFIRM the
+        // one-time library download (FFmpeg). Nothing is ever downloaded or swapped in silently.
+        providers = controller.providers();
+        refreshBackendCombo();
         // Preselect the controller's default (JCodec) if present.
-        for (int i = 0; i < available.size(); i++) {
-            if (available.get(i).getId().equals(controller.getSelectedProvider().getId())) {
+        for (int i = 0; i < providers.size(); i++) {
+            if (providers.get(i).getId().equals(controller.getSelectedProvider().getId())) {
                 backendCombo.setSelectedIndex(i);
             }
         }
@@ -168,10 +173,22 @@ public final class RecordVideoDialog extends JDialog {
     }
 
     private void startRecording() {
-        // Persist the backend choice first (rejected by the controller while recording).
         int backendIndex = backendCombo.getSelectedIndex();
-        if (backendIndex >= 0 && backendIndex < available.size()) {
-            controller.selectProvider(available.get(backendIndex).getId());
+        MediaRecorderProvider chosen =
+                (backendIndex >= 0 && backendIndex < providers.size()) ? providers.get(backendIndex) : null;
+        if (chosen != null && !chosen.isAvailable()) {
+            if (FfmpegRecorderProvider.ID.equals(chosen.getId())) {
+                offerFfmpegDownloadThenStart();
+            } else if (VlcRecorderProvider.ID.equals(chosen.getId())) {
+                status.setText("VLC is not installed. Install VLC (videolan.org) or choose another backend.");
+            } else {
+                status.setText("The '" + chosen.getDisplayName() + "' backend is not available.");
+            }
+            return; // never a silent fallback to another backend
+        }
+        // Persist the backend choice first (rejected by the controller while recording).
+        if (chosen != null) {
+            controller.selectProvider(chosen.getId());
         }
         Path output = Paths.get(outputField.getText().trim());
         RecordingSource source = buildSource();
@@ -207,9 +224,88 @@ public final class RecordVideoDialog extends JDialog {
         return RecordingSource.screen(screen, "Screen");
     }
 
+    /**
+     * FFmpeg needs native libraries AskAI does not ship. Exactly as in the WD4J/corenth reference they
+     * are downloaded ONLY on the user's explicit, confirmed request: this shows the exact files and
+     * asks Yes/No; on No nothing is downloaded and no other backend is used instead.
+     */
+    private void offerFfmpegDownloadThenStart() {
+        StringBuilder message = new StringBuilder();
+        message.append("The FFmpeg backend needs native libraries (JavaCV/FFmpeg) that AskAI does not ship.\n");
+        message.append("Download them now from Maven Central? (one time, roughly 100-200 MB)\n\n");
+        message.append("Files:\n");
+        List<String> urls = FfmpegRuntimeLoader.requiredDownloadUrls();
+        for (int i = 0; i < urls.size(); i++) {
+            message.append("  ").append(urls.get(i)).append('\n');
+        }
+        message.append("\nTarget: ").append(FfmpegRuntimeLoader.libDirectory());
+        int confirmed = javax.swing.JOptionPane.showConfirmDialog(this, message.toString(),
+                "Download FFmpeg libraries?", javax.swing.JOptionPane.YES_NO_OPTION);
+        if (confirmed != javax.swing.JOptionPane.YES_OPTION) {
+            status.setText("Download declined - the FFmpeg backend stays unavailable (no fallback used).");
+            return;
+        }
+        downloading = true;
+        applyState(controller.getState());
+        status.setText("Downloading the FFmpeg libraries...");
+        Thread downloader = new Thread(new Runnable() {
+            public void run() {
+                Exception failure = null;
+                try {
+                    FfmpegRuntimeLoader.downloadAndAttach(new FfmpegRuntimeLoader.ProgressListener() {
+                        public void onFile(final String fileName, final int index, final int total) {
+                            onEdt(new Runnable() {
+                                public void run() {
+                                    status.setText("Downloading " + fileName + " (" + index + "/" + total + ")...");
+                                }
+                            });
+                        }
+                    });
+                } catch (Exception ex) {
+                    failure = ex;
+                }
+                final Exception result = failure;
+                onEdt(new Runnable() {
+                    public void run() {
+                        downloading = false;
+                        applyState(controller.getState());
+                        refreshBackendCombo();
+                        if (result != null) {
+                            status.setText("FFmpeg download failed: " + result.getMessage());
+                        } else {
+                            status.setText("FFmpeg libraries installed.");
+                            startRecording(); // the user asked to record with FFmpeg - now it can
+                        }
+                    }
+                });
+            }
+        }, "ffmpeg-lib-download");
+        downloader.setDaemon(true);
+        downloader.start();
+    }
+
+    /** Re-label every backend entry with its current availability, keeping the selection stable. */
+    private void refreshBackendCombo() {
+        int selected = backendCombo.getSelectedIndex();
+        backendCombo.removeAllItems();
+        for (int i = 0; i < providers.size(); i++) {
+            MediaRecorderProvider provider = providers.get(i);
+            String label = provider.getDisplayName();
+            if (!provider.isAvailable()) {
+                label += FfmpegRecorderProvider.ID.equals(provider.getId())
+                        ? "  [not installed - download on request]"
+                        : "  [not installed]";
+            }
+            backendCombo.addItem(label);
+        }
+        if (selected >= 0 && selected < backendCombo.getItemCount()) {
+            backendCombo.setSelectedIndex(selected);
+        }
+    }
+
     private void applyState(VideoRecordingController.State state) {
         boolean recording = state == VideoRecordingController.State.RECORDING;
-        startButton.setEnabled(!recording && backendCombo.getItemCount() > 0);
+        startButton.setEnabled(!recording && !downloading && backendCombo.getItemCount() > 0);
         stopButton.setEnabled(recording);
         sourceCombo.setEnabled(!recording);
         backendCombo.setEnabled(!recording);
