@@ -182,22 +182,11 @@ public final class ResearchTeamAgent {
         if (parsed.failure != null) {
             return parsed.failure;
         }
+        // The model is an ASSISTANT, not a process controller: it proposes no commands and is never
+        // policed against an allowed set. Any legacy proposedCommand it still emits is only honored when
+        // the host happens to allow it — otherwise it is silently ignored (never a COMMAND_REJECTED, never
+        // a nagging repair). Scope readiness is decided from the structured turn, not from a command.
         TeamAgentTurn turn = parsed.turn;
-        if (turn.hasProposedCommand() && !state.allows(turn.getProposedCommand())) {
-            // The model named a command the host does not allow here. ONE bounded repair, naming the legal set.
-            List<ChatMessage> repair = new ArrayList<ChatMessage>(messages);
-            repair.add(ChatMessage.assistant(parsed.raw));
-            repair.add(ChatMessage.user(TeamAgentPlaybook.illegalCommandNudge(turn.getProposedCommand(), state)));
-            Parsed repaired = callParseOnce(repair);
-            if (repaired.failure != null) {
-                return repaired.failure;
-            }
-            if (repaired.turn.hasProposedCommand() && !state.allows(repaired.turn.getProposedCommand())) {
-                // Still illegal: drop the command AND its misleading message; report a typed rejection.
-                return TeamAgentResult.commandRejected(turn.getProposedCommand());
-            }
-            turn = repaired.turn;
-        }
         String validatedCommand = turn.hasProposedCommand() && state.allows(turn.getProposedCommand())
                 ? turn.getProposedCommand() : null;
         return TeamAgentResult.ok(turn, validatedCommand);
@@ -232,8 +221,32 @@ public final class ResearchTeamAgent {
         return Parsed.ok(parsed.getTurn(), call.getText());
     }
 
+    /**
+     * Record the assistant turn so CONTEXT ACCUMULATES across short replies: the model's own visible
+     * message PLUS a compact note of what it took as understood/open. The user only ever sees
+     * assistantMessage (that is what the wire carries); the model, however, needs its own structured
+     * understanding back in history — otherwise a following one-word reply has nothing to build on.
+     */
     private void recordAssistant(TeamAgentTurn turn) {
-        history.add(ChatMessage.assistant(turn.getAssistantMessage()));
+        StringBuilder recorded = new StringBuilder(turn.getAssistantMessage());
+        if (!turn.getUnderstoodFacts().isEmpty()) {
+            recorded.append("\n[understood: ").append(join(turn.getUnderstoodFacts())).append(']');
+        }
+        if (!turn.getOpenQuestions().isEmpty()) {
+            recorded.append("\n[still open: ").append(join(turn.getOpenQuestions())).append(']');
+        }
+        history.add(ChatMessage.assistant(recorded.toString()));
+    }
+
+    private static String join(List<String> values) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < values.size(); i++) {
+            if (i > 0) {
+                sb.append("; ");
+            }
+            sb.append(values.get(i));
+        }
+        return sb.toString();
     }
 
     /** Fold a scope update from the model into the PROPOSED scope (last statement wins for the question). */

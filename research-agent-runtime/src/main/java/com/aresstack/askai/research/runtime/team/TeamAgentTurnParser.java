@@ -82,9 +82,14 @@ public final class TeamAgentTurnParser {
         }
 
         List<String> searchQueries = asStringList(object.get("searchQueries"));
+        List<String> understoodFacts = asStringList(object.get("understoodFacts"));
+        List<String> suggestedFacts = asStringList(object.get("suggestedFacts"));
+        List<String> openQuestions = asStringList(object.get("openQuestions"));
+        boolean readyForBrief = asBoolean(object.get("readyForBrief"));
 
         return new Result(new TeamAgentTurn(assistantMessage, proposedCommand, question, aspects,
-                approvalRequested, approvalSubject, searchQueries), null);
+                approvalRequested, approvalSubject, searchQueries, understoodFacts, suggestedFacts,
+                openQuestions, readyForBrief), null);
     }
 
     /** Extract the first balanced top-level {@code {...}} object, ignoring surrounding prose or code fences. */

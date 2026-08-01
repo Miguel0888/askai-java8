@@ -899,3 +899,30 @@ SOURCE file (`ResearchProjectMetadata.java`) fully zero-filled in place — hidd
 by the stat cache (same size+mtime). A scan of all tracked files found no further zeroed file.
 Action: `chkdsk X: /f`, SMART check, ideally a RAM test. Until then: push early, run `git fsck`
 occasionally, treat impossible compile errors as possible corruption.
+
+## RA-P5 — Role reversal: the AI assists, it does not govern the process (DONE)
+
+Corrected (2026-08-01): commit f701ea had made the TeamAgent the "sole productive conversation
+source" and framed it as a process controller (three stages, phase/run-state, exact allowed command
+set, propose-a-command). That turned a research assistant into a gatekeeper. Reverted the ROLE
+without rolling back the model/ACP infrastructure:
+
+- System prompt rewritten to an ASSISTANT that sits beside the user: progressive assistance (accept
+  concrete input, treat a short reply as an answer to the last question, ask ONE question when
+  something is open, OFFER 2-5 defaults when the user does not know, user statements beat
+  suggestions, summarize when enough). No stages, no commands, no phases, no output-protocol talk.
+- State context no longer advertises phase/run-state/allowed-commands; it carries only the
+  accumulated research context (confirmed vs working scope).
+- Structured turn extended with understoodFacts/suggestedFacts/openQuestions/readyForBrief; the
+  assistant history now records the model's own understood/open facts so short replies accumulate
+  context (the "history bug").
+- Command policing removed: no illegalCommand nudge, no COMMAND_REJECTED — a legacy proposedCommand
+  the host does not allow is silently ignored. The scope→brief step is decided by CODE
+  (readyForBrief + a working question emits the SCOPE_PROPOSAL wire); the host still re-validates and
+  owns the transition. The state machine remains the invisible authority.
+- Regression test scripts the exact reported failure (wearables → audio und video → smartwatches →
+  keine ahnung): context accumulates, defaults offered on "no idea", no machinery/command talk, a
+  ResearchBrief proposal results.
+
+This role split now also governs the coming Concept, Gap Analysis, Evidence Review and Drafting
+integration (RA-P3): the domain owns the process, the AI interprets/proposes/fills gaps.

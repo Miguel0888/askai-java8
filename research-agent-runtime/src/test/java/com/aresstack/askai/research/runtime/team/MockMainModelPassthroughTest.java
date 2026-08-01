@@ -19,7 +19,7 @@ import static org.junit.Assert.assertTrue;
  * The model-backed TeamAgent driven end to end over REAL HTTP against the mock {@code /api/chat}, through the
  * real inference-config loader and {@link HttpMainModelChatClient}. Proves the descriptor's model reaches the
  * endpoint, the greeting and a scope proposal come from the model, prior turns are carried in the history, and
- * an illegal command the model insists on is rejected without surfacing its misleading message.
+ * a disallowed legacy command is silently ignored (the model no longer owns the workflow).
  */
 public class MockMainModelPassthroughTest {
 
@@ -35,7 +35,7 @@ public class MockMainModelPassthroughTest {
     }
 
     @Test
-    public void teamAgentGreetsProposesScopeAndRejectsIllegalCommandsOverRealHttp() throws Exception {
+    public void teamAgentGreetsProposesScopeAndIgnoresDisallowedCommandsOverRealHttp() throws Exception {
         MockMainModelServer mock = new MockMainModelServer();
         try {
             mock.enqueueMessage("Hi! What would you like to research?");
@@ -62,15 +62,17 @@ public class MockMainModelPassthroughTest {
             assertTrue("the greeting is carried in the follow-up turn's history",
                     mock.requests().get(1).historyContains("What would you like to research"));
 
-            // An illegal command the model keeps proposing is rejected; its misleading message is withheld.
-            mock.enqueueScopeProposal("Starting research now.", "START_RESEARCH", "q", Arrays.asList("a"));
-            mock.enqueueScopeProposal("Kicking it off anyway.", "START_RESEARCH", "q", Arrays.asList("a"));
-            TeamAgentResult illegal = agent.respond("go", scopingRunning());
-            assertEquals(TeamAgentResult.Status.COMMAND_REJECTED, illegal.getStatus());
-            assertNull(illegal.getValidatedCommand());
-            assertNull("the misleading message must be withheld", illegal.getTurn());
-            assertFalse("no scope proposal leaks for a rejected command",
-                    "START_RESEARCH".equals(illegal.getValidatedCommand()));
+            // A legacy command the host does not allow is silently IGNORED now (the assistant no longer
+            // owns the workflow): the friendly message is still shown, the command just does not surface,
+            // and there is no policing repair round.
+            mock.enqueueScopeProposal("Happy to keep helping.", "START_RESEARCH", "q", Arrays.asList("a"));
+            int callsBefore = mock.requests().size();
+            TeamAgentResult ignored = agent.respond("go", scopingRunning());
+            assertEquals(TeamAgentResult.Status.OK, ignored.getStatus());
+            assertNull("a disallowed command does not surface", ignored.getValidatedCommand());
+            assertEquals("Happy to keep helping.", ignored.getTurn().getAssistantMessage());
+            assertEquals("no policing repair — exactly one more model call",
+                    callsBefore + 1, mock.requests().size());
         } finally {
             mock.close();
         }

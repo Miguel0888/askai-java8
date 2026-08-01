@@ -543,10 +543,15 @@ public final class ResearchAgentMain {
     private void emitTeamAgentResult(SyncPromptContext ctx,
             com.aresstack.askai.research.runtime.team.TeamAgentResult result) {
         ctx.sendMessage(com.aresstack.askai.research.runtime.team.TeamAgentReply.visible(result));
+        // The PROCESS step is decided by CODE, not by the model policing a command: when the assistant
+        // reports the scope is ready (summarized + user signalled nothing missing) and a working question
+        // exists, the runtime offers the scope as a proposal. The host re-validates and owns the actual
+        // transition — the model never confirms its own scope.
         if (result.getStatus() == com.aresstack.askai.research.runtime.team.TeamAgentResult.Status.OK
-                && result.getValidatedCommand() != null) {
+                && result.getTurn() != null && result.getTurn().isReadyForBrief()
+                && !teamAgent.getProposedQuestion().trim().isEmpty()) {
             ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire.scopeProposal(
-                    result.getValidatedCommand(),
+                    "SUBMIT_SCOPE",
                     teamAgent.getProposedQuestion(), teamAgent.getProposedAspects()));
         }
     }

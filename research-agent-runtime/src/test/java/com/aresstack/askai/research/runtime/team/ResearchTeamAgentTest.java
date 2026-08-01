@@ -33,7 +33,7 @@ public class ResearchTeamAgentTest {
         // The model saw the system prompt + the greeting bootstrap, and nothing was invented.
         List<ChatMessage> firstCall = model.calls.get(0);
         assertEquals(ChatMessage.Role.SYSTEM, firstCall.get(0).getRole());
-        assertTrue(firstCall.get(0).getContent().contains("research TeamAgent"));
+        assertTrue(firstCall.get(0).getContent().contains("research assistant"));
         assertTrue(lastUser(firstCall).contains("just started"));
     }
 
@@ -63,44 +63,21 @@ public class ResearchTeamAgentTest {
     }
 
     @Test
-    public void anIllegalCommandGetsOneRepairThenIsRejectedWithoutSurfacingItsMisleadingMessage() {
+    public void aLegacyCommandTheHostDoesNotAllowIsSilentlyIgnoredNeverPolicedOrRejected() {
         FakeModel model = new FakeModel();
-        // START_RESEARCH is NOT in the allowed set {START, SUBMIT_SCOPE}; the message would be a lie if shown.
-        model.enqueueOk("{\"assistantMessage\":\"Starting research now.\","
+        // The assistant is not supposed to emit commands at all anymore. If a legacy proposedCommand the
+        // host does not allow still appears, it is simply ignored: the friendly message is shown, no
+        // repair nag, no COMMAND_REJECTED, no second model call.
+        model.enqueueOk("{\"assistantMessage\":\"Happy to help with that.\","
                 + "\"proposedCommand\":\"START_RESEARCH\"}");
-        // The bounded repair still insists on the illegal command.
-        model.enqueueOk("{\"assistantMessage\":\"Kicking it off anyway.\","
-                + "\"proposedCommand\":\"START_RESEARCH\"}");
-        ResearchTeamAgent agent = new ResearchTeamAgent(model);
-
-        TeamAgentResult result = agent.respond("go", scoping());
-
-        assertEquals(TeamAgentResult.Status.COMMAND_REJECTED, result.getStatus());
-        assertEquals("START_RESEARCH", result.getDetail());
-        assertNull("no command may leak through", result.getValidatedCommand());
-        assertNull("the misleading assistant message must be withheld", result.getTurn());
-        assertEquals("original call + exactly one bounded repair", 2, model.calls.size());
-        // The repair nudge named the illegal command and the legal set.
-        String nudge = lastUser(model.calls.get(1));
-        assertTrue(nudge, nudge.contains("START_RESEARCH"));
-        assertTrue(nudge, nudge.contains("SUBMIT_SCOPE"));
-    }
-
-    @Test
-    public void anIllegalCommandThatTheRepairCorrectsYieldsAnOkTurn() {
-        FakeModel model = new FakeModel();
-        model.enqueueOk("{\"assistantMessage\":\"Starting research now.\","
-                + "\"proposedCommand\":\"START_RESEARCH\"}");
-        // The repair drops the illegal command and answers cleanly.
-        model.enqueueOk("{\"assistantMessage\":\"Let me first confirm the scope.\","
-                + "\"proposedCommand\":\"SUBMIT_SCOPE\"}");
         ResearchTeamAgent agent = new ResearchTeamAgent(model);
 
         TeamAgentResult result = agent.respond("go", scoping());
 
         assertEquals(TeamAgentResult.Status.OK, result.getStatus());
-        assertEquals("SUBMIT_SCOPE", result.getValidatedCommand());
-        assertEquals("Let me first confirm the scope.", result.getTurn().getAssistantMessage());
+        assertNull("a disallowed command is dropped, not surfaced", result.getValidatedCommand());
+        assertEquals("Happy to help with that.", result.getTurn().getAssistantMessage());
+        assertEquals("no policing repair — exactly one model call", 1, model.calls.size());
     }
 
     @Test
@@ -123,9 +100,9 @@ public class ResearchTeamAgentTest {
         String context = model.calls.get(1).get(1).getContent();
         assertTrue(context, context.contains("How do EVs age?"));
         assertTrue(context, context.contains("battery"));
-        assertTrue(context, context.contains("awaiting"));
-        assertFalse("the proposal must not be reflected back as host-approved",
-                context.contains("host-approved"));
+        assertTrue(context, context.contains("not yet confirmed"));
+        assertFalse("the working proposal must not be reflected back as confirmed",
+                context.contains("Confirmed research question"));
     }
 
     @Test
@@ -140,7 +117,7 @@ public class ResearchTeamAgentTest {
         assertEquals("How do EVs age?", agent.getConfirmedQuestion());
         assertEquals(Arrays.asList("battery", "cost"), agent.getConfirmedAspects());
         String context = model.calls.get(0).get(1).getContent();
-        assertTrue(context, context.contains("host-approved"));
+        assertTrue(context, context.contains("Confirmed research question"));
         assertTrue(context, context.contains("How do EVs age?"));
     }
 
@@ -201,6 +178,71 @@ public class ResearchTeamAgentTest {
         TeamAgentResult result = agent.respond("hi", scoping());
         assertEquals(TeamAgentResult.Status.OK, result.getStatus());
         assertEquals("Recovered answer.", result.getTurn().getAssistantMessage());
+    }
+
+    @Test
+    public void theAssistantPromptCarriesNoWorkflowOrCommandMachinery() {
+        // The model must be an assistant, not a process controller: its system + state messages must not
+        // advertise commands, phases or an output protocol the user could be policed against.
+        FakeModel model = new FakeModel();
+        model.enqueueOk("{\"assistantMessage\":\"Hi! What would you like to find out?\"}");
+        new ResearchTeamAgent(model).greet(scoping());
+        String systemAndState = model.calls.get(0).get(0).getContent()
+                + "\n" + model.calls.get(0).get(1).getContent();
+        assertFalse("no allowed-command policing", systemAndState.contains("Allowed commands"));
+        assertFalse("no command names in the prompt", systemAndState.contains("SUBMIT_SCOPE"));
+        assertFalse("no run-state machine framing", systemAndState.contains("run-state"));
+    }
+
+    @Test
+    public void shortRepliesAccumulateContextAndTheUserIsNeverAskedForACommand() {
+        // THE reported UX failure, scripted end to end: wearables -> audio and video -> smartwatches ->
+        // keine ahnung. Each short reply is an answer to the last question; the assistant accumulates
+        // context, offers defaults when the user does not know, and never talks protocol.
+        FakeModel model = new FakeModel();
+        model.enqueueOk("{\"assistantMessage\":\"Which kind of wearables?\","
+                + "\"understoodFacts\":[\"topic: wearables\"],"
+                + "\"scope\":{\"question\":\"wearables\",\"aspects\":[]}}");
+        model.enqueueOk("{\"assistantMessage\":\"Got it, focus on audio and video. Which device class?\","
+                + "\"understoodFacts\":[\"focus: audio\",\"focus: video\"],"
+                + "\"scope\":{\"question\":\"wearables\",\"aspects\":[\"audio\",\"video\"]}}");
+        model.enqueueOk("{\"assistantMessage\":\"Okay: smartwatches with audio and video. Which "
+                + "criteria matter?\",\"understoodFacts\":[\"device: smartwatches\"],"
+                + "\"scope\":{\"question\":\"smartwatches\",\"aspects\":[\"audio\",\"video\"]}}");
+        model.enqueueOk("{\"assistantMessage\":\"No problem, I would compare battery, audio, privacy "
+                + "and price. I'll take these to start.\","
+                + "\"suggestedFacts\":[\"battery\",\"audio quality\",\"privacy\",\"price\"],"
+                + "\"scope\":{\"question\":\"smartwatches\",\"aspects\":[\"audio\",\"video\","
+                + "\"battery\",\"privacy\"]},\"readyForBrief\":true}");
+        ResearchTeamAgent agent = new ResearchTeamAgent(model);
+
+        assertTrue(agent.respond("wearables", scoping()).isOk());
+        assertTrue(agent.respond("audio und video", scoping()).isOk());
+        assertTrue(agent.respond("smartwatches", scoping()).isOk());
+        TeamAgentResult last = agent.respond("keine ahnung", scoping());
+
+        for (List<ChatMessage> call : model.calls) {
+            for (ChatMessage message : call) {
+                assertFalse(message.getContent().contains("provide a command"));
+            }
+        }
+        // Context accumulated: by the last turn the model saw its earlier understood facts in history.
+        String lastCallText = flatten(model.calls.get(model.calls.size() - 1));
+        assertTrue("audio focus carried forward", lastCallText.contains("focus: audio"));
+        assertTrue("device carried forward", lastCallText.contains("device: smartwatches"));
+        // "keine ahnung" -> defaults offered, and the scope is now ready for the host to summarize.
+        assertTrue(last.getTurn().isReadyForBrief());
+        assertFalse(last.getTurn().getSuggestedFacts().isEmpty());
+        assertEquals("smartwatches", agent.getProposedQuestion());
+        assertTrue(agent.getProposedAspects().contains("battery"));
+    }
+
+    private static String flatten(List<ChatMessage> messages) {
+        StringBuilder sb = new StringBuilder();
+        for (ChatMessage message : messages) {
+            sb.append(message.getContent()).append('\n');
+        }
+        return sb.toString();
     }
 
     // ------------------------------------------------------------------ fake model
