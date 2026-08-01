@@ -132,6 +132,58 @@ public final class ResearchRunWire {
     }
 
     /**
+     * A phase-specific ASSISTANT PROJECTION for the scoping workspace: the exploration map (bare Mermaid) and
+     * the search suggestions, plus the advisory advice. This is display-only support content — it carries NO
+     * research brief (the brief has its own single persistence route) and it never moves the workflow. The map
+     * and each suggestion's query/purpose travel URL-encoded; suggestions are one field of {@code
+     * enc(query)|enc(purpose)|priority} records joined by commas (delimiters never occur inside an encoded
+     * value), so an empty purpose never misaligns the list.
+     */
+    public static String scopingProjection(String phaseId, String explorationMapMermaid,
+                                           java.util.List<ScopingProjectionSuggestion> suggestions,
+                                           String adviceRecommendation, String adviceReason) {
+        StringBuilder sb = new StringBuilder(MARKER).append("scopeassist");
+        appendEncoded(sb, "phase", phaseId);
+        appendEncoded(sb, "map", explorationMapMermaid);
+        if (adviceRecommendation != null && !adviceRecommendation.isEmpty()) {
+            sb.append(" advice=").append(adviceRecommendation); // a fixed token (STAY|CONTINUE|NEUTRAL)
+        }
+        appendEncoded(sb, "advicereason", adviceReason);
+        String encodedSuggestions = encodeSuggestions(suggestions);
+        if (!encodedSuggestions.isEmpty()) {
+            sb.append(" sugg=").append(encodedSuggestions);
+        }
+        return sb.toString();
+    }
+
+    private static String encodeSuggestions(java.util.List<ScopingProjectionSuggestion> suggestions) {
+        if (suggestions == null || suggestions.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (ScopingProjectionSuggestion suggestion : suggestions) {
+            if (suggestion == null || suggestion.getQuery().isEmpty()) {
+                continue;
+            }
+            if (sb.length() > 0) {
+                sb.append(',');
+            }
+            sb.append(encode(suggestion.getQuery())).append('|')
+                    .append(encode(suggestion.getPurpose())).append('|')
+                    .append(suggestion.getPriority());
+        }
+        return sb.toString();
+    }
+
+    private static String encode(String value) {
+        try {
+            return java.net.URLEncoder.encode(value == null ? "" : value, "UTF-8");
+        } catch (java.io.UnsupportedEncodingException ex) {
+            return "";
+        }
+    }
+
+    /**
      * A one-shot signal that the model-backed greeting was delivered SUCCESSFULLY. The host advances the
      * scope state one step (so the greeting depends only on the state and is never repeated on a restart);
      * a failed greeting emits nothing, so the state stays fresh and the greeting is retried.

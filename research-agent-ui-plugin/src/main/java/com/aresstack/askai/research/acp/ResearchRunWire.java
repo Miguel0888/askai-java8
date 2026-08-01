@@ -24,6 +24,8 @@ public final class ResearchRunWire {
     public static final String TYPE_SCOPE = "scope";
     /** A one-shot "the greeting was delivered" signal — the host advances the scope state one step. */
     public static final String TYPE_GREETED = "greeted";
+    /** A display-only scoping projection (exploration map + search suggestions + advisory advice). */
+    public static final String TYPE_SCOPEASSIST = "scopeassist";
 
     private ResearchRunWire() {
     }
@@ -105,6 +107,41 @@ public final class ResearchRunWire {
             return Integer.parseInt(fields.get(key));
         } catch (RuntimeException ex) {
             return 0;
+        }
+    }
+
+    /**
+     * Decode the {@code sugg} field: comma-joined {@code enc(query)|enc(purpose)|priority} records (delimiters
+     * never occur inside a URL-encoded value, so an empty purpose stays aligned). A malformed record is
+     * skipped, never crashing the mapper. Each returned array is {@code [query, purpose, priorityString]}.
+     */
+    public static java.util.List<String[]> decodedSuggestions(Map<String, String> fields) {
+        java.util.List<String[]> out = new java.util.ArrayList<String[]>();
+        String value = fields.get("sugg");
+        if (value == null || value.isEmpty()) {
+            return out;
+        }
+        for (String record : value.split(",")) {
+            if (record.isEmpty()) {
+                continue;
+            }
+            String[] parts = record.split("\\|", -1);
+            if (parts.length < 3) {
+                continue;
+            }
+            out.add(new String[]{decode(parts[0]), decode(parts[1]), parts[2]});
+        }
+        return out;
+    }
+
+    private static String decode(String value) {
+        if (value == null || value.isEmpty()) {
+            return "";
+        }
+        try {
+            return java.net.URLDecoder.decode(value, "UTF-8");
+        } catch (Exception ex) {
+            return value;
         }
     }
 }

@@ -495,18 +495,18 @@ public final class ResearchAgentMain {
         com.aresstack.askai.research.runtime.team.TeamAgentResult result;
         if (!teamAgent.hasGreeted() && freshState) {
             result = teamAgent.greet(view);
-            emitTeamAgentResult(ctx, result);
+            emitTeamAgentResult(ctx, result, view.getPhaseId());
             if (result.isOk()) {
                 // Signal the host to advance the scope state one step, so this greeting is never repeated.
                 ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire.greeted());
                 // A greeting bootstrap carries no user text; if this first turn DID carry a real message,
                 // answer it in the same turn so nothing the user typed is dropped.
                 if (!text.trim().isEmpty()) {
-                    emitTeamAgentResult(ctx, teamAgent.respond(text, view));
+                    emitTeamAgentResult(ctx, teamAgent.respond(text, view), view.getPhaseId());
                 }
             }
         } else {
-            emitTeamAgentResult(ctx, teamAgent.respond(text, view));
+            emitTeamAgentResult(ctx, teamAgent.respond(text, view), view.getPhaseId());
         }
         return cancelled.get()
                 ? new AcpSchema.PromptResponse(AcpSchema.StopReason.CANCELLED)
@@ -545,8 +545,18 @@ public final class ResearchAgentMain {
      * user owns every transition.</p>
      */
     private void emitTeamAgentResult(SyncPromptContext ctx,
-            com.aresstack.askai.research.runtime.team.TeamAgentResult result) {
+            com.aresstack.askai.research.runtime.team.TeamAgentResult result, String phaseId) {
         ctx.sendMessage(com.aresstack.askai.research.runtime.team.TeamAgentReply.visible(result));
+        // A scoping turn ALSO publishes a display-only projection (exploration map + search suggestions) for
+        // the scoping workspace. It carries no research brief and moves nothing; a non-scoping turn projects
+        // nothing (wireLineFor returns null).
+        if (result.getStatus() == com.aresstack.askai.research.runtime.team.TeamAgentResult.Status.OK) {
+            String projection = com.aresstack.askai.research.runtime.team.ScopingProjectionEncoder
+                    .wireLineFor(phaseId, result.getOutput());
+            if (projection != null) {
+                ctx.sendMessage(projection);
+            }
+        }
     }
 
     /**

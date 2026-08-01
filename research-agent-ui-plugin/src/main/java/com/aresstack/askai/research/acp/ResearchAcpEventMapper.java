@@ -102,6 +102,31 @@ public final class ResearchAcpEventMapper {
         if (ResearchRunWire.TYPE_GREETED.equals(type)) {
             return ResearchBackendEvent.builder(ResearchBackendEventType.GREETING_DONE);
         }
+        if (ResearchRunWire.TYPE_SCOPEASSIST.equals(type)) {
+            java.util.Map<String, String> f = ResearchRunWire.fields(text);
+            java.util.List<com.aresstack.askai.research.backend.ScopingAssistantUpdate.Suggestion> suggestions =
+                    new java.util.ArrayList<
+                            com.aresstack.askai.research.backend.ScopingAssistantUpdate.Suggestion>();
+            for (String[] record : ResearchRunWire.decodedSuggestions(f)) {
+                int priority;
+                try {
+                    priority = Integer.parseInt(record[2]);
+                } catch (RuntimeException notANumber) {
+                    priority = 1;
+                }
+                suggestions.add(new com.aresstack.askai.research.backend.ScopingAssistantUpdate.Suggestion(
+                        record[0], record[1], priority));
+            }
+            com.aresstack.askai.research.backend.ScopingAssistantUpdate projection =
+                    new com.aresstack.askai.research.backend.ScopingAssistantUpdate(
+                            ResearchRunWire.decodedField(f, "phase"),
+                            ResearchRunWire.decodedField(f, "map"),
+                            suggestions,
+                            f.get("advice") == null ? "NEUTRAL" : f.get("advice"),
+                            ResearchRunWire.decodedField(f, "advicereason"));
+            return ResearchBackendEvent.builder(ResearchBackendEventType.SCOPING_PROJECTION)
+                    .scopingProjection(projection);
+        }
         if (ResearchRunWire.TYPE_ATTENTION.equals(type)) {
             java.util.Map<String, String> f = ResearchRunWire.fields(text);
             // reason → title, state (REQUIRED|RESOLVED) → text, domain family + url → messages.

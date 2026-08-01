@@ -32,5 +32,10 @@ public enum ResearchBackendEventType {
      * The model-backed greeting was delivered successfully. The host advances the scope state one step so the
      * greeting (which depends only on the state) is never repeated on a restart.
      */
-    GREETING_DONE
+    GREETING_DONE,
+    /**
+     * A display-only scoping assistant PROJECTION (exploration map + search suggestions + advisory advice) for
+     * the scoping workspace. Carries no research brief and no workflow authority; a later one replaces it.
+     */
+    SCOPING_PROJECTION
 }

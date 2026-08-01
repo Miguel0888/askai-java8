@@ -34,6 +34,7 @@ public final class ResearchBackendEvent {
     private final String technicalDetail;
     private final ResearchRunProgressInfo runProgress;
     private final ResearchRunOutcomeInfo runOutcome;
+    private final ScopingAssistantUpdate scopingProjection;
 
     private ResearchBackendEvent(Builder b) {
         this.eventId = b.eventId;
@@ -57,6 +58,7 @@ public final class ResearchBackendEvent {
         this.technicalDetail = b.technicalDetail;
         this.runProgress = b.runProgress;
         this.runOutcome = b.runOutcome;
+        this.scopingProjection = b.scopingProjection;
     }
 
     public String getEventId() {
@@ -142,6 +144,11 @@ public final class ResearchBackendEvent {
         return runOutcome;
     }
 
+    /** @return the scoping projection for a {@code SCOPING_PROJECTION} event, else {@code null}. */
+    public ScopingAssistantUpdate getScopingProjection() {
+        return scopingProjection;
+    }
+
     public static Builder builder(ResearchBackendEventType type) {
         return new Builder(type);
     }
@@ -167,6 +174,7 @@ public final class ResearchBackendEvent {
         private String technicalDetail = "";
         private ResearchRunProgressInfo runProgress;
         private ResearchRunOutcomeInfo runOutcome;
+        private ScopingAssistantUpdate scopingProjection;
 
         private Builder(ResearchBackendEventType type) {
             this.type = type;
@@ -227,6 +235,11 @@ public final class ResearchBackendEvent {
 
         public Builder runOutcome(ResearchRunOutcomeInfo runOutcome) {
             this.runOutcome = runOutcome;
+            return this;
+        }
+
+        public Builder scopingProjection(ScopingAssistantUpdate scopingProjection) {
+            this.scopingProjection = scopingProjection;
             return this;
         }
 
