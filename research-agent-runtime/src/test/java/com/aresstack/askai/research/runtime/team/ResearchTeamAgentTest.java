@@ -165,7 +165,7 @@ public class ResearchTeamAgentTest {
         assertEquals(TeamAgentResult.Status.UNUSABLE_ANSWER, result.getStatus());
         assertEquals("exactly one bootstrap call + one repair call", 2, model.calls.size());
         // The repair call included the previous raw answer + the nudge.
-        assertTrue(lastUser(model.calls.get(1)).contains("valid JSON"));
+        assertTrue(lastUser(model.calls.get(1)).contains("one JSON object"));
     }
 
     @Test
@@ -236,6 +236,27 @@ public class ResearchTeamAgentTest {
         assertFalse(last.getTurn().getSuggestedFacts().isEmpty());
         assertEquals("smartwatches", agent.getProposedQuestion());
         assertTrue(agent.getProposedAspects().contains("battery"));
+    }
+
+    @Test
+    public void aRepairThatLeaksAFormatApologyIsSuppressedAsUnusableNotShownToTheUser() {
+        // The reported GUI failure signature: a first answer that does not parse, then a repair whose
+        // assistantMessage apologizes about formatting. That codec meta-talk must NEVER reach the user.
+        FakeModel model = new FakeModel();
+        model.enqueueOk("Sorry, here you go:");                       // unparseable -> triggers repair
+        model.enqueueOk("{\"assistantMessage\":\"I apologize if my previous response was not formatted "
+                + "correctly. I am ready to proceed with the structured research.\"}");
+        ResearchTeamAgent agent = new ResearchTeamAgent(model);
+
+        TeamAgentResult result = agent.respond("ja", scoping());
+
+        assertEquals(TeamAgentResult.Status.UNUSABLE_ANSWER, result.getStatus());
+        assertTrue("the user's turn stays pending for a clean retry", agent.hasPendingTurn());
+        String visible = TeamAgentReply.visible(result).toLowerCase(java.util.Locale.ROOT);
+        assertFalse(visible.contains("json"));
+        assertFalse(visible.contains("format"));
+        assertFalse(visible.contains("apolog"));
+        assertFalse(visible.contains("structured research"));
     }
 
     @Test

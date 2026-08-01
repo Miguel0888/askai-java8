@@ -208,7 +208,13 @@ public final class ResearchTeamAgent {
         return callParseOnce(repair);
     }
 
-    /** One model call + parse, with NO further repair (used for the second, bounded repair attempts). */
+    /**
+     * One model call + parse, with NO further repair (used for the second, bounded repair attempt). A repair
+     * is pure infrastructure: if the model uses this turn to apologize or talk about formatting/JSON, that
+     * message must never reach the user. So a repaired turn whose visible message leaks codec meta-talk is
+     * failed as UNUSABLE_ANSWER — the user then sees the fixed, meta-free typed line, and the pending user
+     * turn stays intact for a clean retry.
+     */
     private Parsed callParseOnce(List<ChatMessage> messages) {
         MainModelChatResult call = model.complete(messages, TEMPERATURE, MAX_OUTPUT_TOKENS);
         if (!call.isOk()) {
@@ -217,6 +223,9 @@ public final class ResearchTeamAgent {
         TeamAgentTurnParser.Result parsed = TeamAgentTurnParser.parse(call.getText());
         if (!parsed.isOk()) {
             return Parsed.fail(TeamAgentResult.unusableAnswer(parsed.getError()));
+        }
+        if (!VisibleAssistantMessageValidator.isCleanBusinessMessage(parsed.getTurn().getAssistantMessage())) {
+            return Parsed.fail(TeamAgentResult.unusableAnswer("repair produced a non-business message"));
         }
         return Parsed.ok(parsed.getTurn(), call.getText());
     }

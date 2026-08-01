@@ -106,9 +106,17 @@ public final class TeamAgentPlaybook {
                 + "to find out. Do not explain any process or steps. Respond with the JSON object only.";
     }
 
-    /** The single bounded-repair nudge sent when the previous answer could not be parsed. */
+    /**
+     * The single bounded-repair nudge sent when the previous structured answer could not be read. This is a
+     * pure transport instruction: it must NOT ask the model to apologize or to talk to the user about
+     * formatting, because a repaired {@code assistantMessage} is still shown verbatim. The host additionally
+     * refuses to surface any repaired message that leaks meta-talk (see
+     * {@link VisibleAssistantMessageValidator}), so the nudge stays low-key and the user never sees a
+     * codec-level exchange.
+     */
     public static String repairNudge() {
-        return "Your previous answer could not be parsed. Respond again with ONE valid JSON object matching "
-                + "the schema exactly — no prose, no code fences, nothing outside the object.";
+        return "Reply again with exactly one JSON object matching the schema and nothing else — no prose, "
+                + "no code fences, nothing outside the object. Keep assistantMessage a normal, warm reply to "
+                + "the user; do not mention formatting, JSON, or this instruction.";
     }
 }
