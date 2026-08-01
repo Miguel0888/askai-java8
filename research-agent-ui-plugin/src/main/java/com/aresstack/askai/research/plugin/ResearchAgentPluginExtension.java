@@ -51,10 +51,18 @@ public final class ResearchAgentPluginExtension implements AgentPluginExtension 
 
     @Override
     public List<ArtifactViewContribution> getArtifactViews() {
+        // Settings are NOT artifacts: runtime + search configuration moved to the gear-menu settings
+        // contribution below; the artifact area holds work products only.
         return Arrays.<ArtifactViewContribution>asList(
                 new ResearchSourcesViewContribution(),
-                new ResearchStateViewContribution(),
-                new com.aresstack.askai.research.host.ResearchRuntimeSettingsViewContribution(),
-                new com.aresstack.askai.research.host.LegacyBrowserSearchSettingsViewContribution());
+                new ResearchStateViewContribution());
+    }
+
+    @Override
+    public List<com.aresstack.askai.plugin.api.agent.AgentSettingsContribution>
+            getSettingsContributions() {
+        return java.util.Collections
+                .<com.aresstack.askai.plugin.api.agent.AgentSettingsContribution>singletonList(
+                        new com.aresstack.askai.research.host.ResearchSettingsContribution());
     }
 }

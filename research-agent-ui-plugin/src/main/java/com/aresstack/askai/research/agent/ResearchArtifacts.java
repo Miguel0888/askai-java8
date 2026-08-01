@@ -35,8 +35,8 @@ public final class ResearchArtifacts {
         list.add(markdown("final", "Final Document", "final.md"));
         list.add(new Artifact("sources", "Sources", TYPE_SOURCES, ""));
         list.add(new Artifact("state", "State", TYPE_STATE, ""));
-        list.add(new Artifact("runtime", "Runtime", TYPE_RUNTIME, ""));
-        list.add(new Artifact("search-settings", "Search Settings", TYPE_SEARCH_SETTINGS, ""));
+        // Runtime + search settings are deliberately NOT artifacts anymore: they live as the plugin's
+        // settings pages in the host's gear menu (session-based), the artifact area holds work products.
         return Collections.unmodifiableList(list);
     }
 

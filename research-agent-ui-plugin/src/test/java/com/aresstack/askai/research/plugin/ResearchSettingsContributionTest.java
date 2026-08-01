@@ -1,0 +1,65 @@
+package com.aresstack.askai.research.plugin;
+
+import com.aresstack.askai.plugin.api.agent.AgentArtifact;
+import com.aresstack.askai.plugin.api.agent.AgentSettingsContribution;
+import com.aresstack.askai.plugin.api.agent.artifact.ArtifactViewContribution;
+import com.aresstack.askai.plugin.api.agent.command.ChatCommandContribution;
+import com.aresstack.askai.research.agent.ResearchArtifacts;
+import com.aresstack.askai.research.agent.ResearchChatCommands;
+import org.junit.Test;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+
+/**
+ * Settings are plugin settings of the selected agent in the HOST's gear menu — session-based, and NOT
+ * artifacts, NOT slash commands, NOT chat cards.
+ */
+public class ResearchSettingsContributionTest {
+
+    private final ResearchAgentPluginExtension extension = new ResearchAgentPluginExtension();
+
+    @Test
+    public void theExtensionContributesExactlyOneSettingsPage() {
+        assertEquals(1, extension.getSettingsContributions().size());
+        assertEquals("Research Agent",
+                extension.getSettingsContributions().get(0).getDisplayName());
+    }
+
+    @Test
+    public void aForeignOrAbsentSessionGetsNoSettingsComponent() {
+        AgentSettingsContribution contribution = extension.getSettingsContributions().get(0);
+        // No session / another agent's session → null → the host omits the category entirely
+        // (normal chat shows no research settings; deselecting the agent removes them again).
+        assertNull(contribution.createSettingsComponent(null));
+    }
+
+    @Test
+    public void runtimeAndSearchSettingsAreNoArtifactsAnymore() {
+        for (AgentArtifact artifact : ResearchArtifacts.all()) {
+            assertFalse("settings are not work products: " + artifact.getId(),
+                    "runtime".equals(artifact.getId()) || "search-settings".equals(artifact.getId()));
+        }
+        for (ArtifactViewContribution view : extension.getArtifactViews()) {
+            assertFalse(ResearchArtifacts.TYPE_RUNTIME.equals(view.getArtifactTypeId()));
+            assertFalse(ResearchArtifacts.TYPE_SEARCH_SETTINGS.equals(view.getArtifactTypeId()));
+        }
+    }
+
+    @Test
+    public void thereIsNoSettingsSlashCommand() {
+        boolean found = false;
+        for (ChatCommandContribution command : ResearchChatCommands.all()) {
+            found |= "settings".equals(command.getDescriptor().getName());
+        }
+        assertFalse("settings are configured in the gear menu, never via /settings", found);
+    }
+
+    @Test
+    public void workProductsStayInTheArtifactArea() {
+        // The artifact area keeps exactly the work products + structured research views.
+        assertTrue(ResearchArtifacts.all().size() >= 8);
+    }
+}

@@ -841,24 +841,24 @@ work. The bug is environmental or Swing/PF4J-side. Prime suspects, in order:
 Needed to close: the first `[research-agent] …` / `session/new` error line from the app console of a
 failing start + the effective `agentJar`/`sidecarJar` values from the Runtime tab.
 
-## RA-P2 — Settings scattered / wrong altitude (agreed target, partially built)
+## RA-P2 — Settings: session-based gear-menu integration (DONE; open questions below)
 
-DONE: `/settings` chat command → compact live card (search-source buttons, AI-phrasing toggle,
-current summary), persisting through the SAME typed mapper as panel + session factory.
+Implemented as ordered (2026-08-01): the research settings are PLUGIN settings of the selected agent
+in the HOST's existing gear menu at the composer — shown only while this tab's agent session is
+active, session-based (per-tab values over `SessionScopedWorkspaceStateStore`: session scope wins,
+agent-global values serve as read-only template for fresh sessions, restore finds its own values).
+`/settings`, the settings chat card and the Runtime/Search-Settings ARTIFACT tabs are removed; the
+artifact area holds work products only. The existing panels were MOVED, not reinvented.
 
-OPEN:
-- Remove `Runtime` and `Search Settings` from the ARTIFACT catalog (not artifacts); the artifact
-  area holds work products only (Outline…Final, Sources, State).
-- Split the Runtime tab: user preferences / per-project research options / central AskAI config /
-  developer diagnostics ("Advanced"); hide agent/sidecar/Java paths when the dist is auto-detected.
-- Direct slash commands over a typed settings port: `/search-strategy …`, `/search-region ll cc`,
-  `/browser headless|visible`, `/research-depth quick|standard|deep`, `/language …`,
-  `/narration on|off`.
-- Natural-language setting changes as PROPOSALS only (TeamAgent emits a structured
-  `proposedSettingChange`; host validates; confirmation card for costly/sensitive changes).
-- Provider credential MANAGEMENT centrally in AskAI (today: encrypted files under
-  `~/agents/research/providers/`, no UI).
-- Test debt: the `/settings` card lacks an automated test (RecordingSink harness).
+Open questions (need an answer before further work here):
+
+1. Natural-language settings changes ("nimm Brave statt Bing") as TeamAgent PROPOSALS with a host
+   confirmation card — wanted as a follow-up, or out of scope?
+2. Central management UI for provider credentials (today: encrypted files under
+   `~/agents/research/providers/`, no UI) — where in the central AskAI configuration should it live?
+3. A RUNNING session currently keeps its backend when settings change (next session applies them).
+   Should a search-strategy change reconfigure the RUNNING session's next research run too
+   (snapshot re-publish mid-session), or stay next-session-only?
 
 ## RA-P3 — Missing research methodology domain core (the central gap)
 

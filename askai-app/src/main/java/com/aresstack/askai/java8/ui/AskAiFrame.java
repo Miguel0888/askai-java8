@@ -539,8 +539,16 @@ public final class AskAiFrame extends JFrame {
                                 new com.aresstack.askai.java8.plugin.host.AskAiThemeService(),
                                 new com.aresstack.askai.java8.plugin.host.AskAiMarkdownViewFactory(),
                                 agentNotify,
-                                new com.aresstack.askai.java8.plugin.host.ApplicationStateWorkspaceStateStore(
-                                        applicationState, "agent." + agentId + "."),
+                                // SESSION-scoped settings with the agent-global values as read-only
+                                // template: two tabs of the same agent never reconfigure each other.
+                                new com.aresstack.askai.plugin.host.SessionScopedWorkspaceStateStore(
+                                        new com.aresstack.askai.java8.plugin.host
+                                                .ApplicationStateWorkspaceStateStore(
+                                                applicationState, "agent." + agentId + "."),
+                                        new com.aresstack.askai.java8.plugin.host
+                                                .ApplicationStateWorkspaceStateStore(
+                                                applicationState, "agent." + agentId + ".session."
+                                                        + sessionInstanceId + ".")),
                                 new com.aresstack.askai.plugin.host.ScopedPluginPathService(agentDataDir, agentId),
                                 resolveAgentSinkForSessionKey(sessionInstanceId),
                                 services);
@@ -582,6 +590,21 @@ public final class AskAiFrame extends JFrame {
         }
         chat.setWorkspaceModeController(chatWorkspaceHost);
         chat.setChatSubmissionRouter(agentCoordinator);
+        // Gear menu: the ACTIVE agent's settings pages, session-based (the dialog opens from the active
+        // tab, whose session is the coordinator's active one).
+        chat.setAgentSettingsSource(
+                new java.util.function.Supplier<java.util.List<
+                        com.aresstack.askai.plugin.api.agent.AgentSettingsContribution>>() {
+                    public java.util.List<com.aresstack.askai.plugin.api.agent.AgentSettingsContribution>
+                            get() {
+                        return agentCoordinator.getActiveSettingsContributions();
+                    }
+                },
+                new java.util.function.Supplier<com.aresstack.askai.plugin.api.agent.AgentSession>() {
+                    public com.aresstack.askai.plugin.api.agent.AgentSession get() {
+                        return agentCoordinator.getActiveSession();
+                    }
+                });
         chat.setAgentCommandRegistry(agentCoordinator);
         // Tab close ENDS this tab's agent session(s) off-EDT (its ChatSessionId is the scope).
         final com.aresstack.askai.plugin.host.AgentSessionCoordinator closerCoordinator = agentCoordinator;

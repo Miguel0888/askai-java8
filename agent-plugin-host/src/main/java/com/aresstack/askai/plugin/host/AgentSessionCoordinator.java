@@ -423,6 +423,20 @@ public final class AgentSessionCoordinator
         return views == null ? Collections.<ArtifactViewContribution>emptyList() : views;
     }
 
+
+    /**
+     * The settings pages of the ACTIVE agent (empty without one): the gear menu renders them only for
+     * the tab whose agent is selected, with that tab's session — session-based by contract.
+     */
+    public List<com.aresstack.askai.plugin.api.agent.AgentSettingsContribution>
+            getActiveSettingsContributions() {
+        List<com.aresstack.askai.plugin.api.agent.AgentSettingsContribution> contributions =
+                activeExtension == null ? null : activeExtension.getSettingsContributions();
+        return contributions == null
+                ? Collections.<com.aresstack.askai.plugin.api.agent.AgentSettingsContribution>emptyList()
+                : contributions;
+    }
+
     // ------------------------------------------------------------------ ChatSubmissionRouter
 
     @Override

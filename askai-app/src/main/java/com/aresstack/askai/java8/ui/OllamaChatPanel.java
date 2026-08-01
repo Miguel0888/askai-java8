@@ -735,6 +735,24 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
      * The chat settings dialog content, Outlook-style: a category list on the left selects one
      * card on the right.
      */
+    /**
+     * The ACTIVE agent's settings pages for the gear dialog (plugin decides WHAT, session holds the
+     * VALUES, the host only decides WHERE): resolved lazily on every dialog open, so the categories
+     * appear exactly while this tab's agent is selected and disappear with it.
+     */
+    private java.util.function.Supplier<java.util.List<
+            com.aresstack.askai.plugin.api.agent.AgentSettingsContribution>> agentSettingsContributions;
+    private java.util.function.Supplier<com.aresstack.askai.plugin.api.agent.AgentSession>
+            agentSettingsSession;
+
+    public void setAgentSettingsSource(
+            java.util.function.Supplier<java.util.List<
+                    com.aresstack.askai.plugin.api.agent.AgentSettingsContribution>> contributions,
+            java.util.function.Supplier<com.aresstack.askai.plugin.api.agent.AgentSession> session) {
+        this.agentSettingsContributions = contributions;
+        this.agentSettingsSession = session;
+    }
+
     private JComponent buildSettingsContent() {
         final java.awt.CardLayout cardLayout = new java.awt.CardLayout();
         final JPanel cards = new JPanel(cardLayout);
@@ -747,8 +765,27 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         cards.add(settingsCard(partyCards[2]), SETTINGS_CATEGORIES[5]);
         cards.add(settingsCard(partyCards[3]), SETTINGS_CATEGORIES[6]);
 
+        java.util.List<String> categories =
+                new java.util.ArrayList<String>(java.util.Arrays.asList(SETTINGS_CATEGORIES));
+        // Agent settings pages: only while an agent session is ACTIVE in this tab; each page gets the
+        // live session so its values stay session-based (two tabs never reconfigure each other).
+        if (agentSettingsContributions != null && agentSettingsSession != null) {
+            com.aresstack.askai.plugin.api.agent.AgentSession session = agentSettingsSession.get();
+            if (session != null) {
+                for (com.aresstack.askai.plugin.api.agent.AgentSettingsContribution contribution
+                        : agentSettingsContributions.get()) {
+                    JComponent component = contribution.createSettingsComponent(session);
+                    if (component != null) {
+                        String name = contribution.getDisplayName();
+                        cards.add(settingsCard(component), name);
+                        categories.add(name);
+                    }
+                }
+            }
+        }
+
         final javax.swing.JList<String> navigation =
-                new javax.swing.JList<String>(SETTINGS_CATEGORIES);
+                new javax.swing.JList<String>(categories.toArray(new String[0]));
         navigation.setSelectionMode(javax.swing.ListSelectionModel.SINGLE_SELECTION);
         navigation.setSelectedIndex(0);
         navigation.setFixedCellHeight(30);

@@ -27,4 +27,13 @@ public interface AgentPluginExtension extends ExtensionPoint {
 
     /** Views for the agent's structured (non-Markdown) artifacts; never {@code null} (may be empty). */
     List<ArtifactViewContribution> getArtifactViews();
+
+    /**
+     * Settings pages for the host's gear menu at the chat composer — rendered ONLY while this agent is the
+     * selected one of the current chat tab, with that tab's live session. Session-based by contract:
+     * the component works on the session's values, never on agent-global state. Default: none.
+     */
+    default List<com.aresstack.askai.plugin.api.agent.AgentSettingsContribution> getSettingsContributions() {
+        return java.util.Collections.emptyList();
+    }
 }
