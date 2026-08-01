@@ -2,6 +2,7 @@ package com.aresstack.askai.java8.video.optional;
 
 import com.aresstack.askai.java8.video.MediaRecorder;
 import com.aresstack.askai.java8.video.RecordingProfile;
+import com.aresstack.askai.java8.video.VideoSettings;
 
 import org.bytedeco.javacv.FFmpegFrameRecorder;
 import org.bytedeco.javacv.Frame;
@@ -26,10 +27,15 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public final class FfmpegRecorder implements MediaRecorder {
 
+    private final VideoSettings.Ffmpeg settings;
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicReference<Exception> failure = new AtomicReference<Exception>();
     private Thread worker;
     private CountDownLatch finished;
+
+    public FfmpegRecorder(VideoSettings.Ffmpeg settings) {
+        this.settings = settings != null ? settings : new VideoSettings.Ffmpeg();
+    }
 
     @Override
     public void start(final RecordingProfile profile) throws Exception {
@@ -58,12 +64,7 @@ public final class FfmpegRecorder implements MediaRecorder {
         }
         final FFmpegFrameRecorder recorder =
                 new FFmpegFrameRecorder(profile.getOutputFile().toFile(), captureW, captureH);
-        recorder.setFormat("mp4");
-        recorder.setFrameRate(fps);
-        recorder.setVideoCodec(org.bytedeco.ffmpeg.global.avcodec.AV_CODEC_ID_H264);
-        recorder.setPixelFormat(org.bytedeco.ffmpeg.global.avutil.AV_PIX_FMT_YUV420P);
-        recorder.setVideoOption("preset", "veryfast");
-        recorder.setVideoOption("crf", "23");
+        applySettings(recorder, fps);
         recorder.start(); // fails here (not mid-recording) when the natives are broken
 
         running.set(true);
@@ -119,5 +120,80 @@ public final class FfmpegRecorder implements MediaRecorder {
     @Override
     public boolean isRecording() {
         return running.get();
+    }
+
+    /** Map the typed FFmpeg settings onto the recorder (container, codec, quality, x264, extras). */
+    private void applySettings(FFmpegFrameRecorder recorder, int fps) {
+        recorder.setFormat(orDefault(settings.getContainer(), "mp4"));
+        recorder.setFrameRate(fps);
+        recorder.setVideoCodecName(orDefault(settings.getCodecName(), "libx264"));
+        recorder.setPixelFormat(pixelFormatConstant(settings.getPixelFormat()));
+
+        String mode = orDefault(settings.getQualityMode(), "crf");
+        if ("qscale".equalsIgnoreCase(mode)) {
+            recorder.setVideoQuality(Math.max(1, settings.getQscale()));
+        } else if ("bitrate".equalsIgnoreCase(mode)) {
+            if (settings.getBitrateKbps() > 0) {
+                recorder.setVideoBitrate(settings.getBitrateKbps() * 1000);
+            }
+        } else { // crf (default)
+            recorder.setVideoOption("crf", String.valueOf(Math.max(0, Math.min(51, settings.getCrf()))));
+        }
+        if (notEmpty(settings.getPreset())) {
+            recorder.setVideoOption("preset", settings.getPreset().trim());
+        }
+        if (notEmpty(settings.getTune())) {
+            recorder.setVideoOption("tune", settings.getTune().trim());
+        }
+        if (notEmpty(settings.getProfile())) {
+            recorder.setVideoOption("profile", settings.getProfile().trim());
+        }
+        if (notEmpty(settings.getLevel())) {
+            recorder.setVideoOption("level", settings.getLevel().trim());
+        }
+        if (settings.getThreads() > 0) {
+            recorder.setVideoOption("threads", String.valueOf(settings.getThreads()));
+        }
+        // Raw pass-through options, one key=value per line (reference: video.ffopts).
+        String extra = settings.getExtraOptions();
+        if (notEmpty(extra)) {
+            String[] lines = extra.split("\\r?\\n");
+            for (int i = 0; i < lines.length; i++) {
+                int eq = lines[i].indexOf('=');
+                if (eq > 0) {
+                    String key = lines[i].substring(0, eq).trim();
+                    String value = lines[i].substring(eq + 1).trim();
+                    if (!key.isEmpty()) {
+                        recorder.setVideoOption(key, value);
+                    }
+                }
+            }
+        }
+    }
+
+    /** The pixel formats the reference offered; unknown values fall back to yuv420p. */
+    private static int pixelFormatConstant(String name) {
+        String fmt = name == null ? "" : name.trim().toLowerCase(java.util.Locale.ROOT);
+        if ("yuv422p".equals(fmt)) {
+            return org.bytedeco.ffmpeg.global.avutil.AV_PIX_FMT_YUV422P;
+        }
+        if ("yuv444p".equals(fmt)) {
+            return org.bytedeco.ffmpeg.global.avutil.AV_PIX_FMT_YUV444P;
+        }
+        if ("rgb24".equals(fmt)) {
+            return org.bytedeco.ffmpeg.global.avutil.AV_PIX_FMT_RGB24;
+        }
+        if ("bgr24".equals(fmt)) {
+            return org.bytedeco.ffmpeg.global.avutil.AV_PIX_FMT_BGR24;
+        }
+        return org.bytedeco.ffmpeg.global.avutil.AV_PIX_FMT_YUV420P;
+    }
+
+    private static String orDefault(String value, String fallback) {
+        return notEmpty(value) ? value.trim() : fallback;
+    }
+
+    private static boolean notEmpty(String s) {
+        return s != null && !s.trim().isEmpty();
     }
 }

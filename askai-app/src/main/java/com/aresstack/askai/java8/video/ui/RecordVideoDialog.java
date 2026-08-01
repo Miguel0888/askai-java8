@@ -4,6 +4,8 @@ import com.aresstack.askai.java8.video.MediaRecorderProvider;
 import com.aresstack.askai.java8.video.RecordingProfile;
 import com.aresstack.askai.java8.video.RecordingSource;
 import com.aresstack.askai.java8.video.VideoRecordingController;
+import com.aresstack.askai.java8.video.VideoSettings;
+import com.aresstack.askai.java8.video.VideoSettingsStore;
 import com.aresstack.askai.java8.video.optional.FfmpegRecorderProvider;
 import com.aresstack.askai.java8.video.optional.FfmpegRuntimeLoader;
 import com.aresstack.askai.java8.video.optional.VlcRecorderProvider;
@@ -48,8 +50,11 @@ public final class RecordVideoDialog extends JDialog {
     private final JButton startButton = new JButton("Start Recording");
     private final JButton stopButton = new JButton("Stop Recording");
     private final JButton openFolder = new JButton("Open Folder");
+    private final JButton settingsButton = new JButton("Settings…");
     private final JLabel status = new JLabel(" ");
 
+    private final VideoSettingsStore settingsStore = VideoSettingsStore.shared();
+    private VideoSettings videoSettings = settingsStore.load();
     private List<MediaRecorderProvider> providers;
     private Path lastOutput;
     private volatile boolean downloading;
@@ -78,11 +83,21 @@ public final class RecordVideoDialog extends JDialog {
         // one-time library download (FFmpeg). Nothing is ever downloaded or swapped in silently.
         providers = controller.providers();
         refreshBackendCombo();
-        // Preselect the controller's default (JCodec) if present.
+        // Preselect the persisted default backend; fall back to the controller's selection.
+        String preferred = videoSettings.getGeneral().getDefaultBackend();
+        int preselect = -1;
         for (int i = 0; i < providers.size(); i++) {
-            if (providers.get(i).getId().equals(controller.getSelectedProvider().getId())) {
-                backendCombo.setSelectedIndex(i);
+            if (providers.get(i).getId().equals(preferred)) {
+                preselect = i;
             }
+        }
+        for (int i = 0; i < providers.size(); i++) {
+            if (preselect < 0 && providers.get(i).getId().equals(controller.getSelectedProvider().getId())) {
+                preselect = i;
+            }
+        }
+        if (preselect >= 0) {
+            backendCombo.setSelectedIndex(preselect);
         }
         form.add(row("Backend:", backendCombo));
 
@@ -99,6 +114,8 @@ public final class RecordVideoDialog extends JDialog {
         buttons.add(stopButton);
         buttons.add(Box.createHorizontalStrut(8));
         buttons.add(openFolder);
+        buttons.add(Box.createHorizontalStrut(8));
+        buttons.add(settingsButton);
         form.add(Box.createVerticalStrut(8));
         form.add(buttons);
         form.add(Box.createVerticalStrut(6));
@@ -127,6 +144,11 @@ public final class RecordVideoDialog extends JDialog {
         openFolder.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent e) {
                 openOutputFolder();
+            }
+        });
+        settingsButton.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent e) {
+                openVideoSettings();
             }
         });
         if (backendCombo.getItemCount() == 0) {
@@ -201,7 +223,7 @@ public final class RecordVideoDialog extends JDialog {
             profile = RecordingProfile.builder()
                     .source(source)
                     .outputFile(output)
-                    .fps(15)
+                    .fps(Math.max(1, videoSettings.getGeneral().getFps()))
                     .build();
         } catch (RuntimeException invalid) {
             status.setText(invalid.getMessage());
@@ -311,6 +333,7 @@ public final class RecordVideoDialog extends JDialog {
         backendCombo.setEnabled(!recording);
         outputField.setEnabled(!recording);
         chooseOutput.setEnabled(!recording);
+        settingsButton.setEnabled(!recording && !downloading);
     }
 
     private void chooseOutput() {
@@ -333,9 +356,34 @@ public final class RecordVideoDialog extends JDialog {
         }
     }
 
-    private static String defaultOutputPath(String defaultFileName) {
-        String dir = System.getProperty("user.home", ".");
-        return Paths.get(dir, defaultFileName).toString();
+    private String defaultOutputPath(String defaultFileName) {
+        String dir = videoSettings.getGeneral().getOutputDirectory();
+        if (dir == null || dir.trim().isEmpty()) {
+            dir = System.getProperty("user.home", ".");
+        }
+        return Paths.get(dir.trim(), defaultFileName).toString();
+    }
+
+    /** Open the video settings dialog; on save, re-read the store and refresh what depends on it. */
+    private void openVideoSettings() {
+        VideoSettingsDialog dialog = new VideoSettingsDialog(this, settingsStore);
+        dialog.setVisible(true); // modal
+        if (dialog.isSaved()) {
+            String previousDefault = defaultOutputPathFileName();
+            videoSettings = settingsStore.load();
+            refreshBackendCombo();
+            // Follow the new output folder unless the user already typed a custom path.
+            if (previousDefault != null) {
+                outputField.setText(defaultOutputPath(previousDefault));
+            }
+            status.setText("Video settings saved.");
+        }
+    }
+
+    /** The file name in the output field, or null when the user left the folder-based default path. */
+    private String defaultOutputPathFileName() {
+        Path current = Paths.get(outputField.getText().trim());
+        return current.getFileName() == null ? null : current.getFileName().toString();
     }
 
     private static void onEdt(Runnable r) {

@@ -1,5 +1,7 @@
 package com.aresstack.askai.java8.video.optional;
 
+import com.aresstack.askai.java8.video.VideoSettings;
+
 import java.io.File;
 
 /**
@@ -8,9 +10,10 @@ import java.io.File;
  * itself must already be installed by the user — otherwise the VLC backend stays unavailable and is
  * never offered (no silent fallback, no download, no process started by AskAI).
  *
- * <p>{@link #configureRuntime()} must run once before the first vlcj call: it points JNA at the found
- * VLC directory ({@code jna.library.path}, {@code VLC_PLUGIN_PATH}) and additionally runs vlcj's own
- * {@code NativeDiscovery} as a second net for non-standard install locations.</p>
+ * <p>{@link #configureRuntime(VideoSettings.Vlc)} follows the reference order: 1) the user's manual
+ * base path from the settings, 2) vlcj's {@code NativeDiscovery} when autodetect is enabled, 3) the
+ * known standard install locations. It points JNA at the found directory ({@code jna.library.path},
+ * {@code VLC_PLUGIN_PATH}) before the first vlcj call.</p>
  */
 public final class LibVlcLocator {
 
@@ -27,15 +30,21 @@ public final class LibVlcLocator {
     }
 
     /** True only when the vlcj binding is loadable AND a VLC installation could be located. */
-    public static boolean isAvailable() {
-        return isVlcjOnClasspath() && findInstallDirectory() != null;
+    public static boolean isAvailable(VideoSettings.Vlc settings) {
+        if (!isVlcjOnClasspath()) {
+            return false;
+        }
+        if (settings != null && isDirectory(settings.getBasePath())) {
+            return true;
+        }
+        return findInstallDirectory() != null;
     }
 
     /**
      * Configure JNA/vlcj so libvlc can actually be loaded. Idempotent; returns false when no VLC
      * installation was found (the caller must then refuse — never fall back silently).
      */
-    public static synchronized boolean configureRuntime() {
+    public static synchronized boolean configureRuntime(VideoSettings.Vlc settings) {
         if (configured) {
             return true;
         }
@@ -43,16 +52,27 @@ public final class LibVlcLocator {
             return false;
         }
         boolean found = false;
-        File dir = findInstallDirectory();
-        if (dir != null) {
-            applyBasePath(dir);
+        // 1) Manual base path from the settings wins (reference: video.vlc.basePath).
+        if (settings != null && isDirectory(settings.getBasePath())) {
+            applyBasePath(new File(settings.getBasePath().trim()));
             found = true;
         }
-        try {
-            // vlcj's own discovery finds non-standard installs and registers them with JNA.
-            found |= new uk.co.caprica.vlcj.discovery.NativeDiscovery().discover();
-        } catch (Throwable discoveryFailed) {
-            // Discovery is only a second net; the explicit base path above may still suffice.
+        // 2) vlcj's own discovery when autodetect is on (finds non-standard installs via PATH/registry).
+        boolean autodetect = settings == null || settings.isAutodetect();
+        if (autodetect) {
+            try {
+                found |= new uk.co.caprica.vlcj.discovery.NativeDiscovery().discover();
+            } catch (Throwable discoveryFailed) {
+                // Discovery is only one net; the explicit paths may still suffice.
+            }
+        }
+        // 3) Known standard locations as the last net.
+        if (!found) {
+            File dir = findInstallDirectory();
+            if (dir != null) {
+                applyBasePath(dir);
+                found = true;
+            }
         }
         configured = found;
         return found;
@@ -78,6 +98,10 @@ public final class LibVlcLocator {
         } catch (Throwable notPresent) {
             return false;
         }
+    }
+
+    private static boolean isDirectory(String path) {
+        return path != null && !path.trim().isEmpty() && new File(path.trim()).isDirectory();
     }
 
     /** First existing candidate matching the JVM bitness (a 64-bit JVM cannot load 32-bit libvlc). */

@@ -2,6 +2,8 @@ package com.aresstack.askai.java8.video.optional;
 
 import com.aresstack.askai.java8.video.MediaRecorder;
 import com.aresstack.askai.java8.video.MediaRecorderProvider;
+import com.aresstack.askai.java8.video.VideoSettings;
+import com.aresstack.askai.java8.video.VideoSettingsStore;
 
 /**
  * OPTIONAL VLC backend. AskAI bundles only the vlcj binding — libvlc must already be installed by the
@@ -24,15 +26,17 @@ public final class VlcRecorderProvider implements MediaRecorderProvider {
 
     @Override
     public boolean isAvailable() {
-        return LibVlcLocator.isAvailable();
+        return LibVlcLocator.isAvailable(VideoSettingsStore.shared().load().getVlc());
     }
 
     @Override
     public MediaRecorder createRecorder() {
-        if (!LibVlcLocator.configureRuntime()) {
+        VideoSettings.Vlc settings = VideoSettingsStore.shared().load().getVlc();
+        if (!LibVlcLocator.configureRuntime(settings)) {
             throw new IllegalStateException(
-                    "No VLC installation was found. Install VLC or choose another backend.");
+                    "No VLC installation was found. Install VLC (or set its base path in the video "
+                            + "settings) or choose another backend.");
         }
-        return new VlcRecorder();
+        return new VlcRecorder(settings);
     }
 }
