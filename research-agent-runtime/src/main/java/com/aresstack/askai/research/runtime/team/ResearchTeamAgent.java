@@ -222,31 +222,14 @@ public final class ResearchTeamAgent {
     }
 
     /**
-     * Record the assistant turn so CONTEXT ACCUMULATES across short replies: the model's own visible
-     * message PLUS a compact note of what it took as understood/open. The user only ever sees
-     * assistantMessage (that is what the wire carries); the model, however, needs its own structured
-     * understanding back in history — otherwise a following one-word reply has nothing to build on.
+     * Record the assistant turn CANONICALLY so CONTEXT ACCUMULATES across short replies without inventing a
+     * third representation: history holds exactly the structured turn the model emitted, serialized by
+     * {@link TeamAgentTurnCodec} and re-readable by {@link TeamAgentTurnParser}. The user still only ever sees
+     * {@code assistantMessage} (that is what the wire carries); the model gets its own understood/suggested/
+     * open facts back verbatim, so a following one-word reply has something to build on.
      */
     private void recordAssistant(TeamAgentTurn turn) {
-        StringBuilder recorded = new StringBuilder(turn.getAssistantMessage());
-        if (!turn.getUnderstoodFacts().isEmpty()) {
-            recorded.append("\n[understood: ").append(join(turn.getUnderstoodFacts())).append(']');
-        }
-        if (!turn.getOpenQuestions().isEmpty()) {
-            recorded.append("\n[still open: ").append(join(turn.getOpenQuestions())).append(']');
-        }
-        history.add(ChatMessage.assistant(recorded.toString()));
-    }
-
-    private static String join(List<String> values) {
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < values.size(); i++) {
-            if (i > 0) {
-                sb.append("; ");
-            }
-            sb.append(values.get(i));
-        }
-        return sb.toString();
+        history.add(ChatMessage.assistant(TeamAgentTurnCodec.toJson(turn)));
     }
 
     /** Fold a scope update from the model into the PROPOSED scope (last statement wins for the question). */

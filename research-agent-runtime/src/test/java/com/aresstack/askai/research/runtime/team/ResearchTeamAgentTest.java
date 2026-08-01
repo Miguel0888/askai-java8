@@ -238,6 +238,42 @@ public class ResearchTeamAgentTest {
         assertTrue(agent.getProposedAspects().contains("battery"));
     }
 
+    @Test
+    public void assistantHistoryIsCanonicalStructuredJsonNotSyntheticBrackets() {
+        // History must hold exactly one structured turn per assistant message (round-trippable), never the
+        // old invented [understood: ...] / [still open: ...] note.
+        FakeModel model = new FakeModel();
+        model.enqueueOk("{\"assistantMessage\":\"Got it.\",\"understoodFacts\":[\"topic: wearables\"],"
+                + "\"openQuestions\":[\"which device class?\"],"
+                + "\"scope\":{\"question\":\"wearables\",\"aspects\":[\"audio\"]}}");
+        model.enqueueOk("{\"assistantMessage\":\"Anything else?\"}");
+        ResearchTeamAgent agent = new ResearchTeamAgent(model);
+
+        agent.respond("wearables", scoping());
+        agent.respond("more", scoping());
+
+        // The second call's history carries the first assistant turn as canonical, re-parseable JSON.
+        String recorded = assistantHistory(model.calls.get(1));
+        assertFalse("no synthetic markers", recorded.contains("[understood:"));
+        assertFalse("no synthetic markers", recorded.contains("[still open:"));
+        TeamAgentTurnParser.Result reparsed = TeamAgentTurnParser.parse(recorded);
+        assertTrue("the recorded assistant turn parses back", reparsed.isOk());
+        assertEquals("Got it.", reparsed.getTurn().getAssistantMessage());
+        assertTrue(reparsed.getTurn().getUnderstoodFacts().contains("topic: wearables"));
+        assertTrue(reparsed.getTurn().getOpenQuestions().contains("which device class?"));
+        assertEquals("wearables", reparsed.getTurn().getQuestion());
+    }
+
+    /** The content of the last ASSISTANT message in a captured call (the recorded canonical turn). */
+    private static String assistantHistory(List<ChatMessage> messages) {
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            if (messages.get(i).getRole() == ChatMessage.Role.ASSISTANT) {
+                return messages.get(i).getContent();
+            }
+        }
+        return "";
+    }
+
     private static String flatten(List<ChatMessage> messages) {
         StringBuilder sb = new StringBuilder();
         for (ChatMessage message : messages) {
