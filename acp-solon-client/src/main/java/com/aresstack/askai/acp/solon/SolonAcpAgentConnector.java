@@ -28,6 +28,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 /**
@@ -240,6 +241,25 @@ public final class SolonAcpAgentConnector implements AcpAgentConnector {
             return state.get();
         }
 
+        /**
+         * Bounded drain before a terminal (see the prompt runnable): a 50ms grace for updates the reader
+         * has not routed yet when the response lands, then wait until no update arrived for 100ms —
+         * capped at 1s so a terminal is never delayed noticeably even under a continuous stream.
+         */
+        private void awaitUpdateQuiescence(PromptDispatcher dispatcher) {
+            final long quietWindowNanos = TimeUnit.MILLISECONDS.toNanos(100);
+            final long deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(1);
+            try {
+                Thread.sleep(50);
+                while (System.nanoTime() < deadlineNanos
+                        && dispatcher.nanosSinceLastUpdate() < quietWindowNanos) {
+                    Thread.sleep(10);
+                }
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt(); // never block a terminal on interruption
+            }
+        }
+
         public PromptHandle prompt(String text, AcpUpdateListener listener) {
             final String promptId = UUID.randomUUID().toString();
             final PromptDispatcher dispatcher = new PromptDispatcher(sessionId, promptId, listener);
@@ -254,6 +274,14 @@ public final class SolonAcpAgentConnector implements AcpAgentConnector {
                         AcpPromptState terminal = response != null
                                 && response.stopReason() == AcpSchema.StopReason.CANCELLED
                                 ? AcpPromptState.CANCELLED : AcpPromptState.COMPLETED;
+                        // Every update precedes the response ON THE WIRE, but notifications are delivered
+                        // on the transport reader thread while the response unblocks THIS thread — on a
+                        // slow machine the response overtakes the tail of the update stream, and marking
+                        // terminal right away would DROP those real updates (the dispatcher's late-update
+                        // guard cannot tell them from stragglers): the final chunks of a turn were lost.
+                        // Drain first: a short unconditional grace for not-yet-routed updates, then wait
+                        // until the stream is quiet — bounded, so the terminal is never delayed noticeably.
+                        awaitUpdateQuiescence(dispatcher);
                         dispatcher.terminal(terminal, String.valueOf(
                                 response == null ? "" : response.stopReason()));
                     } catch (RuntimeException ex) {
