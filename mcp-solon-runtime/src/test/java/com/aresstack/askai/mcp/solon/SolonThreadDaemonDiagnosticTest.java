@@ -78,10 +78,27 @@ public class SolonThreadDaemonDiagnosticTest {
                 "stopSharedServer() must shut down the non-daemon jdkhttp worker pool", hasJdkHttpWorker());
     }
 
+    /**
+     * The JDK HttpServer dispatcher thread. It is NAMED "HTTP-Dispatcher" only on JDK 9+; on JDK 8 (the
+     * CI JVM) it is a generic "Thread-N", so the name check alone made this guard pass locally and fail
+     * in Actions. The stable signal across JDK 8..21 is the dispatcher's run-loop frame
+     * {@code sun.net.httpserver.ServerImpl$Dispatcher} — only the dedicated dispatcher thread runs it
+     * (workers run {@code ServerImpl$Exchange}), so workers can never satisfy this check.
+     */
     private static boolean hasHttpDispatcher() {
-        for (Thread t : Thread.getAllStackTraces().keySet()) {
-            if (t != null && t.isAlive() && !t.isDaemon() && "HTTP-Dispatcher".equals(t.getName())) {
+        for (java.util.Map.Entry<Thread, StackTraceElement[]> entry
+                : Thread.getAllStackTraces().entrySet()) {
+            Thread t = entry.getKey();
+            if (t == null || !t.isAlive() || t.isDaemon()) {
+                continue;
+            }
+            if ("HTTP-Dispatcher".equals(t.getName())) {
                 return true;
+            }
+            for (StackTraceElement frame : entry.getValue()) {
+                if ("sun.net.httpserver.ServerImpl$Dispatcher".equals(frame.getClassName())) {
+                    return true;
+                }
             }
         }
         return false;
