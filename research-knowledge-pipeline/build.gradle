@@ -1,0 +1,13 @@
+// The research METHOD as a pipeline over neutral ports (sentence segmentation, embeddings): captures →
+// sentences → semantic passages → topic clusters → concept/outline proposals → gap analysis. Depends on
+// the domain core ONLY; concrete NLP/embedding/store adapters live in their own modules.
+apply plugin: 'java-library'
+
+dependencies {
+    api project(':research-domain')
+    testImplementation 'junit:junit:4.13.2'
+}
+
+test {
+    useJUnit()
+}

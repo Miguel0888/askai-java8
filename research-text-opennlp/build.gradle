@@ -1,0 +1,13 @@
+// Apache OpenNLP adapter for the knowledge pipeline's SentenceSegmentationPort. OpenNLP 1.9.x is the last
+// Java-8 line; the domain core and the pipeline never see OpenNLP types.
+apply plugin: 'java-library'
+
+dependencies {
+    api project(':research-knowledge-pipeline')
+    implementation 'org.apache.opennlp:opennlp-tools:1.9.4'
+    testImplementation 'junit:junit:4.13.2'
+}
+
+test {
+    useJUnit()
+}
