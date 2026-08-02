@@ -47,7 +47,9 @@ public final class ChatSidebarPanel extends JPanel {
         add(buildHeader(), BorderLayout.NORTH);
         add(panes, BorderLayout.CENTER);
         rebuildTabs();
-        setPreferredSize(new Dimension(280, 10));
+        // Wide enough for the agent artifact panes (brief/sources), which used to live in a ~380px
+        // right-hand area before they moved into this drawer.
+        setPreferredSize(new Dimension(360, 10));
     }
 
     /** Plugins' panes arrive lazily through this supplier; re-read every time the drawer opens. */

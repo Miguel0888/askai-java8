@@ -607,11 +607,49 @@ public final class AskAiFrame extends JFrame {
         // Transactional refresh: the coordinator detaches the outgoing generation's sessions on the EDT and the
         // service closes them off-EDT before retiring the old classloaders, so no session survives a swap.
         pluginService.setGenerationSwapHook(agentCoordinator);
-        // The host owns the collapsible artifact area and wires /open to reveal a tab.
-        host.setAgentSessionCoordinator(agentCoordinator,
-                new com.aresstack.askai.java8.plugin.host.AskAiThemeService(),
-                new com.aresstack.askai.java8.plugin.host.AskAiMarkdownViewFactory());
+        host.setAgentSessionCoordinator(agentCoordinator);
         this.agentCoordinator = agentCoordinator;
+        // The ACTIVE agent's artifact views live in the LEFT chat sidebar (the old right-hand artifact
+        // area is gone): tabs exist exactly while an agent session is active (e.g. Research in Questing)
+        // and disappear otherwise. Views are cached per coordinator change, so editing state survives
+        // drawer open/close; /open reveals the matching pane latched.
+        final com.aresstack.askai.plugin.host.AgentArtifactTabs artifactTabs =
+                new com.aresstack.askai.plugin.host.AgentArtifactTabs(agentCoordinator, uiExecutor,
+                        new com.aresstack.askai.java8.plugin.host.AskAiThemeService(),
+                        new com.aresstack.askai.java8.plugin.host.AskAiMarkdownViewFactory());
+        chatTabs.setSidebarTabContributions(
+                new java.util.function.Supplier<java.util.List<com.aresstack.askai.java8.ui.sidebar.ChatSidebarTab>>() {
+                    public java.util.List<com.aresstack.askai.java8.ui.sidebar.ChatSidebarTab> get() {
+                        java.util.List<com.aresstack.askai.java8.ui.sidebar.ChatSidebarTab> tabs =
+                                new java.util.ArrayList<com.aresstack.askai.java8.ui.sidebar.ChatSidebarTab>();
+                        for (final com.aresstack.askai.plugin.host.AgentArtifactTabs.Tab tab : artifactTabs.tabs()) {
+                            tabs.add(new com.aresstack.askai.java8.ui.sidebar.ChatSidebarTab() {
+                                public String getTitle() {
+                                    return tab.getTitle();
+                                }
+
+                                public javax.swing.JComponent getComponent() {
+                                    return tab.getComponent();
+                                }
+                            });
+                        }
+                        return tabs;
+                    }
+                });
+        artifactTabs.addChangeListener(new Runnable() {
+            public void run() {
+                chatTabs.refreshSidebarTabs(); // keeps an open drawer honest on agent switch
+            }
+        });
+        // /open <artifact> reveals the matching sidebar pane (latched, so it stays put).
+        agentCoordinator.setArtifactOpener(new com.aresstack.askai.plugin.host.AgentSessionCoordinator.ArtifactOpener() {
+            public void open(String artifactId) {
+                com.aresstack.askai.plugin.host.AgentArtifactTabs.Tab tab = artifactTabs.tabForArtifact(artifactId);
+                if (tab != null) {
+                    chatTabs.openSidebarTab(tab.getTitle());
+                }
+            }
+        });
         // Generic composer accessories: place the ACTIVE agent's accessory above the active tab's composer.
         // The area rebuilds on every coordinator change (tab/agent switch); the frame routes it to the active
         // tab and clears the previously-targeted one.

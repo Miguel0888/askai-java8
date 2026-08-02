@@ -16,7 +16,7 @@ import java.util.List;
 
 /**
  * Builds the ACTIVE agent's composer accessories and places them above the active tab's composer (via
- * {@link ComposerAccessoryHost}), mirroring {@link AgentArtifactArea}'s coordinator-driven lifecycle. On every
+ * {@link ComposerAccessoryHost}), mirroring {@link AgentArtifactTabs}'s coordinator-driven lifecycle. On every
  * active-agent/session/tab change the coordinator fires; this rebuilds: it {@link ComposerAccessory#dispose()}s
  * the previous accessories and creates the new active agent's — so the host owns the lifecycle explicitly, with
  * no per-view AncestorListener. Phase changes WITHIN a session do not fire the coordinator, so an accessory
