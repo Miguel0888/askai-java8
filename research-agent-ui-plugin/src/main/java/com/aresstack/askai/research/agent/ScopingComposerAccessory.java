@@ -38,17 +38,27 @@ final class ScopingComposerAccessory implements ComposerAccessory {
                 }
             }
         });
+        this.view.setContinueAction(new Runnable() {
+            public void run() {
+                // The ONLY trigger of the SCOPING → OUTLINE transition: approve the brief, then advance.
+                // All phase rules live in the session/state machine — the button carries none of them.
+                research.approveScopingBriefAndContinue();
+            }
+        });
         this.refresh = new Runnable() {
             public void run() {
                 final boolean scoping = ResearchStateIds.SCOPING.equals(
                         research.currentResearchSnapshot().getCurrentPhaseId());
                 final ScopingAssistantUpdate projection = research.latestScopingProjection();
+                // Re-derive the enablement from the LIVE session on every state change (phase, brief, busy).
+                final boolean canContinue = research.canApproveScopingBriefAndContinue();
                 uiExecutor.execute(new Runnable() {
                     public void run() {
                         view.setVisible(scoping); // shown only in scoping; hidden elsewhere
                         if (scoping && projection != null) {
                             view.apply(projection);
                         }
+                        view.setContinueEnabled(canContinue);
                         pushPlaceholder(scoping, projection);
                     }
                 });

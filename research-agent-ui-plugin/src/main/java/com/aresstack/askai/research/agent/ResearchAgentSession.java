@@ -816,6 +816,59 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         }
     }
 
+    /**
+     * The user's explicit, SOLE decision to leave SCOPING: approve the current research brief working copy
+     * into an immutable revision and — only when that approval succeeds — dispatch exactly ONE
+     * {@code SUBMIT_SCOPE}, so the state machine (the only transition authority) advances SCOPING → OUTLINE.
+     * The order is fixed: persist/approve the artifact FIRST, transition only afterwards; a failed or empty
+     * approval transitions nothing. This deliberately does NOT chain further phases (no
+     * {@link #autoAdvanceTowardsResearch()}): one user click decides exactly one legal workflow transition.
+     * No model output, advice, natural-language "weiter", search suggestion or visualizer result may reach
+     * this — the scoping button is the only caller.
+     *
+     * @return {@code true} iff the brief was approved AND {@code SUBMIT_SCOPE} was accepted.
+     */
+    public boolean approveScopingBriefAndContinue() {
+        if (!canApproveScopingBriefAndContinue()) {
+            return false;
+        }
+        com.aresstack.askai.research.store.FileResearchBriefStore store = researchBriefStore();
+        // 1) Persist/approve the artifact FIRST. An identical, already-approved brief creates NO duplicate
+        // revision (ALREADY_CURRENT); an I/O failure aborts here, BEFORE any state transition.
+        try {
+            store.approveCurrent(System.currentTimeMillis());
+        } catch (RuntimeException approvalFailed) {
+            return false; // artifact approval failed → the phase stays exactly where it was
+        }
+        // 2) Only now the single, explicit transition — never autoAdvanceTowardsResearch(): exactly one step.
+        return dispatch(ResearchCommandType.SUBMIT_SCOPE, null).isAccepted();
+    }
+
+    /**
+     * Whether the explicit "Fragestellung freigeben & weiter" action is currently legal: a productive session
+     * that is still open, NO foreground agent turn in flight, the active phase is SCOPING with
+     * {@code SUBMIT_SCOPE} allowed by the state machine, and a non-blank research brief exists. A pure gate —
+     * no model quality/gatekeeper check.
+     */
+    public boolean canApproveScopingBriefAndContinue() {
+        if (disposed || productiveResources == null || productiveResources.isClosed() || handle == null) {
+            return false;
+        }
+        if (agentTurnInFlight) {
+            return false; // a foreground agent turn is in flight
+        }
+        com.aresstack.askai.research.state.oo.ResearchStateMemento memento =
+                productiveResources.currentState();
+        if (!com.aresstack.askai.research.state.oo.ResearchStateIds.SCOPING.equals(memento.getPhaseId())) {
+            return false;
+        }
+        if (!currentAllowedCommands().contains(ResearchCommandType.SUBMIT_SCOPE)) {
+            return false;
+        }
+        com.aresstack.askai.research.store.FileResearchBriefStore store = researchBriefStore();
+        return store != null && !store.effectiveContent().trim().isEmpty();
+    }
+
     public void pause() {
         if (productiveResources != null) {
             agentTurnInFlight = false;
