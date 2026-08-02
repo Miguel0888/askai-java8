@@ -12,4 +12,7 @@ public interface ComposerAccessoryHost {
     void setAccessory(JComponent component);
 
     void clearAccessory();
+
+    /** Route an accessory-provided composer placeholder to the targeted tab (null = default). */
+    void setComposerPlaceholder(String placeholderOrNull);
 }

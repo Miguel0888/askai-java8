@@ -636,6 +636,12 @@ public final class AskAiFrame extends JFrame {
                             accessoryTargetTab = null;
                         }
                     }
+
+                    public void setComposerPlaceholder(String placeholderOrNull) {
+                        if (accessoryTargetTab != null) {
+                            accessoryTargetTab.setComposerPlaceholder(placeholderOrNull);
+                        }
+                    }
                 };
         this.composerAccessoryArea = new com.aresstack.askai.plugin.host.AgentComposerAccessoryArea(
                 agentCoordinator, uiExecutor,

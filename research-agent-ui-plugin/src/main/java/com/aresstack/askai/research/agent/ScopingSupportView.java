@@ -12,22 +12,23 @@ import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
-import javax.swing.JTextField;
-import javax.swing.event.DocumentEvent;
-import javax.swing.event.DocumentListener;
 import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.util.function.Consumer;
 
 /**
- * The scoping workspace support panel (RA-P6 §2), COMPACT by default so the chat stays the dominant area: a
- * short exploration-map preview (host-rendered Mermaid, with the host's own zoom/copy controls for detail), a
- * one-line-per-query suggestion list (purpose as tooltip), and a LOCAL, user-owned query draft. The map+
- * suggestions body is collapsible. It shows the CURRENT projection (a later turn replaces it), protects a
- * manual query edit, and runs NO search and moves NO workflow. Advice is not shown. All methods run on the EDT.
+ * The scoping workspace support panel (RA-P6 §2), COMPACT by default so the chat stays the dominant
+ * area: a short exploration-map preview (host-rendered Mermaid) and the agent's search suggestions as
+ * a JUSTIFIED flow of yellow TAGS (the MCP tool-bubble yellow) — no heading, no query field. Clicking
+ * a tag runs the search IMMEDIATELY (via the action the accessory wires in; result depth comes from
+ * the configured search settings, default 10). A later projection replaces the tags, so the user can
+ * keep broadening the field click by click before the deep, structured phase. The proposed query is
+ * surfaced ONLY as the chat composer's placeholder (wired by the accessory), nowhere else. All
+ * methods run on the EDT.
  */
 public final class ScopingSupportView extends JPanel {
 
@@ -40,12 +41,9 @@ public final class ScopingSupportView extends JPanel {
     private final JPanel mapSection;
     private final JPanel body = new JPanel();
     private final JButton collapseToggle = new JButton("▾");
-    private final JLabel suggestionsEmpty = caption("Noch keine Suchvorschläge.");
-    private final JPanel suggestionsList = new JPanel();
-    private final JTextField queryField = new JTextField();
-    private final ScopingQueryDraft draft = new ScopingQueryDraft();
+    private final JPanel tagsPanel;
 
-    private boolean programmaticQueryEdit;
+    private Consumer<String> searchAction;
     private boolean collapsed;
 
     public ScopingSupportView(MarkdownViewFactory markdownViewFactory) {
@@ -69,34 +67,25 @@ public final class ScopingSupportView extends JPanel {
         mapSection.setMaximumSize(new Dimension(Integer.MAX_VALUE, MAP_PREVIEW_HEIGHT));
         body.add(mapSection);
         body.add(Box.createVerticalStrut(6));
-        body.add(sectionTitle("Suchvorschläge"));
-        suggestionsList.setLayout(new BoxLayout(suggestionsList, BoxLayout.Y_AXIS));
-        suggestionsList.setAlignmentX(Component.LEFT_ALIGNMENT);
-        body.add(suggestionsList);
-        body.add(suggestionsEmpty);
+        // The tags speak for themselves — no section heading. BoxLayout must not stretch the panel
+        // vertically, so its maximum height tracks the wrapped rows' preferred height.
+        tagsPanel = new JPanel(new JustifiedTagLayout(6, 6)) {
+            @Override
+            public Dimension getMaximumSize() {
+                return new Dimension(Integer.MAX_VALUE, getPreferredSize().height);
+            }
+        };
+        tagsPanel.setOpaque(false);
+        tagsPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        body.add(tagsPanel);
         content.add(body);
 
-        content.add(Box.createVerticalStrut(6));
-        content.add(sectionTitle("Search query"));
-        queryField.setAlignmentX(Component.LEFT_ALIGNMENT);
-        queryField.setMaximumSize(new Dimension(Integer.MAX_VALUE, queryField.getPreferredSize().height));
-        queryField.getDocument().addDocumentListener(new DocumentListener() {
-            public void insertUpdate(DocumentEvent e) {
-                onUserEdit();
-            }
-
-            public void removeUpdate(DocumentEvent e) {
-                onUserEdit();
-            }
-
-            public void changedUpdate(DocumentEvent e) {
-                onUserEdit();
-            }
-        });
-        content.add(queryField);
-
         add(content, BorderLayout.NORTH);
-        renderSuggestions(java.util.Collections.<ScopingAssistantUpdate.Suggestion>emptyList());
+    }
+
+    /** The accessory wires what a tag click runs (an immediate search with the query). */
+    public void setSearchAction(Consumer<String> searchAction) {
+        this.searchAction = searchAction;
     }
 
     private JComponent header() {
@@ -119,18 +108,13 @@ public final class ScopingSupportView extends JPanel {
         return row;
     }
 
-    /** Apply the latest projection: refresh the map + suggestions, prefill the query only if the user hasn't. */
+    /** Apply the latest projection: refresh the map and REPLACE the tags with the newest knowledge. */
     public void apply(ScopingAssistantUpdate projection) {
         if (projection == null) {
             return;
         }
         applyMap(projection);
-        renderSuggestions(projection.getSearchSuggestions());
-        String best = projection.getSearchSuggestions().isEmpty()
-                ? "" : projection.getSearchSuggestions().get(0).getQuery();
-        if (draft.adoptFromProjectionIfUnowned(best)) {
-            setQueryTextProgrammatically(draft.text());
-        }
+        renderTags(projection.getSearchSuggestions());
     }
 
     private void applyMap(ScopingAssistantUpdate projection) {
@@ -144,54 +128,30 @@ public final class ScopingSupportView extends JPanel {
         try {
             mapView.setMarkdown(fenced);
         } catch (RuntimeException renderingFailed) {
-            // A broken diagram is a PRESENTATION problem only: the turn, suggestions and query stay usable.
+            // A broken diagram is a PRESENTATION problem only: the turn and the tags stay usable.
             mapView.setMarkdown("_Die Explorationskarte konnte nicht dargestellt werden._");
         }
     }
 
-    private void renderSuggestions(java.util.List<ScopingAssistantUpdate.Suggestion> suggestions) {
-        suggestionsList.removeAll(); // REPLACE, never accumulate old suggestion cards
-        suggestionsEmpty.setVisible(suggestions.isEmpty());
+    private void renderTags(java.util.List<ScopingAssistantUpdate.Suggestion> suggestions) {
+        tagsPanel.removeAll(); // REPLACE, never accumulate old tags
         for (final ScopingAssistantUpdate.Suggestion suggestion : suggestions) {
-            suggestionsList.add(suggestionRow(suggestion));
+            ResearchTagButton tag = new ResearchTagButton(suggestion.getQuery());
+            tag.setToolTipText(suggestion.getPurpose().isEmpty()
+                    ? "Sofort danach suchen" : suggestion.getPurpose());
+            tag.addActionListener(new ActionListener() {
+                public void actionPerformed(ActionEvent e) {
+                    if (searchAction != null) {
+                        searchAction.accept(suggestion.getQuery());
+                    }
+                }
+            });
+            tagsPanel.add(tag);
         }
-        suggestionsList.revalidate();
-        suggestionsList.repaint();
-    }
-
-    /** One compact, single-line clickable query; the purpose is a tooltip, not a second line. */
-    private JComponent suggestionRow(final ScopingAssistantUpdate.Suggestion suggestion) {
-        JButton queryButton = new JButton("▸ " + suggestion.getQuery());
-        queryButton.setHorizontalAlignment(JButton.LEFT);
-        queryButton.setAlignmentX(Component.LEFT_ALIGNMENT);
-        queryButton.setMargin(new java.awt.Insets(1, 4, 1, 4));
-        queryButton.setToolTipText(suggestion.getPurpose().isEmpty()
-                ? "Suchanfrage in das Feld übernehmen" : suggestion.getPurpose());
-        queryButton.setMaximumSize(new Dimension(Integer.MAX_VALUE, queryButton.getPreferredSize().height));
-        queryButton.addActionListener(new ActionListener() {
-            public void actionPerformed(ActionEvent e) {
-                // LOCAL only: adopt the query into the user's field. No search runs and no phase changes.
-                draft.chooseSuggestion(suggestion.getQuery());
-                setQueryTextProgrammatically(suggestion.getQuery());
-            }
-        });
-        return queryButton;
-    }
-
-    private void onUserEdit() {
-        if (programmaticQueryEdit) {
-            return; // our own setText, not a user edit
-        }
-        draft.userTyped(queryField.getText());
-    }
-
-    private void setQueryTextProgrammatically(String text) {
-        programmaticQueryEdit = true;
-        try {
-            queryField.setText(text);
-        } finally {
-            programmaticQueryEdit = false;
-        }
+        tagsPanel.revalidate();
+        tagsPanel.repaint();
+        revalidate();
+        repaint();
     }
 
     public void dispose() {

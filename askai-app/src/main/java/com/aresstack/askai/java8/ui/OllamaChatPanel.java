@@ -622,6 +622,12 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         composerAccessorySlot.setVisible(false);
         composerAccessorySlot.revalidate();
         composerAccessorySlot.repaint();
+        setComposerPlaceholder(null); // an accessory-provided placeholder never outlives the accessory
+    }
+
+    /** Override the composer's placeholder text (null restores the default). EDT only. */
+    public void setComposerPlaceholder(String text) {
+        composer.setEditorPlaceholder(text);
     }
 
     // ------------------------------------------------------------------ ChatSessionComponent

@@ -13,5 +13,14 @@ public interface ComposerAccessory {
 
     JComponent getComponent();
 
+    /**
+     * Optional: the host hands the accessory a sink for the chat composer's PLACEHOLDER text right
+     * after mounting. The accessory may push updates at any time (on the EDT); {@code accept(null)}
+     * restores the host's default placeholder. The host resets the placeholder itself when the
+     * accessory is cleared/disposed, so implementations need no cleanup here.
+     */
+    default void bindPlaceholderSink(java.util.function.Consumer<String> sink) {
+    }
+
     void dispose();
 }

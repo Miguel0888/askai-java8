@@ -54,6 +54,7 @@ public final class AgentComposerAccessoryArea {
 
     private void rebuild() {
         disposeLive();
+        host.setComposerPlaceholder(null); // a previous accessory's placeholder never survives a rebuild
         AgentSession session = coordinator.getActiveSession();
         if (session == null) {
             host.clearAccessory();
@@ -81,6 +82,13 @@ public final class AgentComposerAccessoryArea {
             host.clearAccessory();
         } else {
             host.setAccessory(stack);
+            for (ComposerAccessory accessory : live) {
+                accessory.bindPlaceholderSink(new java.util.function.Consumer<String>() {
+                    public void accept(String placeholder) {
+                        host.setComposerPlaceholder(placeholder);
+                    }
+                });
+            }
         }
     }
 

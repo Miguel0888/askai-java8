@@ -520,6 +520,14 @@ public final class ChatComposerPanel extends JPanel {
     }
 
     /**
+     * Override the editor's placeholder text (e.g. the research scoping query proposed by the agent);
+     * null or blank restores the default prompt. The placeholder never touches typed text.
+     */
+    public void setEditorPlaceholder(String text) {
+        editor.setPlaceholder(text == null || text.trim().isEmpty() ? "Ask anything…" : text.trim());
+    }
+
+    /**
      * Latch/unlatch a toolbar button created by the factories above: latched it paints filled
      * ("pressed in"), e.g. the hamburger while the ribbon menu is locked open.
      */
@@ -778,7 +786,12 @@ public final class ChatComposerPanel extends JPanel {
     }
 
     private static final class PlaceholderTextArea extends JTextArea {
-        private final String placeholder;
+        private String placeholder;
+
+        private void setPlaceholder(String placeholder) {
+            this.placeholder = placeholder;
+            repaint();
+        }
 
         private PlaceholderTextArea(String placeholder) {
             super(3, 40);

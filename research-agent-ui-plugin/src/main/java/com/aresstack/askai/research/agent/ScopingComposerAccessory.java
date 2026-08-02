@@ -1,5 +1,7 @@
 package com.aresstack.askai.research.agent;
 
+import com.aresstack.askai.plugin.api.agent.ChatSubmissionTarget;
+import com.aresstack.askai.plugin.api.agent.SubmissionAvailability;
 import com.aresstack.askai.plugin.api.agent.composer.ComposerAccessory;
 import com.aresstack.askai.plugin.api.service.MarkdownViewFactory;
 import com.aresstack.askai.plugin.api.service.UiExecutor;
@@ -7,13 +9,15 @@ import com.aresstack.askai.research.backend.ScopingAssistantUpdate;
 import com.aresstack.askai.research.state.oo.ResearchStateIds;
 
 import javax.swing.JComponent;
+import java.util.function.Consumer;
 
 /**
  * The scoping controls as a COMPOSER ACCESSORY (above the composer), not a hidden artifact view. It wraps the
  * reusable {@link ScopingSupportView}, keeps it in sync with the live session (latest projection + scoping-only
  * visibility) via the session's state listener, and is disposed by the host on session/agent/tab change — an
- * explicit lifecycle instead of an AncestorListener. Phase changes within the session drive visibility here
- * without any rebuild, so the user's query draft survives a phase round-trip.
+ * explicit lifecycle instead of an AncestorListener. A TAG CLICK submits the query as an immediate search turn
+ * (result depth from the configured search settings, default 10); the agent's best query is surfaced only as
+ * the chat composer's PLACEHOLDER through the host-provided sink.
  */
 final class ScopingComposerAccessory implements ComposerAccessory {
 
@@ -21,10 +25,21 @@ final class ScopingComposerAccessory implements ComposerAccessory {
     private final ScopingSupportView view;
     private final Runnable refresh;
 
-    ScopingComposerAccessory(ResearchAgentSession research, final UiExecutor uiExecutor,
+    private volatile Consumer<String> placeholderSink;
+
+    ScopingComposerAccessory(final ResearchAgentSession research, final UiExecutor uiExecutor,
                              MarkdownViewFactory markdownViewFactory) {
         this.research = research;
         this.view = new ScopingSupportView(markdownViewFactory);
+        this.view.setSearchAction(new Consumer<String>() {
+            public void accept(String query) {
+                // Immediate search: same path as a typed prompt, so scoping advances turn by turn.
+                ChatSubmissionTarget target = research.getChatTarget();
+                if (target.getAvailability() == SubmissionAvailability.AVAILABLE) {
+                    target.submitText(query);
+                }
+            }
+        });
         this.refresh = new Runnable() {
             public void run() {
                 final boolean scoping = ResearchStateIds.SCOPING.equals(
@@ -36,6 +51,7 @@ final class ScopingComposerAccessory implements ComposerAccessory {
                         if (scoping && projection != null) {
                             view.apply(projection);
                         }
+                        pushPlaceholder(scoping, projection);
                     }
                 });
             }
@@ -46,6 +62,25 @@ final class ScopingComposerAccessory implements ComposerAccessory {
 
     public JComponent getComponent() {
         return view;
+    }
+
+    @Override
+    public void bindPlaceholderSink(Consumer<String> sink) {
+        this.placeholderSink = sink;
+        refresh.run(); // push the current query into the freshly bound composer placeholder
+    }
+
+    /** The agent's best query lives ONLY in the composer placeholder — nowhere else in the UI. */
+    private void pushPlaceholder(boolean scoping, ScopingAssistantUpdate projection) {
+        Consumer<String> sink = placeholderSink;
+        if (sink == null) {
+            return;
+        }
+        String query = null;
+        if (scoping && projection != null && !projection.getSearchSuggestions().isEmpty()) {
+            query = projection.getSearchSuggestions().get(0).getQuery();
+        }
+        sink.accept(query == null || query.trim().isEmpty() ? null : query.trim());
     }
 
     public void dispose() {
