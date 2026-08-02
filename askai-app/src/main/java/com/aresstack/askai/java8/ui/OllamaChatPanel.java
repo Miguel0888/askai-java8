@@ -316,10 +316,6 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         this.transcript = new ChatTranscript();
         this.transcript.applyColors(model.getChatColors());
         this.composer = new ChatComposerPanel(new ChatComposerPanel.Actions() {
-            public void openChatHistory() {
-                showChatHistoryMenu();
-            }
-
             public void selectModel() {
                 openModelPopup();
             }
@@ -515,31 +511,88 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         this.chatHistoryNavigator = navigator;
     }
 
+    // ------------------------------------------------------------------ sidebar (drawer)
+
+    private com.aresstack.askai.java8.ui.sidebar.ChatSidebarPanel sidebar;
+    private JPanel chatListPanel;
+    private java.util.function.Supplier<java.util.List<com.aresstack.askai.java8.ui.sidebar.ChatSidebarTab>> sidebarTabsSource;
+
     /**
-     * Shows the saved-chats menu anchored to the composer's hamburger button: every persisted chat
-     * (most recent first) with its title and time, opening it as a tab (or selecting it) on click.
+     * Future plugin seam: contributions supplied here appear as additional tabs next to the default
+     * "Chats" tab whenever the sidebar opens (e.g. a Research tab, wired by the host later).
      */
-    private void showChatHistoryMenu() {
-        javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
+    public void setSidebarTabContributions(
+            java.util.function.Supplier<java.util.List<com.aresstack.askai.java8.ui.sidebar.ChatSidebarTab>> source) {
+        this.sidebarTabsSource = source;
+    }
+
+    private void toggleSidebar() {
+        if (sidebar.isVisible()) {
+            hideSidebar();
+        } else {
+            refreshChatList();
+            sidebar.rebuildTabs();
+            sidebar.setVisible(true);
+            revalidate();
+            repaint();
+        }
+    }
+
+    private void hideSidebar() {
+        sidebar.setVisible(false);
+        revalidate();
+        repaint();
+    }
+
+    /** The default sidebar tab: all saved chats plus the (confirmed) delete-all action. */
+    private JComponent buildChatsSidebarTab() {
+        chatListPanel = new JPanel();
+        chatListPanel.setLayout(new javax.swing.BoxLayout(chatListPanel, javax.swing.BoxLayout.Y_AXIS));
+        chatListPanel.setOpaque(false);
+        JScrollPane scroll = new JScrollPane(chatListPanel,
+                JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        scroll.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+        scroll.getVerticalScrollBar().setUnitIncrement(16);
+
+        JButton deleteAll = new JButton("Delete all chats…");
+        deleteAll.setToolTipText("Delete every saved chat (asks for confirmation)");
+        deleteAll.addActionListener(event -> deleteAllChats());
+        JPanel south = new JPanel(new BorderLayout());
+        south.setOpaque(false);
+        south.setBorder(BorderFactory.createEmptyBorder(4, 8, 8, 8));
+        south.add(deleteAll, BorderLayout.CENTER);
+
+        JPanel tab = new JPanel(new BorderLayout());
+        tab.setOpaque(false);
+        tab.add(scroll, BorderLayout.CENTER);
+        tab.add(south, BorderLayout.SOUTH);
+        return tab;
+    }
+
+    /** Rebuild the saved-chats list (most recent first); called every time the sidebar opens. */
+    private void refreshChatList() {
+        chatListPanel.removeAll();
         java.util.List<com.aresstack.askai.java8.history.ChatRecord> chats =
-                historyStore != null ? historyStore.list() : java.util.Collections.<com.aresstack.askai.java8.history.ChatRecord>emptyList();
+                historyStore != null ? historyStore.list()
+                        : java.util.Collections.<com.aresstack.askai.java8.history.ChatRecord>emptyList();
         if (chats.isEmpty()) {
-            javax.swing.JMenuItem none = new javax.swing.JMenuItem("No saved chats");
+            JLabel none = new JLabel("No saved chats");
+            none.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
             none.setEnabled(false);
-            menu.add(none);
+            chatListPanel.add(none);
         } else {
             java.text.SimpleDateFormat when = new java.text.SimpleDateFormat("dd/MM/yy HH:mm");
             for (final com.aresstack.askai.java8.history.ChatRecord chat : chats) {
-                menu.add(buildChatHistoryRow(chat, when, menu));
+                chatListPanel.add(buildChatHistoryRow(chat, when));
             }
         }
-        JComponent anchor = composer.getMenuButton();
-        menu.show(anchor, 0, -menu.getPreferredSize().height);
+        chatListPanel.revalidate();
+        chatListPanel.repaint();
     }
 
     /** One saved-chat row: a wide "open" button plus a trailing trash button that deletes it. */
     private JComponent buildChatHistoryRow(final com.aresstack.askai.java8.history.ChatRecord chat,
-                                           java.text.SimpleDateFormat when, final javax.swing.JPopupMenu menu) {
+                                           java.text.SimpleDateFormat when) {
         boolean current = chat.getId().equals(sessionId.toString());
         String title = chat.getTitle() == null || chat.getTitle().trim().isEmpty()
                 ? "(untitled)" : chat.getTitle().trim();
@@ -554,12 +607,14 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         open.setFocusPainted(false);
         open.setEnabled(!current);
         open.addActionListener(event -> {
-            menu.setVisible(false);
             if (chatHistoryNavigator != null) {
                 try {
                     chatHistoryNavigator.openChat(new ChatSessionId(java.util.UUID.fromString(chat.getId())));
                 } catch (IllegalArgumentException ignored) {
                 }
+            }
+            if (!sidebar.isPinned()) {
+                hideSidebar();
             }
         });
 
@@ -569,7 +624,6 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         delete.setContentAreaFilled(false);
         delete.setFocusPainted(false);
         delete.addActionListener(event -> {
-            menu.setVisible(false);
             int choice = JOptionPane.showConfirmDialog(OllamaChatPanel.this,
                     "Delete the saved chat \"" + title + "\"? This cannot be undone.",
                     "Delete chat", JOptionPane.OK_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE);
@@ -579,6 +633,7 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
                     chatRecord = null; // stop this tab from re-saving the just-deleted chat
                 }
                 setStatus("Deleted chat \"" + title + "\".");
+                refreshChatList();
             }
         });
 
@@ -588,6 +643,31 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         row.add(delete, BorderLayout.EAST);
         row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
         return row;
+    }
+
+    /** Delete EVERY saved chat — only after an explicit confirmation; the list refreshes after. */
+    private void deleteAllChats() {
+        java.util.List<com.aresstack.askai.java8.history.ChatRecord> chats =
+                historyStore != null ? historyStore.list()
+                        : java.util.Collections.<com.aresstack.askai.java8.history.ChatRecord>emptyList();
+        if (chats.isEmpty()) {
+            setStatus("There are no saved chats to delete.");
+            return;
+        }
+        int choice = JOptionPane.showConfirmDialog(OllamaChatPanel.this,
+                "Delete ALL " + chats.size() + " saved chats? This cannot be undone.",
+                "Delete all chats", JOptionPane.OK_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE);
+        if (choice != JOptionPane.OK_OPTION) {
+            return;
+        }
+        for (com.aresstack.askai.java8.history.ChatRecord chat : chats) {
+            historyStore.delete(chat.getId());
+            if (chat.getId().equals(sessionId.toString())) {
+                chatRecord = null; // stop this tab from re-saving its just-deleted chat
+            }
+        }
+        setStatus("Deleted " + chats.size() + " saved chats.");
+        refreshChatList();
     }
 
     private static String escapeHtml(String text) {
@@ -668,8 +748,45 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
     private void buildUserInterface() {
         setLayout(new BorderLayout(8, 8));
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        add(transcript.getComponent(), BorderLayout.CENTER);
+        add(buildChatArea(), BorderLayout.CENTER);
         add(buildBottomArea(), BorderLayout.SOUTH);
+    }
+
+    /**
+     * The chat area: a slim top bar with the hamburger in the TOP-LEFT (moved here from the composer
+     * footer) that toggles the sidebar (drawer) on the left; the transcript fills the center. An
+     * UNPINNED sidebar closes again when a chat is opened or the user clicks into the transcript;
+     * pinned, it stays.
+     */
+    private JComponent buildChatArea() {
+        JButton burger = ChatComposerPanel.createSidebarToggleButton();
+        burger.addActionListener(event -> toggleSidebar());
+        JPanel topBar = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0));
+        topBar.setOpaque(false);
+        topBar.add(burger);
+
+        sidebar = new com.aresstack.askai.java8.ui.sidebar.ChatSidebarPanel("Chats", buildChatsSidebarTab());
+        sidebar.setVisible(false);
+        sidebar.setCloseHandler(this::hideSidebar);
+        sidebar.setExtraTabsSupplier(() -> sidebarTabsSource == null
+                ? java.util.Collections.<com.aresstack.askai.java8.ui.sidebar.ChatSidebarTab>emptyList()
+                : sidebarTabsSource.get());
+
+        transcript.getComponent().addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mousePressed(java.awt.event.MouseEvent event) {
+                if (sidebar.isVisible() && !sidebar.isPinned()) {
+                    hideSidebar();
+                }
+            }
+        });
+
+        JPanel area = new JPanel(new BorderLayout(6, 4));
+        area.setOpaque(false);
+        area.add(topBar, BorderLayout.NORTH);
+        area.add(sidebar, BorderLayout.WEST);
+        area.add(transcript.getComponent(), BorderLayout.CENTER);
+        return area;
     }
 
     /**

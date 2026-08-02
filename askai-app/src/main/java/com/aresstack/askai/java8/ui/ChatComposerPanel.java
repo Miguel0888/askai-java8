@@ -65,8 +65,6 @@ public final class ChatComposerPanel extends JPanel {
 
     /** Route semantic user actions without exposing the internal buttons. */
     public interface Actions {
-        void openChatHistory();
-
         void selectModel();
 
         void selectMode();
@@ -132,7 +130,6 @@ public final class ChatComposerPanel extends JPanel {
     private final JPanel statusPanel;
     private final JLabel chatStatusLabel;
     private final JLabel dictationStatusLabel;
-    private final JButton menuButton;
     private final JButton modelButton;
     private final JButton modeButton;
     private final JButton reasoningButton;
@@ -164,7 +161,6 @@ public final class ChatComposerPanel extends JPanel {
         this.chatStatusLabel = createStatusLabel();
         this.dictationStatusLabel = createStatusLabel();
         this.statusPanel = createStatusPanel();
-        this.menuButton = createIconButton(new MenuIcon(), "Saved chats");
         this.modelButton = createModelButton();
         this.modeButton = createModeButton();
         this.reasoningButton = createReasoningButton();
@@ -213,7 +209,6 @@ public final class ChatComposerPanel extends JPanel {
         footer.setBorder(new EmptyBorder(5, 0, 0, 0));
         JPanel west = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         west.setOpaque(false);
-        west.add(menuButton);
         west.add(modelButton);
         west.add(modeButton);
         west.add(reasoningButton);
@@ -357,11 +352,6 @@ public final class ChatComposerPanel extends JPanel {
     }
 
     private void wireActions() {
-        menuButton.addActionListener(new ActionListener() {
-            public void actionPerformed(ActionEvent event) {
-                actions.openChatHistory();
-            }
-        });
         modelButton.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent event) {
                 actions.selectModel();
@@ -516,9 +506,16 @@ public final class ChatComposerPanel extends JPanel {
         return modelButton;
     }
 
-    /** Return the hamburger (saved chats) button, so the panel can anchor its history menu to it. */
-    public JComponent getMenuButton() {
-        return menuButton;
+    /**
+     * A hamburger button in the composer's icon style. The burger moved from the composer footer to
+     * the TOP-LEFT of the chat area (it toggles the sidebar there); this factory keeps the icon and
+     * styling single-sourced here.
+     */
+    public static JButton createSidebarToggleButton() {
+        ComposerButton button = new ComposerButton(new MenuIcon(), null, false);
+        configureButton(button, "Chats & tools sidebar");
+        button.setPreferredSize(new Dimension(30, 28));
+        return button;
     }
 
     /** Set the label shown on the in-composer mode selector (e.g. "Yapping" or an agent name). */
