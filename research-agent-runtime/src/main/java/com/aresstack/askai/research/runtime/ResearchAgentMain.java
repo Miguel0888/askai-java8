@@ -650,7 +650,8 @@ public final class ResearchAgentMain {
                             apiLabel,
                             reranker,
                             new com.aresstack.askai.browser.domain.PublicSuffixDomainKeyResolver(),
-                            new com.aresstack.askai.research.runtime.acquire.ManualSourceAcceptancePort(service),
+                            new com.aresstack.askai.research.runtime.acquire.ManualSourceAcceptancePort(
+                                    service, query),
                             System.currentTimeMillis(),
                             loadBrowserSearchSettings().captcha.challengeProbeIntervalMillis,
                             new com.aresstack.askai.research.runtime.acquire.WebSearchApplicationService

@@ -30,4 +30,13 @@ public interface ResearchControlContext {
      *         or {@code null} when the capture id is unknown.
      */
     String acceptCapture(String captureId);
+
+    /**
+     * As {@link #acceptCapture(String)} but records the USER web-search query that found the capture — used by
+     * the internal {@code manual_source_accept} endpoint so "what was already searched" survives a restart.
+     * The default ignores the query (agent path / test fakes); the productive context overrides it.
+     */
+    default String acceptCapture(String captureId, String searchQuery) {
+        return acceptCapture(captureId);
+    }
 }

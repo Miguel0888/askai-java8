@@ -16,15 +16,21 @@ import java.util.Map;
 public final class ManualSourceAcceptancePort implements SourceAcceptancePort {
 
     private final ToolInvoker service;
+    private final String searchQuery;
 
-    public ManualSourceAcceptancePort(ToolInvoker service) {
+    public ManualSourceAcceptancePort(ToolInvoker service, String searchQuery) {
         this.service = service;
+        this.searchQuery = searchQuery == null ? "" : searchQuery;
     }
 
     @Override
     public String accept(String captureId) throws ToolInvoker.ToolFailure, ToolInvoker.EndpointUnavailable {
         Map<String, Object> args = new HashMap<String, Object>();
         args.put("capture_id", captureId);
+        if (!searchQuery.isEmpty()) {
+            // Persist WHICH user query found this source, so "already searched" survives a restart.
+            args.put("search_query", searchQuery);
+        }
         return service.call("manual_source_accept", args);
     }
 }

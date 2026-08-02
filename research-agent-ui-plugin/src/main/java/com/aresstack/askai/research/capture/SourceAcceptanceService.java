@@ -85,6 +85,14 @@ public final class SourceAcceptanceService {
     }
 
     public synchronized Result accept(String captureId) {
+        return accept(captureId, "");
+    }
+
+    /**
+     * As {@link #accept(String)} but records the USER web-search query that found the source, so the host can
+     * later know (across restarts) which queries were already searched. Agent acceptance passes "".
+     */
+    public synchronized Result accept(String captureId, String searchQuery) {
         // Idempotency first: a completed acceptance always returns the same source id.
         String existing = acceptedByCapture.get(captureId);
         if (existing != null) {
@@ -136,6 +144,7 @@ public final class SourceAcceptanceService {
                 .snapshotReference("")
                 .checksum(capture.getContentHash())
                 .revision(1L)
+                .searchQuery(searchQuery == null ? "" : searchQuery.trim())
                 .build();
         creator.create(record);
         acceptedByCapture.put(captureId, sourceId);

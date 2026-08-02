@@ -303,6 +303,12 @@ public final class ProductiveResearchBackendFactory {
                         public String acceptCapture(String captureId) {
                             return holder[0].controlContext().acceptCapture(captureId);
                         }
+
+                        @Override
+                        public String acceptCapture(String captureId, String searchQuery) {
+                            // Delegate WITH the query so the productive context persists it on the source.
+                            return holder[0].controlContext().acceptCapture(captureId, searchQuery);
+                        }
                     };
             control = new com.aresstack.askai.research.mcp.ResearchControlEndpoint(
                     registry, sessionKey, generationId, controlContext);

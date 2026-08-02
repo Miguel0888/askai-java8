@@ -84,13 +84,18 @@ public final class ResearchServiceEndpoint {
                             return McpToolResult.error("Missing argument: capture_id");
                         }
                         // Delegate to the SAME host-side SourceAcceptanceService the agent path uses; no phase
-                        // gate — the trusted user origin is this internal endpoint itself.
-                        String result = ctx.acceptCapture(captureId.trim());
+                        // gate — the trusted user origin is this internal endpoint itself. The user query that
+                        // found the source is persisted with it (so "already searched" survives a restart).
+                        String searchQuery = call.getString("search_query");
+                        String result = ctx.acceptCapture(captureId.trim(),
+                                searchQuery == null ? "" : searchQuery);
                         return result == null
                                 ? McpToolResult.error("Unknown capture: " + captureId)
                                 : McpToolResult.ok(result);
                     }
                 },
-                McpToolParameter.string("capture_id", true, "The capture id from a visited page"));
+                McpToolParameter.string("capture_id", true, "The capture id from a visited page"),
+                McpToolParameter.string("search_query", false,
+                        "The user web-search query that found this capture"));
     }
 }

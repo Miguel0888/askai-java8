@@ -253,7 +253,12 @@ public final class ProductiveResearchSessionResources {
             }
 
             public String acceptCapture(String captureId) {
-                SourceAcceptanceService.Result result = acceptance.accept(captureId);
+                return acceptCapture(captureId, "");
+            }
+
+            @Override
+            public String acceptCapture(String captureId, String searchQuery) {
+                SourceAcceptanceService.Result result = acceptance.accept(captureId, searchQuery);
                 return result.status == SourceAcceptanceService.Status.UNKNOWN_CAPTURE
                         ? null : result.render();
             }

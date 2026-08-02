@@ -201,6 +201,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         // the port AFTER activate().
         this.manualWebSearchPort = new com.aresstack.askai.research.search.BackendManualWebSearchPort(
                 backend, handle);
+        restoreManualSearchedQueries(); // covered queries survive a restart (each source remembers its query)
         final String notice = startupNotice;
         if (notice != null && sink != null) {
             uiExecutor.execute(new Runnable() {
@@ -939,6 +940,28 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     public boolean wasManuallySearched(String query) {
         return query != null
                 && manualSearchedQueries.contains(query.trim().toLowerCase(java.util.Locale.ROOT));
+    }
+
+    /**
+     * Rebuild the "already searched" set from the PERSISTED sources on restore: each source remembers the user
+     * query that found it, so a covered query is never re-suggested even after an app restart. Best-effort.
+     */
+    private void restoreManualSearchedQueries() {
+        com.aresstack.askai.research.sources.ResearchSourceRepository repository = getSourceRepository();
+        if (repository == null) {
+            return;
+        }
+        try {
+            for (com.aresstack.askai.research.sources.ResearchSourceRecord record
+                    : repository.find(com.aresstack.askai.research.sources.SourceQuery.all())) {
+                String searched = record.getSearchQuery();
+                if (searched != null && !searched.trim().isEmpty()) {
+                    manualSearchedQueries.add(searched.trim().toLowerCase(java.util.Locale.ROOT));
+                }
+            }
+        } catch (RuntimeException bestEffort) {
+            // a read failure just means no pre-population from disk
+        }
     }
 
     /** Wire the productive manual-web-search service (tests / factory); a null port is ignored. */

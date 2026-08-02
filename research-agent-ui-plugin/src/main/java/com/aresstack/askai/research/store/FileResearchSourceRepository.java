@@ -122,6 +122,7 @@ public final class FileResearchSourceRepository implements ResearchSourceReposit
         line(sb, "snapshotReference", r.getSnapshotReference());
         line(sb, "checksum", r.getChecksum());
         line(sb, "revision", Long.toString(r.getRevision()));
+        line(sb, "searchQuery", r.getSearchQuery());
         StoreIo.atomicWrite(file(r.getSourceId()), sb.toString());
     }
 
@@ -154,6 +155,7 @@ public final class FileResearchSourceRepository implements ResearchSourceReposit
                     .snapshotReference(p.getProperty("snapshotReference", ""))
                     .checksum(p.getProperty("checksum", ""))
                     .revision(parseLong(p.getProperty("revision")))
+                    .searchQuery(p.getProperty("searchQuery", "")) // "" for old files / agent-accepted sources
                     .build();
         } catch (Exception corrupt) {
             return null; // isolate a corrupt source file

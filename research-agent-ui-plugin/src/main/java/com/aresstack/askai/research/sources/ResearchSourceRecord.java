@@ -26,6 +26,8 @@ public final class ResearchSourceRecord {
     private final String snapshotReference;
     private final String checksum;
     private final long revision;
+    /** The user web-search query that found this source (empty for agent-accepted sources). */
+    private final String searchQuery;
 
     private ResearchSourceRecord(Builder b) {
         this.sourceId = b.sourceId;
@@ -43,6 +45,7 @@ public final class ResearchSourceRecord {
         this.snapshotReference = str(b.snapshotReference);
         this.checksum = str(b.checksum);
         this.revision = b.revision;
+        this.searchQuery = str(b.searchQuery);
     }
 
     private static String str(String v) {
@@ -109,12 +112,17 @@ public final class ResearchSourceRecord {
         return revision;
     }
 
+    /** The user web-search query that found this source, or "" when it was accepted by the agent. */
+    public String getSearchQuery() {
+        return searchQuery;
+    }
+
     public Builder toBuilder() {
         return new Builder(sourceId)
                 .title(title).origin(origin).url(url).sourceType(sourceType).capturedAt(capturedAt)
                 .author(author).linkedSectionIds(linkedSectionIds).comment(comment).relevance(relevance)
                 .reliability(reliability).status(status).snapshotReference(snapshotReference)
-                .checksum(checksum).revision(revision);
+                .checksum(checksum).revision(revision).searchQuery(searchQuery);
     }
 
     public static Builder builder(String sourceId) {
@@ -137,6 +145,7 @@ public final class ResearchSourceRecord {
         private String snapshotReference;
         private String checksum;
         private long revision;
+        private String searchQuery;
 
         private Builder(String sourceId) {
             if (sourceId == null || sourceId.trim().isEmpty()) {
@@ -164,6 +173,7 @@ public final class ResearchSourceRecord {
         public Builder snapshotReference(String v) { this.snapshotReference = v; return this; }
         public Builder checksum(String v) { this.checksum = v; return this; }
         public Builder revision(long v) { this.revision = v; return this; }
+        public Builder searchQuery(String v) { this.searchQuery = v; return this; }
 
         public ResearchSourceRecord build() {
             return new ResearchSourceRecord(this);
