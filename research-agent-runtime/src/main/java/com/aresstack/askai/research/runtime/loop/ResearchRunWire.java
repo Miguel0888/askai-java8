@@ -183,6 +183,18 @@ public final class ResearchRunWire {
     }
 
     /**
+     * The research brief markdown produced this turn — the phase's PRIMARY artifact. Travels over the same
+     * research wire so the host persists it on exactly ONE path (its working copy) and shows it in the
+     * "Fragestellung" view. The markdown travels URL-encoded (it never contains a space on the wire).
+     */
+    public static String researchBrief(String phaseId, String briefMarkdown) {
+        StringBuilder sb = new StringBuilder(MARKER).append("brief");
+        appendEncoded(sb, "phase", phaseId);
+        appendEncoded(sb, "content", briefMarkdown);
+        return sb.toString();
+    }
+
+    /**
      * A one-shot signal that the model-backed greeting was delivered SUCCESSFULLY. The host advances the
      * scope state one step (so the greeting depends only on the state and is never repeated on a restart);
      * a failed greeting emits nothing, so the state stays fresh and the greeting is retried.

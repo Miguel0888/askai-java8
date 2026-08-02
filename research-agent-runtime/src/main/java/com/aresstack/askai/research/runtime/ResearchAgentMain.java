@@ -556,6 +556,14 @@ public final class ResearchAgentMain {
             if (projection != null) {
                 ctx.sendMessage(projection);
             }
+            // The research brief (the phase artifact) travels on its OWN wire line so the host persists it on
+            // exactly one path (its working copy). Only a scoping output has a brief; other phases emit none.
+            String brief = com.aresstack.askai.research.runtime.team.ScopingBriefSource
+                    .briefMarkdown(result.getOutput());
+            if (brief != null) {
+                ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
+                        .researchBrief(phaseId, brief));
+            }
             emitScopingDiagnostics(ctx, phaseId, result.getOutput(), projection != null);
         }
     }
