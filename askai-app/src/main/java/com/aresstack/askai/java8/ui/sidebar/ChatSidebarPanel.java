@@ -3,7 +3,6 @@ package com.aresstack.askai.java8.ui.sidebar;
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
 import javax.swing.JComponent;
-import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JToggleButton;
 import java.awt.BorderLayout;
@@ -32,7 +31,7 @@ public final class ChatSidebarPanel extends JPanel {
 
     private final CardLayout paneLayout = new CardLayout();
     private final JPanel panes = new JPanel(paneLayout);
-    private final JLabel headerTitle = new JLabel();
+    private final JPanel headerLeft = new JPanel(new BorderLayout());
     private final JToggleButton pinToggle =
             new JToggleButton(com.aresstack.askai.java8.ui.ChatComposerPanel.createPushPinIcon());
     private final String defaultTabTitle;
@@ -87,7 +86,19 @@ public final class ChatSidebarPanel extends JPanel {
         }
         activeTitle = title;
         paneLayout.show(panes, title);
-        headerTitle.setText(title);
+    }
+
+    /**
+     * The header's left slot — no pane title (the ribbon's colored entry already says which pane is
+     * active); the workspace puts its self-explanatory "New chat" button here instead.
+     */
+    public void setHeaderComponent(JComponent component) {
+        headerLeft.removeAll();
+        if (component != null) {
+            headerLeft.add(component, BorderLayout.WEST);
+        }
+        headerLeft.revalidate();
+        headerLeft.repaint();
     }
 
     /** Rebuild the pane set: the default pane first, then the current contributions. */
@@ -120,8 +131,8 @@ public final class ChatSidebarPanel extends JPanel {
     private JComponent buildHeader() {
         JPanel header = new JPanel(new BorderLayout());
         header.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 4));
-        headerTitle.setText(defaultTabTitle);
-        header.add(headerTitle, BorderLayout.WEST);
+        headerLeft.setOpaque(false);
+        header.add(headerLeft, BorderLayout.WEST);
 
         pinToggle.setToolTipText("Pin the sidebar open (otherwise it closes when the mouse leaves)");
         pinToggle.setFocusable(false);

@@ -302,6 +302,20 @@ public final class ChatWorkspacePanel extends JPanel {
         sidebar.setCloseHandler(this::collapseMenuAndSidebar);
         sidebar.setExtraTabsSupplier(() -> sidebarTabsSource == null
                 ? java.util.Collections.<ChatSidebarTab>emptyList() : sidebarTabsSource.get());
+        // No pane title in the header — the ribbon's colored entry already names the active pane.
+        // The self-explanatory New-chat button takes that spot.
+        JButton newChat = new JButton("New chat", new PlusIcon(10));
+        newChat.setToolTipText("Open a new chat");
+        newChat.setFocusable(false);
+        newChat.addActionListener(event -> {
+            openNewChat();
+            if (!sidebar.isPinned()) {
+                collapseMenuAndSidebar();
+            } else {
+                refreshChatList();
+            }
+        });
+        sidebar.setHeaderComponent(newChat);
 
         add(topBar, BorderLayout.NORTH);
         add(sidebar, BorderLayout.WEST); // full height on the left, below the top bar
@@ -439,19 +453,6 @@ public final class ChatWorkspacePanel extends JPanel {
         scroll.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
         scroll.getVerticalScrollBar().setUnitIncrement(16);
 
-        JButton newChat = new JButton("New chat", new PlusIcon(10));
-        newChat.setToolTipText("Open a new chat");
-        newChat.addActionListener(event -> {
-            openNewChat();
-            if (!sidebar.isPinned()) {
-                hideSidebar();
-            }
-        });
-        JPanel north = new JPanel(new BorderLayout());
-        north.setOpaque(false);
-        north.setBorder(BorderFactory.createEmptyBorder(8, 8, 4, 8));
-        north.add(newChat, BorderLayout.CENTER);
-
         JButton deleteAll = new JButton("Delete all chats…");
         deleteAll.setToolTipText("Delete every saved chat (asks for confirmation)");
         deleteAll.addActionListener(event -> deleteAllChats());
@@ -462,7 +463,6 @@ public final class ChatWorkspacePanel extends JPanel {
 
         JPanel tab = new JPanel(new BorderLayout());
         tab.setOpaque(false);
-        tab.add(north, BorderLayout.NORTH);
         tab.add(scroll, BorderLayout.CENTER);
         tab.add(south, BorderLayout.SOUTH);
         return tab;
