@@ -55,6 +55,7 @@ public final class ResearchAgentPluginExtension implements AgentPluginExtension 
         // contribution below; the artifact area holds work products only.
         return Arrays.<ArtifactViewContribution>asList(
                 new com.aresstack.askai.research.agent.ResearchBriefViewContribution(),
+                new com.aresstack.askai.research.agent.ResearchVisualizationViewContribution(),
                 new ResearchSourcesViewContribution(),
                 new ResearchStateViewContribution());
     }

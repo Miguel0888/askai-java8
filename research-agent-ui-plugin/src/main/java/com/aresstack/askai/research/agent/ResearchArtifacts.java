@@ -20,6 +20,7 @@ public final class ResearchArtifacts {
     public static final String TYPE_SOURCES = "research.sources";
     public static final String TYPE_STATE = "research.state";
     public static final String TYPE_BRIEF = "research.brief";
+    public static final String TYPE_VISUALIZATION = "research.visualization";
     public static final String TYPE_RUNTIME = "research.runtime";
     public static final String TYPE_SEARCH_SETTINGS = "research.search.settings";
 
@@ -28,8 +29,10 @@ public final class ResearchArtifacts {
 
     public static List<AgentArtifact> all() {
         List<AgentArtifact> list = new ArrayList<AgentArtifact>();
-        // The research brief (Fragestellung) is the scoping phase's primary artifact — first tab.
+        // The research brief (Fragestellung) is the scoping phase's primary artifact — first tab. The
+        // visualization is a DERIVED, rebuildable view of it (no approval/revision), shown right next to it.
         list.add(new Artifact("research-brief", "Fragestellung", TYPE_BRIEF, ""));
+        list.add(new Artifact("research-visualization", "Visualisierung", TYPE_VISUALIZATION, ""));
         list.add(markdown("outline", "Outline", "outline.md"));
         list.add(markdown("concept", "Concept", "concept.md"));
         list.add(markdown("research-notes", "Research Notes", "research-notes.md"));
