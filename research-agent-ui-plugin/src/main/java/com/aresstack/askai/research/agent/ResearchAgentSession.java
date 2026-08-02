@@ -307,6 +307,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         }
         disposed = true;
         briefWriteExecutor.shutdown(); // stop accepting brief writes; in-flight writes are atomic
+        if (artifactVisualizer != null) {
+            artifactVisualizer.shutdown(); // stop the lazy visualizer; a running visualize is discarded
+        }
         // No longer a running session: stop AskAI from re-publishing descriptors to a torn-down dir.
         com.aresstack.askai.agent.model.session.ActiveResearchSessionRegistry activeSessions =
                 hostContext.getService(
@@ -386,6 +389,10 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     private volatile com.aresstack.askai.research.backend.ScopingAssistantUpdate latestScopingProjection;
     /** File-backed research brief store, bound to this session's project dir (null in the clickdummy). */
     private com.aresstack.askai.research.store.FileResearchBriefStore researchBriefStore;
+    /** Lazy, host-side artifact visualizer (null when no inference port); a derived-view consumer. */
+    private com.aresstack.askai.research.visualize.LazyArtifactVisualizer artifactVisualizer;
+    /** The latest derived visualization projection for the "Visualisierung" view; transient/rebuildable. */
+    private volatile com.aresstack.askai.research.visualize.VisualizationProjection latestVisualization;
     /** Serializes research-brief working-copy writes OFF the EDT (applyEvent runs on the EDT). */
     private final java.util.concurrent.ExecutorService briefWriteExecutor =
             java.util.concurrent.Executors.newSingleThreadExecutor(
@@ -945,7 +952,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             case RESEARCH_BRIEF:
                 // The phase artifact: persist the brief to its working copy (one path, off the EDT). No
                 // approval revision, no phase transition — the "Fragestellung" view re-reads the store.
-                persistResearchBrief(event.getText());
+                persistResearchBrief(event.getTitle(), event.getText());
                 break;
             case BLOCKED:
             case ERROR:
@@ -990,7 +997,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
      * the brief is never mirrored into a session field as an alternative source of truth. No approval, no
      * transition.
      */
-    private void persistResearchBrief(final String markdown) {
+    private void persistResearchBrief(final String phaseId, final String markdown) {
         final com.aresstack.askai.research.store.FileResearchBriefStore store = researchBriefStore();
         if (store == null || markdown == null || markdown.trim().isEmpty()) {
             return;
@@ -1004,6 +1011,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                     return; // a brief write failure must never crash the session or the run
                 }
                 if (changed) {
+                    // Refresh the Fragestellung view, and lazily (re)build the DERIVED visualization for the
+                    // new brief — a separate consumer, hash-guarded, that never blocks this write or the agent.
+                    scheduleVisualization(phaseId, markdown);
                     uiExecutor.execute(new Runnable() {
                         public void run() {
                             fireStateChanged();
@@ -1012,6 +1022,49 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 }
             }
         });
+    }
+
+    /** The latest derived visualization of an artifact, or {@code null} until one has been produced. */
+    public com.aresstack.askai.research.visualize.VisualizationProjection latestVisualization() {
+        return latestVisualization;
+    }
+
+    private void scheduleVisualization(String phaseId, String markdown) {
+        com.aresstack.askai.research.visualize.LazyArtifactVisualizer visualizer = artifactVisualizer();
+        if (visualizer != null) {
+            visualizer.onArtifactChanged(new com.aresstack.askai.research.visualize.ArtifactSnapshot(
+                    "research-brief", markdown, phaseId));
+        }
+    }
+
+    private synchronized com.aresstack.askai.research.visualize.LazyArtifactVisualizer artifactVisualizer() {
+        if (artifactVisualizer == null && !disposed) {
+            com.aresstack.askai.agent.model.inference.AgentInferencePort port = hostContext == null ? null
+                    : hostContext.getService(com.aresstack.askai.agent.model.inference.AgentInferencePort.class);
+            if (port == null) {
+                return null; // no host inference (e.g. clickdummy): no visualization, brief still works
+            }
+            artifactVisualizer = new com.aresstack.askai.research.visualize.LazyArtifactVisualizer(
+                    new com.aresstack.askai.research.visualize.ModelArtifactVisualizer(port),
+                    new java.util.function.BooleanSupplier() {
+                        public boolean getAsBoolean() {
+                            return agentTurnInFlight; // defer while the main agent works
+                        }
+                    },
+                    new java.util.function.Consumer<
+                            com.aresstack.askai.research.visualize.VisualizationProjection>() {
+                        public void accept(
+                                com.aresstack.askai.research.visualize.VisualizationProjection projection) {
+                            latestVisualization = projection;
+                            uiExecutor.execute(new Runnable() {
+                                public void run() {
+                                    fireStateChanged();
+                                }
+                            });
+                        }
+                    });
+        }
+        return artifactVisualizer;
     }
 
     public void addStateListener(Runnable listener) {
