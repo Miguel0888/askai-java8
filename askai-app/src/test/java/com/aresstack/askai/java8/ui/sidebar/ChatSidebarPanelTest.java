@@ -77,9 +77,8 @@ public class ChatSidebarPanelTest {
     }
 
     @Test
-    public void theDrawerStartsUnpinnedAndToleratesNullEntries() {
+    public void nullEntriesAreTolerated() {
         ChatSidebarPanel panel = new ChatSidebarPanel("Chats", new JPanel());
-        assertFalse(panel.isPinned());
         panel.setExtraTabsSupplier(() -> Arrays.asList(tab("One"), null));
         panel.rebuildTabs();
         assertEquals(Arrays.asList("Chats", "One"), panel.tabTitles());

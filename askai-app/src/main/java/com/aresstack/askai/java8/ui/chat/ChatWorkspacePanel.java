@@ -276,7 +276,6 @@ public final class ChatWorkspacePanel extends JPanel {
         topBar.add(gear, BorderLayout.EAST);
 
         sidebar.setVisible(false);
-        sidebar.setCloseHandler(this::collapseMenuAndSidebar);
         sidebar.setExtraTabsSupplier(() -> sidebarTabsSource == null
                 ? java.util.Collections.<ChatSidebarTab>emptyList() : sidebarTabsSource.get());
         // No pane title in the header — the ribbon's colored entry already names the active pane.
@@ -286,10 +285,10 @@ public final class ChatWorkspacePanel extends JPanel {
         newChat.setFocusable(false);
         newChat.addActionListener(event -> {
             openNewChat();
-            if (!sidebar.isPinned()) {
-                collapseMenuAndSidebar();
-            } else {
+            if (menuLocked) {
                 refreshChatList();
+            } else {
+                collapseMenuAndSidebar();
             }
         });
         sidebar.setHeaderComponent(newChat);
@@ -333,12 +332,10 @@ public final class ChatWorkspacePanel extends JPanel {
         repaint();
     }
 
-    /** The unpinned/unlocked parts fold away shortly after the pointer left the whole area. */
+    /** Ribbon and drawer fold away TOGETHER after hover-out — unless latched by the burger click. */
     private void onPointerLeftSidebarArea() {
-        if (!menuLocked && ribbon.isOpen()) {
+        if (!menuLocked) {
             ribbon.close();
-        }
-        if (!sidebar.isPinned() && sidebar.isVisible()) {
             hideSidebar();
         }
         updateMouseWatcher();
@@ -367,8 +364,8 @@ public final class ChatWorkspacePanel extends JPanel {
                 if (!(event instanceof MouseEvent) || !isShowing()) {
                     return;
                 }
-                if (sidebar.isPinned() && menuLocked) {
-                    sidebarCloseTimer.stop(); // nothing left that could auto-close
+                if (menuLocked) {
+                    sidebarCloseTimer.stop(); // latched: nothing auto-closes until the next click
                     return;
                 }
                 MouseEvent mouse = (MouseEvent) event;
@@ -513,8 +510,8 @@ public final class ChatWorkspacePanel extends JPanel {
             } catch (IllegalArgumentException ignored) {
                 return;
             }
-            if (!sidebar.isPinned()) {
-                hideSidebar();
+            if (!menuLocked) {
+                collapseMenuAndSidebar();
             }
         });
 

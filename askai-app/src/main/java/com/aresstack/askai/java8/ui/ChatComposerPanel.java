@@ -529,11 +529,6 @@ public final class ChatComposerPanel extends JPanel {
         }
     }
 
-    /** A Java2D pushpin in the composer icon style, for the sidebar's pin toggle. */
-    public static Icon createPushPinIcon() {
-        return new PushPinIcon();
-    }
-
     /** One entry of the unfolding sidebar tab ribbon, in the composer's Java2D button style. */
     public static JButton createRibbonEntryButton(String text, boolean active) {
         ComposerButton button = new ComposerButton(null, text, false);
@@ -1027,16 +1022,6 @@ public final class ChatComposerPanel extends JPanel {
         protected void paint(Graphics2D g2) {
             g2.drawLine(6, 3, 10, 7);
             g2.drawLine(10, 7, 6, 11);
-        }
-    }
-
-    /** A slanted pushpin (Pinwandnadel): round head top-right, shaft, needle to the bottom-left. */
-    private static final class PushPinIcon extends StrokeIcon {
-        protected void paint(Graphics2D g2) {
-            g2.drawOval(7, 1, 6, 6);   // head
-            g2.drawLine(8, 7, 5, 10);  // shaft leaving the head
-            g2.drawLine(3, 8, 8, 13);  // base plate across the shaft
-            g2.drawLine(5, 10, 2, 13); // needle tip
         }
     }
 
