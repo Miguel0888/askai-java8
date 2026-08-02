@@ -45,10 +45,12 @@ public final class ResearchStateViewContribution implements ArtifactViewContribu
                 });
             }
         };
-        research.addStateListener(refresh);
-        // Remove the listener when the view leaves the hierarchy (area rebuild / disable).
         view.addAncestorListener(new javax.swing.event.AncestorListener() {
             public void ancestorAdded(javax.swing.event.AncestorEvent event) {
+                // (Re)shown: re-attach the observer AND re-read the snapshot so a change made while hidden
+                // shows immediately instead of staying stale until a restart (addStateListener is addIfAbsent).
+                research.addStateListener(refresh);
+                refresh.run();
             }
 
             public void ancestorMoved(javax.swing.event.AncestorEvent event) {
@@ -58,6 +60,7 @@ public final class ResearchStateViewContribution implements ArtifactViewContribu
                 research.removeStateListener(refresh);
             }
         });
+        research.addStateListener(refresh);
         refresh.run(); // initial paint
         return view;
     }

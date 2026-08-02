@@ -47,19 +47,25 @@ public final class ResearchBriefViewContribution implements ArtifactViewContribu
                 });
             }
         };
-        research.addStateListener(refresh);
         view.addAncestorListener(new javax.swing.event.AncestorListener() {
             public void ancestorAdded(javax.swing.event.AncestorEvent event) {
+                // Tab (re)shown: RE-ATTACH the observer AND RE-READ the current brief from the store, so a
+                // brief written while the tab was hidden appears immediately instead of staying blank until
+                // an app restart. addStateListener is addIfAbsent, so repeated calls are safe.
+                research.addStateListener(refresh);
+                refresh.run();
             }
 
             public void ancestorMoved(javax.swing.event.AncestorEvent event) {
             }
 
             public void ancestorRemoved(javax.swing.event.AncestorEvent event) {
+                // Tab hidden/closed: stop live updates so the listener set never grows, but keep the reusable
+                // MarkdownView intact for a later re-show (disposing it here would break re-render on return).
                 research.removeStateListener(refresh);
-                view.dispose();
             }
         });
+        research.addStateListener(refresh);
         refresh.run(); // initial paint (shows persisted working copy on restore)
         return view;
     }

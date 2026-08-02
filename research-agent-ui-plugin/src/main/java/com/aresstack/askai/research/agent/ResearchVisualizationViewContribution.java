@@ -48,19 +48,24 @@ public final class ResearchVisualizationViewContribution implements ArtifactView
                 });
             }
         };
-        research.addStateListener(refresh);
         view.addAncestorListener(new javax.swing.event.AncestorListener() {
             public void ancestorAdded(javax.swing.event.AncestorEvent event) {
+                // (Re)shown: re-attach the observer AND re-read the latest projection so an update made while
+                // hidden shows immediately instead of staying stale until a restart (addIfAbsent-safe).
+                research.addStateListener(refresh);
+                refresh.run();
             }
 
             public void ancestorMoved(javax.swing.event.AncestorEvent event) {
             }
 
             public void ancestorRemoved(javax.swing.event.AncestorEvent event) {
+                // Stop live updates while hidden, but keep the reusable MarkdownView intact for a later
+                // re-show (disposing it here would break re-render on return).
                 research.removeStateListener(refresh);
-                view.dispose();
             }
         });
+        research.addStateListener(refresh);
         refresh.run(); // initial paint (placeholder until a visualization exists)
         return view;
     }
