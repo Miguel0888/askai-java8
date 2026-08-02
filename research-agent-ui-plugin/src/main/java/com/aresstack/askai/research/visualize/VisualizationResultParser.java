@@ -6,9 +6,12 @@ import java.util.Map;
 
 /**
  * Parses the visualizer model's raw text into a {@link VisualizationResult}. Tolerant and NON-throwing: any
- * malformed, message-less or {@code decision != DIAGRAM} answer degrades to {@link VisualizationResult#none}
- * (a visualization failure is never critical). A DIAGRAM needs a non-blank {@code mermaid}; the diagram type
- * is read leniently ({@link VisualizationType#fromToken}).
+ * malformed or message-less answer degrades (a visualization failure is never critical). The decision is read
+ * LENIENTLY: small local models answer {@code "decision": "MINDMAP"} (the type where DIAGRAM belongs, seen
+ * live with gemma), so any decision that is not explicitly NONE but comes WITH a non-blank {@code mermaid}
+ * counts as a diagram — only an explicit NONE (or a diagram-less answer) is "no visualization". The diagram
+ * type is read leniently too ({@link VisualizationType#fromToken}), preferring {@code diagramType} and
+ * falling back to the decision token itself.
  */
 public final class VisualizationResultParser {
 
@@ -32,17 +35,24 @@ public final class VisualizationResultParser {
         }
         Map<String, Object> object = (Map<String, Object>) root;
         String decision = asString(object.get("decision"));
-        if (decision == null || !decision.trim().equalsIgnoreCase("DIAGRAM")) {
+        String mermaid = asString(object.get("mermaid"));
+        boolean hasMermaid = mermaid != null && !mermaid.trim().isEmpty();
+        boolean explicitNone = decision != null && decision.trim().equalsIgnoreCase("NONE");
+        if (explicitNone || !hasMermaid) {
+            if (!explicitNone && decision != null && decision.trim().equalsIgnoreCase("DIAGRAM")) {
+                return VisualizationResult.failed("DIAGRAM decision without a diagram source");
+            }
             // A deliberate model choice of no diagram — a valid NONE, not a failure.
             String reason = asString(object.get("reason"));
             return VisualizationResult.none(reason == null ? "the model chose no diagram" : reason);
         }
-        String mermaid = asString(object.get("mermaid"));
-        if (mermaid == null || mermaid.trim().isEmpty()) {
-            return VisualizationResult.failed("DIAGRAM decision without a diagram source");
+        // Lenient: any non-NONE decision WITH a diagram body is a diagram, whatever the token says.
+        String typeToken = asString(object.get("diagramType"));
+        if (typeToken == null || typeToken.trim().isEmpty()) {
+            typeToken = decision; // e.g. {"decision":"MINDMAP", ...} — the type landed in the decision
         }
         return VisualizationResult.diagram(
-                VisualizationType.fromToken(asString(object.get("diagramType"))),
+                VisualizationType.fromToken(typeToken),
                 asString(object.get("title")),
                 mermaid);
     }

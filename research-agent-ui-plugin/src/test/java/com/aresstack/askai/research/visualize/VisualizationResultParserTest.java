@@ -30,6 +30,33 @@ public class VisualizationResultParserTest {
     }
 
     @Test
+    public void aTypeTokenInTheDecisionStillCountsAsADiagram() {
+        // Seen live with gemma: {"decision":"MINDMAP", ...} — the type lands where DIAGRAM belongs.
+        VisualizationResult r = VisualizationResultParser.parse(
+                "{\"decision\":\"MINDMAP\",\"diagramType\":\"MINDMAP\",\"title\":\"Wearables\","
+                        + "\"mermaid\":\"mindmap\\n  Wearables\\n    Audio\\n    Video\"}");
+        assertTrue("a non-NONE decision with a diagram body is a diagram", r.isPresent());
+        assertEquals(VisualizationType.MINDMAP, r.getType());
+    }
+
+    @Test
+    public void aDecisionTokenAloneSuppliesTheTypeWhenDiagramTypeIsMissing() {
+        VisualizationResult r = VisualizationResultParser.parse(
+                "{\"decision\":\"TIMELINE\",\"mermaid\":\"timeline\\n 2020 : a\"}");
+        assertTrue(r.isPresent());
+        assertEquals(VisualizationType.TIMELINE, r.getType());
+    }
+
+    @Test
+    public void anUnknownDecisionWithoutMermaidIsStillAValidNone() {
+        VisualizationResult r = VisualizationResultParser.parse(
+                "{\"decision\":\"maybe\",\"reason\":\"unsure\"}");
+        assertFalse(r.isPresent());
+        assertEquals(VisualizationResult.Kind.NONE, r.getKind());
+        assertEquals("unsure", r.getReason());
+    }
+
+    @Test
     public void aDiagramDecisionWithoutMermaidIsAFailureNotADeliberateNone() {
         VisualizationResult r = VisualizationResultParser.parse("{\"decision\":\"DIAGRAM\",\"mermaid\":\"  \"}");
         assertFalse(r.isPresent());

@@ -15,7 +15,10 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public final class ModelArtifactVisualizer implements ArtifactVisualizationService {
 
-    private static final long TIMEOUT_MILLIS = 30000;
+    // Generous on purpose: the visualizer is LOW-priority background work on a local model that also
+    // serves the main agent — a cold gemma answer took 35s on an otherwise idle machine, far longer
+    // under turn contention. Nothing blocks on this latch except the visualizer's own worker.
+    private static final long TIMEOUT_MILLIS = 180000;
 
     private final AgentInferencePort port;
 
