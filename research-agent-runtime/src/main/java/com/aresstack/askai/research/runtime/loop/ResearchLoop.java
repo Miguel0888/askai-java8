@@ -66,6 +66,20 @@ public final class ResearchLoop {
      */
     private com.aresstack.askai.research.runtime.rerank.CandidateReranker reranker =
             new com.aresstack.askai.research.runtime.rerank.EngineOrderReranker();
+    /**
+     * The source-acceptance seam. Defaults to the agent's phase-gated {@code source_accept} tool (the exact
+     * inline behavior this loop always had); a user-triggered search later injects the internal
+     * {@code manual_source_accept} port instead — same acquisition code, different authorization/origin.
+     */
+    private com.aresstack.askai.research.runtime.acquire.SourceAcceptancePort sourceAcceptancePort;
+
+    /** Inject the source-acceptance route (T2c wires the manual port; default stays the agent's tool). */
+    public void setSourceAcceptancePort(
+            com.aresstack.askai.research.runtime.acquire.SourceAcceptancePort port) {
+        if (port != null) {
+            this.sourceAcceptancePort = port;
+        }
+    }
 
     /** Inject the mandatory reranker (productive runtime, and reranking integration tests). */
     public void setReranker(com.aresstack.askai.research.runtime.rerank.CandidateReranker reranker) {
@@ -137,6 +151,8 @@ public final class ResearchLoop {
                         com.aresstack.askai.browser.search.LegacyBrowserSearchSettings searchSettings) {
         this.browser = browser;
         this.research = research;
+        this.sourceAcceptancePort =
+                new com.aresstack.askai.research.runtime.acquire.AgentSourceAcceptancePort(research);
         this.budget = budget;
         this.clock = clock;
         this.listener = listener;
@@ -419,7 +435,7 @@ public final class ResearchLoop {
             if (gate != null) {
                 return gate;
             }
-            String accepted = callResearch("source_accept", args("capture_id", captureId));
+            String accepted = sourceAcceptancePort.accept(captureId);
             progress.success();
             String sourceId = field(accepted, "source_id");
             boolean duplicate = accepted.contains("duplicate=true");
