@@ -10,12 +10,12 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * The deterministic autonomous research loop. It ORCHESTRATES only: every effect goes through MCP tools
- * ({@code web_*} on the browser endpoint, {@code source_accept}/{@code finding_add} on the research
- * endpoint) — never through stores directly. Decisions are CONTENT-driven (query terms against page
- * text/title and link text), not a scripted call sequence. Budgets are checked centrally in
- * {@link #beforeToolCall()} before every call; the stop reason is explicit and reported via the listener.
- * PHASE_READY is an event; the host stays the only state authority.
+ * The deterministic autonomous research loop. It now DELEGATES the web-acquisition engine (SearchStrategy →
+ * rerank → frontier → browse → capture → source acceptance → links → budgets/cancel/CAPTCHA/cleanup) to
+ * {@link com.aresstack.askai.research.runtime.acquire.WebSearchApplicationService}, and keeps ONLY the
+ * research-specific concerns: deriving the query terms, recording a finding ({@code finding_add}) for each
+ * newly accepted source, the run summary, and the PHASE_READY event. The host stays the only state authority.
+ * A user-triggered manual search reuses the SAME acquisition service but records no findings.
  */
 public final class ResearchLoop {
 
@@ -30,15 +30,6 @@ public final class ResearchLoop {
     private final AtomicBoolean cancelled;
     private final long startedAt;
     private final Set<String> claimedSourceIds = new HashSet<String>();
-    /** Sites of the search engine(s) used this run — pure TRANSIT: never a page, host, source or link farm. */
-    private final Set<String> searchProviderSites = new HashSet<String>();
-    /** Domain families with a pending MANUAL challenge: locked (no navigation/retry) until resolved. */
-    private final Set<String> challengedFamilies = new HashSet<String>();
-    /** Frontier URLs deferred because their family is challenge-locked (QUEUED_DOMAIN_BLOCKED). */
-    private final List<String> deferredUrls = new ArrayList<String>();
-    /** Time spent waiting for the USER (manual challenge) — never counted against the time budget. */
-    private long waitedForUserMillis;
-    private long lastChallengeProbeAt;
     /** From the CAPTCHA settings (single default origin: LegacyBrowserSearchDefaults). */
     private final long challengeProbeIntervalMillis;
     /** Public-suffix aware domain families; tests may inject a fake (e.g. host:port for local worlds). */
@@ -49,12 +40,10 @@ public final class ResearchLoop {
      * the browser SERP path built by {@link
      * com.aresstack.askai.research.runtime.search.LegacyBrowserSearchStrategyFactory} (so the loop itself
      * knows nothing about the layout-repair client); the productive runtime injects an API-provider strategy
-     * at session start when the snapshot selects one. From {@code result.candidates} onward the loop behaves
-     * identically no matter which strategy produced the URLs.
+     * at session start when the snapshot selects one. From {@code result.candidates} onward the acquisition
+     * behaves identically no matter which strategy produced the URLs.
      */
     private com.aresstack.askai.research.runtime.search.SearchStrategy searchStrategy;
-    /** The neutral per-run result count hint handed to the strategy (a provider may cap it further). */
-    private static final int INITIAL_SEARCH_RESULT_COUNT = 10;
     /**
      * The MANDATORY local cross-encoder reranking step. Every organic candidate is reranked and only the
      * selected survivors — in relevance order — ever reach the frontier and {@code web_open}; a reranker
@@ -191,10 +180,31 @@ public final class ResearchLoop {
         }
     }
 
-    /** Run the loop for a task; returns the explicit stop reason (also sent through the listener). */
+    /**
+     * Run for a task: derive the research terms, delegate the deterministic acquisition to the
+     * {@link com.aresstack.askai.research.runtime.acquire.WebSearchApplicationService} (recording a finding
+     * for each newly accepted source at the acceptance point, so {@code source_accept → finding_add →
+     * web_links} order is preserved), then emit the run summary and — for SUFFICIENT_EVIDENCE — PHASE_READY.
+     */
     public ResearchStopReason run(String task) {
-        Set<String> terms = queryTerms(task);
-        ResearchStopReason reason = runInternal(terms);
+        final Set<String> terms = queryTerms(task);
+        com.aresstack.askai.research.runtime.acquire.WebSearchApplicationService acquisition =
+                new com.aresstack.askai.research.runtime.acquire.WebSearchApplicationService(
+                        browser, budget, progress, clock, listener, cancelled, searchStrategy, apiProviderLabel,
+                        reranker, domainKeys, sourceAcceptancePort, startedAt, challengeProbeIntervalMillis,
+                        new com.aresstack.askai.research.runtime.acquire.WebSearchApplicationService
+                                .AcceptedSourceListener() {
+                            public ResearchStopReason onAccepted(
+                                    com.aresstack.askai.research.runtime.acquire.WebSearchApplicationService
+                                            .AcceptedSource source,
+                                    com.aresstack.askai.research.runtime.acquire.WebSearchApplicationService
+                                            .ToolBudget budgetGate)
+                                    throws ToolInvoker.ToolFailure, ToolInvoker.EndpointUnavailable {
+                                return recordFinding(source.getSourceId(), source.isDuplicate(),
+                                        source.getPage(), terms, budgetGate);
+                            }
+                        });
+        ResearchStopReason reason = acquisition.execute(terms);
         listener.status("run stopped: " + reason
                 + " (pages=" + progress.getPagesVisited()
                 + " sources=" + progress.getAcceptedSources()
@@ -210,272 +220,19 @@ public final class ResearchLoop {
         return ResearchRunOutcome.from(reason, progress, budget);
     }
 
-    private ResearchStopReason runInternal(Set<String> terms) {
-        // Seed: search, else nothing to do.
-        List<String> frontier = new ArrayList<String>();
-        ResearchStopReason seedStop = null;
-        // How the INITIAL search concluded — kept so an empty frontier caused by a technical search failure
-        // is reported as a technical problem, never as an honest "no relevant results".
-        com.aresstack.askai.research.runtime.search.InitialSearchStatus initialStatus =
-                com.aresstack.askai.research.runtime.search.InitialSearchStatus.NO_RESULTS;
-        try {
-            String query = join(terms);
-            listener.progress(progress, apiProviderLabel == null
-                    ? ResearchRunActivity.searching(query)
-                    : ResearchRunActivity.searchingViaApi(query, apiProviderLabel));
-            // Interchangeable INITIAL search: whether these candidates come from the browser SERP path or an
-            // API provider, the code below (reranking → frontier → Playwright) is identical. URLs come
-            // straight from typed SearchResultCandidates — no ATTEMPT:/CHALLENGE: text parsing.
-            com.aresstack.askai.research.runtime.search.InitialSearchResult result = searchStrategy.search(
-                    new com.aresstack.askai.research.runtime.search.InitialSearchRequest(
-                            query, INITIAL_SEARCH_RESULT_COUNT, null, null),
-                    cancellationSignal(),
-                    new com.aresstack.askai.research.runtime.search.SearchBudgetGate() {
-                        public boolean beforeToolCall() {
-                            return ResearchLoop.this.beforeToolCall() == null;
-                        }
-                    });
-            initialStatus = result.status;
-            for (String providerHost : result.providerHosts) {
-                searchProviderSites.add(familyOf(providerHost));
-            }
-            applyChallenges(result.challenges);
-            // MANDATORY reranking BEFORE anything reaches the frontier: no page is ever opened in raw
-            // engine order. Only the selected survivors, in relevance order, become frontier URLs; a
-            // reranker failure ends the run with a typed reason and opens nothing.
-            seedStop = seedReranking(query, result.candidates, frontier);
-        } catch (ToolInvoker.EndpointUnavailable ex) {
-            return ResearchStopReason.MCP_UNAVAILABLE;
-        } catch (ToolInvoker.ToolFailure ex) {
-            progress.error();
-        } catch (RuntimeException ex) {
-            // A malformed prepare/apply payload (codec DecodeException) must not crash the loop —
-            // it is a tool-level failure; the run continues with an empty frontier (the error budget and
-            // NO_RELEVANT_PATHS handle it as before).
-            listener.status("web search preparation failed: " + ex.getMessage());
-            progress.error();
-        }
-        if (seedStop != null) {
-            return seedStop;
-        }
-        // Honest reporting: an INITIAL search that failed technically (SERP layout could not be extracted —
-        // e.g. the layout-repair model was unavailable — or every engine was blocked with nothing
-        // extractable) produced no candidates and therefore an empty frontier. That is NOT the same as
-        // "no relevant results": surface it as a technical problem the user can retry.
-        if (frontier.isEmpty()
-                && initialStatus
-                        == com.aresstack.askai.research.runtime.search.InitialSearchStatus.TECHNICAL_PROBLEM) {
-            return ResearchStopReason.SEARCH_TECHNICAL_PROBLEM;
-        }
-
-        while (true) {
-            ResearchStopReason gate = stopReasonNow();
-            if (gate != null) {
-                return gate;
-            }
-            probeChallengesIfDue(frontier);
-            if (frontier.isEmpty() && !deferredUrls.isEmpty() && !challengedFamilies.isEmpty()) {
-                // WAITING_FOR_USER: only challenge-bound work is left. Wait cooperatively (short
-                // cancel-aware ticks, ~1/s probes), without failing any navigation or time budget.
-                ResearchStopReason wait = waitForManualChallenge(frontier);
-                if (wait != null) {
-                    return wait;
-                }
-                continue;
-            }
-            if (frontier.isEmpty()) {
-                return sufficientOr(ResearchStopReason.NO_RELEVANT_PATHS);
-            }
-            String url = frontier.remove(0);
-            String canonical = canonicalish(url);
-            if (progress.alreadyVisited(canonical)) {
-                continue; // already visited → never navigate again
-            }
-            if (challengedFamilies.contains(familyOf(url))) {
-                deferredUrls.add(url); // QUEUED_DOMAIN_BLOCKED: starts only after the challenge resolves
-                continue;
-            }
-            try {
-                ResearchStopReason g2 = beforeToolCall();
-                if (g2 != null) {
-                    return g2;
-                }
-                String page = callBrowser("web_open", args("url", url));
-                progress.success();
-                // Host diversity MUST come from the FINAL post-redirect URL the browser actually landed on —
-                // counting hostOf(requested) would count "bing.com" for every redirect link and make the
-                // ≥2-hosts sufficiency threshold unreachable. Both addresses are marked visited; the page
-                // and its host are counted once, under the final canonical URL.
-                String finalUrl = finalUrlOf(page);
-                String effectiveUrl = finalUrl == null || finalUrl.isEmpty() ? url : finalUrl;
-                String finalCanonical = canonicalish(effectiveUrl);
-                String finalHost = hostOf(effectiveUrl);
-                String pageTitle = titleOf(page);
-                if (isSearchProviderSite(finalHost)) {
-                    // The search engine is TRANSIT (its verticals like /videos or /shopping ended up in
-                    // the frontier): mark visited so it is never re-opened, but it counts as neither page
-                    // nor host, is never a source, and its links are not harvested.
-                    progress.noteVisitedAlias(finalCanonical);
-                    progress.noteVisitedAlias(canonical);
-                    listener.status("skipped search-provider page: " + effectiveUrl);
-                    listener.progress(progress,
-                            ResearchRunActivity.pageSkipped(effectiveUrl, finalHost, pageTitle));
-                    continue;
-                }
-                progress.pageVisited(finalCanonical, finalHost);
-                if (!finalCanonical.equals(canonical)) {
-                    // A redirect: the requested address is marked visited too (but never counted).
-                    progress.noteVisitedAlias(canonical);
-                }
-                listener.progress(progress, ResearchRunActivity.readingPage(effectiveUrl, finalHost, pageTitle));
-                String captureId = field(page, "capture_id");
-                String pageText = page.toLowerCase(Locale.ROOT);
-
-                if (matches(pageText, terms)) {
-                    ResearchStopReason g3 = acceptAndRecordFinding(captureId, page, terms,
-                            effectiveUrl, finalHost, pageTitle);
-                    if (g3 != null) {
-                        return g3;
-                    }
-                } else {
-                    listener.status("skipped irrelevant page: " + url);
-                    listener.progress(progress, ResearchRunActivity.pageSkipped(effectiveUrl, finalHost, pageTitle));
-                }
-
-                // Follow only links whose text hints at the task (content-driven, not order-driven).
-                ResearchStopReason g4 = beforeToolCall();
-                if (g4 != null) {
-                    return g4;
-                }
-                String links = callBrowser("web_links", args());
-                progress.success();
-                for (String line : links.split("\n")) {
-                    String lower = line.toLowerCase(Locale.ROOT);
-                    if (matches(lower, terms)) {
-                        String linkUrl = lastUrl(line);
-                        if (linkUrl != null && !isSearchProviderSite(hostOf(linkUrl))
-                                && !progress.alreadyVisited(canonicalish(linkUrl))) {
-                            frontier.add(linkUrl);
-                        }
-                    }
-                }
-            } catch (ToolInvoker.EndpointUnavailable ex) {
-                return ResearchStopReason.MCP_UNAVAILABLE;
-            } catch (ToolInvoker.ToolFailure ex) {
-                progress.error();
-                listener.status("tool failed: " + ex.getMessage());
-            }
-        }
-    }
-
-    /**
-     * The MANDATORY reranking gate between structured extraction and navigation. The call is budgeted
-     * like any other tool (against the ResearchRunBudget, NOT the browser MCP) and honours cancellation.
-     * On SUCCESS it fills {@code frontier} with the selected candidates in relevance order and returns
-     * {@code null}; on any reranker failure (or NO_SEMANTIC_MATCHES) it opens nothing and returns the
-     * typed stop reason — never a raw engine-order fallback. NO_CANDIDATES (an empty search) returns
-     * {@code null} so the run ends as NO_RELEVANT_PATHS, not as a reranker failure.
-     */
-    private ResearchStopReason seedReranking(String query,
-            List<com.aresstack.askai.browser.search.SearchResultCandidate> candidates,
-            List<String> frontier) {
-        if (candidates.isEmpty()) {
-            return null; // nothing to rerank or open → NO_RELEVANT_PATHS via the main loop
-        }
-        ResearchStopReason gate = beforeToolCall();
-        if (gate != null) {
-            return gate; // budget/cancel before the very first tool call
-        }
-        com.aresstack.askai.research.runtime.rerank.SearchResultRerankingResult result =
-                reranker.rerank(query, candidates, cancellationSignal());
-        listener.status("reranking [" + result.modelName + "]: " + result.diagnostics);
-        switch (result.outcome) {
-            case SUCCESS:
-                progress.success();
-                for (com.aresstack.askai.research.runtime.rerank.RerankedSearchResultCandidate ranked
-                        : result.selected) {
-                    if (!ranked.candidate.resolvedTargetUrl.isEmpty()) {
-                        frontier.add(ranked.candidate.resolvedTargetUrl);
-                    }
-                }
-                return null;
-            case NO_CANDIDATES:
-                return null; // empty search, not a reranker failure
-            case NO_SEMANTIC_MATCHES:
-                return ResearchStopReason.NO_SEMANTIC_MATCHES;
-            case TIMEOUT:
-                progress.error();
-                return ResearchStopReason.RERANKER_TIMEOUT;
-            case INVALID_RESPONSE:
-                progress.error();
-                return ResearchStopReason.RERANKER_INVALID_RESPONSE;
-            case CONFIGURATION_ERROR:
-                progress.error();
-                return ResearchStopReason.RERANKER_CONFIGURATION_ERROR;
-            case CANCELLED:
-                return ResearchStopReason.USER_CANCELLED;
-            case BUDGET_EXHAUSTED:
-                return sufficientOr(ResearchStopReason.TOOL_BUDGET_EXHAUSTED);
-            case RERANKER_UNAVAILABLE:
-            default:
-                progress.error();
-                return ResearchStopReason.RERANKER_UNAVAILABLE;
-        }
-    }
-
-    /** Accept the capture and store one finding — via MCP only; duplicates are NOT errors. */
-    private ResearchStopReason acceptAndRecordFinding(String captureId, String page, Set<String> terms,
-                                                      String pageUrl, String pageHost, String pageTitle)
-            throws ToolInvoker.EndpointUnavailable {
-        if (captureId == null) {
-            return null;
-        }
-        try {
-            ResearchStopReason gate = beforeToolCall();
-            if (gate != null) {
-                return gate;
-            }
-            // ACQUISITION (future WebSearchApplicationService): accept the visited capture as a source.
-            String accepted = sourceAcceptancePort.accept(captureId);
-            progress.success();
-            String sourceId = field(accepted, "source_id");
-            boolean duplicate = accepted.contains("duplicate=true");
-            if (sourceId == null || "-".equals(sourceId)) {
-                return null;
-            }
-            if (accepted.contains("ALREADY_ACCEPTED")) {
-                return null; // idempotent outcome, no new source, no repeated claim
-            }
-            progress.sourceAccepted();
-            listener.status("accepted " + sourceId + (duplicate ? " (duplicate content)" : ""));
-            listener.progress(progress, ResearchRunActivity.sourceAccepted(pageUrl, pageHost, pageTitle));
-            // RESEARCH-SPECIFIC (stays in ResearchLoop, NOT in the shared acquisition service): derive a
-            // finding from the accepted source. A user-triggered manual search accepts sources but must
-            // invent no agent findings — so this step is the loop's, reached via a hook after extraction.
-            return recordFinding(sourceId, duplicate, page, terms);
-        } catch (ToolInvoker.ToolFailure ex) {
-            // A rejected write (state changed under us) ends the run explicitly, not as a crash.
-            if (ex.getMessage() != null && ex.getMessage().contains("Not allowed in the current state")) {
-                return ex.getMessage().contains("waiting_approval")
-                        ? ResearchStopReason.APPROVAL_REQUIRED : ResearchStopReason.STATE_CHANGED;
-            }
-            progress.error();
-        }
-        return null;
-    }
-
     /**
      * RESEARCH-SPECIFIC finding recording (NOT part of the shared web-acquisition service): one finding per
      * NEW claim; a duplicate source never repeats the same claim, and the {@code finding_add} write is budgeted
-     * exactly like before. When the acquisition engine is extracted, the loop injects this as a hook so a
-     * user-triggered manual search reuses the acquisition but records no agent findings.
+     * exactly like before through the acquisition's own gate. Invoked by the acquisition service as its
+     * accepted-source listener, at the acceptance point (before web_links), so a user-triggered manual search
+     * can reuse the acquisition but record no agent findings.
      */
-    private ResearchStopReason recordFinding(String sourceId, boolean duplicate, String page,
-                                             Set<String> terms)
+    private ResearchStopReason recordFinding(String sourceId, boolean duplicate, String page, Set<String> terms,
+            com.aresstack.askai.research.runtime.acquire.WebSearchApplicationService.ToolBudget budgetGate)
             throws ToolInvoker.ToolFailure, ToolInvoker.EndpointUnavailable {
         String claim = "Evidence for [" + join(terms) + "] in \"" + field(page, "title") + "\"";
         if (!duplicate && claimedSourceIds.add(claim)) {
-            ResearchStopReason g2 = beforeToolCall();
+            ResearchStopReason g2 = budgetGate.beforeToolCall();
             if (g2 != null) {
                 return g2;
             }
@@ -485,156 +242,7 @@ public final class ResearchLoop {
         return null;
     }
 
-    // ------------------------------------------------------------------ manual challenge cooperation
-
-    private com.aresstack.askai.browser.search.inference.CancellationSignal cancellationSignal() {
-        return new com.aresstack.askai.browser.search.inference.CancellationSignal() {
-            public boolean isCancelled() {
-                return cancelled.get();
-            }
-        };
-    }
-
-    /** Apply the TYPED challenge states carried by a prepared search — no CHALLENGE: text parsing. */
-    private void applyChallenges(
-            List<com.aresstack.askai.browser.search.repair.SearchChallengeState> challenges) {
-        for (com.aresstack.askai.browser.search.repair.SearchChallengeState challenge : challenges) {
-            String family = familyOf(challenge.family);
-            if (!family.isEmpty() && challengedFamilies.add(family)) {
-                listener.status("manual challenge pending on " + family);
-                listener.attention("CAPTCHA", family, challenge.url, false);
-            }
-        }
-    }
-
-    /** Parse typed CHALLENGE/RESOLVED lines (from web_challenge_status) and apply them. */
-    private void applyChallengeLines(String text) {
-        for (String line : (text == null ? "" : text).split("\n")) {
-            if (line.startsWith("CHALLENGE: ")) {
-                String rest = line.substring("CHALLENGE: ".length()).trim();
-                int space = rest.indexOf(' ');
-                String family = familyOf(space < 0 ? rest : rest.substring(0, space));
-                String url = space < 0 ? "" : rest.substring(space + 1).trim();
-                if (!family.isEmpty() && challengedFamilies.add(family)) {
-                    listener.status("manual challenge pending on " + family);
-                    listener.attention("CAPTCHA", family, url, false);
-                }
-            } else if (line.startsWith("RESOLVED: ")) {
-                unlockFamily(familyOf(line.substring("RESOLVED: ".length()).trim()));
-            } else if (line.equals("NONE")) {
-                // The browser has no pending challenge (it may have been consumed elsewhere): unlock all.
-                for (String family : new ArrayList<String>(challengedFamilies)) {
-                    unlockFamily(family);
-                }
-            }
-        }
-    }
-
-    private void unlockFamily(String family) {
-        if (challengedFamilies.remove(family)) {
-            listener.status("manual challenge resolved on " + family);
-            listener.attention("CAPTCHA", family, "", true);
-        }
-    }
-
-    /** Probe the parked challenge at most once per second; unlocked work returns to the frontier. */
-    private void probeChallengesIfDue(List<String> frontier) {
-        if (challengedFamilies.isEmpty()) {
-            return;
-        }
-        long now = clock.currentTimeMillis();
-        if (now - lastChallengeProbeAt < challengeProbeIntervalMillis) {
-            return;
-        }
-        lastChallengeProbeAt = now;
-        try {
-            // Deliberately WITHOUT the budget gate: polling the user's pending challenge must never
-            // exhaust a tool budget or count as research work.
-            applyChallengeLines(browser.call("web_challenge_status", args()));
-        } catch (ToolInvoker.EndpointUnavailable | ToolInvoker.ToolFailure ignored) {
-            // The probe is best-effort; the next tick retries.
-        }
-        if (!deferredUrls.isEmpty()) {
-            // Re-queue everything whose family is unlocked again (still-locked URLs re-defer on pull).
-            List<String> requeue = new ArrayList<String>();
-            for (String url : deferredUrls) {
-                if (!challengedFamilies.contains(familyOf(url))) {
-                    requeue.add(url);
-                }
-            }
-            deferredUrls.removeAll(requeue);
-            frontier.addAll(requeue);
-        }
-    }
-
-    /**
-     * The cooperative wait while ONLY challenge-bound work remains: cancel stays immediate, the time
-     * budget is compensated (waiting for the user is never a budget failure), the challenge is probed
-     * about once per second, and the card shows WAITING_FOR_USER. Returns a stop reason or {@code null}
-     * when the frontier has work again.
-     */
-    private ResearchStopReason waitForManualChallenge(List<String> frontier) {
-        String family = challengedFamilies.isEmpty() ? "" : challengedFamilies.iterator().next();
-        listener.progress(progress, ResearchRunActivity.waitingForUser(family, ""));
-        while (frontier.isEmpty() && !deferredUrls.isEmpty() && !challengedFamilies.isEmpty()) {
-            if (cancelled.get()) {
-                return ResearchStopReason.USER_CANCELLED;
-            }
-            long tickStart = clock.currentTimeMillis();
-            clock.sleepMillis(challengeProbeIntervalMillis);
-            waitedForUserMillis += Math.max(0, clock.currentTimeMillis() - tickStart);
-            probeChallengesIfDue(frontier);
-        }
-        return cancelled.get() ? ResearchStopReason.USER_CANCELLED : null;
-    }
-
-    // ------------------------------------------------------------------ central budget gate
-
-    /** Checked before EVERY tool call — the single budget gate (no scattered ifs). */
-    private ResearchStopReason beforeToolCall() {
-        ResearchStopReason now = stopReasonNow();
-        if (now != null) {
-            return now;
-        }
-        progress.toolCall();
-        return null;
-    }
-
-    private ResearchStopReason stopReasonNow() {
-        if (cancelled.get()) {
-            return ResearchStopReason.USER_CANCELLED;
-        }
-        if (progress.getToolCalls() >= budget.getMaxToolCalls()) {
-            return sufficientOr(ResearchStopReason.TOOL_BUDGET_EXHAUSTED);
-        }
-        if (progress.getPagesVisited() >= budget.getMaxPagesVisited()) {
-            return sufficientOr(ResearchStopReason.PAGE_BUDGET_EXHAUSTED);
-        }
-        if (progress.getAcceptedSources() >= budget.getMaxAcceptedSources()) {
-            return ResearchStopReason.SOURCE_BUDGET_EXHAUSTED;
-        }
-        if (progress.getConsecutiveErrors() >= budget.getMaxConsecutiveErrors()) {
-            return ResearchStopReason.ERROR_BUDGET_EXHAUSTED;
-        }
-        // Waiting for the USER (manual challenge) is never budgeted time.
-        if (clock.currentTimeMillis() - startedAt - waitedForUserMillis >= budget.getMaxDurationMillis()) {
-            return sufficientOr(ResearchStopReason.TIME_BUDGET_EXHAUSTED);
-        }
-        return null;
-    }
-
-    private ResearchStopReason sufficientOr(ResearchStopReason fallback) {
-        boolean sufficient = progress.getAcceptedSources() >= budget.getMinimumAcceptedSources()
-                && progress.getDistinctHosts().size() >= budget.getMinimumDistinctHosts();
-        return sufficient ? ResearchStopReason.SUFFICIENT_EVIDENCE : fallback;
-    }
-
-    // ------------------------------------------------------------------ tool plumbing + parsing
-
-    private String callBrowser(String tool, Map<String, Object> a)
-            throws ToolInvoker.ToolFailure, ToolInvoker.EndpointUnavailable {
-        return browser.call(tool, a);
-    }
+    // ------------------------------------------------------------------ research tool plumbing
 
     private String callResearch(String tool, Map<String, Object> a)
             throws ToolInvoker.ToolFailure, ToolInvoker.EndpointUnavailable {
@@ -649,12 +257,11 @@ public final class ResearchLoop {
         return m;
     }
 
+    // ------------------------------------------------------------------ pure text helpers (see WebAcquisitionText)
+    // Thin delegators kept so existing callers and tests remain stable after the helper extraction (T2a Step 2).
+
     static Set<String> queryTerms(String task) {
         return com.aresstack.askai.research.runtime.acquire.WebAcquisitionText.queryTerms(task);
-    }
-
-    private static boolean matches(String lowerText, Set<String> terms) {
-        return com.aresstack.askai.research.runtime.acquire.WebAcquisitionText.matches(lowerText, terms);
     }
 
     static String field(String result, String key) {
@@ -665,48 +272,24 @@ public final class ResearchLoop {
         return com.aresstack.askai.research.runtime.acquire.WebAcquisitionText.extractUrls(text);
     }
 
-    private static String lastUrl(String line) {
-        return com.aresstack.askai.research.runtime.acquire.WebAcquisitionText.lastUrl(line);
-    }
-
     static String canonicalish(String url) {
         return com.aresstack.askai.research.runtime.acquire.WebAcquisitionText.canonicalish(url);
     }
 
-    /**
-     * The FINAL post-navigation URL out of a {@code web_open} result. Both known result shapes start with
-     * "URL: &lt;url&gt;" — the bridge appends {@code title="…" capture_id=…} on the same line, the raw sidecar
-     * puts TITLE on the next line; in both cases the URL is the token right after the prefix.
-     */
     static String finalUrlOf(String page) {
         return com.aresstack.askai.research.runtime.acquire.WebAcquisitionText.finalUrlOf(page);
     }
 
-    /**
-     * The page title out of a {@code web_open} result. The bridge appends {@code title="…"} on the URL line
-     * (parsed as the full quoted value, not just the first word), the raw sidecar reports a "TITLE: …" line.
-     */
     static String titleOf(String page) {
         return com.aresstack.askai.research.runtime.acquire.WebAcquisitionText.titleOf(page);
     }
 
-    /** Remove typed status lines (PROVIDER/CHALLENGE/RESOLVED/NONE) so their URLs never enter the frontier. */
     static String stripStatusLines(String results) {
         return com.aresstack.askai.research.runtime.acquire.WebAcquisitionText.stripStatusLines(results);
     }
 
-    /** All {@code PROVIDER: <host>} lines of a {@code web_search} result (fallback engines add more). */
     static List<String> providerHostsOf(String results) {
         return com.aresstack.askai.research.runtime.acquire.WebAcquisitionText.providerHostsOf(results);
-    }
-
-    private boolean isSearchProviderSite(String host) {
-        return !host.isEmpty() && searchProviderSites.contains(familyOf(host));
-    }
-
-    /** The public-suffix aware domain family ({@code news.bbc.co.uk} → {@code bbc.co.uk}). */
-    private String familyOf(String urlOrHost) {
-        return domainKeys.resolve(urlOrHost).getRegistrableDomain();
     }
 
     static String hostOf(String url) {
