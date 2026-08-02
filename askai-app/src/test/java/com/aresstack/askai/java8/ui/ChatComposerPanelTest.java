@@ -205,10 +205,6 @@ public final class ChatComposerPanelTest {
             increment("reasoning");
         }
 
-        public void openSettings() {
-            increment("settings");
-        }
-
         public void toggleNotificationsMute() {
             increment("toggleNotificationsMute");
         }

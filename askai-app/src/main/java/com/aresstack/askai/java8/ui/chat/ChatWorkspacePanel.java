@@ -1,18 +1,30 @@
 package com.aresstack.askai.java8.ui.chat;
 
+import com.aresstack.askai.java8.history.ChatHistoryStore;
+import com.aresstack.askai.java8.history.ChatRecord;
+import com.aresstack.askai.java8.ui.ChatComposerPanel;
+import com.aresstack.askai.java8.ui.OllamaChatPanel;
 import com.aresstack.askai.java8.ui.PlusIcon;
+import com.aresstack.askai.java8.ui.sidebar.ChatSidebarPanel;
+import com.aresstack.askai.java8.ui.sidebar.ChatSidebarTab;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
+import javax.swing.JComponent;
 import javax.swing.JLabel;
+import javax.swing.JOptionPane;
 import javax.swing.JPanel;
-import javax.swing.JTabbedPane;
-import javax.swing.event.ChangeEvent;
-import javax.swing.event.ChangeListener;
+import javax.swing.JScrollPane;
+import javax.swing.SwingConstants;
+import java.awt.AWTEvent;
 import java.awt.BorderLayout;
+import java.awt.CardLayout;
 import java.awt.Component;
-import java.awt.FlowLayout;
-import java.awt.Insets;
+import java.awt.Dimension;
+import java.awt.Point;
+import java.awt.Rectangle;
+import java.awt.Toolkit;
+import java.awt.event.AWTEventListener;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
@@ -21,11 +33,13 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Hosts independent chat sessions in tabs. The last tab is a fixed, disabled placeholder whose tab
- * component is an icon-only "＋" button (MainframeMate pattern): the button — not the tab selection —
- * creates a new chat, which is always inserted immediately before the plus tab. Each chat carries a stable
- * {@link ChatSessionId}; tabs are mapped to sessions by that id, never by tab index (indices shift on
- * close). At least one chat stays open.
+ * Hosts independent chat sessions as full-area cards — there is NO tab strip anymore. Switching,
+ * opening and closing chats happens through the sidebar (drawer): its "Chats" tab merges the OPEN
+ * sessions with the saved history, so one list is both the tab bar replacement and the history. The
+ * drawer spans the workspace's full height on the left, opens on hamburger hover/click, closes when
+ * the mouse leaves it (unless pinned), and the top bar carries the hamburger (top-left) and the chat
+ * settings gear (top-right). Each chat keeps a stable {@link ChatSessionId}; sessions are addressed
+ * by id, never by index. At least one chat stays open.
  */
 public final class ChatWorkspacePanel extends JPanel {
 
@@ -34,122 +48,157 @@ public final class ChatWorkspacePanel extends JPanel {
         ChatSessionComponent create(ChatSessionId id);
     }
 
-    /** Notified when the active chat tab changes (switch, open or close), with the newly active id. */
+    /** Notified when the active chat changes (switch, open or close), with the newly active id. */
     public interface ActiveSessionListener {
         void activeSessionChanged(ChatSessionId id);
     }
 
     /**
-     * Notified whenever the SET of open tabs changes (open or close), with the current open ids in tab order.
-     * The host persists this immediately so a crash never resurrects a closed tab — "closed stays closed".
+     * Notified whenever the SET of open chats changes (open or close), with the current open ids in
+     * order. The host persists this immediately so a crash never resurrects a closed chat.
      */
     public interface TabSetListener {
         void tabSetChanged(List<ChatSessionId> openIds);
     }
 
-    private final JTabbedPane tabs = new JTabbedPane();
+    private static final int SIDEBAR_CLOSE_DELAY_MS = 300;
+    private static final int HOVER_MARGIN_PX = 12;
+
+    private final CardLayout cardLayout = new CardLayout();
+    private final JPanel cards = new JPanel(cardLayout);
     private final ChatSessionFactory factory;
+    private final ChatHistoryStore historyStore; // may be null (tests) → only open sessions are listed
     private final Map<ChatSessionId, ChatSessionComponent> sessionsById =
             new LinkedHashMap<ChatSessionId, ChatSessionComponent>();
+    private ChatSessionId activeId;
     private ActiveSessionListener activeSessionListener;
     private TabSetListener tabSetListener;
     private ChatSessionId lastNotifiedSessionId;
 
+    private final ChatSidebarPanel sidebar;
+    private final JButton burger;
+    private JPanel chatListPanel;
+    private java.util.function.Supplier<List<ChatSidebarTab>> sidebarTabsSource;
+    private final javax.swing.Timer sidebarCloseTimer;
+    private AWTEventListener sidebarMouseWatcher;
+
     public ChatWorkspacePanel(ChatSessionFactory factory) {
-        this(factory, null);
+        this(factory, null, null);
+    }
+
+    public ChatWorkspacePanel(ChatSessionFactory factory, List<ChatSessionId> restoreIds) {
+        this(factory, restoreIds, null);
     }
 
     /**
-     * @param restoreIds session ids of persisted chats to reopen on startup (most recent first);
-     *                   when null/empty, a single fresh chat is opened
+     * @param restoreIds   session ids of persisted chats to reopen on startup (most recent first);
+     *                     when null/empty, a single fresh chat is opened
+     * @param historyStore the saved-chats store backing the sidebar list (null in tests)
      */
-    public ChatWorkspacePanel(ChatSessionFactory factory, List<ChatSessionId> restoreIds) {
+    public ChatWorkspacePanel(ChatSessionFactory factory, List<ChatSessionId> restoreIds,
+                              ChatHistoryStore historyStore) {
         super(new BorderLayout());
         if (factory == null) {
             throw new IllegalArgumentException("factory must not be null");
         }
         this.factory = factory;
-        tabs.setTabPlacement(JTabbedPane.BOTTOM); // the tab strip sits below the chat + input area
-        add(tabs, BorderLayout.CENTER);
-        addPlusTab();
-        tabs.addChangeListener(new ChangeListener() {
-            public void stateChanged(ChangeEvent event) {
-                keepSelectionOffPlusTab();
-                fireActiveSessionChanged();
-            }
-        });
+        this.historyStore = historyStore;
+
+        this.burger = ChatComposerPanel.createSidebarToggleButton();
+        this.sidebar = new ChatSidebarPanel("Chats", buildChatsSidebarTab());
+        this.sidebarCloseTimer = new javax.swing.Timer(SIDEBAR_CLOSE_DELAY_MS,
+                event -> {
+                    if (sidebar.isVisible() && !sidebar.isPinned()) {
+                        hideSidebar();
+                    }
+                });
+        sidebarCloseTimer.setRepeats(false);
+        buildTopLevelLayout();
+
         if (restoreIds != null && !restoreIds.isEmpty()) {
-            // Reopen persisted chats in oldest-first tab order (the list is newest-first).
+            // Reopen persisted chats in oldest-first order (the list is newest-first).
             for (int i = restoreIds.size() - 1; i >= 0; i--) {
                 openExistingChat(restoreIds.get(i));
             }
-            keepSelectionOffPlusTab();
         } else {
             openNewChat(); // never start empty
         }
     }
 
-    /** Open a tab for a persisted chat with a known id; its panel restores its own transcript. */
+    // ------------------------------------------------------------------ public session API
+
+    /** Open a persisted chat with a known id (selects it when already open); restores its transcript. */
     public ChatSessionComponent openExistingChat(ChatSessionId id) {
         ChatSessionComponent existing = sessionsById.get(id);
         if (existing != null) {
-            int index = tabs.indexOfComponent(existing.getComponent());
-            if (index >= 0) {
-                tabs.setSelectedIndex(index);
-            }
+            selectSession(id);
             return existing;
         }
         ChatSessionComponent session = factory.create(id);
-        int insertIndex = Math.max(tabs.getTabCount() - 1, 0);
-        tabs.insertTab(null, null, session.getComponent(), id.toString(), insertIndex);
-        tabs.setTabComponentAt(insertIndex, createChatTabHeader(id));
         sessionsById.put(id, session);
-        tabs.setSelectedIndex(insertIndex);
-        fireActiveSessionChanged(); // authoritative fire once the map + selection are consistent
+        cards.add(session.getComponent(), id.toString());
+        selectSession(id);
         fireTabSetChanged();
         return session;
     }
 
-    /** Create a new chat, insert its tab before the plus tab and select it. */
+    /** Create a brand-new chat and bring it to the foreground. */
     public ChatSessionComponent openNewChat() {
         ChatSessionId id = ChatSessionId.create();
         ChatSessionComponent session = factory.create(id);
-        int insertIndex = Math.max(tabs.getTabCount() - 1, 0); // just before the (always last) plus tab
-        tabs.insertTab(null, null, session.getComponent(), id.toString(), insertIndex);
-        tabs.setTabComponentAt(insertIndex, createChatTabHeader(id));
         sessionsById.put(id, session);
-        tabs.setSelectedIndex(insertIndex);
-        fireActiveSessionChanged(); // authoritative fire once the map + selection are consistent
+        cards.add(session.getComponent(), id.toString());
+        selectSession(id);
         fireTabSetChanged();
         return session;
     }
 
-    /** Close the chat with this id: abort its work, remove its tab, and never leave the workspace empty. */
+    /** Bring the chat with this id to the foreground (no-op for unknown ids). */
+    public void selectSession(ChatSessionId id) {
+        ChatSessionComponent session = sessionsById.get(id);
+        if (session == null) {
+            return;
+        }
+        cardLayout.show(cards, id.toString());
+        activeId = id;
+        fireActiveSessionChanged();
+        if (sidebar.isVisible()) {
+            refreshChatList(); // update the "current" marker
+        }
+    }
+
+    /** Close the chat with this id: abort its work, remove its card, and never leave the workspace empty. */
     public void closeSession(ChatSessionId id) {
         ChatSessionComponent session = sessionsById.remove(id);
         if (session == null) {
             return;
         }
-        int index = tabs.indexOfComponent(session.getComponent());
         try {
             session.disposeSession();
         } finally {
-            if (index >= 0) {
-                tabs.removeTabAt(index);
-            }
+            cards.remove(session.getComponent());
         }
         if (sessionsById.isEmpty()) {
             openNewChat(); // fires the active-session + tab-set change for the fresh replacement itself
         } else {
-            keepSelectionOffPlusTab();
-            fireActiveSessionChanged(); // the surviving tab that inherited the selection
-            fireTabSetChanged();        // persist "this tab is closed" immediately
+            if (id.equals(activeId)) {
+                // Fall back to the most recently opened remaining chat.
+                ChatSessionId last = null;
+                for (ChatSessionId open : sessionsById.keySet()) {
+                    last = open;
+                }
+                selectSession(last);
+            }
+            fireTabSetChanged(); // persist "this chat is closed" immediately
+            if (sidebar.isVisible()) {
+                refreshChatList();
+            }
         }
     }
 
     /**
      * Register the active-session listener; fires immediately with the current selection so the host can
-     * restore that tab's mode/agent synchronously. Switching, opening or closing tabs re-fires it.
+     * restore that chat's mode/agent synchronously. Switching, opening or closing chats re-fires it.
      */
     public void setActiveSessionListener(ActiveSessionListener listener) {
         this.activeSessionListener = listener;
@@ -157,13 +206,343 @@ public final class ChatWorkspacePanel extends JPanel {
     }
 
     /**
-     * Register the tab-set listener; fires immediately with the currently open ids so the host can persist
-     * the restored set. Every later open/close re-fires it so "closed stays closed" survives a crash.
+     * Register the open-set listener; fires immediately with the currently open ids so the host can
+     * persist the restored set. Every later open/close re-fires it so "closed stays closed".
      */
     public void setTabSetListener(TabSetListener listener) {
         this.tabSetListener = listener;
         fireTabSetChanged();
     }
+
+    /** @return the currently selected chat session, or null if none. */
+    public ChatSessionComponent activeSession() {
+        return activeId == null ? null : sessionsById.get(activeId);
+    }
+
+    /** @return a snapshot of all open sessions (e.g. for a global catalog refresh or shutdown). */
+    public List<ChatSessionComponent> sessions() {
+        return new ArrayList<ChatSessionComponent>(sessionsById.values());
+    }
+
+    /** Plugin seam: contributions appear as additional sidebar tabs whenever the drawer opens. */
+    public void setSidebarTabContributions(
+            java.util.function.Supplier<List<ChatSidebarTab>> source) {
+        this.sidebarTabsSource = source;
+    }
+
+    // ------------------------------------------------------------------ layout + sidebar behavior
+
+    private void buildTopLevelLayout() {
+        burger.addActionListener(event -> toggleSidebar());
+        burger.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseEntered(MouseEvent event) {
+                if (!sidebar.isVisible()) {
+                    showSidebar();
+                }
+            }
+        });
+
+        JButton gear = ChatComposerPanel.createSettingsIconButton();
+        gear.addActionListener(event -> {
+            ChatSessionComponent active = activeSession();
+            if (active instanceof OllamaChatPanel) {
+                ((OllamaChatPanel) active).openSettingsDialog();
+            }
+        });
+
+        JPanel topBar = new JPanel(new BorderLayout());
+        topBar.setOpaque(false);
+        topBar.setBorder(BorderFactory.createEmptyBorder(2, 4, 0, 4));
+        topBar.add(burger, BorderLayout.WEST);
+        topBar.add(gear, BorderLayout.EAST);
+
+        sidebar.setVisible(false);
+        sidebar.setCloseHandler(this::hideSidebar);
+        sidebar.setExtraTabsSupplier(() -> sidebarTabsSource == null
+                ? java.util.Collections.<ChatSidebarTab>emptyList() : sidebarTabsSource.get());
+
+        add(topBar, BorderLayout.NORTH);
+        add(sidebar, BorderLayout.WEST); // full height on the left, below the top bar
+        add(cards, BorderLayout.CENTER);
+    }
+
+    private void toggleSidebar() {
+        if (sidebar.isVisible()) {
+            hideSidebar();
+        } else {
+            showSidebar();
+        }
+    }
+
+    private void showSidebar() {
+        refreshChatList();
+        sidebar.rebuildTabs();
+        sidebar.setVisible(true);
+        installSidebarMouseWatcher();
+        revalidate();
+        repaint();
+    }
+
+    private void hideSidebar() {
+        sidebarCloseTimer.stop();
+        removeSidebarMouseWatcher();
+        sidebar.setVisible(false);
+        revalidate();
+        repaint();
+    }
+
+    /**
+     * While the drawer is open and UNPINNED, a global mouse watcher closes it shortly after the
+     * pointer leaves the drawer/hamburger area (a small delay bridges the burger→drawer transit).
+     */
+    private void installSidebarMouseWatcher() {
+        if (sidebarMouseWatcher != null) {
+            return;
+        }
+        sidebarMouseWatcher = new AWTEventListener() {
+            public void eventDispatched(AWTEvent event) {
+                if (!(event instanceof MouseEvent) || !sidebar.isShowing()) {
+                    return;
+                }
+                if (sidebar.isPinned()) {
+                    sidebarCloseTimer.stop();
+                    return;
+                }
+                MouseEvent mouse = (MouseEvent) event;
+                int id = mouse.getID();
+                if (id != MouseEvent.MOUSE_MOVED && id != MouseEvent.MOUSE_ENTERED
+                        && id != MouseEvent.MOUSE_DRAGGED) {
+                    return;
+                }
+                Point onScreen = new Point(mouse.getXOnScreen(), mouse.getYOnScreen());
+                boolean inside = screenBounds(sidebar, HOVER_MARGIN_PX).contains(onScreen)
+                        || screenBounds(burger, HOVER_MARGIN_PX).contains(onScreen);
+                if (inside) {
+                    sidebarCloseTimer.stop();
+                } else if (!sidebarCloseTimer.isRunning()) {
+                    sidebarCloseTimer.restart();
+                }
+            }
+        };
+        try {
+            Toolkit.getDefaultToolkit().addAWTEventListener(sidebarMouseWatcher,
+                    AWTEvent.MOUSE_MOTION_EVENT_MASK | AWTEvent.MOUSE_EVENT_MASK);
+        } catch (SecurityException restricted) {
+            sidebarMouseWatcher = null; // hover-close degrades gracefully; pin/close still work
+        }
+    }
+
+    private void removeSidebarMouseWatcher() {
+        if (sidebarMouseWatcher != null) {
+            try {
+                Toolkit.getDefaultToolkit().removeAWTEventListener(sidebarMouseWatcher);
+            } catch (SecurityException ignore) {
+            }
+            sidebarMouseWatcher = null;
+        }
+    }
+
+    private static Rectangle screenBounds(Component component, int margin) {
+        if (!component.isShowing()) {
+            return new Rectangle(0, 0, 0, 0);
+        }
+        Point location = component.getLocationOnScreen();
+        return new Rectangle(location.x - margin, location.y - margin,
+                component.getWidth() + 2 * margin, component.getHeight() + 2 * margin);
+    }
+
+    // ------------------------------------------------------------------ the "Chats" sidebar tab
+
+    /**
+     * The default sidebar tab REPLACES the old bottom tab strip: one list that merges the open
+     * sessions (in workspace order) with the remaining saved history, plus New-chat on top and the
+     * confirmed delete-all at the bottom.
+     */
+    private JComponent buildChatsSidebarTab() {
+        chatListPanel = new JPanel();
+        chatListPanel.setLayout(new javax.swing.BoxLayout(chatListPanel, javax.swing.BoxLayout.Y_AXIS));
+        chatListPanel.setOpaque(false);
+        JScrollPane scroll = new JScrollPane(chatListPanel,
+                JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        scroll.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+        scroll.getVerticalScrollBar().setUnitIncrement(16);
+
+        JButton newChat = new JButton("New chat", new PlusIcon(10));
+        newChat.setToolTipText("Open a new chat");
+        newChat.addActionListener(event -> {
+            openNewChat();
+            if (!sidebar.isPinned()) {
+                hideSidebar();
+            }
+        });
+        JPanel north = new JPanel(new BorderLayout());
+        north.setOpaque(false);
+        north.setBorder(BorderFactory.createEmptyBorder(8, 8, 4, 8));
+        north.add(newChat, BorderLayout.CENTER);
+
+        JButton deleteAll = new JButton("Delete all chats…");
+        deleteAll.setToolTipText("Delete every saved chat (asks for confirmation)");
+        deleteAll.addActionListener(event -> deleteAllChats());
+        JPanel south = new JPanel(new BorderLayout());
+        south.setOpaque(false);
+        south.setBorder(BorderFactory.createEmptyBorder(4, 8, 8, 8));
+        south.add(deleteAll, BorderLayout.CENTER);
+
+        JPanel tab = new JPanel(new BorderLayout());
+        tab.setOpaque(false);
+        tab.add(north, BorderLayout.NORTH);
+        tab.add(scroll, BorderLayout.CENTER);
+        tab.add(south, BorderLayout.SOUTH);
+        return tab;
+    }
+
+    /** Rebuild the list: open sessions first (workspace order), then the remaining saved chats. */
+    private void refreshChatList() {
+        chatListPanel.removeAll();
+        List<ChatRecord> saved = historyStore != null ? historyStore.list()
+                : java.util.Collections.<ChatRecord>emptyList();
+        Map<String, ChatRecord> savedById = new LinkedHashMap<String, ChatRecord>();
+        for (ChatRecord record : saved) {
+            savedById.put(record.getId(), record);
+        }
+        java.text.SimpleDateFormat when = new java.text.SimpleDateFormat("dd/MM/yy HH:mm");
+        for (ChatSessionId id : sessionsById.keySet()) {
+            chatListPanel.add(buildRow(id, savedById.remove(id.toString()), when));
+        }
+        if (!savedById.isEmpty()) {
+            JLabel divider = new JLabel("History");
+            divider.setEnabled(false);
+            divider.setBorder(BorderFactory.createEmptyBorder(8, 8, 2, 8));
+            chatListPanel.add(divider);
+            for (ChatRecord record : savedById.values()) {
+                chatListPanel.add(buildRow(null, record, when));
+            }
+        }
+        if (chatListPanel.getComponentCount() == 0) {
+            JLabel none = new JLabel("No chats");
+            none.setEnabled(false);
+            none.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+            chatListPanel.add(none);
+        }
+        chatListPanel.revalidate();
+        chatListPanel.repaint();
+    }
+
+    /**
+     * One row for an OPEN session ({@code openId != null}, with a ✕ that closes it) or a saved-only
+     * chat ({@code openId == null}). Clicking the row brings the chat to the foreground (opening it
+     * first when needed); the trash deletes the persisted chat after confirmation.
+     */
+    private JComponent buildRow(final ChatSessionId openId, final ChatRecord record,
+                                java.text.SimpleDateFormat when) {
+        final String chatId = openId != null ? openId.toString() : record.getId();
+        boolean current = openId != null && openId.equals(activeId);
+        String title = record != null && record.getTitle() != null && !record.getTitle().trim().isEmpty()
+                ? record.getTitle().trim()
+                : (openId != null ? "(new chat)" : "(untitled)");
+        StringBuilder label = new StringBuilder("<html><b>").append(escapeHtml(title)).append("</b>");
+        label.append(" &nbsp;<span style='color:gray'>");
+        if (record != null) {
+            label.append(when.format(new java.util.Date(record.getModifiedAt())));
+        }
+        if (current) {
+            label.append(" · current");
+        }
+        label.append("</span></html>");
+
+        JButton open = new JButton(label.toString());
+        open.setHorizontalAlignment(SwingConstants.LEFT);
+        open.setBorderPainted(false);
+        open.setContentAreaFilled(false);
+        open.setFocusPainted(false);
+        open.addActionListener(event -> {
+            try {
+                ChatSessionId target = openId != null ? openId
+                        : new ChatSessionId(java.util.UUID.fromString(chatId));
+                openExistingChat(target); // selects when already open — the tab-switch replacement
+            } catch (IllegalArgumentException ignored) {
+                return;
+            }
+            if (!sidebar.isPinned()) {
+                hideSidebar();
+            }
+        });
+
+        JPanel trailing = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.RIGHT, 2, 0));
+        trailing.setOpaque(false);
+        if (openId != null) {
+            JButton close = new JButton("✕");
+            close.setToolTipText("Close this chat");
+            close.setBorderPainted(false);
+            close.setContentAreaFilled(false);
+            close.setFocusPainted(false);
+            close.addActionListener(event -> closeSession(openId));
+            trailing.add(close);
+        }
+        if (record != null) {
+            final String persistedTitle = title;
+            JButton delete = new JButton("🗑"); // 🗑
+            delete.setToolTipText("Delete this saved chat");
+            delete.setBorderPainted(false);
+            delete.setContentAreaFilled(false);
+            delete.setFocusPainted(false);
+            delete.addActionListener(event -> {
+                int choice = JOptionPane.showConfirmDialog(ChatWorkspacePanel.this,
+                        "Delete the saved chat \"" + persistedTitle + "\"? This cannot be undone.",
+                        "Delete chat", JOptionPane.OK_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE);
+                if (choice == JOptionPane.OK_OPTION && historyStore != null) {
+                    historyStore.delete(record.getId());
+                    detachOpenPanelFromDeletedChat(record.getId());
+                    refreshChatList();
+                }
+            });
+            trailing.add(delete);
+        }
+
+        JPanel row = new JPanel(new BorderLayout(4, 0));
+        row.setOpaque(false);
+        row.add(open, BorderLayout.CENTER);
+        row.add(trailing, BorderLayout.EAST);
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
+        return row;
+    }
+
+    /** Delete EVERY saved chat — only after an explicit confirmation. Open chats stay open. */
+    private void deleteAllChats() {
+        List<ChatRecord> chats = historyStore != null ? historyStore.list()
+                : java.util.Collections.<ChatRecord>emptyList();
+        if (chats.isEmpty()) {
+            return;
+        }
+        int choice = JOptionPane.showConfirmDialog(this,
+                "Delete ALL " + chats.size() + " saved chats? This cannot be undone.",
+                "Delete all chats", JOptionPane.OK_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE);
+        if (choice != JOptionPane.OK_OPTION) {
+            return;
+        }
+        for (ChatRecord chat : chats) {
+            historyStore.delete(chat.getId());
+            detachOpenPanelFromDeletedChat(chat.getId());
+        }
+        refreshChatList();
+    }
+
+    /** Stop an open chat panel from re-saving its just-deleted persisted record. */
+    private void detachOpenPanelFromDeletedChat(String chatId) {
+        for (Map.Entry<ChatSessionId, ChatSessionComponent> entry : sessionsById.entrySet()) {
+            if (entry.getKey().toString().equals(chatId)
+                    && entry.getValue() instanceof OllamaChatPanel) {
+                ((OllamaChatPanel) entry.getValue()).detachFromPersistedChat();
+            }
+        }
+    }
+
+    private static String escapeHtml(String text) {
+        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+    }
+
+    // ------------------------------------------------------------------ listener plumbing
 
     private void fireTabSetChanged() {
         if (tabSetListener != null) {
@@ -184,91 +563,7 @@ public final class ChatWorkspacePanel extends JPanel {
         activeSessionListener.activeSessionChanged(id);
     }
 
-    /** @return the currently selected chat session (never the plus tab), or null if none. */
-    public ChatSessionComponent activeSession() {
-        Component selected = tabs.getSelectedComponent();
-        for (ChatSessionComponent session : sessionsById.values()) {
-            if (session.getComponent() == selected) {
-                return session;
-            }
-        }
-        return null;
-    }
-
-    /** @return a snapshot of all open sessions (e.g. for a global catalog refresh or shutdown). */
-    public List<ChatSessionComponent> sessions() {
-        return new ArrayList<ChatSessionComponent>(sessionsById.values());
-    }
-
-    // ------------------------------------------------------------------ internals
-
-    private void addPlusTab() {
-        JButton plus = new JButton(new PlusIcon(12));
-        plus.setToolTipText("New chat");
-        plus.setFocusable(false);
-        plus.setContentAreaFilled(false);
-        plus.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
-        plus.addActionListener(event -> openNewChat());
-        JPanel header = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        header.setOpaque(false);
-        header.add(plus);
-
-        tabs.addTab(null, new JPanel()); // inert placeholder content, never shown
-        int last = tabs.getTabCount() - 1;
-        tabs.setTabComponentAt(last, header);
-        tabs.setEnabledAt(last, false); // the plus tab is never a selectable chat
-    }
-
-    private Component createChatTabHeader(final ChatSessionId id) {
-        JPanel header = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        header.setOpaque(false);
-        JLabel label = new JLabel(id.shortLabel());
-        label.setToolTipText(id.toString()); // the full UUID stays in the tooltip
-        label.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 4));
-        header.add(label);
-
-        JButton close = new JButton("×");
-        close.setToolTipText("Close chat");
-        close.setFocusable(false);
-        close.setContentAreaFilled(false);
-        close.setMargin(new Insets(0, 0, 0, 0));
-        close.setBorder(BorderFactory.createEmptyBorder(0, 4, 0, 0));
-        close.addActionListener(event -> closeSession(id)); // resolve by id, not by a captured index
-        header.add(close);
-
-        MouseAdapter selectTabOnClick = new MouseAdapter() {
-            public void mousePressed(MouseEvent event) {
-                selectSession(id);
-            }
-        };
-        header.addMouseListener(selectTabOnClick);
-        label.addMouseListener(selectTabOnClick);
-        return header;
-    }
-
-    private void selectSession(ChatSessionId id) {
-        ChatSessionComponent session = sessionsById.get(id);
-        if (session == null) {
-            return;
-        }
-        int index = tabs.indexOfComponent(session.getComponent());
-        if (index >= 0 && tabs.getSelectedIndex() != index) {
-            tabs.setSelectedIndex(index);
-        }
-    }
-
-    private void keepSelectionOffPlusTab() {
-        int plusIndex = tabs.getTabCount() - 1;
-        if (tabs.getSelectedIndex() == plusIndex && plusIndex > 0) {
-            tabs.setSelectedIndex(plusIndex - 1);
-        }
-    }
-
     // ------------------------------------------------------------------ test accessors (package-private)
-
-    JTabbedPane tabsForTest() {
-        return tabs;
-    }
 
     int openSessionCount() {
         return sessionsById.size();

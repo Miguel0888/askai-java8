@@ -26,7 +26,8 @@ import java.util.function.Supplier;
 public final class ChatSidebarPanel extends JPanel {
 
     private final JTabbedPane tabs = new JTabbedPane();
-    private final JToggleButton pinToggle = new JToggleButton("Pin");
+    private final JToggleButton pinToggle =
+            new JToggleButton(com.aresstack.askai.java8.ui.ChatComposerPanel.createPushPinIcon());
     private final String defaultTabTitle;
     private final JComponent defaultTabComponent;
 
@@ -83,9 +84,9 @@ public final class ChatSidebarPanel extends JPanel {
         JLabel title = new JLabel("Menu");
         header.add(title, BorderLayout.WEST);
 
-        pinToggle.setToolTipText("Keep the sidebar open (otherwise it closes after use)");
+        pinToggle.setToolTipText("Pin the sidebar open (otherwise it closes when the mouse leaves)");
         pinToggle.setFocusable(false);
-        pinToggle.setMargin(new java.awt.Insets(2, 6, 2, 6));
+        pinToggle.setMargin(new java.awt.Insets(2, 4, 2, 4));
 
         JButton close = new JButton("✕");
         close.setToolTipText("Close the sidebar");

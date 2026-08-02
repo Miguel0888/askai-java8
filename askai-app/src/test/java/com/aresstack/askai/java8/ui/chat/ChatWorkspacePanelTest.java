@@ -2,14 +2,8 @@ package com.aresstack.askai.java8.ui.chat;
 
 import org.junit.Test;
 
-import javax.swing.JButton;
-import javax.swing.JLabel;
-import javax.swing.JTabbedPane;
 import javax.swing.SwingUtilities;
 import java.awt.Component;
-import java.awt.Container;
-import java.awt.Panel;
-import java.awt.event.MouseEvent;
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.List;
@@ -20,7 +14,10 @@ import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
-/** The workspace keeps a single disabled plus tab last, inserts chats before it, and closes by id. */
+/**
+ * The workspace WITHOUT a tab strip: sessions are cards addressed by id; the sidebar list is the
+ * tab-switch replacement. These tests cover the id-based session semantics.
+ */
 public class ChatWorkspacePanelTest {
 
     private final List<FakeSession> created = new ArrayList<FakeSession>();
@@ -37,15 +34,12 @@ public class ChatWorkspacePanelTest {
     }
 
     @Test
-    public void startsWithOneChatAndADisabledLastPlusTab() throws Exception {
+    public void startsWithExactlyOneOpenChat() throws Exception {
         onEdt(new Runnable() {
             public void run() {
                 ChatWorkspacePanel workspace = build();
                 assertEquals(1, workspace.openSessionCount());
-                JTabbedPane tabs = workspace.tabsForTest();
-                assertEquals("one chat + plus", 2, tabs.getTabCount());
-                assertFalse("plus tab is disabled", tabs.isEnabledAt(tabs.getTabCount() - 1));
-                assertTrue("chat tab is enabled", tabs.isEnabledAt(0));
+                assertNotNull("an active chat exists from the start", workspace.activeSession());
             }
         });
     }
@@ -69,60 +63,14 @@ public class ChatWorkspacePanelTest {
                 assertTrue(fires.get(fires.size() - 1).contains(a.getSessionId()));
 
                 workspace.closeSession(a.getSessionId());
-                assertFalse("a closed tab is immediately dropped from the open set",
+                assertFalse("a closed chat is immediately dropped from the open set",
                         fires.get(fires.size() - 1).contains(a.getSessionId()));
             }
         });
     }
 
     @Test
-    public void newChatsAreInsertedBeforeTheAlwaysLastPlusTab() throws Exception {
-        onEdt(new Runnable() {
-            public void run() {
-                ChatWorkspacePanel workspace = build();
-                workspace.openNewChat();
-                workspace.openNewChat();
-                JTabbedPane tabs = workspace.tabsForTest();
-                assertEquals(3, workspace.openSessionCount());
-                assertEquals(4, tabs.getTabCount());
-                assertEquals("exactly one (disabled) plus tab", 1, disabledTabs(tabs));
-                assertFalse(tabs.isEnabledAt(tabs.getTabCount() - 1));
-            }
-        });
-    }
-
-    @Test
-    public void thePlusButtonCreatesExactlyOneChat() throws Exception {
-        onEdt(new Runnable() {
-            public void run() {
-                ChatWorkspacePanel workspace = build();
-                int before = workspace.openSessionCount();
-                JTabbedPane tabs = workspace.tabsForTest();
-                JButton plus = findButton((Container) tabs.getTabComponentAt(tabs.getTabCount() - 1));
-                assertNotNull("plus button present", plus);
-                plus.doClick();
-                assertEquals(before + 1, workspace.openSessionCount());
-            }
-        });
-    }
-
-    @Test
-    public void thePlusTabNeverBecomesTheActiveChat() throws Exception {
-        onEdt(new Runnable() {
-            public void run() {
-                ChatWorkspacePanel workspace = build();
-                workspace.openNewChat();
-                JTabbedPane tabs = workspace.tabsForTest();
-                int plusIndex = tabs.getTabCount() - 1;
-                tabs.setSelectedIndex(plusIndex);
-                assertNotEquals("selection moved off the plus tab", plusIndex, tabs.getSelectedIndex());
-                assertNotNull("an active real chat session exists", workspace.activeSession());
-            }
-        });
-    }
-
-    @Test
-    public void eachChatHasAUniqueIdSharedByTabAndSession() throws Exception {
+    public void openingANewChatMakesItTheActiveOne() throws Exception {
         onEdt(new Runnable() {
             public void run() {
                 ChatWorkspacePanel workspace = build();
@@ -132,6 +80,39 @@ public class ChatWorkspacePanelTest {
                 assertNotEquals(ids.get(0), ids.get(1));
                 assertEquals("active session is the freshly opened one",
                         second.getSessionId(), workspace.activeSession().getSessionId());
+            }
+        });
+    }
+
+    @Test
+    public void selectSessionBringsAnOpenChatToTheForeground() throws Exception {
+        onEdt(new Runnable() {
+            public void run() {
+                ChatWorkspacePanel workspace = build();
+                ChatSessionId first = workspace.openSessionIds().get(0);
+                workspace.openNewChat();
+                assertNotEquals(first, workspace.activeSession().getSessionId());
+
+                workspace.selectSession(first);
+                assertEquals(first, workspace.activeSession().getSessionId());
+            }
+        });
+    }
+
+    @Test
+    public void openExistingChatSelectsAnAlreadyOpenSessionInsteadOfDuplicating() throws Exception {
+        onEdt(new Runnable() {
+            public void run() {
+                ChatWorkspacePanel workspace = build();
+                ChatSessionComponent first = workspace.activeSession();
+                workspace.openNewChat();
+                int before = workspace.openSessionCount();
+
+                ChatSessionComponent reopened = workspace.openExistingChat(first.getSessionId());
+                assertEquals("no duplicate session", before, workspace.openSessionCount());
+                assertEquals(first.getSessionId(), reopened.getSessionId());
+                assertEquals("it became the active chat",
+                        first.getSessionId(), workspace.activeSession().getSessionId());
             }
         });
     }
@@ -158,11 +139,25 @@ public class ChatWorkspacePanelTest {
     }
 
     @Test
+    public void closingTheActiveChatFallsBackToAnotherOpenOne() throws Exception {
+        onEdt(new Runnable() {
+            public void run() {
+                ChatWorkspacePanel workspace = build();
+                ChatSessionComponent second = workspace.openNewChat();
+                assertEquals(second.getSessionId(), workspace.activeSession().getSessionId());
+
+                workspace.closeSession(second.getSessionId());
+                assertNotNull("a surviving chat inherited the selection", workspace.activeSession());
+                assertNotEquals(second.getSessionId(), workspace.activeSession().getSessionId());
+            }
+        });
+    }
+
+    @Test
     public void closingTheLastChatOpensAFreshOne() throws Exception {
         onEdt(new Runnable() {
             public void run() {
                 ChatWorkspacePanel workspace = build();
-                // close every currently-open session
                 for (ChatSessionId id : workspace.openSessionIds()) {
                     workspace.closeSession(id);
                 }
@@ -173,15 +168,15 @@ public class ChatWorkspacePanelTest {
     }
 
     @Test
-    public void closeIsResolvedByIdNotIndex() throws Exception {
+    public void closeIsResolvedByIdNotByOrder() throws Exception {
         onEdt(new Runnable() {
             public void run() {
                 ChatWorkspacePanel workspace = build();
                 ChatSessionComponent a = workspace.openNewChat();
                 ChatSessionComponent b = workspace.openNewChat();
                 ChatSessionComponent c = workspace.openNewChat();
-                workspace.closeSession(a.getSessionId()); // first-inserted, now not index 0-sensitive
-                workspace.closeSession(c.getSessionId()); // last real chat
+                workspace.closeSession(a.getSessionId());
+                workspace.closeSession(c.getSessionId());
                 assertTrue(workspace.hasSession(b.getSessionId()));
                 assertFalse(workspace.hasSession(a.getSessionId()));
                 assertFalse(workspace.hasSession(c.getSessionId()));
@@ -190,7 +185,7 @@ public class ChatWorkspacePanelTest {
     }
 
     @Test
-    public void theActiveSessionListenerFiresWithEachNewlySelectedTab() throws Exception {
+    public void theActiveSessionListenerFiresWithEachSelectionChange() throws Exception {
         onEdt(new Runnable() {
             public void run() {
                 ChatWorkspacePanel workspace = build();
@@ -207,30 +202,8 @@ public class ChatWorkspacePanelTest {
                 ChatSessionComponent second = workspace.openNewChat(); // selecting it fires again
                 assertEquals(second.getSessionId(), notified.get(notified.size() - 1));
 
-                JTabbedPane tabs = workspace.tabsForTest();
-                tabs.setSelectedIndex(0); // back to the first tab
+                workspace.selectSession(first); // back to the first chat
                 assertEquals(first, notified.get(notified.size() - 1));
-            }
-        });
-    }
-
-    @Test
-    public void clickingTheTabTextSelectsThatChatTab() throws Exception {
-        onEdt(new Runnable() {
-            public void run() {
-                ChatWorkspacePanel workspace = build();
-                ChatSessionComponent second = workspace.openNewChat();
-                JTabbedPane tabs = workspace.tabsForTest();
-                tabs.setSelectedIndex(0);
-                assertNotEquals(second.getSessionId(), workspace.activeSession().getSessionId());
-
-                int secondIndex = tabs.indexOfComponent(second.getComponent());
-                JLabel label = findLabel((Container) tabs.getTabComponentAt(secondIndex));
-                assertNotNull("chat tab label present", label);
-                label.dispatchEvent(new MouseEvent(label, MouseEvent.MOUSE_PRESSED,
-                        System.currentTimeMillis(), 0, 1, 1, 1, false, MouseEvent.BUTTON1));
-
-                assertEquals(second.getSessionId(), workspace.activeSession().getSessionId());
             }
         });
     }
@@ -253,54 +226,14 @@ public class ChatWorkspacePanelTest {
                 }
 
                 ChatSessionId replacement = workspace.openSessionIds().get(0);
-                assertNotEquals("the replacement tab has a new id", original, replacement);
-                assertEquals("the listener was told about the fresh tab",
+                assertNotEquals("the replacement chat has a new id", original, replacement);
+                assertEquals("the listener was told about the fresh chat",
                         replacement, notified.get(notified.size() - 1));
             }
         });
     }
 
     // --- helpers ---
-
-    private static int disabledTabs(JTabbedPane tabs) {
-        int count = 0;
-        for (int i = 0; i < tabs.getTabCount(); i++) {
-            if (!tabs.isEnabledAt(i)) {
-                count++;
-            }
-        }
-        return count;
-    }
-
-    private static JButton findButton(Container container) {
-        for (Component child : container.getComponents()) {
-            if (child instanceof JButton) {
-                return (JButton) child;
-            }
-            if (child instanceof Container) {
-                JButton nested = findButton((Container) child);
-                if (nested != null) {
-                    return nested;
-                }
-            }
-        }
-        return null;
-    }
-
-    private static JLabel findLabel(Container container) {
-        for (Component child : container.getComponents()) {
-            if (child instanceof JLabel) {
-                return (JLabel) child;
-            }
-            if (child instanceof Container) {
-                JLabel nested = findLabel((Container) child);
-                if (nested != null) {
-                    return nested;
-                }
-            }
-        }
-        return null;
-    }
 
     private static final class FakeSession implements ChatSessionComponent {
         private final ChatSessionId id;

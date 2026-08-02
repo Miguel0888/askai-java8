@@ -71,8 +71,6 @@ public final class ChatComposerPanel extends JPanel {
 
         void selectReasoning();
 
-        void openSettings();
-
         void toggleNotificationsMute();
 
         void send();
@@ -133,7 +131,6 @@ public final class ChatComposerPanel extends JPanel {
     private final JButton modelButton;
     private final JButton modeButton;
     private final JButton reasoningButton;
-    private final JButton settingsButton;
     private final JButton muteButton;
     private final JButton recordButton;
     private final JButton audioFileButton;
@@ -164,7 +161,6 @@ public final class ChatComposerPanel extends JPanel {
         this.modelButton = createModelButton();
         this.modeButton = createModeButton();
         this.reasoningButton = createReasoningButton();
-        this.settingsButton = createIconButton(new GearIcon(), "Chat settings");
         this.muteButton = createIconButton(new SpeakerIcon(), "Mute notifications");
         this.muteButton.setVisible(false);
         this.recordButton = createIconButton(new MicrophoneIcon(), "Record or stop dictation");
@@ -228,7 +224,6 @@ public final class ChatComposerPanel extends JPanel {
     private JComponent buildLeftActions() {
         JPanel actionsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 0));
         actionsPanel.setOpaque(false);
-        actionsPanel.add(settingsButton);
         actionsPanel.add(discardButton);
         actionsPanel.add(retryButton);
         actionsPanel.add(saveButton);
@@ -365,11 +360,6 @@ public final class ChatComposerPanel extends JPanel {
         reasoningButton.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent event) {
                 actions.selectReasoning();
-            }
-        });
-        settingsButton.addActionListener(new ActionListener() {
-            public void actionPerformed(ActionEvent event) {
-                actions.openSettings();
             }
         });
         muteButton.addActionListener(new ActionListener() {
@@ -516,6 +506,22 @@ public final class ChatComposerPanel extends JPanel {
         configureButton(button, "Chats & tools sidebar");
         button.setPreferredSize(new Dimension(30, 28));
         return button;
+    }
+
+    /**
+     * The gear button in the composer's icon style. The gear moved from the composer footer to the
+     * TOP-RIGHT of the chat area (opposite the hamburger); the icon stays single-sourced here.
+     */
+    public static JButton createSettingsIconButton() {
+        ComposerButton button = new ComposerButton(new GearIcon(), null, false);
+        configureButton(button, "Chat settings");
+        button.setPreferredSize(new Dimension(30, 28));
+        return button;
+    }
+
+    /** A Java2D pushpin in the composer icon style, for the sidebar's pin toggle. */
+    public static Icon createPushPinIcon() {
+        return new PushPinIcon();
     }
 
     /** Set the label shown on the in-composer mode selector (e.g. "Yapping" or an agent name). */
@@ -980,6 +986,16 @@ public final class ChatComposerPanel extends JPanel {
             g2.drawLine(2, 4, 13, 4);
             g2.drawLine(2, 8, 13, 8);
             g2.drawLine(2, 12, 13, 12);
+        }
+    }
+
+    /** A slanted pushpin (Pinwandnadel): round head top-right, shaft, needle to the bottom-left. */
+    private static final class PushPinIcon extends StrokeIcon {
+        protected void paint(Graphics2D g2) {
+            g2.drawOval(7, 1, 6, 6);   // head
+            g2.drawLine(8, 7, 5, 10);  // shaft leaving the head
+            g2.drawLine(3, 8, 8, 13);  // base plate across the shaft
+            g2.drawLine(5, 10, 2, 13); // needle tip
         }
     }
 

@@ -762,23 +762,15 @@ public final class AskAiFrame extends JFrame {
                         showScreen(AUDIO_PROCESSING_VIEW);
                     }
                 };
-        // Each tab is an independent chat session, created on demand by the workspace's "+" tab.
+        // Each tab is an independent chat session, created on demand by the workspace sidebar.
         final com.aresstack.askai.java8.history.ChatHistoryStore historyStore =
                 new com.aresstack.askai.java8.history.ChatHistoryStore();
-        final ChatWorkspacePanel[] workspaceRef = new ChatWorkspacePanel[1];
         ChatWorkspacePanel.ChatSessionFactory chatFactory = new ChatWorkspacePanel.ChatSessionFactory() {
             public ChatSessionComponent create(ChatSessionId id) {
                 OllamaChatPanel chat = new OllamaChatPanel(id, model, ollamaService, speechToTextService,
                         audioProfileRepository, applicationState, historyStore);
                 chat.setInstallAudioModelHandler(installHandler);
                 chat.setAudioProcessingSettingsHandler(audioHandler);
-                chat.setChatHistoryNavigator(new OllamaChatPanel.ChatHistoryNavigator() {
-                    public void openChat(ChatSessionId target) {
-                        if (workspaceRef[0] != null) {
-                            workspaceRef[0].openExistingChat(target);
-                        }
-                    }
-                });
                 wireChatTabToAgentHost(chat);
                 return chat;
             }
@@ -801,8 +793,7 @@ public final class AskAiFrame extends JFrame {
                 // Skip records whose id is not a valid UUID.
             }
         }
-        this.chatWorkspace = new ChatWorkspacePanel(chatFactory, restoreIds);
-        workspaceRef[0] = this.chatWorkspace;
+        this.chatWorkspace = new ChatWorkspacePanel(chatFactory, restoreIds, historyStore);
         // Persist the open-tab set immediately on every open/close (and once now for the restored set), so a
         // later crash/kill never brings a closed tab back.
         this.chatWorkspace.setTabSetListener(new ChatWorkspacePanel.TabSetListener() {
