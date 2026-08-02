@@ -41,6 +41,8 @@ public final class ProductiveResearchSessionResources {
     /** The ONE persistent project context: artifacts, sources, state and metadata on disk. */
     private final com.aresstack.askai.research.store.ResearchProjectContext projectContext;
     private final ResearchControlEndpoint controlEndpoint;
+    /** Internal service endpoint (manual_source_accept) for user-triggered searches; own its lifecycle here. */
+    private final com.aresstack.askai.research.mcp.ResearchServiceEndpoint serviceEndpoint;
     private final BrowserBridgeEndpoint browserBridge;
     /** The LAZY, restartable browser runtime (STOPPED until the first browser command); owned here. */
     private final BrowserRuntimePort browser;
@@ -57,6 +59,20 @@ public final class ProductiveResearchSessionResources {
                                        ResearchControlEndpoint controlEndpoint,
                                        BrowserBridgeEndpoint browserBridge, BrowserRuntimePort browser,
                                        AcpResearchSessionBackend backend) {
+        this(sessionKey, stateMachine, captures, repository, acceptance, projectContext, controlEndpoint,
+                browserBridge, browser, backend, null);
+    }
+
+    ProductiveResearchSessionResources(String sessionKey, OoResearchStateMachine stateMachine,
+                                       CaptureStore captures, ResearchSourceRepository repository,
+                                       SourceAcceptanceService acceptance,
+                                       com.aresstack.askai.research.store.ResearchProjectContext
+                                               projectContext,
+                                       ResearchControlEndpoint controlEndpoint,
+                                       BrowserBridgeEndpoint browserBridge, BrowserRuntimePort browser,
+                                       AcpResearchSessionBackend backend,
+                                       com.aresstack.askai.research.mcp.ResearchServiceEndpoint
+                                               serviceEndpoint) {
         this.sessionKey = sessionKey;
         this.stateMachine = stateMachine;
         this.projectContext = projectContext;
@@ -81,6 +97,7 @@ public final class ProductiveResearchSessionResources {
         this.repository = repository;
         this.acceptance = acceptance;
         this.controlEndpoint = controlEndpoint;
+        this.serviceEndpoint = serviceEndpoint;
         this.browserBridge = browserBridge;
         this.browser = browser;
         this.backend = backend;
@@ -259,6 +276,9 @@ public final class ProductiveResearchSessionResources {
         }
         if (controlEndpoint != null) {
             controlEndpoint.close();
+        }
+        if (serviceEndpoint != null) {
+            serviceEndpoint.close();
         }
         if (browserBridge != null) {
             browserBridge.close();

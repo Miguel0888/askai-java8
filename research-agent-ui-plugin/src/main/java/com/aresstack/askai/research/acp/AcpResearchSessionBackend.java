@@ -40,15 +40,25 @@ public final class AcpResearchSessionBackend implements ResearchSessionBackend {
     private final AgentLaunchSpec baseSpec;
     private final AcpEndpointDescriptor researchEndpoint;
     private final AcpEndpointDescriptor browserEndpoint; // null => honestly absent (MCP-P005), never faked
+    /** Internal service endpoint (manual_source_accept for user searches); null when absent. */
+    private final AcpEndpointDescriptor serviceEndpoint;
     private final Map<String, AcpBackedSession> sessions = new ConcurrentHashMap<String, AcpBackedSession>();
 
     public AcpResearchSessionBackend(AcpAgentConnector connector, AgentLaunchSpec baseSpec,
                                      AcpEndpointDescriptor researchEndpoint,
                                      AcpEndpointDescriptor browserEndpoint) {
+        this(connector, baseSpec, researchEndpoint, browserEndpoint, null);
+    }
+
+    public AcpResearchSessionBackend(AcpAgentConnector connector, AgentLaunchSpec baseSpec,
+                                     AcpEndpointDescriptor researchEndpoint,
+                                     AcpEndpointDescriptor browserEndpoint,
+                                     AcpEndpointDescriptor serviceEndpoint) {
         this.connector = connector;
         this.baseSpec = baseSpec;
         this.researchEndpoint = researchEndpoint;
         this.browserEndpoint = browserEndpoint;
+        this.serviceEndpoint = serviceEndpoint;
     }
 
     @Override
@@ -185,6 +195,13 @@ public final class AcpResearchSessionBackend implements ResearchSessionBackend {
                     env.put("ASKAI_BROWSER_MCP_URL", browserEndpoint.getUrl());
                     env.put("ASKAI_BROWSER_MCP_TRANSPORT", browserEndpoint.getTransport());
                     putToken(env, "ASKAI_BROWSER_MCP_TOKEN", browserEndpoint.getToken());
+                }
+                if (serviceEndpoint != null) {
+                    // Internal service endpoint (manual_source_accept) — never an agent tool; fully absent
+                    // when not wired.
+                    env.put("ASKAI_RESEARCH_SERVICE_MCP_URL", serviceEndpoint.getUrl());
+                    env.put("ASKAI_RESEARCH_SERVICE_MCP_TRANSPORT", serviceEndpoint.getTransport());
+                    putToken(env, "ASKAI_RESEARCH_SERVICE_MCP_TOKEN", serviceEndpoint.getToken());
                 }
                 AgentLaunchSpec spec = new AgentLaunchSpec(
                         baseSpec.getCommand(), baseSpec.getArgs(), env);

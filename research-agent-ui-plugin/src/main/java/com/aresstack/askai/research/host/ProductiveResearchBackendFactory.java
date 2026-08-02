@@ -255,6 +255,7 @@ public final class ProductiveResearchBackendFactory {
 
         BrowserBridgeEndpoint bridge = null;
         com.aresstack.askai.research.mcp.ResearchControlEndpoint control = null;
+        com.aresstack.askai.research.mcp.ResearchServiceEndpoint service = null;
         // 2. LAZY browser runtime: created STOPPED — selecting the Research agent must NOT spawn a browser
         // or block the EDT. The Playwright sidecar starts on the FIRST browser command (on the runtime's
         // own owner thread) and is stopped again when the browsing phase ends; a broken generation restarts.
@@ -270,8 +271,7 @@ public final class ProductiveResearchBackendFactory {
             ProductiveResearchSessionResources[] holder = new ProductiveResearchSessionResources[1];
             final com.aresstack.askai.research.state.oo.ResearchStateMemento initial =
                     stateMachine.initialMemento();
-            control = new com.aresstack.askai.research.mcp.ResearchControlEndpoint(
-                    registry, sessionKey, generationId,
+            final com.aresstack.askai.research.mcp.ResearchControlContext controlContext =
                     new com.aresstack.askai.research.mcp.ResearchControlContext() {
                         // Before the resources object exists (endpoint open() during construction), the
                         // machine is by definition in its initial state; afterwards the live state rules.
@@ -303,7 +303,13 @@ public final class ProductiveResearchBackendFactory {
                         public String acceptCapture(String captureId) {
                             return holder[0].controlContext().acceptCapture(captureId);
                         }
-                    });
+                    };
+            control = new com.aresstack.askai.research.mcp.ResearchControlEndpoint(
+                    registry, sessionKey, generationId, controlContext);
+            // The INTERNAL service endpoint (manual_source_accept) shares the SAME acceptance context but its
+            // own namespace — a user search accepts sources phase-independently, never as an agent tool.
+            service = new com.aresstack.askai.research.mcp.ResearchServiceEndpoint(
+                    registry, sessionKey, generationId, controlContext);
 
             // 4. Backend with BOTH endpoint descriptors (structured env hand-off; tokens never logged).
             String agentJava = config.getAgentJavaExecutable();
@@ -319,17 +325,22 @@ public final class ProductiveResearchBackendFactory {
 
             ProductiveResearchSessionResources resources;
             control.open();
+            service.open();
             String researchUrl = registry.endpointUrl(control.getHandle());
             AcpEndpointDescriptor researchDescriptor = new AcpEndpointDescriptor(
                     control.getEndpointId(), researchUrl, "streamable", control.getHandle().getToken());
             String bridgeUrl = registry.endpointUrl(bridge.getHandle());
             AcpEndpointDescriptor browserDescriptor = new AcpEndpointDescriptor(
                     bridge.getEndpointId(), bridgeUrl, "streamable", bridge.getHandle().getToken());
-            backend = new AcpResearchSessionBackend(connector, spec, researchDescriptor, browserDescriptor);
+            String serviceUrl = registry.endpointUrl(service.getHandle());
+            AcpEndpointDescriptor serviceDescriptor = new AcpEndpointDescriptor(
+                    service.getEndpointId(), serviceUrl, "streamable", service.getHandle().getToken());
+            backend = new AcpResearchSessionBackend(connector, spec, researchDescriptor, browserDescriptor,
+                    serviceDescriptor);
 
             resources = new ProductiveResearchSessionResources(sessionKey, stateMachine, captures,
                     repository, acceptance, projectContext, control, bridge,
-                    browser, backend);
+                    browser, backend, service);
             resources.setSearchProfile(profile);
             holder[0] = resources;
             control.refreshTools(); // now that the live context resolves, publish the initial tool set
@@ -337,15 +348,19 @@ public final class ProductiveResearchBackendFactory {
         } catch (RuntimeException ex) {
             // The lazy browser runtime no longer starts a process here, so the only failures are endpoint
             // registration / agent-backend wiring (runtime) — rolled back the same way.
-            rollback(control, bridge, browser);
+            rollback(control, service, bridge, browser);
             throw ex;
         }
     }
 
     private static void rollback(com.aresstack.askai.research.mcp.ResearchControlEndpoint control,
+                                 com.aresstack.askai.research.mcp.ResearchServiceEndpoint service,
                                  BrowserBridgeEndpoint bridge, BrowserRuntimePort browser) {
         if (control != null) {
             control.close();
+        }
+        if (service != null) {
+            service.close();
         }
         if (bridge != null) {
             bridge.close();
