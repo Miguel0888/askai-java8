@@ -16,7 +16,7 @@ public class ScopingAssistantOutputParserTest {
         ScopingAssistantOutputParser.Result r = ScopingAssistantOutputParser.parse(
                 "{\"assistantMessage\":\"You want to explore wearables.\","
                         + "\"researchBriefMarkdown\":\"# Research Brief\\n\\n## Fragestellung\\n\\nWearables?\","
-                        + "\"explorationMapMermaid\":\"mindmap\\n  root((Wearables))\","
+                        + "\"explorationMap\":{\"root\":\"Wearables\",\"children\":[{\"label\":\"Audio\"}]},"
                         + "\"searchSuggestions\":[{\"query\":\"wearables 2026\",\"priority\":1}]}");
         assertTrue(r.getError(), r.isOk());
         assertEquals("You want to explore wearables.", r.getOutput().getAssistantMessage());
@@ -30,7 +30,7 @@ public class ScopingAssistantOutputParserTest {
     public void fullOutputWithMapSuggestionsAndAdviceIsValid() {
         ScopingAssistantOutputParser.Result r = ScopingAssistantOutputParser.parse(
                 "{\"assistantMessage\":\"Got it.\",\"researchBriefMarkdown\":\"# Brief\\nWearables\","
-                        + "\"explorationMapMermaid\":\"mindmap\\n  root((Wearables))\\n    Audio\","
+                        + "\"explorationMap\":{\"root\":\"Wearables\",\"children\":[{\"label\":\"Audio\"}]},"
                         + "\"searchSuggestions\":["
                         + "{\"query\":\"wearables current technology 2026\",\"purpose\":\"tech\",\"priority\":1},"
                         + "{\"query\":\"smart glasses privacy\",\"purpose\":\"privacy\",\"priority\":2}],"
@@ -66,7 +66,7 @@ public class ScopingAssistantOutputParserTest {
         // reported interview signature) is no longer a valid scoping turn.
         ScopingAssistantOutputParser.Result r = ScopingAssistantOutputParser.parse(
                 "{\"assistantMessage\":\"Which subtopic?\",\"researchBriefMarkdown\":\"# Brief\\nX\","
-                        + "\"explorationMapMermaid\":\"\",\"searchSuggestions\":[]}");
+                        + "\"searchSuggestions\":[]}");
         assertFalse(r.isOk());
         assertTrue(r.getError(), r.getError().contains("exploration map"));
     }
@@ -75,7 +75,7 @@ public class ScopingAssistantOutputParserTest {
     public void missingSearchSuggestionsAreRejected() {
         ScopingAssistantOutputParser.Result r = ScopingAssistantOutputParser.parse(
                 "{\"assistantMessage\":\"Hi.\",\"researchBriefMarkdown\":\"# Brief\\nX\","
-                        + "\"explorationMapMermaid\":\"mindmap\\n  root((X))\"}");
+                        + "\"explorationMap\":{\"root\":\"X\"}}");
         assertFalse(r.isOk());
         assertTrue(r.getError(), r.getError().contains("search suggestion"));
     }
@@ -84,7 +84,7 @@ public class ScopingAssistantOutputParserTest {
     public void aSearchSuggestionWithABlankQueryIsRejected() {
         ScopingAssistantOutputParser.Result r = ScopingAssistantOutputParser.parse(
                 "{\"assistantMessage\":\"Hi.\",\"researchBriefMarkdown\":\"# Brief\\nX\","
-                        + "\"explorationMapMermaid\":\"mindmap\\n  root((X))\","
+                        + "\"explorationMap\":{\"root\":\"X\"},"
                         + "\"searchSuggestions\":[{\"query\":\"   \",\"priority\":1}]}");
         assertFalse(r.isOk());
         assertTrue(r.getError().contains("query"));
@@ -95,7 +95,8 @@ public class ScopingAssistantOutputParserTest {
         ScopingAssistantOutput original = new ScopingAssistantOutput(
                 "Message with \"quotes\" and \n newline",
                 "# Research Brief\n\n## Fragestellung\n\nWearables mit Audio & Video?",
-                "mindmap\n  root((Wearables))\n    Audio\n    Video",
+                new ExplorationMap(new ExplorationNode("Wearables", Arrays.asList(
+                        new ExplorationNode("Audio", null), new ExplorationNode("Video", null)))),
                 Arrays.asList(new SearchSuggestion("wearables audio video", "scope", 1),
                         new SearchSuggestion("smart glasses privacy GDPR", "", 3)),
                 new PhaseAdvice(PhaseAdviceRecommendation.STAY, "one open point remains"));
@@ -107,6 +108,8 @@ public class ScopingAssistantOutputParserTest {
         ScopingAssistantOutput back = reparsed.getOutput();
         assertEquals(original.getAssistantMessage(), back.getAssistantMessage());
         assertEquals(original.getResearchBriefMarkdown(), back.getResearchBriefMarkdown());
+        assertEquals("Wearables", back.getExplorationMap().getRoot().getLabel());
+        assertEquals(2, back.getExplorationMap().getRoot().getChildren().size());
         assertEquals(original.getExplorationMapMermaid(), back.getExplorationMapMermaid());
         assertEquals(2, back.getSearchSuggestions().size());
         assertEquals("wearables audio video", back.getSearchSuggestions().get(0).getQuery());
@@ -118,7 +121,7 @@ public class ScopingAssistantOutputParserTest {
     private static PhaseAdviceRecommendation adviceOf(String token) {
         ScopingAssistantOutputParser.Result r = ScopingAssistantOutputParser.parse(
                 "{\"assistantMessage\":\"Hi.\",\"researchBriefMarkdown\":\"# B\\nX\","
-                        + "\"explorationMapMermaid\":\"mindmap\\n  root((X))\","
+                        + "\"explorationMap\":{\"root\":\"X\"},"
                         + "\"searchSuggestions\":[{\"query\":\"x\",\"priority\":1}],"
                         + "\"advice\":{\"recommendation\":\"" + token + "\"}}");
         assertTrue(r.getError(), r.isOk());
