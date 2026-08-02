@@ -63,7 +63,6 @@ public final class ChatWorkspacePanel extends JPanel {
 
     private static final int SIDEBAR_CLOSE_DELAY_MS = 300;
     private static final int HOVER_MARGIN_PX = 12;
-    private static final int LONG_PRESS_MS = 500;
 
     private final CardLayout cardLayout = new CardLayout();
     private final JPanel cards = new JPanel(cardLayout);
@@ -83,9 +82,8 @@ public final class ChatWorkspacePanel extends JPanel {
     private JPanel chatListPanel;
     private java.util.function.Supplier<List<ChatSidebarTab>> sidebarTabsSource;
     private final javax.swing.Timer sidebarCloseTimer;
-    private final javax.swing.Timer longPressTimer;
     private AWTEventListener sidebarMouseWatcher;
-    private boolean menuLocked; // long-pressing the burger latches the menu until the next click
+    private boolean menuLocked; // clicking the burger latches the menu until the next click
 
     public ChatWorkspacePanel(ChatSessionFactory factory) {
         this(factory, null, null);
@@ -114,11 +112,6 @@ public final class ChatWorkspacePanel extends JPanel {
         this.sidebarCloseTimer = new javax.swing.Timer(SIDEBAR_CLOSE_DELAY_MS,
                 event -> onPointerLeftSidebarArea());
         sidebarCloseTimer.setRepeats(false);
-        this.longPressTimer = new javax.swing.Timer(LONG_PRESS_MS, event -> {
-            menuLocked = true; // latched: the menu no longer folds away on hover-out
-            openMenuAndSidebar();
-        });
-        longPressTimer.setRepeats(false);
         buildTopLevelLayout();
 
         if (restoreIds != null && !restoreIds.isEmpty()) {
@@ -239,15 +232,14 @@ public final class ChatWorkspacePanel extends JPanel {
     // ------------------------------------------------------------------ layout + sidebar behavior
 
     private void buildTopLevelLayout() {
-        // Click: toggles — and always unlatches a long-press lock ("bis zum nächsten Klick").
+        // Opening/closing is HOVER-only; a click LATCHES the ribbon instead: the burger stays
+        // pressed-in until the next click, which releases and closes the menu.
         burger.addActionListener(event -> {
-            longPressTimer.stop();
             if (menuLocked) {
-                menuLocked = false;
-                collapseMenuAndSidebar();
-            } else if (sidebar.isVisible() || ribbon.isOpen()) {
-                collapseMenuAndSidebar();
+                collapseMenuAndSidebar(); // also resets menuLocked and the pressed-in look
             } else {
+                menuLocked = true;
+                ChatComposerPanel.setToolbarButtonLatched(burger, true);
                 openMenuAndSidebar();
             }
         });
@@ -257,21 +249,6 @@ public final class ChatWorkspacePanel extends JPanel {
                 if (!sidebar.isVisible() && !ribbon.isOpen()) {
                     openMenuAndSidebar(); // hovering the burger unfolds the menu + drawer
                 }
-            }
-
-            @Override
-            public void mousePressed(MouseEvent event) {
-                longPressTimer.restart(); // held long enough → the menu latches open
-            }
-
-            @Override
-            public void mouseReleased(MouseEvent event) {
-                longPressTimer.stop();
-            }
-
-            @Override
-            public void mouseExited(MouseEvent event) {
-                longPressTimer.stop();
             }
         });
 
@@ -334,6 +311,7 @@ public final class ChatWorkspacePanel extends JPanel {
     private void collapseMenuAndSidebar() {
         sidebarCloseTimer.stop();
         menuLocked = false;
+        ChatComposerPanel.setToolbarButtonLatched(burger, false);
         ribbon.close();
         hideSidebar();
     }

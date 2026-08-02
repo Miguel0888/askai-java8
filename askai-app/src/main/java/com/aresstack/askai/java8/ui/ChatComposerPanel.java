@@ -519,6 +519,16 @@ public final class ChatComposerPanel extends JPanel {
         return button;
     }
 
+    /**
+     * Latch/unlatch a toolbar button created by the factories above: latched it paints filled
+     * ("pressed in"), e.g. the hamburger while the ribbon menu is locked open.
+     */
+    public static void setToolbarButtonLatched(JButton button, boolean latched) {
+        if (button instanceof ComposerButton) {
+            ((ComposerButton) button).setEmphasized(latched);
+        }
+    }
+
     /** A Java2D pushpin in the composer icon style, for the sidebar's pin toggle. */
     public static Icon createPushPinIcon() {
         return new PushPinIcon();
