@@ -229,6 +229,26 @@ public final class ChatWorkspacePanel extends JPanel {
         this.sidebarTabsSource = source;
     }
 
+    /** Refresh the drawer's panes/ribbon in place (e.g. the active agent's tab set changed). */
+    public void refreshSidebarTabs() {
+        if (sidebar.isVisible()) {
+            sidebar.rebuildTabs();
+            refreshRibbonTabs();
+        }
+    }
+
+    /**
+     * Open the drawer LATCHED on the pane with this title (e.g. an /open artifact reveal): an
+     * explicitly requested pane must not fold away on the next mouse move.
+     */
+    public void openSidebarTab(String title) {
+        menuLocked = true;
+        ChatComposerPanel.setToolbarButtonLatched(burger, true);
+        openMenuAndSidebar();
+        sidebar.showTab(title);
+        refreshRibbonTabs();
+    }
+
     // ------------------------------------------------------------------ layout + sidebar behavior
 
     private void buildTopLevelLayout() {

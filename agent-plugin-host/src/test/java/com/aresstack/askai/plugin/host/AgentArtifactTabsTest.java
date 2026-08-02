@@ -33,19 +33,18 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-/** The shared artifact area builds tabs from the active session and clears them on switch/deactivate. */
-public class AgentArtifactAreaTest {
+/** The sidebar-tab provider builds one tab per artifact of the active session and clears on switch. */
+public class AgentArtifactTabsTest {
 
     private final Map<String, AgentPluginExtension> registry = new HashMap<String, AgentPluginExtension>();
-    private int revealCount;
-    private int emptyCount;
+    private int changeCount;
 
     private AgentSessionCoordinator coordinator() {
         registry.put("agent.a", new FakeExtension(Arrays.asList(
-                artifact("outline", "Outline", AgentArtifactArea.MARKDOWN_TYPE_ID),
+                artifact("outline", "Outline", AgentArtifactTabs.MARKDOWN_TYPE_ID),
                 artifact("state", "State", "custom.state"))));
         registry.put("agent.b", new FakeExtension(Collections.singletonList(
-                artifact("notes", "Notes", AgentArtifactArea.MARKDOWN_TYPE_ID))));
+                artifact("notes", "Notes", AgentArtifactTabs.MARKDOWN_TYPE_ID))));
         AgentSessionCoordinator.AgentExtensionResolver resolver =
                 new AgentSessionCoordinator.AgentExtensionResolver() {
                     public AgentPluginExtension resolve(String agentId) {
@@ -61,67 +60,70 @@ public class AgentArtifactAreaTest {
         return new AgentSessionCoordinator(resolver, provider, new InlineUiExecutor());
     }
 
-    private AgentArtifactArea area(AgentSessionCoordinator coordinator) {
-        return new AgentArtifactArea(coordinator, new InlineUiExecutor(), null, null,
-                new Runnable() {
-                    public void run() {
-                        revealCount++;
-                    }
-                },
-                new Runnable() {
-                    public void run() {
-                        emptyCount++;
-                    }
-                });
+    private AgentArtifactTabs tabs(AgentSessionCoordinator coordinator) {
+        AgentArtifactTabs tabs = new AgentArtifactTabs(coordinator, new InlineUiExecutor(), null, null);
+        tabs.addChangeListener(new Runnable() {
+            public void run() {
+                changeCount++;
+            }
+        });
+        return tabs;
     }
 
     @Test
     public void emptyWhenNoAgentIsActive() {
         AgentSessionCoordinator c = coordinator();
-        AgentArtifactArea area = area(c);
-        assertEquals(0, area.tabCount());
-        assertFalse(area.hasArtifacts());
-        assertTrue(emptyCount >= 1); // constructor rebuild reported empty
+        AgentArtifactTabs tabs = tabs(c);
+        assertTrue(tabs.tabs().isEmpty());
     }
 
     @Test
-    public void buildsOneTabPerArtifactOfTheActiveAgent() {
+    public void buildsOneTitledTabPerArtifactOfTheActiveAgent() {
         AgentSessionCoordinator c = coordinator();
-        AgentArtifactArea area = area(c);
+        AgentArtifactTabs tabs = tabs(c);
         c.setActiveAgent("agent.a");
-        assertTrue(area.hasArtifacts());
-        assertEquals(2, area.tabCount());
+        assertEquals(2, tabs.tabs().size());
+        assertEquals("Outline", tabs.tabs().get(0).getTitle());
+        assertEquals("State", tabs.tabs().get(1).getTitle());
+        assertTrue("a rebuild notified the sidebar", changeCount >= 1);
     }
 
     @Test
-    public void revealAsksHostToShowAndSelectsTab() {
+    public void viewsAreCachedBetweenReadsSoEditingStateSurvivesDrawerToggles() {
         AgentSessionCoordinator c = coordinator();
-        AgentArtifactArea area = area(c);
+        AgentArtifactTabs tabs = tabs(c);
         c.setActiveAgent("agent.a");
-        int before = revealCount;
-        area.revealArtifact("state");
-        assertEquals(before + 1, revealCount);
+        assertTrue("same component instance until the next coordinator change",
+                tabs.tabs().get(0).getComponent() == tabs.tabs().get(0).getComponent());
+    }
+
+    @Test
+    public void tabForArtifactResolvesByIdForTheOpenReveal() {
+        AgentSessionCoordinator c = coordinator();
+        AgentArtifactTabs tabs = tabs(c);
+        c.setActiveAgent("agent.a");
+        assertEquals("State", tabs.tabForArtifact("state").getTitle());
+        assertTrue(tabs.tabForArtifact("nope") == null);
     }
 
     @Test
     public void switchingAgentReplacesTheTabs() {
         AgentSessionCoordinator c = coordinator();
-        AgentArtifactArea area = area(c);
+        AgentArtifactTabs tabs = tabs(c);
         c.setActiveAgent("agent.a");
-        assertEquals(2, area.tabCount());
+        assertEquals(2, tabs.tabs().size());
         c.setActiveAgent("agent.b");
-        assertEquals(1, area.tabCount());
+        assertEquals(1, tabs.tabs().size());
+        assertEquals("Notes", tabs.tabs().get(0).getTitle());
     }
 
     @Test
-    public void deactivatingClearsTabsAndReportsEmpty() {
+    public void deactivatingClearsTheTabs() {
         AgentSessionCoordinator c = coordinator();
-        AgentArtifactArea area = area(c);
+        AgentArtifactTabs tabs = tabs(c);
         c.setActiveAgent("agent.a");
-        int before = emptyCount;
         c.deactivateActive();
-        assertEquals(0, area.tabCount());
-        assertTrue(emptyCount > before);
+        assertTrue(tabs.tabs().isEmpty());
     }
 
     // ------------------------------------------------------------------ fakes

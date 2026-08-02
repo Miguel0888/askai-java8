@@ -40,9 +40,6 @@ public final class ChatWorkspaceHostPanel extends JPanel implements WorkspaceMod
     // The active agent's DISPLAY NAME, persisted alongside its id so a restart can show it SYNCHRONOUSLY
     // (before the async plugin catalog loads) — no generic "Questing" flicker followed by a later switch.
     private static final String STATE_QUESTING_AGENT_LABEL = "chat.questingAgentLabel";
-    private static final String STATE_ARTIFACT_VISIBLE = "chat.artifactArea.visible";
-    private static final String STATE_ARTIFACT_WIDTH = "chat.artifactArea.width";
-    private static final int DEFAULT_ARTIFACT_WIDTH = 380;
     private static final String NORMAL_CARD = "normal";
     private static final String PLUGIN_CARD = "plugin";
 
@@ -78,8 +75,6 @@ public final class ChatWorkspaceHostPanel extends JPanel implements WorkspaceMod
     // it only moves between "chat only" and a split with the artifact area, preserving its identity.
     private final JComponent normalChatComponentRef;
     private final JPanel normalChatContainer = new JPanel(new BorderLayout());
-    private AgentArtifactArea artifactArea;
-    private boolean artifactAreaVisible;
 
     public ChatWorkspaceHostPanel(JComponent normalChatComponent, WorkspacePluginService pluginService,
                                   WorkspaceHostContextFactory hostContextFactory, UiExecutor uiExecutor,
@@ -108,65 +103,12 @@ public final class ChatWorkspaceHostPanel extends JPanel implements WorkspaceMod
 
     /**
      * Wire the new agent model. When set, Questing routes to an agent session over the shared chat instead of
-     * swapping to a standalone workspace, and the collapsible artifact area is bound. Must be called before the
-     * first Questing activation.
+     * swapping to a standalone workspace. The artifact views live in the LEFT chat sidebar now (see
+     * {@link AgentArtifactTabs}, wired by the frame) — there is no right-hand artifact area anymore. Must be
+     * called before the first Questing activation.
      */
-    public void setAgentSessionCoordinator(AgentSessionCoordinator coordinator,
-                                           com.aresstack.askai.plugin.api.service.ThemeService themeService,
-                                           com.aresstack.askai.plugin.api.service.MarkdownViewFactory markdownViewFactory) {
+    public void setAgentSessionCoordinator(AgentSessionCoordinator coordinator) {
         this.agentCoordinator = coordinator;
-        this.artifactArea = new AgentArtifactArea(coordinator, uiExecutor, themeService, markdownViewFactory,
-                new Runnable() {
-                    public void run() {
-                        showArtifactArea(); // /open or a reveal request expands the area
-                    }
-                },
-                new Runnable() {
-                    public void run() {
-                        hideArtifactArea(); // no artifacts / user closed it → back to plain chat
-                    }
-                });
-        // /open <artifact> reveals the matching tab.
-        coordinator.setArtifactOpener(new AgentSessionCoordinator.ArtifactOpener() {
-            public void open(String artifactId) {
-                if (artifactArea != null) {
-                    artifactArea.revealArtifact(artifactId);
-                }
-            }
-        });
-    }
-
-    private void showArtifactArea() {
-        if (artifactArea == null || artifactAreaVisible || !artifactArea.hasArtifacts()) {
-            return;
-        }
-        artifactAreaVisible = true;
-        persist(STATE_ARTIFACT_VISIBLE, "true");
-        normalChatContainer.removeAll();
-        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, normalChatComponentRef, artifactArea);
-        split.setResizeWeight(1.0d);
-        int width = getWidth() > 0 ? getWidth() : 1000;
-        split.setDividerLocation(Math.max(200, width - artifactWidth()));
-        normalChatContainer.add(split, BorderLayout.CENTER);
-        normalChatContainer.revalidate();
-        normalChatContainer.repaint();
-    }
-
-    private void hideArtifactArea() {
-        if (!artifactAreaVisible) {
-            return;
-        }
-        artifactAreaVisible = false;
-        persist(STATE_ARTIFACT_VISIBLE, "false");
-        normalChatContainer.removeAll();
-        normalChatContainer.add(normalChatComponentRef, BorderLayout.CENTER);
-        normalChatContainer.revalidate();
-        normalChatContainer.repaint();
-    }
-
-    private int artifactWidth() {
-        return hostState == null ? DEFAULT_ARTIFACT_WIDTH
-                : hostState.getInt(STATE_ARTIFACT_WIDTH, DEFAULT_ARTIFACT_WIDTH);
     }
 
     // ------------------------------------------------------------------ controller surface (bound by app)
