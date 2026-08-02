@@ -25,13 +25,15 @@ public class VisualizationResultParserTest {
         VisualizationResult r = VisualizationResultParser.parse(
                 "{\"decision\":\"NONE\",\"reason\":\"not enough structure yet\"}");
         assertFalse(r.isPresent());
+        assertEquals(VisualizationResult.Kind.NONE, r.getKind());
         assertEquals("not enough structure yet", r.getReason());
     }
 
     @Test
-    public void aDiagramDecisionWithoutMermaidDegradesToNone() {
+    public void aDiagramDecisionWithoutMermaidIsAFailureNotADeliberateNone() {
         VisualizationResult r = VisualizationResultParser.parse("{\"decision\":\"DIAGRAM\",\"mermaid\":\"  \"}");
         assertFalse(r.isPresent());
+        assertEquals(VisualizationResult.Kind.FAILED, r.getKind());
     }
 
     @Test
@@ -43,9 +45,12 @@ public class VisualizationResultParserTest {
     }
 
     @Test
-    public void malformedOutputNeverThrowsAndDegradesToNone() {
-        assertFalse(VisualizationResultParser.parse("not json at all").isPresent());
-        assertFalse(VisualizationResultParser.parse("{ broken").isPresent());
-        assertFalse(VisualizationResultParser.parse(null).isPresent());
+    public void malformedOutputNeverThrowsAndDegradesToFailed() {
+        assertEquals(VisualizationResult.Kind.FAILED,
+                VisualizationResultParser.parse("not json at all").getKind());
+        assertEquals(VisualizationResult.Kind.FAILED,
+                VisualizationResultParser.parse("{ broken").getKind());
+        assertEquals(VisualizationResult.Kind.FAILED,
+                VisualizationResultParser.parse(null).getKind());
     }
 }

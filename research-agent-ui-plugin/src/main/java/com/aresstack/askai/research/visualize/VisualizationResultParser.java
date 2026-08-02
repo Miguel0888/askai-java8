@@ -19,26 +19,27 @@ public final class VisualizationResultParser {
     public static VisualizationResult parse(String rawModelText) {
         String json = extractJsonObject(rawModelText);
         if (json == null) {
-            return VisualizationResult.none("no JSON object in the visualizer answer");
+            return VisualizationResult.failed("no JSON object in the visualizer answer");
         }
         Object root;
         try {
             root = MiniJson.parse(json);
         } catch (RuntimeException malformed) {
-            return VisualizationResult.none("visualizer answer was not valid JSON");
+            return VisualizationResult.failed("visualizer answer was not valid JSON");
         }
         if (!(root instanceof Map)) {
-            return VisualizationResult.none("visualizer answer is not a JSON object");
+            return VisualizationResult.failed("visualizer answer is not a JSON object");
         }
         Map<String, Object> object = (Map<String, Object>) root;
         String decision = asString(object.get("decision"));
         if (decision == null || !decision.trim().equalsIgnoreCase("DIAGRAM")) {
+            // A deliberate model choice of no diagram — a valid NONE, not a failure.
             String reason = asString(object.get("reason"));
             return VisualizationResult.none(reason == null ? "the model chose no diagram" : reason);
         }
         String mermaid = asString(object.get("mermaid"));
         if (mermaid == null || mermaid.trim().isEmpty()) {
-            return VisualizationResult.none("DIAGRAM decision without a diagram source");
+            return VisualizationResult.failed("DIAGRAM decision without a diagram source");
         }
         return VisualizationResult.diagram(
                 VisualizationType.fromToken(asString(object.get("diagramType"))),

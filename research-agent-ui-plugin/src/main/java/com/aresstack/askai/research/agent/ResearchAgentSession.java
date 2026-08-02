@@ -393,6 +393,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     private com.aresstack.askai.research.visualize.LazyArtifactVisualizer artifactVisualizer;
     /** The latest derived visualization projection for the "Visualisierung" view; transient/rebuildable. */
     private volatile com.aresstack.askai.research.visualize.VisualizationProjection latestVisualization;
+    /** The lifecycle status of the visualization (so the view distinguishes never-ran / running / NONE / fail). */
+    private volatile com.aresstack.askai.research.visualize.VisualizationStatus visualizationStatus =
+            com.aresstack.askai.research.visualize.VisualizationStatus.NOT_STARTED;
     /** Serializes research-brief working-copy writes OFF the EDT (applyEvent runs on the EDT). */
     private final java.util.concurrent.ExecutorService briefWriteExecutor =
             java.util.concurrent.Executors.newSingleThreadExecutor(
@@ -1010,6 +1013,8 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 } catch (RuntimeException persistFailed) {
                     return; // a brief write failure must never crash the session or the run
                 }
+                com.aresstack.askai.research.visualize.VisualizerDiagnostics.log(
+                        "briefChanged changed=" + changed + " briefChars=" + markdown.length());
                 if (changed) {
                     // Refresh the Fragestellung view, and lazily (re)build the DERIVED visualization for the
                     // new brief — a separate consumer, hash-guarded, that never blocks this write or the agent.
@@ -1029,12 +1034,26 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         return latestVisualization;
     }
 
+    /** The visualization lifecycle status (never-ran / preparing / running / diagram / none / failed). */
+    public com.aresstack.askai.research.visualize.VisualizationStatus visualizationStatus() {
+        return visualizationStatus;
+    }
+
     private void scheduleVisualization(String phaseId, String markdown) {
         com.aresstack.askai.research.visualize.LazyArtifactVisualizer visualizer = artifactVisualizer();
-        if (visualizer != null) {
-            visualizer.onArtifactChanged(new com.aresstack.askai.research.visualize.ArtifactSnapshot(
-                    "research-brief", markdown, phaseId));
+        if (visualizer == null) {
+            com.aresstack.askai.research.visualize.VisualizerDiagnostics.log(
+                    "unavailable reason=no AgentInferencePort");
+            visualizationStatus = com.aresstack.askai.research.visualize.VisualizationStatus.FAILED;
+            uiExecutor.execute(new Runnable() {
+                public void run() {
+                    fireStateChanged();
+                }
+            });
+            return;
         }
+        visualizer.onArtifactChanged(new com.aresstack.askai.research.visualize.ArtifactSnapshot(
+                "research-brief", markdown, phaseId));
     }
 
     private synchronized com.aresstack.askai.research.visualize.LazyArtifactVisualizer artifactVisualizer() {
@@ -1056,6 +1075,18 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                         public void accept(
                                 com.aresstack.askai.research.visualize.VisualizationProjection projection) {
                             latestVisualization = projection;
+                            uiExecutor.execute(new Runnable() {
+                                public void run() {
+                                    fireStateChanged();
+                                }
+                            });
+                        }
+                    },
+                    new java.util.function.Consumer<
+                            com.aresstack.askai.research.visualize.VisualizationStatus>() {
+                        public void accept(
+                                com.aresstack.askai.research.visualize.VisualizationStatus status) {
+                            visualizationStatus = status;
                             uiExecutor.execute(new Runnable() {
                                 public void run() {
                                     fireStateChanged();

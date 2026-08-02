@@ -33,6 +33,11 @@ public class LazyArtifactVisualizerTest {
                     public void accept(VisualizationProjection projection) {
                         published.set(projection);
                     }
+                },
+                new java.util.function.Consumer<VisualizationStatus>() {
+                    public void accept(VisualizationStatus status) {
+                        // status transitions are irrelevant to the hash-authority assertion
+                    }
                 }, NEVER);
 
         ArtifactSnapshot older = new ArtifactSnapshot("research-brief", "Brief A", "scoping");

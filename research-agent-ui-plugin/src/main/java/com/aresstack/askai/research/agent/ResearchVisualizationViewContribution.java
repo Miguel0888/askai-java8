@@ -5,6 +5,7 @@ import com.aresstack.askai.plugin.api.agent.artifact.ArtifactViewContext;
 import com.aresstack.askai.plugin.api.agent.artifact.ArtifactViewContribution;
 import com.aresstack.askai.plugin.api.service.UiExecutor;
 import com.aresstack.askai.research.visualize.VisualizationProjection;
+import com.aresstack.askai.research.visualize.VisualizationStatus;
 
 import javax.swing.JComponent;
 
@@ -39,9 +40,10 @@ public final class ResearchVisualizationViewContribution implements ArtifactView
         final Runnable refresh = new Runnable() {
             public void run() {
                 final VisualizationProjection projection = research.latestVisualization();
+                final VisualizationStatus status = research.visualizationStatus();
                 uiExecutor.execute(new Runnable() {
                     public void run() {
-                        view.render(projection);
+                        view.render(status, projection);
                     }
                 });
             }

@@ -10,10 +10,11 @@ import java.util.function.Consumer;
 
 /**
  * Runs artifact visualization LAZILY: an artifact change marks work dirty, but the visualizer only starts
- * after a short idle debounce AND only when the main agent is not busy (else it defers). The CONTENT HASH is
- * the authority — a result computed for an older hash is discarded when a newer artifact has arrived, so
- * nothing flickers between stale and fresh diagrams. It has no workflow authority: it only produces a derived
- * {@link VisualizationProjection} through the supplied sink; it never touches the artifact or the workflow.
+ * after a short idle debounce AND only when the main agent is not busy (else it defers AND RE-ARMS, so it is
+ * never forgotten). The CONTENT HASH is the authority — a result computed for an older hash is discarded when
+ * a newer artifact has arrived, so nothing flickers between stale and fresh diagrams. It has no workflow
+ * authority: it only produces a derived {@link VisualizationProjection} + a {@link VisualizationStatus} through
+ * the supplied sinks. Every step is traced via {@link VisualizerDiagnostics}.
  */
 public final class LazyArtifactVisualizer {
 
@@ -22,7 +23,8 @@ public final class LazyArtifactVisualizer {
 
     private final ArtifactVisualizationService service;
     private final BooleanSupplier agentBusy;
-    private final Consumer<VisualizationProjection> sink;
+    private final Consumer<VisualizationProjection> resultSink;
+    private final Consumer<VisualizationStatus> statusSink;
     private final long debounceMillis;
     private final ScheduledExecutorService scheduler;
 
@@ -31,15 +33,18 @@ public final class LazyArtifactVisualizer {
     private ScheduledFuture<?> pending;
 
     public LazyArtifactVisualizer(ArtifactVisualizationService service, BooleanSupplier agentBusy,
-                                  Consumer<VisualizationProjection> sink) {
-        this(service, agentBusy, sink, DEBOUNCE_MILLIS);
+                                  Consumer<VisualizationProjection> resultSink,
+                                  Consumer<VisualizationStatus> statusSink) {
+        this(service, agentBusy, resultSink, statusSink, DEBOUNCE_MILLIS);
     }
 
     LazyArtifactVisualizer(ArtifactVisualizationService service, BooleanSupplier agentBusy,
-                           Consumer<VisualizationProjection> sink, long debounceMillis) {
+                           Consumer<VisualizationProjection> resultSink,
+                           Consumer<VisualizationStatus> statusSink, long debounceMillis) {
         this.service = service;
         this.agentBusy = agentBusy;
-        this.sink = sink;
+        this.resultSink = resultSink;
+        this.statusSink = statusSink;
         this.debounceMillis = debounceMillis;
         this.scheduler = Executors.newSingleThreadScheduledExecutor(new ThreadFactory() {
             public Thread newThread(Runnable r) {
@@ -57,6 +62,9 @@ public final class LazyArtifactVisualizer {
         }
         this.desired = snapshot;
         this.desiredHash = snapshot.getContentHash();
+        VisualizerDiagnostics.log("scheduled hash=" + VisualizerDiagnostics.shortHash(desiredHash)
+                + " debounceMs=" + debounceMillis);
+        statusSink.accept(VisualizationStatus.PREPARING);
         arm();
     }
 
@@ -72,11 +80,17 @@ public final class LazyArtifactVisualizer {
     }
 
     private void tick() {
-        if (agentBusy.getAsBoolean()) {
-            arm(); // the main agent is working — defer, do not compete for the model
+        ArtifactSnapshot snapshot = desired;
+        if (snapshot == null) {
             return;
         }
-        runOnce(desired);
+        if (agentBusy.getAsBoolean()) {
+            VisualizerDiagnostics.log("deferred busy=true hash="
+                    + VisualizerDiagnostics.shortHash(snapshot.getContentHash()));
+            arm(); // defer AND re-arm — the main agent is working; try again after the next idle window
+            return;
+        }
+        runOnce(snapshot);
     }
 
     /** Visualize the snapshot and publish ONLY if it is still the desired content (else discard as stale). */
@@ -85,11 +99,30 @@ public final class LazyArtifactVisualizer {
             return;
         }
         String startedHash = snapshot.getContentHash();
+        VisualizerDiagnostics.log("started hash=" + VisualizerDiagnostics.shortHash(startedHash));
+        statusSink.accept(VisualizationStatus.RUNNING);
         VisualizationResult result = service.visualize(snapshot);
         if (!startedHash.equals(desiredHash)) {
+            VisualizerDiagnostics.log("stale expected=" + VisualizerDiagnostics.shortHash(startedHash)
+                    + " actual=" + VisualizerDiagnostics.shortHash(desiredHash));
             return; // a newer artifact arrived while we ran — discard; the newer one has its own scheduled run
         }
-        sink.accept(new VisualizationProjection(
+        switch (result.getKind()) {
+            case DIAGRAM:
+                VisualizerDiagnostics.log("result=DIAGRAM chars=" + result.getMermaid().length());
+                statusSink.accept(VisualizationStatus.HAS_DIAGRAM);
+                break;
+            case NONE:
+                VisualizerDiagnostics.log("result=NONE");
+                statusSink.accept(VisualizationStatus.NONE_DECIDED);
+                break;
+            case FAILED:
+            default:
+                VisualizerDiagnostics.log("result=FAILED reason=" + result.getReason());
+                statusSink.accept(VisualizationStatus.FAILED);
+                break;
+        }
+        resultSink.accept(new VisualizationProjection(
                 snapshot.getArtifactId(), startedHash, snapshot.getPhaseId(), result));
     }
 

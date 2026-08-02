@@ -25,7 +25,7 @@ public final class ModelArtifactVisualizer implements ArtifactVisualizationServi
 
     public VisualizationResult visualize(ArtifactSnapshot snapshot) {
         if (port == null || snapshot == null || snapshot.getContent().trim().isEmpty()) {
-            return VisualizationResult.none("no inference port or empty artifact");
+            return VisualizationResult.failed("no inference port or empty artifact");
         }
         final CountDownLatch done = new CountDownLatch(1);
         final AtomicReference<String> text = new AtomicReference<String>();
@@ -47,15 +47,15 @@ public final class ModelArtifactVisualizer implements ArtifactVisualizationServi
         try {
             if (!done.await(TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
                 cancellable.cancel();
-                return VisualizationResult.none("visualizer timed out");
+                return VisualizationResult.failed("visualizer timed out");
             }
         } catch (InterruptedException interrupted) {
             cancellable.cancel();
             Thread.currentThread().interrupt();
-            return VisualizationResult.none("visualizer interrupted");
+            return VisualizationResult.failed("visualizer interrupted");
         }
         if (text.get() == null) {
-            return VisualizationResult.none(failure.get() == null ? "visualizer failed" : failure.get());
+            return VisualizationResult.failed(failure.get() == null ? "visualizer failed" : failure.get());
         }
         return VisualizationResultParser.parse(text.get());
     }
