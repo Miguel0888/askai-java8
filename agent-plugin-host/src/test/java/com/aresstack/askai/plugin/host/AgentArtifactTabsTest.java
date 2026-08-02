@@ -126,7 +126,32 @@ public class AgentArtifactTabsTest {
         assertTrue(tabs.tabs().isEmpty());
     }
 
+    @Test
+    public void readsRefreshThemselvesEvenWhenTheChangeEventWasMissed() {
+        // Simulate an event race (startup ordering): the provider's executor DROPS the rebuild event.
+        // A later read must still deliver the active session's tabs instead of a stale empty list.
+        AgentSessionCoordinator c = coordinator();
+        AgentArtifactTabs lateReader = new AgentArtifactTabs(c, new DroppingUiExecutor(), null, null);
+        c.setActiveAgent("agent.a"); // its change event is swallowed by the executor
+        assertEquals("the read repaired the missed event", 2, lateReader.tabs().size());
+        assertEquals("Outline", lateReader.tabs().get(0).getTitle());
+    }
+
     // ------------------------------------------------------------------ fakes
+
+    /** Swallows every posted runnable — models a change event that never reaches the provider. */
+    private static final class DroppingUiExecutor implements UiExecutor {
+        public boolean isUiThread() {
+            return true;
+        }
+
+        public void execute(Runnable runnable) {
+            // dropped on purpose
+        }
+
+        public void assertUiThread() {
+        }
+    }
 
     private static AgentArtifact artifact(String id, String name, String type) {
         return new AgentArtifact() {

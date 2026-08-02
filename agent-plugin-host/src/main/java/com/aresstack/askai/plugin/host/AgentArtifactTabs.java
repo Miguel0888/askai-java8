@@ -63,6 +63,7 @@ public final class AgentArtifactTabs {
     private final List<Runnable> changeListeners = new ArrayList<Runnable>();
 
     private List<Tab> tabs = Collections.emptyList();
+    private AgentSession builtFor; // the session the cached tabs belong to (identity)
 
     public AgentArtifactTabs(AgentSessionCoordinator coordinator, UiExecutor uiExecutor,
                              ThemeService themeService, MarkdownViewFactory markdownViewFactory) {
@@ -89,8 +90,16 @@ public final class AgentArtifactTabs {
         }
     }
 
-    /** The current tabs — empty when no agent session is active (then the sidebar shows none). */
+    /**
+     * The current tabs — empty when no agent session is active (then the sidebar shows none). Reads
+     * REFRESH themselves against the live active session, so a drawer opened after an event race
+     * (startup ordering, tab switch) never sees stale or missing tabs.
+     */
     public List<Tab> tabs() {
+        AgentSession current = coordinator.getActiveSession();
+        if (current != builtFor) {
+            rebuildFor(current); // read-time refresh; no change event (the reader is already reading)
+        }
         return tabs;
     }
 
@@ -105,10 +114,14 @@ public final class AgentArtifactTabs {
     }
 
     private void rebuild() {
-        AgentSession session = coordinator.getActiveSession();
+        rebuildFor(coordinator.getActiveSession());
+        fireChanged();
+    }
+
+    private void rebuildFor(AgentSession session) {
+        builtFor = session;
         if (session == null || session.getArtifacts().isEmpty()) {
             tabs = Collections.emptyList();
-            fireChanged();
             return;
         }
         List<ArtifactViewContribution> contributions = coordinator.getActiveArtifactViews();
@@ -118,7 +131,6 @@ public final class AgentArtifactTabs {
                     buildView(artifact, session, contributions)));
         }
         tabs = Collections.unmodifiableList(rebuilt);
-        fireChanged();
     }
 
     private void fireChanged() {
