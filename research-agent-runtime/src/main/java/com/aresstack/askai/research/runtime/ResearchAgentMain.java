@@ -547,14 +547,43 @@ public final class ResearchAgentMain {
      */
     private void handleManualSearch(final SyncPromptContext ctx,
                                     com.aresstack.askai.research.runtime.service.ResearchServiceCommand command) {
-        System.err.println("[manual-search] runtime received requestId=" + command.getRequestId()
-                + " queryLen=" + command.getQuery().length() + " hasBrowser=" + environment.hasBrowser());
+        final String requestId = command.getRequestId();
+        final String query = command.getQuery();
+        System.err.println("[manual-search] runtime received requestId=" + requestId
+                + " queryLen=" + query.length() + " hasBrowser=" + environment.hasBrowser()
+                + " hasService=" + environment.hasService());
+        ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
+                .manualSearchStarted(requestId, query));
+        if (query.trim().isEmpty()) {
+            ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
+                    .manualSearchFailed(requestId, "EMPTY_QUERY"));
+            return;
+        }
+        // The FULL pipeline browses/captures/accepts, so it needs BOTH the browser and the internal service
+        // endpoint (manual_source_accept). Missing either → an honest failure, never a silent no-op.
+        if (!environment.hasBrowser() || !environment.hasService()) {
+            System.err.println("[manual-search] failed stage=wiring reason=SEARCH_UNAVAILABLE requestId="
+                    + requestId + " hasBrowser=" + environment.hasBrowser()
+                    + " hasService=" + environment.hasService());
+            ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
+                    .manualSearchFailed(requestId, "SEARCH_UNAVAILABLE"));
+            return;
+        }
         com.aresstack.askai.research.runtime.loop.SolonToolInvoker browser = null;
+        com.aresstack.askai.research.runtime.loop.SolonToolInvoker service = null;
         try {
-            com.aresstack.askai.research.runtime.search.SearchStrategy strategy = searchStrategy;
-            if (strategy == null && environment.hasBrowser()) {
-                browser = new com.aresstack.askai.research.runtime.loop.SolonToolInvoker(
-                        environment.browserUrl, environment.browserTransport);
+            browser = new com.aresstack.askai.research.runtime.loop.SolonToolInvoker(
+                    environment.browserUrl, environment.browserTransport);
+            service = new com.aresstack.askai.research.runtime.loop.SolonToolInvoker(
+                    environment.serviceUrl, environment.serviceTransport);
+            // Resolve the SAME strategy the loop uses: the session API-provider strategy, else the legacy
+            // browser default over this browser invoker.
+            com.aresstack.askai.research.runtime.search.SearchStrategy strategy;
+            String apiLabel;
+            if (searchStrategy != null) {
+                strategy = searchStrategy;
+                apiLabel = searchProviderLabel;
+            } else {
                 strategy = com.aresstack.askai.research.runtime.search.SessionSearchStrategyResolver.resolve(
                         null, true, browser, loadBrowserSearchSettings(), inferencePort,
                         new java.util.function.LongSupplier() {
@@ -562,21 +591,102 @@ public final class ResearchAgentMain {
                                 return System.currentTimeMillis();
                             }
                         });
+                apiLabel = null;
             }
-            new com.aresstack.askai.research.runtime.service.ManualSearchHandler(strategy,
-                    new java.util.function.BooleanSupplier() {
-                        public boolean getAsBoolean() {
-                            return cancelled.get();
-                        }
-                    }).handle(command.getRequestId(), command.getQuery(),
-                    new com.aresstack.askai.research.runtime.service.ManualSearchHandler.Emitter() {
-                        public void emit(String wireLine) {
-                            ctx.sendMessage(wireLine);
-                        }
-                    });
+            System.err.println("[manual-search] execute started requestId=" + requestId + " strategy="
+                    + (strategy == null ? "unavailable" : strategy.getClass().getSimpleName()));
+            if (strategy == null) {
+                ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
+                        .manualSearchFailed(requestId, "SEARCH_UNAVAILABLE"));
+                return;
+            }
+            com.aresstack.askai.research.runtime.loop.ResearchRunProgress progress =
+                    new com.aresstack.askai.research.runtime.loop.ResearchRunProgress();
+            com.aresstack.askai.research.runtime.acquire.WebSearchApplicationService acquisition =
+                    new com.aresstack.askai.research.runtime.acquire.WebSearchApplicationService(
+                            browser,
+                            com.aresstack.askai.research.runtime.loop.ResearchRunBudget.defaults(),
+                            progress,
+                            new com.aresstack.askai.research.runtime.loop.ResearchLoopClock() {
+                                public long currentTimeMillis() {
+                                    return System.currentTimeMillis();
+                                }
+
+                                public void sleepMillis(long millis) {
+                                    try {
+                                        Thread.sleep(millis);
+                                    } catch (InterruptedException ie) {
+                                        Thread.currentThread().interrupt();
+                                    }
+                                }
+                            },
+                            new com.aresstack.askai.research.runtime.loop.ResearchLoopListener() {
+                                public void status(String message) {
+                                    System.err.println("[manual-search] " + message);
+                                }
+
+                                public void progress(
+                                        com.aresstack.askai.research.runtime.loop.ResearchRunProgress p,
+                                        com.aresstack.askai.research.runtime.loop.ResearchRunActivity activity) {
+                                    ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
+                                            .manualSearchProgress(requestId, p.getAcceptedSources()
+                                                    + " Quellen / " + p.getPagesVisited() + " Seiten"));
+                                }
+
+                                public void phaseReady(
+                                        com.aresstack.askai.research.runtime.loop.ResearchStopReason reason) {
+                                    // A user search has no phase-ready signal.
+                                }
+
+                                public void attention(String reason, String domainFamily, String url,
+                                                      boolean resolved) {
+                                    ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
+                                            .manualSearchProgress(requestId, (resolved
+                                                    ? "CAPTCHA gelöst: " : "CAPTCHA nötig: ") + domainFamily));
+                                }
+                            },
+                            cancelled,
+                            strategy,
+                            apiLabel,
+                            reranker,
+                            new com.aresstack.askai.browser.domain.PublicSuffixDomainKeyResolver(),
+                            new com.aresstack.askai.research.runtime.acquire.ManualSourceAcceptancePort(service),
+                            System.currentTimeMillis(),
+                            loadBrowserSearchSettings().captcha.challengeProbeIntervalMillis,
+                            new com.aresstack.askai.research.runtime.acquire.WebSearchApplicationService
+                                    .AcceptedSourceListener() {
+                                public com.aresstack.askai.research.runtime.loop.ResearchStopReason onAccepted(
+                                        com.aresstack.askai.research.runtime.acquire.WebSearchApplicationService
+                                                .AcceptedSource source,
+                                        com.aresstack.askai.research.runtime.acquire.WebSearchApplicationService
+                                                .ToolBudget toolBudget) {
+                                    // A user search records NO agent findings — acceptance already happened
+                                    // in the service via the ManualSourceAcceptancePort.
+                                    return null;
+                                }
+                            });
+            com.aresstack.askai.research.runtime.loop.ResearchStopReason reason = acquisition.execute(
+                    com.aresstack.askai.research.runtime.acquire.WebAcquisitionText.queryTerms(query));
+            if (cancelled.get()) {
+                ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
+                        .manualSearchFailed(requestId, "CANCELLED"));
+            } else {
+                System.err.println("[manual-search] execute completed requestId=" + requestId + " sources="
+                        + progress.getAcceptedSources() + " reason=" + reason);
+                ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
+                        .manualSearchCompleted(requestId, progress.getAcceptedSources(), reason.name()));
+            }
+        } catch (Exception failure) {
+            System.err.println("[manual-search] failed stage=execute requestId=" + requestId + " message="
+                    + failure.getClass().getSimpleName());
+            ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
+                    .manualSearchFailed(requestId, cancelled.get() ? "CANCELLED" : "SEARCH_FAILED"));
         } finally {
             if (browser != null) {
                 browser.close();
+            }
+            if (service != null) {
+                service.close();
             }
         }
     }

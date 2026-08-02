@@ -16,6 +16,9 @@ final class ResearchAgentEnvironment {
     final String researchTransport;
     final String browserUrl;      // null when no browser backend is available
     final String browserTransport;
+    /** Internal service endpoint (manual_source_accept) for user searches; null when absent. */
+    final String serviceUrl;
+    final String serviceTransport;
     /** Path of the legacy-browser-search config document (same file the sidecar receives), or null. */
     final String browserSearchConfigPath;
     /** Path of the reranker start snapshot (the mandatory local cross-encoder endpoint), or null. */
@@ -31,7 +34,8 @@ final class ResearchAgentEnvironment {
                                      String researchTransport, String browserUrl, String browserTransport,
                                      String browserSearchConfigPath, String rerankerConfigPath,
                                      String searchStrategyConfigPath, String inferenceConfigPath,
-                                     String inferenceUnavailableReason) {
+                                     String inferenceUnavailableReason,
+                                     String serviceUrl, String serviceTransport) {
         this.sessionId = sessionId;
         this.projectId = projectId;
         this.researchUrl = researchUrl;
@@ -43,12 +47,15 @@ final class ResearchAgentEnvironment {
         this.searchStrategyConfigPath = searchStrategyConfigPath;
         this.inferenceConfigPath = inferenceConfigPath;
         this.inferenceUnavailableReason = inferenceUnavailableReason;
+        this.serviceUrl = serviceUrl;
+        this.serviceTransport = serviceTransport;
     }
 
     static ResearchAgentEnvironment from(Map<String, String> env) {
         String researchUrl = required(env, "ASKAI_RESEARCH_MCP_URL");
         String researchTransport = orDefault(env.get("ASKAI_RESEARCH_MCP_TRANSPORT"), "streamable");
         String browserUrl = blankToNull(env.get("ASKAI_BROWSER_MCP_URL"));
+        String serviceUrl = blankToNull(env.get("ASKAI_RESEARCH_SERVICE_MCP_URL"));
         return new ResearchAgentEnvironment(
                 orDefault(env.get("ASKAI_SESSION_ID"), ""),
                 orDefault(env.get("ASKAI_PROJECT_ID"), ""),
@@ -59,7 +66,14 @@ final class ResearchAgentEnvironment {
                 blankToNull(env.get("ASKAI_RERANKER_CONFIG")),
                 blankToNull(env.get("ASKAI_SEARCH_STRATEGY_CONFIG")),
                 blankToNull(env.get("ASKAI_INFERENCE_CONFIG")),
-                blankToNull(env.get("ASKAI_INFERENCE_UNAVAILABLE_REASON")));
+                blankToNull(env.get("ASKAI_INFERENCE_UNAVAILABLE_REASON")),
+                serviceUrl,
+                serviceUrl == null ? null
+                        : orDefault(env.get("ASKAI_RESEARCH_SERVICE_MCP_TRANSPORT"), "streamable"));
+    }
+
+    boolean hasService() {
+        return serviceUrl != null;
     }
 
     boolean hasSearchStrategyConfig() {
