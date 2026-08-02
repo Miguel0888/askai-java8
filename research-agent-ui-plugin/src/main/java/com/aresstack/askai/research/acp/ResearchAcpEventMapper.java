@@ -102,6 +102,12 @@ public final class ResearchAcpEventMapper {
         if (ResearchRunWire.TYPE_GREETED.equals(type)) {
             return ResearchBackendEvent.builder(ResearchBackendEventType.GREETING_DONE);
         }
+        if (ResearchRunWire.TYPE_BRIEF.equals(type)) {
+            java.util.Map<String, String> f = ResearchRunWire.fields(text);
+            return ResearchBackendEvent.builder(ResearchBackendEventType.RESEARCH_BRIEF)
+                    .title(ResearchRunWire.decodedField(f, "phase"))
+                    .text(ResearchRunWire.decodedField(f, "content"));
+        }
         if (ResearchRunWire.TYPE_SCOPEASSIST.equals(type)) {
             java.util.Map<String, String> f = ResearchRunWire.fields(text);
             java.util.List<com.aresstack.askai.research.backend.ScopingAssistantUpdate.Suggestion> suggestions =

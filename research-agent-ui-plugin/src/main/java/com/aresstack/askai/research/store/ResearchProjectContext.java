@@ -19,7 +19,6 @@ public final class ResearchProjectContext {
     private final File projectDirectory;
     private final ResearchProjectStore store;
     private final ResearchProjectMetadataStore metadataStore;
-    private FileResearchBriefStore briefStore;
 
     private ResearchProjectContext(String projectId, File projectDirectory,
                                    ResearchProjectStore store,
@@ -64,13 +63,5 @@ public final class ResearchProjectContext {
 
     public ResearchProjectMetadataStore getMetadataStore() {
         return metadataStore;
-    }
-
-    /** The persistent research-brief store (working copy + approved revisions) of this project. */
-    public synchronized FileResearchBriefStore getBriefStore() {
-        if (briefStore == null) {
-            briefStore = new FileResearchBriefStore(new File(projectDirectory, "brief"));
-        }
-        return briefStore;
     }
 }

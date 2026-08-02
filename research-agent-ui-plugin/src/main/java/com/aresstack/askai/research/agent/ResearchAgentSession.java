@@ -306,6 +306,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             return;
         }
         disposed = true;
+        briefWriteExecutor.shutdown(); // stop accepting brief writes; in-flight writes are atomic
         // No longer a running session: stop AskAI from re-publishing descriptors to a torn-down dir.
         com.aresstack.askai.agent.model.session.ActiveResearchSessionRegistry activeSessions =
                 hostContext.getService(
@@ -355,25 +356,6 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         return productiveResources != null ? productiveResources.getRepository() : sourceRepository;
     }
 
-    private com.aresstack.askai.research.store.FileResearchBriefStore demoBriefStore;
-
-    /**
-     * Plugin-internal accessor (same classloader): the research-brief store behind the Fragestellung
-     * tab. Productive sessions use the project's persistent store; the demo world gets a session-local
-     * throwaway directory so the tab works there too without polluting any project.
-     */
-    public synchronized com.aresstack.askai.research.store.FileResearchBriefStore getBriefStore() {
-        if (productiveResources != null) {
-            return productiveResources.getProjectContext().getBriefStore();
-        }
-        if (demoBriefStore == null) {
-            java.io.File dir = new java.io.File(System.getProperty("java.io.tmpdir"),
-                    "askai-demo-brief-" + sessionId.replaceAll("[^A-Za-z0-9.#-]", "_"));
-            demoBriefStore = new com.aresstack.askai.research.store.FileResearchBriefStore(dir);
-        }
-        return demoBriefStore;
-    }
-
     @Override
     public AgentStateSnapshot getState() {
         ResearchPhase phase = com.aresstack.askai.research.state.oo.ResearchStateIds.phase(state.getPhaseId());
@@ -400,8 +382,20 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
 
     /** The user's research question (set once scoping is confirmed; auto-continued after approval). */
     private volatile String researchQuestion = "";
-    /** The latest scoping assistant projection (exploration map + suggestions) for the workspace; transient. */
+    /** The latest scoping assistant projection (search suggestions) for the composer accessory; transient. */
     private volatile com.aresstack.askai.research.backend.ScopingAssistantUpdate latestScopingProjection;
+    /** File-backed research brief store, bound to this session's project dir (null in the clickdummy). */
+    private com.aresstack.askai.research.store.FileResearchBriefStore researchBriefStore;
+    /** Serializes research-brief working-copy writes OFF the EDT (applyEvent runs on the EDT). */
+    private final java.util.concurrent.ExecutorService briefWriteExecutor =
+            java.util.concurrent.Executors.newSingleThreadExecutor(
+                    new java.util.concurrent.ThreadFactory() {
+                        public Thread newThread(Runnable r) {
+                            Thread thread = new Thread(r, "research-brief-write");
+                            thread.setDaemon(true);
+                            return thread;
+                        }
+                    });
     /** True while an agent TURN is in flight (productive composer busy-state; cleared on terminal events). */
     private volatile boolean agentTurnInFlight;
     /** The narration seam: all conversational milestone texts; replaceable by an LLM-backed narrator. */
@@ -948,6 +942,11 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 // It moves nothing and writes no artifact; fireStateChanged() lets the workspace re-read it.
                 latestScopingProjection = event.getScopingProjection();
                 break;
+            case RESEARCH_BRIEF:
+                // The phase artifact: persist the brief to its working copy (one path, off the EDT). No
+                // approval revision, no phase transition — the "Fragestellung" view re-reads the store.
+                persistResearchBrief(event.getText());
+                break;
             case BLOCKED:
             case ERROR:
                 agentTurnInFlight = false; // a failed turn must not wedge the composer
@@ -967,9 +966,52 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
 
     // ------------------------------------------------------------------ state visualization support
 
-    /** The latest scoping assistant projection (exploration map + suggestions), or {@code null} if none yet. */
+    /** The latest scoping assistant projection (search suggestions), or {@code null} if none yet. */
     public com.aresstack.askai.research.backend.ScopingAssistantUpdate latestScopingProjection() {
         return latestScopingProjection;
+    }
+
+    /**
+     * The file-backed research brief store bound to this session's project directory — the SINGLE source of
+     * truth for the brief. {@code null} in the in-memory clickdummy. The "Fragestellung" view reads it.
+     */
+    public synchronized com.aresstack.askai.research.store.FileResearchBriefStore researchBriefStore() {
+        if (researchBriefStore == null && productiveResources != null && !productiveResources.isClosed()) {
+            java.io.File projectDir = productiveResources.getProjectContext().getProjectDirectory();
+            researchBriefStore = new com.aresstack.askai.research.store.FileResearchBriefStore(
+                    new java.io.File(projectDir, "brief"));
+        }
+        return researchBriefStore;
+    }
+
+    /**
+     * Persist the research brief to its working copy, OFF the EDT, and refresh the view only when it actually
+     * changed (no duplicate write/revision for an identical brief). This is the ONLY brief persistence path;
+     * the brief is never mirrored into a session field as an alternative source of truth. No approval, no
+     * transition.
+     */
+    private void persistResearchBrief(final String markdown) {
+        final com.aresstack.askai.research.store.FileResearchBriefStore store = researchBriefStore();
+        if (store == null || markdown == null || markdown.trim().isEmpty()) {
+            return;
+        }
+        briefWriteExecutor.execute(new Runnable() {
+            public void run() {
+                boolean changed;
+                try {
+                    changed = store.updateWorkingCopy(markdown, System.currentTimeMillis());
+                } catch (RuntimeException persistFailed) {
+                    return; // a brief write failure must never crash the session or the run
+                }
+                if (changed) {
+                    uiExecutor.execute(new Runnable() {
+                        public void run() {
+                            fireStateChanged();
+                        }
+                    });
+                }
+            }
+        });
     }
 
     public void addStateListener(Runnable listener) {

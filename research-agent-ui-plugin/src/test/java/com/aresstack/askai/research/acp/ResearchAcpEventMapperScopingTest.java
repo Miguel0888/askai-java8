@@ -41,4 +41,15 @@ public class ResearchAcpEventMapperScopingTest {
         assertEquals(ResearchBackendEventType.SCOPING_PROJECTION, event.getType());
         assertTrue(event.getScopingProjection().getSearchSuggestions().isEmpty());
     }
+
+    @Test
+    public void aBriefLineBecomesAResearchBriefEventCarryingTheMarkdown() throws Exception {
+        String brief = "# Research Brief\n\n## Fragestellung\n\nWearables mit Audio & Video?";
+        String content = java.net.URLEncoder.encode(brief, "UTF-8");
+        ResearchBackendEvent event = map("#RSX1# brief phase=scoping content=" + content);
+
+        assertEquals(ResearchBackendEventType.RESEARCH_BRIEF, event.getType());
+        assertEquals(brief, event.getText());
+        assertEquals("scoping", event.getTitle());
+    }
 }
