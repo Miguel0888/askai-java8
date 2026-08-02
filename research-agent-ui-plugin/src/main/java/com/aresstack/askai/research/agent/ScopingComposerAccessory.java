@@ -3,7 +3,6 @@ package com.aresstack.askai.research.agent;
 import com.aresstack.askai.plugin.api.agent.ChatSubmissionTarget;
 import com.aresstack.askai.plugin.api.agent.SubmissionAvailability;
 import com.aresstack.askai.plugin.api.agent.composer.ComposerAccessory;
-import com.aresstack.askai.plugin.api.service.MarkdownViewFactory;
 import com.aresstack.askai.plugin.api.service.UiExecutor;
 import com.aresstack.askai.research.backend.ScopingAssistantUpdate;
 import com.aresstack.askai.research.state.oo.ResearchStateIds;
@@ -27,10 +26,9 @@ final class ScopingComposerAccessory implements ComposerAccessory {
 
     private volatile Consumer<String> placeholderSink;
 
-    ScopingComposerAccessory(final ResearchAgentSession research, final UiExecutor uiExecutor,
-                             MarkdownViewFactory markdownViewFactory) {
+    ScopingComposerAccessory(final ResearchAgentSession research, final UiExecutor uiExecutor) {
         this.research = research;
-        this.view = new ScopingSupportView(markdownViewFactory);
+        this.view = new ScopingSupportView();
         this.view.setSearchAction(new Consumer<String>() {
             public void accept(String query) {
                 // Immediate search: same path as a typed prompt, so scoping advances turn by turn.

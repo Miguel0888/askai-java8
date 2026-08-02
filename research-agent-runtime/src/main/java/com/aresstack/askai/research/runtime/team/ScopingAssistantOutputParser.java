@@ -72,17 +72,8 @@ public final class ScopingAssistantOutputParser {
         if (brief.length() > MAX_FIELD_CHARS) {
             return fail("researchBriefMarkdown exceeds the size limit");
         }
-        String mermaid = asString(object.get("explorationMapMermaid"));
-        if (mermaid != null && mermaid.length() > MAX_FIELD_CHARS) {
-            return fail("explorationMapMermaid exceeds the size limit");
-        }
-        // A scoping answer is the COMPLETE current snapshot (RA-P6.5): map + at least one suggestion are
-        // required, so a helpful turn never blanks the workspace projection and a brief-only interview reply
-        // is not a valid scoping turn.
-        if (mermaid == null || mermaid.trim().isEmpty()) {
-            return fail("scoping answer needs an exploration map");
-        }
-
+        // The scoping agent produces the research brief + search suggestions, NOT a visualization; a
+        // substantive turn still needs at least one suggestion so a brief-only interview reply is rejected.
         List<SearchSuggestion> suggestions = new ArrayList<SearchSuggestion>();
         Object rawSuggestions = object.get("searchSuggestions");
         if (rawSuggestions instanceof List) {
@@ -115,8 +106,7 @@ public final class ScopingAssistantOutputParser {
                     asString(adviceMap.get("reason")));
         }
 
-        return new Result(new ScopingAssistantOutput(assistantMessage, brief, mermaid, suggestions, advice),
-                null);
+        return new Result(new ScopingAssistantOutput(assistantMessage, brief, suggestions, advice), null);
     }
 
     private static Result fail(String error) {

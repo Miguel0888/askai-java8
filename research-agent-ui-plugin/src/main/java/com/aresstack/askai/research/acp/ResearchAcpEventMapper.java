@@ -120,7 +120,6 @@ public final class ResearchAcpEventMapper {
             com.aresstack.askai.research.backend.ScopingAssistantUpdate projection =
                     new com.aresstack.askai.research.backend.ScopingAssistantUpdate(
                             ResearchRunWire.decodedField(f, "phase"),
-                            ResearchRunWire.decodedField(f, "map"),
                             suggestions,
                             f.get("advice") == null ? "NEUTRAL" : f.get("advice"),
                             ResearchRunWire.decodedField(f, "advicereason"));

@@ -22,6 +22,6 @@ public final class ScopingComposerAccessoryContribution implements ComposerAcces
 
     public ComposerAccessory create(ComposerAccessoryContext context) {
         return new ScopingComposerAccessory((ResearchAgentSession) context.getSession(),
-                context.getUiExecutor(), context.getMarkdownViewFactory());
+                context.getUiExecutor());
     }
 }

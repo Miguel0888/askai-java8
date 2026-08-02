@@ -132,19 +132,18 @@ public final class ResearchRunWire {
     }
 
     /**
-     * A phase-specific ASSISTANT PROJECTION for the scoping workspace: the exploration map (bare Mermaid) and
-     * the search suggestions, plus the advisory advice. This is display-only support content — it carries NO
-     * research brief (the brief has its own single persistence route) and it never moves the workflow. The map
-     * and each suggestion's query/purpose travel URL-encoded; suggestions are one field of {@code
+     * A phase-specific ASSISTANT PROJECTION for the scoping workspace: the search suggestions plus the
+     * advisory advice. This is display-only action support — it carries NO research brief (the brief has its
+     * own persistence route) and NO visualization (a separate visualizer owns that), and it never moves the
+     * workflow. Each suggestion's query/purpose travel URL-encoded; suggestions are one field of {@code
      * enc(query)|enc(purpose)|priority} records joined by commas (delimiters never occur inside an encoded
      * value), so an empty purpose never misaligns the list.
      */
-    public static String scopingProjection(String phaseId, String explorationMapMermaid,
+    public static String scopingProjection(String phaseId,
                                            java.util.List<ScopingProjectionSuggestion> suggestions,
                                            String adviceRecommendation, String adviceReason) {
         StringBuilder sb = new StringBuilder(MARKER).append("scopeassist");
         appendEncoded(sb, "phase", phaseId);
-        appendEncoded(sb, "map", explorationMapMermaid);
         if (adviceRecommendation != null && !adviceRecommendation.isEmpty()) {
             sb.append(" advice=").append(adviceRecommendation); // a fixed token (STAY|CONTINUE|NEUTRAL)
         }

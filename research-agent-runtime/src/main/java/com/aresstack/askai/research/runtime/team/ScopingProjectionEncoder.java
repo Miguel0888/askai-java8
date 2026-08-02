@@ -7,11 +7,10 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Turns a scoping output into the display-only projection wire line for the UI (RA-P6 §1/§10): exploration map
- * + search suggestions + advisory advice. Phase-isolated like {@link ScopingBriefSource}: only a
- * {@link ScopingAssistantOutput} projects; any other phase's output yields {@code null}, so no non-scoping turn
- * ever produces a scoping workspace projection. The research brief is deliberately NOT carried here — it has
- * its own single persistence route — keeping exactly one path per concern.
+ * Turns a scoping output into the display-only projection wire line for the UI (RA-P6 §1/§10): the search
+ * suggestions + advisory advice — the phase ACTIONS. Phase-isolated like {@link ScopingBriefSource}: only a
+ * {@link ScopingAssistantOutput} projects; any other phase's output yields {@code null}. The research brief
+ * (the phase artifact) and any visualization are NOT carried here — each has its own path.
  */
 public final class ScopingProjectionEncoder {
 
@@ -31,7 +30,6 @@ public final class ScopingProjectionEncoder {
         }
         return ResearchRunWire.scopingProjection(
                 phaseId,
-                scoping.getExplorationMapMermaid(),
                 suggestions,
                 scoping.getAdvice().getRecommendation().name(),
                 scoping.getAdvice().getReason());

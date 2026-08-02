@@ -22,9 +22,6 @@ public final class ScopingAssistantOutputCodec {
         writeKey(sb, "researchBriefMarkdown").append(':');
         writeString(sb, output.getResearchBriefMarkdown());
         sb.append(',');
-        writeKey(sb, "explorationMapMermaid").append(':');
-        writeString(sb, output.getExplorationMapMermaid());
-        sb.append(',');
         writeKey(sb, "searchSuggestions").append(":[");
         List<SearchSuggestion> suggestions = output.getSearchSuggestions();
         for (int i = 0; i < suggestions.size(); i++) {
