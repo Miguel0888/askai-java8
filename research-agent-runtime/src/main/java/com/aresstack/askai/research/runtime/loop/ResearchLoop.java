@@ -634,63 +634,27 @@ public final class ResearchLoop {
     }
 
     static Set<String> queryTerms(String task) {
-        Set<String> terms = new HashSet<String>();
-        for (String word : (task == null ? "" : task).toLowerCase(Locale.ROOT).split("[^a-z0-9]+")) {
-            if (word.length() >= 3) {
-                terms.add(word);
-            }
-        }
-        return terms;
+        return com.aresstack.askai.research.runtime.acquire.WebAcquisitionText.queryTerms(task);
     }
 
     private static boolean matches(String lowerText, Set<String> terms) {
-        for (String term : terms) {
-            if (lowerText.contains(term)) {
-                return true;
-            }
-        }
-        return false;
+        return com.aresstack.askai.research.runtime.acquire.WebAcquisitionText.matches(lowerText, terms);
     }
 
     static String field(String result, String key) {
-        for (String token : result.split("[\\s\\n]+")) {
-            if (token.startsWith(key + "=")) {
-                return token.substring(key.length() + 1).replace("\"", "");
-            }
-        }
-        // title="a b c" spans tokens; handle quoted form.
-        int i = result.indexOf(key + "=\"");
-        if (i >= 0) {
-            int end = result.indexOf('"', i + key.length() + 2);
-            if (end > 0) {
-                return result.substring(i + key.length() + 2, end);
-            }
-        }
-        return null;
+        return com.aresstack.askai.research.runtime.acquire.WebAcquisitionText.field(result, key);
     }
 
     static List<String> extractUrls(String text) {
-        List<String> urls = new ArrayList<String>();
-        java.util.regex.Matcher m = java.util.regex.Pattern
-                .compile("https?://[^\\s\"]+").matcher(text == null ? "" : text);
-        while (m.find()) {
-            urls.add(m.group());
-        }
-        return urls;
+        return com.aresstack.askai.research.runtime.acquire.WebAcquisitionText.extractUrls(text);
     }
 
     private static String lastUrl(String line) {
-        List<String> urls = extractUrls(line);
-        return urls.isEmpty() ? null : urls.get(urls.size() - 1);
+        return com.aresstack.askai.research.runtime.acquire.WebAcquisitionText.lastUrl(line);
     }
 
     static String canonicalish(String url) {
-        String u = url == null ? "" : url.trim().toLowerCase(Locale.ROOT);
-        int frag = u.indexOf('#');
-        if (frag >= 0) {
-            u = u.substring(0, frag);
-        }
-        return u.endsWith("/") ? u.substring(0, u.length() - 1) : u;
+        return com.aresstack.askai.research.runtime.acquire.WebAcquisitionText.canonicalish(url);
     }
 
     /**
@@ -699,20 +663,7 @@ public final class ResearchLoop {
      * puts TITLE on the next line; in both cases the URL is the token right after the prefix.
      */
     static String finalUrlOf(String page) {
-        if (page == null || !page.startsWith("URL: ")) {
-            return null;
-        }
-        String rest = page.substring("URL: ".length());
-        int end = rest.length();
-        for (int i = 0; i < rest.length(); i++) {
-            char c = rest.charAt(i);
-            if (c == ' ' || c == '\n' || c == '\r') {
-                end = i;
-                break;
-            }
-        }
-        String url = rest.substring(0, end).trim();
-        return url.isEmpty() ? null : url;
+        return com.aresstack.askai.research.runtime.acquire.WebAcquisitionText.finalUrlOf(page);
     }
 
     /**
@@ -720,47 +671,17 @@ public final class ResearchLoop {
      * (parsed as the full quoted value, not just the first word), the raw sidecar reports a "TITLE: …" line.
      */
     static String titleOf(String page) {
-        if (page == null) {
-            return "";
-        }
-        int i = page.indexOf("title=\"");
-        if (i >= 0) {
-            int end = page.indexOf('"', i + "title=\"".length());
-            if (end > 0) {
-                return page.substring(i + "title=\"".length(), end);
-            }
-        }
-        for (String line : page.split("\n")) {
-            if (line.startsWith("TITLE: ")) {
-                return line.substring("TITLE: ".length()).trim();
-            }
-        }
-        return "";
+        return com.aresstack.askai.research.runtime.acquire.WebAcquisitionText.titleOf(page);
     }
 
     /** Remove typed status lines (PROVIDER/CHALLENGE/RESOLVED/NONE) so their URLs never enter the frontier. */
     static String stripStatusLines(String results) {
-        StringBuilder sb = new StringBuilder();
-        for (String line : (results == null ? "" : results).split("\n")) {
-            if (line.startsWith("PROVIDER: ") || line.startsWith("CHALLENGE: ")
-                    || line.startsWith("RESOLVED: ") || line.startsWith("ATTEMPT: ")
-                    || line.equals("NONE")) {
-                continue;
-            }
-            sb.append(line).append('\n');
-        }
-        return sb.toString();
+        return com.aresstack.askai.research.runtime.acquire.WebAcquisitionText.stripStatusLines(results);
     }
 
     /** All {@code PROVIDER: <host>} lines of a {@code web_search} result (fallback engines add more). */
     static List<String> providerHostsOf(String results) {
-        List<String> hosts = new ArrayList<String>();
-        for (String line : (results == null ? "" : results).split("\n")) {
-            if (line.startsWith("PROVIDER: ")) {
-                hosts.add(line.substring("PROVIDER: ".length()).trim().toLowerCase(Locale.ROOT));
-            }
-        }
-        return hosts;
+        return com.aresstack.askai.research.runtime.acquire.WebAcquisitionText.providerHostsOf(results);
     }
 
     private boolean isSearchProviderSite(String host) {
@@ -773,23 +694,10 @@ public final class ResearchLoop {
     }
 
     static String hostOf(String url) {
-        int i = url.indexOf("://");
-        if (i < 0) {
-            return "";
-        }
-        String rest = url.substring(i + 3);
-        int slash = rest.indexOf('/');
-        return (slash < 0 ? rest : rest.substring(0, slash)).toLowerCase(Locale.ROOT);
+        return com.aresstack.askai.research.runtime.acquire.WebAcquisitionText.hostOf(url);
     }
 
     private static String join(Set<String> terms) {
-        StringBuilder sb = new StringBuilder();
-        for (String t : terms) {
-            if (sb.length() > 0) {
-                sb.append(' ');
-            }
-            sb.append(t);
-        }
-        return sb.toString();
+        return com.aresstack.askai.research.runtime.acquire.WebAcquisitionText.join(terms);
     }
 }

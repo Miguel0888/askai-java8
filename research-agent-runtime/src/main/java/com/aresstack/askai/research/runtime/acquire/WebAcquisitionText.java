@@ -1,0 +1,170 @@
+package com.aresstack.askai.research.runtime.acquire;
+
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+
+/**
+ * Pure, stateless text mechanics of the deterministic web-acquisition path: query-term derivation, content
+ * relevance, tool-result field/URL/title parsing, canonicalization, host/family-free helpers and status-line
+ * stripping. Extracted verbatim from {@code ResearchLoop} (which keeps thin delegators) as the first, lowest-
+ * risk step of the acquisition-service extraction — no behavior change, no orchestration, no state, no I/O.
+ */
+public final class WebAcquisitionText {
+
+    private WebAcquisitionText() {
+    }
+
+    public static Set<String> queryTerms(String task) {
+        Set<String> terms = new HashSet<String>();
+        for (String word : (task == null ? "" : task).toLowerCase(Locale.ROOT).split("[^a-z0-9]+")) {
+            if (word.length() >= 3) {
+                terms.add(word);
+            }
+        }
+        return terms;
+    }
+
+    public static boolean matches(String lowerText, Set<String> terms) {
+        for (String term : terms) {
+            if (lowerText.contains(term)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static String field(String result, String key) {
+        for (String token : result.split("[\\s\\n]+")) {
+            if (token.startsWith(key + "=")) {
+                return token.substring(key.length() + 1).replace("\"", "");
+            }
+        }
+        // title="a b c" spans tokens; handle quoted form.
+        int i = result.indexOf(key + "=\"");
+        if (i >= 0) {
+            int end = result.indexOf('"', i + key.length() + 2);
+            if (end > 0) {
+                return result.substring(i + key.length() + 2, end);
+            }
+        }
+        return null;
+    }
+
+    public static List<String> extractUrls(String text) {
+        List<String> urls = new ArrayList<String>();
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("https?://[^\\s\"]+").matcher(text == null ? "" : text);
+        while (m.find()) {
+            urls.add(m.group());
+        }
+        return urls;
+    }
+
+    public static String lastUrl(String line) {
+        List<String> urls = extractUrls(line);
+        return urls.isEmpty() ? null : urls.get(urls.size() - 1);
+    }
+
+    public static String canonicalish(String url) {
+        String u = url == null ? "" : url.trim().toLowerCase(Locale.ROOT);
+        int frag = u.indexOf('#');
+        if (frag >= 0) {
+            u = u.substring(0, frag);
+        }
+        return u.endsWith("/") ? u.substring(0, u.length() - 1) : u;
+    }
+
+    /**
+     * The FINAL post-navigation URL out of a {@code web_open} result. Both known result shapes start with
+     * "URL: &lt;url&gt;" — the bridge appends {@code title="…" capture_id=…} on the same line, the raw sidecar
+     * puts TITLE on the next line; in both cases the URL is the token right after the prefix.
+     */
+    public static String finalUrlOf(String page) {
+        if (page == null || !page.startsWith("URL: ")) {
+            return null;
+        }
+        String rest = page.substring("URL: ".length());
+        int end = rest.length();
+        for (int i = 0; i < rest.length(); i++) {
+            char c = rest.charAt(i);
+            if (c == ' ' || c == '\n' || c == '\r') {
+                end = i;
+                break;
+            }
+        }
+        String url = rest.substring(0, end).trim();
+        return url.isEmpty() ? null : url;
+    }
+
+    /**
+     * The page title out of a {@code web_open} result. The bridge appends {@code title="…"} on the URL line
+     * (parsed as the full quoted value, not just the first word), the raw sidecar reports a "TITLE: …" line.
+     */
+    public static String titleOf(String page) {
+        if (page == null) {
+            return "";
+        }
+        int i = page.indexOf("title=\"");
+        if (i >= 0) {
+            int end = page.indexOf('"', i + "title=\"".length());
+            if (end > 0) {
+                return page.substring(i + "title=\"".length(), end);
+            }
+        }
+        for (String line : page.split("\n")) {
+            if (line.startsWith("TITLE: ")) {
+                return line.substring("TITLE: ".length()).trim();
+            }
+        }
+        return "";
+    }
+
+    /** Remove typed status lines (PROVIDER/CHALLENGE/RESOLVED/NONE) so their URLs never enter the frontier. */
+    public static String stripStatusLines(String results) {
+        StringBuilder sb = new StringBuilder();
+        for (String line : (results == null ? "" : results).split("\n")) {
+            if (line.startsWith("PROVIDER: ") || line.startsWith("CHALLENGE: ")
+                    || line.startsWith("RESOLVED: ") || line.startsWith("ATTEMPT: ")
+                    || line.equals("NONE")) {
+                continue;
+            }
+            sb.append(line).append('\n');
+        }
+        return sb.toString();
+    }
+
+    /** All {@code PROVIDER: <host>} lines of a {@code web_search} result (fallback engines add more). */
+    public static List<String> providerHostsOf(String results) {
+        List<String> hosts = new ArrayList<String>();
+        for (String line : (results == null ? "" : results).split("\n")) {
+            if (line.startsWith("PROVIDER: ")) {
+                hosts.add(line.substring("PROVIDER: ".length()).trim().toLowerCase(Locale.ROOT));
+            }
+        }
+        return hosts;
+    }
+
+    public static String hostOf(String url) {
+        int i = url.indexOf("://");
+        if (i < 0) {
+            return "";
+        }
+        String rest = url.substring(i + 3);
+        int slash = rest.indexOf('/');
+        return (slash < 0 ? rest : rest.substring(0, slash)).toLowerCase(Locale.ROOT);
+    }
+
+    public static String join(Set<String> terms) {
+        StringBuilder sb = new StringBuilder();
+        for (String t : terms) {
+            if (sb.length() > 0) {
+                sb.append(' ');
+            }
+            sb.append(t);
+        }
+        return sb.toString();
+    }
+}
