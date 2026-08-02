@@ -381,6 +381,8 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
 
     /** The user's research question (set once scoping is confirmed; auto-continued after approval). */
     private volatile String researchQuestion = "";
+    /** The latest scoping assistant projection (exploration map + suggestions) for the workspace; transient. */
+    private volatile com.aresstack.askai.research.backend.ScopingAssistantUpdate latestScopingProjection;
     /** True while an agent TURN is in flight (productive composer busy-state; cleared on terminal events). */
     private volatile boolean agentTurnInFlight;
     /** The narration seam: all conversational milestone texts; replaceable by an LLM-backed narrator. */
@@ -921,6 +923,12 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             case GREETING_DONE:
                 handleGreetingDone();
                 break;
+            case SCOPING_PROJECTION:
+                // Display-only support content for the scoping workspace: keep only the LATEST projection
+                // (a later turn replaces it — the chat keeps every turn, this panel shows the current state).
+                // It moves nothing and writes no artifact; fireStateChanged() lets the workspace re-read it.
+                latestScopingProjection = event.getScopingProjection();
+                break;
             case BLOCKED:
             case ERROR:
                 agentTurnInFlight = false; // a failed turn must not wedge the composer
@@ -939,6 +947,11 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     }
 
     // ------------------------------------------------------------------ state visualization support
+
+    /** The latest scoping assistant projection (exploration map + suggestions), or {@code null} if none yet. */
+    public com.aresstack.askai.research.backend.ScopingAssistantUpdate latestScopingProjection() {
+        return latestScopingProjection;
+    }
 
     public void addStateListener(Runnable listener) {
         if (listener != null) {

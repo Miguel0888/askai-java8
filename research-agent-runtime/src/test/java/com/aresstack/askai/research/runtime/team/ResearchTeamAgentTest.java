@@ -20,6 +20,18 @@ public class ResearchTeamAgentTest {
         return new TeamAgentStateView("scoping", "new", Arrays.asList("START", "SUBMIT_SCOPE"));
     }
 
+    /** A non-scoping phase: it uses the generic DEFAULT output contract (no phase-specific profile yet). */
+    private static TeamAgentStateView defaultPhase() {
+        return new TeamAgentStateView("outline", "running", Arrays.asList("START", "SUBMIT_SCOPE"));
+    }
+
+    /** A valid substantive scoping answer: message + brief + exploration map + one search suggestion. */
+    private static String scopingJson(String message, String brief) {
+        return "{\"assistantMessage\":\"" + message + "\",\"researchBriefMarkdown\":\"" + brief + "\","
+                + "\"explorationMapMermaid\":\"mindmap\\n  root((Topic))\","
+                + "\"searchSuggestions\":[{\"query\":\"topic current developments\",\"priority\":1}]}";
+    }
+
     @Test
     public void greetingAsksTheModelAndRecordsExactlyOneAssistantTurn() {
         FakeModel model = new FakeModel();
@@ -56,7 +68,7 @@ public class ResearchTeamAgentTest {
         model.enqueueOk("{\"assistantMessage\":\"Let me summarize.\",\"proposedCommand\":\"SUBMIT_SCOPE\"}");
         ResearchTeamAgent agent = new ResearchTeamAgent(model);
 
-        TeamAgentResult allowed = agent.respond("electric cars", scoping());
+        TeamAgentResult allowed = agent.respond("electric cars", defaultPhase());
         assertEquals(TeamAgentResult.Status.OK, allowed.getStatus());
         assertEquals("SUBMIT_SCOPE", allowed.getValidatedCommand());
         assertEquals("Let me summarize.", allowed.getTurn().getAssistantMessage());
@@ -72,7 +84,7 @@ public class ResearchTeamAgentTest {
                 + "\"proposedCommand\":\"START_RESEARCH\"}");
         ResearchTeamAgent agent = new ResearchTeamAgent(model);
 
-        TeamAgentResult result = agent.respond("go", scoping());
+        TeamAgentResult result = agent.respond("go", defaultPhase());
 
         assertEquals(TeamAgentResult.Status.OK, result.getStatus());
         assertNull("a disallowed command is dropped, not surfaced", result.getValidatedCommand());
@@ -88,16 +100,16 @@ public class ResearchTeamAgentTest {
         model.enqueueOk("{\"assistantMessage\":\"Anything else?\"}");
         ResearchTeamAgent agent = new ResearchTeamAgent(model);
 
-        agent.respond("EV ageing", scoping());
+        agent.respond("EV ageing", defaultPhase());
         // The model's scope lands in the PROPOSED slot, and stays out of the CONFIRMED one.
         assertEquals("How do EVs age?", agent.getProposedQuestion());
         assertEquals(Arrays.asList("battery", "cost"), agent.getProposedAspects());
         assertEquals("the model may not confirm its own scope", "", agent.getConfirmedQuestion());
         assertTrue(agent.getConfirmedAspects().isEmpty());
 
-        agent.respond("no", scoping());
+        agent.respond("no", defaultPhase());
         // The SECOND call's state-context carries the proposal back, explicitly labelled as NOT yet confirmed.
-        String context = model.calls.get(1).get(1).getContent();
+        String context = model.calls.get(1).get(2).getContent();
         assertTrue(context, context.contains("How do EVs age?"));
         assertTrue(context, context.contains("battery"));
         assertTrue(context, context.contains("not yet confirmed"));
@@ -112,11 +124,11 @@ public class ResearchTeamAgentTest {
         ResearchTeamAgent agent = new ResearchTeamAgent(model);
 
         agent.applyConfirmedScope("How do EVs age?", Arrays.asList("battery", "cost"));
-        agent.respond("continue", scoping());
+        agent.respond("continue", defaultPhase());
 
         assertEquals("How do EVs age?", agent.getConfirmedQuestion());
         assertEquals(Arrays.asList("battery", "cost"), agent.getConfirmedAspects());
-        String context = model.calls.get(0).get(1).getContent();
+        String context = model.calls.get(0).get(2).getContent();
         assertTrue(context, context.contains("Confirmed research question"));
         assertTrue(context, context.contains("How do EVs age?"));
     }
@@ -140,11 +152,11 @@ public class ResearchTeamAgentTest {
         model.enqueueOk("{\"assistantMessage\":\"Recovered.\"}");
         ResearchTeamAgent agent = new ResearchTeamAgent(model);
 
-        TeamAgentResult failed = agent.respond("electric cars", scoping());
+        TeamAgentResult failed = agent.respond("electric cars", defaultPhase());
         assertEquals(TeamAgentResult.Status.MODEL_UNAVAILABLE, failed.getStatus());
         assertTrue("the user turn stays pending after a failure", agent.hasPendingTurn());
 
-        TeamAgentResult recovered = agent.retryPendingTurn(scoping());
+        TeamAgentResult recovered = agent.retryPendingTurn(defaultPhase());
         assertEquals(TeamAgentResult.Status.OK, recovered.getStatus());
         assertFalse("an OK turn clears the pending turn", agent.hasPendingTurn());
 
@@ -165,7 +177,7 @@ public class ResearchTeamAgentTest {
         assertEquals(TeamAgentResult.Status.UNUSABLE_ANSWER, result.getStatus());
         assertEquals("exactly one bootstrap call + one repair call", 2, model.calls.size());
         // The repair call included the previous raw answer + the nudge.
-        assertTrue(lastUser(model.calls.get(1)).contains("valid JSON"));
+        assertTrue(lastUser(model.calls.get(1)).contains("one JSON object"));
     }
 
     @Test
@@ -175,7 +187,7 @@ public class ResearchTeamAgentTest {
         model.enqueueOk("{\"assistantMessage\":\"Recovered answer.\"}");       // repair OK
         ResearchTeamAgent agent = new ResearchTeamAgent(model);
 
-        TeamAgentResult result = agent.respond("hi", scoping());
+        TeamAgentResult result = agent.respond("hi", defaultPhase());
         assertEquals(TeamAgentResult.Status.OK, result.getStatus());
         assertEquals("Recovered answer.", result.getTurn().getAssistantMessage());
     }
@@ -188,7 +200,7 @@ public class ResearchTeamAgentTest {
         model.enqueueOk("{\"assistantMessage\":\"Hi! What would you like to find out?\"}");
         new ResearchTeamAgent(model).greet(scoping());
         String systemAndState = model.calls.get(0).get(0).getContent()
-                + "\n" + model.calls.get(0).get(1).getContent();
+                + "\n" + model.calls.get(0).get(2).getContent();
         assertFalse("no allowed-command policing", systemAndState.contains("Allowed commands"));
         assertFalse("no command names in the prompt", systemAndState.contains("SUBMIT_SCOPE"));
         assertFalse("no run-state machine framing", systemAndState.contains("run-state"));
@@ -213,13 +225,13 @@ public class ResearchTeamAgentTest {
                 + "and price. I'll take these to start.\","
                 + "\"suggestedFacts\":[\"battery\",\"audio quality\",\"privacy\",\"price\"],"
                 + "\"scope\":{\"question\":\"smartwatches\",\"aspects\":[\"audio\",\"video\","
-                + "\"battery\",\"privacy\"]},\"readyForBrief\":true}");
+                + "\"battery\",\"privacy\"]}}");
         ResearchTeamAgent agent = new ResearchTeamAgent(model);
 
-        assertTrue(agent.respond("wearables", scoping()).isOk());
-        assertTrue(agent.respond("audio und video", scoping()).isOk());
-        assertTrue(agent.respond("smartwatches", scoping()).isOk());
-        TeamAgentResult last = agent.respond("keine ahnung", scoping());
+        assertTrue(agent.respond("wearables", defaultPhase()).isOk());
+        assertTrue(agent.respond("audio und video", defaultPhase()).isOk());
+        assertTrue(agent.respond("smartwatches", defaultPhase()).isOk());
+        TeamAgentResult last = agent.respond("keine ahnung", defaultPhase());
 
         for (List<ChatMessage> call : model.calls) {
             for (ChatMessage message : call) {
@@ -230,11 +242,167 @@ public class ResearchTeamAgentTest {
         String lastCallText = flatten(model.calls.get(model.calls.size() - 1));
         assertTrue("audio focus carried forward", lastCallText.contains("focus: audio"));
         assertTrue("device carried forward", lastCallText.contains("device: smartwatches"));
-        // "keine ahnung" -> defaults offered, and the scope is now ready for the host to summarize.
-        assertTrue(last.getTurn().isReadyForBrief());
+        // "keine ahnung" -> defaults offered as SUGGESTIONS; nothing here advances the workflow (no
+        // readyForBrief flag exists anymore — only a user button can move a phase).
+        assertTrue(last.isOk());
         assertFalse(last.getTurn().getSuggestedFacts().isEmpty());
         assertEquals("smartwatches", agent.getProposedQuestion());
         assertTrue(agent.getProposedAspects().contains("battery"));
+    }
+
+    @Test
+    public void aRepairThatLeaksAFormatApologyIsSuppressedAsUnusableNotShownToTheUser() {
+        // The reported GUI failure signature: a first answer that does not parse, then a repair whose
+        // assistantMessage apologizes about formatting. That codec meta-talk must NEVER reach the user.
+        // Uses the default contract so the apology PARSES (message present) and it is the validator — not a
+        // missing field — that suppresses it.
+        FakeModel model = new FakeModel();
+        model.enqueueOk("Sorry, here you go:");                       // unparseable -> triggers repair
+        model.enqueueOk("{\"assistantMessage\":\"I apologize if my previous response was not formatted "
+                + "correctly. I am ready to proceed with the structured research.\"}");
+        ResearchTeamAgent agent = new ResearchTeamAgent(model);
+
+        TeamAgentResult result = agent.respond("ja", defaultPhase());
+
+        assertEquals(TeamAgentResult.Status.UNUSABLE_ANSWER, result.getStatus());
+        assertTrue("the user's turn stays pending for a clean retry", agent.hasPendingTurn());
+        String visible = TeamAgentReply.visible(result).toLowerCase(java.util.Locale.ROOT);
+        assertFalse(visible.contains("json"));
+        assertFalse(visible.contains("format"));
+        assertFalse(visible.contains("apolog"));
+        assertFalse(visible.contains("structured research"));
+    }
+
+    @Test
+    public void assistantHistoryIsCanonicalStructuredJsonNotSyntheticBrackets() {
+        // History must hold exactly one structured turn per assistant message (round-trippable), never the
+        // old invented [understood: ...] / [still open: ...] note.
+        FakeModel model = new FakeModel();
+        model.enqueueOk("{\"assistantMessage\":\"Got it.\",\"understoodFacts\":[\"topic: wearables\"],"
+                + "\"openQuestions\":[\"which device class?\"],"
+                + "\"scope\":{\"question\":\"wearables\",\"aspects\":[\"audio\"]}}");
+        model.enqueueOk("{\"assistantMessage\":\"Anything else?\"}");
+        ResearchTeamAgent agent = new ResearchTeamAgent(model);
+
+        agent.respond("wearables", defaultPhase());
+        agent.respond("more", defaultPhase());
+
+        // The second call's history carries the first assistant turn as canonical, re-parseable JSON.
+        String recorded = assistantHistory(model.calls.get(1));
+        assertFalse("no synthetic markers", recorded.contains("[understood:"));
+        assertFalse("no synthetic markers", recorded.contains("[still open:"));
+        TeamAgentTurnParser.Result reparsed = TeamAgentTurnParser.parse(recorded);
+        assertTrue("the recorded assistant turn parses back", reparsed.isOk());
+        assertEquals("Got it.", reparsed.getTurn().getAssistantMessage());
+        assertTrue(reparsed.getTurn().getUnderstoodFacts().contains("topic: wearables"));
+        assertTrue(reparsed.getTurn().getOpenQuestions().contains("which device class?"));
+        assertEquals("wearables", reparsed.getTurn().getQuestion());
+    }
+
+    @Test
+    public void theActivePhaseSelectsTheAssistantProfileAndSystemPrompt() {
+        // Active phase -> its own assistant profile -> its own system prompt. The phase is the host's
+        // (state.getPhaseId()); the model never chooses it. A phase without its own profile gets the fallback.
+        FakeModel model = new FakeModel();
+        model.enqueueOk(scopingJson("Hi from scoping.", "# Brief\\nWearables"));
+        model.enqueueOk("{\"assistantMessage\":\"Hi from another phase.\"}");
+        ResearchTeamAgent agent = new ResearchTeamAgent(model);
+
+        agent.respond("hello", scoping());
+        agent.respond("hello", new TeamAgentStateView("outline", "new", Arrays.<String>asList()));
+
+        String scopingPrompt = model.calls.get(0).get(0).getContent();
+        String otherPrompt = model.calls.get(1).get(0).getContent();
+        assertTrue("the scoping profile prompt is used in the scoping phase",
+                scopingPrompt.contains("sharpen their research scope"));
+        assertFalse(scopingPrompt.contains("working alongside the user within the current research phase"));
+        assertTrue("a phase without its own profile falls back to the neutral profile",
+                otherPrompt.contains("working alongside the user within the current research phase"));
+    }
+
+    @Test
+    public void scopingPhaseUsesItsOwnContractAndProducesAResearchBrief() {
+        // Proof that the MODEL INTERFACE — not just the prompt — is phase-specific: in the scoping phase the
+        // output is a ScopingAssistantOutput carrying a research brief, not a generic TeamAgentTurn.
+        FakeModel model = new FakeModel();
+        model.enqueueOk("{\"assistantMessage\":\"You want to explore wearables.\","
+                + "\"researchBriefMarkdown\":\"# Research Brief\\n\\n## Fragestellung\\n\\nWearables?\","
+                + "\"explorationMapMermaid\":\"mindmap\\n  root((Wearables))\\n    Audio\","
+                + "\"searchSuggestions\":[{\"query\":\"wearables 2026\",\"purpose\":\"tech\",\"priority\":1}]}");
+        ResearchTeamAgent agent = new ResearchTeamAgent(model);
+
+        TeamAgentResult result = agent.respond("wearables", scoping());
+
+        assertEquals(TeamAgentResult.Status.OK, result.getStatus());
+        assertTrue("scoping yields the scoping output type",
+                result.getOutput() instanceof ScopingAssistantOutput);
+        assertNull("a scoping output is not a generic turn", result.getTurn());
+        ScopingAssistantOutput scopingOutput = (ScopingAssistantOutput) result.getOutput();
+        assertTrue(scopingOutput.getResearchBriefMarkdown().contains("Wearables?"));
+        assertEquals(1, scopingOutput.getSearchSuggestions().size());
+        assertTrue(scopingOutput.getExplorationMapMermaid().startsWith("mindmap"));
+    }
+
+    @Test
+    public void aNonScopingPhaseKeepsTheGenericDefaultContract() {
+        FakeModel model = new FakeModel();
+        model.enqueueOk("{\"assistantMessage\":\"Outline reply.\",\"understoodFacts\":[\"x\"]}");
+        ResearchTeamAgent agent = new ResearchTeamAgent(model);
+
+        TeamAgentResult result = agent.respond("go", defaultPhase());
+
+        assertEquals(TeamAgentResult.Status.OK, result.getStatus());
+        assertTrue("a non-scoping phase yields the generic turn",
+                result.getOutput() instanceof TeamAgentTurn);
+        assertEquals("Outline reply.", result.getTurn().getAssistantMessage());
+    }
+
+    @Test
+    public void scopingAdviceIsAdvisoryAndNeverMovesTheWorkflow() {
+        // advice=CONTINUE is DATA, not a command: no validated command, no transition — the phase is the
+        // user's to move with a button. This pins that a recommendation can never become a hidden gate.
+        FakeModel model = new FakeModel();
+        model.enqueueOk("{\"assistantMessage\":\"Looks precise enough.\","
+                + "\"researchBriefMarkdown\":\"# Brief\\nWearables audio\","
+                + "\"explorationMapMermaid\":\"mindmap\\n  root((Wearables))\\n    Audio\","
+                + "\"searchSuggestions\":[{\"query\":\"wearables audio\",\"priority\":1}],"
+                + "\"advice\":{\"recommendation\":\"CONTINUE\",\"reason\":\"the question is precise\"}}");
+        ResearchTeamAgent agent = new ResearchTeamAgent(model);
+
+        TeamAgentResult result = agent.respond("audio", scoping());
+
+        assertEquals(TeamAgentResult.Status.OK, result.getStatus());
+        assertNull("advice never becomes a validated command", result.getValidatedCommand());
+        ScopingAssistantOutput scopingOutput = (ScopingAssistantOutput) result.getOutput();
+        assertEquals(PhaseAdviceRecommendation.CONTINUE, scopingOutput.getAdvice().getRecommendation());
+    }
+
+    @Test
+    public void aScopingRepairThatCannotProduceAValidBriefFailsCleanlyAndInvisibly() {
+        // Repair isolation holds under the scoping contract too: an invalid scoping answer, then an apology,
+        // never surfaces meta-talk — it ends as UNUSABLE_ANSWER with a fixed, honest line.
+        FakeModel model = new FakeModel();
+        model.enqueueOk("here you go:");                                    // unparseable -> repair
+        model.enqueueOk("{\"assistantMessage\":\"I apologize, here is the correctly formatted JSON.\"}");
+        ResearchTeamAgent agent = new ResearchTeamAgent(model);
+
+        TeamAgentResult result = agent.respond("ja", scoping());
+
+        assertEquals(TeamAgentResult.Status.UNUSABLE_ANSWER, result.getStatus());
+        String visible = TeamAgentReply.visible(result).toLowerCase(java.util.Locale.ROOT);
+        assertFalse(visible.contains("json"));
+        assertFalse(visible.contains("apolog"));
+        assertFalse(visible.contains("formatted"));
+    }
+
+    /** The content of the last ASSISTANT message in a captured call (the recorded canonical turn). */
+    private static String assistantHistory(List<ChatMessage> messages) {
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            if (messages.get(i).getRole() == ChatMessage.Role.ASSISTANT) {
+                return messages.get(i).getContent();
+            }
+        }
+        return "";
     }
 
     private static String flatten(List<ChatMessage> messages) {

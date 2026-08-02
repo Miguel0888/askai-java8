@@ -495,18 +495,18 @@ public final class ResearchAgentMain {
         com.aresstack.askai.research.runtime.team.TeamAgentResult result;
         if (!teamAgent.hasGreeted() && freshState) {
             result = teamAgent.greet(view);
-            emitTeamAgentResult(ctx, result);
+            emitTeamAgentResult(ctx, result, view.getPhaseId());
             if (result.isOk()) {
                 // Signal the host to advance the scope state one step, so this greeting is never repeated.
                 ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire.greeted());
                 // A greeting bootstrap carries no user text; if this first turn DID carry a real message,
                 // answer it in the same turn so nothing the user typed is dropped.
                 if (!text.trim().isEmpty()) {
-                    emitTeamAgentResult(ctx, teamAgent.respond(text, view));
+                    emitTeamAgentResult(ctx, teamAgent.respond(text, view), view.getPhaseId());
                 }
             }
         } else {
-            emitTeamAgentResult(ctx, teamAgent.respond(text, view));
+            emitTeamAgentResult(ctx, teamAgent.respond(text, view), view.getPhaseId());
         }
         return cancelled.get()
                 ? new AcpSchema.PromptResponse(AcpSchema.StopReason.CANCELLED)
@@ -536,24 +536,48 @@ public final class ResearchAgentMain {
     /**
      * Send one TeamAgent turn to the user: the model's own message on OK (a plain ACP MESSAGE the host renders
      * as an assistant bubble), or an honest typed line on MODEL_UNAVAILABLE / UNUSABLE_ANSWER /
-     * COMMAND_REJECTED. A validated command travels as a STRUCTURED scope proposal (the model's proposed
-     * question + aspects) for the host to re-validate and execute — never claimed as done here, never a state
-     * transition in this process.
+     * COMMAND_REJECTED.
+     *
+     * <p>This emits NOTHING that can move the workflow. The model is prozessual machtlos: it advises, it
+     * paraphrases, it keeps the scope sharp — but only an explicit user action (a host-owned button that
+     * runs a command through the state machine) may advance a phase. There is deliberately no
+     * {@code readyForBrief} flag, no proceed-word analysis and no auto-emitted scope proposal here; the
+     * user owns every transition.</p>
      */
     private void emitTeamAgentResult(SyncPromptContext ctx,
-            com.aresstack.askai.research.runtime.team.TeamAgentResult result) {
+            com.aresstack.askai.research.runtime.team.TeamAgentResult result, String phaseId) {
         ctx.sendMessage(com.aresstack.askai.research.runtime.team.TeamAgentReply.visible(result));
-        // The PROCESS step is decided by CODE, not by the model policing a command: when the assistant
-        // reports the scope is ready (summarized + user signalled nothing missing) and a working question
-        // exists, the runtime offers the scope as a proposal. The host re-validates and owns the actual
-        // transition — the model never confirms its own scope.
-        if (result.getStatus() == com.aresstack.askai.research.runtime.team.TeamAgentResult.Status.OK
-                && result.getTurn() != null && result.getTurn().isReadyForBrief()
-                && !teamAgent.getProposedQuestion().trim().isEmpty()) {
-            ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire.scopeProposal(
-                    "SUBMIT_SCOPE",
-                    teamAgent.getProposedQuestion(), teamAgent.getProposedAspects()));
+        // A scoping turn ALSO publishes a display-only projection (exploration map + search suggestions) for
+        // the scoping workspace. It carries no research brief and moves nothing; a non-scoping turn projects
+        // nothing (wireLineFor returns null).
+        if (result.getStatus() == com.aresstack.askai.research.runtime.team.TeamAgentResult.Status.OK) {
+            String projection = com.aresstack.askai.research.runtime.team.ScopingProjectionEncoder
+                    .wireLineFor(phaseId, result.getOutput());
+            if (projection != null) {
+                ctx.sendMessage(projection);
+            }
+            emitScopingDiagnostics(ctx, phaseId, result.getOutput(), projection != null);
         }
+    }
+
+    /**
+     * A collapsible TECHNICAL trace of the scoping projection chain for one turn (never a chat bubble, never
+     * the prompt or any secret): phase, output class and the field sizes that decide whether a projection was
+     * emitted. Lets a GUI run pinpoint the first deviating point (phase / profile / contract / output / emit).
+     */
+    private void emitScopingDiagnostics(SyncPromptContext ctx, String phaseId,
+            com.aresstack.askai.research.runtime.team.PhaseAssistantOutput output, boolean emitted) {
+        StringBuilder sb = new StringBuilder("scopeassist diag phase=").append(phaseId)
+                .append(" outputClass=").append(output == null ? "null" : output.getClass().getSimpleName());
+        if (output instanceof com.aresstack.askai.research.runtime.team.ScopingAssistantOutput) {
+            com.aresstack.askai.research.runtime.team.ScopingAssistantOutput scoping =
+                    (com.aresstack.askai.research.runtime.team.ScopingAssistantOutput) output;
+            sb.append(" briefLen=").append(scoping.getResearchBriefMarkdown().length())
+                    .append(" mapLen=").append(scoping.getExplorationMapMermaid().length())
+                    .append(" suggestions=").append(scoping.getSearchSuggestions().size());
+        }
+        sb.append(" emitted=").append(emitted);
+        ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire.log(sb.toString()));
     }
 
     /**

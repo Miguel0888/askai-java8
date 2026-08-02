@@ -423,6 +423,17 @@ public final class AgentSessionCoordinator
         return views == null ? Collections.<ArtifactViewContribution>emptyList() : views;
     }
 
+    /** @return the active agent's composer accessories (empty when no agent is active). */
+    public List<com.aresstack.askai.plugin.api.agent.composer.ComposerAccessoryContribution>
+            getActiveComposerAccessories() {
+        List<com.aresstack.askai.plugin.api.agent.composer.ComposerAccessoryContribution> accessories =
+                activeExtension == null ? null : activeExtension.getComposerAccessories();
+        return accessories == null
+                ? Collections.<com.aresstack.askai.plugin.api.agent.composer.ComposerAccessoryContribution>
+                        emptyList()
+                : accessories;
+    }
+
 
     /**
      * The settings pages of the ACTIVE agent (empty without one): the gear menu renders them only for

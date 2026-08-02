@@ -14,7 +14,7 @@ public final class TeamAgentReply {
     public static String visible(TeamAgentResult result) {
         switch (result.getStatus()) {
             case OK:
-                return result.getTurn().getAssistantMessage();
+                return result.getOutput().getAssistantMessage();
             case MODEL_UNAVAILABLE:
                 return "I cannot reach the research assistant model right now"
                         + detailSuffix(result.getDetail()) + ". Please try again in a moment.";

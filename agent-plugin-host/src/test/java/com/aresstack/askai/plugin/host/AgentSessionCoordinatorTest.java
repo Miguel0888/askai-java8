@@ -72,6 +72,15 @@ public class AgentSessionCoordinatorTest {
     }
 
     @Test
+    public void theActiveAgentsComposerAccessoriesAreExposedAndEmptyWithoutAnAgent() {
+        AgentSessionCoordinator c = coordinator();
+        assertTrue("no accessories without an active agent", c.getActiveComposerAccessories().isEmpty());
+        c.setActiveAgent("agent.a");
+        assertEquals(1, c.getActiveComposerAccessories().size());
+        assertEquals("fake.accessory", c.getActiveComposerAccessories().get(0).getId());
+    }
+
+    @Test
     public void differentTabScopesGetDistinctSessionsAndReuseWithinAScope() {
         final String[] scope = {"tab-A"};
         AgentSessionCoordinator c = coordinator(new AgentSessionCoordinator.SessionScopeProvider() {
@@ -463,6 +472,29 @@ public class AgentSessionCoordinatorTest {
 
         public List<ArtifactViewContribution> getArtifactViews() {
             return Collections.emptyList();
+        }
+
+        public List<com.aresstack.askai.plugin.api.agent.composer.ComposerAccessoryContribution>
+                getComposerAccessories() {
+            return Collections.<com.aresstack.askai.plugin.api.agent.composer.ComposerAccessoryContribution>
+                    singletonList(new FakeAccessory());
+        }
+    }
+
+    /** A fake composer accessory contribution used to prove the coordinator exposes the active agent's list. */
+    private static final class FakeAccessory
+            implements com.aresstack.askai.plugin.api.agent.composer.ComposerAccessoryContribution {
+        public String getId() {
+            return "fake.accessory";
+        }
+
+        public boolean supports(AgentSession session) {
+            return true;
+        }
+
+        public com.aresstack.askai.plugin.api.agent.composer.ComposerAccessory create(
+                com.aresstack.askai.plugin.api.agent.composer.ComposerAccessoryContext context) {
+            return null;
         }
     }
 

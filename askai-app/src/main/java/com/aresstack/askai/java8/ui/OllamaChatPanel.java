@@ -136,6 +136,8 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
     private final JTextArea systemPromptArea;
     private final ChatTranscript transcript;
     private final ChatComposerPanel composer;
+    /** Generic per-tab slot above the composer for a host-provided agent accessory; hidden when empty. */
+    private final JPanel composerAccessorySlot = new JPanel(new BorderLayout());
     // The single source of truth for the interaction mode (Yapping/Questing) and the selected agent is the
     // host WorkspaceModeController; this panel's composer selector only drives and reflects it.
     private com.aresstack.askai.plugin.host.WorkspaceModeController modeController;
@@ -796,9 +798,36 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
      */
     private JComponent buildBottomArea() {
         JPanel bottom = new JPanel(new BorderLayout());
-        bottom.add(buildComposer(), BorderLayout.NORTH);
+        // A generic per-tab accessory slot directly ABOVE the composer, populated by the host for the active
+        // agent (e.g. the research scoping controls). Empty and INVISIBLE by default, so it reserves no space.
+        JPanel composerStack = new JPanel(new BorderLayout());
+        composerAccessorySlot.setVisible(false);
+        composerStack.add(composerAccessorySlot, BorderLayout.NORTH);
+        composerStack.add(buildComposer(), BorderLayout.CENTER);
+        bottom.add(composerStack, BorderLayout.NORTH);
         bottom.add(new CollapsiblePanel("Technical details", buildTechnicalDetails(), false), BorderLayout.SOUTH);
         return bottom;
+    }
+
+    /** Show a host-provided composer accessory above the composer (replacing any previous one). EDT only. */
+    public void setComposerAccessory(JComponent accessory) {
+        composerAccessorySlot.removeAll();
+        if (accessory != null) {
+            composerAccessorySlot.add(accessory, BorderLayout.CENTER);
+            composerAccessorySlot.setVisible(true);
+        } else {
+            composerAccessorySlot.setVisible(false);
+        }
+        composerAccessorySlot.revalidate();
+        composerAccessorySlot.repaint();
+    }
+
+    /** Remove any composer accessory so the slot reserves no space. EDT only. */
+    public void clearComposerAccessory() {
+        composerAccessorySlot.removeAll();
+        composerAccessorySlot.setVisible(false);
+        composerAccessorySlot.revalidate();
+        composerAccessorySlot.repaint();
     }
 
     // ------------------------------------------------------------------ ChatSessionComponent

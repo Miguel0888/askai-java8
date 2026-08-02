@@ -26,12 +26,14 @@ public class MockMainModelPassthroughTest {
     @Rule
     public final TemporaryFolder folder = new TemporaryFolder();
 
-    private static TeamAgentStateView scopingNew() {
-        return new TeamAgentStateView("scoping", "new", Arrays.asList("START"));
+    // A non-scoping phase drives the GENERIC contract (proposedCommand + scope). The scoping phase now has its
+    // own ScopingAssistantOutput contract, tested separately; this HTTP test pins the generic command path.
+    private static TeamAgentStateView genericNew() {
+        return new TeamAgentStateView("outline", "new", Arrays.asList("START"));
     }
 
-    private static TeamAgentStateView scopingRunning() {
-        return new TeamAgentStateView("scoping", "running", Arrays.asList("SUBMIT_SCOPE", "CANCEL"));
+    private static TeamAgentStateView genericRunning() {
+        return new TeamAgentStateView("outline", "running", Arrays.asList("SUBMIT_SCOPE", "CANCEL"));
     }
 
     @Test
@@ -47,11 +49,11 @@ public class MockMainModelPassthroughTest {
             assertEquals("gemma4:e2b", document.getModel());
             ResearchTeamAgent agent = new ResearchTeamAgent(new HttpMainModelChatClient(document.descriptor));
 
-            TeamAgentResult greeting = agent.greet(scopingNew());
+            TeamAgentResult greeting = agent.greet(genericNew());
             assertEquals(TeamAgentResult.Status.OK, greeting.getStatus());
             assertTrue(greeting.getTurn().getAssistantMessage().contains("What would you like to research"));
 
-            TeamAgentResult reply = agent.respond("pf4j isolation", scopingRunning());
+            TeamAgentResult reply = agent.respond("pf4j isolation", genericRunning());
             assertEquals(TeamAgentResult.Status.OK, reply.getStatus());
             assertEquals("SUBMIT_SCOPE", reply.getValidatedCommand());
             assertEquals("How does pf4j isolate plugins?", agent.getProposedQuestion());
@@ -67,7 +69,7 @@ public class MockMainModelPassthroughTest {
             // and there is no policing repair round.
             mock.enqueueScopeProposal("Happy to keep helping.", "START_RESEARCH", "q", Arrays.asList("a"));
             int callsBefore = mock.requests().size();
-            TeamAgentResult ignored = agent.respond("go", scopingRunning());
+            TeamAgentResult ignored = agent.respond("go", genericRunning());
             assertEquals(TeamAgentResult.Status.OK, ignored.getStatus());
             assertNull("a disallowed command does not surface", ignored.getValidatedCommand());
             assertEquals("Happy to keep helping.", ignored.getTurn().getAssistantMessage());

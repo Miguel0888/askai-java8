@@ -25,19 +25,20 @@ public final class TeamAgentResult {
     }
 
     private final Status status;
-    private final TeamAgentTurn turn;
+    private final PhaseAssistantOutput output;
     private final String validatedCommand;
     private final String detail;
 
-    private TeamAgentResult(Status status, TeamAgentTurn turn, String validatedCommand, String detail) {
+    private TeamAgentResult(Status status, PhaseAssistantOutput output, String validatedCommand,
+                            String detail) {
         this.status = status;
-        this.turn = turn;
+        this.output = output;
         this.validatedCommand = validatedCommand;
         this.detail = detail == null ? "" : detail;
     }
 
-    public static TeamAgentResult ok(TeamAgentTurn turn, String validatedCommand) {
-        return new TeamAgentResult(Status.OK, turn, validatedCommand, "");
+    public static TeamAgentResult ok(PhaseAssistantOutput output, String validatedCommand) {
+        return new TeamAgentResult(Status.OK, output, validatedCommand, "");
     }
 
     public static TeamAgentResult modelUnavailable(String detail) {
@@ -64,8 +65,14 @@ public final class TeamAgentResult {
         return status == Status.OK;
     }
 
+    /** The structured output for this turn (a {@link TeamAgentTurn} or a {@link ScopingAssistantOutput}). */
+    public PhaseAssistantOutput getOutput() {
+        return output;
+    }
+
+    /** Back-compat: the generic turn IFF this phase produced one; {@code null} for a phase-specific output. */
     public TeamAgentTurn getTurn() {
-        return turn;
+        return output instanceof TeamAgentTurn ? (TeamAgentTurn) output : null;
     }
 
     /** The proposed command, but only when the host currently allows it; {@code null} otherwise. */

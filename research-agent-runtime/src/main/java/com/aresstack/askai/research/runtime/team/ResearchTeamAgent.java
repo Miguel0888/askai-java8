@@ -36,6 +36,8 @@ public final class ResearchTeamAgent {
     private static final int MAX_OUTPUT_TOKENS = 1024;
 
     private final MainModelChat model;
+    private final PhaseAssistantProfileRegistry profiles;
+    private final PhaseContextAssembler contextAssembler;
     private final List<ChatMessage> history = new ArrayList<ChatMessage>();
 
     /** Scope the HOST has confirmed (never set by the model). */
@@ -53,10 +55,21 @@ public final class ResearchTeamAgent {
     private ChatMessage pendingUserTurn;
 
     public ResearchTeamAgent(MainModelChat model) {
+        this(model, PhaseAssistantProfileRegistry.defaults(), new PhaseContextAssembler());
+    }
+
+    /** Inject a custom profile registry/assembler — mainly to prove per-phase context selection in tests. */
+    public ResearchTeamAgent(MainModelChat model, PhaseAssistantProfileRegistry profiles,
+                             PhaseContextAssembler contextAssembler) {
         if (model == null) {
             throw new IllegalArgumentException("model must not be null");
         }
+        if (profiles == null || contextAssembler == null) {
+            throw new IllegalArgumentException("profiles and contextAssembler must not be null");
+        }
         this.model = model;
+        this.profiles = profiles;
+        this.contextAssembler = contextAssembler;
     }
 
     public String modelName() {
@@ -113,14 +126,19 @@ public final class ResearchTeamAgent {
         if (greeted) {
             return greetingResult;
         }
-        List<ChatMessage> messages = baseMessages(state);
+        // The greeting is a phase-agnostic bootstrap: there is no topic yet, so no scoping brief can exist.
+        // It therefore uses the neutral fallback profile (generic prompt + generic contract), never the
+        // scoping business contract that would demand a research brief.
+        PhaseAssistantProfile greeting = profiles.fallback();
+        List<ChatMessage> messages = contextAssembler.assemble(greeting, state, confirmedQuestion,
+                confirmedAspects, proposedQuestion, proposedAspects, history);
         messages.add(ChatMessage.user(TeamAgentPlaybook.greetingInstruction()));
-        TeamAgentResult result = runTurn(messages, state);
+        TeamAgentResult result = runTurn(messages, state, greeting.getOutputContract());
         if (result.isOk()) {
             greeted = true;
             greetingResult = result;
-            recordAssistant(result.getTurn());
-            foldProposal(result.getTurn());
+            recordAssistant(result.getOutput());
+            foldProposal(result.getOutput());
         }
         return result;
     }
@@ -149,108 +167,115 @@ public final class ResearchTeamAgent {
     // ------------------------------------------------------------------ internals
 
     private TeamAgentResult runUserTurn(TeamAgentStateView state) {
+        PhaseAssistantProfile profile = profiles.forPhase(state.getPhaseId());
         List<ChatMessage> messages = baseMessages(state);
         messages.add(pendingUserTurn);
-        TeamAgentResult result = runTurn(messages, state);
+        TeamAgentResult result = runTurn(messages, state, profile.getOutputContract());
         if (result.isOk()) {
             history.add(pendingUserTurn);
             pendingUserTurn = null;
-            recordAssistant(result.getTurn());
-            foldProposal(result.getTurn());
+            recordAssistant(result.getOutput());
+            foldProposal(result.getOutput());
         }
         return result;
     }
 
-    /** system(playbook) + system(live state + confirmed/proposed scope) + the running user/assistant history. */
+    /**
+     * The per-turn model context, assembled from the ACTIVE phase's assistant profile: the phase decides the
+     * system prompt (and, later, its readable/writable artifacts and tools). The active phase is the host's,
+     * read from {@code state.getPhaseId()} — the model never chooses it.
+     */
     private List<ChatMessage> baseMessages(TeamAgentStateView state) {
-        List<ChatMessage> messages = new ArrayList<ChatMessage>();
-        messages.add(ChatMessage.system(TeamAgentPlaybook.systemPrompt()));
-        messages.add(ChatMessage.system(TeamAgentPlaybook.stateContext(
-                state, confirmedQuestion, confirmedAspects, proposedQuestion, proposedAspects)));
-        messages.addAll(history);
-        return messages;
+        PhaseAssistantProfile profile = profiles.forPhase(state.getPhaseId());
+        return contextAssembler.assemble(profile, state, confirmedQuestion, confirmedAspects,
+                proposedQuestion, proposedAspects, history);
     }
 
     /**
-     * The full turn pipeline: get a parseable turn (with one bounded parse repair), then enforce command
-     * legality (with one bounded command repair). A non-OK model call is MODEL_UNAVAILABLE; an unparseable
-     * answer after repair is UNUSABLE_ANSWER; an illegal command the model keeps proposing is COMMAND_REJECTED.
-     * None of these fabricate or surface a misleading turn.
+     * The full turn pipeline for the ACTIVE phase's contract: get a parseable, validated output (with one
+     * bounded parse repair). A non-OK model call is MODEL_UNAVAILABLE; an answer that stays unparseable — or a
+     * repaired answer that leaks meta-talk — after one repair is UNUSABLE_ANSWER. None of these fabricate or
+     * surface a misleading turn.
      */
-    private TeamAgentResult runTurn(List<ChatMessage> messages, TeamAgentStateView state) {
-        Parsed parsed = callParseWithRepair(messages);
+    private TeamAgentResult runTurn(List<ChatMessage> messages, TeamAgentStateView state,
+                                    PhaseOutputContract contract) {
+        Parsed parsed = callParseWithRepair(messages, contract);
         if (parsed.failure != null) {
             return parsed.failure;
         }
-        // The model is an ASSISTANT, not a process controller: it proposes no commands and is never
-        // policed against an allowed set. Any legacy proposedCommand it still emits is only honored when
-        // the host happens to allow it — otherwise it is silently ignored (never a COMMAND_REJECTED, never
-        // a nagging repair). Scope readiness is decided from the structured turn, not from a command.
-        TeamAgentTurn turn = parsed.turn;
-        String validatedCommand = turn.hasProposedCommand() && state.allows(turn.getProposedCommand())
-                ? turn.getProposedCommand() : null;
-        return TeamAgentResult.ok(turn, validatedCommand);
+        // The model is an ASSISTANT, not a process controller. A legacy proposedCommand only exists on the
+        // generic turn, and is honored only when the host happens to allow it — otherwise silently ignored
+        // (never a COMMAND_REJECTED, never a nagging repair). A phase-specific output carries no command.
+        PhaseAssistantOutput output = parsed.output;
+        String validatedCommand = null;
+        if (output instanceof TeamAgentTurn) {
+            TeamAgentTurn turn = (TeamAgentTurn) output;
+            if (turn.hasProposedCommand() && state.allows(turn.getProposedCommand())) {
+                validatedCommand = turn.getProposedCommand();
+            }
+        }
+        return TeamAgentResult.ok(output, validatedCommand);
     }
 
-    /** One model call + parse, with EXACTLY ONE bounded parse-repair on failure. */
-    private Parsed callParseWithRepair(List<ChatMessage> messages) {
+    /** One model call + phase-contract parse, with EXACTLY ONE bounded parse-repair on failure. */
+    private Parsed callParseWithRepair(List<ChatMessage> messages, PhaseOutputContract contract) {
         MainModelChatResult call = model.complete(messages, TEMPERATURE, MAX_OUTPUT_TOKENS);
         if (!call.isOk()) {
             return Parsed.fail(TeamAgentResult.modelUnavailable(call.getDetail()));
         }
-        TeamAgentTurnParser.Result parsed = TeamAgentTurnParser.parse(call.getText());
+        PhaseParseResult parsed = contract.parse(call.getText());
         if (parsed.isOk()) {
-            return Parsed.ok(parsed.getTurn(), call.getText());
+            return Parsed.ok(parsed.getOutput(), call.getText());
         }
         List<ChatMessage> repair = new ArrayList<ChatMessage>(messages);
         repair.add(ChatMessage.assistant(call.getText()));
         repair.add(ChatMessage.user(TeamAgentPlaybook.repairNudge()));
-        return callParseOnce(repair);
+        return callParseOnce(repair, contract);
     }
 
-    /** One model call + parse, with NO further repair (used for the second, bounded repair attempts). */
-    private Parsed callParseOnce(List<ChatMessage> messages) {
+    /**
+     * One model call + parse, with NO further repair (used for the second, bounded repair attempt). A repair
+     * is pure infrastructure: if the model uses this turn to apologize or talk about formatting/JSON, that
+     * message must never reach the user. So a repaired turn whose visible message leaks codec meta-talk is
+     * failed as UNUSABLE_ANSWER — the user then sees the fixed, meta-free typed line, and the pending user
+     * turn stays intact for a clean retry.
+     */
+    private Parsed callParseOnce(List<ChatMessage> messages, PhaseOutputContract contract) {
         MainModelChatResult call = model.complete(messages, TEMPERATURE, MAX_OUTPUT_TOKENS);
         if (!call.isOk()) {
             return Parsed.fail(TeamAgentResult.modelUnavailable(call.getDetail()));
         }
-        TeamAgentTurnParser.Result parsed = TeamAgentTurnParser.parse(call.getText());
+        PhaseParseResult parsed = contract.parse(call.getText());
         if (!parsed.isOk()) {
             return Parsed.fail(TeamAgentResult.unusableAnswer(parsed.getError()));
         }
-        return Parsed.ok(parsed.getTurn(), call.getText());
+        if (!VisibleAssistantMessageValidator.isCleanBusinessMessage(parsed.getOutput().getAssistantMessage())) {
+            return Parsed.fail(TeamAgentResult.unusableAnswer("repair produced a non-business message"));
+        }
+        return Parsed.ok(parsed.getOutput(), call.getText());
     }
 
     /**
-     * Record the assistant turn so CONTEXT ACCUMULATES across short replies: the model's own visible
-     * message PLUS a compact note of what it took as understood/open. The user only ever sees
-     * assistantMessage (that is what the wire carries); the model, however, needs its own structured
-     * understanding back in history — otherwise a following one-word reply has nothing to build on.
+     * Record the assistant turn CANONICALLY so CONTEXT ACCUMULATES across short replies without inventing a
+     * third representation: history holds exactly the structured turn the model emitted, serialized by
+     * {@link TeamAgentTurnCodec} and re-readable by {@link TeamAgentTurnParser}. The user still only ever sees
+     * {@code assistantMessage} (that is what the wire carries); the model gets its own understood/suggested/
+     * open facts back verbatim, so a following one-word reply has something to build on.
      */
-    private void recordAssistant(TeamAgentTurn turn) {
-        StringBuilder recorded = new StringBuilder(turn.getAssistantMessage());
-        if (!turn.getUnderstoodFacts().isEmpty()) {
-            recorded.append("\n[understood: ").append(join(turn.getUnderstoodFacts())).append(']');
-        }
-        if (!turn.getOpenQuestions().isEmpty()) {
-            recorded.append("\n[still open: ").append(join(turn.getOpenQuestions())).append(']');
-        }
-        history.add(ChatMessage.assistant(recorded.toString()));
+    private void recordAssistant(PhaseAssistantOutput output) {
+        history.add(ChatMessage.assistant(output.canonicalJson()));
     }
 
-    private static String join(List<String> values) {
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < values.size(); i++) {
-            if (i > 0) {
-                sb.append("; ");
-            }
-            sb.append(values.get(i));
+    /**
+     * Fold a scope update from the model into the PROPOSED scope (last statement wins for the question). Only
+     * the generic turn carries a proposed question/aspects; a phase-specific output (e.g. the scoping brief)
+     * has no such fields, so nothing is folded for it.
+     */
+    private void foldProposal(PhaseAssistantOutput output) {
+        if (!(output instanceof TeamAgentTurn)) {
+            return;
         }
-        return sb.toString();
-    }
-
-    /** Fold a scope update from the model into the PROPOSED scope (last statement wins for the question). */
-    private void foldProposal(TeamAgentTurn turn) {
+        TeamAgentTurn turn = (TeamAgentTurn) output;
         if (turn.getQuestion() != null) {
             proposedQuestion = turn.getQuestion();
         }
@@ -260,15 +285,15 @@ public final class ResearchTeamAgent {
         }
     }
 
-    /** A parsed turn (with its raw text, for repair context) OR a typed failure result — never both. */
+    /** A parsed phase output (with its raw text, for repair context) OR a typed failure — never both. */
     private static final class Parsed {
         final TeamAgentResult failure;
-        final TeamAgentTurn turn;
+        final PhaseAssistantOutput output;
         final String raw;
 
-        private Parsed(TeamAgentResult failure, TeamAgentTurn turn, String raw) {
+        private Parsed(TeamAgentResult failure, PhaseAssistantOutput output, String raw) {
             this.failure = failure;
-            this.turn = turn;
+            this.output = output;
             this.raw = raw;
         }
 
@@ -276,8 +301,8 @@ public final class ResearchTeamAgent {
             return new Parsed(failure, null, null);
         }
 
-        static Parsed ok(TeamAgentTurn turn, String raw) {
-            return new Parsed(null, turn, raw);
+        static Parsed ok(PhaseAssistantOutput output, String raw) {
+            return new Parsed(null, output, raw);
         }
     }
 }
