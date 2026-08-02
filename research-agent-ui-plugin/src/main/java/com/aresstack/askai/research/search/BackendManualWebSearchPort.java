@@ -27,6 +27,7 @@ public final class BackendManualWebSearchPort implements ManualWebSearchPort {
         String envelope = ResearchServiceCommandWire.manualSearch(requestId,
                 request == null ? "" : request.getQuery());
         backend.submitServiceCommand(handle, envelope);
+        System.err.println("[manual-search] ACP control turn sent requestId=" + requestId);
         return new ManualWebSearchHandle() {
             public String getRequestId() {
                 return requestId;

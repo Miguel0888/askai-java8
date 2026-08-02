@@ -44,12 +44,19 @@ public final class ManualSearchHandler {
      * distinguishable by the host via the {@code requestId}.
      */
     public void handle(String requestId, String query, Emitter emitter) {
+        System.err.println("[manual-search] execute started requestId=" + requestId
+                + " strategy=" + (strategy == null ? "unavailable" : strategy.getClass().getSimpleName()));
         emitter.emit(ResearchRunWire.manualSearchStarted(requestId, query));
         if (query == null || query.trim().isEmpty()) {
+            System.err.println("[manual-search] failed stage=validate reason=EMPTY_QUERY requestId=" + requestId);
             emitter.emit(ResearchRunWire.manualSearchFailed(requestId, "EMPTY_QUERY"));
             return;
         }
         if (strategy == null) {
+            // The legacy-browser default strategy is built INSIDE the research loop per run, so it is not
+            // available to a control-turn handler; only an API_PROVIDER config sets a session-scoped strategy.
+            System.err.println("[manual-search] failed stage=strategy reason=SEARCH_UNAVAILABLE requestId="
+                    + requestId + " (no session-scoped SearchStrategy outside the research loop)");
             emitter.emit(ResearchRunWire.manualSearchFailed(requestId, "SEARCH_UNAVAILABLE"));
             return;
         }
@@ -67,13 +74,18 @@ public final class ManualSearchHandler {
                         }
                     });
             if (cancelled.getAsBoolean()) {
+                System.err.println("[manual-search] failed stage=execute reason=CANCELLED requestId=" + requestId);
                 emitter.emit(ResearchRunWire.manualSearchFailed(requestId, "CANCELLED"));
                 return;
             }
             int count = result == null || result.candidates == null ? 0 : result.candidates.size();
             String status = result == null || result.status == null ? "" : result.status.name();
+            System.err.println("[manual-search] execute completed requestId=" + requestId
+                    + " hits=" + count + " status=" + status);
             emitter.emit(ResearchRunWire.manualSearchCompleted(requestId, count, status));
         } catch (Exception failure) {
+            System.err.println("[manual-search] failed stage=execute requestId=" + requestId
+                    + " message=" + failure.getClass().getSimpleName());
             emitter.emit(ResearchRunWire.manualSearchFailed(requestId,
                     cancelled.getAsBoolean() ? "CANCELLED" : "SEARCH_FAILED"));
         }

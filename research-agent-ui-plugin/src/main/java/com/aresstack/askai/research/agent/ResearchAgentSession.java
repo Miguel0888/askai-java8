@@ -912,12 +912,13 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         if (query == null || query.trim().isEmpty()) {
             return;
         }
-        System.err.println("[manual-search] user search dispatched queryLen=" + query.trim().length());
         com.aresstack.askai.research.search.ManualWebSearchHandle handle = manualWebSearchPort.search(
                 new com.aresstack.askai.research.search.ManualWebSearchRequest(query));
         // Remember the correlation id so inbound events of THIS search render and stale ones are ignored.
         this.activeManualSearchHandle = handle;
         this.activeManualSearchRequestId = handle == null ? null : handle.getRequestId();
+        System.err.println("[manual-search] host submit requestId="
+                + (handle == null ? "none" : handle.getRequestId()) + " queryLen=" + query.trim().length());
     }
 
     /** Cancel the in-flight user web search, if any; late events of the cancelled run are then ignored. */
@@ -959,7 +960,10 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             sink.completeToolActivity(activityId, message);
             activeManualSearchRequestId = null;
         } else if ("failed".equals(subKind)) {
+            // Both surfaces: close the transient activity AND raise a PERSISTENT, readable problem so the
+            // reason does not merely flash away.
             sink.failToolActivity(activityId, message);
+            sink.showProblem("manual-search-failed-" + requestId, message);
             activeManualSearchRequestId = null;
         }
     }

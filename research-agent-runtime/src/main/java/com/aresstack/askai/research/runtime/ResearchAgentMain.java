@@ -534,7 +534,36 @@ public final class ResearchAgentMain {
         }
         if (com.aresstack.askai.research.runtime.service.ResearchServiceCommand.TYPE_MANUAL_SEARCH
                 .equals(command.getType())) {
-            new com.aresstack.askai.research.runtime.service.ManualSearchHandler(searchStrategy,
+            handleManualSearch(ctx, command);
+        }
+    }
+
+    /**
+     * Run a user-triggered web search. It resolves the SAME productive {@code SearchStrategy} the loop uses
+     * (an API-provider session strategy, else the default legacy-browser SERP strategy over a fresh browser
+     * invoker) — the strategy is no longer trapped inside the loop. Phase-independent: this is a user service,
+     * not the agent's MCP tool. NOTE: this slice performs the SERP/provider DISCOVERY only; the browse →
+     * capture → source-acceptance pipeline is still trapped in the loop and is extracted in the next slice.
+     */
+    private void handleManualSearch(final SyncPromptContext ctx,
+                                    com.aresstack.askai.research.runtime.service.ResearchServiceCommand command) {
+        System.err.println("[manual-search] runtime received requestId=" + command.getRequestId()
+                + " queryLen=" + command.getQuery().length() + " hasBrowser=" + environment.hasBrowser());
+        com.aresstack.askai.research.runtime.loop.SolonToolInvoker browser = null;
+        try {
+            com.aresstack.askai.research.runtime.search.SearchStrategy strategy = searchStrategy;
+            if (strategy == null && environment.hasBrowser()) {
+                browser = new com.aresstack.askai.research.runtime.loop.SolonToolInvoker(
+                        environment.browserUrl, environment.browserTransport);
+                strategy = com.aresstack.askai.research.runtime.search.SessionSearchStrategyResolver.resolve(
+                        null, true, browser, loadBrowserSearchSettings(), inferencePort,
+                        new java.util.function.LongSupplier() {
+                            public long getAsLong() {
+                                return System.currentTimeMillis();
+                            }
+                        });
+            }
+            new com.aresstack.askai.research.runtime.service.ManualSearchHandler(strategy,
                     new java.util.function.BooleanSupplier() {
                         public boolean getAsBoolean() {
                             return cancelled.get();
@@ -545,6 +574,10 @@ public final class ResearchAgentMain {
                             ctx.sendMessage(wireLine);
                         }
                     });
+        } finally {
+            if (browser != null) {
+                browser.close();
+            }
         }
     }
 
