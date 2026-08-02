@@ -825,48 +825,143 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
      * {@link #autoAdvanceTowardsResearch()}): one user click decides exactly one legal workflow transition.
      * No model output, advice, natural-language "weiter", search suggestion or visualizer result may reach
      * this — the scoping button is the only caller.
-     *
-     * @return {@code true} iff the brief was approved AND {@code SUBMIT_SCOPE} was accepted.
+     * <p>
+     * The result is a {@link ScopingApprovalOutcome}, never a bare boolean: a rejected click is NEVER a silent
+     * no-op. The gate is re-checked HERE (the button's enabled state is only a snapshot from the last state
+     * change — e.g. {@code agentTurnInFlight} can flip to true when a turn starts without a UI refresh), and
+     * any non-{@link ScopingApprovalOutcome#SUCCESS} reason is both logged and surfaced to the user.
      */
-    public boolean approveScopingBriefAndContinue() {
-        if (!canApproveScopingBriefAndContinue()) {
-            return false;
+    public ScopingApprovalOutcome approveScopingBriefAndContinue() {
+        final com.aresstack.askai.research.state.oo.ResearchStateMemento snapshot =
+                productiveResources != null ? productiveResources.currentState() : state;
+        scopeApproveDiag("clicked session=" + Integer.toHexString(System.identityHashCode(this)));
+        scopeApproveDiag("phase=" + snapshot.getPhaseId() + " state=" + snapshot.getStateId()
+                + " busy=" + agentTurnInFlight + " briefPresent=" + hasNonBlankBrief());
+        ScopingApprovalOutcome blocker = scopingApprovalBlocker();
+        if (blocker != null) {
+            scopeApproveDiag("blocked reason=" + blocker);
+            surfaceScopingApprovalProblem(blocker);
+            return blocker;
         }
         com.aresstack.askai.research.store.FileResearchBriefStore store = researchBriefStore();
         // 1) Persist/approve the artifact FIRST. An identical, already-approved brief creates NO duplicate
         // revision (ALREADY_CURRENT); an I/O failure aborts here, BEFORE any state transition.
+        com.aresstack.askai.research.store.ResearchBriefArtifact.Approval approval;
         try {
-            store.approveCurrent(System.currentTimeMillis());
+            approval = store.approveCurrent(System.currentTimeMillis());
         } catch (RuntimeException approvalFailed) {
-            return false; // artifact approval failed → the phase stays exactly where it was
+            scopeApproveDiag("approveResult=FAILED " + approvalFailed.getClass().getSimpleName());
+            surfaceScopingApprovalProblem(ScopingApprovalOutcome.APPROVAL_FAILED);
+            return ScopingApprovalOutcome.APPROVAL_FAILED;
         }
+        scopeApproveDiag("approveResult=" + approval.getStatus());
+        scopeApproveDiag("before=" + snapshot.getPhaseId() + "/" + snapshot.getStateId());
         // 2) Only now the single, explicit transition — never autoAdvanceTowardsResearch(): exactly one step.
-        return dispatch(ResearchCommandType.SUBMIT_SCOPE, null).isAccepted();
+        boolean accepted = dispatch(ResearchCommandType.SUBMIT_SCOPE, null).isAccepted();
+        scopeApproveDiag("dispatch accepted=" + accepted);
+        if (!accepted) {
+            surfaceScopingApprovalProblem(ScopingApprovalOutcome.TRANSITION_REJECTED);
+            return ScopingApprovalOutcome.TRANSITION_REJECTED;
+        }
+        com.aresstack.askai.research.state.oo.ResearchStateMemento after =
+                productiveResources.currentState();
+        scopeApproveDiag("after=" + after.getPhaseId() + "/" + after.getStateId());
+        return ScopingApprovalOutcome.SUCCESS;
     }
 
     /**
-     * Whether the explicit "Fragestellung freigeben & weiter" action is currently legal: a productive session
-     * that is still open, NO foreground agent turn in flight, the active phase is SCOPING with
-     * {@code SUBMIT_SCOPE} allowed by the state machine, and a non-blank research brief exists. A pure gate —
-     * no model quality/gatekeeper check.
+     * Whether the explicit "Fragestellung freigeben & weiter" action is currently legal — the button's enabled
+     * state. It is exactly {@code scopingApprovalBlocker() == null}, so the enable check and the click check can
+     * never drift apart.
      */
     public boolean canApproveScopingBriefAndContinue() {
+        return scopingApprovalBlocker() == null;
+    }
+
+    /**
+     * The concrete reason the scoping-approval action is currently unavailable, or an EMPTY string when it is
+     * ready. The UI uses this for the disabled button's tooltip, so a greyed button is never an unexplained
+     * dead end (the same plain-language text a rejected click would show).
+     */
+    public String scopingApprovalUnavailableReason() {
+        ScopingApprovalOutcome blocker = scopingApprovalBlocker();
+        return blocker == null ? "" : scopingApprovalProblemText(blocker);
+    }
+
+    /**
+     * The single source of truth for the scoping-approval gate: returns the concrete blocking reason, or
+     * {@code null} when the action is legal. Pure gate — a productive session that is still open, NO foreground
+     * agent turn in flight, the active phase is SCOPING with {@code SUBMIT_SCOPE} allowed by the state machine,
+     * and a non-blank research brief. No model quality/gatekeeper check.
+     */
+    private ScopingApprovalOutcome scopingApprovalBlocker() {
         if (disposed || productiveResources == null || productiveResources.isClosed() || handle == null) {
-            return false;
+            return ScopingApprovalOutcome.SESSION_INACTIVE;
         }
         if (agentTurnInFlight) {
-            return false; // a foreground agent turn is in flight
+            return ScopingApprovalOutcome.BUSY; // a foreground agent turn is in flight
         }
         com.aresstack.askai.research.state.oo.ResearchStateMemento memento =
                 productiveResources.currentState();
-        if (!com.aresstack.askai.research.state.oo.ResearchStateIds.SCOPING.equals(memento.getPhaseId())) {
-            return false;
+        if (!com.aresstack.askai.research.state.oo.ResearchStateIds.SCOPING.equals(memento.getPhaseId())
+                || !currentAllowedCommands().contains(ResearchCommandType.SUBMIT_SCOPE)) {
+            return ScopingApprovalOutcome.WRONG_PHASE;
         }
-        if (!currentAllowedCommands().contains(ResearchCommandType.SUBMIT_SCOPE)) {
-            return false;
+        if (!hasNonBlankBrief()) {
+            return ScopingApprovalOutcome.MISSING_BRIEF;
         }
+        return null; // ready
+    }
+
+    private boolean hasNonBlankBrief() {
         com.aresstack.askai.research.store.FileResearchBriefStore store = researchBriefStore();
         return store != null && !store.effectiveContent().trim().isEmpty();
+    }
+
+    /** Make a rejected scoping approval VISIBLE (never a silent no-op), with a concrete plain-language reason. */
+    private void surfaceScopingApprovalProblem(final ScopingApprovalOutcome outcome) {
+        if (sink == null) {
+            return;
+        }
+        final String message = scopingApprovalProblemText(outcome);
+        uiExecutor.execute(new Runnable() {
+            public void run() {
+                sink.showProblem("scope-approve-" + outcome, message);
+            }
+        });
+    }
+
+    private static String scopingApprovalProblemText(ScopingApprovalOutcome outcome) {
+        String reason;
+        switch (outcome) {
+            case BUSY:
+                reason = "Es läuft gerade eine Agent-Antwort. Bitte einen Moment warten.";
+                break;
+            case MISSING_BRIEF:
+                reason = "Es liegt noch keine Fragestellung vor.";
+                break;
+            case WRONG_PHASE:
+                reason = "In dieser Phase ist der Wechsel nicht möglich.";
+                break;
+            case APPROVAL_FAILED:
+                reason = "Der Brief konnte nicht gespeichert werden.";
+                break;
+            case TRANSITION_REJECTED:
+                reason = "Phasenwechsel wurde abgelehnt.";
+                break;
+            case SESSION_INACTIVE:
+                reason = "Die Sitzung ist nicht aktiv.";
+                break;
+            default:
+                reason = "Unbekannter Grund.";
+                break;
+        }
+        return "Fragestellung konnte nicht freigegeben werden: " + reason;
+    }
+
+    /** Compact, non-sensitive trace of the scoping-approval click path (runWithDevPlugins console). */
+    private static void scopeApproveDiag(String message) {
+        System.err.println("[scope-approve] " + message);
     }
 
     public void pause() {

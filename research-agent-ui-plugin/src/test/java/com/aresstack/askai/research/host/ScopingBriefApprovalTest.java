@@ -1,8 +1,11 @@
 package com.aresstack.askai.research.host;
 
 import com.aresstack.askai.mcp.api.InProcessMcpServerRegistry;
+import com.aresstack.askai.plugin.api.agent.AgentSession;
 import com.aresstack.askai.plugin.api.agent.AgentConversationSink;
 import com.aresstack.askai.plugin.api.agent.AgentHostContext;
+import com.aresstack.askai.plugin.api.agent.composer.ComposerAccessory;
+import com.aresstack.askai.plugin.api.agent.composer.ComposerAccessoryContext;
 import com.aresstack.askai.plugin.api.service.MarkdownViewFactory;
 import com.aresstack.askai.plugin.api.service.NotificationService;
 import com.aresstack.askai.plugin.api.service.PluginPathService;
@@ -11,6 +14,9 @@ import com.aresstack.askai.plugin.api.service.UiExecutor;
 import com.aresstack.askai.plugin.api.service.WorkspaceStateStore;
 import com.aresstack.askai.research.agent.ResearchAgentSession;
 import com.aresstack.askai.research.agent.ResearchArtifactStore;
+import com.aresstack.askai.research.agent.ScopingApprovalOutcome;
+import com.aresstack.askai.research.agent.ScopingComposerAccessoryContribution;
+import com.aresstack.askai.research.agent.ScopingSupportView;
 import com.aresstack.askai.research.backend.ResearchBackendEvent;
 import com.aresstack.askai.research.backend.ResearchBackendEventType;
 import com.aresstack.askai.research.backend.ResearchProjectRequest;
@@ -28,23 +34,30 @@ import com.aresstack.askai.research.store.FileResearchBriefStore;
 
 import org.junit.Test;
 
+import javax.swing.JButton;
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 /**
- * The explicit, user-owned SCOPING → OUTLINE transition (RA-P6): one click on "Fragestellung freigeben &
- * weiter" approves the research brief working copy into an immutable revision and then dispatches exactly ONE
- * {@code SUBMIT_SCOPE}. Persist/approve happens strictly BEFORE the transition; a failed or empty approval
- * moves nothing; an identical already-approved brief creates no duplicate revision yet still advances; and the
- * action stays disabled outside scoping, without a brief, or while a foreground agent turn is in flight. No
- * model output, natural-language "weiter" or visualizer result may trigger it — only the button does. The
- * resulting phase is read back from the state machine's persisted memento, never assigned by the UI.
+ * The explicit, user-owned SCOPING → OUTLINE transition (RA-P6). Two layers are pinned:
+ * <ol>
+ *   <li>the session gate ({@link ResearchAgentSession#approveScopingBriefAndContinue()}) returns a TYPED
+ *       {@link ScopingApprovalOutcome} — approve-before-transition, no duplicate revision, no chaining, and a
+ *       concrete reason on every rejection; and</li>
+ *   <li>the REAL Swing path — the accessory built by its host contribution, the genuine approve button
+ *       {@code doClick()} → live session → state machine — advances the phase on success and surfaces a
+ *       VISIBLE reason on rejection (never a silent no-op).</li>
+ * </ol>
  */
 public class ScopingBriefApprovalTest {
+
+    // ------------------------------------------------------------------ session gate (typed outcome)
 
     @Test
     public void explicitApprovalApprovesTheBriefThenAdvancesExactlyOnceToOutline() {
@@ -52,7 +65,7 @@ public class ScopingBriefApprovalTest {
         toScopingRunningWithBrief(fx, "# Brief\nHow does pf4j isolate plugins?");
 
         assertTrue(fx.session.canApproveScopingBriefAndContinue());
-        assertTrue(fx.session.approveScopingBriefAndContinue());
+        assertEquals(ScopingApprovalOutcome.SUCCESS, fx.session.approveScopingBriefAndContinue());
 
         // The brief was approved into exactly one immutable revision.
         assertEquals(1, fx.session.researchBriefStore().load().getApprovedRevisions().size());
@@ -76,10 +89,12 @@ public class ScopingBriefApprovalTest {
             throw new IllegalStateException(ex);
         }
 
-        assertFalse(fx.session.approveScopingBriefAndContinue());
+        assertEquals(ScopingApprovalOutcome.APPROVAL_FAILED, fx.session.approveScopingBriefAndContinue());
         // Approve-before-transition: the failed artifact approval dispatched no SUBMIT_SCOPE.
         assertEquals(ResearchStateIds.SCOPING, fx.resources.currentState().getPhaseId());
         assertEquals(ResearchStateIds.RUNNING, fx.resources.currentState().getStateId());
+        // The failure was surfaced, not swallowed.
+        assertTrue(hasApprovalProblem(fx));
     }
 
     @Test
@@ -95,21 +110,21 @@ public class ScopingBriefApprovalTest {
         // The effective brief is now the approved revision (no working copy). The explicit action approves
         // again (ALREADY_CURRENT → no new revision) and STILL performs the single transition.
         assertTrue(fx.session.canApproveScopingBriefAndContinue());
-        assertTrue(fx.session.approveScopingBriefAndContinue());
+        assertEquals(ScopingApprovalOutcome.SUCCESS, fx.session.approveScopingBriefAndContinue());
 
         assertEquals("no duplicate revision", 1, store.load().getApprovedRevisions().size());
         assertEquals(ResearchStateIds.OUTLINE, fx.resources.currentState().getPhaseId());
     }
 
     @Test
-    public void aBlankOrMissingBriefDisablesTheActionAndRejectsIt() {
+    public void aBlankOrMissingBriefIsRejectedWithMissingBrief() {
         Fx fx = new Fx();
         fx.session.dispatch(ResearchCommandType.START, null);
         completeTurn(fx, 1L);
 
-        // No brief at all: unavailable and a no-op.
+        // No brief at all: unavailable, and the action reports the concrete reason.
         assertFalse(fx.session.canApproveScopingBriefAndContinue());
-        assertFalse(fx.session.approveScopingBriefAndContinue());
+        assertEquals(ScopingApprovalOutcome.MISSING_BRIEF, fx.session.approveScopingBriefAndContinue());
         assertEquals(ResearchStateIds.SCOPING, fx.resources.currentState().getPhaseId());
 
         // A whitespace-only brief is likewise not enough (it normalizes away, nothing is stored).
@@ -119,7 +134,7 @@ public class ScopingBriefApprovalTest {
     }
 
     @Test
-    public void outsideScopingTheActionIsUnavailable() {
+    public void outsideScopingTheActionReportsWrongPhase() {
         Fx fx = new Fx();
         fx.session.dispatch(ResearchCommandType.START, null);        // SCOPING/RUNNING
         completeTurn(fx, 1L);
@@ -128,19 +143,19 @@ public class ScopingBriefApprovalTest {
         assertEquals(ResearchStateIds.OUTLINE, fx.resources.currentState().getPhaseId());
 
         assertFalse(fx.session.canApproveScopingBriefAndContinue());
-        assertFalse(fx.session.approveScopingBriefAndContinue());
+        assertEquals(ScopingApprovalOutcome.WRONG_PHASE, fx.session.approveScopingBriefAndContinue());
         assertEquals(ResearchStateIds.OUTLINE, fx.resources.currentState().getPhaseId());
     }
 
     @Test
-    public void aForegroundAgentTurnInFlightDisablesTheAction() {
+    public void aForegroundAgentTurnInFlightReportsBusy() {
         Fx fx = new Fx();
         fx.session.dispatch(ResearchCommandType.START, null); // SCOPING/RUNNING
         // Do NOT complete the turn: the greeting bootstrap's agentTurnInFlight is still set.
         fx.session.researchBriefStore().updateWorkingCopy("# Brief\nx", 1000L);
         assertFalse("a foreground agent turn blocks the action",
                 fx.session.canApproveScopingBriefAndContinue());
-        assertFalse(fx.session.approveScopingBriefAndContinue());
+        assertEquals(ScopingApprovalOutcome.BUSY, fx.session.approveScopingBriefAndContinue());
         assertEquals(ResearchStateIds.SCOPING, fx.resources.currentState().getPhaseId());
 
         // Once the turn completes, the same brief makes the action legal.
@@ -163,7 +178,7 @@ public class ScopingBriefApprovalTest {
 
         // The visualizer never ran here (no inference port) — the transition is independent of it: only the
         // explicit click advances the phase, exactly once.
-        assertTrue(fx.session.approveScopingBriefAndContinue());
+        assertEquals(ScopingApprovalOutcome.SUCCESS, fx.session.approveScopingBriefAndContinue());
         assertEquals(ResearchStateIds.OUTLINE, fx.resources.currentState().getPhaseId());
     }
 
@@ -172,14 +187,72 @@ public class ScopingBriefApprovalTest {
         Fx fx = new Fx();
         toScopingRunningWithBrief(fx, "# Brief\nx");
 
-        assertTrue(fx.session.approveScopingBriefAndContinue());
+        assertEquals(ScopingApprovalOutcome.SUCCESS, fx.session.approveScopingBriefAndContinue());
 
         // The authoritative, persisted memento IS OUTLINE; the session view-model only mirrors that truth.
         assertEquals(ResearchStateIds.OUTLINE, fx.resources.currentState().getPhaseId());
         assertEquals("OUTLINE", fx.session.getState().getPhaseLabel());
     }
 
+    // ------------------------------------------------------------------ real Swing path (the missing test)
+
+    @Test
+    public void theRealAccessoryButtonClickReachesTheLiveSessionAndTransitions() {
+        Fx fx = new Fx();
+        toScopingRunningWithBrief(fx, "# Brief\nHow does pf4j isolate plugins?");
+
+        ScopingSupportView view = buildAccessoryView(fx); // the genuine host-built accessory + wiring
+        JButton approve = view.getApproveButton();
+        assertTrue("the accessory enables the action when the brief is ready", approve.isEnabled());
+        assertTrue("the scoping accessory is visible during scoping", view.isVisible());
+
+        approve.doClick(); // REAL click → accessory callback → live ResearchAgentSession → state machine
+
+        assertEquals(ResearchStateIds.OUTLINE, fx.resources.currentState().getPhaseId());
+        assertEquals(ResearchStateIds.RUNNING, fx.resources.currentState().getStateId());
+        assertFalse("the scoping-only accessory disappears once the phase leaves scoping", view.isVisible());
+    }
+
+    @Test
+    public void aStaleEnabledButtonClickIsRejectedVisiblyNotAsASilentNoOp() {
+        Fx fx = new Fx();
+        toScopingRunningWithBrief(fx, "# Brief\nx");
+
+        ScopingSupportView view = buildAccessoryView(fx);
+        JButton approve = view.getApproveButton();
+        assertTrue(approve.isEnabled());
+
+        // A foreground turn starts WITHOUT the accessory refreshing — the button's enabled state is now a stale
+        // snapshot. This is the real "clickable but nothing happens": the click must be REJECTED, VISIBLY.
+        fx.session.submitPrompt("noch eine Frage"); // productive: sets agentTurnInFlight = true, no state event
+        assertTrue("the stale snapshot still shows the button enabled", approve.isEnabled());
+        int problemsBefore = fx.sink.problems.size();
+
+        approve.doClick();
+
+        assertEquals("no transition on a rejected click", ResearchStateIds.SCOPING,
+                fx.resources.currentState().getPhaseId());
+        assertTrue("the rejection is surfaced to the user, never a silent no-op",
+                fx.sink.problems.size() > problemsBefore);
+    }
+
     // ------------------------------------------------------------------ helpers
+
+    /** Build the accessory exactly as the host does (contribution → accessory → live session wiring). */
+    private static ScopingSupportView buildAccessoryView(Fx fx) {
+        ComposerAccessory accessory = new ScopingComposerAccessoryContribution()
+                .create(new FakeComposerContext(fx.session));
+        return (ScopingSupportView) accessory.getComponent();
+    }
+
+    private static boolean hasApprovalProblem(Fx fx) {
+        for (String problem : fx.sink.problems) {
+            if (problem.startsWith("Fragestellung konnte nicht freigegeben werden")) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     /** SCOPING/NEW → SCOPING/RUNNING, clear the greeting bootstrap's busy flag, then store a real brief. */
     private static void toScopingRunningWithBrief(Fx fx, String brief) {
@@ -199,6 +272,7 @@ public class ScopingBriefApprovalTest {
     private static final class Fx {
         final InProcessMcpServerRegistry registry = new InProcessMcpServerRegistry();
         final RecordingBackend backend = new RecordingBackend();
+        final RecordingSink sink = new RecordingSink();
         final ProductiveResearchSessionResources resources;
         final ResearchAgentSession session;
 
@@ -236,7 +310,7 @@ public class ScopingBriefApprovalTest {
             resources = new ProductiveResearchSessionResources("s1", new OoResearchStateMachine("s1"),
                     null, null, null, tempProjectContext(), control, null, null, null);
             holder[0] = resources;
-            session = new ResearchAgentSession(backend, null, new PlainHost(), "s1", "p1", resources);
+            session = new ResearchAgentSession(backend, null, new PlainHost(sink), "s1", "p1", resources);
             session.activate();
         }
     }
@@ -298,10 +372,51 @@ public class ScopingBriefApprovalTest {
         }
     }
 
-    // ------------------------------------------------------------------ minimal host with a no-op sink
+    // ------------------------------------------------------------------ composer accessory context (real wiring)
+
+    private static final class FakeComposerContext implements ComposerAccessoryContext {
+        private final AgentSession session;
+
+        FakeComposerContext(AgentSession session) {
+            this.session = session;
+        }
+
+        public AgentSession getSession() {
+            return session;
+        }
+
+        public UiExecutor getUiExecutor() {
+            return new UiExecutor() {
+                public void execute(Runnable runnable) {
+                    runnable.run();
+                }
+
+                public void assertUiThread() {
+                }
+
+                public boolean isUiThread() {
+                    return true;
+                }
+            };
+        }
+
+        public ThemeService getThemeService() {
+            return null;
+        }
+
+        public MarkdownViewFactory getMarkdownViewFactory() {
+            return null;
+        }
+    }
+
+    // ------------------------------------------------------------------ minimal host + problem-recording sink
 
     private static final class PlainHost implements AgentHostContext {
-        private final AgentConversationSink sink = new NoopSink();
+        private final AgentConversationSink sink;
+
+        PlainHost(AgentConversationSink sink) {
+            this.sink = sink;
+        }
 
         public UiExecutor getUiExecutor() {
             return new UiExecutor() {
@@ -343,8 +458,10 @@ public class ScopingBriefApprovalTest {
         }
     }
 
-    /** A silent sink: this slice asserts on state, not chat surface. */
-    private static final class NoopSink implements AgentConversationSink {
+    /** Records the visible problems, so a rejected click can be asserted to be non-silent. */
+    private static final class RecordingSink implements AgentConversationSink {
+        final List<String> problems = new ArrayList<String>();
+
         public void appendUserMessage(String messageId, String markdown) {
         }
 
@@ -376,6 +493,7 @@ public class ScopingBriefApprovalTest {
         }
 
         public void showProblem(String problemId, String publicMessage) {
+            problems.add(publicMessage);
         }
     }
 }

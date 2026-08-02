@@ -87,6 +87,19 @@ public final class ScopingSupportView extends JPanel {
         continueButton.setEnabled(enabled);
     }
 
+    /**
+     * The button's tooltip — when disabled it carries the concrete reason (e.g. "no brief yet", "a turn is
+     * running"), so a greyed button is never an unexplained dead end.
+     */
+    public void setContinueTooltip(String tooltip) {
+        continueButton.setToolTipText(tooltip == null || tooltip.isEmpty() ? null : tooltip);
+    }
+
+    /** The real approve button — so a UI/integration test can {@code doClick()} the genuine wired action. */
+    public JButton getApproveButton() {
+        return continueButton;
+    }
+
     /** Apply the latest projection: REPLACE the tags with the agent's newest knowledge. */
     public void apply(ScopingAssistantUpdate projection) {
         if (projection == null) {

@@ -50,8 +50,10 @@ final class ScopingComposerAccessory implements ComposerAccessory {
                 final boolean scoping = ResearchStateIds.SCOPING.equals(
                         research.currentResearchSnapshot().getCurrentPhaseId());
                 final ScopingAssistantUpdate projection = research.latestScopingProjection();
-                // Re-derive the enablement from the LIVE session on every state change (phase, brief, busy).
-                final boolean canContinue = research.canApproveScopingBriefAndContinue();
+                // Re-derive the enablement from the LIVE session on every state change (phase, brief, busy) in
+                // ONE evaluation: an empty reason means ready; otherwise it is the disabled button's tooltip.
+                final String unavailableReason = research.scopingApprovalUnavailableReason();
+                final boolean canContinue = unavailableReason.isEmpty();
                 uiExecutor.execute(new Runnable() {
                     public void run() {
                         view.setVisible(scoping); // shown only in scoping; hidden elsewhere
@@ -59,6 +61,9 @@ final class ScopingComposerAccessory implements ComposerAccessory {
                             view.apply(projection);
                         }
                         view.setContinueEnabled(canContinue);
+                        view.setContinueTooltip(canContinue
+                                ? "Fragestellung freigeben und zur Gliederung (OUTLINE) wechseln"
+                                : unavailableReason);
                         pushPlaceholder(scoping, projection);
                     }
                 });
