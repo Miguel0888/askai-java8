@@ -53,6 +53,8 @@ public class ResearchLoopTest {
         String current;
         int captureSeq;
         boolean failEverything;
+        /** Characterization: the exact web_open sequence (frontier processing order), requested urls. */
+        final List<String> opened = new ArrayList<String>();
         /** Scripted web_challenge_status responses (consumed in order; last one repeats). */
         final List<String> challengeStatusScript = new ArrayList<String>();
         int challengeStatusCalls;
@@ -87,6 +89,7 @@ public class ResearchLoopTest {
             }
             if ("web_open".equals(tool)) {
                 String requested = String.valueOf(args.get("url"));
+                opened.add(requested);
                 // Like the real browser: navigation FOLLOWS redirects; the snapshot reports the FINAL URL.
                 String url = redirects.containsKey(requested) ? redirects.get(requested) : requested;
                 Page page = pages.get(url);
@@ -267,6 +270,30 @@ public class ResearchLoopTest {
         }
         assertEquals(ResearchStopReason.SUFFICIENT_EVIDENCE, reason);
         assertEquals(1, fx.ready.size()); // PHASE_READY event sent — but only as an event
+    }
+
+    @Test
+    public void characterizationAcquisitionProcessingOrderIsFrozen() {
+        // Freeze TODAY's deterministic acquisition order before the extraction: SERP candidates [a, b] in
+        // engine order, then relevance-filtered link discovery appends c (from a), then d, e (from c). The
+        // irrelevant page b is visited (it was a SERP candidate) but never accepted; d is a content-duplicate
+        // of a yet still an accepted source. This pins frontier FIFO + link-filter order + acceptance.
+        Fx fx = new Fx();
+        ResearchLoop loop = fx.loop(ResearchRunBudget.defaults());
+        ResearchStopReason reason = loop.run("investigate pf4j plugin framework");
+
+        assertEquals(Arrays.asList(
+                "https://host1.com/a",
+                "https://host1.com/b",
+                "https://host2.net/c",
+                "https://host3.org/d",
+                "https://host2.net/e"), fx.browser.opened);
+        assertEquals("a, c, d, e accepted (b irrelevant)", 4, loop.getProgress().getAcceptedSources());
+        assertFalse("the irrelevant SERP page is never accepted",
+                fx.research.sourceByCapture.containsKey(fx.browser.captureByUrl.get("https://host1.com/b")));
+        assertEquals("d is a content-duplicate → accepted but no repeated finding; a, c, e each add a finding",
+                3, fx.research.findings.size());
+        assertEquals(ResearchStopReason.SUFFICIENT_EVIDENCE, reason);
     }
 
     @Test
