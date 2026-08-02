@@ -959,12 +959,26 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         } else if ("completed".equals(subKind)) {
             sink.completeToolActivity(activityId, message);
             activeManualSearchRequestId = null;
+            stopManualSearchBrowser();
         } else if ("failed".equals(subKind)) {
             // Both surfaces: close the transient activity AND raise a PERSISTENT, readable problem so the
             // reason does not merely flash away.
             sink.failToolActivity(activityId, message);
             sink.showProblem("manual-search-failed-" + requestId, message);
             activeManualSearchRequestId = null;
+            stopManualSearchBrowser();
+        }
+    }
+
+    /**
+     * A user web search has TERMINATED (completed/failed): stop the host-owned Playwright browser sidecar so
+     * it never lingers open — the same lifecycle the autonomous run gets on RUN_OUTCOME. It is only called on
+     * terminal events (a CAPTCHA/challenge wait emits {@code progress}, never {@code completed}/{@code failed}),
+     * so an in-flight manual challenge is never cut off.
+     */
+    private void stopManualSearchBrowser() {
+        if (productiveResources != null) {
+            productiveResources.stopBrowserPhase();
         }
     }
 
