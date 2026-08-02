@@ -28,6 +28,11 @@ public final class ResearchRunWire {
     public static final String TYPE_SCOPEASSIST = "scopeassist";
     /** The research brief markdown (the phase artifact) — persisted to its working copy on one path. */
     public static final String TYPE_BRIEF = "brief";
+    /** A user-triggered (manual) web search lifecycle — correlated to its request by {@code request_id}. */
+    public static final String TYPE_MANUAL_SEARCH_STARTED = "manual_search_started";
+    public static final String TYPE_MANUAL_SEARCH_PROGRESS = "manual_search_progress";
+    public static final String TYPE_MANUAL_SEARCH_COMPLETED = "manual_search_completed";
+    public static final String TYPE_MANUAL_SEARCH_FAILED = "manual_search_failed";
 
     private ResearchRunWire() {
     }

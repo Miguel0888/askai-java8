@@ -207,4 +207,37 @@ public final class ResearchRunWire {
     public static String log(String message) {
         return MARKER + "log " + (message == null ? "" : message.replace('\n', ' '));
     }
+
+    // ------------------------------------------------------------------ user-triggered (manual) web search
+
+    /** A user-triggered web search has started; the query travels URL-encoded. Correlated by requestId. */
+    public static String manualSearchStarted(String requestId, String query) {
+        StringBuilder sb = new StringBuilder(MARKER).append("manual_search_started")
+                .append(" request_id=").append(requestId == null ? "" : requestId);
+        appendEncoded(sb, "query", query);
+        return sb.toString();
+    }
+
+    /** Optional in-place progress note for a running manual search (URL-encoded), correlated by requestId. */
+    public static String manualSearchProgress(String requestId, String note) {
+        StringBuilder sb = new StringBuilder(MARKER).append("manual_search_progress")
+                .append(" request_id=").append(requestId == null ? "" : requestId);
+        appendEncoded(sb, "note", note);
+        return sb.toString();
+    }
+
+    /** A manual search finished: the result count and the strategy status (RESULTS|NO_RESULTS|…). */
+    public static String manualSearchCompleted(String requestId, int results, String status) {
+        return MARKER + "manual_search_completed"
+                + " request_id=" + (requestId == null ? "" : requestId)
+                + " results=" + results
+                + " status=" + (status == null || status.isEmpty() ? "UNKNOWN" : status);
+    }
+
+    /** A manual search failed (or was cancelled/unavailable): a token reason, never a fallback to a no-op. */
+    public static String manualSearchFailed(String requestId, String reason) {
+        return MARKER + "manual_search_failed"
+                + " request_id=" + (requestId == null ? "" : requestId)
+                + " reason=" + (reason == null || reason.isEmpty() ? "UNKNOWN" : reason);
+    }
 }

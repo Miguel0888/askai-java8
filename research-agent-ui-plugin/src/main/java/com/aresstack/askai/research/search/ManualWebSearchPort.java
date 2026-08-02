@@ -17,7 +17,10 @@ public interface ManualWebSearchPort {
     /**
      * Run a user-triggered web search for {@code request}. Provider, language, country and result count come
      * from the existing research/search configuration — never from the calling UI — so the request carries only
-     * the query. Progress, results and errors surface through the existing research activity surfaces (S2).
+     * the query. Progress, results and errors surface through the existing research activity surfaces.
+     *
+     * @return a handle whose {@code requestId} correlates the search with its typed events and allows a cancel;
+     *         never {@code null}.
      */
-    void search(ManualWebSearchRequest request);
+    ManualWebSearchHandle search(ManualWebSearchRequest request);
 }

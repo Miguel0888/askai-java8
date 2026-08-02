@@ -10,12 +10,21 @@ package com.aresstack.askai.research.search;
 public final class LoggingManualWebSearchPort implements ManualWebSearchPort {
 
     @Override
-    public void search(ManualWebSearchRequest request) {
-        if (request == null || request.isBlank()) {
-            return;
+    public ManualWebSearchHandle search(ManualWebSearchRequest request) {
+        final String requestId = java.util.UUID.randomUUID().toString();
+        if (request != null && !request.isBlank()) {
+            // Log only the length, never the query text: the console trace stays free of user content.
+            System.err.println("[manual-search] requested (placeholder, no backend transport) queryLen="
+                    + request.getQuery().length());
         }
-        // Log only the length, never the query text: the console trace stays free of user content.
-        System.err.println("[manual-search] requested (S1 placeholder, no backend yet) queryLen="
-                + request.getQuery().length());
+        return new ManualWebSearchHandle() {
+            public String getRequestId() {
+                return requestId;
+            }
+
+            public void cancel() {
+                // Nothing to cancel: the placeholder never dispatched a real search.
+            }
+        };
     }
 }

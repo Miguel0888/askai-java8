@@ -196,6 +196,11 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         // listener must already accept it even though the handle field is assigned only when the call returns.
         started = true;
         handle = backend.createSession(request, this);
+        // Wire the user web search onto the productive backend transport (a #RSC1# service command over ACP).
+        // Transport-agnostic: a fake/clickdummy backend's submitServiceCommand is a no-op. Tests may override
+        // the port AFTER activate().
+        this.manualWebSearchPort = new com.aresstack.askai.research.search.BackendManualWebSearchPort(
+                backend, handle);
         final String notice = startupNotice;
         if (notice != null && sink != null) {
             uiExecutor.execute(new Runnable() {
@@ -389,9 +394,12 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     private volatile com.aresstack.askai.research.backend.ScopingAssistantUpdate latestScopingProjection;
     /** File-backed research brief store, bound to this session's project dir (null in the clickdummy). */
     private com.aresstack.askai.research.store.FileResearchBriefStore researchBriefStore;
-    /** USER-triggered web search service (S1: a logging placeholder; S2 wires the productive SearchStrategy). */
+    /** USER-triggered web search service; wired to the productive backend transport at activate(). */
     private volatile com.aresstack.askai.research.search.ManualWebSearchPort manualWebSearchPort =
             new com.aresstack.askai.research.search.LoggingManualWebSearchPort();
+    /** The in-flight user search's correlation id (events carrying any other id are stale) and its handle. */
+    private volatile String activeManualSearchRequestId;
+    private volatile com.aresstack.askai.research.search.ManualWebSearchHandle activeManualSearchHandle;
     /** Lazy, host-side artifact visualizer (null when no inference port); a derived-view consumer. */
     private com.aresstack.askai.research.visualize.LazyArtifactVisualizer artifactVisualizer;
     /** The latest derived visualization projection for the "Visualisierung" view; transient/rebuildable. */
@@ -905,13 +913,54 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             return;
         }
         System.err.println("[manual-search] user search dispatched queryLen=" + query.trim().length());
-        manualWebSearchPort.search(new com.aresstack.askai.research.search.ManualWebSearchRequest(query));
+        com.aresstack.askai.research.search.ManualWebSearchHandle handle = manualWebSearchPort.search(
+                new com.aresstack.askai.research.search.ManualWebSearchRequest(query));
+        // Remember the correlation id so inbound events of THIS search render and stale ones are ignored.
+        this.activeManualSearchHandle = handle;
+        this.activeManualSearchRequestId = handle == null ? null : handle.getRequestId();
     }
 
-    /** Wire the productive manual-web-search service (slice S2 / tests); a null port is ignored. */
+    /** Cancel the in-flight user web search, if any; late events of the cancelled run are then ignored. */
+    public void cancelManualWebSearch() {
+        com.aresstack.askai.research.search.ManualWebSearchHandle handle = activeManualSearchHandle;
+        if (handle != null) {
+            handle.cancel();
+        }
+    }
+
+    /** Wire the productive manual-web-search service (tests / factory); a null port is ignored. */
     public void setManualWebSearchPort(com.aresstack.askai.research.search.ManualWebSearchPort port) {
         if (port != null) {
             this.manualWebSearchPort = port;
+        }
+    }
+
+    /**
+     * Render a user web search lifecycle event as a transient activity, correlated by requestId so late events
+     * of a superseded or cancelled run are ignored. It changes NO phase and NO state — a pure service surface.
+     */
+    private void applyManualSearch(ResearchBackendEvent event) {
+        if (sink == null) {
+            return;
+        }
+        String requestId = event.getTechnicalDetail();
+        if (requestId == null || !requestId.equals(activeManualSearchRequestId)) {
+            return; // stale/late event from a request the user did not (or no longer) launched
+        }
+        String activityId = event.getActivityId() != null
+                ? event.getActivityId() : "manual-search-" + requestId;
+        String subKind = event.getTitle();
+        String message = event.getText();
+        if ("started".equals(subKind)) {
+            sink.startToolActivity(activityId, "Websuche", message);
+        } else if ("progress".equals(subKind)) {
+            sink.updateToolActivity(activityId, "Websuche", message);
+        } else if ("completed".equals(subKind)) {
+            sink.completeToolActivity(activityId, message);
+            activeManualSearchRequestId = null;
+        } else if ("failed".equals(subKind)) {
+            sink.failToolActivity(activityId, message);
+            activeManualSearchRequestId = null;
         }
     }
 
@@ -1131,6 +1180,10 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 // The phase artifact: persist the brief to its working copy (one path, off the EDT). No
                 // approval revision, no phase transition — the "Fragestellung" view re-reads the store.
                 persistResearchBrief(event.getTitle(), event.getText());
+                break;
+            case MANUAL_SEARCH:
+                // A USER-triggered web search lifecycle: a transient activity only — no phase, no state change.
+                applyManualSearch(event);
                 break;
             case BLOCKED:
             case ERROR:

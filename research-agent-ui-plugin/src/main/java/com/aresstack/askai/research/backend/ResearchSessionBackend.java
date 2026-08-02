@@ -18,6 +18,16 @@ public interface ResearchSessionBackend {
 
     void submitPrompt(ResearchSessionHandle session, ResearchPrompt prompt);
 
+    /**
+     * Carry a typed SERVICE COMMAND control envelope (e.g. a user web search, {@code #RSC1#}) to the runtime.
+     * Semantically SEPARATE from {@link #submitPrompt} — a service command is never a chat turn — even though a
+     * transport (ACP) may physically reuse the same frame underneath. The default ignores it: a fake/clickdummy
+     * backend has no service transport. The ACP backend overrides it.
+     */
+    default void submitServiceCommand(ResearchSessionHandle session, String controlEnvelope) {
+        // no-op by default
+    }
+
     void approve(ResearchSessionHandle session, String approvalId);
 
     void reject(ResearchSessionHandle session, String approvalId, String reason);

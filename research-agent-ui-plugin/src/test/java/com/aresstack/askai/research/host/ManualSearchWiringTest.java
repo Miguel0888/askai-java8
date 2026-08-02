@@ -22,10 +22,12 @@ import com.aresstack.askai.research.backend.ResearchProjectRequest;
 import com.aresstack.askai.research.backend.ResearchPrompt;
 import com.aresstack.askai.research.backend.ResearchSessionBackend;
 import com.aresstack.askai.research.backend.ResearchSessionHandle;
+import com.aresstack.askai.research.backend.ResearchActivityKind;
 import com.aresstack.askai.research.backend.ResearchSessionListener;
 import com.aresstack.askai.research.backend.ScopingAssistantUpdate;
 import com.aresstack.askai.research.mcp.ResearchControlContext;
 import com.aresstack.askai.research.mcp.ResearchControlEndpoint;
+import com.aresstack.askai.research.search.ManualWebSearchHandle;
 import com.aresstack.askai.research.search.ManualWebSearchPort;
 import com.aresstack.askai.research.search.ManualWebSearchRequest;
 import com.aresstack.askai.research.sources.ResearchSourceRepository;
@@ -105,7 +107,91 @@ public class ManualSearchWiringTest {
         assertEquals(2, port.queries.size());
     }
 
+    @Test
+    public void aYellowSuggestionClickSendsATypedServiceCommandNotAChatPrompt() throws Exception {
+        Fx fx = new Fx();
+        fx.session.dispatch(ResearchCommandType.START, null); // SCOPING/RUNNING
+        completeTurn(fx, 1L);
+        feedSuggestion(fx, "wearables audio video");
+        int promptsBefore = fx.backend.prompts.size();
+
+        ScopingSupportView view = buildAccessoryView(fx);
+        view.getSuggestionButtons().get(0).doClick(); // real tag → session → productive BackendManualWebSearchPort
+
+        // Exactly one typed #RSC1# service command carrying the query — and NOT a chat prompt.
+        assertEquals(1, fx.backend.serviceCommands.size());
+        String envelope = fx.backend.serviceCommands.get(0);
+        assertTrue(envelope.startsWith("#RSC1# manual_search"));
+        assertTrue("carries a correlation id", envelope.contains(" request_id="));
+        assertTrue("carries the url-encoded query",
+                envelope.contains("query=" + java.net.URLEncoder.encode("wearables audio video", "UTF-8")));
+        assertEquals("no chat prompt was submitted", promptsBefore, fx.backend.prompts.size());
+        assertEquals("the phase is unchanged", ResearchStateIds.SCOPING,
+                fx.resources.currentState().getPhaseId());
+    }
+
+    @Test
+    public void manualSearchEventsRenderAsActivityAndStaleEventsAreIgnored() {
+        Fx fx = new Fx();
+        fx.session.dispatch(ResearchCommandType.START, null);
+        completeTurn(fx, 1L);
+        // A port with a KNOWN requestId so the test controls correlation.
+        fx.session.setManualWebSearchPort(new FixedRequestIdPort("R1"));
+        fx.session.requestManualWebSearch("wearables"); // active correlation id becomes R1
+
+        manualSearchEvent(fx, 2L, "R1", "started", "Websuche: wearables");
+        assertEquals(1, fx.sink.started.size());
+        assertEquals("manual-search-R1|Websuche: wearables", fx.sink.started.get(0));
+
+        // A late/stale event from a DIFFERENT request must be ignored (filter out unrelated turn completions).
+        manualSearchEvent(fx, 3L, "R2", "completed", "9 Treffer");
+        assertTrue("stale completed is ignored", manualEntries(fx.sink.completed).isEmpty());
+
+        // The matching completion renders and clears the correlation.
+        manualSearchEvent(fx, 4L, "R1", "completed", "3 Treffer");
+        assertEquals(1, manualEntries(fx.sink.completed).size());
+        assertEquals("manual-search-R1|3 Treffer", manualEntries(fx.sink.completed).get(0));
+    }
+
+    private static List<String> manualEntries(List<String> entries) {
+        List<String> out = new ArrayList<String>();
+        for (String entry : entries) {
+            if (entry.startsWith("manual-search-")) {
+                out.add(entry);
+            }
+        }
+        return out;
+    }
+
     // ------------------------------------------------------------------ helpers
+
+    /** Feed a MANUAL_SEARCH backend event (as the mapper would produce) straight into the session. */
+    private static void manualSearchEvent(Fx fx, long seq, String requestId, String subKind, String message) {
+        fx.session.onEvent(ResearchBackendEvent.builder(ResearchBackendEventType.MANUAL_SEARCH)
+                .envelope("evt-ms-" + seq, "s1", "p1", seq, 0L, seq, null)
+                .activity("manual-search-" + requestId, ResearchActivityKind.TOOL_UPDATE, subKind, message)
+                .messages("", requestId)
+                .build());
+    }
+
+    private static final class FixedRequestIdPort implements ManualWebSearchPort {
+        private final String requestId;
+
+        FixedRequestIdPort(String requestId) {
+            this.requestId = requestId;
+        }
+
+        public ManualWebSearchHandle search(ManualWebSearchRequest request) {
+            return new ManualWebSearchHandle() {
+                public String getRequestId() {
+                    return requestId;
+                }
+
+                public void cancel() {
+                }
+            };
+        }
+    }
 
     private static ScopingSupportView buildAccessoryView(Fx fx) {
         ComposerAccessory accessory = new ScopingComposerAccessoryContribution()
@@ -134,14 +220,23 @@ public class ManualSearchWiringTest {
     private static final class RecordingManualWebSearchPort implements ManualWebSearchPort {
         final List<String> queries = new ArrayList<String>();
 
-        public void search(ManualWebSearchRequest request) {
+        public ManualWebSearchHandle search(ManualWebSearchRequest request) {
             queries.add(request.getQuery());
+            return new ManualWebSearchHandle() {
+                public String getRequestId() {
+                    return "req-test";
+                }
+
+                public void cancel() {
+                }
+            };
         }
     }
 
     private static final class Fx {
         final InProcessMcpServerRegistry registry = new InProcessMcpServerRegistry();
         final RecordingBackend backend = new RecordingBackend();
+        final RecordingSink sink = new RecordingSink();
         final ProductiveResearchSessionResources resources;
         final ResearchAgentSession session;
 
@@ -179,13 +274,20 @@ public class ManualSearchWiringTest {
             resources = new ProductiveResearchSessionResources("s1", new OoResearchStateMachine("s1"),
                     null, null, null, tempProjectContext(), control, null, null, null);
             holder[0] = resources;
-            session = new ResearchAgentSession(backend, null, new PlainHost(), "s1", "p1", resources);
+            session = new ResearchAgentSession(backend, null, new PlainHost(sink), "s1", "p1", resources);
             session.activate();
         }
     }
 
     private static final class RecordingBackend implements ResearchSessionBackend {
         final List<String> prompts = new ArrayList<String>();
+        final List<String> serviceCommands = new ArrayList<String>();
+        int cancels;
+
+        @Override
+        public void submitServiceCommand(ResearchSessionHandle handle, String controlEnvelope) {
+            serviceCommands.add(controlEnvelope);
+        }
 
         public ResearchSessionHandle createSession(ResearchProjectRequest request,
                                                    ResearchSessionListener listener) {
@@ -227,6 +329,7 @@ public class ManualSearchWiringTest {
         }
 
         public void cancel(ResearchSessionHandle handle) {
+            cancels++;
         }
 
         public void close(ResearchSessionHandle handle) {
@@ -267,6 +370,12 @@ public class ManualSearchWiringTest {
     }
 
     private static final class PlainHost implements AgentHostContext {
+        private final AgentConversationSink sink;
+
+        PlainHost(AgentConversationSink sink) {
+            this.sink = sink;
+        }
+
         public UiExecutor getUiExecutor() {
             return inlineUi();
         }
@@ -292,7 +401,7 @@ public class ManualSearchWiringTest {
         }
 
         public AgentConversationSink getConversationSink() {
-            return new NoopSink();
+            return sink;
         }
     }
 
@@ -311,7 +420,13 @@ public class ManualSearchWiringTest {
         };
     }
 
-    private static final class NoopSink implements AgentConversationSink {
+    /** Records the tool-activity lifecycle so manual-search rendering can be asserted. */
+    private static final class RecordingSink implements AgentConversationSink {
+        final List<String> started = new ArrayList<String>();
+        final List<String> updated = new ArrayList<String>();
+        final List<String> completed = new ArrayList<String>();
+        final List<String> failed = new ArrayList<String>();
+
         public void appendUserMessage(String messageId, String markdown) {
         }
 
@@ -328,15 +443,19 @@ public class ManualSearchWiringTest {
         }
 
         public void startToolActivity(String activityId, String title, String explanation) {
+            started.add(activityId + "|" + explanation);
         }
 
         public void updateToolActivity(String activityId, String title, String explanation) {
+            updated.add(activityId + "|" + explanation);
         }
 
         public void completeToolActivity(String activityId, String summary) {
+            completed.add(activityId + "|" + summary);
         }
 
         public void failToolActivity(String activityId, String summary) {
+            failed.add(activityId + "|" + summary);
         }
 
         public void requestApproval(String approvalId, String prompt) {

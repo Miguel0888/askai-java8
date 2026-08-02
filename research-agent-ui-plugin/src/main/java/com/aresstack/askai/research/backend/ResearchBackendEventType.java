@@ -42,5 +42,11 @@ public enum ResearchBackendEventType {
      * The research brief markdown (the scoping phase's primary artifact), in {@code text}. The host persists it
      * to the brief working copy (one path) and shows it in the "Fragestellung" view. No approval, no transition.
      */
-    RESEARCH_BRIEF
+    RESEARCH_BRIEF,
+    /**
+     * A user-triggered web search lifecycle event ({@code title} = started|progress|completed|failed,
+     * {@code text} = the user-facing line, {@code technicalDetail} = the correlating requestId). Rendered as a
+     * transient search activity; it never changes the phase or the state machine.
+     */
+    MANUAL_SEARCH
 }
