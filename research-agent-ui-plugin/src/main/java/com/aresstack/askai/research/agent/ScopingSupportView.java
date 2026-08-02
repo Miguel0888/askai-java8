@@ -32,6 +32,8 @@ public final class ScopingSupportView extends JPanel {
 
     private Consumer<String> searchAction;
     private Runnable continueAction;
+    /** The in-flight "burst" animation that shrinks a searched/removed tag away before the re-render. */
+    private javax.swing.Timer burstTimer;
 
     public ScopingSupportView() {
         super(new BorderLayout());
@@ -117,7 +119,64 @@ public final class ScopingSupportView extends JPanel {
         if (projection == null) {
             return;
         }
-        renderTags(projection.getSearchSuggestions());
+        if (burstTimer != null && burstTimer.isRunning()) {
+            burstTimer.stop(); // a newer projection supersedes an in-flight burst
+        }
+        java.util.List<ScopingAssistantUpdate.Suggestion> suggestions = projection.getSearchSuggestions();
+        java.util.Set<String> kept = new java.util.HashSet<String>();
+        for (ScopingAssistantUpdate.Suggestion suggestion : suggestions) {
+            kept.add(suggestion.getQuery());
+        }
+        java.util.List<javax.swing.AbstractButton> removed =
+                new java.util.ArrayList<javax.swing.AbstractButton>();
+        for (Component component : tagsPanel.getComponents()) {
+            if (component instanceof javax.swing.AbstractButton
+                    && !kept.contains(((javax.swing.AbstractButton) component).getText())) {
+                removed.add((javax.swing.AbstractButton) component);
+            }
+        }
+        // Animate ONLY when actually on screen (skips in headless tests → deterministic instant re-render).
+        if (removed.isEmpty() || !isShowing()) {
+            renderTags(suggestions);
+        } else {
+            burstThenRender(removed, suggestions);
+        }
+    }
+
+    /**
+     * The clicked/covered tags "zerplatzen": shrink them to nothing over a few frames (the flow layout
+     * re-arranges the rest live), then render the new, filtered suggestion set.
+     */
+    private void burstThenRender(final java.util.List<javax.swing.AbstractButton> removed,
+                                 final java.util.List<ScopingAssistantUpdate.Suggestion> next) {
+        final java.util.Map<javax.swing.AbstractButton, Dimension> base =
+                new java.util.HashMap<javax.swing.AbstractButton, Dimension>();
+        for (javax.swing.AbstractButton button : removed) {
+            base.put(button, button.getPreferredSize());
+            button.setEnabled(false); // no click on a bursting tag
+        }
+        final int steps = 7;
+        final int[] step = {0};
+        burstTimer = new javax.swing.Timer(28, new ActionListener() {
+            public void actionPerformed(ActionEvent e) {
+                step[0]++;
+                float factor = Math.max(0f, 1f - (float) step[0] / steps);
+                for (javax.swing.AbstractButton button : removed) {
+                    Dimension d = base.get(button);
+                    Dimension shrunk = new Dimension(Math.max(0, Math.round(d.width * factor)),
+                            Math.max(0, Math.round(d.height * factor)));
+                    button.setPreferredSize(shrunk);
+                    button.setMaximumSize(shrunk);
+                }
+                tagsPanel.revalidate();
+                tagsPanel.repaint();
+                if (step[0] >= steps) {
+                    burstTimer.stop();
+                    renderTags(next);
+                }
+            }
+        });
+        burstTimer.start();
     }
 
     private void renderTags(java.util.List<ScopingAssistantUpdate.Suggestion> suggestions) {
