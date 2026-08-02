@@ -163,6 +163,31 @@ public class ManualSearchWiringTest {
         return out;
     }
 
+    @Test
+    public void aSearchedSuggestionDisappearsAndIsNotReOffered() {
+        Fx fx = new Fx();
+        fx.session.dispatch(ResearchCommandType.START, null);
+        completeTurn(fx, 1L);
+        fx.session.setManualWebSearchPort(new FixedRequestIdPort("R1"));
+        ScopingAssistantUpdate projection = new ScopingAssistantUpdate(ResearchStateIds.SCOPING,
+                java.util.Arrays.asList(
+                        new ScopingAssistantUpdate.Suggestion("wearables audio video", "explore", 1),
+                        new ScopingAssistantUpdate.Suggestion("wearables health", "explore", 1)),
+                "NEUTRAL", "");
+        fx.session.onEvent(ResearchBackendEvent.builder(ResearchBackendEventType.SCOPING_PROJECTION)
+                .envelope("evt-proj", "s1", "p1", 2L, 0L, 2L, null).scopingProjection(projection).build());
+        ScopingSupportView view = buildAccessoryView(fx);
+        assertEquals("both suggestions render initially", 2, view.getSuggestionButtons().size());
+
+        fx.session.requestManualWebSearch("wearables audio video");
+        manualSearchEvent(fx, 3L, "R1", "completed", "3 Treffer"); // the search covered the first query
+
+        assertTrue(fx.session.wasManuallySearched("wearables audio video"));
+        List<javax.swing.AbstractButton> remaining = view.getSuggestionButtons();
+        assertEquals("the searched suggestion disappears + the list re-arranges", 1, remaining.size());
+        assertEquals("wearables health", remaining.get(0).getText());
+    }
+
     // ------------------------------------------------------------------ helpers
 
     /** Feed a MANUAL_SEARCH backend event (as the mapper would produce) straight into the session. */

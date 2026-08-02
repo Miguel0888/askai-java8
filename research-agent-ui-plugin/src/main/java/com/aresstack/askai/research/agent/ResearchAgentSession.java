@@ -400,6 +400,11 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     /** The in-flight user search's correlation id (events carrying any other id are stale) and its handle. */
     private volatile String activeManualSearchRequestId;
     private volatile com.aresstack.askai.research.search.ManualWebSearchHandle activeManualSearchHandle;
+    /** The query of the in-flight user search (remembered so a completed search marks it as covered). */
+    private volatile String activeManualSearchQuery;
+    /** Normalized queries a manual search already covered — the agent's suggestions never re-offer these. */
+    private final java.util.Set<String> manualSearchedQueries =
+            java.util.Collections.synchronizedSet(new java.util.HashSet<String>());
     /** Lazy, host-side artifact visualizer (null when no inference port); a derived-view consumer. */
     private com.aresstack.askai.research.visualize.LazyArtifactVisualizer artifactVisualizer;
     /** The latest derived visualization projection for the "Visualisierung" view; transient/rebuildable. */
@@ -917,6 +922,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         // Remember the correlation id so inbound events of THIS search render and stale ones are ignored.
         this.activeManualSearchHandle = handle;
         this.activeManualSearchRequestId = handle == null ? null : handle.getRequestId();
+        this.activeManualSearchQuery = query.trim();
         System.err.println("[manual-search] host submit requestId="
                 + (handle == null ? "none" : handle.getRequestId()) + " queryLen=" + query.trim().length());
     }
@@ -927,6 +933,12 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         if (handle != null) {
             handle.cancel();
         }
+    }
+
+    /** Whether a completed user web search already covered this exact query (normalized) — so it is not re-offered. */
+    public boolean wasManuallySearched(String query) {
+        return query != null
+                && manualSearchedQueries.contains(query.trim().toLowerCase(java.util.Locale.ROOT));
     }
 
     /** Wire the productive manual-web-search service (tests / factory); a null port is ignored. */
@@ -958,6 +970,12 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             sink.updateToolActivity(activityId, "Websuche", message);
         } else if ("completed".equals(subKind)) {
             sink.completeToolActivity(activityId, message);
+            // This query is now covered: remember it so the agent's suggestions never re-offer it, and the
+            // clicked yellow tag disappears (the accessory filters searched queries) and the list re-arranges.
+            String searched = activeManualSearchQuery;
+            if (searched != null && !searched.trim().isEmpty()) {
+                manualSearchedQueries.add(searched.trim().toLowerCase(java.util.Locale.ROOT));
+            }
             activeManualSearchRequestId = null;
             stopManualSearchBrowser();
         } else if ("failed".equals(subKind)) {

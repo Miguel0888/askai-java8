@@ -46,7 +46,11 @@ final class ScopingComposerAccessory implements ComposerAccessory {
             public void run() {
                 final boolean scoping = ResearchStateIds.SCOPING.equals(
                         research.currentResearchSnapshot().getCurrentPhaseId());
-                final ScopingAssistantUpdate projection = research.latestScopingProjection();
+                // Drop suggestions whose query a user search already covered, so a searched (clicked) tag
+                // disappears after the search and the same/covered query is never re-offered; the tags then
+                // re-arrange in the flow layout.
+                final ScopingAssistantUpdate projection =
+                        withoutSearched(research.latestScopingProjection());
                 // Re-derive the enablement from the LIVE session on every state change (phase, brief, busy) in
                 // ONE evaluation: an empty reason means ready; otherwise it is the disabled button's tooltip.
                 final String unavailableReason = research.scopingApprovalUnavailableReason();
@@ -91,6 +95,25 @@ final class ScopingComposerAccessory implements ComposerAccessory {
             query = projection.getSearchSuggestions().get(0).getQuery();
         }
         sink.accept(query == null || query.trim().isEmpty() ? null : query.trim());
+    }
+
+    /** A copy of the projection with already-searched queries removed (null-safe; identity when none drop). */
+    private ScopingAssistantUpdate withoutSearched(ScopingAssistantUpdate projection) {
+        if (projection == null) {
+            return null;
+        }
+        java.util.List<ScopingAssistantUpdate.Suggestion> kept =
+                new java.util.ArrayList<ScopingAssistantUpdate.Suggestion>();
+        for (ScopingAssistantUpdate.Suggestion suggestion : projection.getSearchSuggestions()) {
+            if (!research.wasManuallySearched(suggestion.getQuery())) {
+                kept.add(suggestion);
+            }
+        }
+        if (kept.size() == projection.getSearchSuggestions().size()) {
+            return projection; // nothing searched yet → unchanged
+        }
+        return new ScopingAssistantUpdate(projection.getPhaseId(), kept,
+                projection.getAdviceRecommendation(), projection.getAdviceReason());
     }
 
     public void dispose() {
