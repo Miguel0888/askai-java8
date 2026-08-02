@@ -435,6 +435,7 @@ public final class ResearchLoop {
             if (gate != null) {
                 return gate;
             }
+            // ACQUISITION (future WebSearchApplicationService): accept the visited capture as a source.
             String accepted = sourceAcceptancePort.accept(captureId);
             progress.success();
             String sourceId = field(accepted, "source_id");
@@ -448,16 +449,10 @@ public final class ResearchLoop {
             progress.sourceAccepted();
             listener.status("accepted " + sourceId + (duplicate ? " (duplicate content)" : ""));
             listener.progress(progress, ResearchRunActivity.sourceAccepted(pageUrl, pageHost, pageTitle));
-            // One finding per NEW claim; a duplicate source never repeats the same claim unchecked.
-            String claim = "Evidence for [" + join(terms) + "] in \"" + field(page, "title") + "\"";
-            if (!duplicate && claimedSourceIds.add(claim)) {
-                ResearchStopReason g2 = beforeToolCall();
-                if (g2 != null) {
-                    return g2;
-                }
-                callResearch("finding_add", args("source_id", sourceId, "text", claim));
-                progress.success();
-            }
+            // RESEARCH-SPECIFIC (stays in ResearchLoop, NOT in the shared acquisition service): derive a
+            // finding from the accepted source. A user-triggered manual search accepts sources but must
+            // invent no agent findings — so this step is the loop's, reached via a hook after extraction.
+            return recordFinding(sourceId, duplicate, page, terms);
         } catch (ToolInvoker.ToolFailure ex) {
             // A rejected write (state changed under us) ends the run explicitly, not as a crash.
             if (ex.getMessage() != null && ex.getMessage().contains("Not allowed in the current state")) {
@@ -465,6 +460,27 @@ public final class ResearchLoop {
                         ? ResearchStopReason.APPROVAL_REQUIRED : ResearchStopReason.STATE_CHANGED;
             }
             progress.error();
+        }
+        return null;
+    }
+
+    /**
+     * RESEARCH-SPECIFIC finding recording (NOT part of the shared web-acquisition service): one finding per
+     * NEW claim; a duplicate source never repeats the same claim, and the {@code finding_add} write is budgeted
+     * exactly like before. When the acquisition engine is extracted, the loop injects this as a hook so a
+     * user-triggered manual search reuses the acquisition but records no agent findings.
+     */
+    private ResearchStopReason recordFinding(String sourceId, boolean duplicate, String page,
+                                             Set<String> terms)
+            throws ToolInvoker.ToolFailure, ToolInvoker.EndpointUnavailable {
+        String claim = "Evidence for [" + join(terms) + "] in \"" + field(page, "title") + "\"";
+        if (!duplicate && claimedSourceIds.add(claim)) {
+            ResearchStopReason g2 = beforeToolCall();
+            if (g2 != null) {
+                return g2;
+            }
+            callResearch("finding_add", args("source_id", sourceId, "text", claim));
+            progress.success();
         }
         return null;
     }
