@@ -24,8 +24,10 @@ public final class ResearchRunWire {
     public static final String TYPE_SCOPE = "scope";
     /** A one-shot "the greeting was delivered" signal — the host advances the scope state one step. */
     public static final String TYPE_GREETED = "greeted";
-    /** A display-only scoping projection (exploration map + search suggestions + advisory advice). */
+    /** A display-only scoping projection (search suggestions + advisory advice). */
     public static final String TYPE_SCOPEASSIST = "scopeassist";
+    /** The research brief markdown (the phase artifact) — persisted to its working copy on one path. */
+    public static final String TYPE_BRIEF = "brief";
 
     private ResearchRunWire() {
     }

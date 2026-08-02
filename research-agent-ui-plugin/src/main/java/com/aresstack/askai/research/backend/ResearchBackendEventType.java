@@ -34,8 +34,13 @@ public enum ResearchBackendEventType {
      */
     GREETING_DONE,
     /**
-     * A display-only scoping assistant PROJECTION (exploration map + search suggestions + advisory advice) for
-     * the scoping workspace. Carries no research brief and no workflow authority; a later one replaces it.
+     * A display-only scoping assistant PROJECTION (search suggestions + advisory advice) for the scoping
+     * workspace. Carries no research brief and no workflow authority; a later one replaces it.
      */
-    SCOPING_PROJECTION
+    SCOPING_PROJECTION,
+    /**
+     * The research brief markdown (the scoping phase's primary artifact), in {@code text}. The host persists it
+     * to the brief working copy (one path) and shows it in the "Fragestellung" view. No approval, no transition.
+     */
+    RESEARCH_BRIEF
 }
