@@ -389,6 +389,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     private volatile com.aresstack.askai.research.backend.ScopingAssistantUpdate latestScopingProjection;
     /** File-backed research brief store, bound to this session's project dir (null in the clickdummy). */
     private com.aresstack.askai.research.store.FileResearchBriefStore researchBriefStore;
+    /** USER-triggered web search service (S1: a logging placeholder; S2 wires the productive SearchStrategy). */
+    private volatile com.aresstack.askai.research.search.ManualWebSearchPort manualWebSearchPort =
+            new com.aresstack.askai.research.search.LoggingManualWebSearchPort();
     /** Lazy, host-side artifact visualizer (null when no inference port); a derived-view consumer. */
     private com.aresstack.askai.research.visualize.LazyArtifactVisualizer artifactVisualizer;
     /** The latest derived visualization projection for the "Visualisierung" view; transient/rebuildable. */
@@ -886,6 +889,30 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     public String scopingApprovalUnavailableReason() {
         ScopingApprovalOutcome blocker = scopingApprovalBlocker();
         return blocker == null ? "" : scopingApprovalProblemText(blocker);
+    }
+
+    // ------------------------------------------------------------------ user-triggered web search (service)
+
+    /**
+     * Run a USER-triggered web search — the third interaction kind, wired to the yellow scoping suggestions.
+     * This is NOT an agent chat turn and NOT a workflow command: it never calls {@code submitText}, never
+     * dispatches a state-machine command, never changes the phase and never starts an agent prompt. It is
+     * phase-independent by contract; the yellow tags merely happen to exist only in SCOPING because that is
+     * where the agent produces the suggestions, not because the service is gated to that phase.
+     */
+    public void requestManualWebSearch(String query) {
+        if (query == null || query.trim().isEmpty()) {
+            return;
+        }
+        System.err.println("[manual-search] user search dispatched queryLen=" + query.trim().length());
+        manualWebSearchPort.search(new com.aresstack.askai.research.search.ManualWebSearchRequest(query));
+    }
+
+    /** Wire the productive manual-web-search service (slice S2 / tests); a null port is ignored. */
+    public void setManualWebSearchPort(com.aresstack.askai.research.search.ManualWebSearchPort port) {
+        if (port != null) {
+            this.manualWebSearchPort = port;
+        }
     }
 
     /**

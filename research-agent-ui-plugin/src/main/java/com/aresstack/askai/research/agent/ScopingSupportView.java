@@ -100,6 +100,18 @@ public final class ScopingSupportView extends JPanel {
         return continueButton;
     }
 
+    /** The rendered suggestion tags — so a UI/integration test can {@code doClick()} a genuine yellow tag. */
+    public java.util.List<javax.swing.AbstractButton> getSuggestionButtons() {
+        java.util.List<javax.swing.AbstractButton> buttons =
+                new java.util.ArrayList<javax.swing.AbstractButton>();
+        for (Component component : tagsPanel.getComponents()) {
+            if (component instanceof javax.swing.AbstractButton) {
+                buttons.add((javax.swing.AbstractButton) component);
+            }
+        }
+        return buttons;
+    }
+
     /** Apply the latest projection: REPLACE the tags with the agent's newest knowledge. */
     public void apply(ScopingAssistantUpdate projection) {
         if (projection == null) {

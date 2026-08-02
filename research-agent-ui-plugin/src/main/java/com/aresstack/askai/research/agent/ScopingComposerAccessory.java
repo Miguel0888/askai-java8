@@ -1,7 +1,5 @@
 package com.aresstack.askai.research.agent;
 
-import com.aresstack.askai.plugin.api.agent.ChatSubmissionTarget;
-import com.aresstack.askai.plugin.api.agent.SubmissionAvailability;
 import com.aresstack.askai.plugin.api.agent.composer.ComposerAccessory;
 import com.aresstack.askai.plugin.api.service.UiExecutor;
 import com.aresstack.askai.research.backend.ScopingAssistantUpdate;
@@ -31,11 +29,10 @@ final class ScopingComposerAccessory implements ComposerAccessory {
         this.view = new ScopingSupportView();
         this.view.setSearchAction(new Consumer<String>() {
             public void accept(String query) {
-                // Immediate search: same path as a typed prompt, so scoping advances turn by turn.
-                ChatSubmissionTarget target = research.getChatTarget();
-                if (target.getAvailability() == SubmissionAvailability.AVAILABLE) {
-                    target.submitText(query);
-                }
+                // USER-SERVICE, not a chat turn: a yellow suggestion runs a manual web search directly. It must
+                // NOT go through ChatSubmissionTarget.submitText — that would disguise a phase-independent
+                // service as an agent prompt and couple the search to the phase/turn availability.
+                research.requestManualWebSearch(query);
             }
         });
         this.view.setContinueAction(new Runnable() {
