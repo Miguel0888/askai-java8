@@ -8,10 +8,9 @@ import com.aresstack.askai.research.backend.ScopingAssistantUpdate;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-/** A scoping projection wire line decodes into a typed SCOPING_PROJECTION event (map + suggestions + advice). */
+/** A scoping projection wire line decodes into a typed SCOPING_PROJECTION event (suggestions + advice). */
 public class ResearchAcpEventMapperScopingTest {
 
     private static ResearchBackendEvent map(String wireLine) {
@@ -21,14 +20,12 @@ public class ResearchAcpEventMapperScopingTest {
 
     @Test
     public void aScopeassistLineBecomesATypedProjection() {
-        ResearchBackendEvent event = map("#RSX1# scopeassist phase=scoping map=mindmap advice=CONTINUE "
+        ResearchBackendEvent event = map("#RSX1# scopeassist phase=scoping advice=CONTINUE "
                 + "advicereason=precise sugg=wearables|tech|1,glasses|priv|2");
 
         assertEquals(ResearchBackendEventType.SCOPING_PROJECTION, event.getType());
         ScopingAssistantUpdate projection = event.getScopingProjection();
         assertEquals("scoping", projection.getPhaseId());
-        assertEquals("mindmap", projection.getExplorationMapMermaid());
-        assertTrue(projection.hasExplorationMap());
         assertEquals("CONTINUE", projection.getAdviceRecommendation());
         assertEquals(2, projection.getSearchSuggestions().size());
         assertEquals("wearables", projection.getSearchSuggestions().get(0).getQuery());
@@ -42,8 +39,6 @@ public class ResearchAcpEventMapperScopingTest {
         ResearchBackendEvent event = map("#RSX1# scopeassist phase=scoping advice=NEUTRAL");
 
         assertEquals(ResearchBackendEventType.SCOPING_PROJECTION, event.getType());
-        ScopingAssistantUpdate projection = event.getScopingProjection();
-        assertFalse("no exploration map -> panel stays empty", projection.hasExplorationMap());
-        assertTrue(projection.getSearchSuggestions().isEmpty());
+        assertTrue(event.getScopingProjection().getSearchSuggestions().isEmpty());
     }
 }

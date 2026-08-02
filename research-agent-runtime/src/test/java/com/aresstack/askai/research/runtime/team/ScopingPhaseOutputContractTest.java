@@ -6,20 +6,19 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 /**
- * RA-P6.5: a substantive scoping turn must HELP first — brief + exploration map + at least one search
- * suggestion. The reported GUI failure (an interview-only reply that just asks which subtopic the user
- * means, with no map and no suggestion) must no longer count as a valid first scoping turn.
+ * A substantive scoping turn must HELP first — brief + at least one search suggestion (no visualization). The
+ * reported GUI failure (an interview-only reply that just asks which subtopic the user means, with no support
+ * work) must not count as a valid first scoping turn.
  */
 public class ScopingPhaseOutputContractTest {
 
     private final PhaseOutputContract contract = new ScopingPhaseOutputContract();
 
     @Test
-    public void aHelpfulFirstTurnWithBriefMapAndSuggestionIsValid() {
+    public void aHelpfulFirstTurnWithBriefAndSuggestionIsValid() {
         PhaseParseResult result = contract.parse(
                 "{\"assistantMessage\":\"You want to explore wearables.\","
                         + "\"researchBriefMarkdown\":\"# Research Brief\\n\\nWearables?\","
-                        + "\"explorationMapMermaid\":\"mindmap\\n  root((Wearables))\\n    Audio\","
                         + "\"searchSuggestions\":[{\"query\":\"wearables 2026\",\"priority\":1}]}");
         assertTrue(result.getError(), result.isOk());
         assertTrue(result.getOutput() instanceof ScopingAssistantOutput);
@@ -35,19 +34,9 @@ public class ScopingPhaseOutputContractTest {
     }
 
     @Test
-    public void aTurnMissingTheExplorationMapIsRejected() {
-        PhaseParseResult result = contract.parse(
-                "{\"assistantMessage\":\"Ok.\",\"researchBriefMarkdown\":\"# Brief\\nX\","
-                        + "\"searchSuggestions\":[{\"query\":\"x\",\"priority\":1}]}");
-        assertFalse(result.isOk());
-        assertTrue(result.getError().contains("exploration map"));
-    }
-
-    @Test
     public void aTurnMissingSearchSuggestionsIsRejected() {
         PhaseParseResult result = contract.parse(
-                "{\"assistantMessage\":\"Ok.\",\"researchBriefMarkdown\":\"# Brief\\nX\","
-                        + "\"explorationMapMermaid\":\"mindmap\\n  root((X))\"}");
+                "{\"assistantMessage\":\"Ok.\",\"researchBriefMarkdown\":\"# Brief\\nX\"}");
         assertFalse(result.isOk());
         assertTrue(result.getError().contains("search suggestion"));
     }

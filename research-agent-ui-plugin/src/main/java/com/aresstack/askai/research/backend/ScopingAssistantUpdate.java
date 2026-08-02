@@ -12,16 +12,13 @@ import java.util.List;
 public final class ScopingAssistantUpdate {
 
     private final String phaseId;
-    private final String explorationMapMermaid;
     private final List<Suggestion> searchSuggestions;
     private final String adviceRecommendation;
     private final String adviceReason;
 
-    public ScopingAssistantUpdate(String phaseId, String explorationMapMermaid,
-                                  List<Suggestion> searchSuggestions, String adviceRecommendation,
-                                  String adviceReason) {
+    public ScopingAssistantUpdate(String phaseId, List<Suggestion> searchSuggestions,
+                                  String adviceRecommendation, String adviceReason) {
         this.phaseId = phaseId == null ? "" : phaseId;
-        this.explorationMapMermaid = explorationMapMermaid == null ? "" : explorationMapMermaid;
         this.searchSuggestions = searchSuggestions == null
                 ? Collections.<Suggestion>emptyList()
                 : Collections.unmodifiableList(new java.util.ArrayList<Suggestion>(searchSuggestions));
@@ -31,14 +28,6 @@ public final class ScopingAssistantUpdate {
 
     public String getPhaseId() {
         return phaseId;
-    }
-
-    public String getExplorationMapMermaid() {
-        return explorationMapMermaid;
-    }
-
-    public boolean hasExplorationMap() {
-        return !explorationMapMermaid.trim().isEmpty();
     }
 
     public List<Suggestion> getSearchSuggestions() {

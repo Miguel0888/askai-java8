@@ -11,45 +11,40 @@ import java.util.List;
  * a map or runs a search.
  * <ul>
  *   <li>{@link #getAssistantMessage()} — the visible reply (required);</li>
- *   <li>{@link #getResearchBriefMarkdown()} — the continuously-maintained research brief (required, may be a
- *       very short first draft after a one-word topic);</li>
- *   <li>{@link #getExplorationMapMermaid()} — an idea map as bare Mermaid (no fences), may be empty;</li>
+ *   <li>{@link #getResearchBriefMarkdown()} — the continuously-maintained research brief, the PRIMARY
+ *       artifact of this phase (required, may be a very short first draft after a one-word topic);</li>
  *   <li>{@link #getSearchSuggestions()} — engine-facing queries, kept apart from the research question;</li>
  *   <li>{@link #getAdvice()} — an ADVISORY stay/continue recommendation with no workflow effect.</li>
  * </ul>
+ *
+ * <p>The scoping agent works on the research brief and search suggestions — NOT on visualization. Any
+ * exploration-map/diagram is the job of a separate artifact visualizer, so a model that cannot draw can never
+ * ruin a scoping turn.</p>
  */
 public final class ScopingAssistantOutput implements PhaseAssistantOutput {
 
     private final String assistantMessage;
     private final String researchBriefMarkdown;
-    private final String explorationMapMermaid;
     private final List<SearchSuggestion> searchSuggestions;
     private final PhaseAdvice advice;
 
     public ScopingAssistantOutput(String assistantMessage, String researchBriefMarkdown,
-                                  String explorationMapMermaid, List<SearchSuggestion> searchSuggestions,
-                                  PhaseAdvice advice) {
+                                  List<SearchSuggestion> searchSuggestions, PhaseAdvice advice) {
         if (assistantMessage == null || assistantMessage.trim().isEmpty()) {
             throw new IllegalArgumentException("assistantMessage must not be blank");
         }
         if (researchBriefMarkdown == null || researchBriefMarkdown.trim().isEmpty()) {
             throw new IllegalArgumentException("researchBriefMarkdown must not be blank");
         }
-        // A scoping output is the COMPLETE current snapshot of the phase (RA-P6.5): it always carries an
-        // exploration map and at least one search suggestion, so a later turn can never blank a working
-        // projection. Incomplete states are simply not representable.
-        if (explorationMapMermaid == null || explorationMapMermaid.trim().isEmpty()) {
-            throw new IllegalArgumentException("explorationMapMermaid must not be blank");
-        }
+        // A substantive scoping turn still carries at least one search suggestion so the user can search
+        // immediately; the research brief is the phase's primary artifact.
         if (searchSuggestions == null || searchSuggestions.isEmpty()) {
             throw new IllegalArgumentException("searchSuggestions must not be empty");
         }
         this.assistantMessage = assistantMessage.trim();
         this.researchBriefMarkdown = researchBriefMarkdown.trim();
-        this.explorationMapMermaid = explorationMapMermaid == null ? "" : explorationMapMermaid.trim();
-        this.searchSuggestions = searchSuggestions == null
-                ? Collections.<SearchSuggestion>emptyList()
-                : Collections.unmodifiableList(new ArrayList<SearchSuggestion>(searchSuggestions));
+        this.searchSuggestions = Collections.unmodifiableList(
+                new ArrayList<SearchSuggestion>(searchSuggestions));
         this.advice = advice == null ? PhaseAdvice.neutral() : advice;
     }
 
@@ -59,10 +54,6 @@ public final class ScopingAssistantOutput implements PhaseAssistantOutput {
 
     public String getResearchBriefMarkdown() {
         return researchBriefMarkdown;
-    }
-
-    public String getExplorationMapMermaid() {
-        return explorationMapMermaid;
     }
 
     public List<SearchSuggestion> getSearchSuggestions() {

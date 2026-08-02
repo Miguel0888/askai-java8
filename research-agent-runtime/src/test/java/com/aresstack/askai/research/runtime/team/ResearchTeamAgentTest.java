@@ -27,9 +27,7 @@ public class ResearchTeamAgentTest {
 
     /** A valid substantive scoping answer: message + brief + exploration map + one search suggestion. */
     private static String scopingJson(String message, String brief) {
-        return "{\"assistantMessage\":\"" + message + "\",\"researchBriefMarkdown\":\"" + brief + "\","
-                + "\"explorationMapMermaid\":\"mindmap\\n  root((Topic))\","
-                + "\"searchSuggestions\":[{\"query\":\"topic current developments\",\"priority\":1}]}";
+        return "{\"assistantMessage\":\"" + message + "\",\"researchBriefMarkdown\":\"" + brief + "\","                + "\"searchSuggestions\":[{\"query\":\"topic current developments\",\"priority\":1}]}";
     }
 
     @Test
@@ -326,9 +324,7 @@ public class ResearchTeamAgentTest {
         // output is a ScopingAssistantOutput carrying a research brief, not a generic TeamAgentTurn.
         FakeModel model = new FakeModel();
         model.enqueueOk("{\"assistantMessage\":\"You want to explore wearables.\","
-                + "\"researchBriefMarkdown\":\"# Research Brief\\n\\n## Fragestellung\\n\\nWearables?\","
-                + "\"explorationMapMermaid\":\"mindmap\\n  root((Wearables))\\n    Audio\","
-                + "\"searchSuggestions\":[{\"query\":\"wearables 2026\",\"purpose\":\"tech\",\"priority\":1}]}");
+                + "\"researchBriefMarkdown\":\"# Research Brief\\n\\n## Fragestellung\\n\\nWearables?\","                + "\"searchSuggestions\":[{\"query\":\"wearables 2026\",\"purpose\":\"tech\",\"priority\":1}]}");
         ResearchTeamAgent agent = new ResearchTeamAgent(model);
 
         TeamAgentResult result = agent.respond("wearables", scoping());
@@ -340,7 +336,6 @@ public class ResearchTeamAgentTest {
         ScopingAssistantOutput scopingOutput = (ScopingAssistantOutput) result.getOutput();
         assertTrue(scopingOutput.getResearchBriefMarkdown().contains("Wearables?"));
         assertEquals(1, scopingOutput.getSearchSuggestions().size());
-        assertTrue(scopingOutput.getExplorationMapMermaid().startsWith("mindmap"));
     }
 
     @Test
@@ -363,9 +358,7 @@ public class ResearchTeamAgentTest {
         // user's to move with a button. This pins that a recommendation can never become a hidden gate.
         FakeModel model = new FakeModel();
         model.enqueueOk("{\"assistantMessage\":\"Looks precise enough.\","
-                + "\"researchBriefMarkdown\":\"# Brief\\nWearables audio\","
-                + "\"explorationMapMermaid\":\"mindmap\\n  root((Wearables))\\n    Audio\","
-                + "\"searchSuggestions\":[{\"query\":\"wearables audio\",\"priority\":1}],"
+                + "\"researchBriefMarkdown\":\"# Brief\\nWearables audio\","                + "\"searchSuggestions\":[{\"query\":\"wearables audio\",\"priority\":1}],"
                 + "\"advice\":{\"recommendation\":\"CONTINUE\",\"reason\":\"the question is precise\"}}");
         ResearchTeamAgent agent = new ResearchTeamAgent(model);
 

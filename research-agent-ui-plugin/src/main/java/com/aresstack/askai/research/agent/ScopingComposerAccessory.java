@@ -1,7 +1,6 @@
 package com.aresstack.askai.research.agent;
 
 import com.aresstack.askai.plugin.api.agent.composer.ComposerAccessory;
-import com.aresstack.askai.plugin.api.service.MarkdownViewFactory;
 import com.aresstack.askai.plugin.api.service.UiExecutor;
 import com.aresstack.askai.research.backend.ScopingAssistantUpdate;
 import com.aresstack.askai.research.state.oo.ResearchStateIds;
@@ -21,10 +20,9 @@ final class ScopingComposerAccessory implements ComposerAccessory {
     private final ScopingSupportView view;
     private final Runnable refresh;
 
-    ScopingComposerAccessory(ResearchAgentSession research, final UiExecutor uiExecutor,
-                             MarkdownViewFactory markdownViewFactory) {
+    ScopingComposerAccessory(ResearchAgentSession research, final UiExecutor uiExecutor) {
         this.research = research;
-        this.view = new ScopingSupportView(markdownViewFactory);
+        this.view = new ScopingSupportView();
         this.refresh = new Runnable() {
             public void run() {
                 final boolean scoping = ResearchStateIds.SCOPING.equals(

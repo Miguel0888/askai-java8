@@ -573,7 +573,6 @@ public final class ResearchAgentMain {
             com.aresstack.askai.research.runtime.team.ScopingAssistantOutput scoping =
                     (com.aresstack.askai.research.runtime.team.ScopingAssistantOutput) output;
             sb.append(" briefLen=").append(scoping.getResearchBriefMarkdown().length())
-                    .append(" mapLen=").append(scoping.getExplorationMapMermaid().length())
                     .append(" suggestions=").append(scoping.getSearchSuggestions().size());
         }
         sb.append(" emitted=").append(emitted);
