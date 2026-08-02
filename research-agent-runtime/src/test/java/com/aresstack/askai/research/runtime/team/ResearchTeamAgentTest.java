@@ -28,7 +28,7 @@ public class ResearchTeamAgentTest {
     /** A valid substantive scoping answer: message + brief + exploration map + one search suggestion. */
     private static String scopingJson(String message, String brief) {
         return "{\"assistantMessage\":\"" + message + "\",\"researchBriefMarkdown\":\"" + brief + "\","
-                + "\"explorationMap\":{\"root\":\"Topic\",\"children\":[{\"label\":\"Audio\"}]},"
+                + "\"explorationMapMermaid\":\"mindmap\\n  root((Topic))\","
                 + "\"searchSuggestions\":[{\"query\":\"topic current developments\",\"priority\":1}]}";
     }
 
@@ -327,7 +327,7 @@ public class ResearchTeamAgentTest {
         FakeModel model = new FakeModel();
         model.enqueueOk("{\"assistantMessage\":\"You want to explore wearables.\","
                 + "\"researchBriefMarkdown\":\"# Research Brief\\n\\n## Fragestellung\\n\\nWearables?\","
-                + "\"explorationMap\":{\"root\":\"Wearables\",\"children\":[{\"label\":\"Audio\"}]},"
+                + "\"explorationMapMermaid\":\"mindmap\\n  root((Wearables))\\n    Audio\","
                 + "\"searchSuggestions\":[{\"query\":\"wearables 2026\",\"purpose\":\"tech\",\"priority\":1}]}");
         ResearchTeamAgent agent = new ResearchTeamAgent(model);
 
@@ -364,7 +364,7 @@ public class ResearchTeamAgentTest {
         FakeModel model = new FakeModel();
         model.enqueueOk("{\"assistantMessage\":\"Looks precise enough.\","
                 + "\"researchBriefMarkdown\":\"# Brief\\nWearables audio\","
-                + "\"explorationMap\":{\"root\":\"Wearables\",\"children\":[{\"label\":\"Audio\"}]},"
+                + "\"explorationMapMermaid\":\"mindmap\\n  root((Wearables))\\n    Audio\","
                 + "\"searchSuggestions\":[{\"query\":\"wearables audio\",\"priority\":1}],"
                 + "\"advice\":{\"recommendation\":\"CONTINUE\",\"reason\":\"the question is precise\"}}");
         ResearchTeamAgent agent = new ResearchTeamAgent(model);

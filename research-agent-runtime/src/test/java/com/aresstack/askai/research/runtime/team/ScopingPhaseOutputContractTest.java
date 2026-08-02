@@ -19,7 +19,7 @@ public class ScopingPhaseOutputContractTest {
         PhaseParseResult result = contract.parse(
                 "{\"assistantMessage\":\"You want to explore wearables.\","
                         + "\"researchBriefMarkdown\":\"# Research Brief\\n\\nWearables?\","
-                        + "\"explorationMap\":{\"root\":\"Wearables\",\"children\":[{\"label\":\"Audio\"}]},"
+                        + "\"explorationMapMermaid\":\"mindmap\\n  root((Wearables))\\n    Audio\","
                         + "\"searchSuggestions\":[{\"query\":\"wearables 2026\",\"priority\":1}]}");
         assertTrue(result.getError(), result.isOk());
         assertTrue(result.getOutput() instanceof ScopingAssistantOutput);
@@ -47,7 +47,7 @@ public class ScopingPhaseOutputContractTest {
     public void aTurnMissingSearchSuggestionsIsRejected() {
         PhaseParseResult result = contract.parse(
                 "{\"assistantMessage\":\"Ok.\",\"researchBriefMarkdown\":\"# Brief\\nX\","
-                        + "\"explorationMap\":{\"root\":\"X\"}}");
+                        + "\"explorationMapMermaid\":\"mindmap\\n  root((X))\"}");
         assertFalse(result.isOk());
         assertTrue(result.getError().contains("search suggestion"));
     }

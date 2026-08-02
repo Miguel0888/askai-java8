@@ -72,12 +72,14 @@ public final class ScopingAssistantOutputParser {
         if (brief.length() > MAX_FIELD_CHARS) {
             return fail("researchBriefMarkdown exceeds the size limit");
         }
-        // A scoping answer is the COMPLETE current snapshot (RA-P6.5): a STRUCTURED exploration map + at
-        // least one suggestion are required, so a helpful turn never blanks the workspace projection and a
-        // brief-only interview reply is not a valid scoping turn. The model owns the map's content/hierarchy;
-        // the app renders it (guaranteed-valid Mermaid), so a malformed Mermaid string can never reach the UI.
-        ExplorationMap explorationMap = ExplorationMapParser.parse(object.get("explorationMap"));
-        if (explorationMap == null) {
+        String mermaid = asString(object.get("explorationMapMermaid"));
+        if (mermaid != null && mermaid.length() > MAX_FIELD_CHARS) {
+            return fail("explorationMapMermaid exceeds the size limit");
+        }
+        // A scoping answer is the COMPLETE current snapshot (RA-P6.5): map + at least one suggestion are
+        // required, so a helpful turn never blanks the workspace projection and a brief-only interview reply
+        // is not a valid scoping turn.
+        if (mermaid == null || mermaid.trim().isEmpty()) {
             return fail("scoping answer needs an exploration map");
         }
 
@@ -113,8 +115,8 @@ public final class ScopingAssistantOutputParser {
                     asString(adviceMap.get("reason")));
         }
 
-        return new Result(new ScopingAssistantOutput(assistantMessage, brief, explorationMap, suggestions,
-                advice), null);
+        return new Result(new ScopingAssistantOutput(assistantMessage, brief, mermaid, suggestions, advice),
+                null);
     }
 
     private static Result fail(String error) {

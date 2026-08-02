@@ -19,23 +19,15 @@ import static org.junit.Assert.assertTrue;
  */
 public class ScopingProjectionEncoderTest {
 
-    private static ScopingAssistantOutput scoping(ExplorationMap map, List<SearchSuggestion> suggestions,
+    private static ScopingAssistantOutput scoping(String map, List<SearchSuggestion> suggestions,
                                                   PhaseAdvice advice) {
         return new ScopingAssistantOutput("msg", "# Brief\nWearables", map, suggestions, advice);
-    }
-
-    private static ExplorationMap map(String root, String... children) {
-        List<ExplorationNode> nodes = new java.util.ArrayList<ExplorationNode>();
-        for (String child : children) {
-            nodes.add(new ExplorationNode(child, null));
-        }
-        return new ExplorationMap(new ExplorationNode(root, nodes));
     }
 
     @Test
     public void aScopingOutputRoundTripsMapSuggestionsAndAdvice() {
         ScopingAssistantOutput output = scoping(
-                map("Wearables", "Audio"),
+                "mindmap\n  root((Wearables))\n    Audio",
                 Arrays.asList(
                         new SearchSuggestion("wearables audio video", "current tech", 1),
                         new SearchSuggestion("smart glasses privacy GDPR", "", 2),   // empty purpose
@@ -46,10 +38,7 @@ public class ScopingProjectionEncoderTest {
         Map<String, String> f = ResearchRunWire.fields(line);
 
         assertEquals("scoping", ResearchRunWire.decodedField(f, "phase"));
-        String wireMap = ResearchRunWire.decodedField(f, "map");
-        assertTrue("the app-encoded map is valid Mermaid", wireMap.startsWith("mindmap"));
-        assertTrue(wireMap.contains("root((Wearables))"));
-        assertTrue(wireMap.contains("Audio"));
+        assertEquals("mindmap\n  root((Wearables))\n    Audio", ResearchRunWire.decodedField(f, "map"));
         assertEquals("CONTINUE", f.get("advice"));
         assertEquals("precise enough", ResearchRunWire.decodedField(f, "advicereason"));
 
@@ -72,14 +61,14 @@ public class ScopingProjectionEncoderTest {
     @Test
     public void aMinimalCompleteSnapshotProjectsMapAndOneSuggestion() {
         String line = ScopingProjectionEncoder.wireLineFor("scoping",
-                scoping(map("X"),
+                scoping("mindmap\n  root((X))",
                         Collections.singletonList(new SearchSuggestion("x current", "", 1)),
                         PhaseAdvice.neutral()));
         Map<String, String> f = ResearchRunWire.fields(line);
 
         assertTrue("still a scopeassist line", ResearchRunWire.TYPE_SCOPEASSIST.equals(
                 ResearchRunWire.typeOf(line)));
-        assertTrue(ResearchRunWire.decodedField(f, "map").startsWith("mindmap"));
+        assertEquals("mindmap\n  root((X))", ResearchRunWire.decodedField(f, "map"));
         assertEquals(1, ResearchRunWire.decodedSuggestions(f).size());
         assertEquals("NEUTRAL", f.get("advice"));
     }

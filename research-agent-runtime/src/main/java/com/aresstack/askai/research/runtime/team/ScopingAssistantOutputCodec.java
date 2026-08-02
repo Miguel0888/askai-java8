@@ -22,8 +22,8 @@ public final class ScopingAssistantOutputCodec {
         writeKey(sb, "researchBriefMarkdown").append(':');
         writeString(sb, output.getResearchBriefMarkdown());
         sb.append(',');
-        writeKey(sb, "explorationMap").append(':');
-        writeNode(sb, output.getExplorationMap().getRoot(), true);
+        writeKey(sb, "explorationMapMermaid").append(':');
+        writeString(sb, output.getExplorationMapMermaid());
         sb.append(',');
         writeKey(sb, "searchSuggestions").append(":[");
         List<SearchSuggestion> suggestions = output.getSearchSuggestions();
@@ -53,25 +53,6 @@ public final class ScopingAssistantOutputCodec {
         sb.append('}');
         sb.append('}');
         return sb.toString();
-    }
-
-    /** Serialize the exploration map structurally so it round-trips (root uses "root", children use "label"). */
-    private static void writeNode(StringBuilder sb, ExplorationNode node, boolean root) {
-        sb.append('{');
-        writeKey(sb, root ? "root" : "label").append(':');
-        writeString(sb, node.getLabel());
-        if (!node.getChildren().isEmpty()) {
-            sb.append(',');
-            writeKey(sb, "children").append(":[");
-            for (int i = 0; i < node.getChildren().size(); i++) {
-                if (i > 0) {
-                    sb.append(',');
-                }
-                writeNode(sb, node.getChildren().get(i), false);
-            }
-            sb.append(']');
-        }
-        sb.append('}');
     }
 
     private static StringBuilder writeKey(StringBuilder sb, String key) {

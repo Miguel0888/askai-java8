@@ -21,8 +21,7 @@ public class ScopingBriefSourceTest {
     public final TemporaryFolder folder = new TemporaryFolder();
 
     private static ScopingAssistantOutput scoping(String brief, String mermaid) {
-        ExplorationMap map = new ExplorationMap(new ExplorationNode(
-                mermaid == null || mermaid.trim().isEmpty() ? "X" : mermaid, null));
+        String map = mermaid == null || mermaid.trim().isEmpty() ? "mindmap\n  root((X))" : mermaid;
         return new ScopingAssistantOutput("msg", brief, map,
                 Collections.singletonList(new SearchSuggestion("x", "", 1)), PhaseAdvice.neutral());
     }
