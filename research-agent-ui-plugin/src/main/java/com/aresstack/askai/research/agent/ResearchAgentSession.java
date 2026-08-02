@@ -220,7 +220,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 // The model-backed TeamAgent (runtime process) OWNS the greeting: send ONE bootstrap turn so
                 // its model-generated greeting arrives as an assistant message. On success the runtime signals
                 // GREETING_DONE and the host advances the state one step (see handleGreetingDone).
-                agentTurnInFlight = true; // cleared by the greeting turn's terminal event
+                beginAgentTurn(); // busy + preempt visualizer; cleared by the greeting turn's terminal event
                 backend.submitPrompt(handle, new ResearchPrompt("", ""));
             } else {
                 // Restored session: the conversation text comes back from the persisted transcript, but the
@@ -408,6 +408,20 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                     });
     /** True while an agent TURN is in flight (productive composer busy-state; cleared on terminal events). */
     private volatile boolean agentTurnInFlight;
+
+    /**
+     * A foreground agent turn is starting: mark the composer busy AND preempt the low-priority artifact
+     * visualizer so it yields the shared, serial model immediately (its in-flight inference is aborted, its
+     * dirty target kept, and it retries the latest artifact once the turn is done). The visualizer is only
+     * touched when it already exists — we never create one here just to preempt it.
+     */
+    private void beginAgentTurn() {
+        agentTurnInFlight = true;
+        com.aresstack.askai.research.visualize.LazyArtifactVisualizer visualizer = artifactVisualizer;
+        if (visualizer != null) {
+            visualizer.preempt();
+        }
+    }
     /** The narration seam: all conversational milestone texts; replaceable by an LLM-backed narrator. */
     private final ResearchNarrator narrator = new StaticNarrator();
     /** The consultative scoping dialog (productive mode). */
@@ -471,7 +485,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             // The productive ACP agent cannot echo the user's OWN message back, so show it in the shared chat
             // here (right-aligned, by role) before the agent replies — otherwise the user's turn is invisible.
             echoUserMessage(text);
-            agentTurnInFlight = true; // cleared by the turn's terminal event
+            beginAgentTurn(); // busy + preempt visualizer; cleared by the turn's terminal event
             backend.submitPrompt(handle, new ResearchPrompt(text, activeSectionId));
             return;
         }
@@ -796,7 +810,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         if (!researchQuestion.isEmpty() && handle != null
                 && com.aresstack.askai.research.state.oo.ResearchStateIds.RUNNING
                         .equals(productiveResources.currentState().getStateId())) {
-            agentTurnInFlight = true; // cleared by the turn's terminal event
+            beginAgentTurn(); // busy + preempt visualizer; cleared by the turn's terminal event
             backend.submitPrompt(handle, new ResearchPrompt(researchQuestion, ""));
         }
     }
