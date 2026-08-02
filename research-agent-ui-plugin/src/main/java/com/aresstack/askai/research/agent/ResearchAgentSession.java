@@ -355,6 +355,25 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         return productiveResources != null ? productiveResources.getRepository() : sourceRepository;
     }
 
+    private com.aresstack.askai.research.store.FileResearchBriefStore demoBriefStore;
+
+    /**
+     * Plugin-internal accessor (same classloader): the research-brief store behind the Fragestellung
+     * tab. Productive sessions use the project's persistent store; the demo world gets a session-local
+     * throwaway directory so the tab works there too without polluting any project.
+     */
+    public synchronized com.aresstack.askai.research.store.FileResearchBriefStore getBriefStore() {
+        if (productiveResources != null) {
+            return productiveResources.getProjectContext().getBriefStore();
+        }
+        if (demoBriefStore == null) {
+            java.io.File dir = new java.io.File(System.getProperty("java.io.tmpdir"),
+                    "askai-demo-brief-" + sessionId.replaceAll("[^A-Za-z0-9.#-]", "_"));
+            demoBriefStore = new com.aresstack.askai.research.store.FileResearchBriefStore(dir);
+        }
+        return demoBriefStore;
+    }
+
     @Override
     public AgentStateSnapshot getState() {
         ResearchPhase phase = com.aresstack.askai.research.state.oo.ResearchStateIds.phase(state.getPhaseId());

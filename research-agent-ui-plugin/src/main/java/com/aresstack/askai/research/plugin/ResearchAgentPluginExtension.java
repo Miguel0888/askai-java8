@@ -54,6 +54,7 @@ public final class ResearchAgentPluginExtension implements AgentPluginExtension 
         // Settings are NOT artifacts: runtime + search configuration moved to the gear-menu settings
         // contribution below; the artifact area holds work products only.
         return Arrays.<ArtifactViewContribution>asList(
+                new com.aresstack.askai.research.agent.ResearchBriefViewContribution(),
                 new ResearchSourcesViewContribution(),
                 new ResearchStateViewContribution());
     }
