@@ -18,8 +18,15 @@ public final class TeamAgentStateView {
     private final String phaseId;
     private final String stateId;
     private final Set<String> allowedCommands;
+    /** The accepted research sources the host reported this turn (best-effort context), or "" when none. */
+    private final String sourcesSummary;
 
     public TeamAgentStateView(String phaseId, String stateId, List<String> allowedCommands) {
+        this(phaseId, stateId, allowedCommands, "");
+    }
+
+    public TeamAgentStateView(String phaseId, String stateId, List<String> allowedCommands,
+                              String sourcesSummary) {
         this.phaseId = phaseId == null ? "" : phaseId;
         this.stateId = stateId == null ? "" : stateId;
         Set<String> commands = new LinkedHashSet<String>();
@@ -31,6 +38,17 @@ public final class TeamAgentStateView {
             }
         }
         this.allowedCommands = Collections.unmodifiableSet(commands);
+        this.sourcesSummary = sourcesSummary == null ? "" : sourcesSummary.trim();
+    }
+
+    /** The accepted-sources summary the model sees this turn (source ids + titles), or "" when none. */
+    public String getSourcesSummary() {
+        return sourcesSummary;
+    }
+
+    /** An immutable copy carrying the accepted-sources summary for the model's per-turn context. */
+    public TeamAgentStateView withSources(String sources) {
+        return new TeamAgentStateView(phaseId, stateId, new ArrayList<String>(allowedCommands), sources);
     }
 
     public String getPhaseId() {

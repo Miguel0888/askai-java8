@@ -703,7 +703,22 @@ public final class ResearchAgentMain {
                     Collections.<String, Object>emptyMap());
             String raw = String.valueOf(status);
             ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire.log("status: " + raw));
-            return com.aresstack.askai.research.runtime.team.ResearchStatusView.parse(raw);
+            com.aresstack.askai.research.runtime.team.TeamAgentStateView view =
+                    com.aresstack.askai.research.runtime.team.ResearchStatusView.parse(raw);
+            // Best-effort: give the agent the ACCEPTED sources (from source_list) so it can actually reference
+            // them instead of asking the user to re-describe what a web search just found. Never fatal.
+            try {
+                String sources = String.valueOf(researchMcp.callTool("source_list",
+                        Collections.<String, Object>emptyMap()));
+                if (sources != null && !sources.trim().isEmpty()
+                        && !"No sources.".equals(sources.trim())) {
+                    view = view.withSources(sources);
+                }
+            } catch (RuntimeException sourcesUnavailable) {
+                ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
+                        .log("source_list unavailable: " + sourcesUnavailable.getMessage()));
+            }
+            return view;
         } catch (RuntimeException ex) {
             ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
                     .log("research MCP unavailable: " + ex.getMessage()));

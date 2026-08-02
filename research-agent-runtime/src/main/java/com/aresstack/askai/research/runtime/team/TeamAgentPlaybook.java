@@ -149,6 +149,12 @@ public final class TeamAgentPlaybook {
         if (sb.indexOf(":", sb.indexOf("\n")) < 0) {
             sb.append("(nothing captured yet — start by understanding what the user wants to find out)\n");
         }
+        String sources = state == null ? "" : state.getSourcesSummary();
+        if (!sources.isEmpty()) {
+            sb.append("\nAccepted research sources found so far (web searches added these — you CAN see and "
+                    + "reference them by title/id; when the user mentions 'the new sources', use THESE instead "
+                    + "of asking the user to describe them):\n").append(sources).append('\n');
+        }
         return sb.toString();
     }
 
