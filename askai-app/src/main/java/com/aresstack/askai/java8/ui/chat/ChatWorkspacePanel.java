@@ -63,6 +63,7 @@ public final class ChatWorkspacePanel extends JPanel {
 
     private static final int SIDEBAR_CLOSE_DELAY_MS = 300;
     private static final int HOVER_MARGIN_PX = 12;
+    private static final int LONG_PRESS_MS = 500;
 
     private final CardLayout cardLayout = new CardLayout();
     private final JPanel cards = new JPanel(cardLayout);
@@ -77,10 +78,14 @@ public final class ChatWorkspacePanel extends JPanel {
 
     private final ChatSidebarPanel sidebar;
     private final JButton burger;
+    private final com.aresstack.askai.java8.ui.sidebar.SidebarTabRibbon ribbon =
+            new com.aresstack.askai.java8.ui.sidebar.SidebarTabRibbon();
     private JPanel chatListPanel;
     private java.util.function.Supplier<List<ChatSidebarTab>> sidebarTabsSource;
     private final javax.swing.Timer sidebarCloseTimer;
+    private final javax.swing.Timer longPressTimer;
     private AWTEventListener sidebarMouseWatcher;
+    private boolean menuLocked; // long-pressing the burger latches the menu until the next click
 
     public ChatWorkspacePanel(ChatSessionFactory factory) {
         this(factory, null, null);
@@ -107,12 +112,13 @@ public final class ChatWorkspacePanel extends JPanel {
         this.burger = ChatComposerPanel.createSidebarToggleButton();
         this.sidebar = new ChatSidebarPanel("Chats", buildChatsSidebarTab());
         this.sidebarCloseTimer = new javax.swing.Timer(SIDEBAR_CLOSE_DELAY_MS,
-                event -> {
-                    if (sidebar.isVisible() && !sidebar.isPinned()) {
-                        hideSidebar();
-                    }
-                });
+                event -> onPointerLeftSidebarArea());
         sidebarCloseTimer.setRepeats(false);
+        this.longPressTimer = new javax.swing.Timer(LONG_PRESS_MS, event -> {
+            menuLocked = true; // latched: the menu no longer folds away on hover-out
+            openMenuAndSidebar();
+        });
+        longPressTimer.setRepeats(false);
         buildTopLevelLayout();
 
         if (restoreIds != null && !restoreIds.isEmpty()) {
@@ -233,14 +239,48 @@ public final class ChatWorkspacePanel extends JPanel {
     // ------------------------------------------------------------------ layout + sidebar behavior
 
     private void buildTopLevelLayout() {
-        burger.addActionListener(event -> toggleSidebar());
+        // Click: toggles — and always unlatches a long-press lock ("bis zum nächsten Klick").
+        burger.addActionListener(event -> {
+            longPressTimer.stop();
+            if (menuLocked) {
+                menuLocked = false;
+                collapseMenuAndSidebar();
+            } else if (sidebar.isVisible() || ribbon.isOpen()) {
+                collapseMenuAndSidebar();
+            } else {
+                openMenuAndSidebar();
+            }
+        });
         burger.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseEntered(MouseEvent event) {
-                if (!sidebar.isVisible()) {
-                    showSidebar();
+                if (!sidebar.isVisible() && !ribbon.isOpen()) {
+                    openMenuAndSidebar(); // hovering the burger unfolds the menu + drawer
                 }
             }
+
+            @Override
+            public void mousePressed(MouseEvent event) {
+                longPressTimer.restart(); // held long enough → the menu latches open
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent event) {
+                longPressTimer.stop();
+            }
+
+            @Override
+            public void mouseExited(MouseEvent event) {
+                longPressTimer.stop();
+            }
+        });
+
+        ribbon.setListener(title -> {
+            if (!sidebar.isVisible()) {
+                showSidebar();
+            }
+            sidebar.showTab(title);
+            refreshRibbonTabs(); // re-emphasize the newly active entry
         });
 
         JButton gear = ChatComposerPanel.createSettingsIconButton();
@@ -251,14 +291,15 @@ public final class ChatWorkspacePanel extends JPanel {
             }
         });
 
-        JPanel topBar = new JPanel(new BorderLayout());
+        JPanel topBar = new JPanel(new BorderLayout(4, 0));
         topBar.setOpaque(false);
         topBar.setBorder(BorderFactory.createEmptyBorder(2, 4, 0, 4));
         topBar.add(burger, BorderLayout.WEST);
+        topBar.add(ribbon, BorderLayout.CENTER); // unfolds to the right of the burger
         topBar.add(gear, BorderLayout.EAST);
 
         sidebar.setVisible(false);
-        sidebar.setCloseHandler(this::hideSidebar);
+        sidebar.setCloseHandler(this::collapseMenuAndSidebar);
         sidebar.setExtraTabsSupplier(() -> sidebarTabsSource == null
                 ? java.util.Collections.<ChatSidebarTab>emptyList() : sidebarTabsSource.get());
 
@@ -267,46 +308,75 @@ public final class ChatWorkspacePanel extends JPanel {
         add(cards, BorderLayout.CENTER);
     }
 
-    private void toggleSidebar() {
-        if (sidebar.isVisible()) {
-            hideSidebar();
-        } else {
-            showSidebar();
-        }
+    private void refreshRibbonTabs() {
+        ribbon.setTabs(sidebar.tabTitles(), sidebar.activeTab());
+    }
+
+    private void openMenuAndSidebar() {
+        showSidebar();
+        ribbon.open();
+    }
+
+    private void collapseMenuAndSidebar() {
+        sidebarCloseTimer.stop();
+        menuLocked = false;
+        ribbon.close();
+        hideSidebar();
     }
 
     private void showSidebar() {
         refreshChatList();
-        sidebar.rebuildTabs();
+        sidebar.rebuildTabs(); // picks up freshly contributed panes
+        refreshRibbonTabs();
         sidebar.setVisible(true);
-        installSidebarMouseWatcher();
+        updateMouseWatcher();
         revalidate();
         repaint();
     }
 
     private void hideSidebar() {
-        sidebarCloseTimer.stop();
-        removeSidebarMouseWatcher();
         sidebar.setVisible(false);
+        updateMouseWatcher();
         revalidate();
         repaint();
     }
 
+    /** The unpinned/unlocked parts fold away shortly after the pointer left the whole area. */
+    private void onPointerLeftSidebarArea() {
+        if (!menuLocked && ribbon.isOpen()) {
+            ribbon.close();
+        }
+        if (!sidebar.isPinned() && sidebar.isVisible()) {
+            hideSidebar();
+        }
+        updateMouseWatcher();
+    }
+
     /**
-     * While the drawer is open and UNPINNED, a global mouse watcher closes it shortly after the
-     * pointer leaves the drawer/hamburger area (a small delay bridges the burger→drawer transit).
+     * While the drawer or the unfolded menu is open, a global mouse watcher tracks the pointer: it
+     * stays inside the burger ∪ ribbon ∪ drawer area → nothing happens; it leaves → a short delay
+     * (bridging the burger→drawer transit) folds away whatever is neither pinned nor latched.
      */
+    private void updateMouseWatcher() {
+        boolean needed = sidebar.isVisible() || ribbon.isOpen();
+        if (needed) {
+            installSidebarMouseWatcher();
+        } else {
+            removeSidebarMouseWatcher();
+        }
+    }
+
     private void installSidebarMouseWatcher() {
         if (sidebarMouseWatcher != null) {
             return;
         }
         sidebarMouseWatcher = new AWTEventListener() {
             public void eventDispatched(AWTEvent event) {
-                if (!(event instanceof MouseEvent) || !sidebar.isShowing()) {
+                if (!(event instanceof MouseEvent) || !isShowing()) {
                     return;
                 }
-                if (sidebar.isPinned()) {
-                    sidebarCloseTimer.stop();
+                if (sidebar.isPinned() && menuLocked) {
+                    sidebarCloseTimer.stop(); // nothing left that could auto-close
                     return;
                 }
                 MouseEvent mouse = (MouseEvent) event;
@@ -316,8 +386,9 @@ public final class ChatWorkspacePanel extends JPanel {
                     return;
                 }
                 Point onScreen = new Point(mouse.getXOnScreen(), mouse.getYOnScreen());
-                boolean inside = screenBounds(sidebar, HOVER_MARGIN_PX).contains(onScreen)
-                        || screenBounds(burger, HOVER_MARGIN_PX).contains(onScreen);
+                boolean inside = screenBounds(burger, HOVER_MARGIN_PX).contains(onScreen)
+                        || (ribbon.isOpen() && screenBounds(ribbon, HOVER_MARGIN_PX).contains(onScreen))
+                        || (sidebar.isVisible() && screenBounds(sidebar, HOVER_MARGIN_PX).contains(onScreen));
                 if (inside) {
                     sidebarCloseTimer.stop();
                 } else if (!sidebarCloseTimer.isRunning()) {

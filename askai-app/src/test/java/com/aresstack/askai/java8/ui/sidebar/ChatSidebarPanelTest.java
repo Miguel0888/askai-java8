@@ -5,15 +5,16 @@ import org.junit.Test;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
-import javax.swing.JTabbedPane;
 import java.util.Arrays;
 import java.util.List;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
 
-/** The drawer's tab composition: default "Chats" tab first, contributions appended on rebuild. */
+/**
+ * The drawer's pane composition (plain CardLayout panes, no JTabbedPane): default pane first,
+ * contributions appended on rebuild, switching by title.
+ */
 public class ChatSidebarPanelTest {
 
     private static ChatSidebarTab tab(final String title) {
@@ -28,56 +29,59 @@ public class ChatSidebarPanelTest {
         };
     }
 
-    private static JTabbedPane tabsOf(ChatSidebarPanel panel) {
-        for (java.awt.Component child : panel.getComponents()) {
-            if (child instanceof JTabbedPane) {
-                return (JTabbedPane) child;
-            }
-        }
-        throw new AssertionError("no JTabbedPane in the sidebar");
-    }
-
     @Test
-    public void theDefaultTabIsAlwaysFirst() {
+    public void theDefaultPaneIsAlwaysFirstAndActive() {
         ChatSidebarPanel panel = new ChatSidebarPanel("Chats", new JPanel());
-        JTabbedPane tabs = tabsOf(panel);
-        assertEquals(1, tabs.getTabCount());
-        assertEquals("Chats", tabs.getTitleAt(0));
+        assertEquals(Arrays.asList("Chats"), panel.tabTitles());
+        assertEquals("Chats", panel.activeTab());
     }
 
     @Test
-    public void contributedTabsAppearAfterTheDefaultOnRebuild() {
+    public void contributedPanesAppearAfterTheDefaultOnRebuild() {
         ChatSidebarPanel panel = new ChatSidebarPanel("Chats", new JPanel());
         final List<ChatSidebarTab> extras = Arrays.asList(tab("Research"), tab("Notes"));
         panel.setExtraTabsSupplier(() -> extras);
         panel.rebuildTabs();
-        JTabbedPane tabs = tabsOf(panel);
-        assertEquals(3, tabs.getTabCount());
-        assertEquals("Chats", tabs.getTitleAt(0));
-        assertEquals("Research", tabs.getTitleAt(1));
-        assertEquals("Notes", tabs.getTitleAt(2));
+        assertEquals(Arrays.asList("Chats", "Research", "Notes"), panel.tabTitles());
 
-        // A later rebuild with fewer contributions does not accumulate stale tabs.
+        // A later rebuild with fewer contributions does not accumulate stale panes.
         panel.setExtraTabsSupplier(() -> Arrays.asList(tab("Research")));
         panel.rebuildTabs();
-        assertEquals(2, tabsOf(panel).getTabCount());
+        assertEquals(Arrays.asList("Chats", "Research"), panel.tabTitles());
     }
 
     @Test
-    public void theDrawerStartsUnpinned() {
+    public void showTabSwitchesTheActivePaneAndIgnoresUnknownTitles() {
         ChatSidebarPanel panel = new ChatSidebarPanel("Chats", new JPanel());
-        assertFalse(panel.isPinned());
-    }
-
-    @Test
-    public void aNullSupplierOrNullEntriesAreTolerated() {
-        ChatSidebarPanel panel = new ChatSidebarPanel("Chats", new JPanel());
-        panel.setExtraTabsSupplier(() -> Arrays.asList(tab("One"), null));
+        panel.setExtraTabsSupplier(() -> Arrays.asList(tab("Research")));
         panel.rebuildTabs();
-        assertEquals(2, tabsOf(panel).getTabCount());
+
+        panel.showTab("Research");
+        assertEquals("Research", panel.activeTab());
+
+        panel.showTab("Nope");
+        assertEquals("still on the last valid pane", "Research", panel.activeTab());
+    }
+
+    @Test
+    public void aVanishedContributionFallsBackToTheDefaultPane() {
+        ChatSidebarPanel panel = new ChatSidebarPanel("Chats", new JPanel());
+        panel.setExtraTabsSupplier(() -> Arrays.asList(tab("Research")));
+        panel.rebuildTabs();
+        panel.showTab("Research");
+
         panel.setExtraTabsSupplier(null);
         panel.rebuildTabs();
-        assertEquals(1, tabsOf(panel).getTabCount());
-        assertTrue(true);
+        assertEquals(Arrays.asList("Chats"), panel.tabTitles());
+        assertEquals("Chats", panel.activeTab());
+    }
+
+    @Test
+    public void theDrawerStartsUnpinnedAndToleratesNullEntries() {
+        ChatSidebarPanel panel = new ChatSidebarPanel("Chats", new JPanel());
+        assertFalse(panel.isPinned());
+        panel.setExtraTabsSupplier(() -> Arrays.asList(tab("One"), null));
+        panel.rebuildTabs();
+        assertEquals(Arrays.asList("Chats", "One"), panel.tabTitles());
     }
 }
