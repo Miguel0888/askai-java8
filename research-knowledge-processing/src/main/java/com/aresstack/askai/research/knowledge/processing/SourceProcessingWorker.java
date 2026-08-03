@@ -1,7 +1,15 @@
 package com.aresstack.askai.research.knowledge.processing;
 
+import com.aresstack.askai.research.domain.Passage;
 import com.aresstack.askai.research.domain.SourceCapture;
+import com.aresstack.askai.research.knowledge.EmbeddingPort;
 import com.aresstack.askai.research.knowledge.PassageSegmentation;
+import com.aresstack.askai.research.knowledge.processing.index.PassageIndexDocument;
+import com.aresstack.askai.research.knowledge.processing.index.SemanticKnowledgeIndex;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Orchestrates one accepted capture through the CANONICAL knowledge pipeline: read the capture as a domain
@@ -42,6 +50,9 @@ public final class SourceProcessingWorker {
     private final SourceCaptureReader captureReader;
     private final PassageSegmentation passageSegmentation;
     private final PassageStore passageStore;
+    private final SemanticKnowledgeIndex index;
+    private final IndexableGenerationSource persistedGenerations;
+    private final String projectId;
     private final int maxAttempts;
     /** The embedding-world fingerprint this worker's {@link PassageSegmentation} actually produces (§4.3). */
     private final String activeEmbeddingFingerprint;
@@ -49,15 +60,24 @@ public final class SourceProcessingWorker {
 
     public SourceProcessingWorker(SourceProcessingQueue queue, SourceCaptureReader captureReader,
                                   PassageSegmentation passageSegmentation, PassageStore passageStore,
-                                  int maxAttempts, String activeEmbeddingFingerprint, Listener listener) {
+                                  SemanticKnowledgeIndex index, IndexableGenerationSource persistedGenerations,
+                                  String projectId, int maxAttempts, String activeEmbeddingFingerprint,
+                                  Listener listener) {
         if (activeEmbeddingFingerprint == null || activeEmbeddingFingerprint.trim().isEmpty()) {
             throw new IllegalArgumentException("activeEmbeddingFingerprint must be the resolved world "
                     + "fingerprint of this worker's embedding pipeline");
+        }
+        if (index == null || persistedGenerations == null) {
+            throw new IllegalArgumentException("a semantic index and a persisted-generation source are "
+                    + "required — a job is COMPLETED only after a successful index update");
         }
         this.queue = queue;
         this.captureReader = captureReader;
         this.passageSegmentation = passageSegmentation;
         this.passageStore = passageStore;
+        this.index = index;
+        this.persistedGenerations = persistedGenerations;
+        this.projectId = projectId;
         this.maxAttempts = Math.max(1, maxAttempts);
         this.activeEmbeddingFingerprint = activeEmbeddingFingerprint.trim();
         this.listener = listener == null ? Listener.NONE : listener;
@@ -109,10 +129,61 @@ public final class SourceProcessingWorker {
     }
 
     private int runPipeline(SourceProcessingJob job) {
-        SourceCapture capture = readCapture(job.getRequest().getCaptureId());
-        PassageSegmentation.Result result = segment(capture);
-        storePassages(capture, result);
-        return result.getPassages().size();
+        SourceProcessingRequest req = job.getRequest();
+        String captureId = req.getCaptureId();
+        String segVersion = req.getSegmentationPipelineVersion();
+        String fingerprint = req.getEmbeddingModelFingerprint();
+
+        // RESUME (§2, §11): if this generation's passages + vectors are ALREADY persisted (a previous attempt
+        // got past PASSAGE_PERSISTENCE and only INDEXING failed), skip OpenNLP/embedding entirely and re-index
+        // from the durable data — no expensive NLP/embedding recompute for a transient index error.
+        List<PassageIndexDocument> documents = loadPersisted(captureId, segVersion, fingerprint);
+        if (documents.isEmpty()) {
+            SourceCapture capture = readCapture(captureId);
+            PassageSegmentation.Result result = segment(capture);
+            storePassages(capture, result); // passages + vectors durable BEFORE the index (which is a projection)
+            documents = toIndexDocuments(capture, result, segVersion, fingerprint);
+        }
+        // INDEXING is the LAST stage: only after a successful index update may the job be COMPLETED. A capture's
+        // passages are replaced atomically so a retry never duplicates and a new generation supersedes the old.
+        indexPassages(captureId, fingerprint, documents);
+        return documents.size();
+    }
+
+    private List<PassageIndexDocument> loadPersisted(String captureId, String segVersion, String fingerprint) {
+        try {
+            List<PassageIndexDocument> docs =
+                    persistedGenerations.loadPersisted(captureId, segVersion, fingerprint);
+            return docs == null ? new ArrayList<PassageIndexDocument>() : docs;
+        } catch (RuntimeException ex) {
+            // A failure to read the durable data is treated as "not persisted" → run the full pipeline.
+            return new ArrayList<PassageIndexDocument>();
+        }
+    }
+
+    private List<PassageIndexDocument> toIndexDocuments(SourceCapture capture, PassageSegmentation.Result result,
+                                                       String segVersion, String fingerprint) {
+        Map<String, EmbeddingPort.EmbeddingVector> vectors = result.getPassageVectors();
+        List<PassageIndexDocument> docs = new ArrayList<PassageIndexDocument>();
+        for (Passage passage : result.getPassages()) {
+            EmbeddingPort.EmbeddingVector vector = vectors.get(passage.getPassageId());
+            if (vector == null) {
+                continue; // no vector → not indexable (should not happen: the pipeline embeds every passage)
+            }
+            docs.add(new PassageIndexDocument(passage.getPassageId(), capture.getCaptureId(),
+                    capture.getSourceId(), passage.getText(), passage.getHeadingPath(), segVersion,
+                    fingerprint, vector.getValues()));
+        }
+        return docs;
+    }
+
+    private void indexPassages(String captureId, String fingerprint, List<PassageIndexDocument> documents) {
+        try {
+            // Capture-scoped replace = idempotent upsert + supersession of the previous generation.
+            index.replacePassagesForCapture(projectId, fingerprint, captureId, documents);
+        } catch (RuntimeException ex) {
+            throw new StageFailure(SourceProcessingStage.INDEXING, message(ex), true);
+        }
     }
 
     private SourceCapture readCapture(String captureId) {
