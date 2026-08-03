@@ -25,7 +25,10 @@ import com.aresstack.askai.java8.localmodels.LocalEmbeddingConfigurationSnapshot
 import com.aresstack.askai.java8.localmodels.LocalEmbeddingModelCatalog;
 import com.aresstack.askai.java8.localmodels.LocalEmbeddingRuntime;
 import com.aresstack.askai.java8.localmodels.LocalInferenceConfigurationSnapshotProvider;
+import com.aresstack.askai.java8.localmodels.AskAiOllamaModelDigestLookup;
+import com.aresstack.askai.java8.localmodels.LocalModelNames;
 import com.aresstack.askai.java8.localmodels.LocalModelRuntimeManager;
+import com.aresstack.askai.java8.localmodels.OllamaEmbeddingConfigurationSnapshotProvider;
 import com.aresstack.askai.java8.localmodels.LocalNlpConfigurationSnapshotProvider;
 import com.aresstack.askai.java8.localmodels.LocalNlpModelCatalog;
 import com.aresstack.askai.java8.localmodels.LocalNlpModelStore;
@@ -102,9 +105,9 @@ public final class AgentRuntimeServices {
         // so it is published whenever there is a central config, even without a local runtime.
         this.inferenceSnapshots = centralConfig == null ? null
                 : new LocalInferenceConfigurationSnapshotProvider(localModelRuntime, centralConfig);
-        // The embedding descriptor is served from the LOCAL sidecar (its own catalog + dimension probe), so it
-        // is published only alongside a local runtime — exactly like the reranker.
-        this.embeddingSnapshots = localModelRuntime == null ? null
+        // The embedding model is provider-crossing (Ollama OR AskAI-local), so it is published whenever there is
+        // a central config — the Ollama arm needs only the central Ollama endpoint, not a local runtime.
+        this.embeddingSnapshots = centralConfig == null ? null
                 : embeddingProvider(localModelRuntime, centralConfig);
         // NLP models are a global AskAI resource in their OWN store (not the sidecar runtime store), so the
         // catalog is always available; the snapshot provider needs the central selection to resolve.
@@ -126,32 +129,53 @@ public final class AgentRuntimeServices {
     }
 
     /**
-     * The productive embedding snapshot provider: the {@link LocalEmbeddingConfigurationSnapshotProvider} over
-     * the local catalog + runtime + dimension probe, wrapped so the EXPLICIT selection comes from the central
-     * {@code ai.embeddingsModel} (AskAI → Configuration → AI models) — mirroring the reranker's central
-     * authority. A plugin-passed selection is only a transitional fallback. There is NO guessing: an empty /
-     * removed / incompatible selection is a typed {@link EmbeddingConfigurationException}, never a "first found".
+     * The productive, PROVIDER-CROSSING embedding snapshot provider. {@code ai.embeddingsModel} is deliberately
+     * provider-agnostic, so the EXPLICIT central selection (AskAI → Configuration → AI models) is dispatched by
+     * the model's provider: a {@code local/...} id → the AskAI local runtime
+     * ({@link LocalEmbeddingConfigurationSnapshotProvider}); everything else → the existing Ollama endpoint's
+     * {@code /api/embed} ({@link OllamaEmbeddingConfigurationSnapshotProvider}). There is NO fallback between them
+     * (a configured Ollama model is never looked up in the local catalog) and NO guessing — an empty / removed /
+     * unreachable selection is a typed {@link EmbeddingConfigurationException}.
      */
     private static EmbeddingConfigurationSnapshotProvider embeddingProvider(
             LocalModelRuntimeManager localModelRuntime, final AppConfigurationRepository centralConfig) {
-        final EmbeddingConfigurationSnapshotProvider delegate =
-                new LocalEmbeddingConfigurationSnapshotProvider(
+        // Ollama arm: reuses the central Ollama base URL (read per call) + installed-model digest; no local runtime.
+        final EmbeddingConfigurationSnapshotProvider ollama =
+                new OllamaEmbeddingConfigurationSnapshotProvider(
+                        new OllamaEmbeddingConfigurationSnapshotProvider.OllamaEndpoint() {
+                            public String baseUrl() {
+                                return centralConfig == null ? "" : centralConfig.load().getOllamaBaseUrl();
+                            }
+                        },
+                        new AskAiOllamaModelDigestLookup(),
+                        new HttpEmbeddingDimensionProbe((int) EMBEDDING_TIMEOUT_MILLIS),
+                        EMBEDDING_TIMEOUT_MILLIS);
+        // Local-runtime arm: only when a local model runtime exists (AskAI-local embedding models).
+        final EmbeddingConfigurationSnapshotProvider local = localModelRuntime == null ? null
+                : new LocalEmbeddingConfigurationSnapshotProvider(
                         new LocalEmbeddingModelCatalog(localModelRuntime),
                         LocalEmbeddingRuntime.over(localModelRuntime),
                         new HttpEmbeddingDimensionProbe((int) EMBEDDING_TIMEOUT_MILLIS),
                         EMBEDDING_TIMEOUT_MILLIS);
-        if (centralConfig == null) {
-            return delegate; // legacy: trust the plugin-passed selection
-        }
         return new EmbeddingConfigurationSnapshotProvider() {
             public EmbeddingConfigurationSnapshot prepareForSession(String sessionId, File sessionDirectory,
                                                                     String selectedModel)
                     throws EmbeddingConfigurationException {
-                String central = centralConfig.load().getAiModelSelections().getEmbeddingsModel();
+                String central = centralConfig == null ? ""
+                        : centralConfig.load().getAiModelSelections().getEmbeddingsModel();
                 String centralTrimmed = central == null ? "" : central.trim();
                 String effective = !centralTrimmed.isEmpty() ? centralTrimmed
                         : (selectedModel == null ? "" : selectedModel.trim());
-                return delegate.prepareForSession(sessionId, sessionDirectory, effective);
+                if (LocalModelNames.isLocalModelName(effective)) {
+                    if (local == null) {
+                        throw new EmbeddingConfigurationException(
+                                EmbeddingConfigurationException.Reason.MODEL_NOT_FOUND,
+                                "local embedding model '" + effective + "' is selected but no local model "
+                                        + "runtime is available");
+                    }
+                    return local.prepareForSession(sessionId, sessionDirectory, effective);
+                }
+                return ollama.prepareForSession(sessionId, sessionDirectory, effective);
             }
         };
     }
