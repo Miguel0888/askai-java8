@@ -1,0 +1,14 @@
+// Apache Lucene text/metadata index for the knowledge pipeline's SemanticKnowledgeIndex. Lucene 8.11.x is the
+// last Java-8 line; Lucene types never leak past this module (the port stays neutral).
+apply plugin: 'java-library'
+
+dependencies {
+    api project(':research-knowledge-processing')
+    implementation 'org.apache.lucene:lucene-core:8.11.3'
+    implementation 'org.apache.lucene:lucene-analyzers-common:8.11.3'
+    testImplementation 'junit:junit:4.13.2'
+}
+
+test {
+    useJUnit()
+}
