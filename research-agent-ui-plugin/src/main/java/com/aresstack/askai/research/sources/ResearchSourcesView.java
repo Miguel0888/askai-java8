@@ -38,6 +38,10 @@ public final class ResearchSourcesView extends JPanel {
     private final JTextField authorField = new JTextField();
     private final JTextField sectionsField = new JTextField();
     private final JTextArea commentArea = new JTextArea(3, 20);
+    // Pipeline-filled, read-only: the reranker score, the search excerpt and the visited page's full text.
+    private final JTextField scoreField = readOnlyField();
+    private final JTextArea excerptArea = readOnlyArea(2);
+    private final JTextArea fullTextArea = readOnlyArea(6);
     private final JComboBox<SourceStatus> statusCombo = new JComboBox<SourceStatus>(SourceStatus.values());
     private final JComboBox<SourceRelevance> relevanceCombo = new JComboBox<SourceRelevance>(SourceRelevance.values());
     private final JComboBox<SourceReliability> reliabilityCombo =
@@ -91,6 +95,12 @@ public final class ResearchSourcesView extends JPanel {
         form.add(relevanceCombo);
         form.add(new JLabel("Reliability"));
         form.add(reliabilityCombo);
+        form.add(new JLabel("Rerank score"));
+        form.add(scoreField);
+        form.add(new JLabel("Search excerpt"));
+        form.add(new JScrollPane(excerptArea));
+        form.add(new JLabel("Full text (empty = parked)"));
+        form.add(new JScrollPane(fullTextArea));
         form.add(new JLabel("Comment"));
         form.add(new JScrollPane(commentArea));
 
@@ -175,6 +185,12 @@ public final class ResearchSourcesView extends JPanel {
         authorField.setText(record.getAuthor());
         sectionsField.setText(joinSections(record.getLinkedSectionIds()));
         commentArea.setText(record.getComment());
+        scoreField.setText(record.hasRerankScore()
+                ? String.format(java.util.Locale.ROOT, "%.4f", record.getRerankScore()) : "—");
+        excerptArea.setText(record.getExcerpt());
+        excerptArea.setCaretPosition(0);
+        fullTextArea.setText(record.getFullText());
+        fullTextArea.setCaretPosition(0);
         statusCombo.setSelectedItem(record.getStatus());
         relevanceCombo.setSelectedItem(record.getRelevance());
         reliabilityCombo.setSelectedItem(record.getReliability());
@@ -190,6 +206,9 @@ public final class ResearchSourcesView extends JPanel {
         authorField.setText("");
         sectionsField.setText("");
         commentArea.setText("");
+        scoreField.setText("");
+        excerptArea.setText("");
+        fullTextArea.setText("");
         status.setText(" ");
     }
 
@@ -282,6 +301,20 @@ public final class ResearchSourcesView extends JPanel {
             }
         }
         return out;
+    }
+
+    private static JTextField readOnlyField() {
+        JTextField f = new JTextField();
+        f.setEditable(false);
+        return f;
+    }
+
+    private static JTextArea readOnlyArea(int rows) {
+        JTextArea a = new JTextArea(rows, 20);
+        a.setEditable(false);
+        a.setLineWrap(true);
+        a.setWrapStyleWord(true);
+        return a;
     }
 
     // Visible for tests.
