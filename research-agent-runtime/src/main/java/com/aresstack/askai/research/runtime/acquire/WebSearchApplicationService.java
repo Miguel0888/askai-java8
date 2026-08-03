@@ -115,6 +115,10 @@ public final class WebSearchApplicationService {
     private final AcceptedSourceListener acceptedSourceListener;
     /** true → wait for the user to solve a challenge; false → skip the blocked page (leaves it parked). */
     private final boolean challengeWaitForUser;
+    /** Max scan→handle→re-scan cycles to make a concrete page readable; 0 disables the loop (read at once). */
+    private final int maxReadinessRetries;
+    /** Minimum body text length for a page to count as readable in the readiness probe. */
+    private final int minReadableChars;
 
     /** Sites of the search engine(s) used this run — pure TRANSIT: never a page, host, source or link farm. */
     private final Set<String> searchProviderSites = new HashSet<String>();
@@ -142,7 +146,8 @@ public final class WebSearchApplicationService {
                                        SourceAcceptancePort sourceAcceptancePort, long startedAt,
                                        long challengeProbeIntervalMillis,
                                        AcceptedSourceListener acceptedSourceListener,
-                                       boolean challengeWaitForUser) {
+                                       boolean challengeWaitForUser,
+                                       int maxReadinessRetries, int minReadableChars) {
         this.browser = browser;
         this.budget = budget;
         this.progress = progress;
@@ -158,6 +163,8 @@ public final class WebSearchApplicationService {
         this.challengeProbeIntervalMillis = challengeProbeIntervalMillis;
         this.acceptedSourceListener = acceptedSourceListener;
         this.challengeWaitForUser = challengeWaitForUser;
+        this.maxReadinessRetries = maxReadinessRetries;
+        this.minReadableChars = minReadableChars;
     }
 
     /** Execute the deterministic acquisition for {@code terms}; returns the explicit acquisition stop reason. */
@@ -251,7 +258,15 @@ public final class WebSearchApplicationService {
                 if (g2 != null) {
                     return g2;
                 }
-                String page = callBrowser("web_open", args("url", url));
+                String page = openWithReadiness(url);
+                if (page == null) {
+                    // The page could not be made readable (CAPTCHA skipped / consent not clearable / too
+                    // little text): mark it visited so it is never retried, and leave its parked source with
+                    // an empty full text. The score already tells the user this hit still needs reading.
+                    progress.noteVisitedAlias(canonical);
+                    listener.status("left parked (not readable): " + url);
+                    continue;
+                }
                 progress.success();
                 // Host diversity MUST come from the FINAL post-redirect URL the browser actually landed on —
                 // counting hostOf(requested) would count "bing.com" for every redirect link and make the
@@ -390,6 +405,91 @@ public final class WebSearchApplicationService {
         } catch (ToolInvoker.EndpointUnavailable ex) {
             listener.status("park skipped (endpoint unavailable)");
         }
+    }
+
+    /**
+     * The two-step "scan then read" visit of a CONCRETE page. Step 1: PROBE the page (web_probe) and, while it
+     * is not readable, handle the obstruction — dismiss a consent banner (auto first; if that fails, tell the
+     * user where to click and, when configured, wait), or wait for the user to solve a CAPTCHA (unless
+     * wait-for-user is off, then skip) — re-probing between attempts, bounded by {@code maxReadinessRetries}
+     * consent cycles. Step 2: only once readable, READ the full page (web_read, which assigns the capture id).
+     * Returns the read page string (as {@code web_open} did), or {@code null} when the page could not be made
+     * readable (its parked source then keeps an empty full text). With {@code maxReadinessRetries <= 0} it
+     * degrades to the original single-step {@code web_open}. {@link #isReadable} is the seam an LLM judge can
+     * replace.
+     */
+    private String openWithReadiness(String url)
+            throws ToolInvoker.ToolFailure, ToolInvoker.EndpointUnavailable {
+        if (maxReadinessRetries <= 0) {
+            return callBrowser("web_open", args("url", url)); // readiness loop disabled: original behaviour
+        }
+        com.aresstack.askai.browser.BrowserPageReadiness pr;
+        try {
+            pr = com.aresstack.askai.browser.BrowserPageReadiness.parse(
+                    callBrowser("web_probe", args("url", url)));
+        } catch (ToolInvoker.ToolFailure ex) {
+            // A sidecar without web_probe: fall back to the single-step open (never fail the visit here).
+            return callBrowser("web_open", args("url", url));
+        }
+        String family = familyOf(url);
+        int consentCycles = 0;
+        while (!isReadable(pr)) {
+            if (stopReasonNow() != null || cancelled.get()) {
+                return null; // the main loop's gate surfaces the actual stop reason next iteration
+            }
+            if (pr.challengePresent) {
+                if (!challengeWaitForUser) {
+                    listener.status("skipping CAPTCHA page (wait-for-user disabled): " + url);
+                    return null; // leave parked
+                }
+                listener.attention("CAPTCHA", family, url, false);
+                pr = waitTickThenReprobe(); // a CAPTCHA has no business timeout: cooperative, compensated wait
+                continue;
+            }
+            if (pr.consentPresent) {
+                if (consentCycles++ >= maxReadinessRetries) {
+                    listener.status("consent not clearable after " + maxReadinessRetries + " tries: " + url);
+                    return null; // leave parked
+                }
+                String clicked = callBrowser("web_dismiss_consent", args());
+                if (!clicked.startsWith("clicked")) {
+                    // "erst auto, dann User": the heuristic could not dismiss it — say where to click.
+                    listener.attention("COOKIE", family, url + " — click: " + pr.consentCandidate, false);
+                    if (!challengeWaitForUser) {
+                        return null; // uniform skip → parked
+                    }
+                    waitedForUserMillis += tickWait();
+                }
+                pr = reprobe();
+                continue;
+            }
+            return null; // not readable, no known obstruction (too little text / unknown block) → parked
+        }
+        // Readable: read the full page — this assigns the capture id acceptSource resolves.
+        return callBrowser("web_read", args());
+    }
+
+    /** The readiness verdict. THE seam where an LLM judge can replace the deterministic heuristic. */
+    private boolean isReadable(com.aresstack.askai.browser.BrowserPageReadiness pr) {
+        return !pr.challengePresent && !pr.consentPresent && pr.textLength >= minReadableChars;
+    }
+
+    private com.aresstack.askai.browser.BrowserPageReadiness reprobe()
+            throws ToolInvoker.ToolFailure, ToolInvoker.EndpointUnavailable {
+        return com.aresstack.askai.browser.BrowserPageReadiness.parse(callBrowser("web_reprobe", args()));
+    }
+
+    private com.aresstack.askai.browser.BrowserPageReadiness waitTickThenReprobe()
+            throws ToolInvoker.ToolFailure, ToolInvoker.EndpointUnavailable {
+        waitedForUserMillis += tickWait();
+        return reprobe();
+    }
+
+    /** Sleep one probe interval (cancel stays immediate via the loop's checks); returns the time waited. */
+    private long tickWait() {
+        long tick = clock.currentTimeMillis();
+        clock.sleepMillis(challengeProbeIntervalMillis);
+        return Math.max(0, clock.currentTimeMillis() - tick);
     }
 
     /**

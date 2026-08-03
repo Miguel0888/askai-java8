@@ -666,7 +666,9 @@ public final class ResearchAgentMain {
                                     return null;
                                 }
                             },
-                            loadBrowserSearchSettings().captcha.waitForUser);
+                            loadBrowserSearchSettings().captcha.waitForUser,
+                            loadBrowserSearchSettings().readiness.maximumPageReadinessRetries,
+                            loadBrowserSearchSettings().readiness.minimumReadableCharacters);
             com.aresstack.askai.research.runtime.loop.ResearchStopReason reason = acquisition.execute(
                     com.aresstack.askai.research.runtime.acquire.WebAcquisitionText.queryTerms(query));
             if (cancelled.get()) {

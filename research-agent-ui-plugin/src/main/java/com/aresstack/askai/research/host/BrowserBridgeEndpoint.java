@@ -72,6 +72,14 @@ public final class BrowserBridgeEndpoint {
         tools.add(capturing("web_open", "Open a URL and return the cleaned page text with a capture id.",
                 McpToolParameter.string("url", true, "The http(s) URL to open")));
         tools.add(capturing("web_read", "Return the cleaned text of the current page with a capture id."));
+        // Two-step visit: probe/re-probe report readability signals (no capture); dismiss clears a banner.
+        tools.add(passThrough("web_probe",
+                "Navigate to a URL and return a readability probe (no full text, no capture id).",
+                McpToolParameter.string("url", true, "The http(s) URL to probe")));
+        tools.add(passThrough("web_reprobe",
+                "Re-probe the current page without navigating (after a dismiss or while waiting)."));
+        tools.add(passThrough("web_dismiss_consent",
+                "Try to dismiss a consent/cookie banner on the current page ('clicked:…' or 'none')."));
         tools.add(passThrough("web_links", "List the links of the current page with stable ids."));
         tools.add(capturing("web_follow", "Follow a link by its id from web_links.",
                 McpToolParameter.string("link_id", true, "The link id to follow")));

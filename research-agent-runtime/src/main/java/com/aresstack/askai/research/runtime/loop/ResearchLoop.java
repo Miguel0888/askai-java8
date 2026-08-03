@@ -207,7 +207,9 @@ public final class ResearchLoop {
                                         source.getPage(), terms, budgetGate);
                             }
                         },
-                        challengeWaitForUser);
+                        challengeWaitForUser,
+                        searchSettings.readiness.maximumPageReadinessRetries,
+                        searchSettings.readiness.minimumReadableCharacters);
         ResearchStopReason reason = acquisition.execute(terms);
         listener.status("run stopped: " + reason
                 + " (pages=" + progress.getPagesVisited()
