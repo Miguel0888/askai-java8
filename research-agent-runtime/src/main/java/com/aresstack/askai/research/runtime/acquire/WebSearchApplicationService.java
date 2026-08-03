@@ -119,6 +119,8 @@ public final class WebSearchApplicationService {
     private final int maxReadinessRetries;
     /** Minimum body text length for a page to count as readable in the readiness probe. */
     private final int minReadableChars;
+    /** The readiness verdict seam (default heuristic; a model-backed judge can be set for user searches). */
+    private PageReadinessJudge readinessJudge;
 
     /** Sites of the search engine(s) used this run — pure TRANSIT: never a page, host, source or link farm. */
     private final Set<String> searchProviderSites = new HashSet<String>();
@@ -165,6 +167,14 @@ public final class WebSearchApplicationService {
         this.challengeWaitForUser = challengeWaitForUser;
         this.maxReadinessRetries = maxReadinessRetries;
         this.minReadableChars = minReadableChars;
+        this.readinessJudge = new HeuristicPageReadinessJudge(minReadableChars);
+    }
+
+    /** Replace the default heuristic readiness judge (e.g. a model-backed one for a user search). No-op on null. */
+    public void setReadinessJudge(PageReadinessJudge judge) {
+        if (judge != null) {
+            this.readinessJudge = judge;
+        }
     }
 
     /** Execute the deterministic acquisition for {@code terms}; returns the explicit acquisition stop reason. */
@@ -432,57 +442,79 @@ public final class WebSearchApplicationService {
             return callBrowser("web_open", args("url", url));
         }
         String family = familyOf(url);
-        int consentCycles = 0;
-        while (!isReadable(pr)) {
-            if (stopReasonNow() != null || cancelled.get()) {
-                return null; // the main loop's gate surfaces the actual stop reason next iteration
-            }
-            if (pr.challengePresent) {
+        // ONE classification per page (the model, when set, may recognise an obstruction the DOM selectors
+        // missed); the subsequent waiting uses the cheap heuristic so we do not re-invoke the model per tick.
+        PageReadinessJudge.Verdict verdict = readinessJudge.judge(pr);
+        listener.status("readiness=" + verdict + " [text=" + pr.textLength
+                + " challenge=" + pr.challengePresent + " consent=" + pr.consentPresent + "] " + url);
+        switch (verdict) {
+            case READABLE:
+                return callBrowser("web_read", args()); // assigns the capture id acceptSource resolves
+            case COOKIE_BANNER:
+                return clearConsentThenRead(url, family, pr);
+            case CAPTCHA:
                 if (!challengeWaitForUser) {
                     listener.status("skipping CAPTCHA page (wait-for-user disabled): " + url);
                     return null; // leave parked
                 }
                 listener.attention("CAPTCHA", family, url, false);
-                pr = waitTickThenReprobe(); // a CAPTCHA has no business timeout: cooperative, compensated wait
-                continue;
-            }
-            if (pr.consentPresent) {
-                if (consentCycles++ >= maxReadinessRetries) {
-                    listener.status("consent not clearable after " + maxReadinessRetries + " tries: " + url);
-                    return null; // leave parked
-                }
-                String clicked = callBrowser("web_dismiss_consent", args());
-                if (!clicked.startsWith("clicked")) {
-                    // "erst auto, dann User": the heuristic could not dismiss it — say where to click.
-                    listener.attention("COOKIE", family, url + " — click: " + pr.consentCandidate, false);
-                    if (!challengeWaitForUser) {
-                        return null; // uniform skip → parked
-                    }
-                    waitedForUserMillis += tickWait();
-                }
-                pr = reprobe();
-                continue;
-            }
-            return null; // not readable, no known obstruction (too little text / unknown block) → parked
+                return waitForUserThenRead(url); // a CAPTCHA has no business timeout: cooperative wait
+            case UNREADABLE:
+            default:
+                return null; // leave parked (empty full text; the score still tells the user it needs reading)
         }
-        // Readable: read the full page — this assigns the capture id acceptSource resolves.
-        return callBrowser("web_read", args());
     }
 
-    /** The readiness verdict. THE seam where an LLM judge can replace the deterministic heuristic. */
-    private boolean isReadable(com.aresstack.askai.browser.BrowserPageReadiness pr) {
+    /** Cookie/consent: auto-dismiss up to the retry limit; if still blocked, tell the user where to click. */
+    private String clearConsentThenRead(String url, String family,
+                                        com.aresstack.askai.browser.BrowserPageReadiness pr)
+            throws ToolInvoker.ToolFailure, ToolInvoker.EndpointUnavailable {
+        String candidate = pr.consentCandidate;
+        for (int i = 0; i < maxReadinessRetries; i++) {
+            String clicked = callBrowser("web_dismiss_consent", args());
+            pr = reprobe();
+            if (heuristicReadable(pr)) {
+                return callBrowser("web_read", args());
+            }
+            if (!clicked.startsWith("clicked")) {
+                break; // the heuristic can no longer clear it — hand it to the user
+            }
+        }
+        // "erst auto, dann User": auto-dismiss could not clear it.
+        if (!challengeWaitForUser) {
+            listener.status("consent not clearable, parked: " + url);
+            return null;
+        }
+        listener.attention("COOKIE", family, url + " — click: " + candidate, false);
+        return waitForUserThenRead(url);
+    }
+
+    /**
+     * Wait cooperatively for the user to clear a challenge / consent wall (no business timeout, cancel stays
+     * immediate, the wait is compensated), re-probing each tick until the page is heuristically readable, then
+     * read it. Returns {@code null} on cancel/stop (the page stays parked).
+     */
+    private String waitForUserThenRead(String url)
+            throws ToolInvoker.ToolFailure, ToolInvoker.EndpointUnavailable {
+        while (true) {
+            if (stopReasonNow() != null || cancelled.get()) {
+                return null;
+            }
+            waitedForUserMillis += tickWait();
+            if (heuristicReadable(reprobe())) {
+                return callBrowser("web_read", args());
+            }
+        }
+    }
+
+    /** The cheap readable check used to detect that a challenge/consent wall has been cleared. */
+    private boolean heuristicReadable(com.aresstack.askai.browser.BrowserPageReadiness pr) {
         return !pr.challengePresent && !pr.consentPresent && pr.textLength >= minReadableChars;
     }
 
     private com.aresstack.askai.browser.BrowserPageReadiness reprobe()
             throws ToolInvoker.ToolFailure, ToolInvoker.EndpointUnavailable {
         return com.aresstack.askai.browser.BrowserPageReadiness.parse(callBrowser("web_reprobe", args()));
-    }
-
-    private com.aresstack.askai.browser.BrowserPageReadiness waitTickThenReprobe()
-            throws ToolInvoker.ToolFailure, ToolInvoker.EndpointUnavailable {
-        waitedForUserMillis += tickWait();
-        return reprobe();
     }
 
     /** Sleep one probe interval (cancel stays immediate via the loop's checks); returns the time waited. */

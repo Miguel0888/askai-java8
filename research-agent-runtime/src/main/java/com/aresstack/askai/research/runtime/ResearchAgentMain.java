@@ -672,6 +672,22 @@ public final class ResearchAgentMain {
                             loadBrowserSearchSettings().captcha.waitForUser,
                             loadBrowserSearchSettings().readiness.maximumPageReadinessRetries,
                             loadBrowserSearchSettings().readiness.minimumReadableCharacters);
+            // "LLM entscheidet": let the main model classify an ambiguous page (thin text, no DOM signal) so
+            // a "verify you are human" wall the SERP selectors missed is treated as a CAPTCHA, not skipped.
+            acquisition.setReadinessJudge(
+                    new com.aresstack.askai.research.runtime.acquire.ModelPageReadinessJudge(
+                            new com.aresstack.askai.research.runtime.acquire.PageReadinessModel() {
+                                public String complete(String system, String user) {
+                                    com.aresstack.askai.research.runtime.team.MainModelChatResult r =
+                                            mainModelChat.complete(java.util.Arrays.asList(
+                                                    com.aresstack.askai.research.runtime.team.ChatMessage
+                                                            .system(system),
+                                                    com.aresstack.askai.research.runtime.team.ChatMessage
+                                                            .user(user)), 0.0, 24);
+                                    return r.isOk() ? r.getText() : "";
+                                }
+                            },
+                            loadBrowserSearchSettings().readiness.minimumReadableCharacters));
             com.aresstack.askai.research.runtime.loop.ResearchStopReason reason = acquisition.execute(
                     com.aresstack.askai.research.runtime.acquire.WebAcquisitionText.queryTerms(query));
             if (cancelled.get()) {
