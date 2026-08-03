@@ -640,9 +640,12 @@ public final class ResearchAgentMain {
 
                                 public void attention(String reason, String domainFamily, String url,
                                                       boolean resolved) {
+                                    // Emit the TYPED attention event so a manual search gets the SAME visible
+                                    // notice + one attention sound the autonomous path does (mapped to
+                                    // USER_ATTENTION on the host). Carries CAPTCHA and COOKIE alike; for a
+                                    // cookie the url field holds the "click: <control>" hint.
                                     ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
-                                            .manualSearchProgress(requestId, (resolved
-                                                    ? "CAPTCHA gelöst: " : "CAPTCHA nötig: ") + domainFamily));
+                                            .attention(reason, domainFamily, url, resolved));
                                 }
                             },
                             cancelled,
