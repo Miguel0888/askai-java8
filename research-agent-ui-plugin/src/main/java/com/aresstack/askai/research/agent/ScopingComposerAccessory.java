@@ -32,6 +32,9 @@ final class ScopingComposerAccessory implements ComposerAccessory {
                 // USER-SERVICE, not a chat turn: a yellow suggestion runs a manual web search directly. It must
                 // NOT go through ChatSubmissionTarget.submitText — that would disguise a phase-independent
                 // service as an agent prompt and couple the search to the phase/turn availability.
+                // Show the click as a TENTATIVE user statement (mermaid block + "?") so it is visible in the
+                // chat without the agent later mistaking it for a binding request.
+                research.echoTentativeSuggestion(query);
                 research.requestManualWebSearch(query);
             }
         });

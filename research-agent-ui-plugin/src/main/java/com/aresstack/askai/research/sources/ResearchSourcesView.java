@@ -121,7 +121,13 @@ public final class ResearchSourcesView extends JPanel {
 
         JPanel detail = new JPanel(new BorderLayout());
         detail.setBorder(BorderFactory.createTitledBorder("Source detail"));
-        detail.add(form, BorderLayout.CENTER);
+        // The detail grew (score, excerpt, full text): make it vertically scrollable so every field is
+        // reachable instead of being clipped at the bottom of the panel.
+        JScrollPane formScroll = new JScrollPane(form,
+                JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        formScroll.getVerticalScrollBar().setUnitIncrement(16);
+        formScroll.setPreferredSize(new java.awt.Dimension(10, 260));
+        detail.add(formScroll, BorderLayout.CENTER);
         detail.add(actions, BorderLayout.SOUTH);
         return detail;
     }

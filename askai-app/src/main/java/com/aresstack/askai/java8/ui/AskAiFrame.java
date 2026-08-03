@@ -838,6 +838,8 @@ public final class AskAiFrame extends JFrame {
             }
         }
         this.chatWorkspace = new ChatWorkspacePanel(chatFactory, restoreIds, historyStore);
+        // Restore + persist the burger drawer's pinned state across restarts.
+        this.chatWorkspace.setApplicationState(applicationState);
         // Persist the open-tab set immediately on every open/close (and once now for the restored set), so a
         // later crash/kill never brings a closed tab back.
         this.chatWorkspace.setTabSetListener(new ChatWorkspacePanel.TabSetListener() {

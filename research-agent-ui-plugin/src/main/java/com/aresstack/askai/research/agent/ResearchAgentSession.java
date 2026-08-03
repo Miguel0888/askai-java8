@@ -370,7 +370,8 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         ResearchPhase phase = com.aresstack.askai.research.state.oo.ResearchStateIds.phase(state.getPhaseId());
         ResearchRunState run =
                 com.aresstack.askai.research.state.oo.ResearchStateIds.runState(state.getStateId());
-        boolean busy = com.aresstack.askai.research.state.oo.ResearchStateIds.RUNNING.equals(state.getStateId());
+        boolean busy = com.aresstack.askai.research.state.oo.ResearchStateIds.RUNNING.equals(state.getStateId())
+                || postSearchSummaryInFlight; // the post-search summary keeps the bot "am Zug" (red send)
         return AgentStateSnapshot.builder()
                 .phaseLabel(phase.name())
                 .runStateLabel(run.name())
@@ -403,6 +404,10 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     private volatile com.aresstack.askai.research.search.ManualWebSearchHandle activeManualSearchHandle;
     /** The query of the in-flight user search (remembered so a completed search marks it as covered). */
     private volatile String activeManualSearchQuery;
+    /** True from a manual search's browser-close until the bot's summary/new suggestions arrive: shows a
+     * thinking bubble AND keeps the composer busy (red send button) so the user sees work is still ongoing. */
+    private volatile boolean postSearchSummaryInFlight;
+    private volatile String postSearchThinkingId;
     /** Normalized queries a manual search already covered — the agent's suggestions never re-offer these. */
     private final java.util.Set<String> manualSearchedQueries =
             java.util.Collections.synchronizedSet(new java.util.HashSet<String>());
@@ -576,6 +581,19 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 sink.appendUserMessage("user-" + playbookMessageIds.incrementAndGet(), text);
             }
         });
+    }
+
+    /**
+     * Echo a clicked scoping suggestion as a TENTATIVE user statement: a fenced {@code mermaid} block with the
+     * query, followed by a "?". Clicking a suggestion is NOT a binding request — the whole point of scoping is
+     * that the user is still working out what they want — so the framing (a diagram-like block + question mark)
+     * keeps the agent from later reading it as a committed instruction. Purely visual; it starts no turn.
+     */
+    public void echoTentativeSuggestion(String query) {
+        if (query == null || query.trim().isEmpty()) {
+            return;
+        }
+        echoUserMessage("```mermaid\n" + query.trim() + "\n```\n?");
     }
 
     /** An agent utterance from the playbook/dialog, routed through the shared sink on the UI thread. */
@@ -1000,6 +1018,13 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 manualSearchedQueries.add(searched.trim().toLowerCase(java.util.Locale.ROOT));
             }
             activeManualSearchRequestId = null;
+            // The browser closes now; the bot then briefly reviews the new sources and refreshes its
+            // suggestions (can take a while). Show a thinking bubble + keep the composer busy until the
+            // summary (ASSISTANT_MESSAGE) or the refreshed suggestions (SCOPING_PROJECTION) arrive.
+            postSearchThinkingId = "post-search-summary-" + requestId;
+            postSearchSummaryInFlight = true;
+            sink.startThinking(postSearchThinkingId,
+                    "Ich sichte die neuen Quellen und aktualisiere die Vorschläge …");
             stopManualSearchBrowser();
         } else if ("failed".equals(subKind)) {
             // Both surfaces: close the transient activity AND raise a PERSISTENT, readable problem so the
@@ -1007,8 +1032,21 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             sink.failToolActivity(activityId, message);
             sink.showProblem("manual-search-failed-" + requestId, message);
             activeManualSearchRequestId = null;
+            finishPostSearchThinking(""); // no summary is coming
             stopManualSearchBrowser();
         }
+    }
+
+    /** End the post-search thinking bubble + release the composer (red send button), if one is in flight. */
+    private void finishPostSearchThinking(String summary) {
+        if (!postSearchSummaryInFlight) {
+            return;
+        }
+        postSearchSummaryInFlight = false;
+        if (postSearchThinkingId != null && sink != null) {
+            sink.finishThinking(postSearchThinkingId, summary == null ? "" : summary);
+        }
+        postSearchThinkingId = null;
     }
 
     /**
@@ -1204,6 +1242,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 currentRunActivityId = null;
                 break;
             case ASSISTANT_MESSAGE:
+                // If the bot's post-search summary is what is arriving, collapse the thinking bubble first so
+                // the summary renders as the assistant turn and the composer is released.
+                finishPostSearchThinking("");
                 sink.appendAssistantMessage(event.getEventId(), event.getText());
                 break;
             case RUN_LOG:
@@ -1234,6 +1275,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 // (a later turn replaces it — the chat keeps every turn, this panel shows the current state).
                 // It moves nothing and writes no artifact; fireStateChanged() lets the workspace re-read it.
                 latestScopingProjection = event.getScopingProjection();
+                finishPostSearchThinking(""); // refreshed suggestions are the last step of the summary
                 break;
             case RESEARCH_BRIEF:
                 // The phase artifact: persist the brief to its working copy (one path, off the EDT). No
@@ -1247,6 +1289,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             case BLOCKED:
             case ERROR:
                 agentTurnInFlight = false; // a failed turn must not wedge the composer
+                finishPostSearchThinking(""); // never leave the post-search bubble/red send button stuck
                 problemMessage = event.getPublicMessage();
                 // Show the WHY, not just the what: the technical detail (exception phase + reason,
                 // never secrets) is the only way anyone can act on a start failure.

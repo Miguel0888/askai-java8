@@ -84,6 +84,8 @@ public final class ChatWorkspacePanel extends JPanel {
     private final javax.swing.Timer sidebarCloseTimer;
     private AWTEventListener sidebarMouseWatcher;
     private boolean menuLocked; // clicking the burger latches the menu until the next click
+    private com.aresstack.askai.java8.state.ApplicationStateService applicationState;
+    private static final String STATE_BURGER_PINNED = "chat.burgerPinned";
 
     public ChatWorkspacePanel(ChatSessionFactory factory) {
         this(factory, null, null);
@@ -229,6 +231,27 @@ public final class ChatWorkspacePanel extends JPanel {
         this.sidebarTabsSource = source;
     }
 
+    /**
+     * Bind the application state so the burger's PINNED (latched) drawer survives a restart. Restores the
+     * pinned drawer immediately when the last session left it pinned. Safe to call once after construction.
+     */
+    public void setApplicationState(com.aresstack.askai.java8.state.ApplicationStateService applicationState) {
+        this.applicationState = applicationState;
+        if (applicationState != null && applicationState.getBoolean(STATE_BURGER_PINNED, false)) {
+            menuLocked = true;
+            ChatComposerPanel.setToolbarButtonLatched(burger, true);
+            openMenuAndSidebar();
+            refreshRibbonTabs();
+        }
+    }
+
+    /** Persist the current pinned/latched state of the burger drawer (no-op before the state is bound). */
+    private void persistBurgerPinned() {
+        if (applicationState != null) {
+            applicationState.putAndSave(STATE_BURGER_PINNED, Boolean.toString(menuLocked));
+        }
+    }
+
     /** Refresh the drawer's panes/ribbon in place (e.g. the active agent's tab set changed). */
     public void refreshSidebarTabs() {
         if (sidebar.isVisible()) {
@@ -247,6 +270,7 @@ public final class ChatWorkspacePanel extends JPanel {
         openMenuAndSidebar();
         sidebar.showTab(title);
         refreshRibbonTabs();
+        persistBurgerPinned();
     }
 
     // ------------------------------------------------------------------ layout + sidebar behavior
@@ -262,6 +286,7 @@ public final class ChatWorkspacePanel extends JPanel {
                 ChatComposerPanel.setToolbarButtonLatched(burger, true);
                 openMenuAndSidebar();
             }
+            persistBurgerPinned(); // remember the pin across restarts
         });
         burger.addMouseListener(new MouseAdapter() {
             @Override
@@ -333,6 +358,7 @@ public final class ChatWorkspacePanel extends JPanel {
         ChatComposerPanel.setToolbarButtonLatched(burger, false);
         ribbon.close();
         hideSidebar();
+        persistBurgerPinned();
     }
 
     private void showSidebar() {
