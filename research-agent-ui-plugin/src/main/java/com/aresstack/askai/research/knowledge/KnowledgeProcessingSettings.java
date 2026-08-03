@@ -28,12 +28,22 @@ public final class KnowledgeProcessingSettings {
     // --- Topic labeling (§16, §17)
     public final int topicLabelRepresentativePassageCount;
 
+    // --- Processing pipeline provenance + retry (§4.3, §24)
+    /** The segmentation pipeline version; part of a job's idempotency key (a bump forces reprocessing). */
+    public final String segmentationPipelineVersion;
+    /** The embedding-model fingerprint used in a job's idempotency key until the real embedder is wired (C3). */
+    public final String embeddingModelFingerprint;
+    /** Maximum processing attempts before a retryable failure is treated as permanent. */
+    public final int maxProcessingAttempts;
+
     public KnowledgeProcessingSettings(double semanticBreakThreshold, int minimumSentencesPerPassage,
                                        int maximumSentencesPerPassage, int maximumCharactersPerPassage,
                                        double topicAssignmentThreshold, double topicMergeThreshold,
                                        int minimumPassagesPerTopic, int minimumDistinctSourcesPerTopic,
                                        long projectionDebounceMillis,
-                                       int topicLabelRepresentativePassageCount) {
+                                       int topicLabelRepresentativePassageCount,
+                                       String segmentationPipelineVersion, String embeddingModelFingerprint,
+                                       int maxProcessingAttempts) {
         this.semanticBreakThreshold = semanticBreakThreshold;
         this.minimumSentencesPerPassage = minimumSentencesPerPassage;
         this.maximumSentencesPerPassage = maximumSentencesPerPassage;
@@ -44,6 +54,10 @@ public final class KnowledgeProcessingSettings {
         this.minimumDistinctSourcesPerTopic = minimumDistinctSourcesPerTopic;
         this.projectionDebounceMillis = projectionDebounceMillis;
         this.topicLabelRepresentativePassageCount = topicLabelRepresentativePassageCount;
+        this.segmentationPipelineVersion = segmentationPipelineVersion == null
+                ? "" : segmentationPipelineVersion;
+        this.embeddingModelFingerprint = embeddingModelFingerprint == null ? "" : embeddingModelFingerprint;
+        this.maxProcessingAttempts = maxProcessingAttempts;
     }
 
     /** THE single default origin (§30). */
@@ -58,6 +72,9 @@ public final class KnowledgeProcessingSettings {
                 2,      // minimumPassagesPerTopic
                 1,      // minimumDistinctSourcesPerTopic
                 750L,   // projectionDebounceMillis
-                6);     // topicLabelRepresentativePassageCount
+                6,      // topicLabelRepresentativePassageCount
+                "seg-v1",   // segmentationPipelineVersion
+                "pending",  // embeddingModelFingerprint (placeholder until C3 wires the real embedder)
+                3);     // maxProcessingAttempts
     }
 }

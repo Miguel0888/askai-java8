@@ -146,6 +146,26 @@ public class SourceAcceptanceServiceTest {
     }
 
     @Test
+    public void acceptanceFiresTheCaptureHookExactlyOncePerAcceptedCapture() {
+        Fx fx = new Fx();
+        final java.util.List<String> accepted = new java.util.ArrayList<String>();
+        fx.service.setCaptureAcceptedListener(
+                new com.aresstack.askai.research.knowledge.SourceCaptureAcceptedListener() {
+                    public void onCaptureAccepted(String captureId, String sourceId) {
+                        accepted.add(captureId + "->" + sourceId);
+                    }
+                });
+        VisitedCapture cap = fx.captures.record("https://example.com/a", "A", "Alpha body.");
+        SourceAcceptanceService.Result r = fx.service.accept(cap.getCaptureId());
+        assertEquals(1, accepted.size());
+        assertTrue(accepted.get(0).endsWith("->" + r.sourceId));
+
+        // Re-accepting the SAME capture is ALREADY_ACCEPTED: the hook must NOT fire again (no double enqueue).
+        fx.service.accept(cap.getCaptureId());
+        assertEquals("hook fires once per accepted capture", 1, accepted.size());
+    }
+
+    @Test
     public void indexFailureKeepsTheSourceAndIndexIsRebuildable() {
         Fx fx = new Fx();
         VisitedCapture cap = fx.captures.record("https://example.com/x", "X", "X body.");

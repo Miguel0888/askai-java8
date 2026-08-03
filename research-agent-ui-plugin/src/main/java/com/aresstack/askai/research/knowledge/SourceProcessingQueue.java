@@ -21,6 +21,12 @@ public interface SourceProcessingQueue {
     void markFailed(SourceProcessingJob job, SourceProcessingFailure failure);
 
     /**
+     * Put a job back to QUEUED at the TAIL for another attempt (a retryable failure). Tail order is deliberate:
+     * a retry must NOT preempt jobs that were enqueued after it, so a failing job never blocks the FIFO.
+     */
+    void requeue(SourceProcessingJob job);
+
+    /**
      * Crash recovery (§4.2, §25): every job stranded in PROCESSING is returned to QUEUED so the worker picks
      * it up again. Returns the recovered jobs (possibly empty).
      */

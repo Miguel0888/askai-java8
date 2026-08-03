@@ -1,5 +1,6 @@
 package com.aresstack.askai.research.capture;
 
+import com.aresstack.askai.research.knowledge.SourceCaptureAcceptedListener;
 import com.aresstack.askai.research.sources.ResearchSourceRecord;
 import com.aresstack.askai.research.sources.SourceQuery;
 import com.aresstack.askai.research.sources.SourceRelevance;
@@ -64,6 +65,12 @@ public final class SourceAcceptanceService {
     private final AtomicLong sourceIds = new AtomicLong();
     /** captureId → sourceId of a completed acceptance (idempotency). */
     private final Map<String, String> acceptedByCapture = new HashMap<String, String>();
+    /**
+     * The knowledge-pipeline acceptance hook (§3): fired once per accepted capture, AFTER the commit and
+     * INDEPENDENT of the source-level index (an index failure must not stop it). Never fired for
+     * ALREADY_ACCEPTED / parked / unknown captures, so a duplicate acceptance never enqueues twice.
+     */
+    private volatile SourceCaptureAcceptedListener captureAcceptedListener = SourceCaptureAcceptedListener.NONE;
 
     public SourceAcceptanceService(CaptureStore captures,
                                    com.aresstack.askai.research.sources.ResearchSourceRepository repository,
@@ -185,7 +192,23 @@ public final class SourceAcceptanceService {
         } catch (RuntimeException ex) {
             stale = true;
         }
+        // Fire the knowledge-pipeline hook LAST and independent of the index outcome (§3): a Lucene failure
+        // above already only marked the index stale; the accepted capture must still be enqueued. Best-effort.
+        fireCaptureAccepted(captureId, sourceId);
         return new Result(Status.ACCEPTED, sourceId, title, doc.getPassageCount(), contentDuplicate, stale);
+    }
+
+    /** Bind the knowledge-pipeline acceptance hook (§3). No-op default keeps acceptance decoupled in tests. */
+    public void setCaptureAcceptedListener(SourceCaptureAcceptedListener listener) {
+        this.captureAcceptedListener = listener == null ? SourceCaptureAcceptedListener.NONE : listener;
+    }
+
+    private void fireCaptureAccepted(String captureId, String sourceId) {
+        try {
+            captureAcceptedListener.onCaptureAccepted(captureId, sourceId);
+        } catch (RuntimeException ex) {
+            // The hook is a downstream reaction: its failure must never fail (or roll back) the acceptance.
+        }
     }
 
     /** Outcome of {@link #park}: the source id and whether a new parked record was actually created. */
