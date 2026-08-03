@@ -40,8 +40,8 @@ public final class ModelPageReadinessJudge implements PageReadinessJudge {
         if (probe.consentPresent) {
             return Verdict.COOKIE_BANNER;
         }
-        if (probe.textLength >= CLEARLY_READABLE_CHARS) {
-            return Verdict.READABLE; // clearly a content page — no model call needed
+        if (probe.textLength >= CLEARLY_READABLE_CHARS && !looksSuspicious(probe.excerpt)) {
+            return Verdict.READABLE; // clearly a content page, nothing wall-like in the excerpt — no model call
         }
         Verdict fromModel = classifyWithModel(probe);
         if (fromModel != null) {
@@ -49,6 +49,28 @@ public final class ModelPageReadinessJudge implements PageReadinessJudge {
         }
         // Model unavailable/uncertain: fall back to the deterministic threshold.
         return probe.textLength >= minReadableChars ? Verdict.READABLE : Verdict.UNREADABLE;
+    }
+
+    /**
+     * A cheap keyword pre-filter over the excerpt: a page whose visible text opens with cookie/consent or
+     * verification wording is worth a model classification EVEN when it is long, because a wall the DOM
+     * selectors missed otherwise slips through the "clearly readable" fast-path into the read content.
+     */
+    private static boolean looksSuspicious(String excerpt) {
+        if (excerpt == null || excerpt.isEmpty()) {
+            return false;
+        }
+        String e = excerpt.toLowerCase(Locale.ROOT);
+        String[] markers = {
+                "cookie", "consent", "akzeptier", "zustimm", "we use cookies", "datenschutz", "privacy",
+                "captcha", "verify you are human", "are you human", "not a robot", "human verification",
+                "just a moment", "enable javascript", "cloudflare", "einwillig", "einverstanden"};
+        for (String m : markers) {
+            if (e.contains(m)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private Verdict classifyWithModel(BrowserPageReadiness probe) {

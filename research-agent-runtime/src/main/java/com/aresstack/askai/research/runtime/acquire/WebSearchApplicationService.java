@@ -442,6 +442,13 @@ public final class WebSearchApplicationService {
             return callBrowser("web_open", args("url", url));
         }
         String family = familyOf(url);
+        // "Erst auto": proactively clear a standard consent banner on EVERY page before judging — a common
+        // cookie wall (OneTrust/Cookiebot/"accept all"/"alle akzeptieren") is dismissed here so its text
+        // never bleeds into the read content, even when the DOM markers did not flag it as a banner.
+        String clicked = callBrowser("web_dismiss_consent", args());
+        if (clicked.startsWith("clicked")) {
+            pr = reprobe();
+        }
         // ONE classification per page (the model, when set, may recognise an obstruction the DOM selectors
         // missed); the subsequent waiting uses the cheap heuristic so we do not re-invoke the model per tick.
         PageReadinessJudge.Verdict verdict = readinessJudge.judge(pr);

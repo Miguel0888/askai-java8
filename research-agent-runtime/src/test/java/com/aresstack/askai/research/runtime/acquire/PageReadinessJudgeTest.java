@@ -52,6 +52,20 @@ public class PageReadinessJudgeTest {
     }
 
     @Test
+    public void modelIsConsultedForALongPageWhoseExcerptLooksLikeACookieWall() {
+        // A long page (would otherwise fast-path to READABLE) whose excerpt opens with cookie wording must
+        // still be classified by the model, so the banner text does not bleed into the read content.
+        PageReadinessModel model = new PageReadinessModel() {
+            public String complete(String system, String user) {
+                return "COOKIE_BANNER";
+            }
+        };
+        ModelPageReadinessJudge j = new ModelPageReadinessJudge(model, 48);
+        assertEquals(PageReadinessJudge.Verdict.COOKIE_BANNER,
+                j.judge(probe(3000, false, false, "We use cookies to improve your experience. Accept all?")));
+    }
+
+    @Test
     public void modelFailureFallsBackToTheHeuristicThreshold() {
         PageReadinessModel dead = new PageReadinessModel() {
             public String complete(String system, String user) {
