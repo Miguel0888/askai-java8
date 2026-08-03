@@ -1,0 +1,60 @@
+package com.aresstack.askai.research.knowledge.processing.embedding;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.Charset;
+
+/** The productive {@link EmbeddingHttpTransport} over {@code HttpURLConnection}. No JSON, no descriptor. */
+public final class UrlConnectionEmbeddingHttpTransport implements EmbeddingHttpTransport {
+
+    private static final Charset UTF8 = Charset.forName("UTF-8");
+
+    private final int timeoutMillis;
+
+    public UrlConnectionEmbeddingHttpTransport(int timeoutMillis) {
+        this.timeoutMillis = timeoutMillis <= 0 ? 30_000 : timeoutMillis;
+    }
+
+    @Override
+    public String post(String url, String jsonBody) throws IOException {
+        HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
+        connection.setConnectTimeout(timeoutMillis);
+        connection.setReadTimeout(timeoutMillis);
+        connection.setRequestMethod("POST");
+        connection.setRequestProperty("Content-Type", "application/json");
+        connection.setDoOutput(true);
+        OutputStream out = connection.getOutputStream();
+        try {
+            out.write(jsonBody.getBytes(UTF8));
+        } finally {
+            out.close();
+        }
+        int status = connection.getResponseCode();
+        String body = readAll(status >= 400 ? connection.getErrorStream() : connection.getInputStream());
+        if (status != 200) {
+            throw new IOException("embedding endpoint returned HTTP " + status + ": " + body);
+        }
+        return body;
+    }
+
+    private static String readAll(InputStream in) throws IOException {
+        if (in == null) {
+            return "";
+        }
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        byte[] chunk = new byte[4096];
+        int read;
+        try {
+            while ((read = in.read(chunk)) != -1) {
+                buffer.write(chunk, 0, read);
+            }
+        } finally {
+            in.close();
+        }
+        return new String(buffer.toByteArray(), UTF8);
+    }
+}
