@@ -68,6 +68,8 @@ public final class ProductiveResearchBackendFactory {
             embeddingSnapshots;
     /** The initial-search strategy selection; legacy browser publishes NO snapshot (today's behavior). */
     private final SearchStrategySelection searchStrategy;
+    /** The session's research language ISO code ("en"/"de") for the OpenNLP sentence resolver; default English. */
+    private volatile String researchLanguageCode = "en";
 
     public ProductiveResearchBackendFactory(McpServerRegistry registry, McpToolClientFactory toolClients,
                                             AcpAgentConnector connector, ResearchRuntimeConfig config,
@@ -132,6 +134,18 @@ public final class ProductiveResearchBackendFactory {
         this.embeddingSnapshots = embeddingSnapshots;
         this.searchStrategy = searchStrategy == null
                 ? SearchStrategySelection.legacyBrowser() : searchStrategy;
+    }
+
+    /** The session language (ISO code) for the knowledge worker's OpenNLP sentence resolver; empty → English. */
+    public void setResearchLanguageCode(String languageCode) {
+        this.researchLanguageCode = languageCode == null || languageCode.trim().isEmpty()
+                ? "en" : languageCode.trim();
+    }
+
+    /** Deployment location of OpenNLP sentence models (deployment artifacts; none → deterministic regex). */
+    private static File openNlpModelsDir() {
+        return new File(new File(System.getProperty("user.home", "."), "agents"),
+                "research" + File.separator + "opennlp");
     }
 
     /**
@@ -291,11 +305,27 @@ public final class ProductiveResearchBackendFactory {
         // :research-knowledge-processing. The productive worker is started with C4 (Variant B).
         com.aresstack.askai.agent.model.embedding.EmbeddingEndpointDescriptor embeddingDescriptor =
                 prepareEmbeddingDescriptor(sessionKey, projectDir);
+        final com.aresstack.askai.research.knowledge.processing.KnowledgeProcessingRunner[] knowledgeRunner =
+                {null};
         if (embeddingDescriptor != null) {
-            acceptance.setKnowledgeProcessingScheduler(
+            // Compose (but do not start) the productive worker for THIS session's embedding world (C4 lifts
+            // Variant B). The scheduler stamps jobs with the descriptor fingerprint and wakes the worker so an
+            // accepted source is processed promptly rather than at the next idle poll.
+            knowledgeRunner[0] = KnowledgeProcessingSessionFactory.buildRunner(
+                    projectContext.getProjectDirectory(), sessionKey, embeddingDescriptor,
+                    researchLanguageCode, openNlpModelsDir(), captures, repository, processingQueue,
+                    knowledgeSettings);
+            final com.aresstack.askai.research.knowledge.processing.KnowledgeProcessingScheduler base =
                     new com.aresstack.askai.research.knowledge.processing
                             .QueueBackedKnowledgeProcessingScheduler(processingQueue, knowledgeSettings,
-                            embeddingDescriptor.embeddingFingerprint()));
+                            embeddingDescriptor.embeddingFingerprint());
+            acceptance.setKnowledgeProcessingScheduler(
+                    new com.aresstack.askai.research.knowledge.processing.KnowledgeProcessingScheduler() {
+                        public void enqueue(String captureId, String sourceId) {
+                            base.enqueue(captureId, sourceId);
+                            knowledgeRunner[0].wake();
+                        }
+                    });
         }
         OoResearchStateMachine stateMachine = new OoResearchStateMachine(sessionKey);
 
@@ -403,10 +433,19 @@ public final class ProductiveResearchBackendFactory {
             resources.setSearchProfile(profile);
             holder[0] = resources;
             control.refreshTools(); // now that the live context resolves, publish the initial tool set
+            // Start the continuous knowledge worker LAST, once everything else is wired: it drains the
+            // recovered persistent FIFO and processes newly accepted sources until the session closes.
+            if (knowledgeRunner[0] != null) {
+                knowledgeRunner[0].start();
+                resources.setKnowledgeRunner(knowledgeRunner[0]);
+            }
             return resources;
         } catch (RuntimeException ex) {
             // The lazy browser runtime no longer starts a process here, so the only failures are endpoint
             // registration / agent-backend wiring (runtime) — rolled back the same way.
+            if (knowledgeRunner[0] != null) {
+                knowledgeRunner[0].stop(); // safe even if never started
+            }
             rollback(control, service, bridge, browser);
             throw ex;
         }

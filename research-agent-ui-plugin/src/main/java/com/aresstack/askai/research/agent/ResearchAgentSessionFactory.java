@@ -151,6 +151,8 @@ public final class ResearchAgentSessionFactory implements AgentSessionFactory {
                 // selection is published as a per-session snapshot; the agent's implementation is ready.
                 ResearchRuntimeSettings.loadSearchStrategy(hostContext.getStateStore()),
                 embeddingSnapshots);
+        // The knowledge worker's OpenNLP sentence resolver uses the SAME persisted session language ("en"/"de").
+        factory.setResearchLanguageCode(ResearchRuntimeSettings.loadLanguage(hostContext.getStateStore()));
         java.io.File sessionDirectory =
                 hostContext.getPluginPathService().getWorkspaceDirectory(request.getSessionId());
         final ProductiveResearchSessionResources resources;

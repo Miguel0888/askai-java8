@@ -49,6 +49,8 @@ public final class ProductiveResearchSessionResources {
     private final AcpResearchSessionBackend backend;
     /** The session's immutable settings snapshot (A2c); set once by the factory right after creation. */
     private volatile com.aresstack.askai.browser.search.SearchProcessingProfileSnapshot searchProfile;
+    /** The continuous knowledge worker (persistent FIFO drainer), or null when the capability is unavailable. */
+    private volatile com.aresstack.askai.research.knowledge.processing.KnowledgeProcessingRunner knowledgeRunner;
     private volatile boolean closed;
 
     ProductiveResearchSessionResources(String sessionKey, OoResearchStateMachine stateMachine,
@@ -110,6 +112,16 @@ public final class ProductiveResearchSessionResources {
 
     void setSearchProfile(com.aresstack.askai.browser.search.SearchProcessingProfileSnapshot profile) {
         this.searchProfile = profile;
+    }
+
+    /** The continuous knowledge worker owned by this session (stopped in {@link #close()}); may be null. */
+    void setKnowledgeRunner(
+            com.aresstack.askai.research.knowledge.processing.KnowledgeProcessingRunner runner) {
+        this.knowledgeRunner = runner;
+    }
+
+    public com.aresstack.askai.research.knowledge.processing.KnowledgeProcessingRunner getKnowledgeRunner() {
+        return knowledgeRunner;
     }
 
     /** The settings snapshot this RUNNING session uses (global changes only affect NEW sessions). */
@@ -282,6 +294,11 @@ public final class ProductiveResearchSessionResources {
         }
         closed = true;
         toolRefreshExecutor.shutdownNow();
+        // Stop the knowledge worker FIRST (graceful: lets the current job finish). The persistent FIFO and the
+        // canonical corpus outlive the session, so a mid-flight job is simply recovered on the next open.
+        if (knowledgeRunner != null) {
+            knowledgeRunner.stop();
+        }
         if (backend != null) {
             backend.closeAllSessions();
         }

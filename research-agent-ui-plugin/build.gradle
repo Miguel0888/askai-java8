@@ -14,6 +14,11 @@ dependencies {
     // :research-knowledge-pipeline + :research-domain. The plugin holds ONLY the neutral scheduler port + the
     // VisitedCapture→SourceCapture adapter; all queue/worker/NLP/embedding logic lives in these modules.
     implementation project(':research-knowledge-processing')
+    // The productive knowledge worker runs HOST-SIDE in this plugin: the OpenNLP sentence resolver and the
+    // Lucene-backed SemanticKnowledgeIndex. Their jars (opennlp-tools, lucene-*) ship in the plugin lib/ and
+    // load via the plugin classloader; the neutral ports keep OpenNLP/Lucene types out of the domain/UI.
+    implementation project(':research-text-opennlp')
+    implementation project(':research-knowledge-lucene')
     // The async web-search-provider module (Brave/BrightData/DataForSEO over AsyncHttpClient) powers the
     // provider settings UI + host-side connection test. It and its transitive deps (AsyncHttpClient, Gson,
     // Netty) are NOT bundled into a fat jar — they ship in the plugin's lib/ directory (see pluginDistribution
