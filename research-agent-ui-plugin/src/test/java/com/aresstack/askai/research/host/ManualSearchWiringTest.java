@@ -125,6 +125,7 @@ public class ManualSearchWiringTest {
         assertTrue("carries a correlation id", envelope.contains(" request_id="));
         assertTrue("carries the url-encoded query",
                 envelope.contains("query=" + java.net.URLEncoder.encode("wearables audio video", "UTF-8")));
+        assertTrue("carries the session-language snapshot", envelope.contains(" language=en"));
         assertEquals("no chat prompt was submitted", promptsBefore, fx.backend.prompts.size());
         assertEquals("the phase is unchanged", ResearchStateIds.SCOPING,
                 fx.resources.currentState().getPhaseId());
@@ -149,6 +150,28 @@ public class ManualSearchWiringTest {
         assertEquals("the host session mirrors the new language",
                 com.aresstack.askai.research.agent.ResearchLanguage.GERMAN,
                 fx.session.getSessionLanguage().currentLanguage());
+    }
+
+    @Test
+    public void aSearchSnapshotsTheSessionLanguageAtSubmitTime() {
+        Fx fx = new Fx();
+        fx.session.dispatch(ResearchCommandType.START, null); // SCOPING/RUNNING
+        completeTurn(fx, 1L);
+
+        fx.session.changeLanguage(com.aresstack.askai.research.agent.ResearchLanguage.GERMAN);
+        fx.session.requestManualWebSearch("wearables"); // search A snapshots de
+        fx.session.changeLanguage(com.aresstack.askai.research.agent.ResearchLanguage.ENGLISH);
+        fx.session.requestManualWebSearch("medical devices"); // search B snapshots en
+
+        List<String> searches = new ArrayList<String>();
+        for (String envelope : fx.backend.serviceCommands) {
+            if (envelope.startsWith("#RSC1# manual_search")) {
+                searches.add(envelope);
+            }
+        }
+        assertEquals(2, searches.size());
+        assertTrue("search A keeps its German snapshot", searches.get(0).contains(" language=de"));
+        assertTrue("search B carries the new English snapshot", searches.get(1).contains(" language=en"));
     }
 
     @Test

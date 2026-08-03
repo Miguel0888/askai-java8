@@ -958,8 +958,10 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         if (query == null || query.trim().isEmpty()) {
             return;
         }
+        // The request SNAPSHOTS the session language: a live switch never changes a running search.
         com.aresstack.askai.research.search.ManualWebSearchHandle handle = manualWebSearchPort.search(
-                new com.aresstack.askai.research.search.ManualWebSearchRequest(query));
+                new com.aresstack.askai.research.search.ManualWebSearchRequest(query,
+                        sessionLanguage.currentLanguage()));
         // Remember the correlation id so inbound events of THIS search render and stale ones are ignored.
         this.activeManualSearchHandle = handle;
         this.activeManualSearchRequestId = handle == null ? null : handle.getRequestId();

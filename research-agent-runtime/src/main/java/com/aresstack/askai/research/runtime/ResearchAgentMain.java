@@ -570,6 +570,16 @@ public final class ResearchAgentMain {
                                     com.aresstack.askai.research.runtime.service.ResearchServiceCommand command) {
         System.err.println("[manual-search] runtime received requestId=" + command.getRequestId()
                 + " queryLen=" + command.getQuery().length() + " hasBrowser=" + environment.hasBrowser());
+        // The request's language snapshot is AUTHORITATIVE: it re-synchronises the session language (a lost
+        // set_language heals here) and then fixes THIS search's language for its whole duration. A legacy
+        // envelope without a language field changes nothing and keeps the provider default.
+        final String searchLanguage;
+        if (command.getLanguage().isEmpty()) {
+            searchLanguage = null;
+        } else {
+            sessionLanguage.changeFromCode(command.getLanguage());
+            searchLanguage = sessionLanguage.code();
+        }
         com.aresstack.askai.research.runtime.loop.SolonToolInvoker browser = null;
         try {
             com.aresstack.askai.research.runtime.search.SearchStrategy strategy = searchStrategy;
@@ -589,7 +599,7 @@ public final class ResearchAgentMain {
                         public boolean getAsBoolean() {
                             return cancelled.get();
                         }
-                    }).handle(command.getRequestId(), command.getQuery(),
+                    }).handle(command.getRequestId(), command.getQuery(), searchLanguage,
                     new com.aresstack.askai.research.runtime.service.ManualSearchHandler.Emitter() {
                         public void emit(String wireLine) {
                             ctx.sendMessage(wireLine);

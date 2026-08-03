@@ -26,7 +26,7 @@ public final class ManualSearchHandler {
         void emit(String wireLine);
     }
 
-    /** Result depth for a manual search; provider/language/country stay in the productive strategy config. */
+    /** Result depth for a manual search; provider/country stay in the productive strategy config. */
     private static final int RESULT_COUNT = 10;
 
     private final SearchStrategy strategy; // null → this session has no productive search backend
@@ -42,8 +42,13 @@ public final class ManualSearchHandler {
      * failure is an HONEST, visible failure event — never a silent no-op and never a fallback to a different
      * strategy. Cancellation surfaces as a {@code CANCELLED} failure so late results of an aborted run are
      * distinguishable by the host via the {@code requestId}.
+     *
+     * @param languageCode the IMMUTABLE language snapshot ("en"/"de") of this search — it overrides the
+     *                     provider's configured default language; {@code null}/empty keeps the provider
+     *                     default (legacy hosts without a language field). The country is deliberately NOT
+     *                     derived from the language.
      */
-    public void handle(String requestId, String query, Emitter emitter) {
+    public void handle(String requestId, String query, String languageCode, Emitter emitter) {
         System.err.println("[manual-search] execute started requestId=" + requestId
                 + " strategy=" + (strategy == null ? "unavailable" : strategy.getClass().getSimpleName()));
         emitter.emit(ResearchRunWire.manualSearchStarted(requestId, query));
@@ -62,7 +67,9 @@ public final class ManualSearchHandler {
         }
         try {
             InitialSearchResult result = strategy.search(
-                    new InitialSearchRequest(query.trim(), RESULT_COUNT, null, null),
+                    new InitialSearchRequest(query.trim(), RESULT_COUNT,
+                            languageCode == null || languageCode.isEmpty() ? null : languageCode,
+                            null),
                     new CancellationSignal() {
                         public boolean isCancelled() {
                             return cancelled.getAsBoolean();

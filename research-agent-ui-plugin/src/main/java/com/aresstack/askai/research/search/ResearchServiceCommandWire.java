@@ -18,11 +18,18 @@ public final class ResearchServiceCommandWire {
     private ResearchServiceCommandWire() {
     }
 
-    /** Encode a user-triggered web search command. The query travels URL-encoded (never contains a space). */
-    public static String manualSearch(String requestId, String query) {
+    /**
+     * Encode a user-triggered web search command. The query travels URL-encoded (never contains a space);
+     * the language snapshot ("en"/"de") is AUTHORITATIVE for this search and re-synchronises the runtime's
+     * session language on arrival.
+     */
+    public static String manualSearch(String requestId, String query, String languageCode) {
         StringBuilder sb = new StringBuilder(MARKER).append("manual_search")
                 .append(" request_id=").append(requestId == null ? "" : requestId);
         appendEncoded(sb, "query", query);
+        if (languageCode != null && !languageCode.isEmpty()) {
+            sb.append(" language=").append("de".equalsIgnoreCase(languageCode) ? "de" : "en");
+        }
         return sb.toString();
     }
 
