@@ -126,6 +126,8 @@ public final class WebSearchApplicationService {
     private final Set<String> searchProviderSites = new HashSet<String>();
     /** Domain families with a pending MANUAL challenge: locked (no navigation/retry) until resolved. */
     private final Set<String> challengedFamilies = new HashSet<String>();
+    /** Domain families that returned a TERMINAL access block this run: skipped for good (never retried). */
+    private final Set<String> blockedFamilies = new HashSet<String>();
     /** Frontier URLs deferred because their family is challenge-locked (QUEUED_DOMAIN_BLOCKED). */
     private final List<String> deferredUrls = new ArrayList<String>();
     /** Time spent waiting for the USER (manual challenge) — never counted against the time budget. */
@@ -258,6 +260,13 @@ public final class WebSearchApplicationService {
             String canonical = WebAcquisitionText.canonicalish(url);
             if (progress.alreadyVisited(canonical)) {
                 continue; // already visited → never navigate again
+            }
+            if (blockedFamilies.contains(familyOf(url))) {
+                // A terminal access block already hit this domain this run: never re-open it (unlike a
+                // pending challenge, there is nothing to resolve).
+                progress.noteVisitedAlias(canonical);
+                listener.status("skipped blocked domain: " + url);
+                continue;
             }
             if (challengedFamilies.contains(familyOf(url))) {
                 deferredUrls.add(url); // QUEUED_DOMAIN_BLOCKED: starts only after the challenge resolves
@@ -452,20 +461,29 @@ public final class WebSearchApplicationService {
         // ONE classification per page (the model, when set, may recognise an obstruction the DOM selectors
         // missed); the subsequent waiting uses the cheap heuristic so we do not re-invoke the model per tick.
         PageReadinessJudge.Verdict verdict = readinessJudge.judge(pr);
-        listener.status("readiness=" + verdict + " [text=" + pr.textLength
-                + " challenge=" + pr.challengePresent + " consent=" + pr.consentPresent + "] " + url);
+        String blockReason = AccessBlockSignals.reason(pr);
+        listener.status("readiness=" + verdict
+                + (verdict == PageReadinessJudge.Verdict.ACCESS_BLOCKED ? " reason=" + blockReason : "")
+                + " [text=" + pr.textLength + " challenge=" + pr.challengePresent
+                + " consent=" + pr.consentPresent + "] " + url);
         switch (verdict) {
             case READABLE:
                 return callBrowser("web_read", args()); // assigns the capture id acceptSource resolves
-            case COOKIE_BANNER:
+            case CONSENT_REQUIRED:
                 return clearConsentThenRead(url, family, pr);
-            case CAPTCHA:
+            case INTERACTIVE_CHALLENGE:
                 if (!challengeWaitForUser) {
-                    listener.status("skipping CAPTCHA page (wait-for-user disabled): " + url);
+                    listener.status("skipping interactive-challenge page (wait-for-user disabled): " + url);
                     return null; // leave parked
                 }
                 listener.attention("CAPTCHA", family, url, false);
-                return waitForUserThenRead(url); // a CAPTCHA has no business timeout: cooperative wait
+                return waitForUserThenRead(url); // a solvable challenge has no business timeout: cooperative wait
+            case ACCESS_BLOCKED:
+                // TERMINAL block: nothing to solve — never wait for the user, never accept. Skip this URL and
+                // remember the domain so no other candidate on it is re-opened this run.
+                blockedFamilies.add(family);
+                listener.status("skipped blocked page (" + blockReason + "): " + url);
+                return null;
             case UNREADABLE:
             default:
                 return null; // leave parked (empty full text; the score still tells the user it needs reading)
@@ -514,9 +532,15 @@ public final class WebSearchApplicationService {
         }
     }
 
-    /** The cheap readable check used to detect that a challenge/consent wall has been cleared. */
-    private boolean heuristicReadable(com.aresstack.askai.browser.BrowserPageReadiness pr) {
-        return !pr.challengePresent && !pr.consentPresent && pr.textLength >= minReadableChars;
+    /**
+     * The cheap readable check used to gate every {@code web_read} (and thus every acceptance) on READABLE: a
+     * page is only read when it has enough text AND no challenge/consent flag AND is not a terminal access block.
+     * The block guard is essential — a Cloudflare 1020 page has plenty of text and its challenge marker clears on
+     * reprobe, so without it the block page would be read + accepted (the source-10 bug).
+     */
+    boolean heuristicReadable(com.aresstack.askai.browser.BrowserPageReadiness pr) {
+        return !pr.challengePresent && !pr.consentPresent && !AccessBlockSignals.isBlocked(pr)
+                && pr.textLength >= minReadableChars;
     }
 
     private com.aresstack.askai.browser.BrowserPageReadiness reprobe()

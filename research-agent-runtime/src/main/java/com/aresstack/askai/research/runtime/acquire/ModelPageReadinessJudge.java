@@ -20,8 +20,11 @@ public final class ModelPageReadinessJudge implements PageReadinessJudge {
             "You inspect a web page we just opened to read it as a research source. Decide what the page is. "
                     + "Answer with EXACTLY ONE word, no punctuation:\n"
                     + "READABLE - real article/content we can read;\n"
-                    + "COOKIE_BANNER - a cookie/consent wall blocks the content;\n"
-                    + "CAPTCHA - a human-verification/challenge/\"are you human\" page;\n"
+                    + "CONSENT_REQUIRED - a cookie/consent wall blocks the content;\n"
+                    + "INTERACTIVE_CHALLENGE - a SOLVABLE human-verification/\"are you human\"/\"just a moment\" "
+                    + "page the user could complete;\n"
+                    + "ACCESS_BLOCKED - a TERMINAL block with nothing to solve (e.g. \"Access denied\", "
+                    + "Cloudflare Error 1020, IP/geo block);\n"
                     + "UNREADABLE - error, empty, login/paywall, or otherwise not usable.";
 
     private final PageReadinessModel model;
@@ -34,11 +37,16 @@ public final class ModelPageReadinessJudge implements PageReadinessJudge {
 
     @Override
     public Verdict judge(BrowserPageReadiness probe) {
+        // A TERMINAL block is decided deterministically from the page text (title/excerpt) BEFORE any challenge
+        // flag or model call — a 1020 page must never be treated as a solvable challenge.
+        if (AccessBlockSignals.isBlocked(probe)) {
+            return Verdict.ACCESS_BLOCKED;
+        }
         if (probe.challengePresent) {
-            return Verdict.CAPTCHA;
+            return Verdict.INTERACTIVE_CHALLENGE;
         }
         if (probe.consentPresent) {
-            return Verdict.COOKIE_BANNER;
+            return Verdict.CONSENT_REQUIRED;
         }
         if (probe.textLength >= CLEARLY_READABLE_CHARS && !looksSuspicious(probe.excerpt)) {
             return Verdict.READABLE; // clearly a content page, nothing wall-like in the excerpt — no model call
@@ -88,11 +96,14 @@ public final class ModelPageReadinessJudge implements PageReadinessJudge {
         }
         String a = answer.toUpperCase(Locale.ROOT);
         // Order matters: check the more specific obstructions before the generic READABLE substring.
-        if (a.contains("CAPTCHA")) {
-            return Verdict.CAPTCHA;
+        if (a.contains("ACCESS_BLOCKED") || a.contains("BLOCKED")) {
+            return Verdict.ACCESS_BLOCKED;
         }
-        if (a.contains("COOKIE") || a.contains("CONSENT")) {
-            return Verdict.COOKIE_BANNER;
+        if (a.contains("CHALLENGE") || a.contains("CAPTCHA")) {
+            return Verdict.INTERACTIVE_CHALLENGE;
+        }
+        if (a.contains("CONSENT") || a.contains("COOKIE")) {
+            return Verdict.CONSENT_REQUIRED;
         }
         if (a.contains("UNREADABLE")) {
             return Verdict.UNREADABLE;

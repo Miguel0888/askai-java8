@@ -18,11 +18,16 @@ public final class HeuristicPageReadinessJudge implements PageReadinessJudge {
 
     @Override
     public Verdict judge(BrowserPageReadiness probe) {
+        // A TERMINAL block wins over any challenge/consent DOM flag: a Cloudflare 1020 page often also trips a
+        // challenge marker, but there is nothing to solve — it must NOT wait for the user and must NOT be read.
+        if (AccessBlockSignals.isBlocked(probe)) {
+            return Verdict.ACCESS_BLOCKED;
+        }
         if (probe.challengePresent) {
-            return Verdict.CAPTCHA;
+            return Verdict.INTERACTIVE_CHALLENGE;
         }
         if (probe.consentPresent) {
-            return Verdict.COOKIE_BANNER;
+            return Verdict.CONSENT_REQUIRED;
         }
         return probe.textLength >= minReadableChars ? Verdict.READABLE : Verdict.UNREADABLE;
     }

@@ -12,12 +12,17 @@ import com.aresstack.askai.browser.BrowserPageReadiness;
 public interface PageReadinessJudge {
 
     enum Verdict {
-        /** Real content — read it. */
+        /** Real content — read it. Acceptance may happen ONLY for this verdict. */
         READABLE,
         /** A cookie/consent wall blocks the content — dismiss it (auto first, then ask the user). */
-        COOKIE_BANNER,
-        /** A human-verification / challenge page — wait for the user (or skip when configured). */
-        CAPTCHA,
+        CONSENT_REQUIRED,
+        /** A SOLVABLE human-verification / challenge page — wait for the user (or skip when configured). */
+        INTERACTIVE_CHALLENGE,
+        /**
+         * A TERMINAL access block (e.g. Cloudflare "Access denied / Error 1020", geo/IP block): nothing to
+         * click or solve — never wait for the user, never accept; skip and mark the domain blocked for the run.
+         */
+        ACCESS_BLOCKED,
         /** Empty / error / paywalled / otherwise not usable — leave it parked. */
         UNREADABLE
     }
