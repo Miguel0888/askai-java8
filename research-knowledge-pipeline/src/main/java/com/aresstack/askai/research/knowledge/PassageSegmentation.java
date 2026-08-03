@@ -1,6 +1,5 @@
 package com.aresstack.askai.research.knowledge;
 
-import com.aresstack.askai.research.domain.IdSequence;
 import com.aresstack.askai.research.domain.Passage;
 import com.aresstack.askai.research.domain.Sentence;
 import com.aresstack.askai.research.domain.SourceCapture;
@@ -49,23 +48,23 @@ public final class PassageSegmentation {
 
     private final SentenceSegmentationPort sentenceSegmentation;
     private final EmbeddingPort embeddings;
-    private final IdSequence ids;
+    private final String segmentationVersion;
     private final int windowSize;
     private final double boundaryThreshold;
     private final int minPassageSentences;
     private final int maxPassageSentences;
 
     public PassageSegmentation(SentenceSegmentationPort sentenceSegmentation, EmbeddingPort embeddings,
-                               IdSequence ids) {
-        this(sentenceSegmentation, embeddings, ids, 3, 0.35, 2, 8);
+                               String segmentationVersion) {
+        this(sentenceSegmentation, embeddings, segmentationVersion, 3, 0.35, 2, 8);
     }
 
     public PassageSegmentation(SentenceSegmentationPort sentenceSegmentation, EmbeddingPort embeddings,
-                               IdSequence ids, int windowSize, double boundaryThreshold,
+                               String segmentationVersion, int windowSize, double boundaryThreshold,
                                int minPassageSentences, int maxPassageSentences) {
         this.sentenceSegmentation = sentenceSegmentation;
         this.embeddings = embeddings;
-        this.ids = ids;
+        this.segmentationVersion = segmentationVersion == null ? "" : segmentationVersion;
         this.windowSize = windowSize;
         this.boundaryThreshold = boundaryThreshold;
         this.minPassageSentences = minPassageSentences;
@@ -81,8 +80,10 @@ public final class PassageSegmentation {
         for (SourceCapture.StructuralBlock block : capture.getBlocks()) {
             List<Sentence> blockSentences = new ArrayList<Sentence>();
             for (String text : sentencesOf(block)) {
-                blockSentences.add(new Sentence(ids.next("sentence"), capture.getCaptureId(),
-                        block.getBlockId(), ordinal++, text));
+                int sentenceOrdinal = ordinal++;
+                // Deterministic sentence id from its fachliche identity (capture + position).
+                blockSentences.add(new Sentence(capture.getCaptureId() + "#s" + sentenceOrdinal,
+                        capture.getCaptureId(), block.getBlockId(), sentenceOrdinal, text));
             }
             allSentences.addAll(blockSentences);
             if (blockSentences.isEmpty() || block.getKind() == SourceCapture.BlockKind.HEADING) {
@@ -100,7 +101,12 @@ public final class PassageSegmentation {
                 }
                 EmbeddingPort.EmbeddingVector vector = embeddings.embed(
                         java.util.Collections.singletonList(text.toString())).get(0);
-                Passage passage = new Passage(ids.next("passage"), capture.getCaptureId(), sentenceIds,
+                // Deterministic, version-aware passage id from its fachliche identity (capture + position +
+                // segmentation version + embedding model), so the same captureId + pipelineVersion +
+                // embeddingFingerprint reproduces exactly the same passage ids (reprocess-idempotent).
+                String passageId = capture.getCaptureId() + "#p" + passageSentences.get(0).getOrdinal()
+                        + "@" + segmentationVersion + "-" + vector.getModelFingerprint();
+                Passage passage = new Passage(passageId, capture.getCaptureId(), sentenceIds,
                         block.getHeadingPath(), text.toString(), vector.getModelFingerprint());
                 allPassages.add(passage);
                 passageVectors.put(passage.getPassageId(), vector);

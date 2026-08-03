@@ -143,6 +143,32 @@ public class ResearchProjectInvariantsTest {
     }
 
     @Test
+    public void recordingTheIdenticalCaptureAgainIsIdempotent() {
+        ResearchProject p = project();
+        p.recordSourceCapture(new SourceCapture("cap-1", "src-1", "https://a", 1L, "h", "T", "", null));
+        // Same id + same content (checksum) → no duplicate, no throw, returns the existing capture.
+        SourceCapture again =
+                p.recordSourceCapture(new SourceCapture("cap-1", "src-1", "https://a", 1L, "h", "T", "", null));
+        assertEquals(1, p.captures().size());
+        assertEquals("cap-1", again.getCaptureId());
+    }
+
+    @Test
+    public void recordingTheSameSentencesAndPassagesAgainAddsNoDuplicates() {
+        ResearchProject p = project();
+        p.recordSourceCapture(new SourceCapture("cap-1", "src-1", "https://a", 1L, "h", "T", "", null));
+        p.recordSentences(Arrays.asList(new Sentence("cap-1#s0", "cap-1", "b1", 0, "Text.")));
+        p.recordSentences(Arrays.asList(new Sentence("cap-1#s0", "cap-1", "b1", 0, "Text.")));
+        assertEquals("idempotent by deterministic sentence id", 1, p.sentences().size());
+
+        p.recordPassages(Arrays.asList(
+                new Passage("cap-1#p0@seg-v1-fp", "cap-1", Arrays.asList("cap-1#s0"), "", "Text.", "fp")));
+        p.recordPassages(Arrays.asList(
+                new Passage("cap-1#p0@seg-v1-fp", "cap-1", Arrays.asList("cap-1#s0"), "", "Text.", "fp")));
+        assertEquals("idempotent by deterministic passage id", 1, p.passages().size());
+    }
+
+    @Test
     public void eventsArePublishedInOperationOrder() {
         ResearchProject p = withOutline();
         assertEquals("ResearchBriefConfirmed", p.events().get(0).getName());

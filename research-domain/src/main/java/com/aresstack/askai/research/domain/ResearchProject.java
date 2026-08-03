@@ -96,31 +96,53 @@ public final class ResearchProject {
         return observation;
     }
 
-    /** Immutable capture; a re-captured page is a NEW capture, the old one stays. */
+    /**
+     * Immutable capture; a re-captured page is a NEW capture (new id), the old one stays. Reprocess-idempotent:
+     * recording the SAME capture id with the SAME content (checksum) again is a no-op that returns the existing
+     * capture (no duplicate, no event) — only a SAME id with DIFFERENT content violates immutability and throws.
+     */
     public SourceCapture recordSourceCapture(SourceCapture capture) {
-        if (captures.containsKey(capture.getCaptureId())) {
-            throw new IllegalArgumentException(
-                    "capture " + capture.getCaptureId() + " already exists (captures are immutable)");
+        SourceCapture existing = captures.get(capture.getCaptureId());
+        if (existing != null) {
+            if (existing.getChecksum().equals(capture.getChecksum())) {
+                return existing; // idempotent: identical capture already recorded
+            }
+            throw new IllegalArgumentException("capture " + capture.getCaptureId()
+                    + " already exists with different content (captures are immutable)");
         }
         captures.put(capture.getCaptureId(), capture);
         publish("SourceCaptureRecorded", capture.getCaptureId());
         return capture;
     }
 
+    /** Idempotent by (deterministic) sentence id: re-recording the same sentences adds nothing and no event. */
     public void recordSentences(List<Sentence> segmented) {
+        int added = 0;
         for (Sentence sentence : segmented) {
             requireKnownCapture(sentence.getCaptureId(), "recordSentences");
-            sentences.put(sentence.getSentenceId(), sentence);
+            if (!sentences.containsKey(sentence.getSentenceId())) {
+                sentences.put(sentence.getSentenceId(), sentence);
+                added++;
+            }
         }
-        publish("SentencesRecorded", String.valueOf(segmented.size()));
+        if (added > 0) {
+            publish("SentencesRecorded", String.valueOf(added));
+        }
     }
 
+    /** Idempotent by (deterministic) passage id: re-recording the same passages adds nothing and no event. */
     public void recordPassages(List<Passage> formed) {
+        int added = 0;
         for (Passage passage : formed) {
             requireKnownCapture(passage.getCaptureId(), "recordPassages");
-            passages.put(passage.getPassageId(), passage);
+            if (!passages.containsKey(passage.getPassageId())) {
+                passages.put(passage.getPassageId(), passage);
+                added++;
+            }
         }
-        publish("PassagesRecorded", String.valueOf(formed.size()));
+        if (added > 0) {
+            publish("PassagesRecorded", String.valueOf(added));
+        }
     }
 
     public TopicProposal proposeTopic(TopicProposal proposal) {

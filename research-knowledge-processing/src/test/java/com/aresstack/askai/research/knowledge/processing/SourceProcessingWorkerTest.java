@@ -1,6 +1,5 @@
 package com.aresstack.askai.research.knowledge.processing;
 
-import com.aresstack.askai.research.domain.IdSequence;
 import com.aresstack.askai.research.domain.Passage;
 import com.aresstack.askai.research.domain.Sentence;
 import com.aresstack.askai.research.domain.SourceCapture;
@@ -74,7 +73,7 @@ public class SourceProcessingWorkerTest {
     }
 
     private static PassageSegmentation segmentation() {
-        return new PassageSegmentation(new DotSegmenter(), new FixedEmbedder(), IdSequence.counting());
+        return new PassageSegmentation(new DotSegmenter(), new FixedEmbedder(), "seg-v1");
     }
 
     private static final class Reader implements SourceCaptureReader {

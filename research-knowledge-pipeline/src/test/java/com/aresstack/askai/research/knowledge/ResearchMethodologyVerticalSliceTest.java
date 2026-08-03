@@ -46,7 +46,7 @@ public class ResearchMethodologyVerticalSliceTest {
         EmbeddingPort embeddings = new VocabularyEmbeddingPort(
                 "display", "optics", "battery", "power", "privacy");
         PassageSegmentation segmentation = new PassageSegmentation(
-                new RegexSentenceSegmenter(), embeddings, ids);
+                new RegexSentenceSegmenter(), embeddings, "seg-v1");
 
         // 1. Confirmed research brief (the research PLAN — not the document outline).
         ResearchBrief brief = project.confirmResearchBrief(new ResearchBrief("", 0L,
