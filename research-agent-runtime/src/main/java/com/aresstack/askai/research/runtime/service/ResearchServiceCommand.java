@@ -11,14 +11,26 @@ public final class ResearchServiceCommand {
     /** A user-triggered web search: run the productive SearchStrategy and stream typed result events back. */
     public static final String TYPE_MANUAL_SEARCH = "manual_search";
 
+    /**
+     * A live working-language switch: only updates the runtime's {@link SessionResearchLanguage} — no model
+     * call, no history entry, no state-machine command, no workflow event.
+     */
+    public static final String TYPE_SET_LANGUAGE = "set_language";
+
     private final String type;
     private final String requestId;
     private final String query;
+    private final String language;
 
     public ResearchServiceCommand(String type, String requestId, String query) {
+        this(type, requestId, query, null);
+    }
+
+    public ResearchServiceCommand(String type, String requestId, String query, String language) {
         this.type = type == null ? "" : type;
         this.requestId = requestId == null ? "" : requestId;
         this.query = query == null ? "" : query;
+        this.language = language == null ? "" : language;
     }
 
     public String getType() {
@@ -32,5 +44,10 @@ public final class ResearchServiceCommand {
 
     public String getQuery() {
         return query;
+    }
+
+    /** The language code ("en"/"de") of a {@code set_language} command; empty when absent. */
+    public String getLanguage() {
+        return language;
     }
 }

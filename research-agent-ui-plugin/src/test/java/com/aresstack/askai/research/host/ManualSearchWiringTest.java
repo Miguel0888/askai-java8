@@ -131,6 +131,27 @@ public class ManualSearchWiringTest {
     }
 
     @Test
+    public void aLanguageSwitchIsAServiceCommandNeverAChatTurnAndNeverAStateChange() {
+        Fx fx = new Fx();
+        fx.session.dispatch(ResearchCommandType.START, null); // SCOPING/RUNNING
+        completeTurn(fx, 1L);
+        int promptsBefore = fx.backend.prompts.size();
+
+        fx.session.changeLanguage(com.aresstack.askai.research.agent.ResearchLanguage.GERMAN);
+
+        assertEquals("exactly one typed control envelope", 1, fx.backend.serviceCommands.size());
+        assertEquals("#RSC1# set_language language=de", fx.backend.serviceCommands.get(0));
+        assertEquals("no chat prompt was submitted", promptsBefore, fx.backend.prompts.size());
+        assertEquals("the phase is unchanged", ResearchStateIds.SCOPING,
+                fx.resources.currentState().getPhaseId());
+        assertEquals("the state is unchanged", ResearchStateIds.RUNNING,
+                fx.resources.currentState().getStateId());
+        assertEquals("the host session mirrors the new language",
+                com.aresstack.askai.research.agent.ResearchLanguage.GERMAN,
+                fx.session.getSessionLanguage().currentLanguage());
+    }
+
+    @Test
     public void manualSearchEventsRenderAsActivityAndStaleEventsAreIgnored() {
         Fx fx = new Fx();
         fx.session.dispatch(ResearchCommandType.START, null);

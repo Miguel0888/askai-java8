@@ -33,4 +33,55 @@ public class PhaseContextAssemblerTest {
         }
         assertTrue("the current date is supplied as runtime context", found);
     }
+
+    /**
+     * The Denglisch contract: the working language is read PER TURN from the live session value; a switch
+     * between turns changes only the new turn's instruction while the running history stays untouched.
+     */
+    @Test
+    public void theWorkingLanguageIsReadLivePerTurnAndHistoryStaysUntouched() {
+        final String[] language = {"German"};
+        PhaseContextAssembler assembler = new PhaseContextAssembler(
+                new PhaseContextAssembler.CurrentDate() {
+                    public String today() {
+                        return "2026-08-03";
+                    }
+                },
+                new PhaseContextAssembler.CurrentLanguage() {
+                    public String displayName() {
+                        return language[0];
+                    }
+                });
+        PhaseAssistantProfile profile = PhaseAssistantProfileRegistry.defaults().forPhase("scoping");
+        TeamAgentStateView state = new TeamAgentStateView("scoping", "running", Arrays.<String>asList());
+        List<ChatMessage> history = Arrays.asList(
+                ChatMessage.user("Wearables interessieren mich."),
+                ChatMessage.assistant("Dann sollten wir zuerst den Fokus klären."));
+
+        List<ChatMessage> turnOne = assembler.assemble(profile, state, "",
+                Collections.<String>emptyList(), "", Collections.<String>emptyList(), history);
+        assertTrue("turn 1 works in German",
+                containsSystem(turnOne, "Current working language: German."));
+
+        language[0] = "English"; // set_language between the turns — no new assembler, no model call
+        List<ChatMessage> turnTwo = assembler.assemble(profile, state, "",
+                Collections.<String>emptyList(), "", Collections.<String>emptyList(), history);
+        assertTrue("turn 2 works in English",
+                containsSystem(turnTwo, "Current working language: English."));
+        assertTrue("the instruction protects historical content",
+                containsSystem(turnTwo, "Do not translate or rewrite historical content"));
+        assertTrue("the German history is still part of the context, untranslated",
+                turnTwo.get(turnTwo.size() - 2).getContent().contains("Wearables interessieren mich."));
+        assertTrue(turnTwo.get(turnTwo.size() - 1).getContent()
+                .contains("Dann sollten wir zuerst den Fokus klären."));
+    }
+
+    private static boolean containsSystem(List<ChatMessage> messages, String text) {
+        for (ChatMessage message : messages) {
+            if (message.getRole() == ChatMessage.Role.SYSTEM && message.getContent().contains(text)) {
+                return true;
+            }
+        }
+        return false;
+    }
 }

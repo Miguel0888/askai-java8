@@ -26,6 +26,16 @@ public class ResearchServiceCommandWireTest {
     }
 
     @Test
+    public void parsesASetLanguageEnvelope() {
+        ResearchServiceCommand command =
+                ResearchServiceCommandWire.parse("#RSC1# set_language language=de");
+        assertEquals(ResearchServiceCommand.TYPE_SET_LANGUAGE, command.getType());
+        assertEquals("de", command.getLanguage());
+        assertEquals("no request id, no query — a pure context mutation", "", command.getRequestId());
+        assertEquals("", command.getQuery());
+    }
+
+    @Test
     public void plainChatTextIsNotAServiceCommand() {
         assertFalse(ResearchServiceCommandWire.isServiceCommand("just a normal question"));
         assertNull(ResearchServiceCommandWire.parse("just a normal question"));

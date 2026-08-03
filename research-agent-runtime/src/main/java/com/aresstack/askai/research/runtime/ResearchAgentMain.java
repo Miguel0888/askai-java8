@@ -46,6 +46,12 @@ public final class ResearchAgentMain {
     private com.aresstack.askai.research.runtime.team.ReloadableMainModelChat mainModelChat;
     private com.aresstack.askai.research.runtime.team.ResearchTeamAgent teamAgent;
     /**
+     * The session's live working language (runtime mirror). set_language updates it best-effort; the
+     * language snapshot on operation requests (manual_search) is authoritative and re-synchronises it.
+     */
+    private final com.aresstack.askai.research.runtime.service.SessionResearchLanguage sessionLanguage =
+            new com.aresstack.askai.research.runtime.service.SessionResearchLanguage();
+    /**
      * The MANDATORY reranker, built ONCE at session/new for a browser session (validated + endpoint
      * readiness-checked there, not mid-prompt). Null only when this session has no browser endpoint.
      */
@@ -127,7 +133,17 @@ public final class ResearchAgentMain {
         // live under hasBrowser() or the research loop.
         this.mainModelChat = new com.aresstack.askai.research.runtime.team.ReloadableMainModelChat(
                 buildMainModelChat());
-        this.teamAgent = new com.aresstack.askai.research.runtime.team.ResearchTeamAgent(mainModelChat);
+        // The assembler reads the session's LIVE working language per turn: a set_language between turns
+        // changes the next turn's context, never the history.
+        this.teamAgent = new com.aresstack.askai.research.runtime.team.ResearchTeamAgent(mainModelChat,
+                com.aresstack.askai.research.runtime.team.PhaseAssistantProfileRegistry.defaults(),
+                new com.aresstack.askai.research.runtime.team.PhaseContextAssembler(
+                        new com.aresstack.askai.research.runtime.team.PhaseContextAssembler
+                                .CurrentLanguage() {
+                            public String displayName() {
+                                return sessionLanguage.displayName();
+                            }
+                        }));
         System.err.println("[research-agent] TeamAgent ready on main model: " + mainModelChat.modelName());
 
         // A browser research session REQUIRES the mandatory reranker. Build and readiness-check it here,
@@ -535,6 +551,11 @@ public final class ResearchAgentMain {
         if (com.aresstack.askai.research.runtime.service.ResearchServiceCommand.TYPE_MANUAL_SEARCH
                 .equals(command.getType())) {
             handleManualSearch(ctx, command);
+        } else if (com.aresstack.askai.research.runtime.service.ResearchServiceCommand.TYPE_SET_LANGUAGE
+                .equals(command.getType())) {
+            // Pure session-context mutation: the next TeamAgent turn assembles with the new working
+            // language. No model call, no history entry, no state change, no event back to the host.
+            sessionLanguage.changeFromCode(command.getLanguage());
         }
     }
 

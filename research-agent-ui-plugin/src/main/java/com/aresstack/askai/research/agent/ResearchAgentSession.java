@@ -119,10 +119,17 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
 
     /**
      * Live language switch for THIS session only: host texts and narrations pick it up on the next
-     * utterance; already rendered history stays untouched. No chat turn, no state-machine command.
+     * utterance; already rendered history stays untouched. The runtime agent is synchronised best-effort
+     * via a {@code set_language} service command — no chat turn, no history entry, no state-machine
+     * command; a fake backend's submitServiceCommand is a no-op.
      */
     public void changeLanguage(ResearchLanguage value) {
         sessionLanguage.change(value);
+        if (handle != null && !disposed) {
+            backend.submitServiceCommand(handle,
+                    com.aresstack.askai.research.search.ResearchServiceCommandWire.setLanguage(
+                            sessionLanguage.currentLanguage().getCode()));
+        }
     }
 
     /**

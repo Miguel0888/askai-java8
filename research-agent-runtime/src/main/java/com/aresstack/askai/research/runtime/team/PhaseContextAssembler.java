@@ -17,23 +17,53 @@ public final class PhaseContextAssembler {
         String today();
     }
 
+    /**
+     * Supplies the session's CURRENT working-language display name ("English"/"German") per turn — read at
+     * assemble time, so a live {@code set_language} applies to the NEXT turn without touching history.
+     */
+    public interface CurrentLanguage {
+        String displayName();
+    }
+
+    private static final CurrentLanguage ENGLISH_DEFAULT = new CurrentLanguage() {
+        public String displayName() {
+            return "English";
+        }
+    };
+
     private final CurrentDate currentDate;
+    private final CurrentLanguage currentLanguage;
 
     public PhaseContextAssembler() {
-        this(new CurrentDate() {
-            public String today() {
-                return java.time.LocalDate.now().toString();
-            }
-        });
+        this(systemDate(), ENGLISH_DEFAULT);
     }
 
     /** Inject a fixed date (tests / deterministic runs). */
     public PhaseContextAssembler(CurrentDate currentDate) {
+        this(currentDate, ENGLISH_DEFAULT);
+    }
+
+    /** System clock + the session's live working language (the production wiring). */
+    public PhaseContextAssembler(CurrentLanguage currentLanguage) {
+        this(systemDate(), currentLanguage);
+    }
+
+    public PhaseContextAssembler(CurrentDate currentDate, CurrentLanguage currentLanguage) {
         this.currentDate = currentDate;
+        this.currentLanguage = currentLanguage == null ? ENGLISH_DEFAULT : currentLanguage;
+    }
+
+    private static CurrentDate systemDate() {
+        return new CurrentDate() {
+            public String today() {
+                return java.time.LocalDate.now().toString();
+            }
+        };
     }
 
     /**
-     * system(phase prompt) + system(current date) + system(live research context) + the running history. The
+     * system(phase prompt) + system(current date) + system(current working language) + system(live research
+     * context) + the running history. The
      * profile decides the FIRST system message, so a different active phase yields a different assistant
      * context. The current date is supplied from the host clock so the model never invents a year in, e.g.,
      * search queries.
@@ -45,6 +75,8 @@ public final class PhaseContextAssembler {
         List<ChatMessage> messages = new ArrayList<ChatMessage>();
         messages.add(ChatMessage.system(profile.getSystemPrompt()));
         messages.add(ChatMessage.system("Current date: " + currentDate.today()));
+        messages.add(ChatMessage.system(
+                TeamAgentPlaybook.workingLanguageContext(currentLanguage.displayName())));
         messages.add(ChatMessage.system(TeamAgentPlaybook.stateContext(
                 state, confirmedQuestion, confirmedAspects, proposedQuestion, proposedAspects)));
         if (history != null) {
