@@ -5,40 +5,54 @@ import com.aresstack.askai.research.domain.ResearchProject;
 import com.aresstack.askai.research.domain.ResearchProjectRepository;
 import com.aresstack.askai.research.domain.Sentence;
 import com.aresstack.askai.research.domain.SourceCapture;
+import com.aresstack.askai.research.knowledge.EmbeddingPort;
 
 import java.util.List;
+import java.util.Map;
 
 /**
- * The productive {@link PassageStore}: records one processed capture's sentences and passages onto the
- * {@code research-domain} {@link ResearchProject} aggregate and saves it through the {@link
- * ResearchProjectRepository}. The project directory stays the single source of truth; embedding/index views are
- * rebuildable projections and are NOT written here.
+ * The productive {@link PassageStore}: records one processed capture's sentences, passages and vectors as a
+ * single canonical generation. Sentences/passages go onto the {@code research-domain} {@link ResearchProject}
+ * aggregate and are saved through the {@link ResearchProjectRepository}; the vectors go to a {@link
+ * PassageVectorStore}, co-located in the SAME generation directory. The project directory stays the single
+ * source of truth; embedding/index views are rebuildable projections and are NOT written here.
  *
- * <p>ONE capture = ONE commit: a store loads the current project, records this capture + its sentences +
- * passages (all record-ops are idempotent — re-storing the same derivation changes nothing), and saves. The
- * file repository writes the capture's whole generation and then atomically swaps that capture's active pointer,
- * so the capture's derived data becomes visible at once and a crash never leaves new-sentences-with-old-passages.
- * Other captures already in the project are re-serialized unchanged (no-op writes), never re-committed as new.</p>
+ * <p>ONE capture = ONE commit, and a generation is complete only with all three parts: the vectors are written
+ * FIRST (into the generation dir), THEN the repository writes sentences/passages/manifest and atomically swaps
+ * the capture's active pointer LAST. A crash before that swap leaves the previous generation fully active
+ * (never new-passages-with-old-vectors). All record-ops are idempotent, so re-storing the same derivation is a
+ * no-op.</p>
  */
 public final class ResearchProjectPassageStore implements PassageStore {
 
     private final ResearchProjectRepository repository;
     private final String projectId;
+    private final PassageVectorStore vectorStore;
 
-    public ResearchProjectPassageStore(ResearchProjectRepository repository, String projectId) {
-        if (repository == null) {
-            throw new IllegalArgumentException("repository is required");
+    public ResearchProjectPassageStore(ResearchProjectRepository repository, String projectId,
+                                       PassageVectorStore vectorStore) {
+        if (repository == null || vectorStore == null) {
+            throw new IllegalArgumentException("repository and vectorStore are required");
         }
         this.repository = repository;
         this.projectId = projectId;
+        this.vectorStore = vectorStore;
     }
 
     @Override
-    public void store(SourceCapture capture, List<Sentence> sentences, List<Passage> passages) {
+    public void store(SourceCapture capture, List<Sentence> sentences, List<Passage> passages,
+                      Map<String, EmbeddingPort.EmbeddingVector> passageVectors) {
+        // 1. vectors first, into the SAME generation directory (keyed by the passages' derivation identity).
+        if (passages != null && !passages.isEmpty()) {
+            Passage any = passages.get(0);
+            vectorStore.store(capture.getCaptureId(), any.getSegmentationPipelineVersion(),
+                    any.getEmbeddingFingerprint(), passageVectors);
+        }
+        // 2. sentences/passages/manifest + the atomic active-pointer swap = the single commit point.
         ResearchProject project = repository.load(projectId);
         project.recordSourceCapture(capture);
         project.recordSentences(sentences);
         project.recordPassages(passages);
-        repository.save(project); // per-capture generation + atomic active-pointer swap = the one commit point
+        repository.save(project);
     }
 }

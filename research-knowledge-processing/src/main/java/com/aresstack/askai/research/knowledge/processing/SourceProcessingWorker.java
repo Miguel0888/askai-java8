@@ -140,7 +140,8 @@ public final class SourceProcessingWorker {
 
     private void storePassages(SourceCapture capture, PassageSegmentation.Result result) {
         try {
-            passageStore.store(capture, result.getSentences(), result.getPassages());
+            passageStore.store(capture, result.getSentences(), result.getPassages(),
+                    result.getPassageVectors());
         } catch (RuntimeException ex) {
             throw new StageFailure(SourceProcessingStage.PASSAGE_PERSISTENCE, message(ex), true);
         }

@@ -93,10 +93,14 @@ public class SourceProcessingWorkerTest {
     private static final class Store implements PassageStore {
         final List<Passage> passages = new ArrayList<Passage>();
         final List<Sentence> sentences = new ArrayList<Sentence>();
+        final java.util.Map<String, EmbeddingPort.EmbeddingVector> vectors =
+                new java.util.LinkedHashMap<String, EmbeddingPort.EmbeddingVector>();
 
-        public void store(SourceCapture capture, List<Sentence> s, List<Passage> p) {
+        public void store(SourceCapture capture, List<Sentence> s, List<Passage> p,
+                          java.util.Map<String, EmbeddingPort.EmbeddingVector> v) {
             sentences.addAll(s);
             passages.addAll(p);
+            vectors.putAll(v);
         }
     }
 

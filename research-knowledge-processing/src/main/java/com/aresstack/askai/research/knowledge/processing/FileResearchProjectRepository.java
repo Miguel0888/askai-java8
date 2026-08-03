@@ -290,6 +290,19 @@ public final class FileResearchProjectRepository implements ResearchProjectRepos
         return sha256Hex(value == null ? "" : value);
     }
 
+    /**
+     * The on-disk generation directory for a capture's derivation identity — the SINGLE source of the layout, so
+     * co-located canonical artifacts (e.g. the passage vectors) land in exactly the same generation the active
+     * pointer will point at. Package-visible for {@link FilePassageVectorStore}; the key computation stays here
+     * so it can never drift from {@link #commitGeneration}.
+     */
+    static File generationDir(File projectDirectory, String captureId, String segmentationVersion,
+                              String fingerprint) {
+        File base = new File(projectDirectory, "knowledge");
+        return new File(new File(new File(base, "derived"), hash(captureId)),
+                processingKey(captureId, segmentationVersion, fingerprint));
+    }
+
     // ------------------------------------------------------------------ IO helpers
 
     private static void writeIfChanged(File target, String content) {
