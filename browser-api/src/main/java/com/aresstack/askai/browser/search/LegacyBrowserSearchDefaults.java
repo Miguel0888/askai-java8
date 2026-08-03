@@ -93,11 +93,13 @@ public final class LegacyBrowserSearchDefaults {
                 false,  // playAttentionSound
                 true,   // emitAttentionEvent
                 true,   // blockDomainFamily
-                true);  // retainChallengeTab
+                true,   // retainChallengeTab
+                true);  // waitForUser: wait for the user to solve a challenge (vs. skip and park)
     }
 
     private static SearchPageReadinessSettings readiness() {
-        return new SearchPageReadinessSettings(250, 2, 48, 6_000, 20_000, 8_000);
+        return new SearchPageReadinessSettings(250, 2, 48, 6_000, 20_000, 8_000,
+                3);     // maximumPageReadinessRetries: scan→handle→re-scan attempts before parking
     }
 
     private static SearchPageAnalysisSettings analysis() {

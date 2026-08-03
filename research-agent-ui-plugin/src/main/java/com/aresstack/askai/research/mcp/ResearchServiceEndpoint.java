@@ -9,7 +9,7 @@ import com.aresstack.askai.mcp.api.McpToolHandler;
 import com.aresstack.askai.mcp.api.McpToolParameter;
 import com.aresstack.askai.mcp.api.McpToolResult;
 
-import java.util.Collections;
+import java.util.Arrays;
 
 /**
  * The per-session INTERNAL research-service MCP endpoint — a SEPARATE namespace from the agent-facing
@@ -26,8 +26,9 @@ import java.util.Collections;
  */
 public final class ResearchServiceEndpoint {
 
-    /** The single internal tool name — deliberately distinct from the agent's phase-gated {@code source_accept}. */
+    /** The internal tool names — deliberately distinct from the agent's phase-gated {@code source_accept}. */
     public static final String MANUAL_SOURCE_ACCEPT = "manual_source_accept";
+    public static final String MANUAL_SOURCE_PARK = "manual_source_park";
 
     private final McpServerRegistry registry;
     private final ResearchControlContext context;
@@ -58,7 +59,8 @@ public final class ResearchServiceEndpoint {
         }
         handle = registry.registerEndpoint(
                 new McpEndpointDefinition(endpointId, "Research Service (internal)"));
-        registry.updateTools(handle, Collections.singletonList(manualSourceAcceptTool(context)));
+        registry.updateTools(handle,
+                Arrays.asList(manualSourceAcceptTool(context), manualSourceParkTool(context)));
     }
 
     /** Unregister the endpoint (invalidates the token). Idempotent. */
@@ -97,5 +99,49 @@ public final class ResearchServiceEndpoint {
                 McpToolParameter.string("capture_id", true, "The capture id from a visited page"),
                 McpToolParameter.string("search_query", false,
                         "The user web-search query that found this capture"));
+    }
+
+    private static McpToolContribution manualSourceParkTool(final ResearchControlContext ctx) {
+        return McpToolContribution.of(MANUAL_SOURCE_PARK,
+                "Internal: park a reranked search candidate as a scored source before it is visited "
+                        + "(empty full text; not phase-gated, never an agent tool).",
+                new McpToolHandler() {
+                    public McpToolResult invoke(McpToolCall call) {
+                        String url = call.getString("url");
+                        if (url == null || url.trim().isEmpty()) {
+                            return McpToolResult.error("Missing argument: url");
+                        }
+                        String searchQuery = call.getString("search_query");
+                        String result = ctx.parkCandidate(url.trim(),
+                                nullToEmpty(call.getString("title")),
+                                nullToEmpty(call.getString("excerpt")),
+                                parseScore(call.getString("score")),
+                                searchQuery == null ? "" : searchQuery);
+                        return result == null ? McpToolResult.error("Could not park: " + url)
+                                : McpToolResult.ok(result);
+                    }
+                },
+                McpToolParameter.string("url", true, "The candidate's resolved target URL"),
+                McpToolParameter.string("title", false, "The candidate title"),
+                McpToolParameter.string("excerpt", false, "The search-result snippet/excerpt"),
+                McpToolParameter.string("score", false, "The reranker relevance score (a double)"),
+                McpToolParameter.string("search_query", false,
+                        "The user web-search query that found this candidate"));
+    }
+
+    private static String nullToEmpty(String v) {
+        return v == null ? "" : v;
+    }
+
+    /** Missing/empty/non-numeric score → NaN ("unknown"); a valid double otherwise. */
+    private static double parseScore(String v) {
+        if (v == null || v.trim().isEmpty()) {
+            return Double.NaN;
+        }
+        try {
+            return Double.parseDouble(v.trim());
+        } catch (NumberFormatException ex) {
+            return Double.NaN;
+        }
     }
 }

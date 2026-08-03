@@ -290,8 +290,8 @@ public final class ResearchSourcesView extends JPanel {
     }
 
     private static final class SourcesTableModel extends AbstractTableModel {
-        private final String[] columns = {"Title", "Origin", "Type", "Status", "Reliability",
-                "Relevance", "Linked sections", "Revision"};
+        private final String[] columns = {"Title", "Origin", "Type", "Status", "Score", "Full text",
+                "Reliability", "Relevance", "Linked sections", "Revision"};
         private List<ResearchSourceRecord> rows = new ArrayList<ResearchSourceRecord>();
 
         void setRows(List<ResearchSourceRecord> rows) {
@@ -322,10 +322,15 @@ public final class ResearchSourcesView extends JPanel {
                 case 1: return r.getOrigin();
                 case 2: return r.getSourceType();
                 case 3: return r.getStatus();
-                case 4: return r.getReliability();
-                case 5: return r.getRelevance();
-                case 6: return r.getLinkedSectionIds();
-                case 7: return r.getRevision();
+                // Score makes gaps visible: a high-scored source with no full text is a promising hit still
+                // waiting to be read (parked). "—" when the source carries no reranker score.
+                case 4: return r.hasRerankScore() ? String.format(java.util.Locale.ROOT, "%.2f",
+                        r.getRerankScore()) : "—";
+                case 5: return r.isParked() ? "parked" : "✓";
+                case 6: return r.getReliability();
+                case 7: return r.getRelevance();
+                case 8: return r.getLinkedSectionIds();
+                case 9: return r.getRevision();
                 default: return "";
             }
         }

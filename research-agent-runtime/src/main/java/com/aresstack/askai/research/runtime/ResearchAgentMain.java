@@ -665,7 +665,8 @@ public final class ResearchAgentMain {
                                     // in the service via the ManualSourceAcceptancePort.
                                     return null;
                                 }
-                            });
+                            },
+                            loadBrowserSearchSettings().captcha.waitForUser);
             com.aresstack.askai.research.runtime.loop.ResearchStopReason reason = acquisition.execute(
                     com.aresstack.askai.research.runtime.acquire.WebAcquisitionText.queryTerms(query));
             if (cancelled.get()) {

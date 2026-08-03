@@ -98,6 +98,54 @@ public class SourceAcceptanceServiceTest {
     }
 
     @Test
+    public void acceptStoresTheFullPageTextOnTheRecord() {
+        Fx fx = new Fx();
+        VisitedCapture cap = fx.captures.record("https://example.com/a", "Alpha", "Alpha body.\n\nMore.");
+        SourceAcceptanceService.Result r = fx.service.accept(cap.getCaptureId());
+        ResearchSourceRecord rec = fx.repo.get(r.sourceId);
+        assertEquals("Alpha body.\n\nMore.", rec.getFullText());
+        assertFalse("a visited+read source is not parked", rec.isParked());
+    }
+
+    @Test
+    public void parkWritesAScoredCandidateWithEmptyFullTextThenAVisitEnrichesItInPlace() {
+        Fx fx = new Fx();
+        // Park a reranked candidate before visiting: score present, full text empty, status PARKED.
+        SourceAcceptanceService.ParkResult parked = fx.service.park(
+                "https://example.com/a?utm_source=x", "Alpha", "A short snippet.", 1.5, "smart glasses");
+        assertTrue(parked.created);
+        assertEquals(1, fx.repo.find(SourceQuery.all()).size());
+        ResearchSourceRecord parkedRec = fx.repo.get(parked.sourceId);
+        assertEquals(SourceStatus.PARKED, parkedRec.getStatus());
+        assertTrue(parkedRec.isParked());
+        assertEquals("A short snippet.", parkedRec.getExcerpt());
+        assertEquals(1.5, parkedRec.getRerankScore(), 1e-9);
+        assertEquals("smart glasses", parkedRec.getSearchQuery());
+        assertEquals(0, fx.index.size()); // nothing indexed while parked (no full text)
+
+        // Parking the same canonical URL again is a no-op (idempotent), not a duplicate.
+        SourceAcceptanceService.ParkResult again = fx.service.park(
+                "https://example.com/a", "Alpha", "other", 9.9, "x");
+        assertFalse(again.created);
+        assertEquals(parked.sourceId, again.sourceId);
+        assertEquals(1, fx.repo.find(SourceQuery.all()).size());
+
+        // Visiting the parked URL enriches the SAME record: full text filled, promoted PARKED→NEW,
+        // score kept, no second source created.
+        VisitedCapture cap = fx.captures.record("https://example.com/a", "Alpha", "The full page body.");
+        SourceAcceptanceService.Result accepted = fx.service.accept(cap.getCaptureId(), "smart glasses");
+        assertEquals(SourceAcceptanceService.Status.ACCEPTED, accepted.status);
+        assertEquals("enrich in place, no new source", parked.sourceId, accepted.sourceId);
+        assertEquals(1, fx.repo.find(SourceQuery.all()).size());
+        ResearchSourceRecord enriched = fx.repo.get(parked.sourceId);
+        assertEquals("The full page body.", enriched.getFullText());
+        assertFalse(enriched.isParked());
+        assertEquals(SourceStatus.NEW, enriched.getStatus());
+        assertEquals("parked score is kept through enrich", 1.5, enriched.getRerankScore(), 1e-9);
+        assertEquals(1, fx.index.size()); // indexed now that it has full text
+    }
+
+    @Test
     public void indexFailureKeepsTheSourceAndIndexIsRebuildable() {
         Fx fx = new Fx();
         VisitedCapture cap = fx.captures.record("https://example.com/x", "X", "X body.");

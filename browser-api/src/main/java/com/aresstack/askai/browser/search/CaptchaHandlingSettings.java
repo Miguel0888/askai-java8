@@ -27,12 +27,18 @@ public final class CaptchaHandlingSettings {
     public final boolean blockDomainFamily;
     /** Keep the challenge tab open (parked) for the user instead of closing it. */
     public final boolean retainChallengeTab;
+    /**
+     * The uniform choice for how the acquisition path reacts to a manual challenge: WAIT for the user to
+     * solve it (true, the current behaviour) or SKIP the blocked page and move on (false), leaving its source
+     * parked with an empty full text. Applies the same way everywhere (search and concrete-page visits).
+     */
+    public final boolean waitForUser;
 
     public CaptchaHandlingSettings(boolean enabled, List<String> challengeSelectors,
                                    List<String> challengeTexts, int challengeProbeIntervalMillis,
                                    boolean focusTabOnFirstDetection, boolean playAttentionSound,
                                    boolean emitAttentionEvent, boolean blockDomainFamily,
-                                   boolean retainChallengeTab) {
+                                   boolean retainChallengeTab, boolean waitForUser) {
         this.enabled = enabled;
         this.challengeSelectors = Collections.unmodifiableList(challengeSelectors);
         this.challengeTexts = Collections.unmodifiableList(challengeTexts);
@@ -42,5 +48,6 @@ public final class CaptchaHandlingSettings {
         this.emitAttentionEvent = emitAttentionEvent;
         this.blockDomainFamily = blockDomainFamily;
         this.retainChallengeTab = retainChallengeTab;
+        this.waitForUser = waitForUser;
     }
 }

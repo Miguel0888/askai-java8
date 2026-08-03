@@ -26,4 +26,17 @@ public final class AgentSourceAcceptancePort implements SourceAcceptancePort {
         args.put("capture_id", captureId);
         return research.call("source_accept", args);
     }
+
+    @Override
+    public void park(String url, String title, String excerpt, double rerankScore)
+            throws ToolInvoker.ToolFailure, ToolInvoker.EndpointUnavailable {
+        Map<String, Object> args = new HashMap<String, Object>();
+        args.put("url", url);
+        args.put("title", title == null ? "" : title);
+        args.put("excerpt", excerpt == null ? "" : excerpt);
+        if (!Double.isNaN(rerankScore)) {
+            args.put("score", Double.toString(rerankScore));
+        }
+        research.call("source_park", args);
+    }
 }

@@ -75,6 +75,7 @@ public final class LegacyBrowserSearchSettingsCodec {
         m.put("captcha.emitAttentionEvent", String.valueOf(s.captcha.emitAttentionEvent));
         m.put("captcha.blockDomainFamily", String.valueOf(s.captcha.blockDomainFamily));
         m.put("captcha.retainChallengeTab", String.valueOf(s.captcha.retainChallengeTab));
+        m.put("captcha.waitForUser", String.valueOf(s.captcha.waitForUser));
 
         m.put("readiness.pollIntervalMillis", String.valueOf(s.readiness.pollIntervalMillis));
         m.put("readiness.settlePollCount", String.valueOf(s.readiness.settlePollCount));
@@ -86,6 +87,8 @@ public final class LegacyBrowserSearchSettingsCodec {
                 String.valueOf(s.readiness.navigationCommitTimeoutMillis));
         m.put("readiness.maximumAwaitCallMillis",
                 String.valueOf(s.readiness.maximumAwaitCallMillis));
+        m.put("readiness.maximumPageReadinessRetries",
+                String.valueOf(s.readiness.maximumPageReadinessRetries));
 
         m.put("analysis.noResultsTexts", joinList(s.analysis.noResultsTexts));
         m.put("analysis.maximumCandidateContainers",
@@ -265,14 +268,16 @@ public final class LegacyBrowserSearchSettingsCodec {
                         r.boolValue("captcha.playAttentionSound"),
                         r.boolValue("captcha.emitAttentionEvent"),
                         r.boolValue("captcha.blockDomainFamily"),
-                        r.boolValue("captcha.retainChallengeTab")),
+                        r.boolValue("captcha.retainChallengeTab"),
+                        r.boolValue("captcha.waitForUser")),
                 new SearchPageReadinessSettings(
                         r.intValue("readiness.pollIntervalMillis"),
                         r.intValue("readiness.settlePollCount"),
                         r.intValue("readiness.minimumReadableCharacters"),
                         r.intValue("readiness.contentReadinessTimeoutMillis"),
                         r.intValue("readiness.navigationCommitTimeoutMillis"),
-                        r.intValue("readiness.maximumAwaitCallMillis")),
+                        r.intValue("readiness.maximumAwaitCallMillis"),
+                        r.intValue("readiness.maximumPageReadinessRetries")),
                 new SearchPageAnalysisSettings(
                         r.list("analysis.noResultsTexts"),
                         r.intValue("analysis.maximumCandidateContainers"),

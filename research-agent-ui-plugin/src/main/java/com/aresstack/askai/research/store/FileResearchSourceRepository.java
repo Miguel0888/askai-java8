@@ -123,6 +123,10 @@ public final class FileResearchSourceRepository implements ResearchSourceReposit
         line(sb, "checksum", r.getChecksum());
         line(sb, "revision", Long.toString(r.getRevision()));
         line(sb, "searchQuery", r.getSearchQuery());
+        line(sb, "excerpt", r.getExcerpt());
+        line(sb, "fullText", r.getFullText());
+        // A NaN score is written as "" so an old file (no key) and an unscored source read back the same.
+        line(sb, "rerankScore", r.hasRerankScore() ? Double.toString(r.getRerankScore()) : "");
         StoreIo.atomicWrite(file(r.getSourceId()), sb.toString());
     }
 
@@ -156,6 +160,9 @@ public final class FileResearchSourceRepository implements ResearchSourceReposit
                     .checksum(p.getProperty("checksum", ""))
                     .revision(parseLong(p.getProperty("revision")))
                     .searchQuery(p.getProperty("searchQuery", "")) // "" for old files / agent-accepted sources
+                    .excerpt(p.getProperty("excerpt", ""))
+                    .fullText(p.getProperty("fullText", "")) // "" for old files / parked (unread) sources
+                    .rerankScore(parseScore(p.getProperty("rerankScore")))
                     .build();
         } catch (Exception corrupt) {
             return null; // isolate a corrupt source file
@@ -163,8 +170,9 @@ public final class FileResearchSourceRepository implements ResearchSourceReposit
     }
 
     private static void line(StringBuilder sb, String key, String value) {
-        // Properties format: escape backslash and newline; keep it simple and robust.
-        String v = value == null ? "" : value.replace("\\", "\\\\").replace("\n", "\\n");
+        // Properties format: escape backslash, then CR and LF (full page text may contain either, and a raw
+        // CR/LF would be read back as a line terminator and truncate the value). Keep it simple and robust.
+        String v = value == null ? "" : value.replace("\\", "\\\\").replace("\r", "\\r").replace("\n", "\\n");
         sb.append(key).append('=').append(v).append('\n');
     }
 
@@ -198,6 +206,18 @@ public final class FileResearchSourceRepository implements ResearchSourceReposit
             return v == null ? 0L : Long.parseLong(v.trim());
         } catch (NumberFormatException ex) {
             return 0L;
+        }
+    }
+
+    /** Missing key (old file) or empty value → NaN ("no score"); everything else parses as a double. */
+    private static double parseScore(String v) {
+        if (v == null || v.trim().isEmpty()) {
+            return Double.NaN;
+        }
+        try {
+            return Double.parseDouble(v.trim());
+        } catch (NumberFormatException ex) {
+            return Double.NaN;
         }
     }
 

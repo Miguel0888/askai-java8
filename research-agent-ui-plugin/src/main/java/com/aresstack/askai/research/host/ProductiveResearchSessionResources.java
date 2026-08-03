@@ -262,6 +262,12 @@ public final class ProductiveResearchSessionResources {
                 return result.status == SourceAcceptanceService.Status.UNKNOWN_CAPTURE
                         ? null : result.render();
             }
+
+            @Override
+            public String parkCandidate(String url, String title, String excerpt, double rerankScore,
+                                        String searchQuery) {
+                return acceptance.park(url, title, excerpt, rerankScore, searchQuery).render();
+            }
         };
     }
 

@@ -39,4 +39,15 @@ public interface ResearchControlContext {
     default String acceptCapture(String captureId, String searchQuery) {
         return acceptCapture(captureId);
     }
+
+    /**
+     * Park a reranked search candidate as a scored source BEFORE the page is visited (empty full text, status
+     * PARKED). Backed by the same {@code SourceAcceptanceService} as acceptance. The default is a no-op
+     * (agent path / test fakes); the productive context overrides it.
+     * @return a compact park result line ({@code status=PARKED|ALREADY_PRESENT source_id=…}), or {@code null}.
+     */
+    default String parkCandidate(String url, String title, String excerpt, double rerankScore,
+                                 String searchQuery) {
+        return null;
+    }
 }

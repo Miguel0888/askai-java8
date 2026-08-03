@@ -113,6 +113,8 @@ public final class WebSearchApplicationService {
     private final long startedAt;
     private final long challengeProbeIntervalMillis;
     private final AcceptedSourceListener acceptedSourceListener;
+    /** true → wait for the user to solve a challenge; false → skip the blocked page (leaves it parked). */
+    private final boolean challengeWaitForUser;
 
     /** Sites of the search engine(s) used this run — pure TRANSIT: never a page, host, source or link farm. */
     private final Set<String> searchProviderSites = new HashSet<String>();
@@ -139,7 +141,8 @@ public final class WebSearchApplicationService {
                                        com.aresstack.askai.browser.domain.DomainKeyResolver domainKeys,
                                        SourceAcceptancePort sourceAcceptancePort, long startedAt,
                                        long challengeProbeIntervalMillis,
-                                       AcceptedSourceListener acceptedSourceListener) {
+                                       AcceptedSourceListener acceptedSourceListener,
+                                       boolean challengeWaitForUser) {
         this.browser = browser;
         this.budget = budget;
         this.progress = progress;
@@ -154,6 +157,7 @@ public final class WebSearchApplicationService {
         this.startedAt = startedAt;
         this.challengeProbeIntervalMillis = challengeProbeIntervalMillis;
         this.acceptedSourceListener = acceptedSourceListener;
+        this.challengeWaitForUser = challengeWaitForUser;
     }
 
     /** Execute the deterministic acquisition for {@code terms}; returns the explicit acquisition stop reason. */
@@ -342,6 +346,10 @@ public final class WebSearchApplicationService {
                         : result.selected) {
                     if (!ranked.candidate.resolvedTargetUrl.isEmpty()) {
                         frontier.add(ranked.candidate.resolvedTargetUrl);
+                        // Park the candidate with its reranker score BEFORE it is visited, so every hit is
+                        // in the store immediately (score visible) and its full text is filled only on a
+                        // successful visit. Best-effort: a park failure never aborts the search.
+                        parkCandidate(ranked);
                     }
                 }
                 return null;
@@ -366,6 +374,21 @@ public final class WebSearchApplicationService {
             default:
                 progress.error();
                 return ResearchStopReason.RERANKER_UNAVAILABLE;
+        }
+    }
+
+    /**
+     * Park a single reranked candidate (best-effort). Parking is host-side bookkeeping, so it is deliberately
+     * NOT gated by the tool budget and a failure is logged and swallowed — the search continues regardless.
+     */
+    private void parkCandidate(com.aresstack.askai.research.runtime.rerank.RerankedSearchResultCandidate ranked) {
+        try {
+            sourceAcceptancePort.park(ranked.candidate.resolvedTargetUrl, ranked.candidate.title,
+                    ranked.candidate.snippet, ranked.score);
+        } catch (ToolInvoker.ToolFailure ex) {
+            listener.status("park failed: " + ex.getMessage());
+        } catch (ToolInvoker.EndpointUnavailable ex) {
+            listener.status("park skipped (endpoint unavailable)");
         }
     }
 
@@ -504,6 +527,12 @@ public final class WebSearchApplicationService {
      */
     private ResearchStopReason waitForManualChallenge(List<String> frontier) {
         String family = challengedFamilies.isEmpty() ? "" : challengedFamilies.iterator().next();
+        if (!challengeWaitForUser) {
+            // Uniform "skip on challenge" choice: do NOT wait for the user. The challenge-blocked URLs stay
+            // deferred and are simply left behind (their parked sources keep an empty full text).
+            listener.status("skipping challenge-blocked pages (wait-for-user disabled): " + family);
+            return sufficientOr(ResearchStopReason.NO_RELEVANT_PATHS);
+        }
         listener.progress(progress, ResearchRunActivity.waitingForUser(family, ""));
         while (frontier.isEmpty() && !deferredUrls.isEmpty() && !challengedFamilies.isEmpty()) {
             if (cancelled.get()) {

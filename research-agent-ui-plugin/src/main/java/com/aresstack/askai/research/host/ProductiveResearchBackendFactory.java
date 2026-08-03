@@ -309,6 +309,13 @@ public final class ProductiveResearchBackendFactory {
                             // Delegate WITH the query so the productive context persists it on the source.
                             return holder[0].controlContext().acceptCapture(captureId, searchQuery);
                         }
+
+                        @Override
+                        public String parkCandidate(String url, String title, String excerpt,
+                                                    double rerankScore, String searchQuery) {
+                            return holder[0].controlContext().parkCandidate(url, title, excerpt, rerankScore,
+                                    searchQuery);
+                        }
                     };
             control = new com.aresstack.askai.research.mcp.ResearchControlEndpoint(
                     registry, sessionKey, generationId, controlContext);

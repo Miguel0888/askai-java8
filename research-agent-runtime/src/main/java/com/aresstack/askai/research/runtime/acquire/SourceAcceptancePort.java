@@ -17,4 +17,15 @@ import com.aresstack.askai.research.runtime.loop.ToolInvoker;
 public interface SourceAcceptancePort {
 
     String accept(String captureId) throws ToolInvoker.ToolFailure, ToolInvoker.EndpointUnavailable;
+
+    /**
+     * Park a reranked candidate as a scored source BEFORE it is visited (empty full text, status PARKED).
+     * Best-effort bookkeeping — a failure must never abort the search. Mirrors {@link #accept}'s split:
+     * <pre>
+     *   AgentSourceAcceptancePort   → source_park          (phase-gated agent MCP tool)
+     *   ManualSourceAcceptancePort  → manual_source_park   (internal, phase-independent)
+     * </pre>
+     */
+    void park(String url, String title, String excerpt, double rerankScore)
+            throws ToolInvoker.ToolFailure, ToolInvoker.EndpointUnavailable;
 }

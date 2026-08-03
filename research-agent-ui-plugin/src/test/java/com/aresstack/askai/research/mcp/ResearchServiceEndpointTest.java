@@ -97,17 +97,19 @@ public class ResearchServiceEndpointTest {
             List<String> agentTools = reg.listToolNames(agent.getEndpointId(), agent.getHandle().getToken());
             assertFalse("manual_source_accept must never be an agent tool in " + phase,
                     agentTools.contains("manual_source_accept"));
+            assertFalse("manual_source_park must never be an agent tool in " + phase,
+                    agentTools.contains("manual_source_park"));
             agent.close();
         }
     }
 
     @Test
-    public void theServiceEndpointOnlyOffersItsInternalTool() {
+    public void theServiceEndpointOnlyOffersItsInternalTools() {
         InProcessMcpServerRegistry reg = new InProcessMcpServerRegistry();
         ResearchServiceEndpoint service = new ResearchServiceEndpoint(reg, "s1", 1L, new Ctx());
         service.open();
         List<String> names = reg.listToolNames(service.getEndpointId(), service.getHandle().getToken());
-        assertEquals(Collections.singletonList("manual_source_accept"), names);
+        assertEquals(java.util.Arrays.asList("manual_source_accept", "manual_source_park"), names);
         service.close();
     }
 }

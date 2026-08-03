@@ -53,6 +53,7 @@ public final class ResearchToolPolicy {
         }
         if (writable(phaseId, stateId, ResearchStateIds.RESEARCH)) {
             tools.add(sourceAcceptTool(ctx));
+            tools.add(sourceParkTool(ctx));
             tools.add(findingAddTool(ctx));
             tools.add(notesAppendTool(ctx));
         }
@@ -179,6 +180,48 @@ public final class ResearchToolPolicy {
                     }
                 },
                 McpToolParameter.string("capture_id", true, "The capture id from a visited page"));
+    }
+
+    private static McpToolContribution sourceParkTool(final ResearchControlContext ctx) {
+        return McpToolContribution.of("source_park",
+                "Park a reranked search candidate as a scored source before it is visited (empty full text).",
+                new McpToolHandler() {
+                    public McpToolResult invoke(McpToolCall call) {
+                        McpToolResult denied = requireWritable(ctx, ResearchStateIds.RESEARCH);
+                        if (denied != null) {
+                            return denied;
+                        }
+                        String url = call.getString("url");
+                        if (url == null || url.trim().isEmpty()) {
+                            return McpToolResult.error("Missing argument: url");
+                        }
+                        String result = ctx.parkCandidate(url.trim(),
+                                emptyIfNull(call.getString("title")),
+                                emptyIfNull(call.getString("excerpt")),
+                                parseScore(call.getString("score")), "");
+                        return result == null ? McpToolResult.error("Could not park: " + url)
+                                : McpToolResult.ok(result);
+                    }
+                },
+                McpToolParameter.string("url", true, "The candidate's resolved target URL"),
+                McpToolParameter.string("title", false, "The candidate title"),
+                McpToolParameter.string("excerpt", false, "The search-result snippet/excerpt"),
+                McpToolParameter.string("score", false, "The reranker relevance score (a double)"));
+    }
+
+    private static String emptyIfNull(String v) {
+        return v == null ? "" : v;
+    }
+
+    private static double parseScore(String v) {
+        if (v == null || v.trim().isEmpty()) {
+            return Double.NaN;
+        }
+        try {
+            return Double.parseDouble(v.trim());
+        } catch (NumberFormatException ex) {
+            return Double.NaN;
+        }
     }
 
     private static McpToolContribution findingAddTool(final ResearchControlContext ctx) {

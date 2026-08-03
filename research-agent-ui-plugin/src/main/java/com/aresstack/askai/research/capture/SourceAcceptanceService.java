@@ -91,6 +91,10 @@ public final class SourceAcceptanceService {
     /**
      * As {@link #accept(String)} but records the USER web-search query that found the source, so the host can
      * later know (across restarts) which queries were already searched. Agent acceptance passes "".
+     *
+     * <p>When a PARKED record (a reranked candidate written before the visit, see {@link #park}) already
+     * exists for this page's canonical URL, the visit ENRICHES it in place — its empty full text is filled
+     * and it is promoted PARKED→NEW — instead of creating a second source. The parked reranker score is kept.
      */
     public synchronized Result accept(String captureId, String searchQuery) {
         // Idempotency first: a completed acceptance always returns the same source id.
@@ -106,11 +110,16 @@ public final class SourceAcceptanceService {
             return new Result(Status.UNKNOWN_CAPTURE, null, "", 0, false, false);
         }
 
-        // Dedup against the already-accepted sources.
+        // Dedup against existing sources; a parked record for the same URL is the enrich target.
         boolean contentDuplicate = false;
+        ResearchSourceRecord parkedMatch = null;
         for (ResearchSourceRecord source : repository.find(SourceQuery.all())) {
             boolean sameUrl = capture.getCanonicalUrl().equals(
                     CaptureStore.canonicalize(source.getUrl()));
+            if (sameUrl && source.isParked()) {
+                parkedMatch = source; // a parked candidate we are now visiting: enrich it below
+                continue;
+            }
             boolean sameHash = capture.getContentHash().equals(source.getChecksum());
             if (sameUrl && sameHash) {
                 // Identical page already accepted: idempotent outcome against the existing source.
@@ -129,23 +138,43 @@ public final class SourceAcceptanceService {
                 new DocumentExtractor.DocumentInput("text/plain", "", capture.getText()));
         String title = capture.getTitle().isEmpty() ? doc.getTitle() : capture.getTitle();
 
-        // Build the full record, then commit atomically; the capture's assessment travels along.
-        String sourceId = "source-" + sourceIds.incrementAndGet();
-        ResearchSourceRecord record = ResearchSourceRecord.builder(sourceId)
-                .title(title)
-                .origin(hostOf(capture.getCanonicalUrl()))
-                .url(capture.getUrl())
-                .sourceType(capture.getSourceType() == null ? "web" : capture.getSourceType())
-                .capturedAt(capture.getCapturedAt())
-                .comment(capture.getAssessmentNote() == null ? "" : capture.getAssessmentNote())
-                .relevance(parseRelevance(capture.getRelevance()))
-                .reliability(SourceReliability.UNKNOWN)
-                .status(contentDuplicate ? SourceStatus.DUPLICATE : SourceStatus.NEW)
-                .snapshotReference("")
-                .checksum(capture.getContentHash())
-                .revision(1L)
-                .searchQuery(searchQuery == null ? "" : searchQuery.trim())
-                .build();
+        // Build the record (enrich the parked candidate in place, or create a fresh source), then commit
+        // atomically; the capture's assessment travels along. The full page text is stored on the record.
+        final String sourceId;
+        final ResearchSourceRecord record;
+        if (parkedMatch != null) {
+            sourceId = parkedMatch.getSourceId();
+            record = parkedMatch.toBuilder()
+                    .title(parkedMatch.getTitle().isEmpty() ? title : parkedMatch.getTitle())
+                    .sourceType(capture.getSourceType() == null ? parkedMatch.getSourceType()
+                            : capture.getSourceType())
+                    .capturedAt(capture.getCapturedAt())
+                    .fullText(capture.getText())
+                    .status(contentDuplicate ? SourceStatus.DUPLICATE : SourceStatus.NEW)
+                    .checksum(capture.getContentHash())
+                    .revision(parkedMatch.getRevision() + 1L)
+                    .searchQuery(parkedMatch.getSearchQuery().isEmpty()
+                            ? (searchQuery == null ? "" : searchQuery.trim()) : parkedMatch.getSearchQuery())
+                    .build();
+        } else {
+            sourceId = "source-" + sourceIds.incrementAndGet();
+            record = ResearchSourceRecord.builder(sourceId)
+                    .title(title)
+                    .origin(hostOf(capture.getCanonicalUrl()))
+                    .url(capture.getUrl())
+                    .sourceType(capture.getSourceType() == null ? "web" : capture.getSourceType())
+                    .capturedAt(capture.getCapturedAt())
+                    .comment(capture.getAssessmentNote() == null ? "" : capture.getAssessmentNote())
+                    .relevance(parseRelevance(capture.getRelevance()))
+                    .reliability(SourceReliability.UNKNOWN)
+                    .status(contentDuplicate ? SourceStatus.DUPLICATE : SourceStatus.NEW)
+                    .snapshotReference("")
+                    .fullText(capture.getText())
+                    .checksum(capture.getContentHash())
+                    .revision(1L)
+                    .searchQuery(searchQuery == null ? "" : searchQuery.trim())
+                    .build();
+        }
         creator.create(record);
         acceptedByCapture.put(captureId, sourceId);
 
@@ -157,6 +186,55 @@ public final class SourceAcceptanceService {
             stale = true;
         }
         return new Result(Status.ACCEPTED, sourceId, title, doc.getPassageCount(), contentDuplicate, stale);
+    }
+
+    /** Outcome of {@link #park}: the source id and whether a new parked record was actually created. */
+    public static final class ParkResult {
+        public final String sourceId;
+        public final boolean created;
+
+        ParkResult(String sourceId, boolean created) {
+            this.sourceId = sourceId;
+            this.created = created;
+        }
+
+        public String render() {
+            return "status=" + (created ? "PARKED" : "ALREADY_PRESENT") + " source_id=" + sourceId;
+        }
+    }
+
+    /**
+     * Park a reranked search candidate in the store BEFORE the page is visited: a record carrying the search
+     * excerpt and the reranker score, with an empty full text (status {@link SourceStatus#PARKED}). Visiting
+     * the page later enriches it (see {@link #accept}). Idempotent per canonical URL: a URL already present
+     * (parked or accepted) is not parked again.
+     */
+    public synchronized ParkResult park(String url, String title, String excerpt, double rerankScore,
+                                        String searchQuery) {
+        String canonical = CaptureStore.canonicalize(url);
+        for (ResearchSourceRecord source : repository.find(SourceQuery.all())) {
+            if (canonical.equals(CaptureStore.canonicalize(source.getUrl()))) {
+                return new ParkResult(source.getSourceId(), false); // already parked or accepted
+            }
+        }
+        String sourceId = "source-" + sourceIds.incrementAndGet();
+        ResearchSourceRecord record = ResearchSourceRecord.builder(sourceId)
+                .title(title == null ? "" : title)
+                .origin(hostOf(canonical))
+                .url(url)
+                .sourceType("web")
+                .excerpt(excerpt == null ? "" : excerpt)
+                .fullText("") // parked: filled only when the page is successfully visited
+                .rerankScore(rerankScore)
+                .relevance(SourceRelevance.UNKNOWN)
+                .reliability(SourceReliability.UNKNOWN)
+                .status(SourceStatus.PARKED)
+                .checksum("")
+                .revision(1L)
+                .searchQuery(searchQuery == null ? "" : searchQuery.trim())
+                .build();
+        creator.create(record);
+        return new ParkResult(sourceId, true);
     }
 
     private static SourceRelevance parseRelevance(String v) {

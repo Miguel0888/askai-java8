@@ -19,15 +19,23 @@ public final class SearchPageReadinessSettings {
     public final int navigationCommitTimeoutMillis;
     /** Upper bound of a single MCP await call (the caller re-awaits; readiness may span calls). */
     public final int maximumAwaitCallMillis;
+    /**
+     * Maximum number of scan→handle→re-scan iterations when preparing a CONCRETE page for reading (a cookie
+     * banner can appear after a CAPTCHA and vice versa). After this many attempts without becoming readable,
+     * the page is left parked (empty full text). 0 disables the readiness loop (read immediately).
+     */
+    public final int maximumPageReadinessRetries;
 
     public SearchPageReadinessSettings(int pollIntervalMillis, int settlePollCount,
                                        int minimumReadableCharacters, int contentReadinessTimeoutMillis,
-                                       int navigationCommitTimeoutMillis, int maximumAwaitCallMillis) {
+                                       int navigationCommitTimeoutMillis, int maximumAwaitCallMillis,
+                                       int maximumPageReadinessRetries) {
         this.pollIntervalMillis = pollIntervalMillis;
         this.settlePollCount = settlePollCount;
         this.minimumReadableCharacters = minimumReadableCharacters;
         this.contentReadinessTimeoutMillis = contentReadinessTimeoutMillis;
         this.navigationCommitTimeoutMillis = navigationCommitTimeoutMillis;
         this.maximumAwaitCallMillis = maximumAwaitCallMillis;
+        this.maximumPageReadinessRetries = maximumPageReadinessRetries;
     }
 }

@@ -137,6 +137,10 @@ public final class LegacyBrowserSearchSettingsCatalog {
                 "Lock the whole registrable-domain family while its challenge is pending.");
         bool(f, "captcha.retainChallengeTab", SECTION_CAPTCHA, "Retain challenge tab",
                 "Keep the challenge tab open (parked) for the user.");
+        bool(f, "captcha.waitForUser", SECTION_CAPTCHA, "Wait for user on challenge",
+                "When a CAPTCHA blocks a page, WAIT for the user to solve it. Turn OFF to skip the blocked "
+                        + "page instead and leave its source parked (empty full text). Applies uniformly to "
+                        + "search and concrete-page visits.");
         // --- Readiness
         integer(f, "readiness.pollIntervalMillis", SECTION_READINESS, "Poll interval (ms)",
                 "Probe cadence and settle-window width for content readiness.", 50, 5_000);
@@ -156,6 +160,11 @@ public final class LegacyBrowserSearchSettingsCatalog {
         integer(f, "readiness.maximumAwaitCallMillis", SECTION_READINESS,
                 "Maximum await call (ms)",
                 "Upper bound of a single MCP await call; readiness may span calls.", 500, 60_000);
+        integer(f, "readiness.maximumPageReadinessRetries", SECTION_READINESS,
+                "Maximum page readiness retries",
+                "How many scan→handle→re-scan attempts to make a concrete page readable (a cookie banner "
+                        + "can follow a CAPTCHA and vice versa) before leaving it parked. 0 reads immediately.",
+                0, 20);
         // --- Mechanical analysis
         list(f, "analysis.noResultsTexts", SECTION_ANALYSIS, "No-results texts",
                 "Lower-cased page texts (one per line) that mark an explicitly EMPTY result page "

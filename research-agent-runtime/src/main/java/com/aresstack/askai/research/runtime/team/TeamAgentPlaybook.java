@@ -45,6 +45,18 @@ public final class TeamAgentPlaybook {
                 + "- When the user does not know (\"no idea\", \"keine Ahnung\"), do NOT ask again — OFFER 2-5 "
                 + "sensible options or defaults and record them as suggestions.\n"
                 + "- The user's own statements always win over your suggestions.\n"
+                + "- The research question DELIMITS A TOPIC AREA for an academic work; it is NOT a hunt for one "
+                + "narrow fact. Treat each new user message as ADDING TO / BROADENING the existing scope, not "
+                + "replacing it: when the user says \"auch X\" / \"and X\" / \"plus X\", KEEP everything already "
+                + "in the question and INCLUDE X as a further part of the SAME area (e.g. \"smart glasses\" then "
+                + "\"auch Displays\" → a question about smart glasses AND displays, not one only about "
+                + "displays).\n"
+                + "- EDIT the existing research question gently, like using an editor: start from the working "
+                + "question shown in the research context, keep its prior parts, and weave the new aspect in — "
+                + "do NOT rewrite it from scratch around the latest word.\n"
+                + "- Only REPLACE or re-orient the question when the user CLEARLY changes their mind / corrects "
+                + "an earlier assumption, or explicitly says they want only one narrow detail. Broadening is the "
+                + "normal case; narrowing or pivoting is the exception.\n"
                 + "- When you have a topic and at least a rough focus, briefly SUMMARIZE the scope.\n\n"
                 + "Your job each turn:\n"
                 + "- Interpret the user's input as a brief/idea/user story and keep a RESEARCH BRIEF up to "
@@ -190,10 +202,21 @@ public final class TeamAgentPlaybook {
      * suggestions to explore the gaps/next angles they reveal. Never echoed to the user as a message.
      */
     public static String sourceReviewInstruction() {
-        return "A web search just added new research sources (listed in the research context above). Skim "
-                + "them briefly, then REFRESH your search suggestions to cover the gaps and promising next "
-                + "angles they reveal — avoid repeating queries already covered. Keep assistantMessage to one "
-                + "short sentence about what the new sources add. Respond with the JSON object only.";
+        return "A web search just finished and added new research sources (listed in the research context "
+                + "above). Take a moment to review them, then in assistantMessage report back what WE LEARNED, "
+                + "in a natural, human tone:\n"
+                + "- Start with a short overview at a HIGHER LEVEL OF ABSTRACTION — the big picture the sources "
+                + "collectively paint, not a per-source recap.\n"
+                + "- Then name the THEME CLUSTERS worth deepening: group the material into 2-4 clearly named "
+                + "areas the user could dig into next.\n"
+                + "- End with exactly ONE OPEN, exploratory question that invites the user to steer where to go "
+                + "— it must be genuinely open, NOT something specific and NEVER a closed yes/no question.\n"
+                + "If the research genuinely corrected an expectation you had, you may honestly admit it in a "
+                + "phrase — it is fine to be a little human and surprised. But do NOT manufacture or inflate a "
+                + "correction that did not happen or was trivial; when there was nothing worth mentioning, say "
+                + "nothing about it. Support the user, do not pad or nag.\n"
+                + "Also REFRESH your search suggestions to cover the gaps and promising next angles the sources "
+                + "reveal — avoid repeating queries already covered. Respond with the JSON object only.";
     }
 
     /**

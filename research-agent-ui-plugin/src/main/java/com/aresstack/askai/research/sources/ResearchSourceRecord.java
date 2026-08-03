@@ -28,6 +28,12 @@ public final class ResearchSourceRecord {
     private final long revision;
     /** The user web-search query that found this source (empty for agent-accepted sources). */
     private final String searchQuery;
+    /** The short excerpt/snippet taken from the search results (before the page was visited). */
+    private final String excerpt;
+    /** The full readable page text, filled ONLY after the page was successfully visited; empty = parked. */
+    private final String fullText;
+    /** The reranker relevance score for the search query, or {@code NaN} when unknown/not reranked. */
+    private final double rerankScore;
 
     private ResearchSourceRecord(Builder b) {
         this.sourceId = b.sourceId;
@@ -46,6 +52,9 @@ public final class ResearchSourceRecord {
         this.checksum = str(b.checksum);
         this.revision = b.revision;
         this.searchQuery = str(b.searchQuery);
+        this.excerpt = str(b.excerpt);
+        this.fullText = str(b.fullText);
+        this.rerankScore = b.rerankScore;
     }
 
     private static String str(String v) {
@@ -117,12 +126,38 @@ public final class ResearchSourceRecord {
         return searchQuery;
     }
 
+    /** The search-result excerpt/snippet, or "" when none was captured. */
+    public String getExcerpt() {
+        return excerpt;
+    }
+
+    /** The full readable page text, or "" when the page has not been (successfully) read yet — "parked". */
+    public String getFullText() {
+        return fullText;
+    }
+
+    /** True when this source is parked: it has a score/excerpt but the page text was never read. */
+    public boolean isParked() {
+        return fullText.isEmpty();
+    }
+
+    /** The reranker relevance score for the search query, or {@code NaN} when unknown. */
+    public double getRerankScore() {
+        return rerankScore;
+    }
+
+    /** True when a reranker score is present (not {@code NaN}). */
+    public boolean hasRerankScore() {
+        return !Double.isNaN(rerankScore);
+    }
+
     public Builder toBuilder() {
         return new Builder(sourceId)
                 .title(title).origin(origin).url(url).sourceType(sourceType).capturedAt(capturedAt)
                 .author(author).linkedSectionIds(linkedSectionIds).comment(comment).relevance(relevance)
                 .reliability(reliability).status(status).snapshotReference(snapshotReference)
-                .checksum(checksum).revision(revision).searchQuery(searchQuery);
+                .checksum(checksum).revision(revision).searchQuery(searchQuery)
+                .excerpt(excerpt).fullText(fullText).rerankScore(rerankScore);
     }
 
     public static Builder builder(String sourceId) {
@@ -146,6 +181,9 @@ public final class ResearchSourceRecord {
         private String checksum;
         private long revision;
         private String searchQuery;
+        private String excerpt;
+        private String fullText;
+        private double rerankScore = Double.NaN;
 
         private Builder(String sourceId) {
             if (sourceId == null || sourceId.trim().isEmpty()) {
@@ -174,6 +212,9 @@ public final class ResearchSourceRecord {
         public Builder checksum(String v) { this.checksum = v; return this; }
         public Builder revision(long v) { this.revision = v; return this; }
         public Builder searchQuery(String v) { this.searchQuery = v; return this; }
+        public Builder excerpt(String v) { this.excerpt = v; return this; }
+        public Builder fullText(String v) { this.fullText = v; return this; }
+        public Builder rerankScore(double v) { this.rerankScore = v; return this; }
 
         public ResearchSourceRecord build() {
             return new ResearchSourceRecord(this);

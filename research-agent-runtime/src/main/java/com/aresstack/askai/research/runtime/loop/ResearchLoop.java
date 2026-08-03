@@ -32,6 +32,8 @@ public final class ResearchLoop {
     private final Set<String> claimedSourceIds = new HashSet<String>();
     /** From the CAPTCHA settings (single default origin: LegacyBrowserSearchDefaults). */
     private final long challengeProbeIntervalMillis;
+    /** From the CAPTCHA settings: wait for the user on a challenge (true) or skip it (false). Uniform. */
+    private final boolean challengeWaitForUser;
     /** Public-suffix aware domain families; tests may inject a fake (e.g. host:port for local worlds). */
     private com.aresstack.askai.browser.domain.DomainKeyResolver domainKeys =
             new com.aresstack.askai.browser.domain.PublicSuffixDomainKeyResolver();
@@ -148,6 +150,7 @@ public final class ResearchLoop {
         this.cancelled = cancelled;
         this.searchSettings = searchSettings;
         this.challengeProbeIntervalMillis = searchSettings.captcha.challengeProbeIntervalMillis;
+        this.challengeWaitForUser = searchSettings.captcha.waitForUser;
         this.startedAt = clock.currentTimeMillis();
         // Default seam: the unchanged browser SERP path. The factory owns the layout-repair client so the
         // loop depends only on the neutral SearchStrategy — never on McpLayoutRepairClient directly.
@@ -203,7 +206,8 @@ public final class ResearchLoop {
                                 return recordFinding(source.getSourceId(), source.isDuplicate(),
                                         source.getPage(), terms, budgetGate);
                             }
-                        });
+                        },
+                        challengeWaitForUser);
         ResearchStopReason reason = acquisition.execute(terms);
         listener.status("run stopped: " + reason
                 + " (pages=" + progress.getPagesVisited()
