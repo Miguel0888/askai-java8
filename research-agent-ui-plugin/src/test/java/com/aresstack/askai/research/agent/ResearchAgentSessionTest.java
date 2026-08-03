@@ -206,6 +206,44 @@ public class ResearchAgentSessionTest {
         assertTrue("state listener should have fired", stateChanges[0] > 0);
     }
 
+    @Test
+    public void searchCommandRunsAPhaseIndependentManualWebSearch() {
+        Fixture f = new Fixture();
+        f.session.activate();
+        final List<String> searched = new ArrayList<String>();
+        f.session.setManualWebSearchPort(new com.aresstack.askai.research.search.ManualWebSearchPort() {
+            public com.aresstack.askai.research.search.ManualWebSearchHandle search(
+                    com.aresstack.askai.research.search.ManualWebSearchRequest request) {
+                searched.add(request.getQuery());
+                return new com.aresstack.askai.research.search.ManualWebSearchHandle() {
+                    public String getRequestId() {
+                        return "req-1";
+                    }
+
+                    public void cancel() {
+                    }
+                };
+            }
+        });
+
+        // "/search <free text>" runs the manual search over everything after the command name.
+        CommandExecutionResult ok = command("search").execute(
+                new CommandInvocation("search",
+                        java.util.Arrays.asList("neuroscience", "wearable", "technology", "applications"),
+                        "/search neuroscience wearable technology applications"),
+                new FixedContext(f.session));
+        assertEquals(CommandExecutionResult.Status.HANDLED, ok.getStatus());
+        assertEquals(1, searched.size());
+        assertEquals("neuroscience wearable technology applications", searched.get(0));
+
+        // An empty query is rejected and starts no search.
+        CommandExecutionResult empty = command("search").execute(
+                new CommandInvocation("search", Collections.<String>emptyList(), "/search"),
+                new FixedContext(f.session));
+        assertEquals(CommandExecutionResult.Status.REJECTED, empty.getStatus());
+        assertEquals(1, searched.size());
+    }
+
     private static ChatCommandContribution command(String name) {
         for (ChatCommandContribution c : ResearchChatCommands.all()) {
             if (c.getDescriptor().getName().equals(name)) {

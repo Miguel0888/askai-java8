@@ -36,6 +36,7 @@ public final class ResearchChatCommands {
         commands.add(new CancelCommand());
         commands.add(new OpenCommand());
         commands.add(new DoCommand());
+        commands.add(new SearchCommand());
         return commands;
     }
 
@@ -213,6 +214,31 @@ public final class ResearchChatCommands {
                 return CommandExecutionResult.handled("Dispatched " + raw + ".");
             }
             return CommandExecutionResult.rejected(result.getStatus() + ": " + result.getDetail());
+        }
+    }
+
+    /**
+     * {@code /search <query>} — run a USER web search over everything after the command. It is the typed twin of
+     * a yellow scoping-suggestion click: the SAME phase-independent {@link ResearchAgentSession#requestManualWebSearch}
+     * service, never a chat turn and never a state-machine command. Works in any phase.
+     */
+    private static final class SearchCommand extends Base {
+        public ChatCommandDescriptor getDescriptor() {
+            return ChatCommandDescriptor.of("search", "Run a web search for the given text", "/search <query>",
+                    new CommandArgumentDescriptor("query", "What to search the web for", true));
+        }
+
+        public CommandExecutionResult execute(CommandInvocation invocation, AgentSessionContext context) {
+            ResearchAgentSession session = research(context);
+            if (session == null) {
+                return CommandExecutionResult.unknown();
+            }
+            String query = String.join(" ", invocation.getArguments()).trim();
+            if (query.isEmpty()) {
+                return CommandExecutionResult.rejected("Usage: /search <query>");
+            }
+            session.requestManualWebSearch(query);
+            return CommandExecutionResult.handled("Websuche: " + query);
         }
     }
 

@@ -584,16 +584,17 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     }
 
     /**
-     * Echo a clicked scoping suggestion as a TENTATIVE user statement: a fenced {@code mermaid} block with the
-     * query, followed by a "?". Clicking a suggestion is NOT a binding request — the whole point of scoping is
-     * that the user is still working out what they want — so the framing (a diagram-like block + question mark)
-     * keeps the agent from later reading it as a committed instruction. Purely visual; it starts no turn.
+     * Echo a clicked scoping suggestion as the {@code /search <query>} command line it stands for — exactly what
+     * the user could have typed. Purely visual (a user bubble); it starts no agent turn. The search itself runs
+     * through {@link #requestManualWebSearch}, the same phase-independent service the typed {@code /search}
+     * command uses. Showing the literal command (instead of the old tentative mermaid block) keeps the click
+     * honest and unifies the two entry points into one visible, user-owned action.
      */
-    public void echoTentativeSuggestion(String query) {
+    public void echoSearchCommand(String query) {
         if (query == null || query.trim().isEmpty()) {
             return;
         }
-        echoUserMessage("```mermaid\n" + query.trim() + "\n```\n?");
+        echoUserMessage("/search " + query.trim());
     }
 
     /** An agent utterance from the playbook/dialog, routed through the shared sink on the UI thread. */
