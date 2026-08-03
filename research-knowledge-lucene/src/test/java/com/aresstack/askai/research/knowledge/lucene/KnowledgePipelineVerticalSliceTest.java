@@ -103,7 +103,7 @@ public class KnowledgePipelineVerticalSliceTest {
             public void onStarted(SourceProcessingJob job) {
             }
 
-            public void onCompleted(SourceProcessingJob job, int passageCount) {
+            public void onCompleted(SourceProcessingJob job, int sentenceCount, int passageCount) {
                 completedPassageCount[0] = passageCount;
             }
 

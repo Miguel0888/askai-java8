@@ -53,9 +53,11 @@ final class KnowledgeProcessingSessionFactory {
                 new UrlConnectionEmbeddingHttpTransport((int) descriptor.timeoutMillis));
 
         // Sentences: the deployed OpenNLP model for the session language, else the deterministic regex fallback.
-        SentenceSegmentationPort segmenter =
-                new OpenNlpModelResolver(new DirectoryOpenNlpModelCatalog(openNlpModelsDir))
-                        .segmenterFor(languageCode);
+        // A DEPLOYED-but-corrupt model throws here (fail fast) instead of silently degrading to regex.
+        OpenNlpModelResolver sentenceResolver =
+                new OpenNlpModelResolver(new DirectoryOpenNlpModelCatalog(openNlpModelsDir));
+        boolean usingOpenNlp = sentenceResolver.openNlpSegmenterFor(languageCode).isPresent();
+        SentenceSegmentationPort segmenter = sentenceResolver.segmenterFor(languageCode);
 
         PassageSegmentation segmentation = new PassageSegmentation(segmenter, embeddings,
                 settings.segmentationPipelineVersion, settings.windowSize, settings.boundaryThreshold,
@@ -73,14 +75,58 @@ final class KnowledgeProcessingSessionFactory {
         SourceCaptureReader reader = new CaptureStoreSourceCaptureReader(captures,
                 new CanonicalUrlSourceIdResolver(sourceRepository));
 
+        // One-time readiness line for the live gate: language, which segmenter, and the embedding world.
+        System.err.println("[research-knowledge] worker ready project=" + projectId
+                + " language=" + languageCode
+                + " segmenter=" + (usingOpenNlp
+                        ? "OpenNLP(" + DirectoryOpenNlpModelCatalog.fileName(languageCode) + ")"
+                        : "regex-fallback(no model deployed)")
+                + " embeddingModel=" + descriptor.modelId
+                + " fingerprint=" + descriptor.embeddingFingerprint()
+                + " dimension=" + descriptor.embeddingDimension
+                + " endpoint=" + descriptor.endpointUrl());
+
         final SourceProcessingWorker worker = new SourceProcessingWorker(queue, reader, segmentation,
                 passageStore, index, generations, projectId, settings.maxProcessingAttempts,
-                descriptor.embeddingFingerprint(), SourceProcessingWorker.Listener.NONE);
+                descriptor.embeddingFingerprint(), diagnosticListener(projectId, languageCode));
 
         return new KnowledgeProcessingRunner(new KnowledgeProcessingRunner.ProcessingStep() {
             public boolean processOne() {
                 return worker.processOne();
             }
         }, "knowledge-processing-" + projectId, 1000L, 5000L);
+    }
+
+    /**
+     * Per-job diagnostics to the app console (the live-gate evidence: captureId, sentence/passage counts,
+     * embedding fingerprint, COMPLETED / failure stage). Cheap and side-effect free.
+     */
+    private static SourceProcessingWorker.Listener diagnosticListener(final String projectId,
+                                                                      final String languageCode) {
+        return new SourceProcessingWorker.Listener() {
+            public void onStarted(
+                    com.aresstack.askai.research.knowledge.processing.SourceProcessingJob job) {
+                System.err.println("[research-knowledge] processing captureId=" + job.getRequest().getCaptureId()
+                        + " project=" + projectId + " language=" + languageCode
+                        + " fingerprint=" + job.getRequest().getEmbeddingModelFingerprint());
+            }
+
+            public void onCompleted(
+                    com.aresstack.askai.research.knowledge.processing.SourceProcessingJob job,
+                    int sentenceCount, int passageCount) {
+                System.err.println("[research-knowledge] COMPLETED captureId=" + job.getRequest().getCaptureId()
+                        + " sentences=" + (sentenceCount == RESUMED ? "resumed" : Integer.toString(sentenceCount))
+                        + " passages=" + passageCount
+                        + " fingerprint=" + job.getRequest().getEmbeddingModelFingerprint());
+            }
+
+            public void onFailed(
+                    com.aresstack.askai.research.knowledge.processing.SourceProcessingJob job,
+                    com.aresstack.askai.research.knowledge.processing.SourceProcessingFailure failure) {
+                System.err.println("[research-knowledge] " + failure.getStage() + "_FAILED captureId="
+                        + job.getRequest().getCaptureId() + " retryable=" + failure.isRetryable()
+                        + " reason=" + failure.getReason());
+            }
+        };
     }
 }

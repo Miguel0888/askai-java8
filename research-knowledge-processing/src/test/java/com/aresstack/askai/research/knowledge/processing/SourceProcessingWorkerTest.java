@@ -163,7 +163,7 @@ public class SourceProcessingWorkerTest {
         public void onStarted(SourceProcessingJob job) {
         }
 
-        public void onCompleted(SourceProcessingJob job, int passageCount) {
+        public void onCompleted(SourceProcessingJob job, int sentenceCount, int passageCount) {
             completed.add(job.getRequest().getCaptureId());
         }
 

@@ -26,11 +26,18 @@ import java.util.Map;
  */
 public final class SourceProcessingWorker {
 
-    /** Observation seam (diagnostics §29 / UI events §28 come later); a no-op default keeps the worker pure. */
+    /**
+     * Observation seam (diagnostics §29 / UI events §28). A no-op default keeps the worker pure.
+     * {@code sentenceCount} is {@link #RESUMED} when a job was resumed straight at the indexing stage (the
+     * sentences were persisted by an earlier attempt and were not recomputed).
+     */
     public interface Listener {
+        /** Sentinel sentence count reported when a job resumed at indexing (no NLP/embedding recompute). */
+        int RESUMED = -1;
+
         void onStarted(SourceProcessingJob job);
 
-        void onCompleted(SourceProcessingJob job, int passageCount);
+        void onCompleted(SourceProcessingJob job, int sentenceCount, int passageCount);
 
         void onFailed(SourceProcessingJob job, SourceProcessingFailure failure);
 
@@ -38,7 +45,7 @@ public final class SourceProcessingWorker {
             public void onStarted(SourceProcessingJob job) {
             }
 
-            public void onCompleted(SourceProcessingJob job, int passageCount) {
+            public void onCompleted(SourceProcessingJob job, int sentenceCount, int passageCount) {
             }
 
             public void onFailed(SourceProcessingJob job, SourceProcessingFailure failure) {
@@ -107,9 +114,9 @@ public final class SourceProcessingWorker {
         }
         listener.onStarted(job);
         try {
-            int passageCount = runPipeline(job);
+            PipelineOutcome outcome = runPipeline(job);
             queue.markCompleted(job);
-            listener.onCompleted(job, passageCount);
+            listener.onCompleted(job, outcome.sentenceCount, outcome.passageCount);
         } catch (StageFailure sf) {
             handleFailure(job, sf);
         } catch (RuntimeException unexpected) {
@@ -128,7 +135,7 @@ public final class SourceProcessingWorker {
         return handled;
     }
 
-    private int runPipeline(SourceProcessingJob job) {
+    private PipelineOutcome runPipeline(SourceProcessingJob job) {
         SourceProcessingRequest req = job.getRequest();
         String captureId = req.getCaptureId();
         String segVersion = req.getSegmentationPipelineVersion();
@@ -138,16 +145,29 @@ public final class SourceProcessingWorker {
         // got past PASSAGE_PERSISTENCE and only INDEXING failed), skip OpenNLP/embedding entirely and re-index
         // from the durable data — no expensive NLP/embedding recompute for a transient index error.
         List<PassageIndexDocument> documents = loadPersisted(captureId, segVersion, fingerprint);
+        int sentenceCount = Listener.RESUMED;
         if (documents.isEmpty()) {
             SourceCapture capture = readCapture(captureId);
             PassageSegmentation.Result result = segment(capture);
             storePassages(capture, result); // passages + vectors durable BEFORE the index (which is a projection)
             documents = toIndexDocuments(capture, result, segVersion, fingerprint);
+            sentenceCount = result.getSentences().size();
         }
         // INDEXING is the LAST stage: only after a successful index update may the job be COMPLETED. A capture's
         // passages are replaced atomically so a retry never duplicates and a new generation supersedes the old.
         indexPassages(captureId, fingerprint, documents);
-        return documents.size();
+        return new PipelineOutcome(sentenceCount, documents.size());
+    }
+
+    /** The counts reported to the listener on completion; sentenceCount is {@link Listener#RESUMED} on resume. */
+    private static final class PipelineOutcome {
+        final int sentenceCount;
+        final int passageCount;
+
+        PipelineOutcome(int sentenceCount, int passageCount) {
+            this.sentenceCount = sentenceCount;
+            this.passageCount = passageCount;
+        }
     }
 
     private List<PassageIndexDocument> loadPersisted(String captureId, String segVersion, String fingerprint) {
