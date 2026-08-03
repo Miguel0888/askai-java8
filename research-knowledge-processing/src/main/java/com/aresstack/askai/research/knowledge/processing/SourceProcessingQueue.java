@@ -10,7 +10,11 @@ import java.util.List;
  */
 public interface SourceProcessingQueue {
 
-    /** Enqueue a request (idempotent per idempotency key); returns the resulting QUEUED (or existing) job. */
+    /**
+     * Enqueue a request (idempotent per idempotency key); returns the resulting QUEUED (or existing) job. A
+     * previously {@link SourceProcessingJob.State#SUPERSEDED} job of the same key is RE-ACTIVATED to QUEUED at
+     * the tail — so a return to an earlier embedding world re-derives that capture rather than staying retired.
+     */
     SourceProcessingJob enqueue(SourceProcessingRequest request);
 
     /** The next QUEUED job marked PROCESSING, or {@code null} when the queue is empty. */
@@ -19,6 +23,13 @@ public interface SourceProcessingQueue {
     void markCompleted(SourceProcessingJob job);
 
     void markFailed(SourceProcessingJob job, SourceProcessingFailure failure);
+
+    /**
+     * Retire a job UNPROCESSED because its embedding-world fingerprint no longer matches the active session's
+     * world (§4.3). Unlike {@link #markCompleted} this makes no claim that the work was done — a SUPERSEDED key
+     * is never treated as already-completed, so the capture is honestly re-derivable under the active world.
+     */
+    void markSuperseded(SourceProcessingJob job);
 
     /**
      * Put a job back to QUEUED at the TAIL for another attempt (a retryable failure). Tail order is deliberate:

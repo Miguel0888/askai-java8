@@ -30,10 +30,12 @@ public final class KnowledgeProcessingSettings {
     public final int topicLabelRepresentativePassageCount;
 
     // --- Processing pipeline provenance + retry ---
-    /** Part of a job's idempotency key (a bump forces reprocessing). */
+    /**
+     * Part of a job's idempotency key (a bump forces reprocessing). The OTHER half of that key — the embedding
+     * world fingerprint — is NOT a setting: it is injected per session from the host's
+     * {@code EmbeddingEndpointDescriptor}, so a job always names the vector world it was created for (§4.3).
+     */
     public final String segmentationPipelineVersion;
-    /** The embedding-model fingerprint used in a job's idempotency key until the real embedder is wired (C3). */
-    public final String embeddingModelFingerprint;
     /** Maximum processing attempts before a retryable failure is treated as permanent. */
     public final int maxProcessingAttempts;
 
@@ -42,7 +44,7 @@ public final class KnowledgeProcessingSettings {
                                        double topicMergeThreshold, int minimumPassagesPerTopic,
                                        int minimumDistinctSourcesPerTopic, long projectionDebounceMillis,
                                        int topicLabelRepresentativePassageCount,
-                                       String segmentationPipelineVersion, String embeddingModelFingerprint,
+                                       String segmentationPipelineVersion,
                                        int maxProcessingAttempts) {
         this.windowSize = windowSize;
         this.boundaryThreshold = boundaryThreshold;
@@ -56,7 +58,6 @@ public final class KnowledgeProcessingSettings {
         this.topicLabelRepresentativePassageCount = topicLabelRepresentativePassageCount;
         this.segmentationPipelineVersion = segmentationPipelineVersion == null
                 ? "" : segmentationPipelineVersion;
-        this.embeddingModelFingerprint = embeddingModelFingerprint == null ? "" : embeddingModelFingerprint;
         this.maxProcessingAttempts = maxProcessingAttempts;
     }
 
@@ -73,8 +74,7 @@ public final class KnowledgeProcessingSettings {
                 1,       // minimumDistinctSourcesPerTopic (C5)
                 750L,    // projectionDebounceMillis (C7)
                 6,       // topicLabelRepresentativePassageCount (C6)
-                "seg-v1",   // segmentationPipelineVersion
-                "pending",  // embeddingModelFingerprint (placeholder until C3 wires the real embedder)
+                "seg-v1",   // segmentationPipelineVersion (the embedding world fingerprint is session-injected)
                 3);      // maxProcessingAttempts
     }
 }

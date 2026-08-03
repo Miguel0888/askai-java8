@@ -125,8 +125,9 @@ public class SourceProcessingWorkerTest {
 
         Fx(File dir, int maxAttempts) {
             this.queue = new FileSourceProcessingQueue(dir);
+            // The worker's pipeline embeds in the "fake-fp" world; jobs are enqueued with the same world.
             this.worker = new SourceProcessingWorker(queue, reader, segmentation(), store, maxAttempts,
-                    listener);
+                    "fake-fp", listener);
         }
     }
 
@@ -189,5 +190,57 @@ public class SourceProcessingWorkerTest {
         fx.queue.enqueue(req("cap-ok")); // idempotent → returns the completed job, nothing new queued
         assertNull(fx.queue.takeNext());
         assertEquals("no reprocessing", stored, fx.store.passages.size());
+    }
+
+    /**
+     * §4.3 temporal consistency: a job queued under embedding world F1 must NEVER be run with the session's F2
+     * pipeline and stored under the F1 key. The worker supersedes the stale job and re-enqueues the capture for
+     * the active world — the F1 job is not processed, and a fresh F2 job for the same capture appears.
+     */
+    @Test
+    public void aJobFromAnOtherEmbeddingWorldIsSupersededAndReEnqueuedForTheActiveWorld() throws IOException {
+        File dir = tempDir();
+        FileSourceProcessingQueue queue = new FileSourceProcessingQueue(dir);
+        // A stale job in the "old-world-fp" world (e.g. the previous session used a different embedding model).
+        queue.enqueue(new SourceProcessingRequest("cap-x", "src-1", "seg-v1", "old-world-fp"));
+        RecordingListener listener = new RecordingListener();
+        Store store = new Store();
+        // This worker embeds in the "fake-fp" world (its FixedEmbedder), which differs from the stale job.
+        SourceProcessingWorker worker = new SourceProcessingWorker(queue, new Reader(), segmentation(),
+                store, 3, "fake-fp", listener);
+
+        // First pass: the stale F1 job is taken, superseded (NOT processed) and a fresh F2 job re-enqueued.
+        assertTrue(worker.processOne());
+        assertTrue("the stale-world job is not processed", store.passages.isEmpty());
+        assertTrue(listener.completed.isEmpty());
+        assertFalse("the F1 key is NOT falsely completed",
+                queue.isAlreadyCompleted(
+                        new SourceProcessingRequest("cap-x", "src-1", "seg-v1", "old-world-fp")
+                                .idempotencyKey()));
+
+        // Second pass: the re-enqueued active-world job runs to completion under the F2 key.
+        assertTrue(worker.processOne());
+        assertFalse("the capture is derived for the active world", store.passages.isEmpty());
+        assertEquals(Arrays.asList("cap-x"), listener.completed);
+        assertTrue(queue.isAlreadyCompleted(
+                new SourceProcessingRequest("cap-x", "src-1", "seg-v1", "fake-fp").idempotencyKey()));
+        assertNull(queue.takeNext());
+    }
+
+    /** A returned-to earlier world re-activates the retired job rather than leaving the capture stranded. */
+    @Test
+    public void enqueuingASupersededWorldAgainReactivatesItsJob() throws IOException {
+        File dir = tempDir();
+        FileSourceProcessingQueue queue = new FileSourceProcessingQueue(dir);
+        SourceProcessingJob original =
+                queue.enqueue(new SourceProcessingRequest("cap-y", "src-1", "seg-v1", "world-1"));
+        queue.markSuperseded(queue.takeNext());
+        assertNull("a superseded job is not takeable", queue.takeNext());
+
+        SourceProcessingJob reactivated =
+                queue.enqueue(new SourceProcessingRequest("cap-y", "src-1", "seg-v1", "world-1"));
+        assertEquals(original.getJobId(), reactivated.getJobId());
+        assertEquals(SourceProcessingJob.State.QUEUED, reactivated.getState());
+        assertEquals("cap-y", queue.takeNext().getRequest().getCaptureId());
     }
 }

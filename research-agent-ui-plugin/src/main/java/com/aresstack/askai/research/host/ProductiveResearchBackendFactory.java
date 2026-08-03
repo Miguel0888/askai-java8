@@ -59,6 +59,13 @@ public final class ProductiveResearchBackendFactory {
     /** OPTIONAL: publishes the per-session structured-inference descriptor (central main model), or null. */
     private final com.aresstack.askai.agent.model.inference.InferenceConfigurationSnapshotProvider
             inferenceSnapshots;
+    /**
+     * OPTIONAL: publishes the per-session EMBEDDING descriptor for the knowledge pipeline, or null. When null
+     * (or no embedding model is configured) knowledge processing is a diagnosed UNAVAILABLE capability — the
+     * acceptance hook enqueues nothing rather than tagging jobs with a fake embedding world.
+     */
+    private final com.aresstack.askai.agent.model.embedding.EmbeddingConfigurationSnapshotProvider
+            embeddingSnapshots;
     /** The initial-search strategy selection; legacy browser publishes NO snapshot (today's behavior). */
     private final SearchStrategySelection searchStrategy;
 
@@ -99,6 +106,20 @@ public final class ProductiveResearchBackendFactory {
                                             com.aresstack.askai.agent.model.inference
                                                     .InferenceConfigurationSnapshotProvider inferenceSnapshots,
                                             SearchStrategySelection searchStrategy) {
+        this(registry, toolClients, connector, config, generationId, browserSearchValues,
+                browserSearchRevision, rerankerSnapshots, inferenceSnapshots, searchStrategy, null);
+    }
+
+    public ProductiveResearchBackendFactory(McpServerRegistry registry, McpToolClientFactory toolClients,
+                                            AcpAgentConnector connector, ResearchRuntimeConfig config,
+                                            long generationId, Map<String, String> browserSearchValues,
+                                            long browserSearchRevision,
+                                            RerankerConfigurationSnapshotProvider rerankerSnapshots,
+                                            com.aresstack.askai.agent.model.inference
+                                                    .InferenceConfigurationSnapshotProvider inferenceSnapshots,
+                                            SearchStrategySelection searchStrategy,
+                                            com.aresstack.askai.agent.model.embedding
+                                                    .EmbeddingConfigurationSnapshotProvider embeddingSnapshots) {
         this.registry = registry;
         this.toolClients = toolClients;
         this.connector = connector;
@@ -108,6 +129,7 @@ public final class ProductiveResearchBackendFactory {
         this.browserSearchRevision = browserSearchRevision;
         this.rerankerSnapshots = rerankerSnapshots;
         this.inferenceSnapshots = inferenceSnapshots;
+        this.embeddingSnapshots = embeddingSnapshots;
         this.searchStrategy = searchStrategy == null
                 ? SearchStrategySelection.legacyBrowser() : searchStrategy;
     }
@@ -261,11 +283,20 @@ public final class ProductiveResearchBackendFactory {
                 new com.aresstack.askai.research.knowledge.processing.FileSourceProcessingQueue(
                         new File(projectContext.getProjectDirectory(), "processing"));
         processingQueue.recoverStrandedJobs();
-        // The plugin holds ONLY the neutral scheduler port; the queue/worker/NLP live in
+        // The SESSION resolves ONE authoritative embedding world (host descriptor) and stamps every job with
+        // its fingerprint. This is done once, at session build — never re-looked-up per capture — so a later
+        // global model switch cannot mix vector worlds mid-session (§4.3). When no embedding model is
+        // configured the capability is UNAVAILABLE: the acceptance hook enqueues nothing (no fake-world jobs,
+        // never a false COMPLETED). The plugin holds ONLY the neutral scheduler port; queue/worker/NLP live in
         // :research-knowledge-processing. The productive worker is started with C4 (Variant B).
-        acceptance.setKnowledgeProcessingScheduler(
-                new com.aresstack.askai.research.knowledge.processing.QueueBackedKnowledgeProcessingScheduler(
-                        processingQueue, knowledgeSettings));
+        com.aresstack.askai.agent.model.embedding.EmbeddingEndpointDescriptor embeddingDescriptor =
+                prepareEmbeddingDescriptor(sessionKey, projectDir);
+        if (embeddingDescriptor != null) {
+            acceptance.setKnowledgeProcessingScheduler(
+                    new com.aresstack.askai.research.knowledge.processing
+                            .QueueBackedKnowledgeProcessingScheduler(processingQueue, knowledgeSettings,
+                            embeddingDescriptor.embeddingFingerprint()));
+        }
         OoResearchStateMachine stateMachine = new OoResearchStateMachine(sessionKey);
 
         BrowserBridgeEndpoint bridge = null;
@@ -378,6 +409,33 @@ public final class ProductiveResearchBackendFactory {
             // registration / agent-backend wiring (runtime) — rolled back the same way.
             rollback(control, service, bridge, browser);
             throw ex;
+        }
+    }
+
+    /**
+     * Resolve THE embedding world for this session (§4.3): validate the configured embedding model, start its
+     * runtime, probe its dimension and freeze an immutable {@code EmbeddingEndpointDescriptor}. This snapshot
+     * is authoritative for the whole session and is never re-looked-up per capture. Returns {@code null} when
+     * the capability is genuinely unavailable (no provider, or no/incompatible embedding model configured):
+     * knowledge processing is then a diagnosed no-op rather than silently falling back to a fake embedder.
+     */
+    private com.aresstack.askai.agent.model.embedding.EmbeddingEndpointDescriptor prepareEmbeddingDescriptor(
+            String sessionKey, File projectDir) {
+        if (embeddingSnapshots == null) {
+            System.err.println("[research-knowledge] embedding capability UNAVAILABLE: this host publishes no "
+                    + "embedding provider — accepted sources are not queued for knowledge processing.");
+            return null;
+        }
+        try {
+            // The central AskAI selection (ai.embeddingsModel) is authoritative host-side; "" lets the host
+            // provider fill it in. An empty/removed/incompatible selection is a typed exception below.
+            com.aresstack.askai.agent.model.embedding.EmbeddingConfigurationSnapshot snapshot =
+                    embeddingSnapshots.prepareForSession(sessionKey, projectDir, "");
+            return snapshot.descriptor;
+        } catch (com.aresstack.askai.agent.model.embedding.EmbeddingConfigurationException ex) {
+            System.err.println("[research-knowledge] embedding capability UNAVAILABLE (" + ex.getReason()
+                    + "): " + ex.getMessage() + " — accepted sources are not queued for knowledge processing.");
+            return null;
         }
     }
 

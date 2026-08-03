@@ -45,6 +45,15 @@ public final class FileSourceProcessingQueue implements SourceProcessingQueue {
         String key = request.idempotencyKey();
         for (Stored stored : loadAllStored()) {
             if (key.equals(stored.job.getRequest().idempotencyKey())) {
+                if (stored.job.getState() == SourceProcessingJob.State.SUPERSEDED) {
+                    // A return to this (earlier) embedding world: re-activate the retired job at the TAIL so the
+                    // capture is re-derived under the now-active world instead of staying retired.
+                    long reactivateSeq = nextSeq++;
+                    SourceProcessingJob back =
+                            stored.job.withState(SourceProcessingJob.State.QUEUED);
+                    write(new Stored(back, reactivateSeq));
+                    return back;
+                }
                 return stored.job; // idempotent: same fachliche processing already known — no duplicate
             }
         }
@@ -81,6 +90,11 @@ public final class FileSourceProcessingQueue implements SourceProcessingQueue {
     @Override
     public synchronized void markFailed(SourceProcessingJob job, SourceProcessingFailure failure) {
         write(new Stored(job.failed(failure), orderSeqFromDisk(job.getJobId())));
+    }
+
+    @Override
+    public synchronized void markSuperseded(SourceProcessingJob job) {
+        write(new Stored(job.superseded(), orderSeqFromDisk(job.getJobId())));
     }
 
     @Override

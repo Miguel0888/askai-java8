@@ -43,16 +43,23 @@ public final class SourceProcessingWorker {
     private final PassageSegmentation passageSegmentation;
     private final PassageStore passageStore;
     private final int maxAttempts;
+    /** The embedding-world fingerprint this worker's {@link PassageSegmentation} actually produces (§4.3). */
+    private final String activeEmbeddingFingerprint;
     private final Listener listener;
 
     public SourceProcessingWorker(SourceProcessingQueue queue, SourceCaptureReader captureReader,
                                   PassageSegmentation passageSegmentation, PassageStore passageStore,
-                                  int maxAttempts, Listener listener) {
+                                  int maxAttempts, String activeEmbeddingFingerprint, Listener listener) {
+        if (activeEmbeddingFingerprint == null || activeEmbeddingFingerprint.trim().isEmpty()) {
+            throw new IllegalArgumentException("activeEmbeddingFingerprint must be the resolved world "
+                    + "fingerprint of this worker's embedding pipeline");
+        }
         this.queue = queue;
         this.captureReader = captureReader;
         this.passageSegmentation = passageSegmentation;
         this.passageStore = passageStore;
         this.maxAttempts = Math.max(1, maxAttempts);
+        this.activeEmbeddingFingerprint = activeEmbeddingFingerprint.trim();
         this.listener = listener == null ? Listener.NONE : listener;
     }
 
@@ -61,6 +68,17 @@ public final class SourceProcessingWorker {
         SourceProcessingJob job = queue.takeNext();
         if (job == null) {
             return false;
+        }
+        // Embedding-world guard (§4.3): a job created for a DIFFERENT vector world (e.g. queued under model A,
+        // the session now runs model B) must NEVER be run with this worker's pipeline and stored under the
+        // old-world key. Retire it unprocessed and re-enqueue the capture for the ACTIVE world instead — the
+        // capture is still derived, honestly, for the world the session actually embeds in.
+        if (!activeEmbeddingFingerprint.equals(job.getRequest().getEmbeddingModelFingerprint())) {
+            SourceProcessingRequest r = job.getRequest();
+            queue.enqueue(new SourceProcessingRequest(r.getCaptureId(), r.getSourceId(),
+                    r.getSegmentationPipelineVersion(), activeEmbeddingFingerprint));
+            queue.markSuperseded(job);
+            return true;
         }
         // Idempotency short-circuit (§4.3): this exact processing already completed → done, no recomputation.
         if (queue.isAlreadyCompleted(job.getRequest().idempotencyKey())) {

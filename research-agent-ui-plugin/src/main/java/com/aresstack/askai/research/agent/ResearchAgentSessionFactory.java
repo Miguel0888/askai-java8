@@ -133,6 +133,12 @@ public final class ResearchAgentSessionFactory implements AgentSessionFactory {
                 hostContext.getService(
                         com.aresstack.askai.agent.model.inference
                                 .InferenceConfigurationSnapshotProvider.class);
+        // OPTIONAL embedding provider for the continuous knowledge pipeline: absent → knowledge processing is a
+        // diagnosed UNAVAILABLE capability (never a fake embedder), so it is looked up leniently, never required.
+        com.aresstack.askai.agent.model.embedding.EmbeddingConfigurationSnapshotProvider embeddingSnapshots =
+                hostContext.getService(
+                        com.aresstack.askai.agent.model.embedding
+                                .EmbeddingConfigurationSnapshotProvider.class);
 
         ProductiveResearchBackendFactory factory = new ProductiveResearchBackendFactory(
                 registry, toolClients, connector, settings.toRuntimeConfig(), generationId,
@@ -143,7 +149,8 @@ public final class ResearchAgentSessionFactory implements AgentSessionFactory {
                 rerankerSnapshots, inferenceSnapshots,
                 // The persisted initial-search selection (legacy browser default): an API-provider
                 // selection is published as a per-session snapshot; the agent's implementation is ready.
-                ResearchRuntimeSettings.loadSearchStrategy(hostContext.getStateStore()));
+                ResearchRuntimeSettings.loadSearchStrategy(hostContext.getStateStore()),
+                embeddingSnapshots);
         java.io.File sessionDirectory =
                 hostContext.getPluginPathService().getWorkspaceDirectory(request.getSessionId());
         final ProductiveResearchSessionResources resources;

@@ -3,12 +3,16 @@ package com.aresstack.askai.research.knowledge.processing;
 /**
  * A queued unit of capture processing (§4.2). A job moves QUEUED → PROCESSING → COMPLETED, or to
  * FAILED_RETRYABLE / FAILED_PERMANENT. A job left in PROCESSING by a crash is returned to QUEUED on recovery
- * (§4.2, §25). Immutable value; a state transition produces a new instance.
+ * (§4.2, §25). A job whose embedding-world fingerprint no longer matches the active session's world is moved to
+ * {@link State#SUPERSEDED} (never processed with the wrong world; §4.3) and the capture is re-enqueued for the
+ * active world. Immutable value; a state transition produces a new instance.
  */
 public final class SourceProcessingJob {
 
     public enum State {
-        QUEUED, PROCESSING, COMPLETED, FAILED_RETRYABLE, FAILED_PERMANENT
+        QUEUED, PROCESSING, COMPLETED, FAILED_RETRYABLE, FAILED_PERMANENT,
+        /** Belongs to a stale embedding world; retired unprocessed so a new-world job can take over (§4.3). */
+        SUPERSEDED
     }
 
     private final String jobId;
@@ -47,6 +51,11 @@ public final class SourceProcessingJob {
     public SourceProcessingJob startedProcessing() {
         return new SourceProcessingJob(jobId, request, State.PROCESSING, attempts + 1,
                 enqueuedAtEpochMillis, lastFailure);
+    }
+
+    /** Retire this job unprocessed because it belongs to a stale embedding world (§4.3). */
+    public SourceProcessingJob superseded() {
+        return withState(State.SUPERSEDED);
     }
 
     public SourceProcessingJob failed(SourceProcessingFailure failure) {

@@ -9,17 +9,25 @@ import com.aresstack.askai.mcp.api.McpToolClientFactory;
 import com.aresstack.askai.mcp.api.McpToolContribution;
 import com.aresstack.askai.mcp.solon.SolonMcpServerRuntime;
 import com.aresstack.askai.mcp.solon.SolonMcpToolClientFactory;
+import com.aresstack.askai.agent.model.embedding.EmbeddingConfigurationException;
+import com.aresstack.askai.agent.model.embedding.EmbeddingConfigurationSnapshot;
+import com.aresstack.askai.agent.model.embedding.EmbeddingConfigurationSnapshotProvider;
 import com.aresstack.askai.agent.model.inference.InferenceConfigurationSnapshotProvider;
 import com.aresstack.askai.agent.model.reranker.RerankerConfigurationSnapshotProvider;
 import com.aresstack.askai.agent.model.reranker.RerankerModelCatalog;
 import com.aresstack.askai.agent.model.session.ActiveResearchSessionRegistry;
 import com.aresstack.askai.java8.config.AppConfigurationRepository;
+import com.aresstack.askai.java8.localmodels.HttpEmbeddingDimensionProbe;
 import com.aresstack.askai.java8.localmodels.LocalActiveResearchSessionRegistry;
+import com.aresstack.askai.java8.localmodels.LocalEmbeddingConfigurationSnapshotProvider;
+import com.aresstack.askai.java8.localmodels.LocalEmbeddingModelCatalog;
+import com.aresstack.askai.java8.localmodels.LocalEmbeddingRuntime;
 import com.aresstack.askai.java8.localmodels.LocalInferenceConfigurationSnapshotProvider;
 import com.aresstack.askai.java8.localmodels.LocalModelRuntimeManager;
 import com.aresstack.askai.java8.localmodels.LocalRerankerConfigurationSnapshotProvider;
 import com.aresstack.askai.java8.localmodels.LocalRerankerModelCatalog;
 
+import java.io.File;
 import java.time.Duration;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -49,8 +57,13 @@ public final class AgentRuntimeServices {
     private final RerankerModelCatalog rerankerCatalog;
     /** Publishes the per-session structured-inference descriptor from the central main model (optional). */
     private final InferenceConfigurationSnapshotProvider inferenceSnapshots;
+    /** Publishes the per-session EMBEDDING descriptor for the continuous knowledge pipeline (optional). */
+    private final EmbeddingConfigurationSnapshotProvider embeddingSnapshots;
     /** Tracks running research sessions so their descriptors can be re-published on a model change. */
     private final LocalActiveResearchSessionRegistry activeSessions;
+
+    /** The embedding descriptor request timeout (local sidecar; probe + calls). */
+    private static final long EMBEDDING_TIMEOUT_MILLIS = 60_000L;
 
     /** @deprecated retained only for callers without the local model runtime (no reranker service). */
     @Deprecated
@@ -80,10 +93,45 @@ public final class AgentRuntimeServices {
         // so it is published whenever there is a central config, even without a local runtime.
         this.inferenceSnapshots = centralConfig == null ? null
                 : new LocalInferenceConfigurationSnapshotProvider(localModelRuntime, centralConfig);
+        // The embedding descriptor is served from the LOCAL sidecar (its own catalog + dimension probe), so it
+        // is published only alongside a local runtime — exactly like the reranker.
+        this.embeddingSnapshots = localModelRuntime == null ? null
+                : embeddingProvider(localModelRuntime, centralConfig);
         // The active-session registry re-publishes descriptors on a central model change; it needs a
         // central config to know what to publish and is only useful alongside the snapshot providers.
         this.activeSessions = centralConfig == null ? null
                 : new LocalActiveResearchSessionRegistry(inferenceSnapshots, rerankerSnapshots, centralConfig);
+    }
+
+    /**
+     * The productive embedding snapshot provider: the {@link LocalEmbeddingConfigurationSnapshotProvider} over
+     * the local catalog + runtime + dimension probe, wrapped so the EXPLICIT selection comes from the central
+     * {@code ai.embeddingsModel} (AskAI → Configuration → AI models) — mirroring the reranker's central
+     * authority. A plugin-passed selection is only a transitional fallback. There is NO guessing: an empty /
+     * removed / incompatible selection is a typed {@link EmbeddingConfigurationException}, never a "first found".
+     */
+    private static EmbeddingConfigurationSnapshotProvider embeddingProvider(
+            LocalModelRuntimeManager localModelRuntime, final AppConfigurationRepository centralConfig) {
+        final EmbeddingConfigurationSnapshotProvider delegate =
+                new LocalEmbeddingConfigurationSnapshotProvider(
+                        new LocalEmbeddingModelCatalog(localModelRuntime),
+                        LocalEmbeddingRuntime.over(localModelRuntime),
+                        new HttpEmbeddingDimensionProbe((int) EMBEDDING_TIMEOUT_MILLIS),
+                        EMBEDDING_TIMEOUT_MILLIS);
+        if (centralConfig == null) {
+            return delegate; // legacy: trust the plugin-passed selection
+        }
+        return new EmbeddingConfigurationSnapshotProvider() {
+            public EmbeddingConfigurationSnapshot prepareForSession(String sessionId, File sessionDirectory,
+                                                                    String selectedModel)
+                    throws EmbeddingConfigurationException {
+                String central = centralConfig.load().getAiModelSelections().getEmbeddingsModel();
+                String centralTrimmed = central == null ? "" : central.trim();
+                String effective = !centralTrimmed.isEmpty() ? centralTrimmed
+                        : (selectedModel == null ? "" : selectedModel.trim());
+                return delegate.prepareForSession(sessionId, sessionDirectory, effective);
+            }
+        };
     }
 
     /** The running-session registry, for AskAI to trigger a descriptor refresh on a model change. */
@@ -105,6 +153,9 @@ public final class AgentRuntimeServices {
         }
         if (inferenceSnapshots != null) {
             services.put(InferenceConfigurationSnapshotProvider.class, inferenceSnapshots);
+        }
+        if (embeddingSnapshots != null) {
+            services.put(EmbeddingConfigurationSnapshotProvider.class, embeddingSnapshots);
         }
         if (activeSessions != null) {
             services.put(ActiveResearchSessionRegistry.class, activeSessions);
