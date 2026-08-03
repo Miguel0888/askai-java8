@@ -19,11 +19,19 @@ public final class AiModelSelections {
     private final String mainModel;
     private final String rerankerModel;
     private final String embeddingsModel;
+    /** Per-capability+language NLP model selections (sentence detection etc.); never null. */
+    private final NlpModelSelections nlp;
 
     public AiModelSelections(String mainModel, String rerankerModel, String embeddingsModel) {
+        this(mainModel, rerankerModel, embeddingsModel, NlpModelSelections.defaults());
+    }
+
+    public AiModelSelections(String mainModel, String rerankerModel, String embeddingsModel,
+                             NlpModelSelections nlp) {
         this.mainModel = normalize(mainModel);
         this.rerankerModel = normalize(rerankerModel);
         this.embeddingsModel = normalize(embeddingsModel);
+        this.nlp = nlp == null ? NlpModelSelections.defaults() : nlp;
     }
 
     /** All-empty selections: nothing explicitly chosen yet. */
@@ -43,16 +51,26 @@ public final class AiModelSelections {
         return embeddingsModel;
     }
 
+    /** The per-capability+language NLP model selections (never null). */
+    public NlpModelSelections getNlp() {
+        return nlp;
+    }
+
     public AiModelSelections withMainModel(String value) {
-        return new AiModelSelections(value, rerankerModel, embeddingsModel);
+        return new AiModelSelections(value, rerankerModel, embeddingsModel, nlp);
     }
 
     public AiModelSelections withRerankerModel(String value) {
-        return new AiModelSelections(mainModel, value, embeddingsModel);
+        return new AiModelSelections(mainModel, value, embeddingsModel, nlp);
     }
 
     public AiModelSelections withEmbeddingsModel(String value) {
-        return new AiModelSelections(mainModel, rerankerModel, value);
+        return new AiModelSelections(mainModel, rerankerModel, value, nlp);
+    }
+
+    public AiModelSelections withNlp(NlpModelSelections value) {
+        return new AiModelSelections(mainModel, rerankerModel, embeddingsModel,
+                value == null ? NlpModelSelections.defaults() : value);
     }
 
     private static String normalize(String value) {
@@ -70,7 +88,8 @@ public final class AiModelSelections {
         AiModelSelections that = (AiModelSelections) other;
         return mainModel.equals(that.mainModel)
                 && rerankerModel.equals(that.rerankerModel)
-                && embeddingsModel.equals(that.embeddingsModel);
+                && embeddingsModel.equals(that.embeddingsModel)
+                && nlp.equals(that.nlp);
     }
 
     @Override
@@ -78,12 +97,13 @@ public final class AiModelSelections {
         int result = mainModel.hashCode();
         result = 31 * result + rerankerModel.hashCode();
         result = 31 * result + embeddingsModel.hashCode();
+        result = 31 * result + nlp.hashCode();
         return result;
     }
 
     @Override
     public String toString() {
         return "AiModelSelections{main='" + mainModel + "', reranker='" + rerankerModel
-                + "', embeddings='" + embeddingsModel + "'}";
+                + "', embeddings='" + embeddingsModel + "', nlp=" + nlp + "}";
     }
 }

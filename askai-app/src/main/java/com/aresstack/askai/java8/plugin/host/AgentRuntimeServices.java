@@ -13,6 +13,8 @@ import com.aresstack.askai.agent.model.embedding.EmbeddingConfigurationException
 import com.aresstack.askai.agent.model.embedding.EmbeddingConfigurationSnapshot;
 import com.aresstack.askai.agent.model.embedding.EmbeddingConfigurationSnapshotProvider;
 import com.aresstack.askai.agent.model.inference.InferenceConfigurationSnapshotProvider;
+import com.aresstack.askai.agent.model.nlp.NlpConfigurationSnapshotProvider;
+import com.aresstack.askai.agent.model.nlp.NlpModelCatalog;
 import com.aresstack.askai.agent.model.reranker.RerankerConfigurationSnapshotProvider;
 import com.aresstack.askai.agent.model.reranker.RerankerModelCatalog;
 import com.aresstack.askai.agent.model.session.ActiveResearchSessionRegistry;
@@ -24,6 +26,9 @@ import com.aresstack.askai.java8.localmodels.LocalEmbeddingModelCatalog;
 import com.aresstack.askai.java8.localmodels.LocalEmbeddingRuntime;
 import com.aresstack.askai.java8.localmodels.LocalInferenceConfigurationSnapshotProvider;
 import com.aresstack.askai.java8.localmodels.LocalModelRuntimeManager;
+import com.aresstack.askai.java8.localmodels.LocalNlpConfigurationSnapshotProvider;
+import com.aresstack.askai.java8.localmodels.LocalNlpModelCatalog;
+import com.aresstack.askai.java8.localmodels.LocalNlpModelStore;
 import com.aresstack.askai.java8.localmodels.LocalRerankerConfigurationSnapshotProvider;
 import com.aresstack.askai.java8.localmodels.LocalRerankerModelCatalog;
 
@@ -59,6 +64,10 @@ public final class AgentRuntimeServices {
     private final InferenceConfigurationSnapshotProvider inferenceSnapshots;
     /** Publishes the per-session EMBEDDING descriptor for the continuous knowledge pipeline (optional). */
     private final EmbeddingConfigurationSnapshotProvider embeddingSnapshots;
+    /** Resolves the selected installed NLP (sentence-detection) model to a descriptor (optional). */
+    private final NlpConfigurationSnapshotProvider nlpSnapshots;
+    /** Lists the installed NLP models for the EXPLICIT per-language selection in the settings UI. */
+    private final NlpModelCatalog nlpCatalog;
     /** Tracks running research sessions so their descriptors can be re-published on a model change. */
     private final LocalActiveResearchSessionRegistry activeSessions;
 
@@ -97,6 +106,12 @@ public final class AgentRuntimeServices {
         // is published only alongside a local runtime — exactly like the reranker.
         this.embeddingSnapshots = localModelRuntime == null ? null
                 : embeddingProvider(localModelRuntime, centralConfig);
+        // NLP models are a global AskAI resource in their OWN store (not the sidecar runtime store), so the
+        // catalog is always available; the snapshot provider needs the central selection to resolve.
+        LocalNlpModelStore nlpStore = new LocalNlpModelStore();
+        this.nlpCatalog = new LocalNlpModelCatalog(nlpStore);
+        this.nlpSnapshots = centralConfig == null ? null
+                : new LocalNlpConfigurationSnapshotProvider(nlpStore, centralConfig);
         // The active-session registry re-publishes descriptors on a central model change; it needs a
         // central config to know what to publish and is only useful alongside the snapshot providers.
         this.activeSessions = centralConfig == null ? null
@@ -156,6 +171,12 @@ public final class AgentRuntimeServices {
         }
         if (embeddingSnapshots != null) {
             services.put(EmbeddingConfigurationSnapshotProvider.class, embeddingSnapshots);
+        }
+        if (nlpCatalog != null) {
+            services.put(NlpModelCatalog.class, nlpCatalog);
+        }
+        if (nlpSnapshots != null) {
+            services.put(NlpConfigurationSnapshotProvider.class, nlpSnapshots);
         }
         if (activeSessions != null) {
             services.put(ActiveResearchSessionRegistry.class, activeSessions);

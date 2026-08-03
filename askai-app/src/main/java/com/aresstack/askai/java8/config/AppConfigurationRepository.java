@@ -55,6 +55,8 @@ public final class AppConfigurationRepository {
     private static final String AI_MAIN_MODEL = "ai.mainModel";
     private static final String AI_RERANKER_MODEL = "ai.rerankerModel";
     private static final String AI_EMBEDDINGS_MODEL = "ai.embeddingsModel";
+    // Per-capability+language NLP model selections, e.g. nlp.sentence-detection.de / nlp.sentence-detection.en.
+    private static final String NLP_MODEL_PREFIX = "nlp.";
 
     private final File configurationFile;
 
@@ -80,7 +82,8 @@ public final class AppConfigurationRepository {
             AiModelSelections aiModels = new AiModelSelections(
                     properties.getProperty(AI_MAIN_MODEL, defaultModels.getMainModel()),
                     properties.getProperty(AI_RERANKER_MODEL, defaultModels.getRerankerModel()),
-                    properties.getProperty(AI_EMBEDDINGS_MODEL, defaultModels.getEmbeddingsModel()));
+                    properties.getProperty(AI_EMBEDDINGS_MODEL, defaultModels.getEmbeddingsModel()),
+                    NlpModelSelections.fromEntries(nlpModelEntries(properties)));
             String mode = properties.getProperty(PROXY_MODE, defaultProxy.getModeName());
             SpeechToTextConfiguration stt = new SpeechToTextConfiguration(
                     parseBoolean(properties.getProperty(STT_ENABLED), defaultStt.isEnabled()),
@@ -200,6 +203,9 @@ public final class AppConfigurationRepository {
         properties.setProperty(AI_MAIN_MODEL, aiModels.getMainModel());
         properties.setProperty(AI_RERANKER_MODEL, aiModels.getRerankerModel());
         properties.setProperty(AI_EMBEDDINGS_MODEL, aiModels.getEmbeddingsModel());
+        for (java.util.Map.Entry<String, String> nlp : aiModels.getNlp().entries().entrySet()) {
+            properties.setProperty(NLP_MODEL_PREFIX + nlp.getKey(), nlp.getValue());
+        }
         FileOutputStream outputStream = null;
         try {
             outputStream = new FileOutputStream(configurationFile);
@@ -208,6 +214,17 @@ public final class AppConfigurationRepository {
         } finally {
             closeQuietly(outputStream);
         }
+    }
+
+    /** All persisted {@code nlp.*} selections as a map keyed WITHOUT the prefix (e.g. {@code sentence-detection.de}). */
+    private static java.util.Map<String, String> nlpModelEntries(Properties properties) {
+        java.util.Map<String, String> entries = new java.util.TreeMap<String, String>();
+        for (String name : properties.stringPropertyNames()) {
+            if (name.startsWith(NLP_MODEL_PREFIX) && name.length() > NLP_MODEL_PREFIX.length()) {
+                entries.put(name.substring(NLP_MODEL_PREFIX.length()), properties.getProperty(name));
+            }
+        }
+        return entries;
     }
 
     private File configurationDirectory() {
