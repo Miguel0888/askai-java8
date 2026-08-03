@@ -9,6 +9,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -80,13 +81,17 @@ public final class LocalNlpModelStore {
 
     /** The SHA-256 (lowercase hex) of an installed artifact, for the snapshot provider's integrity check. */
     public static String sha256Of(File file) throws IOException {
+        return sha256(Files.readAllBytes(file.toPath()));
+    }
+
+    /** The SHA-256 (lowercase hex) of the given bytes. */
+    public static String sha256(byte[] bytes) throws IOException {
         MessageDigest digest;
         try {
             digest = MessageDigest.getInstance("SHA-256");
         } catch (Exception ex) {
             throw new IOException("SHA-256 unavailable", ex);
         }
-        byte[] bytes = Files.readAllBytes(file.toPath());
         byte[] hash = digest.digest(bytes);
         StringBuilder hex = new StringBuilder(hash.length * 2);
         for (byte b : hash) {
@@ -94,6 +99,66 @@ public final class LocalNlpModelStore {
             hex.append(Character.forDigit(b & 0xF, 16));
         }
         return hex.toString();
+    }
+
+    /**
+     * Install a VERIFIED artifact (the installer has already checked size + SHA-256) into the store: write the
+     * artifact, then write the manifest LAST so its presence marks the install "active" (a crash before the
+     * manifest leaves an artifact without a manifest, which {@link #listInstalled} ignores). Atomic per file.
+     */
+    public NlpModelDescriptor install(NlpModelCatalogEntry entry, byte[] artifact) throws IOException {
+        File dir = new File(new File(root, safe(entry.getImplementation())), safe(entry.getModelId()));
+        Files.createDirectories(dir.toPath());
+        atomicWrite(new File(dir, entry.getArtifactFileName()), artifact);
+        // Manifest LAST = activation.
+        atomicWrite(new File(dir, MANIFEST_NAME), manifestJson(entry).getBytes(UTF8));
+        return parse(new File(dir, MANIFEST_NAME));
+    }
+
+    private static String manifestJson(NlpModelCatalogEntry e) {
+        return "{"
+                + "\"id\":" + json(e.getModelId())
+                + ",\"capability\":" + json(e.getCapability().getTag())
+                + ",\"language\":" + json(e.getLanguageCode())
+                + ",\"implementation\":" + json(e.getImplementation())
+                + ",\"version\":" + json(e.getVersion())
+                + ",\"compatibleRuntime\":" + json(e.getCompatibleRuntime())
+                + ",\"artifact\":" + json(e.getArtifactFileName())
+                + ",\"sha256\":" + json(e.getExpectedSha256())
+                + "}";
+    }
+
+    private static String json(String value) {
+        String v = value == null ? "" : value;
+        StringBuilder sb = new StringBuilder("\"");
+        for (int i = 0; i < v.length(); i++) {
+            char c = v.charAt(i);
+            if (c == '"' || c == '\\') {
+                sb.append('\\').append(c);
+            } else if (c < 0x20) {
+                sb.append(String.format("\\u%04x", (int) c));
+            } else {
+                sb.append(c);
+            }
+        }
+        return sb.append('"').toString();
+    }
+
+    private static String safe(String value) {
+        return (value == null ? "" : value).replaceAll("[^a-zA-Z0-9._-]", "_");
+    }
+
+    private static void atomicWrite(File target, byte[] content) throws IOException {
+        File parent = target.getParentFile();
+        Files.createDirectories(parent.toPath());
+        File tmp = new File(parent, target.getName() + ".tmp");
+        Files.write(tmp.toPath(), content);
+        try {
+            Files.move(tmp.toPath(), target.toPath(),
+                    StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException atomicUnsupported) {
+            Files.move(tmp.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING);
+        }
     }
 
     // ------------------------------------------------------------------ manifest scanning
