@@ -8,6 +8,9 @@ import com.aresstack.askai.research.runtime.loop.ResearchLoopListener;
 import com.aresstack.askai.research.runtime.loop.ResearchStopReason;
 import com.aresstack.askai.research.runtime.loop.ToolInvoker;
 
+import com.aresstack.askai.browser.hud.ResearchHudCommand;
+import com.aresstack.askai.browser.hud.ResearchHudState;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -133,6 +136,10 @@ public final class WebSearchApplicationService {
     /** Time spent waiting for the USER (manual challenge) — never counted against the time budget. */
     private long waitedForUserMillis;
     private long lastChallengeProbeAt;
+    /** Research HUD: the user paused autonomous navigation (Pause button); resumed via the overlay. */
+    private volatile boolean hudPaused;
+    /** Soft cap for an in-page user-wait (consent/challenge) so a stuck wait self-parks; Skip is the immediate escape. */
+    private static final long HUD_USER_WAIT_TIMEOUT_MILLIS = 180_000L;
 
     private final ToolBudget budgetGate = new ToolBudget() {
         public ResearchStopReason beforeToolCall() {
@@ -242,6 +249,12 @@ public final class WebSearchApplicationService {
             ResearchStopReason gate = stopReasonNow();
             if (gate != null) {
                 return gate;
+            }
+            // HUD: apply Pause/Resume, and if paused, wait (cancel-aware) instead of opening the next page.
+            applyHudPauseResume();
+            ResearchStopReason pausedStop = awaitResumeIfPaused();
+            if (pausedStop != null) {
+                return pausedStop;
             }
             probeChallengesIfDue(frontier);
             if (frontier.isEmpty() && !deferredUrls.isEmpty() && !challengedFamilies.isEmpty()) {
@@ -468,6 +481,9 @@ public final class WebSearchApplicationService {
                 + (verdict == PageReadinessJudge.Verdict.ACCESS_BLOCKED ? " reason=" + blockReason : "")
                 + " [text=" + pr.textLength + " challenge=" + pr.challengePresent
                 + " consent=" + pr.consentPresent + "] " + url);
+        renderHud(verdict.name(), "readiness=" + verdict
+                        + (verdict == PageReadinessJudge.Verdict.ACCESS_BLOCKED ? " (" + blockReason + ")" : ""),
+                false, ResearchHudState.NO_COUNTDOWN);
         switch (verdict) {
             case READABLE:
                 return callBrowser("web_read", args()); // assigns the capture id acceptSource resolves
@@ -523,8 +539,28 @@ public final class WebSearchApplicationService {
      */
     private String waitForUserThenRead(String url)
             throws ToolInvoker.ToolFailure, ToolInvoker.EndpointUnavailable {
+        long deadline = clock.currentTimeMillis() + HUD_USER_WAIT_TIMEOUT_MILLIS;
         while (true) {
             if (stopReasonNow() != null || cancelled.get()) {
+                return null;
+            }
+            // HUD: show a live countdown and let the user Skip this page (the escape from a stuck wait) or
+            // Pause. Skip / a lapsed countdown park the page (empty full text); READABLE-only acceptance holds.
+            int remaining = (int) Math.max(0, (deadline - clock.currentTimeMillis()) / 1000L);
+            renderHud("WAITING_FOR_USER", "Waiting for you to resolve this page", true, remaining);
+            for (ResearchHudCommand command : pollHudCommands()) {
+                if (command.type == ResearchHudCommand.Type.SKIP) {
+                    listener.status("[browser] user skipped page: " + url);
+                    return null;
+                }
+                if (command.type == ResearchHudCommand.Type.PAUSE) {
+                    hudPaused = true;
+                } else if (command.type == ResearchHudCommand.Type.RESUME) {
+                    hudPaused = false;
+                }
+            }
+            if (clock.currentTimeMillis() >= deadline) {
+                listener.status("[browser] user-wait timed out, parked: " + url);
                 return null;
             }
             waitedForUserMillis += tickWait();
@@ -567,6 +603,63 @@ public final class WebSearchApplicationService {
             return token;
         }
         return "CLICKED";
+    }
+
+    // ------------------------------------------------------------------ Research HUD (optional overlay)
+
+    /** Render a HUD state onto the current page; best-effort — a backend without the overlay simply ignores it. */
+    private void renderHud(String phase, String status, boolean waiting, int countdownSeconds) {
+        try {
+            callBrowser("web_hud_render", args("state",
+                    new ResearchHudState(phase, status, waiting, countdownSeconds, hudPaused).render()));
+        } catch (ToolInvoker.ToolFailure | ToolInvoker.EndpointUnavailable | RuntimeException ignored) {
+            // The HUD is optional: never let a render failure affect the research run.
+        }
+    }
+
+    /** Drain overlay commands; best-effort. */
+    private List<ResearchHudCommand> pollHudCommands() {
+        try {
+            return ResearchHudCommand.parseBatch(callBrowser("web_hud_poll", args()));
+        } catch (ToolInvoker.ToolFailure | ToolInvoker.EndpointUnavailable | RuntimeException ignored) {
+            return java.util.Collections.<ResearchHudCommand>emptyList();
+        }
+    }
+
+    /** Apply PAUSE/RESUME from the overlay (SKIP is handled contextually where a page can be abandoned). */
+    private void applyHudPauseResume() {
+        for (ResearchHudCommand command : pollHudCommands()) {
+            if (command.type == ResearchHudCommand.Type.PAUSE) {
+                hudPaused = true;
+            } else if (command.type == ResearchHudCommand.Type.RESUME) {
+                hudPaused = false;
+            }
+        }
+    }
+
+    /** While the user paused navigation, wait (cancel-aware) instead of opening the next page. */
+    private ResearchStopReason awaitResumeIfPaused() {
+        boolean announced = false;
+        while (hudPaused) {
+            if (cancelled.get()) {
+                return ResearchStopReason.USER_CANCELLED;
+            }
+            ResearchStopReason gate = stopReasonNow();
+            if (gate != null) {
+                return gate;
+            }
+            if (!announced) {
+                listener.status("[browser] paused by user");
+                announced = true;
+            }
+            renderHud("PAUSED", "Paused — resume to continue", false, ResearchHudState.NO_COUNTDOWN);
+            tickWait();
+            applyHudPauseResume();
+        }
+        if (announced) {
+            listener.status("[browser] resumed");
+        }
+        return null;
     }
 
     /** Sleep one probe interval (cancel stays immediate via the loop's checks); returns the time waited. */
