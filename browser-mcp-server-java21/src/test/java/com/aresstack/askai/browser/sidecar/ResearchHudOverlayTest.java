@@ -1,0 +1,48 @@
+package com.aresstack.askai.browser.sidecar;
+
+import com.aresstack.askai.browser.hud.ResearchHudState;
+
+import org.junit.Test;
+
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+
+/** The HUD overlay JS: capture-isolated mount, wired controls, and safe state rendering. */
+public class ResearchHudOverlayTest {
+
+    @Test
+    public void installMountsOnDocumentElementInAShadowRootAndWiresButtons() {
+        String js = ResearchHudOverlay.installScript();
+        // Capture isolation: mounted on documentElement (not body) inside an OPEN shadow root, so
+        // page.innerText("body") and the body walk never see it.
+        assertTrue("mounts on documentElement", js.contains("document.documentElement.appendChild(host)"));
+        assertTrue("open shadow DOM", js.contains("attachShadow({mode:'open'})"));
+        assertFalse("never appended to body", js.contains("document.body.appendChild(host)"));
+        // Controls call the exposed command binding.
+        assertTrue(js.contains("window.__askaiHudCommand"));
+        assertTrue("pause toggles resume", js.contains("window.__askaiHudPaused ? 'RESUME' : 'PAUSE'"));
+        assertTrue("skip command", js.contains("cmd('SKIP')"));
+        assertTrue("idempotent", js.contains("if (document.getElementById(HOST_ID)) return 'exists'"));
+    }
+
+    @Test
+    public void renderShowsTheCountdownOnlyWhileWaitingAndEscapesStatus() {
+        String waiting = ResearchHudOverlay.renderScript(
+                new ResearchHudState("WAITING_FOR_USER", "solve the challenge", true, 37, false));
+        assertTrue(waiting.contains("wait.hidden = false"));
+        assertTrue(waiting.contains("textContent = 37"));
+
+        String readable = ResearchHudOverlay.renderScript(
+                new ResearchHudState("READABLE", "ok", false, ResearchHudState.NO_COUNTDOWN, true));
+        assertTrue("no countdown when not waiting", readable.contains("wait.hidden = true"));
+        assertTrue("paused shows resume", readable.contains("'▶ Resume'"));
+    }
+
+    @Test
+    public void statusTextCannotInjectMarkupOrBreakTheString() {
+        String js = ResearchHudOverlay.renderScript(
+                new ResearchHudState("X", "</style><script>evil()</script>'; alert(1)//", false, -1, false));
+        assertFalse("angle brackets are neutralised", js.contains("<script>"));
+        assertTrue("single quotes are escaped", js.contains("\\'"));
+    }
+}

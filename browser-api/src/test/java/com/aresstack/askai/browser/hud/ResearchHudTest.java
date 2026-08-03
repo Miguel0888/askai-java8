@@ -1,0 +1,51 @@
+package com.aresstack.askai.browser.hud;
+
+import org.junit.Test;
+
+import java.util.List;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+
+/** The HUD wire types round-trip losslessly and parse the overlay's command batch. */
+public class ResearchHudTest {
+
+    @Test
+    public void stateRoundTripsIncludingAwkwardStatusText() {
+        ResearchHudState s = new ResearchHudState("WAITING_FOR_USER",
+                "Consent (REJECT_ALL) resolved = readable\nline2", true, 37, true);
+        ResearchHudState back = ResearchHudState.parse(s.render());
+        assertEquals("WAITING_FOR_USER", back.phase);
+        assertEquals("Consent (REJECT_ALL) resolved = readable\nline2", back.statusText);
+        assertTrue(back.waitingForUser);
+        assertEquals(37, back.countdownSeconds);
+        assertTrue(back.paused);
+    }
+
+    @Test
+    public void noCountdownIsPreserved() {
+        ResearchHudState back = ResearchHudState.parse(
+                new ResearchHudState("READABLE", "ok", false, ResearchHudState.NO_COUNTDOWN, false).render());
+        assertEquals(ResearchHudState.NO_COUNTDOWN, back.countdownSeconds);
+        assertFalse(back.waitingForUser);
+    }
+
+    @Test
+    public void parsesACommandBatchAndDropsUnknownLines() {
+        List<ResearchHudCommand> commands = ResearchHudCommand.parseBatch("PAUSE\nSET_DELAY:3000\n\nWAT?\nSKIP");
+        assertEquals(3, commands.size());
+        assertEquals(ResearchHudCommand.Type.PAUSE, commands.get(0).type);
+        assertEquals(ResearchHudCommand.Type.SET_DELAY, commands.get(1).type);
+        assertEquals("3000", commands.get(1).arg);
+        assertEquals(ResearchHudCommand.Type.SKIP, commands.get(2).type);
+    }
+
+    @Test
+    public void commandRenderRoundTrips() {
+        assertEquals("PAUSE", new ResearchHudCommand(ResearchHudCommand.Type.PAUSE, "").render());
+        assertEquals(ResearchHudCommand.Type.SET_DELAY,
+                ResearchHudCommand.parseLine("SET_DELAY:5000").type);
+        assertEquals("5000", ResearchHudCommand.parseLine("SET_DELAY:5000").arg);
+    }
+}
