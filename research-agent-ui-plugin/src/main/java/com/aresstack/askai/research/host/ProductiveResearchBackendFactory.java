@@ -414,8 +414,20 @@ public final class ProductiveResearchBackendFactory {
             Map<String, String> baseEnv = agentLaunchEnvironment(fullConfigFile.getAbsolutePath(),
                     rerankerSnapshot.getAbsolutePath(), inferenceSnapshotPath, inferenceUnavailableReason,
                     searchStrategySnapshotPath);
-            AgentLaunchSpec spec = new AgentLaunchSpec(agentJava,
-                    java.util.Arrays.asList("-jar", config.getAgentJar()), baseEnv);
+            // DEV/TEST-only hand-off (mirrors askai.research.sidecar.args for the browser sidecar): extra JVM
+            // args for the research-agent-runtime child, inserted BEFORE -jar so they are JVM flags. Empty by
+            // default → no production effect. Set on the HOST JVM, e.g. to A/B the overlay:
+            //   -Daskai.research.agent.jvmargs=-Daskai.research.hud.enabled=false
+            java.util.List<String> agentArgs = new java.util.ArrayList<String>();
+            String extraJvmArgs = System.getProperty("askai.research.agent.jvmargs", "").trim();
+            if (!extraJvmArgs.isEmpty()) {
+                for (String extra : extraJvmArgs.split("\\s+")) {
+                    agentArgs.add(extra);
+                }
+            }
+            agentArgs.add("-jar");
+            agentArgs.add(config.getAgentJar());
+            AgentLaunchSpec spec = new AgentLaunchSpec(agentJava, agentArgs, baseEnv);
             AcpResearchSessionBackend backend = null; // assigned after control.open()
 
             ProductiveResearchSessionResources resources;
