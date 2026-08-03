@@ -4,10 +4,12 @@ import com.aresstack.askai.research.backend.ScopingAssistantUpdate;
 
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
+import javax.swing.JButton;
 import javax.swing.JPanel;
 import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.Dimension;
+import java.awt.FlowLayout;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.util.function.Consumer;
@@ -25,8 +27,11 @@ import java.util.function.Consumer;
 public final class ScopingSupportView extends JPanel {
 
     private final JPanel tagsPanel;
+    /** The explicit user-owned phase transition: approve the brief and leave SCOPING. */
+    private final JButton continueButton;
 
     private Consumer<String> searchAction;
+    private Runnable continueAction;
 
     public ScopingSupportView() {
         super(new BorderLayout());
@@ -48,11 +53,63 @@ public final class ScopingSupportView extends JPanel {
         content.add(tagsPanel);
 
         add(content, BorderLayout.NORTH);
+
+        // The single productive action of scoping: freigeben & weiter (the search button that would sit to
+        // its left is a later slice). Disabled until the accessory reports the transition is legal; a click
+        // is the ONLY thing that advances the phase. The whole view is hidden once the phase leaves scoping.
+        continueButton = new JButton("Fragestellung freigeben & weiter");
+        continueButton.setEnabled(false);
+        continueButton.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent e) {
+                if (continueAction != null) {
+                    continueAction.run();
+                }
+            }
+        });
+        JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 6));
+        actions.setOpaque(false);
+        actions.add(continueButton);
+        add(actions, BorderLayout.SOUTH);
     }
 
     /** The accessory wires what a tag click runs (an immediate search with the query). */
     public void setSearchAction(Consumer<String> searchAction) {
         this.searchAction = searchAction;
+    }
+
+    /** The accessory wires what the "freigeben & weiter" click runs (approve brief → advance the phase). */
+    public void setContinueAction(Runnable continueAction) {
+        this.continueAction = continueAction;
+    }
+
+    /** Enable the "freigeben & weiter" action only when the accessory reports the transition is legal. */
+    public void setContinueEnabled(boolean enabled) {
+        continueButton.setEnabled(enabled);
+    }
+
+    /**
+     * The button's tooltip — when disabled it carries the concrete reason (e.g. "no brief yet", "a turn is
+     * running"), so a greyed button is never an unexplained dead end.
+     */
+    public void setContinueTooltip(String tooltip) {
+        continueButton.setToolTipText(tooltip == null || tooltip.isEmpty() ? null : tooltip);
+    }
+
+    /** The real approve button — so a UI/integration test can {@code doClick()} the genuine wired action. */
+    public JButton getApproveButton() {
+        return continueButton;
+    }
+
+    /** The rendered suggestion tags — so a UI/integration test can {@code doClick()} a genuine yellow tag. */
+    public java.util.List<javax.swing.AbstractButton> getSuggestionButtons() {
+        java.util.List<javax.swing.AbstractButton> buttons =
+                new java.util.ArrayList<javax.swing.AbstractButton>();
+        for (Component component : tagsPanel.getComponents()) {
+            if (component instanceof javax.swing.AbstractButton) {
+                buttons.add((javax.swing.AbstractButton) component);
+            }
+        }
+        return buttons;
     }
 
     /** Apply the latest projection: REPLACE the tags with the agent's newest knowledge. */

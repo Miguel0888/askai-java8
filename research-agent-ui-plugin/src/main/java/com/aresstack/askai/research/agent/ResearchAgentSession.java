@@ -196,6 +196,11 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         // listener must already accept it even though the handle field is assigned only when the call returns.
         started = true;
         handle = backend.createSession(request, this);
+        // Wire the user web search onto the productive backend transport (a #RSC1# service command over ACP).
+        // Transport-agnostic: a fake/clickdummy backend's submitServiceCommand is a no-op. Tests may override
+        // the port AFTER activate().
+        this.manualWebSearchPort = new com.aresstack.askai.research.search.BackendManualWebSearchPort(
+                backend, handle);
         final String notice = startupNotice;
         if (notice != null && sink != null) {
             uiExecutor.execute(new Runnable() {
@@ -389,6 +394,12 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     private volatile com.aresstack.askai.research.backend.ScopingAssistantUpdate latestScopingProjection;
     /** File-backed research brief store, bound to this session's project dir (null in the clickdummy). */
     private com.aresstack.askai.research.store.FileResearchBriefStore researchBriefStore;
+    /** USER-triggered web search service; wired to the productive backend transport at activate(). */
+    private volatile com.aresstack.askai.research.search.ManualWebSearchPort manualWebSearchPort =
+            new com.aresstack.askai.research.search.LoggingManualWebSearchPort();
+    /** The in-flight user search's correlation id (events carrying any other id are stale) and its handle. */
+    private volatile String activeManualSearchRequestId;
+    private volatile com.aresstack.askai.research.search.ManualWebSearchHandle activeManualSearchHandle;
     /** Lazy, host-side artifact visualizer (null when no inference port); a derived-view consumer. */
     private com.aresstack.askai.research.visualize.LazyArtifactVisualizer artifactVisualizer;
     /** The latest derived visualization projection for the "Visualisierung" view; transient/rebuildable. */
@@ -830,6 +841,223 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         }
     }
 
+    /**
+     * The user's explicit, SOLE decision to leave SCOPING: approve the current research brief working copy
+     * into an immutable revision and — only when that approval succeeds — dispatch exactly ONE
+     * {@code SUBMIT_SCOPE}, so the state machine (the only transition authority) advances SCOPING → OUTLINE.
+     * The order is fixed: persist/approve the artifact FIRST, transition only afterwards; a failed or empty
+     * approval transitions nothing. This deliberately does NOT chain further phases (no
+     * {@link #autoAdvanceTowardsResearch()}): one user click decides exactly one legal workflow transition.
+     * No model output, advice, natural-language "weiter", search suggestion or visualizer result may reach
+     * this — the scoping button is the only caller.
+     * <p>
+     * The result is a {@link ScopingApprovalOutcome}, never a bare boolean: a rejected click is NEVER a silent
+     * no-op. The gate is re-checked HERE (the button's enabled state is only a snapshot from the last state
+     * change — e.g. {@code agentTurnInFlight} can flip to true when a turn starts without a UI refresh), and
+     * any non-{@link ScopingApprovalOutcome#SUCCESS} reason is both logged and surfaced to the user.
+     */
+    public ScopingApprovalOutcome approveScopingBriefAndContinue() {
+        final com.aresstack.askai.research.state.oo.ResearchStateMemento snapshot =
+                productiveResources != null ? productiveResources.currentState() : state;
+        scopeApproveDiag("clicked session=" + Integer.toHexString(System.identityHashCode(this)));
+        scopeApproveDiag("phase=" + snapshot.getPhaseId() + " state=" + snapshot.getStateId()
+                + " busy=" + agentTurnInFlight + " briefPresent=" + hasNonBlankBrief());
+        ScopingApprovalOutcome blocker = scopingApprovalBlocker();
+        if (blocker != null) {
+            scopeApproveDiag("blocked reason=" + blocker);
+            surfaceScopingApprovalProblem(blocker);
+            return blocker;
+        }
+        com.aresstack.askai.research.store.FileResearchBriefStore store = researchBriefStore();
+        // 1) Persist/approve the artifact FIRST. An identical, already-approved brief creates NO duplicate
+        // revision (ALREADY_CURRENT); an I/O failure aborts here, BEFORE any state transition.
+        com.aresstack.askai.research.store.ResearchBriefArtifact.Approval approval;
+        try {
+            approval = store.approveCurrent(System.currentTimeMillis());
+        } catch (RuntimeException approvalFailed) {
+            scopeApproveDiag("approveResult=FAILED " + approvalFailed.getClass().getSimpleName());
+            surfaceScopingApprovalProblem(ScopingApprovalOutcome.APPROVAL_FAILED);
+            return ScopingApprovalOutcome.APPROVAL_FAILED;
+        }
+        scopeApproveDiag("approveResult=" + approval.getStatus());
+        scopeApproveDiag("before=" + snapshot.getPhaseId() + "/" + snapshot.getStateId());
+        // 2) Only now the single, explicit transition — never autoAdvanceTowardsResearch(): exactly one step.
+        boolean accepted = dispatch(ResearchCommandType.SUBMIT_SCOPE, null).isAccepted();
+        scopeApproveDiag("dispatch accepted=" + accepted);
+        if (!accepted) {
+            surfaceScopingApprovalProblem(ScopingApprovalOutcome.TRANSITION_REJECTED);
+            return ScopingApprovalOutcome.TRANSITION_REJECTED;
+        }
+        com.aresstack.askai.research.state.oo.ResearchStateMemento after =
+                productiveResources.currentState();
+        scopeApproveDiag("after=" + after.getPhaseId() + "/" + after.getStateId());
+        return ScopingApprovalOutcome.SUCCESS;
+    }
+
+    /**
+     * Whether the explicit "Fragestellung freigeben & weiter" action is currently legal — the button's enabled
+     * state. It is exactly {@code scopingApprovalBlocker() == null}, so the enable check and the click check can
+     * never drift apart.
+     */
+    public boolean canApproveScopingBriefAndContinue() {
+        return scopingApprovalBlocker() == null;
+    }
+
+    /**
+     * The concrete reason the scoping-approval action is currently unavailable, or an EMPTY string when it is
+     * ready. The UI uses this for the disabled button's tooltip, so a greyed button is never an unexplained
+     * dead end (the same plain-language text a rejected click would show).
+     */
+    public String scopingApprovalUnavailableReason() {
+        ScopingApprovalOutcome blocker = scopingApprovalBlocker();
+        return blocker == null ? "" : scopingApprovalProblemText(blocker);
+    }
+
+    // ------------------------------------------------------------------ user-triggered web search (service)
+
+    /**
+     * Run a USER-triggered web search — the third interaction kind, wired to the yellow scoping suggestions.
+     * This is NOT an agent chat turn and NOT a workflow command: it never calls {@code submitText}, never
+     * dispatches a state-machine command, never changes the phase and never starts an agent prompt. It is
+     * phase-independent by contract; the yellow tags merely happen to exist only in SCOPING because that is
+     * where the agent produces the suggestions, not because the service is gated to that phase.
+     */
+    public void requestManualWebSearch(String query) {
+        if (query == null || query.trim().isEmpty()) {
+            return;
+        }
+        com.aresstack.askai.research.search.ManualWebSearchHandle handle = manualWebSearchPort.search(
+                new com.aresstack.askai.research.search.ManualWebSearchRequest(query));
+        // Remember the correlation id so inbound events of THIS search render and stale ones are ignored.
+        this.activeManualSearchHandle = handle;
+        this.activeManualSearchRequestId = handle == null ? null : handle.getRequestId();
+        System.err.println("[manual-search] host submit requestId="
+                + (handle == null ? "none" : handle.getRequestId()) + " queryLen=" + query.trim().length());
+    }
+
+    /** Cancel the in-flight user web search, if any; late events of the cancelled run are then ignored. */
+    public void cancelManualWebSearch() {
+        com.aresstack.askai.research.search.ManualWebSearchHandle handle = activeManualSearchHandle;
+        if (handle != null) {
+            handle.cancel();
+        }
+    }
+
+    /** Wire the productive manual-web-search service (tests / factory); a null port is ignored. */
+    public void setManualWebSearchPort(com.aresstack.askai.research.search.ManualWebSearchPort port) {
+        if (port != null) {
+            this.manualWebSearchPort = port;
+        }
+    }
+
+    /**
+     * Render a user web search lifecycle event as a transient activity, correlated by requestId so late events
+     * of a superseded or cancelled run are ignored. It changes NO phase and NO state — a pure service surface.
+     */
+    private void applyManualSearch(ResearchBackendEvent event) {
+        if (sink == null) {
+            return;
+        }
+        String requestId = event.getTechnicalDetail();
+        if (requestId == null || !requestId.equals(activeManualSearchRequestId)) {
+            return; // stale/late event from a request the user did not (or no longer) launched
+        }
+        String activityId = event.getActivityId() != null
+                ? event.getActivityId() : "manual-search-" + requestId;
+        String subKind = event.getTitle();
+        String message = event.getText();
+        if ("started".equals(subKind)) {
+            sink.startToolActivity(activityId, "Websuche", message);
+        } else if ("progress".equals(subKind)) {
+            sink.updateToolActivity(activityId, "Websuche", message);
+        } else if ("completed".equals(subKind)) {
+            sink.completeToolActivity(activityId, message);
+            activeManualSearchRequestId = null;
+        } else if ("failed".equals(subKind)) {
+            // Both surfaces: close the transient activity AND raise a PERSISTENT, readable problem so the
+            // reason does not merely flash away.
+            sink.failToolActivity(activityId, message);
+            sink.showProblem("manual-search-failed-" + requestId, message);
+            activeManualSearchRequestId = null;
+        }
+    }
+
+    /**
+     * The single source of truth for the scoping-approval gate: returns the concrete blocking reason, or
+     * {@code null} when the action is legal. Pure gate — a productive session that is still open, NO foreground
+     * agent turn in flight, the active phase is SCOPING with {@code SUBMIT_SCOPE} allowed by the state machine,
+     * and a non-blank research brief. No model quality/gatekeeper check.
+     */
+    private ScopingApprovalOutcome scopingApprovalBlocker() {
+        if (disposed || productiveResources == null || productiveResources.isClosed() || handle == null) {
+            return ScopingApprovalOutcome.SESSION_INACTIVE;
+        }
+        if (agentTurnInFlight) {
+            return ScopingApprovalOutcome.BUSY; // a foreground agent turn is in flight
+        }
+        com.aresstack.askai.research.state.oo.ResearchStateMemento memento =
+                productiveResources.currentState();
+        if (!com.aresstack.askai.research.state.oo.ResearchStateIds.SCOPING.equals(memento.getPhaseId())
+                || !currentAllowedCommands().contains(ResearchCommandType.SUBMIT_SCOPE)) {
+            return ScopingApprovalOutcome.WRONG_PHASE;
+        }
+        if (!hasNonBlankBrief()) {
+            return ScopingApprovalOutcome.MISSING_BRIEF;
+        }
+        return null; // ready
+    }
+
+    private boolean hasNonBlankBrief() {
+        com.aresstack.askai.research.store.FileResearchBriefStore store = researchBriefStore();
+        return store != null && !store.effectiveContent().trim().isEmpty();
+    }
+
+    /** Make a rejected scoping approval VISIBLE (never a silent no-op), with a concrete plain-language reason. */
+    private void surfaceScopingApprovalProblem(final ScopingApprovalOutcome outcome) {
+        if (sink == null) {
+            return;
+        }
+        final String message = scopingApprovalProblemText(outcome);
+        uiExecutor.execute(new Runnable() {
+            public void run() {
+                sink.showProblem("scope-approve-" + outcome, message);
+            }
+        });
+    }
+
+    private static String scopingApprovalProblemText(ScopingApprovalOutcome outcome) {
+        String reason;
+        switch (outcome) {
+            case BUSY:
+                reason = "Es läuft gerade eine Agent-Antwort. Bitte einen Moment warten.";
+                break;
+            case MISSING_BRIEF:
+                reason = "Es liegt noch keine Fragestellung vor.";
+                break;
+            case WRONG_PHASE:
+                reason = "In dieser Phase ist der Wechsel nicht möglich.";
+                break;
+            case APPROVAL_FAILED:
+                reason = "Der Brief konnte nicht gespeichert werden.";
+                break;
+            case TRANSITION_REJECTED:
+                reason = "Phasenwechsel wurde abgelehnt.";
+                break;
+            case SESSION_INACTIVE:
+                reason = "Die Sitzung ist nicht aktiv.";
+                break;
+            default:
+                reason = "Unbekannter Grund.";
+                break;
+        }
+        return "Fragestellung konnte nicht freigegeben werden: " + reason;
+    }
+
+    /** Compact, non-sensitive trace of the scoping-approval click path (runWithDevPlugins console). */
+    private static void scopeApproveDiag(String message) {
+        System.err.println("[scope-approve] " + message);
+    }
+
     public void pause() {
         if (productiveResources != null) {
             agentTurnInFlight = false;
@@ -970,6 +1198,10 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 // The phase artifact: persist the brief to its working copy (one path, off the EDT). No
                 // approval revision, no phase transition — the "Fragestellung" view re-reads the store.
                 persistResearchBrief(event.getTitle(), event.getText());
+                break;
+            case MANUAL_SEARCH:
+                // A USER-triggered web search lifecycle: a transient activity only — no phase, no state change.
+                applyManualSearch(event);
                 break;
             case BLOCKED:
             case ERROR:

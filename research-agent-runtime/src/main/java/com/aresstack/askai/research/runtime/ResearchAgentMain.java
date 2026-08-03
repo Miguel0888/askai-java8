@@ -451,6 +451,13 @@ public final class ResearchAgentMain {
             }
         }
         String text = request.text() == null ? "" : request.text();
+        // FIRST branch: a typed SERVICE COMMAND (e.g. a user-triggered web search) is carried over the ACP
+        // prompt frame but is NOT a chat turn — dispatch it before ANY readiness/model/TeamAgent/state logic,
+        // then return. No applyPendingModelReload, no readStateView, no TeamAgent, no hostIsInResearchRunning.
+        if (com.aresstack.askai.research.runtime.service.ResearchServiceCommandWire.isServiceCommand(text)) {
+            handleServiceCommand(ctx, text);
+            return AcpSchema.PromptResponse.endTurn();
+        }
         if (cancelled.get()) {
             return new AcpSchema.PromptResponse(AcpSchema.StopReason.CANCELLED);
         }
@@ -511,6 +518,67 @@ public final class ResearchAgentMain {
         return cancelled.get()
                 ? new AcpSchema.PromptResponse(AcpSchema.StopReason.CANCELLED)
                 : AcpSchema.PromptResponse.endTurn();
+    }
+
+    /**
+     * Dispatch a typed {@code #RSC1#} service command. It is NOT a chat turn and touches no state/phase/model:
+     * a user web search runs on the productive {@link com.aresstack.askai.research.runtime.search.SearchStrategy}
+     * (phase-independent) and streams typed {@code manual_search_*} events back over the existing run wire.
+     * Unknown command types are ignored (never a chat bubble, never an error).
+     */
+    private void handleServiceCommand(SyncPromptContext ctx, String envelope) {
+        com.aresstack.askai.research.runtime.service.ResearchServiceCommand command =
+                com.aresstack.askai.research.runtime.service.ResearchServiceCommandWire.parse(envelope);
+        if (command == null) {
+            return;
+        }
+        if (com.aresstack.askai.research.runtime.service.ResearchServiceCommand.TYPE_MANUAL_SEARCH
+                .equals(command.getType())) {
+            handleManualSearch(ctx, command);
+        }
+    }
+
+    /**
+     * Run a user-triggered web search. It resolves the SAME productive {@code SearchStrategy} the loop uses
+     * (an API-provider session strategy, else the default legacy-browser SERP strategy over a fresh browser
+     * invoker) — the strategy is no longer trapped inside the loop. Phase-independent: this is a user service,
+     * not the agent's MCP tool. NOTE: this slice performs the SERP/provider DISCOVERY only; the browse →
+     * capture → source-acceptance pipeline is still trapped in the loop and is extracted in the next slice.
+     */
+    private void handleManualSearch(final SyncPromptContext ctx,
+                                    com.aresstack.askai.research.runtime.service.ResearchServiceCommand command) {
+        System.err.println("[manual-search] runtime received requestId=" + command.getRequestId()
+                + " queryLen=" + command.getQuery().length() + " hasBrowser=" + environment.hasBrowser());
+        com.aresstack.askai.research.runtime.loop.SolonToolInvoker browser = null;
+        try {
+            com.aresstack.askai.research.runtime.search.SearchStrategy strategy = searchStrategy;
+            if (strategy == null && environment.hasBrowser()) {
+                browser = new com.aresstack.askai.research.runtime.loop.SolonToolInvoker(
+                        environment.browserUrl, environment.browserTransport);
+                strategy = com.aresstack.askai.research.runtime.search.SessionSearchStrategyResolver.resolve(
+                        null, true, browser, loadBrowserSearchSettings(), inferencePort,
+                        new java.util.function.LongSupplier() {
+                            public long getAsLong() {
+                                return System.currentTimeMillis();
+                            }
+                        });
+            }
+            new com.aresstack.askai.research.runtime.service.ManualSearchHandler(strategy,
+                    new java.util.function.BooleanSupplier() {
+                        public boolean getAsBoolean() {
+                            return cancelled.get();
+                        }
+                    }).handle(command.getRequestId(), command.getQuery(),
+                    new com.aresstack.askai.research.runtime.service.ManualSearchHandler.Emitter() {
+                        public void emit(String wireLine) {
+                            ctx.sendMessage(wireLine);
+                        }
+                    });
+        } finally {
+            if (browser != null) {
+                browser.close();
+            }
+        }
     }
 
     /**

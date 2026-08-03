@@ -79,6 +79,18 @@ public final class AcpResearchSessionBackend implements ResearchSessionBackend {
     }
 
     @Override
+    public void submitServiceCommand(ResearchSessionHandle handle, String controlEnvelope) {
+        // A typed control command (e.g. #RSC1# manual_search): carried over the SAME ACP prompt frame — the
+        // only host→agent channel — with the same update-mapping listener, but it is NOT a chat turn: the
+        // runtime dispatches the envelope before any model/TeamAgent/state logic. Kept a separate method from
+        // submitPrompt so the transport limitation never leaks into the application semantics.
+        AcpBackedSession session = resolve(handle);
+        if (session != null) {
+            session.prompt(controlEnvelope);
+        }
+    }
+
+    @Override
     public void approve(ResearchSessionHandle handle, String approvalId) {
         // Approval is a user/state-machine concern handled by the plugin session, not the agent.
     }

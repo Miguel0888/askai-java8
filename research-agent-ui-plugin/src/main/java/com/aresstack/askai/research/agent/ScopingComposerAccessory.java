@@ -1,7 +1,5 @@
 package com.aresstack.askai.research.agent;
 
-import com.aresstack.askai.plugin.api.agent.ChatSubmissionTarget;
-import com.aresstack.askai.plugin.api.agent.SubmissionAvailability;
 import com.aresstack.askai.plugin.api.agent.composer.ComposerAccessory;
 import com.aresstack.askai.plugin.api.service.UiExecutor;
 import com.aresstack.askai.research.backend.ScopingAssistantUpdate;
@@ -31,11 +29,17 @@ final class ScopingComposerAccessory implements ComposerAccessory {
         this.view = new ScopingSupportView();
         this.view.setSearchAction(new Consumer<String>() {
             public void accept(String query) {
-                // Immediate search: same path as a typed prompt, so scoping advances turn by turn.
-                ChatSubmissionTarget target = research.getChatTarget();
-                if (target.getAvailability() == SubmissionAvailability.AVAILABLE) {
-                    target.submitText(query);
-                }
+                // USER-SERVICE, not a chat turn: a yellow suggestion runs a manual web search directly. It must
+                // NOT go through ChatSubmissionTarget.submitText — that would disguise a phase-independent
+                // service as an agent prompt and couple the search to the phase/turn availability.
+                research.requestManualWebSearch(query);
+            }
+        });
+        this.view.setContinueAction(new Runnable() {
+            public void run() {
+                // The ONLY trigger of the SCOPING → OUTLINE transition: approve the brief, then advance.
+                // All phase rules live in the session/state machine — the button carries none of them.
+                research.approveScopingBriefAndContinue();
             }
         });
         this.refresh = new Runnable() {
@@ -43,12 +47,20 @@ final class ScopingComposerAccessory implements ComposerAccessory {
                 final boolean scoping = ResearchStateIds.SCOPING.equals(
                         research.currentResearchSnapshot().getCurrentPhaseId());
                 final ScopingAssistantUpdate projection = research.latestScopingProjection();
+                // Re-derive the enablement from the LIVE session on every state change (phase, brief, busy) in
+                // ONE evaluation: an empty reason means ready; otherwise it is the disabled button's tooltip.
+                final String unavailableReason = research.scopingApprovalUnavailableReason();
+                final boolean canContinue = unavailableReason.isEmpty();
                 uiExecutor.execute(new Runnable() {
                     public void run() {
                         view.setVisible(scoping); // shown only in scoping; hidden elsewhere
                         if (scoping && projection != null) {
                             view.apply(projection);
                         }
+                        view.setContinueEnabled(canContinue);
+                        view.setContinueTooltip(canContinue
+                                ? "Fragestellung freigeben und zur Gliederung (OUTLINE) wechseln"
+                                : unavailableReason);
                         pushPlaceholder(scoping, projection);
                     }
                 });

@@ -142,10 +142,59 @@ public final class ResearchAcpEventMapper {
                     .messages(f.get("domain") == null ? "" : f.get("domain"),
                             f.get("url") == null ? "" : f.get("url"));
         }
+        if (ResearchRunWire.TYPE_MANUAL_SEARCH_STARTED.equals(type)
+                || ResearchRunWire.TYPE_MANUAL_SEARCH_PROGRESS.equals(type)
+                || ResearchRunWire.TYPE_MANUAL_SEARCH_COMPLETED.equals(type)
+                || ResearchRunWire.TYPE_MANUAL_SEARCH_FAILED.equals(type)) {
+            return mapManualSearch(text, type);
+        }
         // TYPE_LOG and anything unknown: technical details only.
         return ResearchBackendEvent.builder(ResearchBackendEventType.RUN_LOG)
                 .activity(activityId, ResearchActivityKind.TOOL_UPDATE, "", "")
                 .text(ResearchRunWire.TYPE_LOG.equals(type) ? ResearchRunWire.logText(text) : text);
+    }
+
+    /**
+     * A user-triggered web search lifecycle line → a {@code MANUAL_SEARCH} event: {@code title} is the sub-kind
+     * (started|progress|completed|failed), {@code text} is the user-facing line and {@code technicalDetail}
+     * carries the correlating requestId. The activity id is keyed by the requestId so one search owns one card.
+     */
+    private static ResearchBackendEvent.Builder mapManualSearch(String text, String type) {
+        java.util.Map<String, String> f = ResearchRunWire.fields(text);
+        String requestId = f.get("request_id") == null ? "" : f.get("request_id");
+        String subKind;
+        String message;
+        if (ResearchRunWire.TYPE_MANUAL_SEARCH_STARTED.equals(type)) {
+            subKind = "started";
+            String query = ResearchRunWire.decodedField(f, "query");
+            message = query.isEmpty() ? "Websuche läuft…" : "Websuche: " + query;
+        } else if (ResearchRunWire.TYPE_MANUAL_SEARCH_PROGRESS.equals(type)) {
+            subKind = "progress";
+            message = ResearchRunWire.decodedField(f, "note");
+        } else if (ResearchRunWire.TYPE_MANUAL_SEARCH_COMPLETED.equals(type)) {
+            subKind = "completed";
+            int results = ResearchRunWire.intField(f, "results");
+            message = results == 1 ? "1 Treffer" : results + " Treffer";
+        } else {
+            subKind = "failed";
+            message = manualSearchFailureText(f.get("reason"));
+        }
+        return ResearchBackendEvent.builder(ResearchBackendEventType.MANUAL_SEARCH)
+                .activity("manual-search-" + requestId, ResearchActivityKind.TOOL_UPDATE, subKind, message)
+                .messages("", requestId);
+    }
+
+    private static String manualSearchFailureText(String reason) {
+        if ("SEARCH_UNAVAILABLE".equals(reason)) {
+            return "Websuche nicht verfügbar.";
+        }
+        if ("CANCELLED".equals(reason)) {
+            return "Websuche abgebrochen.";
+        }
+        if ("EMPTY_QUERY".equals(reason)) {
+            return "Leere Suchanfrage.";
+        }
+        return "Websuche fehlgeschlagen.";
     }
 
     /** ACP terminal → completion/failure builder ({@code null} for CANCELLED: cancel is user-driven, silent). */

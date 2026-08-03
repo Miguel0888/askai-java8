@@ -1,0 +1,34 @@
+package com.aresstack.askai.research.runtime.service;
+
+import org.junit.Test;
+
+import java.net.URLEncoder;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+
+/** The runtime-side parser of the {@code #RSC1#} service-command envelope. */
+public class ResearchServiceCommandWireTest {
+
+    @Test
+    public void parsesAManualSearchEnvelopeWithAnEscapedQuery() throws Exception {
+        String query = "wearables audio: & video ünïcode";
+        String envelope = "#RSC1# manual_search request_id=abc-123 query="
+                + URLEncoder.encode(query, "UTF-8");
+
+        assertTrue(ResearchServiceCommandWire.isServiceCommand(envelope));
+        ResearchServiceCommand command = ResearchServiceCommandWire.parse(envelope);
+        assertEquals(ResearchServiceCommand.TYPE_MANUAL_SEARCH, command.getType());
+        assertEquals("abc-123", command.getRequestId());
+        assertEquals("the query round-trips through URL encoding", query, command.getQuery());
+    }
+
+    @Test
+    public void plainChatTextIsNotAServiceCommand() {
+        assertFalse(ResearchServiceCommandWire.isServiceCommand("just a normal question"));
+        assertNull(ResearchServiceCommandWire.parse("just a normal question"));
+        assertNull(ResearchServiceCommandWire.parse(null));
+    }
+}
