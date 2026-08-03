@@ -73,6 +73,20 @@ public class SearchPageGuardsTest {
             assertTrue("challenge selector missing: " + selector,
                     defaults.captcha.challengeSelectors.contains(selector));
         }
-        assertTrue(script.contains("challenge"));
+        // Evidence-bearing, visibility-gated vocabulary.
+        assertTrue("must distinguish a visible challenge", script.contains("'visible:'"));
+        assertTrue("must distinguish a hidden artifact", script.contains("'hidden:'"));
+    }
+
+    @Test
+    public void challengeScriptGatesOnRealVisibilityNotMerePresence() {
+        String script = SearchPageGuards.challengeDetectScript(defaults.captcha);
+        // A proper visibility gate (layout + computed style + viewport box), NOT the old clientHeight OR-fallback
+        // that false-positived on hidden contact-form recaptchas (the reactree bug).
+        assertTrue(script.contains("getComputedStyle"));
+        assertTrue(script.contains("getBoundingClientRect"));
+        assertTrue(script.contains("offsetParent"));
+        assertFalse("the el.clientHeight>0 OR-fallback (false-positives on hidden widgets) must be gone",
+                script.contains("clientHeight > 0"));
     }
 }

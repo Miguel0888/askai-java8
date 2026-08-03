@@ -497,7 +497,9 @@ public final class WebSearchApplicationService {
         String blockReason = AccessBlockSignals.reason(pr);
         listener.status("readiness=" + verdict
                 + (verdict == PageReadinessJudge.Verdict.ACCESS_BLOCKED ? " reason=" + blockReason : "")
-                + " [text=" + pr.textLength + " challenge=" + pr.challengePresent
+                + " [text=" + pr.textLength + " challenge=" + pr.challengeVisible
+                + (pr.challengePresent && !pr.challengeVisible ? " (artifact hidden)" : "")
+                + (pr.challengePresent ? " evidence=" + pr.challengeMarker : "")
                 + " consent=" + pr.consentPresent + "] " + url);
         renderHud(verdict.name(), "readiness=" + verdict
                         + (verdict == PageReadinessJudge.Verdict.ACCESS_BLOCKED ? " (" + blockReason + ")" : ""),
@@ -595,7 +597,7 @@ public final class WebSearchApplicationService {
      * reprobe, so without it the block page would be read + accepted (the source-10 bug).
      */
     boolean heuristicReadable(com.aresstack.askai.browser.BrowserPageReadiness pr) {
-        return !pr.challengePresent && !pr.consentPresent && !AccessBlockSignals.isBlocked(pr)
+        return !pr.challengeVisible && !pr.consentPresent && !AccessBlockSignals.isBlocked(pr)
                 && pr.textLength >= minReadableChars;
     }
 

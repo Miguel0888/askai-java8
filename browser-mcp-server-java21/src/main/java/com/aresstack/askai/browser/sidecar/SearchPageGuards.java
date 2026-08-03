@@ -123,20 +123,53 @@ final class SearchPageGuards {
         return sb.toString();
     }
 
-    /** The challenge-detection script: returns 'challenge:…' or 'none'. */
+    /**
+     * The challenge-detection script. Returns an EVIDENCE-BEARING marker:
+     * <ul>
+     *   <li>{@code 'visible:<selector>'} — a genuinely visible, blocking challenge widget (laid out, not
+     *       display:none/visibility:hidden/opacity~0, real box intersecting the viewport);</li>
+     *   <li>{@code 'visible:text:<marker>'} — a challenge phrase in the visible body text;</li>
+     *   <li>{@code 'hidden:<selector>'} — a challenge ARTIFACT exists but is invisible (e.g. a contact-form
+     *       recaptcha) — present for diagnostics, but NOT blocking;</li>
+     *   <li>{@code 'none'} — no artifact at all.</li>
+     * </ul>
+     * The visibility gate is the reactree false-positive fix: a hidden recaptcha must never force a user-wait.
+     */
     static String challengeDetectScript(CaptchaHandlingSettings captcha) {
         StringBuilder sb = new StringBuilder();
         sb.append("() => {\n");
+        // A real, blocking widget: laid out, not display:none / visibility:hidden / opacity~0, with a box of
+        // meaningful size that at least partially intersects the viewport. Tiny badges (invisible-recaptcha
+        // score badge) and off-screen/zero-box nodes do NOT count.
+        sb.append("  const visible = (el) => {\n");
+        sb.append("    try {\n");
+        sb.append("      if (!el || el.offsetParent === null) return false;\n");
+        sb.append("      const st = window.getComputedStyle(el);\n");
+        sb.append("      if (!st || st.display === 'none' || st.visibility === 'hidden'\n");
+        sb.append("          || parseFloat(st.opacity || '1') < 0.05) return false;\n");
+        sb.append("      const r = el.getBoundingClientRect();\n");
+        sb.append("      if (r.width < 8 || r.height < 8) return false;\n");
+        sb.append("      const vw = window.innerWidth || document.documentElement.clientWidth;\n");
+        sb.append("      const vh = window.innerHeight || document.documentElement.clientHeight;\n");
+        sb.append("      if (r.bottom < 0 || r.right < 0 || r.top > vh || r.left > vw) return false;\n");
+        sb.append("      return true;\n");
+        sb.append("    } catch (e) { return false; }\n");
+        sb.append("  };\n");
         sb.append("  const selectors = ").append(jsArray(captcha.challengeSelectors)).append(";\n");
+        sb.append("  let hidden = null;\n");
         sb.append("  for (const s of selectors) {\n");
         sb.append("    try {\n");
         sb.append("      const el = document.querySelector(s);\n");
-        sb.append("      if (el && (el.offsetParent !== null || el.clientHeight > 0)) return 'challenge:' + s;\n");
+        sb.append("      if (!el) continue;\n");
+        sb.append("      if (visible(el)) return 'visible:' + s;\n");
+        sb.append("      if (hidden === null) hidden = s;\n"); // remember the artifact, keep scanning for a visible one
         sb.append("    } catch (e) {}\n");
         sb.append("  }\n");
+        // A challenge PHRASE in the visible body text is itself a blocking signal.
         sb.append("  const texts = ").append(jsArray(captcha.challengeTexts)).append(";\n");
         sb.append("  const body = (document.body ? document.body.innerText : '').toLowerCase();\n");
-        sb.append("  for (const t of texts) { if (body.includes(t)) return 'challenge-text:' + t; }\n");
+        sb.append("  for (const t of texts) { if (body.includes(t)) return 'visible:text:' + t; }\n");
+        sb.append("  if (hidden !== null) return 'hidden:' + hidden;\n");
         sb.append("  return 'none';\n");
         sb.append("}");
         return sb.toString();

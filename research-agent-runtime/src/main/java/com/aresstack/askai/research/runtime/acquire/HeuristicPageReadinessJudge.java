@@ -23,7 +23,9 @@ public final class HeuristicPageReadinessJudge implements PageReadinessJudge {
         if (AccessBlockSignals.isBlocked(probe)) {
             return Verdict.ACCESS_BLOCKED;
         }
-        if (probe.challengePresent) {
+        // A challenge only blocks when it is actually VISIBLE: a present-but-hidden artifact (e.g. a contact-form
+        // recaptcha on an otherwise readable article — the reactree false positive) must NOT force a user-wait.
+        if (probe.challengeVisible) {
             return Verdict.INTERACTIVE_CHALLENGE;
         }
         if (probe.consentPresent) {

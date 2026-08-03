@@ -10,8 +10,15 @@ import static org.junit.Assert.assertEquals;
 public class PageReadinessJudgeTest {
 
     private static BrowserPageReadiness probe(int textLen, boolean challenge, boolean consent, String excerpt) {
+        // A "challenge" here means a VISIBLE challenge (challengePresent == challengeVisible), the old contract.
         return new BrowserPageReadiness("https://x/y", "T", textLen, excerpt,
-                challenge, challenge ? "challenge:x" : "", consent, consent ? "candidate:x" : "");
+                challenge, challenge ? "visible:x" : "", consent, consent ? "candidate:x" : "");
+    }
+
+    /** A challenge ARTIFACT present but NOT visible (e.g. reactree's hidden contact-form recaptcha). */
+    private static BrowserPageReadiness hiddenChallenge(int textLen, String excerpt) {
+        return new BrowserPageReadiness("https://reactree.com/wearables", "The Future of Wearable Technology",
+                textLen, excerpt, true, false, "hidden:iframe[src*='captcha']", false, "");
     }
 
     private static final String CLOUDFLARE_1020 =
@@ -27,6 +34,33 @@ public class PageReadinessJudgeTest {
         assertEquals(PageReadinessJudge.Verdict.READABLE, h.judge(probe(500, false, false, "article")));
         assertEquals(PageReadinessJudge.Verdict.UNREADABLE,
                 h.judge(probe(20, false, false, "verify you are human")));
+    }
+
+    @Test
+    public void aHiddenChallengeArtifactOnAReadableArticleStaysReadable() {
+        // The reactree false positive: a full 14k-char article with a HIDDEN contact-form recaptcha. A present-
+        // but-invisible artifact must NOT force INTERACTIVE_CHALLENGE — the page is READABLE.
+        HeuristicPageReadinessJudge h = new HeuristicPageReadinessJudge(48);
+        assertEquals(PageReadinessJudge.Verdict.READABLE,
+                h.judge(hiddenChallenge(14453, "wearable devices, smart rings, health monitoring")));
+
+        PageReadinessModel poison = new PageReadinessModel() {
+            public String complete(String system, String user) {
+                return "INTERACTIVE_CHALLENGE"; // must not even be consulted for a clearly readable page
+            }
+        };
+        ModelPageReadinessJudge m = new ModelPageReadinessJudge(poison, 48);
+        assertEquals(PageReadinessJudge.Verdict.READABLE,
+                m.judge(hiddenChallenge(14453, "wearable devices, smart rings, health monitoring")));
+    }
+
+    @Test
+    public void aVisibleChallengeStillBlocksEvenWithPlentyOfText() {
+        // The opposite guard: a genuinely visible challenge widget must block regardless of extracted text.
+        HeuristicPageReadinessJudge h = new HeuristicPageReadinessJudge(48);
+        BrowserPageReadiness visible = new BrowserPageReadiness("https://x/y", "One last step", 3000,
+                "verify you are human", true, true, "visible:iframe[src*='captcha']", false, "");
+        assertEquals(PageReadinessJudge.Verdict.INTERACTIVE_CHALLENGE, h.judge(visible));
     }
 
     @Test

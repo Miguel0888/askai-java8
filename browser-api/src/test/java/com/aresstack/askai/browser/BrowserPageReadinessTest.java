@@ -37,6 +37,29 @@ public class BrowserPageReadinessTest {
     }
 
     @Test
+    public void aHiddenChallengeArtifactRoundTripsAsPresentButNotVisible() {
+        // reactree case: a present-but-invisible recaptcha artifact on a readable article. The two axes must
+        // survive the wire: challengePresent=true, challengeVisible=false.
+        BrowserPageReadiness p = new BrowserPageReadiness(
+                "https://reactree.com/wearables", "Wearables", 14453, "wearable devices, smart rings",
+                true, false, "hidden:iframe[src*='captcha']", false, "");
+        BrowserPageReadiness back = BrowserPageReadiness.parse(p.render());
+        assertTrue(back.challengePresent);
+        assertFalse(back.challengeVisible);
+        assertEquals("hidden:iframe[src*='captcha']", back.challengeMarker);
+    }
+
+    @Test
+    public void aRenderWithoutVisibilityDefaultsVisibleToPresent() {
+        // Backward compat: an older probe block (no challenge_visible line) maps challengeVisible = challenge.
+        String legacy = "url: https://x\ntitle: T\ntext_length: 5\nchallenge: true\n"
+                + "challenge_marker: visible:x\nconsent: false\nconsent_candidate: \nexcerpt: one last step";
+        BrowserPageReadiness back = BrowserPageReadiness.parse(legacy);
+        assertTrue(back.challengePresent);
+        assertTrue(back.challengeVisible);
+    }
+
+    @Test
     public void excerptIsBounded() {
         StringBuilder big = new StringBuilder();
         for (int i = 0; i < 5000; i++) {

@@ -243,8 +243,10 @@ final class Playwright4jDriver implements PlaywrightDriver {
             return false;
         }
         try {
+            // Only a VISIBLE/blocking challenge counts here (this drives challenge parking) — a hidden
+            // artifact ('hidden:…') must never park a readable page.
             return String.valueOf(page.evaluate(SearchPageGuards.challengeDetectScript(captcha)))
-                    .startsWith("challenge");
+                    .startsWith("visible");
         } catch (RuntimeException ex) {
             return false;
         }
@@ -311,8 +313,9 @@ final class Playwright4jDriver implements PlaywrightDriver {
             return false;
         }
         try {
+            // Resolved once the challenge is no longer VISIBLY blocking (a lingering hidden artifact does not count).
             return String.valueOf(challengePage.evaluate(SearchPageGuards.challengeDetectScript(captcha)))
-                    .startsWith("challenge");
+                    .startsWith("visible");
         } catch (RuntimeException ex) {
             return false; // an unreadable/closed challenge tab counts as resolved, never blocks forever
         }

@@ -351,14 +351,15 @@ final class PlaywrightBrowserSession implements BrowserSession {
 
     /** Compose a readability probe from a snapshot plus the driver's consent/challenge guards. */
     private BrowserPageReadiness readinessFrom(BrowserPageSnapshot s) {
-        String marker = driver.challengeMarker();
-        boolean challenge = marker != null && marker.startsWith("challenge");
+        String marker = driver.challengeMarker(); // 'visible:…' | 'hidden:…' | 'none'
+        boolean present = marker != null && !marker.isEmpty() && !"none".equals(marker);
+        boolean visible = marker != null && marker.startsWith("visible");
         String consent = driver.consentCandidate();
         boolean consentPresent = consent != null && consent.startsWith("candidate");
         int len = s.getText() == null ? 0 : s.getText().length();
         return new BrowserPageReadiness(s.getUrl(), s.getTitle(), len,
                 BrowserPageReadiness.excerptOf(s.getText()),
-                challenge, challenge ? marker : "",
+                present, visible, present ? marker : "",
                 consentPresent, consentPresent ? consent : "");
     }
 

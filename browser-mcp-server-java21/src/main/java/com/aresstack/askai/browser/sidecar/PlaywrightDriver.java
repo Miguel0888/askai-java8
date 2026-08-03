@@ -48,17 +48,18 @@ interface PlaywrightDriver extends AutoCloseable {
         return "none";
     }
 
-    /** @return true when the CURRENT page shows a manual challenge (CAPTCHA / "one last step"). */
+    /** @return true when the CURRENT page shows a VISIBLE, blocking manual challenge (CAPTCHA / "one last step"). */
     default boolean challengePresent() {
         return false;
     }
 
     /**
-     * @return the challenge marker that matched on the CURRENT page ({@code "challenge:<selector>"} or
-     * {@code "challenge-text:<text>"}), or {@code "none"}. A richer form of {@link #challengePresent}.
+     * @return the challenge marker that matched on the CURRENT page: {@code "visible:<selector>"} /
+     * {@code "visible:text:<text>"} for a blocking challenge, {@code "hidden:<selector>"} for a present-but-
+     * invisible artifact (not blocking), or {@code "none"}. A richer form of {@link #challengePresent}.
      */
     default String challengeMarker() {
-        return challengePresent() ? "challenge:?" : "none";
+        return challengePresent() ? "visible:?" : "none";
     }
 
     /**

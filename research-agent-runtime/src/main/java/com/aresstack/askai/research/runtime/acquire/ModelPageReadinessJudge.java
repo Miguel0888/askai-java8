@@ -42,7 +42,8 @@ public final class ModelPageReadinessJudge implements PageReadinessJudge {
         if (AccessBlockSignals.isBlocked(probe)) {
             return Verdict.ACCESS_BLOCKED;
         }
-        if (probe.challengePresent) {
+        // Only a VISIBLE challenge blocks; a hidden artifact leaves a readable page readable (reactree fix).
+        if (probe.challengeVisible) {
             return Verdict.INTERACTIVE_CHALLENGE;
         }
         if (probe.consentPresent) {
