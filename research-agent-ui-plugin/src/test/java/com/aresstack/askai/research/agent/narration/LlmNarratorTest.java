@@ -47,10 +47,7 @@ public class LlmNarratorTest {
         }
     }
 
-    @After
-    public void resetLanguage() {
-        com.aresstack.askai.research.agent.ResearchPlaybook.setLanguage("en"); // no test bleed
-    }
+    // No global language state anymore: each narrator gets its own provider, nothing can bleed.
 
     @Test
     public void thePayloadIsRenderedAsLabelledBlocksNotAsAParaphraseOrder() {
@@ -102,9 +99,10 @@ public class LlmNarratorTest {
 
     @Test
     public void aGermanSessionGetsAGermanPrompt() {
-        com.aresstack.askai.research.agent.ResearchPlaybook.setLanguage("de");
         ScriptedPort port = new ScriptedPort();
-        new LlmNarrator(port).narrate(new NarrationRequest("n1", "t", "REF",
+        new LlmNarrator(port, new com.aresstack.askai.research.agent.SessionResearchLanguage(
+                com.aresstack.askai.research.agent.ResearchLanguage.GERMAN))
+                .narrate(new NarrationRequest("n1", "t", "REF",
                 new NarrationPayload("s", null, null, null, 4, null)), new Recorded());
         assertTrue(port.requests.get(0).getSystemPrompt().contains("Nicht verhandelbare Regeln"));
         assertTrue(port.requests.get(0).getUserPrompt().contains("MAXIMALE SÄTZE"));

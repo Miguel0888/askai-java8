@@ -33,15 +33,25 @@ public final class FakeResearchSessionBackend implements ResearchSessionBackend 
     private final long stepDelayMillis;
     private final Map<String, FakeSession> sessions = new ConcurrentHashMap<String, FakeSession>();
     /** Phrases the fake agent's conversational texts (variant 0 = the playbook wording). */
-    private final com.aresstack.askai.research.agent.ResearchNarrator narrator =
-            new com.aresstack.askai.research.agent.StaticNarrator();
+    private final com.aresstack.askai.research.agent.ResearchNarrator narrator;
 
+    /** English-default demo backend (tests). */
     public FakeResearchSessionBackend(ResearchScheduler scheduler, ResearchClock clock,
                                       ResearchIdGenerator idGenerator, long stepDelayMillis) {
+        this(scheduler, clock, idGenerator, stepDelayMillis,
+                com.aresstack.askai.research.agent.ResearchLanguage.ENGLISH);
+    }
+
+    /** Demo backend speaking the given language (the factory passes the persisted session default). */
+    public FakeResearchSessionBackend(ResearchScheduler scheduler, ResearchClock clock,
+                                      ResearchIdGenerator idGenerator, long stepDelayMillis,
+                                      com.aresstack.askai.research.agent.ResearchLanguage language) {
         this.scheduler = scheduler;
         this.clock = clock;
         this.idGenerator = idGenerator;
         this.stepDelayMillis = stepDelayMillis;
+        this.narrator = new com.aresstack.askai.research.agent.StaticNarrator(
+                new com.aresstack.askai.research.agent.ResearchPlaybook(language));
     }
 
     @Override

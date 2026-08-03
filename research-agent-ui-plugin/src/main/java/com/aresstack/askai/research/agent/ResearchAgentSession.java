@@ -44,6 +44,10 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             new com.aresstack.askai.research.sources.InMemoryResearchSourceRepository();
     private final ChatSubmissionTarget chatTarget = new ResearchChatTarget();
 
+    /** This session's OWN live language + the playbook bound to it (never static, never shared). */
+    private final SessionResearchLanguage sessionLanguage;
+    private final ResearchPlaybook playbook;
+
     // View-model (updated only on the UI thread from backend events). The hierarchical OO memento is the single
     // source of truth: phase, exact state, precise continuation and the pending approval id all come from it.
     private final com.aresstack.askai.research.state.oo.ResearchStateFactory stateFactory =
@@ -92,12 +96,33 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         this.sink = host.getConversationSink();
         this.uiExecutor = host.getUiExecutor();
         this.hostStateStore = host.getStateStore();
+        // Session-LOCAL language: seeded from the persisted default, then owned by THIS session alone —
+        // two parallel research tabs switch independently, nothing is process-global.
+        this.sessionLanguage = new SessionResearchLanguage(ResearchLanguage.fromCode(
+                com.aresstack.askai.research.host.ResearchRuntimeSettings.loadLanguage(
+                        host.getStateStore())));
+        this.playbook = new ResearchPlaybook(sessionLanguage);
+        this.narrator = new StaticNarrator(playbook);
+        this.scoping = new ScopingConversation(narrator);
         this.productiveResources = resources;
         this.request = new ResearchProjectRequest(sessionId, projectId, "Research project");
         if (resources != null) {
             this.state = resources.currentState(); // one truth from the start
             wireBrowserActivity(resources);
         }
+    }
+
+    /** The session's OWN live language — the toolbar switch mutates exactly this, nothing global. */
+    public SessionResearchLanguage getSessionLanguage() {
+        return sessionLanguage;
+    }
+
+    /**
+     * Live language switch for THIS session only: host texts and narrations pick it up on the next
+     * utterance; already rendered history stays untouched. No chat turn, no state-machine command.
+     */
+    public void changeLanguage(ResearchLanguage value) {
+        sessionLanguage.change(value);
     }
 
     /**
@@ -119,7 +144,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                                 if (disposed) {
                                     return; // tab closed while the browser was starting: post nothing
                                 }
-                                sink.startThinking(id, ResearchPlaybook.browserStarting());
+                                sink.startThinking(id, playbook.browserStarting());
                             }
                         });
                     }
@@ -131,7 +156,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                                     return; // a late READY after close must not post into a closed sink
                                 }
                                 sink.finishThinking("browser-start-" + generation,
-                                        ResearchPlaybook.browserReady());
+                                        playbook.browserReady());
                             }
                         });
                     }
@@ -144,7 +169,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                                 }
                                 sink.finishThinking("browser-start-" + generation, "");
                                 sink.showProblem("browser-start-" + generation,
-                                        ResearchPlaybook.browserFailed(detail));
+                                        playbook.browserFailed(detail));
                             }
                         });
                     }
@@ -262,7 +287,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                         new ArrayList<AgentConversationSink.ActionOption>();
                 for (RestoredActionsProvider.RestoredAction action : actions) {
                     options.add(new AgentConversationSink.ActionOption(action.getActionId(),
-                            ResearchPlaybook.actionLabel(action.getActionId())));
+                            playbook.actionLabel(action.getActionId())));
                 }
                 String cardId = current.getPendingApprovalId() == null
                         ? "actions-restored-" + current.getRevision() : current.getPendingApprovalId();
@@ -434,9 +459,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         }
     }
     /** The narration seam: all conversational milestone texts; replaceable by an LLM-backed narrator. */
-    private final ResearchNarrator narrator = new StaticNarrator();
+    private final ResearchNarrator narrator;
     /** The consultative scoping dialog (productive mode). */
-    private final ScopingConversation scoping = new ScopingConversation(narrator);
+    private final ScopingConversation scoping;
     /** Optional warm phrasing (LLM): set once by the factory when the toggle is on and the port exists. */
     private com.aresstack.askai.research.agent.narration.NarrationCoordinator narration;
     private ResearchScheduler narrationScheduler;
@@ -465,7 +490,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         }
         narration.narrate(new com.aresstack.askai.research.agent.narration.NarrationRequest(
                         "narration-" + kind + "-" + playbookMessageIds.incrementAndGet(),
-                        ResearchPlaybook.narratorThinking(), fallbackText),
+                        playbook.narratorThinking(), fallbackText),
                 new com.aresstack.askai.research.agent.narration.NarrationCoordinator.Presenter() {
                     public void present(String text) {
                         sayAsAgent(text);
@@ -545,7 +570,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                         .commit(new ConfirmedResearchScope(question.trim(), aspects,
                                 built.buildConceptMarkdown(), built.buildOutlineMarkdown()));
         if (!commit.isSuccess()) {
-            sayAsAgent(ResearchPlaybook.scopeCommitFailed(commit.getStatus() + ": " + commit.getDetail()));
+            sayAsAgent(playbook.scopeCommitFailed(commit.getStatus() + ": " + commit.getDetail()));
             return;
         }
         researchQuestion = question.trim();
@@ -675,9 +700,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                     java.util.List<AgentConversationSink.ActionOption> options =
                             new ArrayList<AgentConversationSink.ActionOption>();
                     options.add(new AgentConversationSink.ActionOption("approve",
-                            ResearchPlaybook.actionLabel("approve")));
+                            playbook.actionLabel("approve")));
                     options.add(new AgentConversationSink.ActionOption("changes",
-                            ResearchPlaybook.actionLabel("changes")));
+                            playbook.actionLabel("changes")));
                     sink.showActionCard(approvalId, message, options,
                             new AgentConversationSink.ActionHandler() {
                                 public AgentConversationSink.ActionExecutionResult onAction(String actionId) {
@@ -1409,9 +1434,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         if (newCard) {
             currentRunActivityId = id;
             runCardStarted = true;
-            sink.startToolActivity(id, ResearchPlaybook.progressTitle(), progressCardBody());
+            sink.startToolActivity(id, playbook.progressTitle(), progressCardBody());
         } else {
-            sink.updateToolActivity(id, ResearchPlaybook.progressTitle(), progressCardBody());
+            sink.updateToolActivity(id, playbook.progressTitle(), progressCardBody());
         }
     }
 
@@ -1425,11 +1450,11 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         boolean searchingViaApi = "SEARCHING_API".equals(info.getActivityToken());
         if (searchingViaApi && apiSearchBubbleId == null) {
             apiSearchBubbleId = "api-search-" + runId;
-            sink.startThinking(apiSearchBubbleId, ResearchPlaybook.apiSearchThinking(
+            sink.startThinking(apiSearchBubbleId, playbook.apiSearchThinking(
                     runApiSearchProvider, runSearchQuery));
         } else if (!searchingViaApi && apiSearchBubbleId != null) {
             sink.finishThinking(apiSearchBubbleId,
-                    ResearchPlaybook.apiSearchDone(runApiSearchProvider));
+                    playbook.apiSearchDone(runApiSearchProvider));
             apiSearchBubbleId = null;
         }
     }
@@ -1437,7 +1462,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     private void resetRunActivityContext() {
         if (apiSearchBubbleId != null && sink != null) {
             // A run that ends while the bubble is open (cancel, provider error) must not leave it thinking.
-            sink.finishThinking(apiSearchBubbleId, ResearchPlaybook.apiSearchDone(runApiSearchProvider));
+            sink.finishThinking(apiSearchBubbleId, playbook.apiSearchDone(runApiSearchProvider));
             apiSearchBubbleId = null;
         }
         runSearchQuery = "";
@@ -1464,10 +1489,10 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         }
         String token = info.getActivityToken();
         if ("SOURCE_ACCEPTED".equals(token) && !info.getCurrentHost().isEmpty()) {
-            pushRunHistory(ResearchPlaybook.historyAccepted(info.getCurrentHost(),
+            pushRunHistory(playbook.historyAccepted(info.getCurrentHost(),
                     info.getCurrentPageTitle()));
         } else if ("PAGE_SKIPPED".equals(token) && !info.getCurrentHost().isEmpty()) {
-            pushRunHistory(ResearchPlaybook.historySkipped(info.getCurrentHost()));
+            pushRunHistory(playbook.historySkipped(info.getCurrentHost()));
         }
     }
 
@@ -1482,7 +1507,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         agentTurnInFlight = false; // the run is over; the user decides the next step
         final com.aresstack.askai.research.backend.ResearchRunOutcomeInfo outcome = event.getRunOutcome();
         if (runCardStarted && currentRunActivityId != null) {
-            sink.completeToolActivity(currentRunActivityId, ResearchPlaybook.runFinishedSummary(
+            sink.completeToolActivity(currentRunActivityId, playbook.runFinishedSummary(
                     outcome.getPagesVisited(), outcome.getAcceptedSources(), outcome.getDistinctHosts()));
         }
         currentRunActivityId = null;
@@ -1527,13 +1552,13 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         if (!resolved) {
             if (attentionEpisodes.add(domain)) {
                 attentionSound.run();
-                sink.showProblem("attention-" + domain, ResearchPlaybook.attentionRequired(domain));
+                sink.showProblem("attention-" + domain, playbook.attentionRequired(domain));
             }
             return;
         }
         if (attentionEpisodes.remove(domain)) {
             sink.appendAssistantMessage("attention-resolved-" + domain,
-                    ResearchPlaybook.attentionResolved(domain));
+                    playbook.attentionResolved(domain));
         }
     }
 
@@ -1547,19 +1572,19 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         if (lastRunProgress != null) {
             if (!runSearchQuery.isEmpty()) {
                 sb.append(runApiSearchProvider.isEmpty()
-                        ? ResearchPlaybook.progressSearchLine(runSearchQuery)
-                        : ResearchPlaybook.progressApiSearchLine(runApiSearchProvider, runSearchQuery))
+                        ? playbook.progressSearchLine(runSearchQuery)
+                        : playbook.progressApiSearchLine(runApiSearchProvider, runSearchQuery))
                         .append("\n\n");
             }
             if (!runCurrentHost.isEmpty()) {
-                sb.append(ResearchPlaybook.progressPageLine(runCurrentHost, runCurrentPageTitle))
+                sb.append(playbook.progressPageLine(runCurrentHost, runCurrentPageTitle))
                         .append("\n\n");
             }
-            sb.append(ResearchPlaybook.progressLine(lastRunProgress.getPagesVisited(),
+            sb.append(playbook.progressLine(lastRunProgress.getPagesVisited(),
                     lastRunProgress.getAcceptedSources(), lastRunProgress.getDistinctHosts(),
                     lastRunProgress.getActivityToken()));
             if (!runActivityHistory.isEmpty()) {
-                sb.append("\n\n").append(ResearchPlaybook.recentPagesTitle());
+                sb.append("\n\n").append(playbook.recentPagesTitle());
                 for (String entry : runActivityHistory) {
                     sb.append('\n').append(entry);
                 }
@@ -1625,7 +1650,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             AgentConversationSink.ActionKind kind = "sources".equals(id) || "config".equals(id)
                     ? AgentConversationSink.ActionKind.NAVIGATION
                     : AgentConversationSink.ActionKind.DECISION;
-            options.add(new AgentConversationSink.ActionOption(id, ResearchPlaybook.actionLabel(id), kind));
+            options.add(new AgentConversationSink.ActionOption(id, playbook.actionLabel(id), kind));
         }
         return options;
     }
@@ -1645,7 +1670,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         if ("config".equals(actionId)) {
             // The runtime configuration lives in the gear menu at the composer now (session-based
             // plugin settings), not in the artifact area — point there instead of opening a tab.
-            sayAsAgent(ResearchPlaybook.getLanguage() == ResearchPlaybook.Language.GERMAN
+            sayAsAgent(playbook.isGerman()
                     ? "Die Einstellungen findest du im Zahnrad-Menü unten am Eingabefeld "
                             + "(Kategorie „Research Agent“)."
                     : "You find the settings in the gear menu at the composer "
@@ -1697,7 +1722,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         if (opener != null) {
             opener.openArtifact(artifactId);
         } else {
-            sayAsAgent(ResearchPlaybook.getLanguage() == ResearchPlaybook.Language.GERMAN
+            sayAsAgent(playbook.isGerman()
                     ? "Die Ansicht kann hier nicht geöffnet werden — bitte öffne den Tab \"" + artifactId
                             + "\" im Arbeitsbereich."
                     : "This view cannot be opened here — please open the \"" + artifactId
@@ -1707,7 +1732,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
 
     /** Record the unmet evidence requirement VISIBLY and move on towards review — never silently. */
     private void recordLimitation(com.aresstack.askai.research.backend.ResearchRunOutcomeInfo outcome) {
-        String note = ResearchPlaybook.limitationRecorded(outcome);
+        String note = playbook.limitationRecorded(outcome);
         try {
             com.aresstack.askai.plugin.api.agent.artifact.AgentArtifactStore store =
                     productiveResources != null ? productiveResources.getArtifactStore() : artifactStore;

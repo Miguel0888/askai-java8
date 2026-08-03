@@ -1,7 +1,9 @@
 package com.aresstack.askai.research.agent.narration;
 
 import com.aresstack.askai.agent.model.inference.AgentInferencePort;
-import com.aresstack.askai.research.agent.ResearchPlaybook;
+import com.aresstack.askai.research.agent.ResearchLanguage;
+import com.aresstack.askai.research.agent.ResearchLanguageProvider;
+import com.aresstack.askai.research.agent.SessionResearchLanguage;
 
 import java.util.Map;
 
@@ -14,9 +16,19 @@ import java.util.Map;
 public final class LlmNarrator implements AsyncNarrator {
 
     private final AgentInferencePort port;
+    private final ResearchLanguageProvider language;
 
+    /** English-default convenience (tests without a session language). */
     public LlmNarrator(AgentInferencePort port) {
+        this(port, null);
+    }
+
+    /** @param language the SESSION's live language — read per narration, so a live switch applies. */
+    public LlmNarrator(AgentInferencePort port, ResearchLanguageProvider language) {
         this.port = port;
+        this.language = language == null
+                ? new SessionResearchLanguage(ResearchLanguage.ENGLISH)
+                : language;
     }
 
     @Override
@@ -44,12 +56,12 @@ public final class LlmNarrator implements AsyncNarrator {
         };
     }
 
-    private static boolean de() {
-        return ResearchPlaybook.getLanguage() == ResearchPlaybook.Language.GERMAN;
+    private boolean de() {
+        return language.currentLanguage() == ResearchLanguage.GERMAN;
     }
 
     /** Persona + the non-negotiable rules; stable per session language. */
-    static String systemPrompt() {
+    String systemPrompt() {
         if (de()) {
             return "Du bist der Recherche-Begleiter in einer Fachanwendung und führst den User durch "
                     + "eine strukturierte Recherche. Du sprichst Deutsch, per Du, warm und knapp — wie "
@@ -83,7 +95,7 @@ public final class LlmNarrator implements AsyncNarrator {
     }
 
     /** The order: payload rendered as labelled blocks; without payload, the fallback is the content. */
-    static String userPrompt(NarrationRequest request) {
+    String userPrompt(NarrationRequest request) {
         StringBuilder sb = new StringBuilder();
         NarrationPayload payload = request.getPayload();
         boolean german = de();

@@ -35,7 +35,7 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
     // requirements are met; otherwise new sessions run the demo backend with a visible notice.
     // (A persisted FAKE value remains a developer-only override in the store.)
     private final JLabel backendStatus = new JLabel(" ");
-    /** Agent language (English default, German translation) — applies immediately and is persisted. */
+    /** DEFAULT language for NEW research sessions (English default, German translation) — persisted. */
     private final JComboBox<String> agentLanguage =
             new JComboBox<String>(new String[]{"English", "Deutsch"});
     /** LLM narration (default off): milestone texts phrased by the main model, validated, with fallback. */
@@ -85,7 +85,9 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         form.add(row("Browser channel:", browserChannel));
         form.add(row("", headless));
         // Transparency does not depend on a visible browser window: the chat shows the visited sites.
-        JLabel headlessHint = new JLabel(com.aresstack.askai.research.agent.ResearchPlaybook.headlessHint());
+        JLabel headlessHint = new JLabel(new com.aresstack.askai.research.agent.ResearchPlaybook(
+                com.aresstack.askai.research.agent.ResearchLanguage.fromCode(
+                        ResearchRuntimeSettings.loadLanguage(store))).headlessHint());
         headlessHint.setEnabled(false);
         form.add(row("", headlessHint));
         form.add(row("Search URL ({query}):", searchUrl));
@@ -111,14 +113,14 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         ResearchRuntimeSettings persisted = ResearchRuntimeSettings.load(store);
         apply(ResearchRuntimeDefaults.complete(persisted));
         agentJavaOverride = persisted.getAgentJavaExecutable();
+        // The combo persists the DEFAULT language for NEW research sessions; running sessions keep
+        // their own session-local language (live-switchable at the session, never globally from here).
         String languageCode = ResearchRuntimeSettings.loadLanguage(store);
         agentLanguage.setSelectedIndex("de".equals(languageCode) ? 1 : 0);
-        com.aresstack.askai.research.agent.ResearchPlaybook.setLanguage(languageCode);
         agentLanguage.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent event) {
                 String code = agentLanguage.getSelectedIndex() == 1 ? "de" : "en";
                 ResearchRuntimeSettings.saveLanguage(ResearchRuntimeSettingsPanel.this.store, code);
-                com.aresstack.askai.research.agent.ResearchPlaybook.setLanguage(code);
             }
         });
         llmNarration.setSelected(ResearchRuntimeSettings.loadLlmNarration(store));

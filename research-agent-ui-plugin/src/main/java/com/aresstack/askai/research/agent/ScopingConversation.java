@@ -31,13 +31,16 @@ public final class ScopingConversation {
     private String question = "";
     private final List<String> aspects = new ArrayList<String>();
 
+    /** Builder-only use (restore + markdown) or English default — sessions pass their own narrator. */
     public ScopingConversation() {
-        this(new StaticNarrator());
+        this(null);
     }
 
     /** The narrator phrases every reply; the dialog structure stays deterministic here. */
     public ScopingConversation(ResearchNarrator narrator) {
-        this.narrator = narrator == null ? new StaticNarrator() : narrator;
+        this.narrator = narrator == null
+                ? new StaticNarrator(new ResearchPlaybook(ResearchLanguage.ENGLISH))
+                : narrator;
     }
 
     public String getQuestion() {
