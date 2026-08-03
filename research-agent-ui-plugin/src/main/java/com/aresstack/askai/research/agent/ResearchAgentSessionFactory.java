@@ -118,6 +118,17 @@ public final class ResearchAgentSessionFactory implements AgentSessionFactory {
         McpServerRegistry registry = requireService(hostContext, McpServerRegistry.class);
         McpToolClientFactory toolClients = requireService(hostContext, McpToolClientFactory.class);
         AcpAgentConnector connector = requireService(hostContext, AcpAgentConnector.class);
+        // Diagnostics: which host services actually reached THIS plugin classloader (a class-identity split
+        // across classloaders shows up as present=false even when the host published them).
+        System.err.println("[research-runtime] RerankerConfigurationSnapshotProvider present="
+                + (hostContext.getService(com.aresstack.askai.agent.model.reranker
+                        .RerankerConfigurationSnapshotProvider.class) != null)
+                + " EmbeddingConfigurationSnapshotProvider present="
+                + (hostContext.getService(com.aresstack.askai.agent.model.embedding
+                        .EmbeddingConfigurationSnapshotProvider.class) != null)
+                + " NlpConfigurationSnapshotProvider present="
+                + (hostContext.getService(com.aresstack.askai.agent.model.nlp
+                        .NlpConfigurationSnapshotProvider.class) != null));
         // The reranker snapshot provider is MANDATORY for the productive browser path — a missing host
         // service fails the session start visibly (no fallback to a reranker-less run).
         com.aresstack.askai.agent.model.reranker.RerankerConfigurationSnapshotProvider rerankerSnapshots =

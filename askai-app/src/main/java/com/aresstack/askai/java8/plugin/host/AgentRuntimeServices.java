@@ -116,6 +116,13 @@ public final class AgentRuntimeServices {
         // central config to know what to publish and is only useful alongside the snapshot providers.
         this.activeSessions = centralConfig == null ? null
                 : new LocalActiveResearchSessionRegistry(inferenceSnapshots, rerankerSnapshots, centralConfig);
+        System.err.println("[agent-runtime] localRuntime=" + (localModelRuntime != null)
+                + " centralConfig=" + (centralConfig != null)
+                + " reranker.snapshotProvider.published=" + (rerankerSnapshots != null)
+                + " embedding.published=" + (embeddingSnapshots != null)
+                + " inference.published=" + (inferenceSnapshots != null)
+                + " nlp.catalog.published=" + (nlpCatalog != null)
+                + " nlp.snapshotProvider.published=" + (nlpSnapshots != null));
     }
 
     /**

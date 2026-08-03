@@ -103,6 +103,29 @@ task pluginDistribution(type: Sync) {
     }
     into('lib') {
         from configurations.runtimeClasspath // browser-api + web-search-providers + gson + AHC + netty + …
+        // HOST-PROVIDED shared APIs must NEVER be bundled: their class/service identity has to come from the
+        // HOST classloader, otherwise AgentHostContext.getService(<neutral SPI>.class) fails across classloaders
+        // (a duplicated agent-model-runtime-api leaked in transitively via :research-knowledge-processing's
+        // `api` dependency and broke the reranker/embedding/nlp/inference lookups). These jars are compileOnly
+        // above; keep them out of lib/ so PF4J delegates them to the host.
+        exclude 'agent-model-runtime-api*.jar'
+        exclude 'mcp-runtime-api*.jar'
+        exclude 'acp-client-api*.jar'
+        exclude 'agent-workspace-api*.jar'
+        exclude 'agent-plugin-pf4j-api*.jar'
+    }
+    // Regression guard: fail the build if any host-provided shared API slipped into the plugin's lib/.
+    doLast {
+        def libDir = layout.buildDirectory.dir("plugin-dist/${researchPluginDirName}/lib").get().asFile
+        def forbidden = ['agent-model-runtime-api', 'mcp-runtime-api', 'acp-client-api',
+                         'agent-workspace-api', 'agent-plugin-pf4j-api']
+        def leaked = (libDir.listFiles() ?: []).findAll { file ->
+            forbidden.any { file.name.startsWith(it) }
+        }
+        if (!leaked.isEmpty()) {
+            throw new GradleException("Host-provided shared API jars must not be bundled into the research "
+                    + "plugin (class-identity split breaks getService lookups): " + leaked*.name)
+        }
     }
 }
 
