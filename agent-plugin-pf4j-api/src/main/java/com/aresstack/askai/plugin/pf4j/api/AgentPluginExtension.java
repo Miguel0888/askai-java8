@@ -46,4 +46,14 @@ public interface AgentPluginExtension extends ExtensionPoint {
             getComposerAccessories() {
         return java.util.Collections.emptyList();
     }
+
+    /**
+     * Small session-scoped controls for the workspace top bar, shown left of the gear while this agent is
+     * the active one of the current tab (e.g. a language switch). Generic and session-based like the
+     * composer accessories; the host builds and discards them on session/agent/tab change. Default: none.
+     */
+    default List<com.aresstack.askai.plugin.api.agent.toolbar.AgentToolbarContribution>
+            getToolbarContributions() {
+        return java.util.Collections.emptyList();
+    }
 }

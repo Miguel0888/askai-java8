@@ -76,4 +76,14 @@ public final class ResearchAgentPluginExtension implements AgentPluginExtension 
                 .<com.aresstack.askai.plugin.api.agent.composer.ComposerAccessoryContribution>singletonList(
                         new com.aresstack.askai.research.agent.ScopingComposerAccessoryContribution());
     }
+
+    @Override
+    public List<com.aresstack.askai.plugin.api.agent.toolbar.AgentToolbarContribution>
+            getToolbarContributions() {
+        // The live SESSION language switch, left of the workspace gear (the gear setting stays the
+        // default for NEW sessions only).
+        return java.util.Collections
+                .<com.aresstack.askai.plugin.api.agent.toolbar.AgentToolbarContribution>singletonList(
+                        new com.aresstack.askai.research.agent.ResearchLanguageToolbarContribution());
+    }
 }

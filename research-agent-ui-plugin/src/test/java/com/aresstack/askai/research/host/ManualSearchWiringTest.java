@@ -175,6 +175,49 @@ public class ManualSearchWiringTest {
     }
 
     @Test
+    public void theToolbarDropdownSwitchesTheSessionLanguageViaTheServiceCommandPath() {
+        final Fx fx = new Fx();
+        fx.session.dispatch(ResearchCommandType.START, null);
+        completeTurn(fx, 1L);
+        com.aresstack.askai.research.agent.ResearchLanguageToolbarContribution contribution =
+                new com.aresstack.askai.research.agent.ResearchLanguageToolbarContribution();
+        assertTrue("the control applies to research sessions", contribution.supports(fx.session));
+
+        javax.swing.JComboBox<?> combo = (javax.swing.JComboBox<?>) contribution.createComponent(
+                new com.aresstack.askai.plugin.api.agent.toolbar.AgentToolbarContext() {
+                    public com.aresstack.askai.plugin.api.agent.AgentSession getSession() {
+                        return fx.session;
+                    }
+
+                    public UiExecutor getUiExecutor() {
+                        return inlineUi();
+                    }
+
+                    public ThemeService getThemeService() {
+                        return null;
+                    }
+                });
+        assertEquals("the dropdown mirrors the session language",
+                com.aresstack.askai.research.agent.ResearchLanguage.ENGLISH, combo.getSelectedItem());
+
+        int promptsBefore = fx.backend.prompts.size();
+        combo.setSelectedItem(com.aresstack.askai.research.agent.ResearchLanguage.GERMAN);
+
+        assertEquals("the switch reaches the host session first",
+                com.aresstack.askai.research.agent.ResearchLanguage.GERMAN,
+                fx.session.getSessionLanguage().currentLanguage());
+        assertEquals("exactly one set_language control envelope", 1, fx.backend.serviceCommands.size());
+        assertEquals("#RSC1# set_language language=de", fx.backend.serviceCommands.get(0));
+        assertEquals("never a chat turn", promptsBefore, fx.backend.prompts.size());
+        assertEquals("never a state change", ResearchStateIds.RUNNING,
+                fx.resources.currentState().getStateId());
+
+        combo.setSelectedItem(com.aresstack.askai.research.agent.ResearchLanguage.GERMAN);
+        assertEquals("re-selecting the current language sends nothing",
+                1, fx.backend.serviceCommands.size());
+    }
+
+    @Test
     public void manualSearchEventsRenderAsActivityAndStaleEventsAreIgnored() {
         Fx fx = new Fx();
         fx.session.dispatch(ResearchCommandType.START, null);

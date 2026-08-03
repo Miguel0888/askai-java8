@@ -686,6 +686,20 @@ public final class AskAiFrame extends JFrame {
                 new com.aresstack.askai.java8.plugin.host.AskAiThemeService(),
                 new com.aresstack.askai.java8.plugin.host.AskAiMarkdownViewFactory(),
                 accessoryHost);
+        // Generic agent toolbar contributions (left of the workspace gear): same coordinator-driven
+        // lifecycle as the composer accessories; the workspace only hosts the slot.
+        new com.aresstack.askai.plugin.host.AgentToolbarArea(
+                agentCoordinator, uiExecutor,
+                new com.aresstack.askai.java8.plugin.host.AskAiThemeService(),
+                new com.aresstack.askai.plugin.host.AgentToolbarHost() {
+                    public void setToolbar(javax.swing.JComponent component) {
+                        chatTabs.setAgentToolbar(component);
+                    }
+
+                    public void clearToolbar() {
+                        chatTabs.clearAgentToolbar();
+                    }
+                });
         return host;
     }
 
