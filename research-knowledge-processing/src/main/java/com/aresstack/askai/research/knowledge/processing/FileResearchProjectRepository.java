@@ -14,9 +14,9 @@ import java.io.InputStream;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
@@ -24,38 +24,44 @@ import java.util.TreeMap;
 
 /**
  * The productive file adapter behind the domain {@link ResearchProjectRepository} port — the SINGLE persistence
- * contract stays whole-aggregate, but the on-disk form is per entity (no monolith file), so a growing corpus is
- * not fully rewritten on every capture. Layout under {@code <projectDir>/knowledge/}:
+ * contract stays whole-aggregate, but the on-disk form is per capture-GENERATION so that reprocessing supersedes
+ * cleanly and a capture's derived data is committed ATOMICALLY.
+ *
+ * <p>A capture's derived knowledge is written as an immutable GENERATION, keyed by its full derivation identity
+ * {@code processingKey = sha256(captureId \0 segmentationPipelineVersion \0 embeddingFingerprint)}. Layout under
+ * {@code <projectDir>/knowledge/}:
  * <pre>
- *   project.properties                          schema version + project id
- *   captures/&lt;captureId&gt;.properties            immutable SourceCapture (+ its structural blocks)
- *   sentences/&lt;captureId&gt;.properties           all sentences of that capture
- *   passages/&lt;captureId&gt;-&lt;fingerprint&gt;.properties  the capture's passages for one embedding fingerprint
+ *   project.properties                              schema version + project id
+ *   captures/&lt;h(captureId)&gt;.properties              immutable SourceCapture + structural blocks
+ *   derived/&lt;h(captureId)&gt;/&lt;processingKey&gt;/
+ *        manifest.properties                        captureId + segVersion + embeddingFingerprint + counts
+ *        sentences.properties                       the generation's sentences
+ *        passages.properties                        the generation's passages
+ *   active/&lt;h(captureId)&gt;.properties                captureId + the ACTIVE processingKey
  * </pre>
- * {@link #save} writes only the entity files whose serialized content actually changed (idempotent, thanks to
- * the deterministic ids), each via a temp file + atomic move, so a partial write never leaves a half-valid
- * project. {@link #load} reconstructs the aggregate by replaying the existing domain record-operations from the
- * persisted entities (captures → sentences → passages); Lucene/vector indexes stay rebuildable projections and
- * are NOT stored here. This adapter currently persists the KNOWLEDGE slice (captures/sentences/passages) of the
- * aggregate — the methodology-workflow parts are added in their own later slice.
+ *
+ * <p>Per capture, {@link #save} writes the WHOLE new generation first (sentences + passages + manifest) and only
+ * THEN atomically replaces the single {@code active} pointer — the one commit point. A crash before the swap
+ * leaves the previous generation active (never new-sentences-with-old-passages); a half-written generation dir is
+ * simply ignored because {@code active} still points elsewhere. {@link #load} reconstructs ONLY each capture's
+ * ACTIVE generation via the domain record-ops; historical generations stay on disk but are not in the active
+ * aggregate. Lucene/vector indexes remain rebuildable projections and are NOT stored here.</p>
  */
 public final class FileResearchProjectRepository implements ResearchProjectRepository {
 
     /** Bumped only on an incompatible on-disk format change; an unknown version is rejected, never guessed. */
-    static final int SCHEMA_VERSION = 1;
+    static final int SCHEMA_VERSION = 2;
 
     private static final Charset UTF8 = Charset.forName("UTF-8");
 
     private final File root;
 
-    /** @param projectDirectory the project's directory; knowledge is stored under {@code knowledge/}. */
     public FileResearchProjectRepository(File projectDirectory) {
         this.root = new File(projectDirectory, "knowledge");
     }
 
     @Override
     public ResearchProject load(String projectId) {
-        ResearchProject project = new ResearchProject(projectId, IdSequence.counting());
         File meta = new File(root, "project.properties");
         if (meta.isFile()) {
             Properties p = read(meta);
@@ -64,16 +70,31 @@ public final class FileResearchProjectRepository implements ResearchProjectRepos
                 throw new IllegalStateException("incompatible research-knowledge schema version " + version
                         + " (expected " + SCHEMA_VERSION + ") at " + meta.getAbsolutePath());
             }
+            String storedId = p.getProperty("projectId", "");
+            if (!storedId.isEmpty() && projectId != null && !storedId.equals(projectId)) {
+                throw new IllegalStateException("project directory holds project '" + storedId
+                        + "', not the requested '" + projectId + "'");
+            }
         }
-        // Captures first (sentences/passages require a known capture), then sentences, then passages.
+        ResearchProject project = new ResearchProject(projectId, IdSequence.counting());
+        // Captures first (sentences/passages require a known capture).
         for (File f : sortedPropertyFiles(new File(root, "captures"))) {
             project.recordSourceCapture(readCapture(read(f)));
         }
-        for (File f : sortedPropertyFiles(new File(root, "sentences"))) {
-            project.recordSentences(readSentences(read(f)));
-        }
-        for (File f : sortedPropertyFiles(new File(root, "passages"))) {
-            project.recordPassages(readPassages(read(f)));
+        // Then ONLY each capture's ACTIVE generation.
+        for (File pointer : sortedPropertyFiles(new File(root, "active"))) {
+            Properties active = read(pointer);
+            String captureId = active.getProperty("captureId", "");
+            String processingKey = active.getProperty("processingKey", "");
+            File genDir = new File(new File(new File(root, "derived"), hash(captureId)), processingKey);
+            File sentencesFile = new File(genDir, "sentences.properties");
+            File passagesFile = new File(genDir, "passages.properties");
+            if (sentencesFile.isFile()) {
+                project.recordSentences(readSentences(read(sentencesFile)));
+            }
+            if (passagesFile.isFile()) {
+                project.recordPassages(readPassages(read(passagesFile)));
+            }
         }
         return project;
     }
@@ -83,18 +104,58 @@ public final class FileResearchProjectRepository implements ResearchProjectRepos
         writeIfChanged(new File(root, "project.properties"),
                 "schemaVersion=" + SCHEMA_VERSION + "\nprojectId=" + escape(project.getProjectId()) + "\n");
 
+        Map<String, List<Sentence>> sentencesByCapture = groupSentencesByCapture(project);
+        Map<String, List<Passage>> passagesByCapture = groupPassagesByCapture(project);
+
         for (SourceCapture capture : project.captures().values()) {
-            writeIfChanged(new File(new File(root, "captures"), safe(capture.getCaptureId()) + ".properties"),
+            String captureId = capture.getCaptureId();
+            writeIfChanged(new File(new File(root, "captures"), hash(captureId) + ".properties"),
                     serializeCapture(capture));
+
+            List<Passage> passages = passagesByCapture.get(captureId);
+            List<Sentence> sentences = sentencesByCapture.get(captureId);
+            if ((passages == null || passages.isEmpty()) && (sentences == null || sentences.isEmpty())) {
+                continue; // a recorded capture without processed knowledge yet: no generation, no pointer
+            }
+            commitGeneration(capture, sentences, passages);
         }
-        for (Map.Entry<String, List<Sentence>> e : groupSentencesByCapture(project).entrySet()) {
-            writeIfChanged(new File(new File(root, "sentences"), safe(e.getKey()) + ".properties"),
-                    serializeSentences(e.getKey(), e.getValue()));
+    }
+
+    /**
+     * Write ONE capture's generation (sentences + passages + manifest) fully, THEN atomically swap the active
+     * pointer to it — the single commit point that makes the whole capture's derived data active at once.
+     */
+    private void commitGeneration(SourceCapture capture, List<Sentence> sentences, List<Passage> passages) {
+        List<Passage> p = passages == null ? new ArrayList<Passage>() : passages;
+        List<Sentence> s = sentences == null ? new ArrayList<Sentence>() : sentences;
+        String segVersion = "";
+        String fingerprint = "";
+        for (Passage passage : p) {
+            if (segVersion.isEmpty() && fingerprint.isEmpty()) {
+                segVersion = passage.getSegmentationPipelineVersion();
+                fingerprint = passage.getEmbeddingFingerprint();
+            } else if (!segVersion.equals(passage.getSegmentationPipelineVersion())
+                    || !fingerprint.equals(passage.getEmbeddingFingerprint())) {
+                throw new IllegalArgumentException("capture " + capture.getCaptureId()
+                        + " has passages from more than one derivation identity in a single save");
+            }
         }
-        for (Map.Entry<String, List<Passage>> e : groupPassagesByCaptureAndFingerprint(project).entrySet()) {
-            writeIfChanged(new File(new File(root, "passages"), safe(e.getKey()) + ".properties"),
-                    serializePassages(e.getValue()));
-        }
+        String processingKey = processingKey(capture.getCaptureId(), segVersion, fingerprint);
+        File genDir = new File(new File(new File(root, "derived"), hash(capture.getCaptureId())), processingKey);
+
+        // 1. the whole generation is written first (order does not matter — the pointer is the commit).
+        writeIfChanged(new File(genDir, "manifest.properties"),
+                "captureId=" + escape(capture.getCaptureId())
+                        + "\nsegmentationPipelineVersion=" + escape(segVersion)
+                        + "\nembeddingFingerprint=" + escape(fingerprint)
+                        + "\nsentenceCount=" + s.size() + "\npassageCount=" + p.size() + "\n");
+        writeIfChanged(new File(genDir, "sentences.properties"),
+                serializeSentences(capture.getCaptureId(), s));
+        writeIfChanged(new File(genDir, "passages.properties"), serializePassages(p));
+
+        // 2. ONLY now: atomically activate this generation (a crash before this keeps the previous one active).
+        atomicWrite(new File(new File(root, "active"), hash(capture.getCaptureId()) + ".properties"),
+                "captureId=" + escape(capture.getCaptureId()) + "\nprocessingKey=" + processingKey + "\n");
     }
 
     // ------------------------------------------------------------------ serialization (write)
@@ -142,6 +203,7 @@ public final class FileResearchProjectRepository implements ResearchProjectRepos
             line(sb, "p." + i + ".captureId", p.getCaptureId());
             line(sb, "p." + i + ".headingPath", p.getHeadingPath());
             line(sb, "p." + i + ".embeddingFingerprint", p.getEmbeddingFingerprint());
+            line(sb, "p." + i + ".segmentationPipelineVersion", p.getSegmentationPipelineVersion());
             line(sb, "p." + i + ".sentenceIds", join(p.getSentenceIds()));
             line(sb, "p." + i + ".text", p.getText());
         }
@@ -185,12 +247,13 @@ public final class FileResearchProjectRepository implements ResearchProjectRepos
             passages.add(new Passage(p.getProperty("p." + i + ".id", ""),
                     p.getProperty("p." + i + ".captureId", ""), split(p.getProperty("p." + i + ".sentenceIds")),
                     p.getProperty("p." + i + ".headingPath", ""), p.getProperty("p." + i + ".text", ""),
-                    p.getProperty("p." + i + ".embeddingFingerprint", "")));
+                    p.getProperty("p." + i + ".embeddingFingerprint", ""),
+                    p.getProperty("p." + i + ".segmentationPipelineVersion", "")));
         }
         return passages;
     }
 
-    // ------------------------------------------------------------------ grouping
+    // ------------------------------------------------------------------ grouping + identity
 
     private static Map<String, List<Sentence>> groupSentencesByCapture(ResearchProject project) {
         Map<String, List<Sentence>> byCapture = new TreeMap<String, List<Sentence>>();
@@ -205,24 +268,30 @@ public final class FileResearchProjectRepository implements ResearchProjectRepos
         return byCapture;
     }
 
-    /** key = {@code <captureId>-<embeddingFingerprint>} → the passages file name stem. */
-    private static Map<String, List<Passage>> groupPassagesByCaptureAndFingerprint(ResearchProject project) {
-        Map<String, List<Passage>> byKey = new TreeMap<String, List<Passage>>();
+    private static Map<String, List<Passage>> groupPassagesByCapture(ResearchProject project) {
+        Map<String, List<Passage>> byCapture = new TreeMap<String, List<Passage>>();
         for (Passage p : project.passages().values()) {
-            String key = p.getCaptureId() + "-" + p.getEmbeddingFingerprint();
-            List<Passage> list = byKey.get(key);
+            List<Passage> list = byCapture.get(p.getCaptureId());
             if (list == null) {
                 list = new ArrayList<Passage>();
-                byKey.put(key, list);
+                byCapture.put(p.getCaptureId(), list);
             }
             list.add(p);
         }
-        return byKey;
+        return byCapture;
+    }
+
+    /** The active-generation key: a stable hash of the FULL derivation identity (no filename collisions). */
+    private static String processingKey(String captureId, String segmentationVersion, String fingerprint) {
+        return sha256Hex(captureId + " " + segmentationVersion + " " + fingerprint);
+    }
+
+    private static String hash(String value) {
+        return sha256Hex(value == null ? "" : value);
     }
 
     // ------------------------------------------------------------------ IO helpers
 
-    /** Write only when the serialized content actually changed (avoids rewriting the whole corpus each save). */
     private static void writeIfChanged(File target, String content) {
         try {
             if (target.isFile() && content.equals(new String(Files.readAllBytes(target.toPath()), UTF8))) {
@@ -316,10 +385,6 @@ public final class FileResearchProjectRepository implements ResearchProjectRepos
         return out;
     }
 
-    private static String safe(String name) {
-        return name.replaceAll("[^a-zA-Z0-9._-]", "_");
-    }
-
     private static SourceCapture.BlockKind parseKind(String v) {
         try {
             return v == null ? SourceCapture.BlockKind.PARAGRAPH : SourceCapture.BlockKind.valueOf(v.trim());
@@ -341,6 +406,20 @@ public final class FileResearchProjectRepository implements ResearchProjectRepos
             return v == null ? 0L : Long.parseLong(v.trim());
         } catch (NumberFormatException ex) {
             return 0L;
+        }
+    }
+
+    private static String sha256Hex(String value) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(value.getBytes(UTF8));
+            StringBuilder hex = new StringBuilder(digest.length * 2);
+            for (byte b : digest) {
+                hex.append(Character.forDigit((b >> 4) & 0xF, 16));
+                hex.append(Character.forDigit(b & 0xF, 16));
+            }
+            return hex.toString();
+        } catch (Exception ex) {
+            throw new IllegalStateException("SHA-256 unavailable", ex);
         }
     }
 }

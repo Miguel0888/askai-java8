@@ -107,7 +107,8 @@ public final class PassageSegmentation {
                 String passageId = capture.getCaptureId() + "#p" + passageSentences.get(0).getOrdinal()
                         + "@" + segmentationVersion + "-" + vector.getModelFingerprint();
                 Passage passage = new Passage(passageId, capture.getCaptureId(), sentenceIds,
-                        block.getHeadingPath(), text.toString(), vector.getModelFingerprint());
+                        block.getHeadingPath(), text.toString(), vector.getModelFingerprint(),
+                        segmentationVersion);
                 allPassages.add(passage);
                 passageVectors.put(passage.getPassageId(), vector);
             }

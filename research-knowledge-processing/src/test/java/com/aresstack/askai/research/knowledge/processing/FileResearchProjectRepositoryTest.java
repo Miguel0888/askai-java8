@@ -18,33 +18,38 @@ import java.util.Collections;
 import java.util.List;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
-/** The file-backed ResearchProjectRepository: per-entity layout, atomic writes, schema version, roundtrip. */
+/**
+ * The file-backed ResearchProjectRepository: per capture-generation layout, atomic active-pointer commit,
+ * reprocessing/supersession, schema version, restart roundtrip.
+ */
 public class FileResearchProjectRepositoryTest {
+
+    private static final Charset UTF8 = Charset.forName("UTF-8");
 
     private static File tempDir() throws IOException {
         return java.nio.file.Files.createTempDirectory("askai-rproj").toFile();
     }
 
-    private static SourceCapture capture(String id, String checksum) {
+    private static SourceCapture capture() {
         SourceCapture.StructuralBlock b = new SourceCapture.StructuralBlock("b1",
                 SourceCapture.BlockKind.PARAGRAPH, "Root", "Alpha one.\nAlpha two.");
-        return new SourceCapture(id, "src-1", "https://x/" + id, 7L, checksum, "T", "A",
+        return new SourceCapture("cap-1", "src-1", "https://x/cap-1", 7L, "h1", "T", "A",
                 Collections.singletonList(b));
     }
 
-    /** A project with one capture + its sentences + passages (deterministic ids). */
-    private static ResearchProject sampleProject() {
+    /** A generation of capture cap-1 with a distinguishable sentence text + derivation identity. */
+    private static ResearchProject generation(String marker, String segVersion, String fingerprint) {
         ResearchProject p = new ResearchProject("p1", IdSequence.counting());
-        p.recordSourceCapture(capture("cap-1", "h1"));
-        p.recordSentences(Arrays.asList(
-                new Sentence("cap-1#s0", "cap-1", "b1", 0, "Alpha one."),
-                new Sentence("cap-1#s1", "cap-1", "b1", 1, "Alpha two.")));
-        p.recordPassages(Arrays.asList(new Passage("cap-1#p0@seg-v1-fp", "cap-1",
-                Arrays.asList("cap-1#s0", "cap-1#s1"), "Root", "Alpha one. Alpha two.", "fp")));
+        p.recordSourceCapture(capture());
+        p.recordSentences(Arrays.asList(new Sentence("cap-1#s0", "cap-1", "b1", 0, marker + " sentence.")));
+        p.recordPassages(Arrays.asList(new Passage("cap-1#p0@" + segVersion + "-" + fingerprint, "cap-1",
+                Arrays.asList("cap-1#s0"), "Root", marker + " sentence.", fingerprint, segVersion)));
         return p;
     }
 
@@ -58,73 +63,120 @@ public class FileResearchProjectRepositoryTest {
     }
 
     @Test
-    public void captureSentencesAndPassagesSurviveARestartWithIdsAndRefs() throws IOException {
+    public void oneGenerationSurvivesARestartWithIdsAndRefs() throws IOException {
         File dir = tempDir();
-        new FileResearchProjectRepository(dir).save(sampleProject());
+        new FileResearchProjectRepository(dir).save(generation("V1", "seg-v1", "fpA"));
 
-        ResearchProject reloaded = new FileResearchProjectRepository(dir).load("p1");
-        assertEquals(1, reloaded.captures().size());
-        SourceCapture c = reloaded.captures().get("cap-1");
-        assertNotNull(c);
-        assertEquals("src-1", c.getSourceId());
-        assertEquals("h1", c.getChecksum());
-        assertEquals(1, c.getBlocks().size());
-        assertEquals(SourceCapture.BlockKind.PARAGRAPH, c.getBlocks().get(0).getKind());
-        assertEquals("Alpha one.\nAlpha two.", c.getBlocks().get(0).getText());
-
-        assertEquals(2, reloaded.sentences().size());
-        assertEquals("Alpha two.", reloaded.sentences().get("cap-1#s1").getText());
-        assertEquals(0, reloaded.sentences().get("cap-1#s0").getOrdinal());
-        assertEquals(1, reloaded.sentences().get("cap-1#s1").getOrdinal());
-
-        assertEquals(1, reloaded.passages().size());
-        Passage p = reloaded.passages().get("cap-1#p0@seg-v1-fp");
+        ResearchProject r = new FileResearchProjectRepository(dir).load("p1");
+        assertEquals(1, r.captures().size());
+        assertEquals("Alpha one.\nAlpha two.", r.captures().get("cap-1").getBlocks().get(0).getText());
+        assertEquals(1, r.sentences().size());
+        assertEquals("V1 sentence.", r.sentences().get("cap-1#s0").getText());
+        assertEquals(1, r.passages().size());
+        Passage p = r.passages().get("cap-1#p0@seg-v1-fpA");
         assertNotNull(p);
-        assertEquals("cap-1", p.getCaptureId());
-        assertEquals(Arrays.asList("cap-1#s0", "cap-1#s1"), p.getSentenceIds());
-        assertEquals("fp", p.getEmbeddingFingerprint());
+        assertEquals(Arrays.asList("cap-1#s0"), p.getSentenceIds());
+        assertEquals("seg-v1", p.getSegmentationPipelineVersion());
+        assertEquals("fpA", p.getEmbeddingFingerprint());
     }
 
     @Test
-    public void savingTheSameProjectAgainIsIdempotentAndLeavesNoTempFiles() throws IOException {
+    public void reprocessingActivatesOnlyTheNewGenerationOnReload() throws IOException {
+        File dir = tempDir();
+        new FileResearchProjectRepository(dir).save(generation("V1", "seg-v1", "fpA"));
+        new FileResearchProjectRepository(dir).save(generation("V2", "seg-v2", "fpB"));
+
+        ResearchProject r = new FileResearchProjectRepository(dir).load("p1");
+        // ONLY the active v2 sentences AND passages — never a v1/v2 mix (they share one generation dir).
+        assertEquals(1, r.sentences().size());
+        assertEquals("V2 sentence.", r.sentences().get("cap-1#s0").getText());
+        assertEquals(1, r.passages().size());
+        assertNotNull(r.passages().get("cap-1#p0@seg-v2-fpB"));
+        assertNull("the superseded v1 passage is not active", r.passages().get("cap-1#p0@seg-v1-fpA"));
+    }
+
+    @Test
+    public void theHistoricalGenerationStaysOnDiskButIsNotActive() throws IOException {
+        File dir = tempDir();
+        new FileResearchProjectRepository(dir).save(generation("V1", "seg-v1", "fpA"));
+        new FileResearchProjectRepository(dir).save(generation("V2", "seg-v2", "fpB"));
+        // Two generation directories exist under derived/<h(cap-1)>/.
+        File captureDerived = new File(dir, "knowledge/derived").listFiles()[0];
+        assertEquals("both generations retained on disk", 2, captureDerived.listFiles().length);
+    }
+
+    @Test
+    public void aCrashBeforeThePointerSwapKeepsThePreviousGenerationActive() throws IOException {
         File dir = tempDir();
         FileResearchProjectRepository repo = new FileResearchProjectRepository(dir);
-        repo.save(sampleProject());
-        repo.save(sampleProject()); // unchanged content → writeIfChanged skips; no partial/temp files
-        assertTrue("no leftover .tmp files", tempFiles(new File(dir, "knowledge")).isEmpty());
-        ResearchProject reloaded = repo.load("p1");
-        assertEquals(1, reloaded.captures().size());
-        assertEquals(2, reloaded.sentences().size());
-        assertEquals(1, reloaded.passages().size());
+        repo.save(generation("V1", "seg-v1", "fpA"));
+        String v1Pointer = new String(Files.readAllBytes(activePointer(dir).toPath()), UTF8);
+
+        // Full v2 generation gets written, then a crash BEFORE the atomic pointer swap: restore the v1 pointer.
+        repo.save(generation("V2", "seg-v2", "fpB"));
+        Files.write(activePointer(dir).toPath(), v1Pointer.getBytes(UTF8));
+
+        ResearchProject r = new FileResearchProjectRepository(dir).load("p1");
+        assertEquals("V1 sentence.", r.sentences().get("cap-1#s0").getText());
+        assertNotNull("complete v1, not a half state", r.passages().get("cap-1#p0@seg-v1-fpA"));
+        assertNull(r.passages().get("cap-1#p0@seg-v2-fpB"));
     }
 
     @Test
-    public void multipleCapturesOfTheSameSourceStaySeparate() throws IOException {
+    public void savingTheSameGenerationAgainIsIdempotentAndLeavesNoTempFiles() throws IOException {
+        File dir = tempDir();
+        FileResearchProjectRepository repo = new FileResearchProjectRepository(dir);
+        repo.save(generation("V1", "seg-v1", "fpA"));
+        repo.save(generation("V1", "seg-v1", "fpA")); // same processing key + content → nothing rewritten
+        assertTrue("no leftover .tmp files", tempFiles(new File(dir, "knowledge")).isEmpty());
+        ResearchProject r = repo.load("p1");
+        assertEquals(1, r.passages().size());
+    }
+
+    @Test
+    public void multipleCapturesStaySeparate() throws IOException {
         File dir = tempDir();
         ResearchProject p = new ResearchProject("p1", IdSequence.counting());
-        p.recordSourceCapture(capture("cap-1", "h1"));
-        p.recordSourceCapture(capture("cap-2", "h2")); // same source, different version
+        p.recordSourceCapture(capture());
+        p.recordSourceCapture(new SourceCapture("cap-2", "src-1", "https://x/cap-2", 8L, "h2", "T", "A",
+                Collections.<SourceCapture.StructuralBlock>emptyList()));
         new FileResearchProjectRepository(dir).save(p);
-
-        ResearchProject reloaded = new FileResearchProjectRepository(dir).load("p1");
-        assertEquals(2, reloaded.captures().size());
-        assertNotNull(reloaded.captures().get("cap-1"));
-        assertNotNull(reloaded.captures().get("cap-2"));
+        ResearchProject r = new FileResearchProjectRepository(dir).load("p1");
+        assertEquals(2, r.captures().size());
+        assertNotNull(r.captures().get("cap-1"));
+        assertNotNull(r.captures().get("cap-2"));
     }
 
     @Test
-    public void anUnknownSchemaVersionIsRejectedNotGuessed() throws IOException {
+    public void anUnknownSchemaVersionIsRejected() throws IOException {
         File dir = tempDir();
-        new FileResearchProjectRepository(dir).save(sampleProject());
-        // Corrupt the version marker to a future/unknown value.
-        File meta = new File(new File(dir, "knowledge"), "project.properties");
-        Files.write(meta.toPath(), "schemaVersion=999\nprojectId=p1\n".getBytes(Charset.forName("UTF-8")));
+        new FileResearchProjectRepository(dir).save(generation("V1", "seg-v1", "fpA"));
+        File meta = new File(dir, "knowledge/project.properties");
+        Files.write(meta.toPath(), "schemaVersion=999\nprojectId=p1\n".getBytes(UTF8));
         try {
             new FileResearchProjectRepository(dir).load("p1");
             fail("an incompatible schema version must be rejected");
         } catch (IllegalStateException expected) {
             assertTrue(expected.getMessage().contains("schema version"));
         }
+    }
+
+    @Test
+    public void loadingTheWrongProjectIdIsRejected() throws IOException {
+        File dir = tempDir();
+        new FileResearchProjectRepository(dir).save(generation("V1", "seg-v1", "fpA"));
+        try {
+            new FileResearchProjectRepository(dir).load("a-different-project");
+            fail("loading a mismatched project id must be rejected");
+        } catch (IllegalStateException expected) {
+            assertTrue(expected.getMessage().contains("not the requested"));
+        }
+    }
+
+    private static File activePointer(File dir) {
+        File[] pointers = new File(dir, "knowledge/active").listFiles();
+        assertEquals("exactly one capture pointer", 1, pointers.length);
+        return pointers[0];
     }
 
     private static List<File> tempFiles(File dir) {
