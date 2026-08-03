@@ -1,0 +1,15 @@
+// The APPLICATION/orchestration layer of the knowledge pipeline: a persistent, restart-safe FIFO of capture
+// processing jobs and the worker that drives each accepted capture through the canonical
+// :research-knowledge-pipeline (sentence segmentation → semantic passages → per-passage embedding) onto the
+// :research-domain aggregate. It owns NO algorithm and NO domain model — only queueing, recovery, idempotency
+// and orchestration over the neutral ports. Concrete NLP/embedding/store adapters live in their own modules.
+apply plugin: 'java-library'
+
+dependencies {
+    api project(':research-knowledge-pipeline') // brings :research-domain transitively
+    testImplementation 'junit:junit:4.13.2'
+}
+
+test {
+    useJUnit()
+}

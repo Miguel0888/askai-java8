@@ -1,4 +1,4 @@
-package com.aresstack.askai.research.knowledge;
+package com.aresstack.askai.research.knowledge.processing;
 
 import org.junit.Test;
 

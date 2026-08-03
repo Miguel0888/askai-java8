@@ -10,6 +10,10 @@ dependencies {
     // bundled INTO the plugin jar below (no other classloader in the host loads them — no identity
     // split).
     implementation project(':browser-api')
+    // The knowledge-processing application layer (persistent FIFO + worker + scheduler) and, transitively,
+    // :research-knowledge-pipeline + :research-domain. The plugin holds ONLY the neutral scheduler port + the
+    // VisitedCapture→SourceCapture adapter; all queue/worker/NLP/embedding logic lives in these modules.
+    implementation project(':research-knowledge-processing')
     // The async web-search-provider module (Brave/BrightData/DataForSEO over AsyncHttpClient) powers the
     // provider settings UI + host-side connection test. It and its transitive deps (AsyncHttpClient, Gson,
     // Netty) are NOT bundled into a fat jar — they ship in the plugin's lib/ directory (see pluginDistribution

@@ -1,4 +1,4 @@
-package com.aresstack.askai.research.knowledge;
+package com.aresstack.askai.research.knowledge.processing;
 
 /**
  * The pipeline stages whose failure is reported distinctly (§24). A later stage failing must never roll back an

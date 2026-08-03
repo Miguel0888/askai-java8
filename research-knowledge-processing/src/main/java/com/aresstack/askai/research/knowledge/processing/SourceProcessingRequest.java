@@ -1,4 +1,4 @@
-package com.aresstack.askai.research.knowledge;
+package com.aresstack.askai.research.knowledge.processing;
 
 /**
  * The request to process one accepted capture into passages (§4). Its {@link #idempotencyKey()} — capture id +

@@ -255,21 +255,17 @@ public final class ProductiveResearchBackendFactory {
         // enqueue is a reaction to source acceptance that is INDEPENDENT of the source-level Lucene index (a
         // stale index above never prevents it). Stranded PROCESSING jobs are recovered on open (§25). The
         // productive worker (real OpenNLP/embedding, C3) is not started here yet; jobs persist until it runs.
-        final com.aresstack.askai.research.knowledge.KnowledgeProcessingSettings knowledgeSettings =
-                com.aresstack.askai.research.knowledge.KnowledgeProcessingSettings.defaults();
-        final com.aresstack.askai.research.knowledge.FileSourceProcessingQueue processingQueue =
-                new com.aresstack.askai.research.knowledge.FileSourceProcessingQueue(
+        final com.aresstack.askai.research.knowledge.processing.KnowledgeProcessingSettings knowledgeSettings =
+                com.aresstack.askai.research.knowledge.processing.KnowledgeProcessingSettings.defaults();
+        final com.aresstack.askai.research.knowledge.processing.FileSourceProcessingQueue processingQueue =
+                new com.aresstack.askai.research.knowledge.processing.FileSourceProcessingQueue(
                         new File(projectContext.getProjectDirectory(), "processing"));
         processingQueue.recoverStrandedJobs();
-        acceptance.setCaptureAcceptedListener(
-                new com.aresstack.askai.research.knowledge.SourceCaptureAcceptedListener() {
-                    public void onCaptureAccepted(String captureId, String sourceId) {
-                        processingQueue.enqueue(
-                                new com.aresstack.askai.research.knowledge.SourceProcessingRequest(
-                                        captureId, sourceId, knowledgeSettings.segmentationPipelineVersion,
-                                        knowledgeSettings.embeddingModelFingerprint));
-                    }
-                });
+        // The plugin holds ONLY the neutral scheduler port; the queue/worker/NLP live in
+        // :research-knowledge-processing. The productive worker is started with C4 (Variant B).
+        acceptance.setKnowledgeProcessingScheduler(
+                new com.aresstack.askai.research.knowledge.processing.QueueBackedKnowledgeProcessingScheduler(
+                        processingQueue, knowledgeSettings));
         OoResearchStateMachine stateMachine = new OoResearchStateMachine(sessionKey);
 
         BrowserBridgeEndpoint bridge = null;

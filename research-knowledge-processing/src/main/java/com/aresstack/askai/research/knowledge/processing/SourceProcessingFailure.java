@@ -1,4 +1,4 @@
-package com.aresstack.askai.research.knowledge;
+package com.aresstack.askai.research.knowledge.processing;
 
 /**
  * A named failure of one processing stage (§24). {@code retryable} distinguishes a transient problem

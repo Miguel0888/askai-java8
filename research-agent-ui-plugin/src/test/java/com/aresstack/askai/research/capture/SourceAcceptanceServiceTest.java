@@ -149,9 +149,9 @@ public class SourceAcceptanceServiceTest {
     public void acceptanceFiresTheCaptureHookExactlyOncePerAcceptedCapture() {
         Fx fx = new Fx();
         final java.util.List<String> accepted = new java.util.ArrayList<String>();
-        fx.service.setCaptureAcceptedListener(
-                new com.aresstack.askai.research.knowledge.SourceCaptureAcceptedListener() {
-                    public void onCaptureAccepted(String captureId, String sourceId) {
+        fx.service.setKnowledgeProcessingScheduler(
+                new com.aresstack.askai.research.knowledge.processing.KnowledgeProcessingScheduler() {
+                    public void enqueue(String captureId, String sourceId) {
                         accepted.add(captureId + "->" + sourceId);
                     }
                 });

@@ -1,4 +1,4 @@
-package com.aresstack.askai.research.knowledge;
+package com.aresstack.askai.research.knowledge.processing;
 
 /**
  * A queued unit of capture processing (§4.2). A job moves QUEUED → PROCESSING → COMPLETED, or to
