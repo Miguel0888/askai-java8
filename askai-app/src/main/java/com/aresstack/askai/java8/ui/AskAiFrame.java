@@ -886,7 +886,21 @@ public final class AskAiFrame extends JFrame {
         contentPanel.add(new OllamaActionsPanel(featureActionService, ollamaService), ACTIONS_VIEW);
         // Java 8 port: model search with two sources in tabs — HuggingFace (search/analyze/import)
         // and the Ollama Library (scrape ollama.com, pull a tag on the remote server).
-        final ModelSearchPanel modelSearchPanel = new ModelSearchPanel(configurationRepository, askAiService);
+        // The curated OpenNLP sentence-detection models live in their own store; the Model Browser gets an NLP
+        // tab to install them, and the AI-models settings gets a per-language selector from the same catalog.
+        final com.aresstack.askai.java8.localmodels.LocalNlpModelStore nlpModelStore =
+                new com.aresstack.askai.java8.localmodels.LocalNlpModelStore();
+        final com.aresstack.askai.java8.localmodels.LocalNlpModelCatalog nlpModelCatalog =
+                new com.aresstack.askai.java8.localmodels.LocalNlpModelCatalog(nlpModelStore);
+        final NlpModelsPanel nlpModelsPanel = new NlpModelsPanel(
+                new com.aresstack.askai.java8.localmodels.ApacheOpenNlpModelCatalogProvider(),
+                nlpModelCatalog, nlpModelStore, new Runnable() {
+                    public void run() {
+                        catalogRefreshService.refresh();
+                    }
+                });
+        final ModelSearchPanel modelSearchPanel =
+                new ModelSearchPanel(configurationRepository, askAiService, nlpModelsPanel);
         contentPanel.add(modelSearchPanel, INSTALL_VIEW);
         // "Add-ons on Hugging Face" from an installed model card: switch to Setup and enter add-on mode so
         // the chosen encoder is attached to this model (from/adapters), not installed as a new model.
@@ -916,6 +930,7 @@ public final class AskAiFrame extends JFrame {
                 askAiService.localRuntimeManager() == null ? null
                         : new com.aresstack.askai.java8.localmodels.LocalRerankerModelCatalog(
                                 askAiService.localRuntimeManager()),
+                nlpModelCatalog,
                 (VirtualOllamaContainerService) ollamaService), AI_MODELS_VIEW);
         // Java 8 port: the extended proxy panel (WScript discovery, TLS trust, HTTP client, IPv6).
         contentPanel.add(new ProxyPanel(configurationRepository), NETWORK_VIEW);

@@ -19,12 +19,33 @@ public final class ModelSearchPanel extends JPanel {
     private final OllamaInstallPanel huggingFacePanel;
 
     public ModelSearchPanel(AppConfigurationRepository configurationRepository, AskAiService askAiService) {
+        this(configurationRepository, askAiService, null);
+    }
+
+    /**
+     * @param nlpModelsPanel the NLP model tab (curated OpenNLP sentence models); when non-null it is added as a
+     *                       third tab. Prebuilt by the owner so this container stays free of NLP-store details.
+     */
+    public ModelSearchPanel(AppConfigurationRepository configurationRepository, AskAiService askAiService,
+                            NlpModelsPanel nlpModelsPanel) {
         super(new BorderLayout());
         this.huggingFacePanel = new OllamaInstallPanel(configurationRepository, askAiService);
         this.tabs = new JTabbedPane();
         tabs.addTab("Hugging Face", huggingFacePanel);
         tabs.addTab("Ollama Library", new OllamaLibraryPanel(askAiService));
+        if (nlpModelsPanel != null) {
+            tabs.addTab(NlpModelsPanel.TAB_TITLE, nlpModelsPanel);
+        }
         add(tabs, BorderLayout.CENTER);
+    }
+
+    /** The tab titles in order (for diagnostics/tests). */
+    public java.util.List<String> tabTitles() {
+        java.util.List<String> titles = new java.util.ArrayList<String>();
+        for (int i = 0; i < tabs.getTabCount(); i++) {
+            titles.add(tabs.getTitleAt(i));
+        }
+        return titles;
     }
 
     /** Selects the Hugging Face tab and runs a search for {@code query} (used to find model add-ons). */

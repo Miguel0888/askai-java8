@@ -60,6 +60,11 @@ public final class AppConfigurationRepository {
 
     private final File configurationFile;
 
+    /** Test/embedding seam: persist to an EXPLICIT file instead of the shared user config location. */
+    public AppConfigurationRepository(File configurationFile) {
+        this.configurationFile = configurationFile;
+    }
+
     public AppConfigurationRepository() {
         this.configurationFile = new File(configurationDirectory(), "askai-java8.properties");
     }

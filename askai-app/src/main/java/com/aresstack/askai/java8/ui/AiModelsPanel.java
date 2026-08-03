@@ -1,5 +1,7 @@
 package com.aresstack.askai.java8.ui;
 
+import com.aresstack.askai.agent.model.nlp.NlpCapability;
+import com.aresstack.askai.agent.model.nlp.NlpModelCatalog;
 import com.aresstack.askai.agent.model.reranker.RerankerModelCatalog;
 import com.aresstack.askai.java8.AskAiModel;
 import com.aresstack.askai.java8.config.AiModelSelections;
@@ -34,22 +36,28 @@ public final class AiModelsPanel extends JPanel {
 
     private final AskAiModel model;
     private final RerankerModelCatalog rerankerCatalog; // nullable: no local runtime → no rerank models
+    private final NlpModelCatalog nlpCatalog;            // nullable: lists installed NLP models per language
     private final VirtualOllamaContainerService ollamaService;
 
     private final JLabel mainModelValue = new JLabel();
     private final JComboBox<String> rerankerCombo = new JComboBox<String>();
     private final JComboBox<String> embeddingsCombo = new JComboBox<String>();
+    private final JComboBox<String> nlpSentenceDeCombo = new JComboBox<String>();
+    private final JComboBox<String> nlpSentenceEnCombo = new JComboBox<String>();
     private final JLabel status = new JLabel(" ");
 
     public AiModelsPanel(AskAiModel model, RerankerModelCatalog rerankerCatalog,
-                         VirtualOllamaContainerService ollamaService) {
+                         NlpModelCatalog nlpCatalog, VirtualOllamaContainerService ollamaService) {
         this.model = model;
         this.rerankerCatalog = rerankerCatalog;
+        this.nlpCatalog = nlpCatalog;
         this.ollamaService = ollamaService;
         AiModelSelections selections = model.getAiModelSelections();
         // Seed each combo with the persisted selection so nothing is lost before the list loads.
         seedCombo(rerankerCombo, selections.getRerankerModel());
         seedCombo(embeddingsCombo, selections.getEmbeddingsModel());
+        seedCombo(nlpSentenceDeCombo, selections.getNlp().getModelId(NlpCapability.SENTENCE_DETECTION, "de"));
+        seedCombo(nlpSentenceEnCombo, selections.getNlp().getModelId(NlpCapability.SENTENCE_DETECTION, "en"));
         buildUserInterface();
         refreshMainModelLabel();
         reloadAvailableModels();
@@ -69,6 +77,8 @@ public final class AiModelsPanel extends JPanel {
         addRow(form, constraints, 0, "Main model (set in the chat window)", mainModelValue);
         addRow(form, constraints, 1, "Reranker model", rerankerCombo);
         addRow(form, constraints, 2, "Embeddings model", embeddingsCombo);
+        addRow(form, constraints, 3, "NLP — Sentence detection (German)", nlpSentenceDeCombo);
+        addRow(form, constraints, 4, "NLP — Sentence detection (English)", nlpSentenceEnCombo);
 
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.LEFT));
         JButton saveButton = new JButton("Save");
@@ -108,15 +118,31 @@ public final class AiModelsPanel extends JPanel {
             public void run() {
                 final List<String> rerankers = loadRerankModelNames();
                 final List<String> embeddings = loadEmbeddingModelNames();
+                final List<String> nlpDe = loadNlpModelNames("de");
+                final List<String> nlpEn = loadNlpModelNames("en");
                 SwingUtilities.invokeLater(new Runnable() {
                     public void run() {
                         populate(rerankerCombo, rerankers);
                         populate(embeddingsCombo, embeddings);
+                        populate(nlpSentenceDeCombo, nlpDe);
+                        populate(nlpSentenceEnCombo, nlpEn);
                         status.setText(" ");
                     }
                 });
             }
         }, "ai-models-refresh").start();
+    }
+
+    /** Only ACTUALLY installed NLP sentence-detection models for the language (never a download suggestion). */
+    private List<String> loadNlpModelNames(String language) {
+        if (nlpCatalog == null) {
+            return Collections.emptyList();
+        }
+        try {
+            return nlpCatalog.listInstalledModels(NlpCapability.SENTENCE_DETECTION, language);
+        } catch (RuntimeException failure) {
+            return Collections.emptyList();
+        }
     }
 
     private List<String> loadRerankModelNames() {
@@ -141,22 +167,33 @@ public final class AiModelsPanel extends JPanel {
     /** Rebuilds a combo as NONE + the available names, preserving the currently selected value. */
     private void populate(JComboBox<String> combo, List<String> available) {
         String current = (String) combo.getSelectedItem();
-        List<String> items = new ArrayList<String>();
-        items.add(NONE);
-        for (String name : available) {
-            if (!items.contains(name)) {
-                items.add(name);
-            }
-        }
-        // Keep a persisted selection that is not (currently) installed so the user never loses it silently.
-        if (current != null && current.length() > 0 && !items.contains(current)) {
-            items.add(current);
-        }
+        List<String> items = optionsFor(current, available);
         combo.removeAllItems();
         for (String item : items) {
             combo.addItem(item);
         }
         combo.setSelectedItem(current == null ? NONE : current);
+    }
+
+    /**
+     * The combo items for a selector: {@code NONE} first (so "no selection" — the regex fallback — stays
+     * possible), then only the ACTUALLY installed/available names, plus a currently-persisted selection that is
+     * not (currently) installed so the user never loses it silently. Pure + testable.
+     */
+    static List<String> optionsFor(String current, List<String> available) {
+        List<String> items = new ArrayList<String>();
+        items.add(NONE);
+        if (available != null) {
+            for (String name : available) {
+                if (!items.contains(name)) {
+                    items.add(name);
+                }
+            }
+        }
+        if (current != null && current.length() > 0 && !items.contains(current)) {
+            items.add(current);
+        }
+        return items;
     }
 
     private void seedCombo(JComboBox<String> combo, String current) {
@@ -173,6 +210,9 @@ public final class AiModelsPanel extends JPanel {
         String reranker = (String) rerankerCombo.getSelectedItem();
         String embeddings = (String) embeddingsCombo.getSelectedItem();
         model.persistRerankerAndEmbeddingsModels(reranker, embeddings);
+        // NLP sentence models per language (empty = no selection = later regex fallback); de/en independent.
+        model.persistNlpSentenceModels((String) nlpSentenceDeCombo.getSelectedItem(),
+                (String) nlpSentenceEnCombo.getSelectedItem());
         status.setText("Saved.");
     }
 }

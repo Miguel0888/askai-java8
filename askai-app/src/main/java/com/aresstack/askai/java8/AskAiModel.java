@@ -144,6 +144,24 @@ public final class AskAiModel {
     }
 
     /**
+     * Persists ONLY the centrally-managed NLP sentence-detection model selections (German + English),
+     * independently and leaving every other setting on disk untouched. An empty value CLEARS that language's
+     * selection (later a regex fallback). Surgical load-modify-save, like the reranker/embeddings persist.
+     */
+    public void persistNlpSentenceModels(String germanModel, String englishModel) {
+        String de = germanModel == null ? "" : germanModel.trim();
+        String en = englishModel == null ? "" : englishModel.trim();
+        com.aresstack.askai.agent.model.nlp.NlpCapability sentence =
+                com.aresstack.askai.agent.model.nlp.NlpCapability.SENTENCE_DETECTION;
+        this.aiModelSelections = this.aiModelSelections.withNlp(this.aiModelSelections.getNlp()
+                .withModelId(sentence, "de", de).withModelId(sentence, "en", en));
+        AppConfiguration current = configurationRepository.load();
+        configurationRepository.save(current.withAiModelSelections(current.getAiModelSelections()
+                .withNlp(current.getAiModelSelections().getNlp()
+                        .withModelId(sentence, "de", de).withModelId(sentence, "en", en))));
+    }
+
+    /**
      * Persists the buffered values, preserving every other setting (proxy, TLS trust, HTTP client,
      * HuggingFace token) exactly as currently stored.
      */
