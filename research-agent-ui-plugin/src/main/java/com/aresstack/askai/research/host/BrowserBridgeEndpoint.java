@@ -86,6 +86,15 @@ public final class BrowserBridgeEndpoint {
         tools.add(capturing("web_back", "Go back to the previous page."));
         tools.add(passThrough("web_challenge_status",
                 "Poll the pending manual challenge (CAPTCHA): CHALLENGE/RESOLVED/NONE lines."));
+        // Research HUD sidecar tools: the runtime may ONLY call tools the bridge publishes, so these MUST be
+        // registered here too (the sidecar implements them) — otherwise the call is rejected before Playwright
+        // is ever reached ("Unknown tool"). Both are best-effort pass-throughs (no capture): render pushes a
+        // serialized state onto the overlay, poll drains the user's overlay commands.
+        tools.add(passThrough("web_hud_render",
+                "Render the Research HUD overlay onto the current page (best-effort; ignored headless).",
+                McpToolParameter.string("state", true, "The serialized ResearchHudState line")));
+        tools.add(passThrough("web_hud_poll",
+                "Drain the HUD commands the user triggered in the overlay (PAUSE/RESUME/SKIP/…), or empty."));
         registry.updateTools(handle, tools);
     }
 
