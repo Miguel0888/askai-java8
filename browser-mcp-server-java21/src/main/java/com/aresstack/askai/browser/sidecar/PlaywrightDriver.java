@@ -87,6 +87,19 @@ interface PlaywrightDriver extends AutoCloseable {
     default void closeParkedChallenge() {
     }
 
+    /**
+     * Install (idempotent) + render the Research HUD overlay on the CURRENT page from a serialized
+     * {@code ResearchHudState}. Buttons feed {@link #pollHudCommands()}. No-op default returns 'unsupported'.
+     */
+    default String renderHud(String stateLine) {
+        return "unsupported";
+    }
+
+    /** Drain the buffered HUD commands from the overlay (newline-separated), or "" when none. */
+    default String pollHudCommands() {
+        return "";
+    }
+
     /** Idempotent: page → context → browser → Playwright (and with it the GraalJS driver child). */
     void close();
 }

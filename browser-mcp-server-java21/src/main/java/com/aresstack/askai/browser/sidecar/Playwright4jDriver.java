@@ -40,6 +40,9 @@ final class Playwright4jDriver implements PlaywrightDriver {
     private Page page;
     /** The parked manual-challenge page (kept open for the user), or null. At most one at a time. */
     private Page challengePage;
+    /** Research HUD: the command binding is registered ONCE on the context (survives navigation). */
+    private boolean hudBindingRegistered;
+    private final java.util.Queue<String> hudCommands = new java.util.concurrent.ConcurrentLinkedQueue<String>();
     private volatile boolean closed;
 
     private Playwright4jDriver(Playwright playwright, Browser browser, BrowserContext context, Page page,
@@ -194,6 +197,44 @@ final class Playwright4jDriver implements PlaywrightDriver {
         } catch (RuntimeException ex) {
             return "none"; // a broken CMP script must never take the search down
         }
+    }
+
+    @Override
+    public String renderHud(String stateLine) {
+        if (closed) {
+            return "closed";
+        }
+        try {
+            if (!hudBindingRegistered) {
+                // Buffer overlay button commands; registered on the CONTEXT so it survives navigations.
+                context.exposeBinding("__askaiHudCommand", (source, args) -> {
+                    if (args != null && args.length > 0 && args[0] != null) {
+                        hudCommands.add(String.valueOf(args[0]));
+                    }
+                    return null;
+                });
+                hudBindingRegistered = true;
+            }
+            page.evaluate(ResearchHudOverlay.installScript()); // idempotent
+            page.evaluate(ResearchHudOverlay.renderScript(
+                    com.aresstack.askai.browser.hud.ResearchHudState.parse(stateLine)));
+            return "rendered";
+        } catch (RuntimeException ex) {
+            return "error"; // a HUD failure must never take the visit down
+        }
+    }
+
+    @Override
+    public String pollHudCommands() {
+        StringBuilder sb = new StringBuilder();
+        String command;
+        while ((command = hudCommands.poll()) != null) {
+            if (sb.length() > 0) {
+                sb.append('\n');
+            }
+            sb.append(command);
+        }
+        return sb.toString();
     }
 
     @Override

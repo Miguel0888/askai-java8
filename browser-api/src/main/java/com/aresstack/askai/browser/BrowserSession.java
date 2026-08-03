@@ -62,5 +62,22 @@ public interface BrowserSession {
         return "none";
     }
 
+    /**
+     * Render the Research HUD overlay (pause/skip/status/countdown) onto the CURRENT visited page from a
+     * serialized {@link com.aresstack.askai.browser.hud.ResearchHudState}. Returns {@code "rendered"} or
+     * {@code "unsupported"}. The default (backends without an injectable overlay) does nothing.
+     */
+    default String renderHud(String stateLine) throws BrowserException {
+        return "unsupported";
+    }
+
+    /**
+     * Drain the HUD commands the user triggered in the overlay (newline-separated PAUSE/RESUME/SKIP/…), or an
+     * empty string. The default reports none.
+     */
+    default String pollHudCommands() throws BrowserException {
+        return "";
+    }
+
     void close();
 }

@@ -337,6 +337,18 @@ final class PlaywrightBrowserSession implements BrowserSession {
         return driver.tryDismissConsent();
     }
 
+    @Override
+    public String renderHud(String stateLine) throws BrowserException {
+        requirePage();
+        return driver.renderHud(stateLine);
+    }
+
+    @Override
+    public String pollHudCommands() throws BrowserException {
+        requirePage();
+        return driver.pollHudCommands();
+    }
+
     /** Compose a readability probe from a snapshot plus the driver's consent/challenge guards. */
     private BrowserPageReadiness readinessFrom(BrowserPageSnapshot s) {
         String marker = driver.challengeMarker();

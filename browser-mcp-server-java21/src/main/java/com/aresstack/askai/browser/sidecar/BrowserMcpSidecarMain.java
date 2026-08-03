@@ -263,6 +263,25 @@ public final class BrowserMcpSidecarMain {
                         return session.dismissConsent();
                     }
                 }));
+        endpoint.addTool(new FunctionToolDesc("web_hud_render")
+                .description("Render the Research HUD overlay (Pause/Resume, Skip, one-line status, user-wait "
+                        + "countdown) onto the CURRENT visited page. Arg 'state' is the serialized "
+                        + "ResearchHudState. The overlay is capture-isolated (never part of web_read). "
+                        + "Returns 'rendered' or 'unsupported'.")
+                .stringParamAdd("state", "The serialized ResearchHudState")
+                .doHandle(new ToolHandler() {
+                    public Object handle(Map<String, Object> args) throws Throwable {
+                        return session.renderHud(str(args, "state"));
+                    }
+                }));
+        endpoint.addTool(new FunctionToolDesc("web_hud_poll")
+                .description("Drain the HUD commands the user triggered in the overlay (newline-separated "
+                        + "PAUSE/RESUME/SKIP/NEXT/…), or empty. Poll each tick while waiting or between pages.")
+                .doHandle(new ToolHandler() {
+                    public Object handle(Map<String, Object> args) throws Throwable {
+                        return session.pollHudCommands();
+                    }
+                }));
         endpoint.addTool(new FunctionToolDesc("web_links")
                 .description("List the links of the current page with stable ids.")
                 .doHandle(new ToolHandler() {
