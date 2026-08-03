@@ -676,6 +676,10 @@ public final class ResearchAgentMain {
                         + progress.getAcceptedSources() + " reason=" + reason);
                 ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
                         .manualSearchCompleted(requestId, progress.getAcceptedSources(), reason.name()));
+                // D: new sources were added → let the scoping agent skim them and refresh its suggestions.
+                if (progress.getAcceptedSources() > 0) {
+                    reviewNewSourcesAndRefreshSuggestions(ctx);
+                }
             }
         } catch (Exception failure) {
             System.err.println("[manual-search] failed stage=execute requestId=" + requestId + " message="
@@ -689,6 +693,31 @@ public final class ResearchAgentMain {
             if (service != null) {
                 service.close();
             }
+        }
+    }
+
+    /**
+     * D: right after a user search adds sources, have the scoping TeamAgent REVIEW them (it now sees them via
+     * source_list, feature A) and emit a FRESH scoping projection — new search suggestions informed by the
+     * findings. Runs inline in the control turn; the review instruction is internal (never echoed as a user
+     * chat message), only the agent's short note + the refreshed suggestions surface. Scoping-only; a failed
+     * review turn stays silent (no error bubble).
+     */
+    private void reviewNewSourcesAndRefreshSuggestions(SyncPromptContext ctx) {
+        if (teamAgent == null) {
+            return;
+        }
+        com.aresstack.askai.research.runtime.team.TeamAgentStateView view = readStateView(ctx);
+        if (!"scoping".equalsIgnoreCase(view.getPhaseId())) {
+            return; // search suggestions only make sense during scoping
+        }
+        com.aresstack.askai.research.runtime.team.TeamAgentResult result = teamAgent.respond(
+                com.aresstack.askai.research.runtime.team.TeamAgentPlaybook.sourceReviewInstruction(), view);
+        if (result.isOk()) {
+            emitTeamAgentResult(ctx, result, view.getPhaseId());
+        } else {
+            ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
+                    .log("source review turn not ok: " + result.getStatus()));
         }
     }
 

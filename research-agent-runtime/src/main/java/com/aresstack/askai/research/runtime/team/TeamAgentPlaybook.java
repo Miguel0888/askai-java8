@@ -185,6 +185,18 @@ public final class TeamAgentPlaybook {
     }
 
     /**
+     * The internal instruction for the source-review turn after a user web search: the agent has just been
+     * given the newly accepted sources (see the research context) and should skim them and REFRESH its search
+     * suggestions to explore the gaps/next angles they reveal. Never echoed to the user as a message.
+     */
+    public static String sourceReviewInstruction() {
+        return "A web search just added new research sources (listed in the research context above). Skim "
+                + "them briefly, then REFRESH your search suggestions to cover the gaps and promising next "
+                + "angles they reveal — avoid repeating queries already covered. Keep assistantMessage to one "
+                + "short sentence about what the new sources add. Respond with the JSON object only.";
+    }
+
+    /**
      * The single bounded-repair nudge sent when the previous structured answer could not be read. This is a
      * pure transport instruction: it must NOT ask the model to apologize or to talk to the user about
      * formatting, because a repaired {@code assistantMessage} is still shown verbatim. The host additionally
