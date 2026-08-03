@@ -457,6 +457,8 @@ public final class WebSearchApplicationService {
         String clicked = callBrowser("web_dismiss_consent", args());
         if (clicked.startsWith("clicked")) {
             pr = reprobe();
+            listener.status("[browser] consent action=" + consentActionOf(clicked)
+                    + " resolved=" + !pr.consentPresent + " " + url);
         }
         // ONE classification per page (the model, when set, may recognise an obstruction the DOM selectors
         // missed); the subsequent waiting uses the cheap heuristic so we do not re-invoke the model per tick.
@@ -546,6 +548,25 @@ public final class WebSearchApplicationService {
     private com.aresstack.askai.browser.BrowserPageReadiness reprobe()
             throws ToolInvoker.ToolFailure, ToolInvoker.EndpointUnavailable {
         return com.aresstack.askai.browser.BrowserPageReadiness.parse(callBrowser("web_reprobe", args()));
+    }
+
+    /**
+     * The consent ACTION from a {@code web_dismiss_consent} result: {@code 'clicked:REJECT_ALL:<what>'} →
+     * {@code REJECT_ALL} (also ONLY_NECESSARY / ACCEPT_ALL / CLOSE); an older {@code 'clicked:<sel>'} /
+     * {@code 'clicked-text:<txt>'} → {@code CLICKED}. Purely for diagnostics.
+     */
+    private static String consentActionOf(String clicked) {
+        if (clicked == null || !clicked.startsWith("clicked:")) {
+            return "CLICKED";
+        }
+        String rest = clicked.substring("clicked:".length());
+        int colon = rest.indexOf(':');
+        String token = colon < 0 ? rest : rest.substring(0, colon);
+        if (token.equals("REJECT_ALL") || token.equals("ONLY_NECESSARY") || token.equals("ACCEPT_ALL")
+                || token.equals("CLOSE")) {
+            return token;
+        }
+        return "CLICKED";
     }
 
     /** Sleep one probe interval (cancel stays immediate via the loop's checks); returns the time waited. */

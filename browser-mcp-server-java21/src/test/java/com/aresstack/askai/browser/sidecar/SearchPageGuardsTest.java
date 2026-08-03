@@ -34,6 +34,33 @@ public class SearchPageGuardsTest {
     }
 
     @Test
+    public void consentResolutionPrefersRejectThenNecessaryThenAcceptThenClose() {
+        String script = SearchPageGuards.consentDismissScript(defaults.consent);
+        int reject = script.indexOf("REJECT_ALL");
+        int necessary = script.indexOf("ONLY_NECESSARY");
+        int accept = script.indexOf("ACCEPT_ALL");
+        int close = script.indexOf("CLOSE");
+        assertTrue("reject tried first", reject >= 0 && reject < necessary);
+        assertTrue("only-necessary before accept", necessary < accept);
+        assertTrue("accept before close (close is last resort)", accept < close);
+        // Unambiguous reject controls (never a first-button guess); the accept terms stay the fallback.
+        assertTrue(script.contains("onetrust-reject-all-handler"));
+        assertTrue(script.contains("reject all"));
+        assertTrue(script.contains("only necessary") || script.contains("nur notwendige"));
+        assertTrue(script.contains("accept all"));
+        assertFalse("still no dangerous first-button heuristic", script.contains(":first-of-type"));
+    }
+
+    @Test
+    public void consentReportDetectsARejectOnlyBanner() {
+        String report = SearchPageGuards.consentReportScript(defaults.consent);
+        // A banner offering only a "Reject all" control must still be flagged (so it gets resolved before read).
+        assertTrue("report detects reject controls",
+                report.contains("onetrust-reject-all-handler") && report.contains("reject all"));
+        assertTrue(report.contains("candidate"));
+    }
+
+    @Test
     public void challengeScriptDetectsTheRequiredTextsAndSelectors() {
         String script = SearchPageGuards.challengeDetectScript(defaults.captcha);
         for (String text : new String[]{"noch ein letzter schritt", "one last step",

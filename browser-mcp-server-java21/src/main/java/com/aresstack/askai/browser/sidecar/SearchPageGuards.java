@@ -3,85 +3,121 @@ package com.aresstack.askai.browser.sidecar;
 import com.aresstack.askai.browser.search.CaptchaHandlingSettings;
 import com.aresstack.askai.browser.search.ConsentHandlingSettings;
 
+import java.util.Arrays;
 import java.util.List;
 
 /**
- * The SERP guard scripts: consent dismissal and manual-challenge detection, adapted from MainframeMate's
+ * The SERP guard scripts: consent RESOLUTION and manual-challenge detection, adapted from MainframeMate's
  * {@code CookieBannerDismisser} onto Playwright. Both run inside the page via {@code page.evaluate} and are
  * deliberately conservative:
  * <ul>
- * <li>Consent clicks only UNAMBIGUOUSLY positive controls — the configured CMP accept selectors or visible
- *     buttons whose text is a configured positive consent phrase. There is NO "first button in the cookie
- *     container" heuristic, and no configuration can create one: only selectors/texts are configurable,
- *     the click policy itself is fixed.</li>
+ * <li>Consent resolution clicks only UNAMBIGUOUS controls — never a "first button in the container" guess.
+ *     Priority is minimal consent: <b>REJECT_ALL → ONLY_NECESSARY → ACCEPT_ALL → CLOSE</b>. The accept
+ *     selectors/texts remain configurable ({@link ConsentHandlingSettings}); the reject/only-necessary/close
+ *     controls are a FIXED, unambiguous policy (never guessed) held here so the reject-first behaviour cannot
+ *     be configured away.</li>
  * <li>Challenge detection looks for the configured CAPTCHA/"one last step" markers and must run BEFORE any
- *     generic content fallback — a challenge page is never a readable search result.</li>
+ *     generic content fallback — a challenge page is never a readable search result. It NEVER overlaps with
+ *     consent (different scripts, different markers).</li>
  * </ul>
- * Selector/text lists and timings come EXCLUSIVELY from the settings ({@code LegacyBrowserSearchDefaults}
- * being their single default origin) — this class holds no constants of its own. The scripts are used on
- * SEARCH pages only; visited target pages are captured as-is.
+ * The scripts are used on SEARCH pages only; visited target pages are captured as-is.
  */
 final class SearchPageGuards {
 
     private SearchPageGuards() {
     }
 
-    /** The consent-dismiss script: returns 'clicked:…' or 'none'. */
+    /** Unambiguous "reject all / decline all" controls, tried FIRST (minimal consent). */
+    private static final List<String> REJECT_SELECTORS = Arrays.asList(
+            "#onetrust-reject-all-handler",
+            "#CybotCookiebotDialogBodyLevelButtonLevelOptinDeclineAll",
+            "#CybotCookiebotDialogBodyButtonDecline",
+            "#uc-btn-deny-banner",
+            ".qc-cmp2-summary-buttons button[mode='secondary']",
+            "button[data-action='reject']", "button[data-action='reject-all']",
+            "button[data-action='rejectAll']", "button[data-testid='reject-all-button']",
+            "[class*='cookie'] button[class*='reject']", "[class*='consent'] button[class*='reject']",
+            "[id*='cookie'] button[id*='reject']", "[id*='consent'] button[id*='reject']");
+    /** Unambiguous reject/decline button texts (cookie-specific phrases only — never a bare "decline"). */
+    private static final List<String> REJECT_TEXTS = Arrays.asList(
+            "reject all", "decline all", "deny all", "reject cookies", "decline cookies",
+            "continue without accepting", "do not accept",
+            "alle ablehnen", "cookies ablehnen", "weiter ohne zustimmung", "nicht zustimmen");
+    /** "Only necessary / essential" controls — also minimal consent, tried after reject. */
+    private static final List<String> ONLY_NECESSARY_TEXTS = Arrays.asList(
+            "only necessary", "necessary only", "use necessary only", "essential only",
+            "only essential cookies", "accept only necessary",
+            "nur notwendige", "nur erforderliche", "nur essenzielle", "nur essentielle");
+    /** Last-resort close/X controls, SCOPED to a cookie/consent container to avoid closing unrelated UI. */
+    private static final List<String> CLOSE_SELECTORS = Arrays.asList(
+            "[class*='cookie'] [aria-label='Close']", "[class*='consent'] [aria-label='Close']",
+            "[id*='cookie'] [aria-label='Close']", "[id*='consent'] [aria-label='Close']",
+            "[class*='cookie'] button[class*='close']", "[class*='consent'] button[class*='close']");
+
+    /**
+     * The consent-RESOLVE script: tries controls in minimal-consent priority order and clicks the first
+     * unambiguous match. Returns {@code 'clicked:<ACTION>:<what>'} (ACTION ∈ REJECT_ALL / ONLY_NECESSARY /
+     * ACCEPT_ALL / CLOSE) or {@code 'none'}. Back-compatible: still starts with {@code 'clicked'}.
+     */
     static String consentDismissScript(ConsentHandlingSettings consent) {
         StringBuilder sb = new StringBuilder();
         sb.append("() => {\n");
-        sb.append("  const selectors = ").append(jsArray(consent.positiveButtonSelectors)).append(";\n");
-        sb.append("  for (const s of selectors) {\n");
-        sb.append("    try {\n");
-        sb.append("      const el = document.querySelector(s);\n");
-        if (consent.focusBeforeClick) {
-            sb.append("      if (el && el.offsetParent !== null) { el.focus(); el.click(); return 'clicked:' + s; }\n");
-        } else {
-            sb.append("      if (el && el.offsetParent !== null) { el.click(); return 'clicked:' + s; }\n");
-        }
-        sb.append("    } catch (e) {}\n");
-        sb.append("  }\n");
-        sb.append("  const positives = ").append(jsArray(consent.positiveButtonTexts)).append(";\n");
-        sb.append("  const buttons = document.querySelectorAll(\"button, a[role='button'], [class*='btn']\");\n");
-        sb.append("  for (let i = 0; i < buttons.length && i < 80; i++) {\n");
-        sb.append("    const txt = (buttons[i].innerText || '').toLowerCase().trim();\n");
-        sb.append("    if (!txt || buttons[i].offsetParent === null) continue;\n");
-        sb.append("    if (positives.some(p => txt === p || txt.startsWith(p))) {\n");
-        if (consent.focusBeforeClick) {
-            sb.append("      buttons[i].focus(); buttons[i].click(); return 'clicked-text:' + txt;\n");
-        } else {
-            sb.append("      buttons[i].click(); return 'clicked-text:' + txt;\n");
-        }
-        sb.append("    }\n");
-        sb.append("  }\n");
+        sb.append("  const clickEl = (el) => { if (el && el.offsetParent !== null) { try { el.focus(); } "
+                + "catch(e){} el.click(); return true; } return false; };\n");
+        sb.append("  const bySelector = (arr, action) => { for (const s of arr) { try { "
+                + "if (clickEl(document.querySelector(s))) return 'clicked:' + action + ':' + s; } catch(e){} } "
+                + "return null; };\n");
+        sb.append("  const buttons = document.querySelectorAll(\"button, a[role='button'], [class*='btn'], "
+                + "[role='button'], input[type='button'], input[type='submit']\");\n");
+        sb.append("  const byText = (arr, action) => { for (let i = 0; i < buttons.length && i < 120; i++) { "
+                + "const b = buttons[i]; const txt = (b.innerText || b.value || '').toLowerCase().trim(); "
+                + "if (!txt || b.offsetParent === null) continue; "
+                + "if (arr.some(p => txt === p || txt.startsWith(p))) { if (clickEl(b)) "
+                + "return 'clicked:' + action + ':' + txt; } } return null; };\n");
+        // Priority: minimal consent first, accept only as a fallback, close last.
+        sb.append("  let r;\n");
+        sb.append("  r = bySelector(").append(jsArray(REJECT_SELECTORS)).append(", 'REJECT_ALL'); if (r) return r;\n");
+        sb.append("  r = byText(").append(jsArray(REJECT_TEXTS)).append(", 'REJECT_ALL'); if (r) return r;\n");
+        sb.append("  r = byText(").append(jsArray(ONLY_NECESSARY_TEXTS))
+                .append(", 'ONLY_NECESSARY'); if (r) return r;\n");
+        sb.append("  r = bySelector(").append(jsArray(consent.positiveButtonSelectors))
+                .append(", 'ACCEPT_ALL'); if (r) return r;\n");
+        sb.append("  r = byText(").append(jsArray(consent.positiveButtonTexts))
+                .append(", 'ACCEPT_ALL'); if (r) return r;\n");
+        sb.append("  r = bySelector(").append(jsArray(CLOSE_SELECTORS)).append(", 'CLOSE'); if (r) return r;\n");
         sb.append("  return 'none';\n");
         sb.append("}");
         return sb.toString();
     }
 
     /**
-     * The consent-REPORT script: like {@link #consentDismissScript} it locates one unambiguously positive
-     * control, but it does NOT click — it returns a human-readable hint at where to click ({@code
-     * 'candidate:<selector>'} or {@code 'candidate-text:<label>'}), or {@code 'none'}. Used by the probe so a
-     * caller (or the user) knows the banner is there and where its dismiss control is.
+     * The consent-REPORT script: detects an unambiguous consent control WITHOUT clicking (reject, only-necessary,
+     * accept, or a scoped close), so a banner is flagged even when it offers ONLY a reject/close control. Returns
+     * {@code 'candidate:<selector>'} / {@code 'candidate-text:<label>'} or {@code 'none'}.
      */
     static String consentReportScript(ConsentHandlingSettings consent) {
         StringBuilder sb = new StringBuilder();
         sb.append("() => {\n");
-        sb.append("  const selectors = ").append(jsArray(consent.positiveButtonSelectors)).append(";\n");
-        sb.append("  for (const s of selectors) {\n");
-        sb.append("    try {\n");
-        sb.append("      const el = document.querySelector(s);\n");
-        sb.append("      if (el && el.offsetParent !== null) return 'candidate:' + s;\n");
-        sb.append("    } catch (e) {}\n");
-        sb.append("  }\n");
-        sb.append("  const positives = ").append(jsArray(consent.positiveButtonTexts)).append(";\n");
-        sb.append("  const buttons = document.querySelectorAll(\"button, a[role='button'], [class*='btn']\");\n");
-        sb.append("  for (let i = 0; i < buttons.length && i < 80; i++) {\n");
-        sb.append("    const txt = (buttons[i].innerText || '').toLowerCase().trim();\n");
-        sb.append("    if (!txt || buttons[i].offsetParent === null) continue;\n");
-        sb.append("    if (positives.some(p => txt === p || txt.startsWith(p))) return 'candidate-text:' + txt;\n");
-        sb.append("  }\n");
+        sb.append("  const hasSelector = (arr) => { for (const s of arr) { try { const el = "
+                + "document.querySelector(s); if (el && el.offsetParent !== null) return s; } catch(e){} } "
+                + "return null; };\n");
+        sb.append("  const buttons = document.querySelectorAll(\"button, a[role='button'], [class*='btn'], "
+                + "[role='button'], input[type='button'], input[type='submit']\");\n");
+        sb.append("  const hasText = (arr) => { for (let i = 0; i < buttons.length && i < 120; i++) { "
+                + "const b = buttons[i]; const txt = (b.innerText || b.value || '').toLowerCase().trim(); "
+                + "if (!txt || b.offsetParent === null) continue; "
+                + "if (arr.some(p => txt === p || txt.startsWith(p))) return txt; } return null; };\n");
+        sb.append("  let s;\n");
+        sb.append("  s = hasSelector(").append(jsArray(REJECT_SELECTORS)).append("); if (s) return 'candidate:' + s;\n");
+        sb.append("  s = hasSelector(").append(jsArray(consent.positiveButtonSelectors))
+                .append("); if (s) return 'candidate:' + s;\n");
+        sb.append("  s = hasSelector(").append(jsArray(CLOSE_SELECTORS)).append("); if (s) return 'candidate:' + s;\n");
+        sb.append("  let t;\n");
+        sb.append("  t = hasText(").append(jsArray(REJECT_TEXTS)).append("); if (t) return 'candidate-text:' + t;\n");
+        sb.append("  t = hasText(").append(jsArray(ONLY_NECESSARY_TEXTS))
+                .append("); if (t) return 'candidate-text:' + t;\n");
+        sb.append("  t = hasText(").append(jsArray(consent.positiveButtonTexts))
+                .append("); if (t) return 'candidate-text:' + t;\n");
         sb.append("  return 'none';\n");
         sb.append("}");
         return sb.toString();
