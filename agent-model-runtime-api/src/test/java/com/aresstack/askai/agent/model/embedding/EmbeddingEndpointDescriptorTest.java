@@ -36,6 +36,6 @@ public class EmbeddingEndpointDescriptorTest {
     public void endpointUrlComposesBaseAndPathAndStripsTrailingSlash() {
         EmbeddingEndpointDescriptor a = new EmbeddingEndpointDescriptor("m", "http://h:9/", null,
                 384, "l2", "", 1000L);
-        assertEquals("http://h:9/api/embeddings", a.endpointUrl());
+        assertEquals("http://h:9/api/embed", a.endpointUrl());
     }
 }

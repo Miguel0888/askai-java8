@@ -7,11 +7,31 @@ package com.aresstack.askai.agent.model.embedding;
  */
 public final class EmbeddingConfigurationException extends Exception {
 
-    public EmbeddingConfigurationException(String message) {
-        super(message);
+    /** The typed cause — a code, not a new exception hierarchy, so callers can react precisely. */
+    public enum Reason {
+        MODEL_NOT_CONFIGURED,
+        MODEL_NOT_FOUND,
+        MODEL_NOT_EMBEDDING_CAPABLE,
+        MODEL_NOT_RUNNABLE,
+        RUNTIME_START_FAILED,
+        DIMENSION_PROBE_FAILED,
+        INVALID_PROBE_RESPONSE,
+        MISSING_MODEL_REVISION
     }
 
-    public EmbeddingConfigurationException(String message, Throwable cause) {
+    private final Reason reason;
+
+    public EmbeddingConfigurationException(Reason reason, String message) {
+        super(message);
+        this.reason = reason;
+    }
+
+    public EmbeddingConfigurationException(Reason reason, String message, Throwable cause) {
         super(message, cause);
+        this.reason = reason;
+    }
+
+    public Reason getReason() {
+        return reason;
     }
 }
