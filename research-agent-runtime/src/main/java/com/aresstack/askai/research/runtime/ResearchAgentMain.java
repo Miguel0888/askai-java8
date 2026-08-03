@@ -693,6 +693,16 @@ public final class ResearchAgentMain {
             if (cancelled.get()) {
                 ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
                         .manualSearchFailed(requestId, "CANCELLED"));
+            } else if (com.aresstack.askai.research.runtime.service.ManualSearchOutcome
+                    .isTechnicalFailure(reason)) {
+                // A TECHNICAL failure (SERP/browser/reranker broke, or the browser MCP endpoint was
+                // unreachable) is NOT an honest empty search: report it as a FAILED manual search so the host
+                // always runs its TERMINAL path (composer released, problem shown, browser stopped) — never a
+                // "completed" 0-hit search that leaves the turn waiting for a post-search review.
+                System.err.println("[manual-search] execute completed requestId=" + requestId + " sources="
+                        + progress.getAcceptedSources() + " reason=" + reason + " -> TECHNICAL FAILURE (terminal)");
+                ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
+                        .manualSearchFailed(requestId, reason.name()));
             } else {
                 System.err.println("[manual-search] execute completed requestId=" + requestId + " sources="
                         + progress.getAcceptedSources() + " reason=" + reason);
@@ -717,8 +727,12 @@ public final class ResearchAgentMain {
                 }
             }
         } catch (Exception failure) {
-            System.err.println("[manual-search] failed stage=execute requestId=" + requestId + " message="
-                    + failure.getClass().getSimpleName());
+            // The concrete cause (type + message + cause chain) is the only way anyone can act on a manual
+            // search crash — log it fully, never just the class name.
+            System.err.println("[manual-search] failed stage=execute requestId=" + requestId
+                    + " cause=" + failure.getClass().getName()
+                    + (failure.getMessage() == null ? "" : ": " + failure.getMessage()));
+            failure.printStackTrace();
             ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
                     .manualSearchFailed(requestId, cancelled.get() ? "CANCELLED" : "SEARCH_FAILED"));
         } finally {

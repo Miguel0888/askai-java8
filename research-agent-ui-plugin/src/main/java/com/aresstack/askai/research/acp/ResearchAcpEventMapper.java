@@ -198,6 +198,13 @@ public final class ResearchAcpEventMapper {
         if ("EMPTY_QUERY".equals(reason)) {
             return "Leere Suchanfrage.";
         }
+        if ("SEARCH_TECHNICAL_PROBLEM".equals(reason) || "MCP_UNAVAILABLE".equals(reason)
+                || "RERANKER_UNAVAILABLE".equals(reason) || "RERANKER_TIMEOUT".equals(reason)
+                || "RERANKER_INVALID_RESPONSE".equals(reason)
+                || "RERANKER_CONFIGURATION_ERROR".equals(reason)) {
+            // A technical failure the user can retry (browser/SERP/reranker) — not an honest empty result.
+            return "Websuche technisch fehlgeschlagen. Bitte erneut versuchen.";
+        }
         return "Websuche fehlgeschlagen.";
     }
 

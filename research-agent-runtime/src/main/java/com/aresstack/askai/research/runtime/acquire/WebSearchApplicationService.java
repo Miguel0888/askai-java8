@@ -140,6 +140,16 @@ public final class WebSearchApplicationService {
     private volatile boolean hudPaused;
     /** Soft cap for an in-page user-wait (consent/challenge) so a stuck wait self-parks; Skip is the immediate escape. */
     private static final long HUD_USER_WAIT_TIMEOUT_MILLIS = 180_000L;
+    /**
+     * Research HUD master switch. Default ON; {@code -Daskai.research.hud.enabled=false} forces the no-op path
+     * so the browser can be A/B tested with the overlay injection entirely off. If the run is stable only with
+     * the HUD disabled, the fault is in the overlay/binding; if it dies either way, it is a general browser
+     * regression. When off, {@link #renderHud} / {@link #pollHudCommands} never touch the browser.
+     */
+    private final boolean hudEnabled =
+            !"false".equalsIgnoreCase(System.getProperty("askai.research.hud.enabled", "true"));
+    /** Throttles identical, per-tick HUD failure logs (render/poll run every probe tick during a user-wait). */
+    private String lastHudErrorLine;
 
     private final ToolBudget budgetGate = new ToolBudget() {
         public ResearchStopReason beforeToolCall() {
@@ -222,14 +232,19 @@ public final class WebSearchApplicationService {
             // reranker failure ends the run with a typed reason and opens nothing.
             seedStop = seedReranking(query, result.candidates, frontier);
         } catch (ToolInvoker.EndpointUnavailable ex) {
+            // The browser MCP endpoint is gone (the sidecar likely died): this is the concrete, retryable
+            // technical cause behind a SEARCH_TECHNICAL_PROBLEM — log it, never swallow it.
+            listener.status("[web-search] technical failure stage=SEED_SEARCH (endpoint unavailable — sidecar"
+                    + " may be dead) cause=" + describe(ex));
             return ResearchStopReason.MCP_UNAVAILABLE;
         } catch (ToolInvoker.ToolFailure ex) {
+            listener.status("[web-search] technical failure stage=SEED_SEARCH cause=" + describe(ex));
             progress.error();
         } catch (RuntimeException ex) {
             // A malformed prepare/apply payload (codec DecodeException) must not crash the loop —
             // it is a tool-level failure; the run continues with an empty frontier (the error budget and
             // NO_RELEVANT_PATHS handle it as before).
-            listener.status("web search preparation failed: " + ex.getMessage());
+            listener.status("[web-search] technical failure stage=SEED_SEARCH_PREPARE cause=" + describe(ex));
             progress.error();
         }
         if (seedStop != null) {
@@ -357,10 +372,13 @@ public final class WebSearchApplicationService {
                     }
                 }
             } catch (ToolInvoker.EndpointUnavailable ex) {
+                listener.status("[web-search] technical failure stage=PAGE_OPEN (endpoint unavailable — sidecar"
+                        + " may be dead) url=" + url + " cause=" + describe(ex));
                 return ResearchStopReason.MCP_UNAVAILABLE;
             } catch (ToolInvoker.ToolFailure ex) {
                 progress.error();
-                listener.status("tool failed: " + ex.getMessage());
+                listener.status("[web-search] technical failure stage=PAGE_OPEN url=" + url
+                        + " cause=" + describe(ex));
             }
         }
     }
@@ -607,23 +625,66 @@ public final class WebSearchApplicationService {
 
     // ------------------------------------------------------------------ Research HUD (optional overlay)
 
-    /** Render a HUD state onto the current page; best-effort — a backend without the overlay simply ignores it. */
+    /**
+     * Render a HUD state onto the current page; best-effort — a backend without the overlay simply ignores it.
+     * A failure NEVER affects the research run, but it is LOGGED (never swallowed): the HUD is a prime suspect
+     * for a browser crash, so its errors must be visible. Off entirely under the kill-switch.
+     */
     private void renderHud(String phase, String status, boolean waiting, int countdownSeconds) {
+        if (!hudEnabled) {
+            return;
+        }
         try {
             callBrowser("web_hud_render", args("state",
                     new ResearchHudState(phase, status, waiting, countdownSeconds, hudPaused).render()));
-        } catch (ToolInvoker.ToolFailure | ToolInvoker.EndpointUnavailable | RuntimeException ignored) {
-            // The HUD is optional: never let a render failure affect the research run.
+            lastHudErrorLine = null; // a success clears the throttle so the next distinct failure is logged
+        } catch (ToolInvoker.ToolFailure | ToolInvoker.EndpointUnavailable | RuntimeException ex) {
+            logHudFailure("render", ex);
         }
     }
 
-    /** Drain overlay commands; best-effort. */
+    /** Drain overlay commands; best-effort. A failure is logged (not swallowed). Off under the kill-switch. */
     private List<ResearchHudCommand> pollHudCommands() {
-        try {
-            return ResearchHudCommand.parseBatch(callBrowser("web_hud_poll", args()));
-        } catch (ToolInvoker.ToolFailure | ToolInvoker.EndpointUnavailable | RuntimeException ignored) {
+        if (!hudEnabled) {
             return java.util.Collections.<ResearchHudCommand>emptyList();
         }
+        try {
+            List<ResearchHudCommand> commands = ResearchHudCommand.parseBatch(callBrowser("web_hud_poll", args()));
+            lastHudErrorLine = null;
+            return commands;
+        } catch (ToolInvoker.ToolFailure | ToolInvoker.EndpointUnavailable | RuntimeException ex) {
+            logHudFailure("poll", ex);
+            return java.util.Collections.<ResearchHudCommand>emptyList();
+        }
+    }
+
+    /** Log a HUD failure once per distinct cause (render/poll run every tick — do not flood the log). */
+    private void logHudFailure(String stage, Throwable ex) {
+        boolean endpoint = ex instanceof ToolInvoker.EndpointUnavailable;
+        String line = "[browser-hud] " + stage + " failed"
+                + (endpoint ? " (endpoint unavailable — sidecar may be dead)" : "") + " cause=" + describe(ex);
+        if (!line.equals(lastHudErrorLine)) {
+            lastHudErrorLine = line;
+            listener.status(line);
+        }
+    }
+
+    /** Compact type: message (&lt;- cause …) chain for diagnostics; bounded so a deep chain cannot flood a line. */
+    private static String describe(Throwable ex) {
+        StringBuilder sb = new StringBuilder();
+        for (Throwable t = ex; t != null && sb.length() < 400; t = t.getCause()) {
+            if (sb.length() > 0) {
+                sb.append(" <- ");
+            }
+            sb.append(t.getClass().getSimpleName());
+            if (t.getMessage() != null) {
+                sb.append(": ").append(t.getMessage());
+            }
+            if (t.getCause() == t) {
+                break; // self-referential cause guard
+            }
+        }
+        return sb.toString();
     }
 
     /** Apply PAUSE/RESUME from the overlay (SKIP is handled contextually where a page can be abandoned). */

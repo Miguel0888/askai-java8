@@ -6,7 +6,9 @@ import java.io.InputStreamReader;
 import java.net.ServerSocket;
 import java.nio.charset.Charset;
 import java.security.SecureRandom;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -23,17 +25,23 @@ public final class BrowserMcpSidecarProcess {
 
     private static final SecureRandom RANDOM = new SecureRandom();
 
+    /** How many trailing stderr lines to retain for post-mortem diagnostics (a dead sidecar's last words). */
+    private static final int STDERR_RING_CAPACITY = 60;
+
     private final Process process;
     private final int port;
     private final String token;
     private final String readinessLine;
+    private final Deque<String> recentStderr; // bounded ring, appended by the daemon drain thread
     private volatile boolean closed;
 
-    private BrowserMcpSidecarProcess(Process process, int port, String token, String readinessLine) {
+    private BrowserMcpSidecarProcess(Process process, int port, String token, String readinessLine,
+                                     Deque<String> recentStderr) {
         this.process = process;
         this.port = port;
         this.token = token;
         this.readinessLine = readinessLine;
+        this.recentStderr = recentStderr;
     }
 
     public static BrowserMcpSidecarProcess start(ResearchRuntimeConfig config,
@@ -79,6 +87,7 @@ public final class BrowserMcpSidecarProcess {
 
         final CountDownLatch ready = new CountDownLatch(1);
         final StringBuilder readiness = new StringBuilder();
+        final Deque<String> recentStderr = new ArrayDeque<String>();
         Thread drain = new Thread(new Runnable() {
             public void run() {
                 try {
@@ -86,6 +95,14 @@ public final class BrowserMcpSidecarProcess {
                             process.getErrorStream(), Charset.forName("UTF-8")));
                     String line;
                     while ((line = reader.readLine()) != null) {
+                        // Retain EVERY line (bounded): the sidecar's last stderr is the only post-mortem when
+                        // it dies mid-run — no longer discarded once readiness has been seen.
+                        synchronized (recentStderr) {
+                            recentStderr.addLast(line);
+                            while (recentStderr.size() > STDERR_RING_CAPACITY) {
+                                recentStderr.removeFirst();
+                            }
+                        }
                         if (line.contains("playwright readiness:")) {
                             synchronized (readiness) {
                                 readiness.setLength(0);
@@ -119,13 +136,35 @@ public final class BrowserMcpSidecarProcess {
         if (!up) {
             process.destroyForcibly();
             throw new IOException("Browser sidecar did not become ready within " + readyTimeoutSeconds
-                    + "s" + (readinessLine.isEmpty() ? "" : " (last readiness: " + readinessLine + ")"));
+                    + "s" + (readinessLine.isEmpty() ? "" : " (last readiness: " + readinessLine + ")")
+                    + tail(recentStderr));
         }
         if (!readinessLine.startsWith("READY")) {
             process.destroyForcibly();
-            throw new IOException("Browser sidecar backend unavailable: " + readinessLine);
+            throw new IOException("Browser sidecar backend unavailable: " + readinessLine
+                    + tail(recentStderr));
         }
-        return new BrowserMcpSidecarProcess(process, port, token, readinessLine);
+        return new BrowserMcpSidecarProcess(process, port, token, readinessLine, recentStderr);
+    }
+
+    /** A compact ' | last stderr: …' suffix from the ring (empty when nothing captured) — for start failures. */
+    private static String tail(Deque<String> ring) {
+        List<String> lines;
+        synchronized (ring) {
+            lines = new ArrayList<String>(ring);
+        }
+        if (lines.isEmpty()) {
+            return "";
+        }
+        int from = Math.max(0, lines.size() - 8);
+        StringBuilder sb = new StringBuilder(" | last stderr: ");
+        for (int i = from; i < lines.size(); i++) {
+            if (i > from) {
+                sb.append(" ⏎ ");
+            }
+            sb.append(lines.get(i));
+        }
+        return sb.toString();
     }
 
     public String getMcpUrl() {
@@ -143,6 +182,18 @@ public final class BrowserMcpSidecarProcess {
 
     public boolean isAlive() {
         return process.isAlive();
+    }
+
+    /** The process exit code, or {@code null} while it is still alive — for post-mortem logging of a dead sidecar. */
+    public Integer exitCodeOrNull() {
+        return process.isAlive() ? null : Integer.valueOf(process.exitValue());
+    }
+
+    /** The last stderr lines the sidecar emitted (bounded ring, oldest first); a dead sidecar's final words. */
+    public List<String> recentStderr() {
+        synchronized (recentStderr) {
+            return new ArrayList<String>(recentStderr);
+        }
     }
 
     /** Idempotent: destroy → bounded wait → forced kill (the driver child + browser die with the pipes). */

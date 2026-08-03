@@ -238,6 +238,18 @@ public final class LazyRestartableBrowserRuntime implements BrowserRuntimePort {
         }
     }
 
+    /** Log a dead/unreachable sidecar's exit code and its last stderr lines (bounded) — pure diagnostics. */
+    private static void logSidecarPostMortem(String tool, BrowserMcpSidecarProcess process) {
+        Integer code = process.exitCodeOrNull();
+        java.util.List<String> stderr = process.recentStderr();
+        System.err.println("[browser] sidecar endpoint unavailable on tool=" + tool + " exit="
+                + (code == null ? "still-alive" : code) + " stderrLines=" + stderr.size());
+        int from = Math.max(0, stderr.size() - 12);
+        for (int i = from; i < stderr.size(); i++) {
+            System.err.println("[browser]   " + stderr.get(i));
+        }
+    }
+
     /** The productive starter: spawn the Java-21 browser sidecar and connect its MCP client (blocks to ready). */
     private static SidecarStarter productionStarter(final ResearchRuntimeConfig config,
                                                     final long readyTimeoutSeconds,
@@ -255,6 +267,11 @@ public final class LazyRestartableBrowserRuntime implements BrowserRuntimePort {
                             try {
                                 return client.callTool(tool, arguments);
                             } catch (McpToolClient.McpToolCallException ex) {
+                                if (ex.isEndpointUnavailable()) {
+                                    // The sidecar just became unreachable — dump its exit code + last words
+                                    // so a mid-run browser death is diagnosable, not a bare "endpoint gone".
+                                    logSidecarPostMortem(tool, process);
+                                }
                                 throw new BrowserRuntimeException(ex.getMessage(), ex.isEndpointUnavailable());
                             }
                         }
