@@ -210,6 +210,30 @@ final class Playwright4jDriver implements PlaywrightDriver {
     }
 
     @Override
+    public String challengeMarker() {
+        if (closed || !captcha.enabled) {
+            return "none";
+        }
+        try {
+            return String.valueOf(page.evaluate(SearchPageGuards.challengeDetectScript(captcha)));
+        } catch (RuntimeException ex) {
+            return "none";
+        }
+    }
+
+    @Override
+    public String consentCandidate() {
+        if (closed || !consent.enabled) {
+            return "none";
+        }
+        try {
+            return String.valueOf(page.evaluate(SearchPageGuards.consentReportScript(consent)));
+        } catch (RuntimeException ex) {
+            return "none"; // a broken CMP script must never take a probe down
+        }
+    }
+
+    @Override
     public boolean parkChallenge() {
         if (closed || challengePage != null) {
             return false;

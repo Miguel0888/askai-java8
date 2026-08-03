@@ -34,5 +34,33 @@ public interface BrowserSession {
         return java.util.Collections.singletonList("NONE");
     }
 
+    /**
+     * Navigate to {@code url} and return a cheap readability PROBE (not the full text): the signals needed to
+     * decide whether the page can be read now or is blocked by a consent banner / manual challenge. Step 1 of
+     * the two-step "scan then read" visit. The default navigates via {@link #open} and reports body size only
+     * (no consent/challenge detection); the Playwright backend overrides it with real detection.
+     */
+    default BrowserPageReadiness probe(String url) throws BrowserException {
+        open(url);
+        return probeCurrent();
+    }
+
+    /** Re-probe the CURRENT page without navigating (after a consent click or while waiting for a CAPTCHA). */
+    default BrowserPageReadiness probeCurrent() throws BrowserException {
+        BrowserPageSnapshot s = currentPage();
+        int len = s.getText() == null ? 0 : s.getText().length();
+        return new BrowserPageReadiness(s.getUrl(), s.getTitle(), len,
+                BrowserPageReadiness.excerptOf(s.getText()), false, "", false, "");
+    }
+
+    /**
+     * Try to dismiss a consent/cookie banner on the CURRENT page by clicking one unambiguously positive
+     * control. @return {@code "clicked:…"} when something was clicked, {@code "none"} otherwise. The default
+     * (backends without consent handling) does nothing.
+     */
+    default String dismissConsent() throws BrowserException {
+        return "none";
+    }
+
     void close();
 }

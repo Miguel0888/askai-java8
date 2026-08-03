@@ -236,6 +236,33 @@ public final class BrowserMcpSidecarMain {
                         return render(session.currentPage());
                     }
                 }));
+        endpoint.addTool(new FunctionToolDesc("web_probe")
+                .description("Step 1 of a two-step visit: navigate to a URL and return a readability PROBE "
+                        + "(final url, title, text_length, a short excerpt, and consent/challenge signals) "
+                        + "WITHOUT the full text. Follow with web_dismiss_consent / web_challenge_status and "
+                        + "then web_read once readable.")
+                .stringParamAdd("url", "The http(s) URL to probe")
+                .doHandle(new ToolHandler() {
+                    public Object handle(Map<String, Object> args) throws Throwable {
+                        return session.probe(str(args, "url")).render();
+                    }
+                }));
+        endpoint.addTool(new FunctionToolDesc("web_reprobe")
+                .description("Re-probe the CURRENT page without navigating (after dismissing a banner or "
+                        + "while waiting for a CAPTCHA). Same fields as web_probe.")
+                .doHandle(new ToolHandler() {
+                    public Object handle(Map<String, Object> args) throws Throwable {
+                        return session.probeCurrent().render();
+                    }
+                }));
+        endpoint.addTool(new FunctionToolDesc("web_dismiss_consent")
+                .description("Try to dismiss a consent/cookie banner on the CURRENT page by clicking one "
+                        + "unambiguously positive control. Returns 'clicked:…' or 'none'.")
+                .doHandle(new ToolHandler() {
+                    public Object handle(Map<String, Object> args) throws Throwable {
+                        return session.dismissConsent();
+                    }
+                }));
         endpoint.addTool(new FunctionToolDesc("web_links")
                 .description("List the links of the current page with stable ids.")
                 .doHandle(new ToolHandler() {

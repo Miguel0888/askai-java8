@@ -54,6 +54,22 @@ interface PlaywrightDriver extends AutoCloseable {
     }
 
     /**
+     * @return the challenge marker that matched on the CURRENT page ({@code "challenge:<selector>"} or
+     * {@code "challenge-text:<text>"}), or {@code "none"}. A richer form of {@link #challengePresent}.
+     */
+    default String challengeMarker() {
+        return challengePresent() ? "challenge:?" : "none";
+    }
+
+    /**
+     * @return a hint at a consent/cookie dismiss control on the CURRENT page WITHOUT clicking it
+     * ({@code "candidate:<selector>"} / {@code "candidate-text:<label>"}), or {@code "none"}.
+     */
+    default String consentCandidate() {
+        return "none";
+    }
+
+    /**
      * Park the current (challenge) page: keep it open and bring it to the user's attention ONCE, then
      * continue on a fresh page. At most one page is parked at a time.
      * @return false when parking is not supported or a page is already parked.

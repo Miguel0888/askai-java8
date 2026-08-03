@@ -60,6 +60,12 @@ public class PlaywrightBrowserSessionTest {
         }
 
         @Override
+        public String consentCandidate() {
+            PlaywrightPageState current = history.isEmpty() ? null : history.get(history.size() - 1);
+            return current != null && afterConsent.containsKey(current.url) ? "candidate:#consent" : "none";
+        }
+
+        @Override
         public boolean parkChallenge() {
             parkCalls++;
             if (parked) {
@@ -132,6 +138,33 @@ public class PlaywrightBrowserSessionTest {
     private static PlaywrightBrowserSession session(FakeDriver driver, UrlSafetyPolicy policy,
                                                     BrowserLimits limits, String searchUrl) {
         return new PlaywrightBrowserSession(driver, policy, limits, searchUrl, null);
+    }
+
+    @Test
+    public void probeReportsConsentAndChallengeSignalsAndReprobeClearsThem() throws Exception {
+        FakeDriver driver = new FakeDriver();
+        driver.byUrl.put("http://8.8.8.8/clean", state("http://8.8.8.8/clean", "Clean", "a readable body"));
+        driver.byUrl.put("http://8.8.8.8/cookie", state("http://8.8.8.8/cookie", "Cookie", "behind a banner"));
+        driver.afterConsent.put("http://8.8.8.8/cookie",
+                state("http://8.8.8.8/cookie", "Cookie", "the real content now"));
+        driver.byUrl.put("http://8.8.8.8/captcha", state("http://8.8.8.8/captcha", "Captcha", "one last step"));
+        driver.challengeUrls.add("http://8.8.8.8/captcha");
+        PlaywrightBrowserSession s = session(driver, UrlSafetyPolicy.strict(),
+                BrowserLimits.defaults(), null);
+
+        com.aresstack.askai.browser.BrowserPageReadiness clean = s.probe("http://8.8.8.8/clean");
+        assertFalse(clean.challengePresent);
+        assertFalse(clean.consentPresent);
+        assertEquals("a readable body".length(), clean.textLength);
+
+        com.aresstack.askai.browser.BrowserPageReadiness cookie = s.probe("http://8.8.8.8/cookie");
+        assertTrue("consent banner detected without clicking", cookie.consentPresent);
+        assertTrue(cookie.consentCandidate.startsWith("candidate"));
+        assertTrue(s.dismissConsent().startsWith("clicked"));
+        assertFalse("after dismissal the banner is gone", s.probeCurrent().consentPresent);
+
+        com.aresstack.askai.browser.BrowserPageReadiness captcha = s.probe("http://8.8.8.8/captcha");
+        assertTrue(captcha.challengePresent);
     }
 
     @Test

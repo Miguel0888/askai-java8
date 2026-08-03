@@ -59,6 +59,34 @@ final class SearchPageGuards {
         return sb.toString();
     }
 
+    /**
+     * The consent-REPORT script: like {@link #consentDismissScript} it locates one unambiguously positive
+     * control, but it does NOT click — it returns a human-readable hint at where to click ({@code
+     * 'candidate:<selector>'} or {@code 'candidate-text:<label>'}), or {@code 'none'}. Used by the probe so a
+     * caller (or the user) knows the banner is there and where its dismiss control is.
+     */
+    static String consentReportScript(ConsentHandlingSettings consent) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("() => {\n");
+        sb.append("  const selectors = ").append(jsArray(consent.positiveButtonSelectors)).append(";\n");
+        sb.append("  for (const s of selectors) {\n");
+        sb.append("    try {\n");
+        sb.append("      const el = document.querySelector(s);\n");
+        sb.append("      if (el && el.offsetParent !== null) return 'candidate:' + s;\n");
+        sb.append("    } catch (e) {}\n");
+        sb.append("  }\n");
+        sb.append("  const positives = ").append(jsArray(consent.positiveButtonTexts)).append(";\n");
+        sb.append("  const buttons = document.querySelectorAll(\"button, a[role='button'], [class*='btn']\");\n");
+        sb.append("  for (let i = 0; i < buttons.length && i < 80; i++) {\n");
+        sb.append("    const txt = (buttons[i].innerText || '').toLowerCase().trim();\n");
+        sb.append("    if (!txt || buttons[i].offsetParent === null) continue;\n");
+        sb.append("    if (positives.some(p => txt === p || txt.startsWith(p))) return 'candidate-text:' + txt;\n");
+        sb.append("  }\n");
+        sb.append("  return 'none';\n");
+        sb.append("}");
+        return sb.toString();
+    }
+
     /** The challenge-detection script: returns 'challenge:…' or 'none'. */
     static String challengeDetectScript(CaptchaHandlingSettings captcha) {
         StringBuilder sb = new StringBuilder();

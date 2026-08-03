@@ -4,6 +4,7 @@ import com.aresstack.askai.browser.BrowserBackendKind;
 import com.aresstack.askai.browser.BrowserException;
 import com.aresstack.askai.browser.BrowserLimits;
 import com.aresstack.askai.browser.BrowserLink;
+import com.aresstack.askai.browser.BrowserPageReadiness;
 import com.aresstack.askai.browser.BrowserPageSnapshot;
 import com.aresstack.askai.browser.BrowserSession;
 import com.aresstack.askai.browser.UrlSafetyPolicy;
@@ -316,6 +317,37 @@ final class PlaywrightBrowserSession implements BrowserSession {
     public BrowserPageSnapshot currentPage() throws BrowserException {
         requirePage();
         return checkedSnapshot(driver.current());
+    }
+
+    @Override
+    public BrowserPageReadiness probe(String url) throws BrowserException {
+        policy.check(url);
+        return readinessFrom(checkedSnapshot(driver.open(url)));
+    }
+
+    @Override
+    public BrowserPageReadiness probeCurrent() throws BrowserException {
+        requirePage();
+        return readinessFrom(checkedSnapshot(driver.current()));
+    }
+
+    @Override
+    public String dismissConsent() throws BrowserException {
+        requirePage();
+        return driver.tryDismissConsent();
+    }
+
+    /** Compose a readability probe from a snapshot plus the driver's consent/challenge guards. */
+    private BrowserPageReadiness readinessFrom(BrowserPageSnapshot s) {
+        String marker = driver.challengeMarker();
+        boolean challenge = marker != null && marker.startsWith("challenge");
+        String consent = driver.consentCandidate();
+        boolean consentPresent = consent != null && consent.startsWith("candidate");
+        int len = s.getText() == null ? 0 : s.getText().length();
+        return new BrowserPageReadiness(s.getUrl(), s.getTitle(), len,
+                BrowserPageReadiness.excerptOf(s.getText()),
+                challenge, challenge ? marker : "",
+                consentPresent, consentPresent ? consent : "");
     }
 
     public List<BrowserLink> links() throws BrowserException {
