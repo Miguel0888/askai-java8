@@ -32,6 +32,7 @@ public final class ResearchRunWire {
     public static final String TYPE_MANUAL_SEARCH_STARTED = "manual_search_started";
     public static final String TYPE_MANUAL_SEARCH_PROGRESS = "manual_search_progress";
     public static final String TYPE_MANUAL_SEARCH_COMPLETED = "manual_search_completed";
+    public static final String TYPE_MANUAL_SEARCH_REVIEW = "manual_search_review";
     public static final String TYPE_MANUAL_SEARCH_FAILED = "manual_search_failed";
 
     private ResearchRunWire() {

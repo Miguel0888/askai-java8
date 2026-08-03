@@ -145,6 +145,7 @@ public final class ResearchAcpEventMapper {
         if (ResearchRunWire.TYPE_MANUAL_SEARCH_STARTED.equals(type)
                 || ResearchRunWire.TYPE_MANUAL_SEARCH_PROGRESS.equals(type)
                 || ResearchRunWire.TYPE_MANUAL_SEARCH_COMPLETED.equals(type)
+                || ResearchRunWire.TYPE_MANUAL_SEARCH_REVIEW.equals(type)
                 || ResearchRunWire.TYPE_MANUAL_SEARCH_FAILED.equals(type)) {
             return mapManualSearch(text, type);
         }
@@ -175,6 +176,9 @@ public final class ResearchAcpEventMapper {
             subKind = "completed";
             int results = ResearchRunWire.intField(f, "results");
             message = results == 1 ? "1 Treffer" : results + " Treffer";
+        } else if (ResearchRunWire.TYPE_MANUAL_SEARCH_REVIEW.equals(type)) {
+            subKind = "review_" + (f.get("state") == null ? "" : f.get("state").trim());
+            message = "";
         } else {
             subKind = "failed";
             message = manualSearchFailureText(f.get("reason"));

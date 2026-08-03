@@ -699,8 +699,21 @@ public final class ResearchAgentMain {
                 ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
                         .manualSearchCompleted(requestId, progress.getAcceptedSources(), reason.name()));
                 // D: new sources were added → let the scoping agent skim them and refresh its suggestions.
+                // Bracket the (possibly slow, model-backed) review with a started/finished lifecycle so the
+                // host shows a cancellable thinking bubble and ALWAYS clears it — even on model failure/cancel.
                 if (progress.getAcceptedSources() > 0) {
-                    reviewNewSourcesAndRefreshSuggestions(ctx);
+                    ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
+                            .manualSearchReview(requestId, "started"));
+                    try {
+                        reviewNewSourcesAndRefreshSuggestions(ctx);
+                    } finally {
+                        ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
+                                .manualSearchReview(requestId, "finished"));
+                    }
+                } else {
+                    // Nothing to review: still emit 'finished' so the host clears its manual-search tracking.
+                    ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
+                            .manualSearchReview(requestId, "finished"));
                 }
             }
         } catch (Exception failure) {

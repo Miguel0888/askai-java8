@@ -234,6 +234,18 @@ public final class ResearchRunWire {
                 + " status=" + (status == null || status.isEmpty() ? "UNKNOWN" : status);
     }
 
+    /**
+     * The bot's post-search REVIEW phase (skim the new sources, refresh suggestions) lifecycle, correlated by
+     * requestId: {@code state=started} when it begins, {@code state=finished} when it ends (success, model
+     * failure OR cancel). The host shows a thinking bubble + a busy (cancellable) composer between the two, so
+     * the review can never leave the UI hung.
+     */
+    public static String manualSearchReview(String requestId, String state) {
+        return MARKER + "manual_search_review"
+                + " request_id=" + (requestId == null ? "" : requestId)
+                + " state=" + (state == null ? "" : state);
+    }
+
     /** A manual search failed (or was cancelled/unavailable): a token reason, never a fallback to a no-op. */
     public static String manualSearchFailed(String requestId, String reason) {
         return MARKER + "manual_search_failed"

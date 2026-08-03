@@ -1017,15 +1017,23 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             if (searched != null && !searched.trim().isEmpty()) {
                 manualSearchedQueries.add(searched.trim().toLowerCase(java.util.Locale.ROOT));
             }
-            activeManualSearchRequestId = null;
-            // The browser closes now; the bot then briefly reviews the new sources and refreshes its
-            // suggestions (can take a while). Show a thinking bubble + keep the composer busy until the
-            // summary (ASSISTANT_MESSAGE) or the refreshed suggestions (SCOPING_PROJECTION) arrive.
+            // Keep activeManualSearchRequestId set so the following review_* events still correlate; it is
+            // cleared on review_finished / failed. The browser closes now; the bot's post-search review (if
+            // any) is bracketed by review_started/review_finished below.
+            stopManualSearchBrowser();
+        } else if ("review_started".equals(subKind)) {
+            // The bot is now at the wheel (skimming the new sources, refreshing suggestions): show a thinking
+            // bubble AND make the composer BUSY (red, cancellable) exactly like a normal agent turn, so the
+            // user both sees the work and can abort it. Cleared by review_finished (always emitted).
             postSearchThinkingId = "post-search-summary-" + requestId;
             postSearchSummaryInFlight = true;
+            agentTurnInFlight = true;
             sink.startThinking(postSearchThinkingId,
                     "Ich sichte die neuen Quellen und aktualisiere die Vorschläge …");
-            stopManualSearchBrowser();
+        } else if ("review_finished".equals(subKind)) {
+            finishPostSearchThinking("");
+            agentTurnInFlight = false; // release the composer — the review is over (success, failure or cancel)
+            activeManualSearchRequestId = null;
         } else if ("failed".equals(subKind)) {
             // Both surfaces: close the transient activity AND raise a PERSISTENT, readable problem so the
             // reason does not merely flash away.
@@ -1033,6 +1041,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             sink.showProblem("manual-search-failed-" + requestId, message);
             activeManualSearchRequestId = null;
             finishPostSearchThinking(""); // no summary is coming
+            agentTurnInFlight = false;
             stopManualSearchBrowser();
         }
     }
@@ -1159,6 +1168,16 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     }
 
     public void cancel() {
+        if (postSearchSummaryInFlight) {
+            // The bot's post-search review is the turn in flight. It runs inside the manual-search operation,
+            // so cancelling THAT aborts the review's model call (via the runtime @Cancel → cancelInFlight).
+            // Release the composer immediately; the runtime still emits review_finished to settle tracking.
+            cancelManualWebSearch();
+            finishPostSearchThinking("");
+            agentTurnInFlight = false;
+            fireStateChanged();
+            return;
+        }
         if (productiveResources != null) {
             agentTurnInFlight = false;
             dispatch(ResearchCommandType.CANCEL, null);
