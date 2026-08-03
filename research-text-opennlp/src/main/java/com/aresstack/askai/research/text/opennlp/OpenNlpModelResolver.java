@@ -76,7 +76,10 @@ public final class OpenNlpModelResolver {
             SentenceSegmentationPort port;
             try {
                 port = loader.load(file);
-            } catch (IOException ex) {
+            } catch (IOException | RuntimeException ex) {
+                // A corrupt/unsupported artifact surfaces as an IOException OR an unchecked parser error
+                // (e.g. OpenNLP throws NPE on a non-model file) — either way it is a hard error, never a
+                // silent regex fallback.
                 throw new OpenNlpModelException("the OpenNLP sentence model for language '" + key
                         + "' at " + file + " is deployed but could not be loaded (corrupt or unsupported "
                         + "format) — refusing to fall back silently", ex);

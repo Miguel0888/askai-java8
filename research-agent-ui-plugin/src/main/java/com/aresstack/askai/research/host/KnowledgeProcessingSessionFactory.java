@@ -20,8 +20,6 @@ import com.aresstack.askai.research.knowledge.processing.embedding.UrlConnection
 import com.aresstack.askai.research.knowledge.processing.index.SemanticKnowledgeIndex;
 import com.aresstack.askai.research.knowledge.lucene.CompositeSemanticKnowledgeIndex;
 import com.aresstack.askai.research.sources.ResearchSourceRepository;
-import com.aresstack.askai.research.text.opennlp.DirectoryOpenNlpModelCatalog;
-import com.aresstack.askai.research.text.opennlp.OpenNlpModelResolver;
 
 import java.io.File;
 
@@ -44,7 +42,8 @@ final class KnowledgeProcessingSessionFactory {
      */
     static KnowledgeProcessingRunner buildRunner(File projectDir, String projectId,
                                                  EmbeddingEndpointDescriptor descriptor, String languageCode,
-                                                 File openNlpModelsDir, CaptureStore captures,
+                                                 SentenceSegmentationPort segmenter, String segmenterDescription,
+                                                 CaptureStore captures,
                                                  ResearchSourceRepository sourceRepository,
                                                  FileSourceProcessingQueue queue,
                                                  KnowledgeProcessingSettings settings) {
@@ -52,13 +51,8 @@ final class KnowledgeProcessingSessionFactory {
         HttpEmbeddingPortAdapter embeddings = new HttpEmbeddingPortAdapter(descriptor,
                 new UrlConnectionEmbeddingHttpTransport((int) descriptor.timeoutMillis));
 
-        // Sentences: the deployed OpenNLP model for the session language, else the deterministic regex fallback.
-        // A DEPLOYED-but-corrupt model throws here (fail fast) instead of silently degrading to regex.
-        OpenNlpModelResolver sentenceResolver =
-                new OpenNlpModelResolver(new DirectoryOpenNlpModelCatalog(openNlpModelsDir));
-        boolean usingOpenNlp = sentenceResolver.openNlpSegmenterFor(languageCode).isPresent();
-        SentenceSegmentationPort segmenter = sentenceResolver.segmenterFor(languageCode);
-
+        // Sentences: the SESSION segmenter already resolved from the host NLP snapshot (OpenNLP over the selected
+        // model's artifact, or the regex fallback) — resolved once at session build, not here and not per capture.
         PassageSegmentation segmentation = new PassageSegmentation(segmenter, embeddings,
                 settings.segmentationPipelineVersion, settings.windowSize, settings.boundaryThreshold,
                 settings.minPassageSentences, settings.maxPassageSentences);
@@ -75,12 +69,11 @@ final class KnowledgeProcessingSessionFactory {
         SourceCaptureReader reader = new CaptureStoreSourceCaptureReader(captures,
                 new CanonicalUrlSourceIdResolver(sourceRepository));
 
-        // One-time readiness line for the live gate: language, which segmenter, and the embedding world.
+        // One-time readiness line for the live gate: language, the resolved segmenter (model id/version/artifact
+        // name — never an absolute path — or the regex reason), and the embedding world.
         System.err.println("[research-knowledge] worker ready project=" + projectId
                 + " language=" + languageCode
-                + " segmenter=" + (usingOpenNlp
-                        ? "OpenNLP(" + DirectoryOpenNlpModelCatalog.fileName(languageCode) + ")"
-                        : "regex-fallback(no model deployed)")
+                + " segmenter=" + segmenterDescription
                 + " embeddingModel=" + descriptor.modelId
                 + " fingerprint=" + descriptor.embeddingFingerprint()
                 + " dimension=" + descriptor.embeddingDimension

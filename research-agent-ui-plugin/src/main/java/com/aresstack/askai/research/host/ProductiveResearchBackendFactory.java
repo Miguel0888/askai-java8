@@ -70,6 +70,8 @@ public final class ProductiveResearchBackendFactory {
     private final SearchStrategySelection searchStrategy;
     /** The session's research language ISO code ("en"/"de") for the OpenNLP sentence resolver; default English. */
     private volatile String researchLanguageCode = "en";
+    /** OPTIONAL host NLP snapshot provider; resolves the session's selected sentence model (else regex). */
+    private volatile com.aresstack.askai.agent.model.nlp.NlpConfigurationSnapshotProvider nlpSnapshots;
 
     public ProductiveResearchBackendFactory(McpServerRegistry registry, McpToolClientFactory toolClients,
                                             AcpAgentConnector connector, ResearchRuntimeConfig config,
@@ -142,10 +144,10 @@ public final class ProductiveResearchBackendFactory {
                 ? "en" : languageCode.trim();
     }
 
-    /** Deployment location of OpenNLP sentence models (deployment artifacts; none → deterministic regex). */
-    private static File openNlpModelsDir() {
-        return new File(new File(System.getProperty("user.home", "."), "agents"),
-                "research" + File.separator + "opennlp");
+    /** The host NLP snapshot provider; the session resolves its selected sentence model through it (else regex). */
+    public void setNlpConfigurationSnapshotProvider(
+            com.aresstack.askai.agent.model.nlp.NlpConfigurationSnapshotProvider provider) {
+        this.nlpSnapshots = provider;
     }
 
     /**
@@ -311,10 +313,14 @@ public final class ProductiveResearchBackendFactory {
             // Compose (but do not start) the productive worker for THIS session's embedding world (C4 lifts
             // Variant B). The scheduler stamps jobs with the descriptor fingerprint and wakes the worker so an
             // accepted source is processed promptly rather than at the next idle poll.
+            // Resolve the SESSION's sentence segmenter ONCE from the host NLP snapshot (OpenNLP over the selected
+            // model's artifact, or the regex fallback). A tampered/checksum-mismatch model fails HARD here.
+            SessionSentenceSegmenter sentence =
+                    SessionSentenceSegmenter.resolve(nlpSnapshots, researchLanguageCode);
             knowledgeRunner[0] = KnowledgeProcessingSessionFactory.buildRunner(
                     projectContext.getProjectDirectory(), sessionKey, embeddingDescriptor,
-                    researchLanguageCode, openNlpModelsDir(), captures, repository, processingQueue,
-                    knowledgeSettings);
+                    researchLanguageCode, sentence.segmenter, sentence.description,
+                    captures, repository, processingQueue, knowledgeSettings);
             final com.aresstack.askai.research.knowledge.processing.KnowledgeProcessingScheduler base =
                     new com.aresstack.askai.research.knowledge.processing
                             .QueueBackedKnowledgeProcessingScheduler(processingQueue, knowledgeSettings,
