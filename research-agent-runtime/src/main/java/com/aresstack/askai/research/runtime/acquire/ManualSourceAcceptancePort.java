@@ -25,11 +25,20 @@ public final class ManualSourceAcceptancePort implements SourceAcceptancePort {
 
     @Override
     public String accept(String captureId) throws ToolInvoker.ToolFailure, ToolInvoker.EndpointUnavailable {
+        return accept(captureId, false);
+    }
+
+    @Override
+    public String accept(String captureId, boolean userRelevant)
+            throws ToolInvoker.ToolFailure, ToolInvoker.EndpointUnavailable {
         Map<String, Object> args = new HashMap<String, Object>();
         args.put("capture_id", captureId);
         if (!searchQuery.isEmpty()) {
             // Persist WHICH user query found this source, so "already searched" survives a restart.
             args.put("search_query", searchQuery);
+        }
+        if (userRelevant) {
+            args.put("user_relevant", "true"); // the HUD ⭐ toggle for this page
         }
         return service.call("manual_source_accept", args);
     }

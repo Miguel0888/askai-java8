@@ -89,8 +89,9 @@ public final class ResearchServiceEndpoint {
                         // gate — the trusted user origin is this internal endpoint itself. The user query that
                         // found the source is persisted with it (so "already searched" survives a restart).
                         String searchQuery = call.getString("search_query");
+                        boolean userRelevant = call.getBoolean("user_relevant", false);
                         String result = ctx.acceptCapture(captureId.trim(),
-                                searchQuery == null ? "" : searchQuery);
+                                searchQuery == null ? "" : searchQuery, userRelevant);
                         return result == null
                                 ? McpToolResult.error("Unknown capture: " + captureId)
                                 : McpToolResult.ok(result);
@@ -98,7 +99,9 @@ public final class ResearchServiceEndpoint {
                 },
                 McpToolParameter.string("capture_id", true, "The capture id from a visited page"),
                 McpToolParameter.string("search_query", false,
-                        "The user web-search query that found this capture"));
+                        "The user web-search query that found this capture"),
+                McpToolParameter.string("user_relevant", false,
+                        "true when the user marked this page relevant in the HUD (⭐)"));
     }
 
     private static McpToolContribution manualSourceParkTool(final ResearchControlContext ctx) {

@@ -48,6 +48,21 @@ public class ResearchHudOverlayTest {
     }
 
     @Test
+    public void topBarHasARelevanceStarThatTogglesAndRenderReflectsIt() {
+        String js = ResearchHudOverlay.installScript();
+        assertTrue("a ⭐ control", js.contains("id='hud-star'"));
+        assertTrue("toggles relevance from the current state", js.contains("'SET_RELEVANCE:'"));
+        assertTrue("off when currently on", js.contains("window.__askaiHudRelevant ? 'off' : 'on'"));
+
+        String on = ResearchHudOverlay.renderScript(new ResearchHudState(
+                "READABLE", "ok", false, ResearchHudState.NO_COUNTDOWN, false, 0, true));
+        assertTrue("filled star when relevant", on.contains("'★'"));
+        String off = ResearchHudOverlay.renderScript(new ResearchHudState(
+                "READABLE", "ok", false, ResearchHudState.NO_COUNTDOWN, false, 0, false));
+        assertTrue("empty star when not", off.contains("'☆'"));
+    }
+
+    @Test
     public void theWaitBarHasAResolvedButtonThatProceeds() {
         String js = ResearchHudOverlay.installScript();
         assertTrue("a 'resolved' control in the wait bar", js.contains("id='hud-resolve'"));

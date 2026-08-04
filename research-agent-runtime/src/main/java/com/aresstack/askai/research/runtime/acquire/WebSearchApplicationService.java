@@ -150,6 +150,8 @@ public final class WebSearchApplicationService {
     private volatile boolean browserGone;
     /** One-shot: a Skip/Next just fired, so the NEXT inter-page delay is bypassed (don't make the user wait again). */
     private volatile boolean skipNextInterPageDelay;
+    /** Research HUD: the user marked the CURRENT page relevant (⭐ toggle). Reset per page; applied at acceptance. */
+    private volatile boolean hudRelevantCurrentPage;
     /** Soft cap for an in-page user-wait (consent/challenge) so a stuck wait self-parks; Skip is the immediate escape. */
     private static final long HUD_USER_WAIT_TIMEOUT_MILLIS = 180_000L;
     /**
@@ -297,6 +299,7 @@ public final class WebSearchApplicationService {
                 return sufficientOr(ResearchStopReason.NO_RELEVANT_PATHS);
             }
             String url = frontier.remove(0);
+            hudRelevantCurrentPage = false; // ⭐ is per page: start clean for this url
             String canonical = WebAcquisitionText.canonicalish(url);
             if (progress.alreadyVisited(canonical)) {
                 continue; // already visited → never navigate again
@@ -661,7 +664,7 @@ public final class WebSearchApplicationService {
         try {
             callBrowser("web_hud_render", args("state",
                     new ResearchHudState(phase, status, waiting, countdownSeconds, hudPaused,
-                            (int) (hudDelayMillis / 1000L)).render()));
+                            (int) (hudDelayMillis / 1000L), hudRelevantCurrentPage).render()));
             lastHudErrorLine = null; // a success clears the throttle so the next distinct failure is logged
         } catch (ToolInvoker.ToolFailure | ToolInvoker.EndpointUnavailable | RuntimeException ex) {
             logHudFailure("render", ex);
@@ -737,6 +740,8 @@ public final class WebSearchApplicationService {
             hudPaused = false;
         } else if (command.type == ResearchHudCommand.Type.SET_DELAY) {
             setHudDelayFrom(command.arg);
+        } else if (command.type == ResearchHudCommand.Type.SET_RELEVANCE) {
+            hudRelevantCurrentPage = "on".equalsIgnoreCase(command.arg == null ? "" : command.arg.trim());
         }
     }
 
@@ -849,7 +854,7 @@ public final class WebSearchApplicationService {
             if (gate != null) {
                 return gate;
             }
-            String accepted = sourceAcceptancePort.accept(captureId);
+            String accepted = sourceAcceptancePort.accept(captureId, hudRelevantCurrentPage);
             progress.success();
             String sourceId = WebAcquisitionText.field(accepted, "source_id");
             boolean duplicate = accepted.contains("duplicate=true");

@@ -43,6 +43,20 @@ public class SourceAcceptanceServiceTest {
     }
 
     @Test
+    public void acceptRecordsTheUserRelevantStarWhenSet() {
+        Fx fx = new Fx();
+        VisitedCapture cap = fx.captures.record("https://example.com/star", "Star", "Body about wearables.");
+        SourceAcceptanceService.Result r = fx.service.accept(cap.getCaptureId(), "wearables", true);
+        assertEquals(SourceAcceptanceService.Status.ACCEPTED, r.status);
+        assertTrue("the ⭐ is recorded on the source", fx.repo.get(r.sourceId).isUserRelevant());
+
+        // A plain accept (no star) leaves it false.
+        VisitedCapture plain = fx.captures.record("https://example.com/plain", "Plain", "Other body text.");
+        SourceAcceptanceService.Result r2 = fx.service.accept(plain.getCaptureId());
+        assertFalse(fx.repo.get(r2.sourceId).isUserRelevant());
+    }
+
+    @Test
     public void acceptCreatesExactlyOneSourceAndOneIndexEntryAndIsIdempotent() {
         Fx fx = new Fx();
         VisitedCapture cap = fx.captures.record("https://example.com/a", "Alpha", "Alpha body.\n\nMore.");

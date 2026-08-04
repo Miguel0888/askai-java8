@@ -19,6 +19,16 @@ public interface SourceAcceptancePort {
     String accept(String captureId) throws ToolInvoker.ToolFailure, ToolInvoker.EndpointUnavailable;
 
     /**
+     * Accept a capture, additionally recording whether the USER marked the page relevant (the HUD ⭐ toggle).
+     * Only the manual path carries this (the autonomous agent has no HUD); the default ignores the flag so the
+     * agent path is unchanged.
+     */
+    default String accept(String captureId, boolean userRelevant)
+            throws ToolInvoker.ToolFailure, ToolInvoker.EndpointUnavailable {
+        return accept(captureId);
+    }
+
+    /**
      * Park a reranked candidate as a scored source BEFORE it is visited (empty full text, status PARKED).
      * Best-effort bookkeeping — a failure must never abort the search. Mirrors {@link #accept}'s split:
      * <pre>

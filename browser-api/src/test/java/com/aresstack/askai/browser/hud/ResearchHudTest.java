@@ -54,6 +54,16 @@ public class ResearchHudTest {
     }
 
     @Test
+    public void relevanceSurvivesTheWire() {
+        ResearchHudState back = ResearchHudState.parse(new ResearchHudState(
+                "READABLE", "ok", false, ResearchHudState.NO_COUNTDOWN, false, 0, true).render());
+        assertTrue(back.relevant);
+        assertEquals(ResearchHudCommand.Type.SET_RELEVANCE, ResearchHudCommand.parseLine("SET_RELEVANCE:on").type);
+        assertEquals("on", ResearchHudCommand.parseLine("SET_RELEVANCE:on").arg);
+        assertFalse(ResearchHudState.parse(new ResearchHudState("X", "y", false, -1, false).render()).relevant);
+    }
+
+    @Test
     public void anOldStateWithoutADelayLineDefaultsToZero() {
         ResearchHudState back = ResearchHudState.parse(
                 "phase=READABLE\nstatus=ok\nwaiting=false\ncountdown=-1\npaused=false");

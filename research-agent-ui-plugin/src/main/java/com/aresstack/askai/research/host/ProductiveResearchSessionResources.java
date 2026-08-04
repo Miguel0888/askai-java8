@@ -270,7 +270,12 @@ public final class ProductiveResearchSessionResources {
 
             @Override
             public String acceptCapture(String captureId, String searchQuery) {
-                SourceAcceptanceService.Result result = acceptance.accept(captureId, searchQuery);
+                return acceptCapture(captureId, searchQuery, false);
+            }
+
+            @Override
+            public String acceptCapture(String captureId, String searchQuery, boolean userRelevant) {
+                SourceAcceptanceService.Result result = acceptance.accept(captureId, searchQuery, userRelevant);
                 return result.status == SourceAcceptanceService.Status.UNKNOWN_CAPTURE
                         ? null : result.render();
             }

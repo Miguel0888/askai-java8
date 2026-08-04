@@ -41,6 +41,15 @@ public interface ResearchControlContext {
     }
 
     /**
+     * As {@link #acceptCapture(String, String)} but also records whether the USER marked the page relevant (the
+     * HUD ⭐ toggle). Used by {@code manual_source_accept}. The default ignores the flag (agent path / test
+     * fakes); the productive context overrides it.
+     */
+    default String acceptCapture(String captureId, String searchQuery, boolean userRelevant) {
+        return acceptCapture(captureId, searchQuery);
+    }
+
+    /**
      * Park a reranked search candidate as a scored source BEFORE the page is visited (empty full text, status
      * PARKED). Backed by the same {@code SourceAcceptanceService} as acceptance. The default is a no-op
      * (agent path / test fakes); the productive context overrides it.

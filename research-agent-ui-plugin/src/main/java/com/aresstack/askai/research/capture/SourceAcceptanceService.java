@@ -105,6 +105,11 @@ public final class SourceAcceptanceService {
      * and it is promoted PARKED→NEW — instead of creating a second source. The parked reranker score is kept.
      */
     public synchronized Result accept(String captureId, String searchQuery) {
+        return accept(captureId, searchQuery, false);
+    }
+
+    /** As {@link #accept(String, String)} but also records the HUD ⭐ (the user marked this page relevant). */
+    public synchronized Result accept(String captureId, String searchQuery, boolean userRelevant) {
         // Idempotency first: a completed acceptance always returns the same source id.
         String existing = acceptedByCapture.get(captureId);
         if (existing != null) {
@@ -163,6 +168,7 @@ public final class SourceAcceptanceService {
                     .revision(parkedMatch.getRevision() + 1L)
                     .searchQuery(parkedMatch.getSearchQuery().isEmpty()
                             ? (searchQuery == null ? "" : searchQuery.trim()) : parkedMatch.getSearchQuery())
+                    .userRelevant(userRelevant || parkedMatch.isUserRelevant()) // never clobber a prior ⭐
                     .build();
         } else {
             sourceId = "source-" + sourceIds.incrementAndGet();
@@ -181,6 +187,7 @@ public final class SourceAcceptanceService {
                     .checksum(capture.getContentHash())
                     .revision(1L)
                     .searchQuery(searchQuery == null ? "" : searchQuery.trim())
+                    .userRelevant(userRelevant)
                     .build();
         }
         creator.create(record);

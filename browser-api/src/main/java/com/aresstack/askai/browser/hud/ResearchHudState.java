@@ -17,6 +17,7 @@ public final class ResearchHudState {
     public final int countdownSeconds;    // remaining seconds while waiting, or NO_COUNTDOWN
     public final boolean paused;          // the user paused autonomous navigation
     public final int delaySeconds;        // the user-set inter-page delay (slider position), 0 = off
+    public final boolean relevant;        // the user marked the CURRENT page relevant (⭐ toggle)
 
     /** Backward-compatible ctor (no delay). */
     public ResearchHudState(String phase, String statusText, boolean waitingForUser, int countdownSeconds,
@@ -26,16 +27,22 @@ public final class ResearchHudState {
 
     public ResearchHudState(String phase, String statusText, boolean waitingForUser, int countdownSeconds,
                             boolean paused, int delaySeconds) {
+        this(phase, statusText, waitingForUser, countdownSeconds, paused, delaySeconds, false);
+    }
+
+    public ResearchHudState(String phase, String statusText, boolean waitingForUser, int countdownSeconds,
+                            boolean paused, int delaySeconds, boolean relevant) {
         this.phase = phase == null ? "" : phase;
         this.statusText = statusText == null ? "" : statusText;
         this.waitingForUser = waitingForUser;
         this.countdownSeconds = countdownSeconds < 0 ? NO_COUNTDOWN : countdownSeconds;
         this.paused = paused;
         this.delaySeconds = Math.max(0, delaySeconds);
+        this.relevant = relevant;
     }
 
     public ResearchHudState withCountdown(int seconds) {
-        return new ResearchHudState(phase, statusText, waitingForUser, seconds, paused, delaySeconds);
+        return new ResearchHudState(phase, statusText, waitingForUser, seconds, paused, delaySeconds, relevant);
     }
 
     /** Serialize to one escaped line-block for the {@code web_hud_render} tool argument. */
@@ -45,7 +52,8 @@ public final class ResearchHudState {
                 + "waiting=" + waitingForUser + "\n"
                 + "countdown=" + countdownSeconds + "\n"
                 + "paused=" + paused + "\n"
-                + "delay=" + delaySeconds;
+                + "delay=" + delaySeconds + "\n"
+                + "relevant=" + relevant;
     }
 
     public static ResearchHudState parse(String raw) {
@@ -55,6 +63,7 @@ public final class ResearchHudState {
         int countdown = NO_COUNTDOWN;
         boolean paused = false;
         int delay = 0;
+        boolean relevant = false;
         if (raw != null) {
             for (String line : raw.split("\n", -1)) {
                 int eq = line.indexOf('=');
@@ -75,10 +84,12 @@ public final class ResearchHudState {
                     paused = Boolean.parseBoolean(value);
                 } else if (key.equals("delay")) {
                     delay = Math.max(0, parseInt(value));
+                } else if (key.equals("relevant")) {
+                    relevant = Boolean.parseBoolean(value);
                 }
             }
         }
-        return new ResearchHudState(phase, status, waiting, countdown, paused, delay);
+        return new ResearchHudState(phase, status, waiting, countdown, paused, delay, relevant);
     }
 
     private static int parseInt(String v) {
