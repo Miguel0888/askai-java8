@@ -1,5 +1,6 @@
 package com.aresstack.askai.research.host;
 
+import com.aresstack.askai.research.knowledge.processing.live.KnowledgeProjectionInvalidator;
 import com.aresstack.askai.research.sources.ResearchSourceRecord;
 import com.aresstack.askai.research.sources.ResearchSourceRepository;
 import com.aresstack.askai.research.sources.SourceQuery;
@@ -10,27 +11,18 @@ import java.util.List;
 
 /**
  * Decorates the session's source repository so a SUCCESSFUL update (the sources tab's Save/Exclude/⭐, all of
- * which change what the ACTIVE projection corpus may include) marks the outline dirty. It deliberately does
- * not rebuild the outline immediately; the next research-run completion barrier owns the single rebuild.
- * Reads delegate untouched; a failed/conflicted update fires nothing.
+ * which change what the ACTIVE projection corpus may include) invalidates the live knowledge projection —
+ * debounced downstream, never a rebuild per keystroke. Reads delegate untouched; a failed/conflicted update
+ * fires nothing. The invalidator is best-effort: its absence (knowledge capability unavailable) is a no-op.
  */
 final class NotifyingSourceRepository implements ResearchSourceRepository {
 
-    interface SourceChangeListener {
-        void sourceChanged(String sourceId);
-
-        SourceChangeListener NONE = new SourceChangeListener() {
-            public void sourceChanged(String sourceId) {
-            }
-        };
-    }
-
     private final ResearchSourceRepository delegate;
-    private final SourceChangeListener listener;
+    private final KnowledgeProjectionInvalidator invalidator;
 
-    NotifyingSourceRepository(ResearchSourceRepository delegate, SourceChangeListener listener) {
+    NotifyingSourceRepository(ResearchSourceRepository delegate, KnowledgeProjectionInvalidator invalidator) {
         this.delegate = delegate;
-        this.listener = listener == null ? SourceChangeListener.NONE : listener;
+        this.invalidator = invalidator == null ? KnowledgeProjectionInvalidator.NONE : invalidator;
     }
 
     @Override
@@ -48,9 +40,9 @@ final class NotifyingSourceRepository implements ResearchSourceRepository {
         SourceUpdateResult result = delegate.update(sourceId, expectedRevision, update);
         if (result.getStatus() == SourceUpdateResult.Status.UPDATED) {
             try {
-                listener.sourceChanged(sourceId);
+                invalidator.sourceRelevanceChanged(sourceId);
             } catch (RuntimeException never) {
-                // a dirty marker must never fail the user's save
+                // a projection trigger must never fail the user's save
             }
         }
         return result;

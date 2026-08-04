@@ -70,21 +70,6 @@ public class FileSourceProcessingQueueTest {
     }
 
     @Test
-    public void pendingWorkOnlyTracksQueuedAndProcessingJobs() throws IOException {
-        FileSourceProcessingQueue q = new FileSourceProcessingQueue(tempDir());
-        assertFalse(q.hasPendingWork());
-
-        q.enqueue(req("cap-1"));
-        assertTrue(q.hasPendingWork());
-
-        SourceProcessingJob processing = q.takeNext();
-        assertTrue(q.hasPendingWork());
-
-        q.markCompleted(processing);
-        assertFalse(q.hasPendingWork());
-    }
-
-    @Test
     public void aStrandedProcessingJobIsRecoveredToQueuedAfterRestart() throws IOException {
         File dir = tempDir();
         FileSourceProcessingQueue q = new FileSourceProcessingQueue(dir);

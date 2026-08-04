@@ -50,12 +50,16 @@ final class KnowledgeProcessingSessionFactory {
     static final class KnowledgeSession {
         final KnowledgeProcessingRunner worker;
         final com.aresstack.askai.research.knowledge.processing.live.LiveKnowledgeProjectionRunner projection;
+        final com.aresstack.askai.research.knowledge.processing.live.KnowledgeProjectionInvalidator invalidator;
 
         KnowledgeSession(KnowledgeProcessingRunner worker,
                          com.aresstack.askai.research.knowledge.processing.live.LiveKnowledgeProjectionRunner
-                                 projection) {
+                                 projection,
+                         com.aresstack.askai.research.knowledge.processing.live.KnowledgeProjectionInvalidator
+                                 invalidator) {
             this.worker = worker;
             this.projection = projection;
+            this.invalidator = invalidator;
         }
     }
 
@@ -192,7 +196,7 @@ final class KnowledgeProcessingSessionFactory {
                                                 System.currentTimeMillis(), corpus.getPassages(),
                                                 corpus.getVectors(), briefQuestions);
                                 projectionStore.save(next);
-                                System.err.println("[research-knowledge] outline rebuilt revision="
+                                System.err.println("[research-knowledge] live outline rebuilt revision="
                                         + next.getProjectionRevision()
                                         + " topics=" + next.getTopics().size()
                                         + " sections=" + next.getSections().size());
@@ -203,7 +207,8 @@ final class KnowledgeProcessingSessionFactory {
 
         final SourceProcessingWorker worker = new SourceProcessingWorker(queue, reader, segmentationFactory,
                 passageStore, index, generations, projectId, settings.maxProcessingAttempts,
-                descriptor.embeddingFingerprint(), diagnosticListener(projectId, descriptionByLanguage));
+                descriptor.embeddingFingerprint(),
+                invalidating(diagnosticListener(projectId, descriptionByLanguage), projection));
 
         KnowledgeProcessingRunner workerRunner = new KnowledgeProcessingRunner(
                 new KnowledgeProcessingRunner.ProcessingStep() {
@@ -211,7 +216,33 @@ final class KnowledgeProcessingSessionFactory {
                         return worker.processOne();
                     }
                 }, "knowledge-processing-" + projectId, 1000L, 5000L);
-        return new KnowledgeSession(workerRunner, projection);
+        return new KnowledgeSession(workerRunner, projection, projection);
+    }
+
+    /** Wrap the diagnostics listener so every COMPLETED job invalidates the live projection (debounced). */
+    private static SourceProcessingWorker.Listener invalidating(
+            final SourceProcessingWorker.Listener delegate,
+            final com.aresstack.askai.research.knowledge.processing.live.KnowledgeProjectionInvalidator
+                    invalidator) {
+        return new SourceProcessingWorker.Listener() {
+            public void onStarted(
+                    com.aresstack.askai.research.knowledge.processing.SourceProcessingJob job) {
+                delegate.onStarted(job);
+            }
+
+            public void onCompleted(
+                    com.aresstack.askai.research.knowledge.processing.SourceProcessingJob job,
+                    int sentenceCount, int passageCount) {
+                delegate.onCompleted(job, sentenceCount, passageCount);
+                invalidator.knowledgeChanged(); // new passages exist → the projection is stale
+            }
+
+            public void onFailed(
+                    com.aresstack.askai.research.knowledge.processing.SourceProcessingJob job,
+                    com.aresstack.askai.research.knowledge.processing.SourceProcessingFailure failure) {
+                delegate.onFailed(job, failure);
+            }
+        };
     }
 
     /**

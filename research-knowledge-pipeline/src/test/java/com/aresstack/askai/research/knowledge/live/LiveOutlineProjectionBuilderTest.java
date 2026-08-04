@@ -95,7 +95,7 @@ public class LiveOutlineProjectionBuilderTest {
         assertTrue(projection.getSections().isEmpty());
         assertEquals(5L, projection.getProjectionRevision());
         String markdown = LiveOutlineMarkdown.render(projection);
-        assertTrue("visibly an outline projection", markdown.contains("# Outline"));
+        assertTrue("visibly a live projection", markdown.contains("Live Outline"));
         assertTrue(markdown.contains("Keine freigegebene Gliederung"));
     }
 }
