@@ -146,6 +146,7 @@ public final class FileSourceProcessingQueue implements SourceProcessingQueue {
         line(sb, "sourceId", r.getSourceId());
         line(sb, "segmentationPipelineVersion", r.getSegmentationPipelineVersion());
         line(sb, "embeddingModelFingerprint", r.getEmbeddingModelFingerprint());
+        line(sb, "languageCode", r.getLanguageCode());
         line(sb, "state", j.getState().name());
         line(sb, "attempts", Integer.toString(j.getAttempts()));
         line(sb, "enqueuedAt", Long.toString(j.getEnqueuedAtEpochMillis()));
@@ -209,7 +210,8 @@ public final class FileSourceProcessingQueue implements SourceProcessingQueue {
             }
             SourceProcessingRequest request = new SourceProcessingRequest(captureId,
                     p.getProperty("sourceId", ""), p.getProperty("segmentationPipelineVersion", ""),
-                    p.getProperty("embeddingModelFingerprint", ""));
+                    p.getProperty("embeddingModelFingerprint", ""),
+                    p.getProperty("languageCode", "en")); // legacy entries (pre-language) default to en
             SourceProcessingFailure failure = null;
             String stage = p.getProperty("failureStage", "");
             if (!stage.trim().isEmpty()) {

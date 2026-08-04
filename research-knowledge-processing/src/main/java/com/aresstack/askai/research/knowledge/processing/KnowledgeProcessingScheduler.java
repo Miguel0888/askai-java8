@@ -14,4 +14,14 @@ public interface KnowledgeProcessingScheduler {
     };
 
     void enqueue(String captureId, String sourceId);
+
+    /**
+     * As {@link #enqueue(String, String)} but with the AUTHORITATIVE language snapshot at acceptance time
+     * ("en"/"de") - persisted on the job so the language world stays unambiguous after a restart. An empty
+     * language means "the caller carries no snapshot" (agent path / legacy); the composition root substitutes
+     * the session language there. The default ignores the language (legacy implementations).
+     */
+    default void enqueue(String captureId, String sourceId, String languageCode) {
+        enqueue(captureId, sourceId);
+    }
 }

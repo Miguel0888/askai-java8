@@ -13,7 +13,7 @@ import java.util.Map;
  * re-embedding.
  *
  * <p>Vectors live in the SAME generation directory as the sentences/passages, keyed by the derivation identity
- * (captureId + segmentationPipelineVersion + embeddingFingerprint). They are written BEFORE the repository swaps
+ * (captureId + segmentationPipelineVersion + embeddingFingerprint + languageCode). They are written BEFORE the repository swaps
  * the capture's active pointer, so a generation is "complete" only once sentences + passages + vectors are all
  * on disk — the active pointer stays the single commit point (a crash before it keeps the previous generation
  * fully active). Loading returns exactly the requested generation's vectors, so superseded generations never
@@ -26,16 +26,16 @@ public interface PassageVectorStore {
      * same dimension. An empty map writes nothing (an empty capture has no vectors).
      */
     void store(String captureId, String segmentationPipelineVersion, String embeddingFingerprint,
-               Map<String, EmbeddingPort.EmbeddingVector> passageVectors);
+               String languageCode, Map<String, EmbeddingPort.EmbeddingVector> passageVectors);
 
     /**
      * Load the vectors of a specific generation as neutral floats (passageId → vector), for rebuilding the
      * semantic index without re-embedding. Returns empty when that generation has no persisted vectors.
      */
     Map<String, float[]> load(String captureId, String segmentationPipelineVersion,
-                              String embeddingFingerprint);
+                              String embeddingFingerprint, String languageCode);
 
     /** The passage ids of a generation, in the persisted (deterministic) order. */
     List<String> passageIds(String captureId, String segmentationPipelineVersion,
-                            String embeddingFingerprint);
+                            String embeddingFingerprint, String languageCode);
 }

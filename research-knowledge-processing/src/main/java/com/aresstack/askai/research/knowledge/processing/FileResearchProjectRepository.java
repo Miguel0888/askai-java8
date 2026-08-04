@@ -130,17 +130,22 @@ public final class FileResearchProjectRepository implements ResearchProjectRepos
         List<Sentence> s = sentences == null ? new ArrayList<Sentence>() : sentences;
         String segVersion = "";
         String fingerprint = "";
+        String languageCode = "";
+        boolean identitySeen = false;
         for (Passage passage : p) {
-            if (segVersion.isEmpty() && fingerprint.isEmpty()) {
+            if (!identitySeen) {
                 segVersion = passage.getSegmentationPipelineVersion();
                 fingerprint = passage.getEmbeddingFingerprint();
+                languageCode = passage.getLanguageCode();
+                identitySeen = true;
             } else if (!segVersion.equals(passage.getSegmentationPipelineVersion())
-                    || !fingerprint.equals(passage.getEmbeddingFingerprint())) {
+                    || !fingerprint.equals(passage.getEmbeddingFingerprint())
+                    || !languageCode.equals(passage.getLanguageCode())) {
                 throw new IllegalArgumentException("capture " + capture.getCaptureId()
                         + " has passages from more than one derivation identity in a single save");
             }
         }
-        String processingKey = processingKey(capture.getCaptureId(), segVersion, fingerprint);
+        String processingKey = processingKey(capture.getCaptureId(), segVersion, fingerprint, languageCode);
         File genDir = new File(new File(new File(root, "derived"), hash(capture.getCaptureId())), processingKey);
 
         // 1. the whole generation is written first (order does not matter — the pointer is the commit).
@@ -148,6 +153,7 @@ public final class FileResearchProjectRepository implements ResearchProjectRepos
                 "captureId=" + escape(capture.getCaptureId())
                         + "\nsegmentationPipelineVersion=" + escape(segVersion)
                         + "\nembeddingFingerprint=" + escape(fingerprint)
+                        + "\nlanguageCode=" + escape(languageCode)
                         + "\nsentenceCount=" + s.size() + "\npassageCount=" + p.size() + "\n");
         writeIfChanged(new File(genDir, "sentences.properties"),
                 serializeSentences(capture.getCaptureId(), s));
@@ -204,6 +210,7 @@ public final class FileResearchProjectRepository implements ResearchProjectRepos
             line(sb, "p." + i + ".headingPath", p.getHeadingPath());
             line(sb, "p." + i + ".embeddingFingerprint", p.getEmbeddingFingerprint());
             line(sb, "p." + i + ".segmentationPipelineVersion", p.getSegmentationPipelineVersion());
+            line(sb, "p." + i + ".languageCode", p.getLanguageCode());
             line(sb, "p." + i + ".sentenceIds", join(p.getSentenceIds()));
             line(sb, "p." + i + ".text", p.getText());
         }
@@ -248,7 +255,8 @@ public final class FileResearchProjectRepository implements ResearchProjectRepos
                     p.getProperty("p." + i + ".captureId", ""), split(p.getProperty("p." + i + ".sentenceIds")),
                     p.getProperty("p." + i + ".headingPath", ""), p.getProperty("p." + i + ".text", ""),
                     p.getProperty("p." + i + ".embeddingFingerprint", ""),
-                    p.getProperty("p." + i + ".segmentationPipelineVersion", "")));
+                    p.getProperty("p." + i + ".segmentationPipelineVersion", ""),
+                    p.getProperty("p." + i + ".languageCode", ""))); // "" on legacy files (pre-language)
         }
         return passages;
     }
@@ -281,9 +289,22 @@ public final class FileResearchProjectRepository implements ResearchProjectRepos
         return byCapture;
     }
 
-    /** The active-generation key: a stable hash of the FULL derivation identity (no filename collisions). */
-    private static String processingKey(String captureId, String segmentationVersion, String fingerprint) {
-        return sha256Hex(captureId + " " + segmentationVersion + " " + fingerprint);
+    /**
+     * The active-generation key: a stable hash of the FULL derivation identity (no filename collisions).
+     * The LANGUAGE is part of the identity — the same capture segmented under a different sentence-model
+     * language is a DIFFERENT derivation, never a collision on one generation. An empty language (legacy
+     * passages written before the language joined the world) normalizes to the documented default "en".
+     * This is the ONE key computation; every co-located artifact derives from it.
+     */
+    private static String processingKey(String captureId, String segmentationVersion, String fingerprint,
+                                        String languageCode) {
+        return sha256Hex(captureId + " " + segmentationVersion + " " + fingerprint + " "
+                + normalizeLanguage(languageCode));
+    }
+
+    /** Identity normalization: null/empty → the documented default "en"; otherwise the trimmed code. */
+    static String normalizeLanguage(String languageCode) {
+        return languageCode == null || languageCode.trim().isEmpty() ? "en" : languageCode.trim();
     }
 
     private static String hash(String value) {
@@ -297,10 +318,10 @@ public final class FileResearchProjectRepository implements ResearchProjectRepos
      * so it can never drift from {@link #commitGeneration}.
      */
     static File generationDir(File projectDirectory, String captureId, String segmentationVersion,
-                              String fingerprint) {
+                              String fingerprint, String languageCode) {
         File base = new File(projectDirectory, "knowledge");
         return new File(new File(new File(base, "derived"), hash(captureId)),
-                processingKey(captureId, segmentationVersion, fingerprint));
+                processingKey(captureId, segmentationVersion, fingerprint, languageCode));
     }
 
     // ------------------------------------------------------------------ IO helpers

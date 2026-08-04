@@ -49,6 +49,8 @@ public final class PassageSegmentation {
     private final SentenceSegmentationPort sentenceSegmentation;
     private final EmbeddingPort embeddings;
     private final String segmentationVersion;
+    /** The research language whose sentence model drives this segmentation — stamped onto every passage. */
+    private final String languageCode;
     private final int windowSize;
     private final double boundaryThreshold;
     private final int minPassageSentences;
@@ -62,9 +64,17 @@ public final class PassageSegmentation {
     public PassageSegmentation(SentenceSegmentationPort sentenceSegmentation, EmbeddingPort embeddings,
                                String segmentationVersion, int windowSize, double boundaryThreshold,
                                int minPassageSentences, int maxPassageSentences) {
+        this(sentenceSegmentation, embeddings, segmentationVersion, "", windowSize, boundaryThreshold,
+                minPassageSentences, maxPassageSentences);
+    }
+
+    public PassageSegmentation(SentenceSegmentationPort sentenceSegmentation, EmbeddingPort embeddings,
+                               String segmentationVersion, String languageCode, int windowSize,
+                               double boundaryThreshold, int minPassageSentences, int maxPassageSentences) {
         this.sentenceSegmentation = sentenceSegmentation;
         this.embeddings = embeddings;
         this.segmentationVersion = segmentationVersion == null ? "" : segmentationVersion;
+        this.languageCode = languageCode == null ? "" : languageCode;
         this.windowSize = windowSize;
         this.boundaryThreshold = boundaryThreshold;
         this.minPassageSentences = minPassageSentences;
@@ -108,7 +118,7 @@ public final class PassageSegmentation {
                         + "@" + segmentationVersion + "-" + vector.getModelFingerprint();
                 Passage passage = new Passage(passageId, capture.getCaptureId(), sentenceIds,
                         block.getHeadingPath(), text.toString(), vector.getModelFingerprint(),
-                        segmentationVersion);
+                        segmentationVersion, languageCode);
                 allPassages.add(passage);
                 passageVectors.put(passage.getPassageId(), vector);
             }

@@ -41,7 +41,13 @@ public final class QueueBackedKnowledgeProcessingScheduler implements KnowledgeP
 
     @Override
     public void enqueue(String captureId, String sourceId) {
+        enqueue(captureId, sourceId, "");
+    }
+
+    @Override
+    public void enqueue(String captureId, String sourceId, String languageCode) {
+        // The request normalizes the language ("de" else "en"); an empty snapshot becomes the default "en".
         queue.enqueue(new SourceProcessingRequest(captureId, sourceId,
-                segmentationPipelineVersion, embeddingWorldFingerprint));
+                segmentationPipelineVersion, embeddingWorldFingerprint, languageCode));
     }
 }

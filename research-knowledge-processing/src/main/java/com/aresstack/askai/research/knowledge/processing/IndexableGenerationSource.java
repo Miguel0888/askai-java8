@@ -17,5 +17,5 @@ import java.util.List;
 public interface IndexableGenerationSource {
 
     List<PassageIndexDocument> loadPersisted(String captureId, String segmentationPipelineVersion,
-                                             String embeddingFingerprint);
+                                             String embeddingFingerprint, String languageCode);
 }

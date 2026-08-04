@@ -53,9 +53,29 @@ public final class SourceProcessingWorker {
         };
     }
 
+    /**
+     * Builds the {@link PassageSegmentation} for ONE job's immutable language snapshot. A running job keeps
+     * the instance it was given for its whole duration; the NEXT job after a language switch gets the new
+     * language's sentence model. The neutral seam keeps OpenNLP/host resolution out of this module — the
+     * composition root adapts the session's NLP snapshot provider (with its documented regex-fallback /
+     * hard-failure semantics) behind it and caches per language.
+     */
+    public interface SegmentationFactory {
+        PassageSegmentation forLanguage(String languageCode);
+
+        /** A language-blind factory over one fixed segmentation (legacy/tests). */
+        static SegmentationFactory fixed(final PassageSegmentation segmentation) {
+            return new SegmentationFactory() {
+                public PassageSegmentation forLanguage(String languageCode) {
+                    return segmentation;
+                }
+            };
+        }
+    }
+
     private final SourceProcessingQueue queue;
     private final SourceCaptureReader captureReader;
-    private final PassageSegmentation passageSegmentation;
+    private final SegmentationFactory segmentationFactory;
     private final PassageStore passageStore;
     private final SemanticKnowledgeIndex index;
     private final IndexableGenerationSource persistedGenerations;
@@ -65,8 +85,18 @@ public final class SourceProcessingWorker {
     private final String activeEmbeddingFingerprint;
     private final Listener listener;
 
+    /** Language-blind legacy form: one fixed segmentation serves every job (tests / pre-language callers). */
     public SourceProcessingWorker(SourceProcessingQueue queue, SourceCaptureReader captureReader,
                                   PassageSegmentation passageSegmentation, PassageStore passageStore,
+                                  SemanticKnowledgeIndex index, IndexableGenerationSource persistedGenerations,
+                                  String projectId, int maxAttempts, String activeEmbeddingFingerprint,
+                                  Listener listener) {
+        this(queue, captureReader, SegmentationFactory.fixed(passageSegmentation), passageStore, index,
+                persistedGenerations, projectId, maxAttempts, activeEmbeddingFingerprint, listener);
+    }
+
+    public SourceProcessingWorker(SourceProcessingQueue queue, SourceCaptureReader captureReader,
+                                  SegmentationFactory segmentationFactory, PassageStore passageStore,
                                   SemanticKnowledgeIndex index, IndexableGenerationSource persistedGenerations,
                                   String projectId, int maxAttempts, String activeEmbeddingFingerprint,
                                   Listener listener) {
@@ -80,7 +110,7 @@ public final class SourceProcessingWorker {
         }
         this.queue = queue;
         this.captureReader = captureReader;
-        this.passageSegmentation = passageSegmentation;
+        this.segmentationFactory = segmentationFactory;
         this.passageStore = passageStore;
         this.index = index;
         this.persistedGenerations = persistedGenerations;
@@ -102,8 +132,9 @@ public final class SourceProcessingWorker {
         // capture is still derived, honestly, for the world the session actually embeds in.
         if (!activeEmbeddingFingerprint.equals(job.getRequest().getEmbeddingModelFingerprint())) {
             SourceProcessingRequest r = job.getRequest();
+            // The job's LANGUAGE snapshot survives the re-enqueue: only the embedding world is re-targeted.
             queue.enqueue(new SourceProcessingRequest(r.getCaptureId(), r.getSourceId(),
-                    r.getSegmentationPipelineVersion(), activeEmbeddingFingerprint));
+                    r.getSegmentationPipelineVersion(), activeEmbeddingFingerprint, r.getLanguageCode()));
             queue.markSuperseded(job);
             return true;
         }
@@ -140,15 +171,16 @@ public final class SourceProcessingWorker {
         String captureId = req.getCaptureId();
         String segVersion = req.getSegmentationPipelineVersion();
         String fingerprint = req.getEmbeddingModelFingerprint();
+        String languageCode = req.getLanguageCode();
 
         // RESUME (§2, §11): if this generation's passages + vectors are ALREADY persisted (a previous attempt
         // got past PASSAGE_PERSISTENCE and only INDEXING failed), skip OpenNLP/embedding entirely and re-index
         // from the durable data — no expensive NLP/embedding recompute for a transient index error.
-        List<PassageIndexDocument> documents = loadPersisted(captureId, segVersion, fingerprint);
+        List<PassageIndexDocument> documents = loadPersisted(captureId, segVersion, fingerprint, languageCode);
         int sentenceCount = Listener.RESUMED;
         if (documents.isEmpty()) {
             SourceCapture capture = readCapture(captureId);
-            PassageSegmentation.Result result = segment(capture);
+            PassageSegmentation.Result result = segment(capture, languageCode);
             storePassages(capture, result); // passages + vectors durable BEFORE the index (which is a projection)
             documents = toIndexDocuments(capture, result, segVersion, fingerprint);
             sentenceCount = result.getSentences().size();
@@ -170,10 +202,11 @@ public final class SourceProcessingWorker {
         }
     }
 
-    private List<PassageIndexDocument> loadPersisted(String captureId, String segVersion, String fingerprint) {
+    private List<PassageIndexDocument> loadPersisted(String captureId, String segVersion, String fingerprint,
+                                                     String languageCode) {
         try {
             List<PassageIndexDocument> docs =
-                    persistedGenerations.loadPersisted(captureId, segVersion, fingerprint);
+                    persistedGenerations.loadPersisted(captureId, segVersion, fingerprint, languageCode);
             return docs == null ? new ArrayList<PassageIndexDocument>() : docs;
         } catch (RuntimeException ex) {
             // A failure to read the durable data is treated as "not persisted" → run the full pipeline.
@@ -219,11 +252,13 @@ public final class SourceProcessingWorker {
         return capture;
     }
 
-    private PassageSegmentation.Result segment(SourceCapture capture) {
+    private PassageSegmentation.Result segment(SourceCapture capture, String languageCode) {
         try {
+            // The job's IMMUTABLE language snapshot resolves the segmentation (sentence model) for exactly
+            // this job — a mid-session language switch affects the NEXT job, never a running one.
             // PassageSegmentation bundles sentence detection + per-passage embedding; the embedding call is the
             // dominant transient failure, so a thrown segmentation error is treated as a retryable EMBEDDING one.
-            return passageSegmentation.segment(capture);
+            return segmentationFactory.forLanguage(languageCode).segment(capture);
         } catch (RuntimeException ex) {
             throw new StageFailure(SourceProcessingStage.EMBEDDING, message(ex), true);
         }

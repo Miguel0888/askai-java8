@@ -30,7 +30,8 @@ public class QueueBackedKnowledgeProcessingSchedulerTest {
         assertNotNull(job);
         assertEquals("world-F1", job.getRequest().getEmbeddingModelFingerprint());
         assertEquals("seg-v1", job.getRequest().getSegmentationPipelineVersion());
-        assertEquals("cap-1|seg-v1|world-F1", job.getRequest().idempotencyKey());
+        // The LANGUAGE is part of the derivation identity; a 2-arg enqueue carries the default "en".
+        assertEquals("cap-1|seg-v1|world-F1|en", job.getRequest().idempotencyKey());
     }
 
     @Test

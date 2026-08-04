@@ -79,7 +79,7 @@ public class ResearchProjectPassageStoreTest {
 
         // The float vectors are canonically persistent (rebuildable index without re-embedding).
         Map<String, float[]> persisted =
-                new FilePassageVectorStore(dir).load("cap-1", "seg-v1", "fpA");
+                new FilePassageVectorStore(dir).load("cap-1", "seg-v1", "fpA", "en");
         assertArrayEquals(new float[]{0.1f, 0.2f, 0.3f}, persisted.get("cap-1#p0@seg-v1-fpA"), 1e-6f);
     }
 
@@ -110,7 +110,7 @@ public class ResearchProjectPassageStoreTest {
         assertNotNull("the second capture's passage is active",
                 reloaded.passages().get("cap-2#p0@seg-v1-fpA"));
         assertArrayEquals(new float[]{0.1f, 0.2f, 0.3f},
-                new FilePassageVectorStore(dir).load("cap-1", "seg-v1", "fpA").get("cap-1#p0@seg-v1-fpA"),
+                new FilePassageVectorStore(dir).load("cap-1", "seg-v1", "fpA", "en").get("cap-1#p0@seg-v1-fpA"),
                 1e-6f);
     }
 }

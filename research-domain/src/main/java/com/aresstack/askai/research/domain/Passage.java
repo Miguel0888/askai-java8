@@ -17,6 +17,7 @@ public final class Passage {
     private final String text;
     private final String embeddingFingerprint;
     private final String segmentationPipelineVersion;
+    private final String languageCode;
 
     public Passage(String passageId, String captureId, List<String> sentenceIds, String headingPath,
                    String text, String embeddingFingerprint) {
@@ -25,6 +26,13 @@ public final class Passage {
 
     public Passage(String passageId, String captureId, List<String> sentenceIds, String headingPath,
                    String text, String embeddingFingerprint, String segmentationPipelineVersion) {
+        this(passageId, captureId, sentenceIds, headingPath, text, embeddingFingerprint,
+                segmentationPipelineVersion, "");
+    }
+
+    public Passage(String passageId, String captureId, List<String> sentenceIds, String headingPath,
+                   String text, String embeddingFingerprint, String segmentationPipelineVersion,
+                   String languageCode) {
         this.passageId = passageId == null ? "" : passageId;
         this.captureId = captureId == null ? "" : captureId;
         this.sentenceIds = sentenceIds == null ? Collections.<String>emptyList()
@@ -34,6 +42,7 @@ public final class Passage {
         this.embeddingFingerprint = embeddingFingerprint == null ? "" : embeddingFingerprint;
         this.segmentationPipelineVersion =
                 segmentationPipelineVersion == null ? "" : segmentationPipelineVersion;
+        this.languageCode = languageCode == null ? "" : languageCode;
     }
 
     public String getPassageId() {
@@ -61,11 +70,21 @@ public final class Passage {
     }
 
     /**
-     * The segmentation pipeline version that produced this passage. Together with {@link #getCaptureId} and
-     * {@link #getEmbeddingFingerprint} it is the passage's DERIVATION IDENTITY — the persistence layer keys the
-     * active generation of a capture by exactly these three, never by parsing the passage id string.
+     * The segmentation pipeline version that produced this passage. Together with {@link #getCaptureId},
+     * {@link #getEmbeddingFingerprint} and {@link #getLanguageCode} it is the passage's DERIVATION IDENTITY —
+     * the persistence layer keys the active generation of a capture by exactly these, never by parsing the
+     * passage id string.
      */
     public String getSegmentationPipelineVersion() {
         return segmentationPipelineVersion;
+    }
+
+    /**
+     * The research language ("en"/"de") whose sentence model segmented this passage — part of the derivation
+     * identity: the same capture segmented under a different language is a DIFFERENT derivation. Empty on
+     * legacy records (pre-language persistence), which the identity treats as the documented default "en".
+     */
+    public String getLanguageCode() {
+        return languageCode;
     }
 }

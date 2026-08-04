@@ -46,7 +46,7 @@ public final class ResearchProjectPassageStore implements PassageStore {
         if (passages != null && !passages.isEmpty()) {
             Passage any = passages.get(0);
             vectorStore.store(capture.getCaptureId(), any.getSegmentationPipelineVersion(),
-                    any.getEmbeddingFingerprint(), passageVectors);
+                    any.getEmbeddingFingerprint(), any.getLanguageCode(), passageVectors);
         }
         // 2. sentences/passages/manifest + the atomic active-pointer swap = the single commit point.
         ResearchProject project = repository.load(projectId);

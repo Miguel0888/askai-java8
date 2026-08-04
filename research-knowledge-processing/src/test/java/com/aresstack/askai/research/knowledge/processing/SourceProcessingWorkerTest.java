@@ -137,7 +137,7 @@ public class SourceProcessingWorkerTest {
         List<PassageIndexDocument> persisted = new ArrayList<PassageIndexDocument>();
 
         public List<PassageIndexDocument> loadPersisted(String captureId, String segVersion,
-                                                        String fingerprint) {
+                                                        String fingerprint, String languageCode) {
             return persisted;
         }
     }

@@ -36,15 +36,15 @@ public class FilePassageVectorStoreTest {
     public void roundTripsVectorsExactly() throws IOException {
         File dir = tempDir();
         FilePassageVectorStore store = new FilePassageVectorStore(dir);
-        store.store("cap", "seg-v1", "fpA",
+        store.store("cap", "seg-v1", "fpA", "en",
                 vectors("fpA", new float[]{1f, -2.5f, 3f}, new float[]{0f, 0.25f, -1f}));
 
-        Map<String, float[]> loaded = store.load("cap", "seg-v1", "fpA");
+        Map<String, float[]> loaded = store.load("cap", "seg-v1", "fpA", "en");
         assertEquals(2, loaded.size());
         assertArrayEquals(new float[]{1f, -2.5f, 3f}, loaded.get("cap#p1"), 0f);
         assertArrayEquals(new float[]{0f, 0.25f, -1f}, loaded.get("cap#p0"), 0f);
         // deterministic order: ascending passage id
-        assertEquals("[cap#p0, cap#p1]", store.passageIds("cap", "seg-v1", "fpA").toString());
+        assertEquals("[cap#p0, cap#p1]", store.passageIds("cap", "seg-v1", "fpA", "en").toString());
     }
 
     @Test
@@ -53,10 +53,10 @@ public class FilePassageVectorStoreTest {
         FilePassageVectorStore store = new FilePassageVectorStore(dir);
         Map<String, EmbeddingPort.EmbeddingVector> v =
                 vectors("fpA", new float[]{1f, 2f}, new float[]{3f, 4f});
-        store.store("cap", "seg-v1", "fpA", v);
-        File genDir = FileResearchProjectRepository.generationDir(dir, "cap", "seg-v1", "fpA");
+        store.store("cap", "seg-v1", "fpA", "en", v);
+        File genDir = FileResearchProjectRepository.generationDir(dir, "cap", "seg-v1", "fpA", "en");
         byte[] first = Files.readAllBytes(new File(genDir, "vectors.bin").toPath());
-        store.store("cap", "seg-v1", "fpA", v);
+        store.store("cap", "seg-v1", "fpA", "en", v);
         byte[] second = Files.readAllBytes(new File(genDir, "vectors.bin").toPath());
         assertArrayEquals("identical bytes on re-store", first, second);
         assertTrue("no leftover tmp", new File(genDir, "vectors.bin.tmp").length() == 0
@@ -67,13 +67,13 @@ public class FilePassageVectorStoreTest {
     public void differentFingerprintsLandInDifferentGenerationDirsAndNeverMix() throws IOException {
         File dir = tempDir();
         FilePassageVectorStore store = new FilePassageVectorStore(dir);
-        store.store("cap", "seg-v1", "fpA", vectors("fpA", new float[]{1f}, new float[]{2f}));
-        store.store("cap", "seg-v1", "fpB", vectors("fpB", new float[]{9f, 9f}, new float[]{8f, 8f}));
+        store.store("cap", "seg-v1", "fpA", "en", vectors("fpA", new float[]{1f}, new float[]{2f}));
+        store.store("cap", "seg-v1", "fpB", "en", vectors("fpB", new float[]{9f, 9f}, new float[]{8f, 8f}));
 
-        assertEquals(1, store.load("cap", "seg-v1", "fpA").get("cap#p0").length); // dim 1 world
-        assertEquals(2, store.load("cap", "seg-v1", "fpB").get("cap#p0").length); // dim 2 world
-        File a = FileResearchProjectRepository.generationDir(dir, "cap", "seg-v1", "fpA");
-        File b = FileResearchProjectRepository.generationDir(dir, "cap", "seg-v1", "fpB");
+        assertEquals(1, store.load("cap", "seg-v1", "fpA", "en").get("cap#p0").length); // dim 1 world
+        assertEquals(2, store.load("cap", "seg-v1", "fpB", "en").get("cap#p0").length); // dim 2 world
+        File a = FileResearchProjectRepository.generationDir(dir, "cap", "seg-v1", "fpA", "en");
+        File b = FileResearchProjectRepository.generationDir(dir, "cap", "seg-v1", "fpB", "en");
         assertTrue("distinct namespaces per fingerprint", !a.getAbsolutePath().equals(b.getAbsolutePath()));
     }
 
@@ -81,8 +81,8 @@ public class FilePassageVectorStoreTest {
     public void anEmptyGenerationWritesNothing() throws IOException {
         File dir = tempDir();
         FilePassageVectorStore store = new FilePassageVectorStore(dir);
-        store.store("cap", "seg-v1", "fpA",
+        store.store("cap", "seg-v1", "fpA", "en",
                 new LinkedHashMap<String, EmbeddingPort.EmbeddingVector>());
-        assertTrue(store.load("cap", "seg-v1", "fpA").isEmpty());
+        assertTrue(store.load("cap", "seg-v1", "fpA", "en").isEmpty());
     }
 }

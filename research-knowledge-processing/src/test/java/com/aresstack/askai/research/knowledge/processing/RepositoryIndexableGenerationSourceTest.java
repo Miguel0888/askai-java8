@@ -50,7 +50,7 @@ public class RepositoryIndexableGenerationSourceTest {
 
         RepositoryIndexableGenerationSource source = new RepositoryIndexableGenerationSource(
                 new FileResearchProjectRepository(dir), new FilePassageVectorStore(dir), "p1");
-        List<PassageIndexDocument> docs = source.loadPersisted("cap-1", "seg-v1", "fpA");
+        List<PassageIndexDocument> docs = source.loadPersisted("cap-1", "seg-v1", "fpA", "en");
 
         assertEquals(1, docs.size());
         PassageIndexDocument d = docs.get(0);
@@ -67,6 +67,6 @@ public class RepositoryIndexableGenerationSourceTest {
         RepositoryIndexableGenerationSource source = new RepositoryIndexableGenerationSource(
                 new FileResearchProjectRepository(dir), new FilePassageVectorStore(dir), "p1");
         // A different embedding world was never persisted → empty (the worker then runs the full pipeline).
-        assertTrue(source.loadPersisted("cap-1", "seg-v1", "fpZZ").isEmpty());
+        assertTrue(source.loadPersisted("cap-1", "seg-v1", "fpZZ", "en").isEmpty());
     }
 }

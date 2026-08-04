@@ -32,9 +32,10 @@ public final class RepositoryIndexableGenerationSource implements IndexableGener
 
     @Override
     public List<PassageIndexDocument> loadPersisted(String captureId, String segmentationPipelineVersion,
-                                                    String embeddingFingerprint) {
+                                                    String embeddingFingerprint, String languageCode) {
+        String language = FileResearchProjectRepository.normalizeLanguage(languageCode);
         Map<String, float[]> vectors =
-                vectorStore.load(captureId, segmentationPipelineVersion, embeddingFingerprint);
+                vectorStore.load(captureId, segmentationPipelineVersion, embeddingFingerprint, language);
         List<PassageIndexDocument> docs = new ArrayList<PassageIndexDocument>();
         if (vectors.isEmpty()) {
             return docs; // no persisted vectors → run the full pipeline
@@ -48,8 +49,10 @@ public final class RepositoryIndexableGenerationSource implements IndexableGener
         for (Passage p : project.passages().values()) {
             if (!captureId.equals(p.getCaptureId())
                     || !embeddingFingerprint.equals(p.getEmbeddingFingerprint())
-                    || !segmentationPipelineVersion.equals(p.getSegmentationPipelineVersion())) {
-                continue; // only THIS capture's active generation for THIS embedding world
+                    || !segmentationPipelineVersion.equals(p.getSegmentationPipelineVersion())
+                    || !language.equals(
+                            FileResearchProjectRepository.normalizeLanguage(p.getLanguageCode()))) {
+                continue; // only THIS capture's active generation for THIS derivation world (incl. language)
             }
             float[] vector = vectors.get(p.getPassageId());
             if (vector == null) {

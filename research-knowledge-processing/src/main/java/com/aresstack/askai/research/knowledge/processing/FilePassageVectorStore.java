@@ -52,19 +52,21 @@ public final class FilePassageVectorStore implements PassageVectorStore {
 
     @Override
     public void store(String captureId, String segmentationPipelineVersion, String embeddingFingerprint,
-                      Map<String, EmbeddingPort.EmbeddingVector> passageVectors) {
+                      String languageCode, Map<String, EmbeddingPort.EmbeddingVector> passageVectors) {
         if (passageVectors == null || passageVectors.isEmpty()) {
             return; // an empty capture / no passages: nothing to persist (and no generation dir either)
         }
         int dimension = validateUniform(embeddingFingerprint, passageVectors);
         byte[] content = serialize(embeddingFingerprint, dimension, passageVectors);
-        atomicWriteIfChanged(vectorsFile(captureId, segmentationPipelineVersion, embeddingFingerprint), content);
+        atomicWriteIfChanged(vectorsFile(captureId, segmentationPipelineVersion, embeddingFingerprint,
+                languageCode), content);
     }
 
     @Override
     public Map<String, float[]> load(String captureId, String segmentationPipelineVersion,
-                                     String embeddingFingerprint) {
-        Decoded decoded = read(vectorsFile(captureId, segmentationPipelineVersion, embeddingFingerprint));
+                                     String embeddingFingerprint, String languageCode) {
+        Decoded decoded = read(vectorsFile(captureId, segmentationPipelineVersion, embeddingFingerprint,
+                languageCode));
         if (decoded == null) {
             return new LinkedHashMap<String, float[]>();
         }
@@ -77,16 +79,17 @@ public final class FilePassageVectorStore implements PassageVectorStore {
 
     @Override
     public List<String> passageIds(String captureId, String segmentationPipelineVersion,
-                                   String embeddingFingerprint) {
-        Decoded decoded = read(vectorsFile(captureId, segmentationPipelineVersion, embeddingFingerprint));
+                                   String embeddingFingerprint, String languageCode) {
+        Decoded decoded = read(vectorsFile(captureId, segmentationPipelineVersion, embeddingFingerprint,
+                languageCode));
         return decoded == null ? new ArrayList<String>() : new ArrayList<String>(decoded.vectors.keySet());
     }
 
     // ------------------------------------------------------------------ identity / paths
 
-    private File vectorsFile(String captureId, String segVersion, String fingerprint) {
+    private File vectorsFile(String captureId, String segVersion, String fingerprint, String languageCode) {
         return new File(FileResearchProjectRepository.generationDir(projectDirectory, captureId, segVersion,
-                fingerprint), FILE_NAME);
+                fingerprint, languageCode), FILE_NAME);
     }
 
     private static int validateUniform(String fingerprint,
