@@ -23,6 +23,10 @@ import org.junit.Test;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
+import javax.swing.JTextArea;
+import java.awt.Component;
+import java.awt.Container;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -137,6 +141,37 @@ public class AgentArtifactTabsTest {
         assertEquals("Outline", lateReader.tabs().get(0).getTitle());
     }
 
+    @Test
+    public void markdownArtifactViewReloadsAlreadyOpenContentOnSessionChange() {
+        MutableStore store = new MutableStore("# Live Outline\n\nNoch keine verarbeiteten Recherchequellen.", 1L);
+        ObservableSession session = new ObservableSession(
+                Collections.singletonList(artifact("outline", "Live Outline", AgentArtifactTabs.MARKDOWN_TYPE_ID)),
+                store);
+        HostMarkdownArtifactView view = new HostMarkdownArtifactView(new DefaultArtifactViewContext(
+                session.getArtifacts().get(0), session, new InlineUiExecutor(), null, null));
+
+        assertTrue(textAreaIn(view).getText().contains("Noch keine verarbeiteten"));
+        store.force("# Live Outline\n\n## Wearable health monitoring\n- Sensors", 2L);
+        session.fire();
+
+        assertTrue(textAreaIn(view).getText().contains("Wearable health monitoring"));
+    }
+
+    @Test
+    public void markdownArtifactViewUnregistersWhenTabSetIsRebuilt() {
+        MutableStore store = new MutableStore("# one", 1L);
+        ObservableSession session = new ObservableSession(
+                Collections.singletonList(artifact("outline", "Live Outline", AgentArtifactTabs.MARKDOWN_TYPE_ID)),
+                store);
+        HostMarkdownArtifactView view = new HostMarkdownArtifactView(new DefaultArtifactViewContext(
+                session.getArtifacts().get(0), session, new InlineUiExecutor(), null, null));
+        assertEquals(1, session.listenerCount());
+
+        view.close();
+
+        assertEquals(0, session.listenerCount());
+    }
+
     // ------------------------------------------------------------------ fakes
 
     /** Swallows every posted runnable — models a change event that never reaches the provider. */
@@ -177,6 +212,21 @@ public class AgentArtifactTabsTest {
         };
     }
 
+    private static JTextArea textAreaIn(Container container) {
+        for (Component component : container.getComponents()) {
+            if (component instanceof JTextArea) {
+                return (JTextArea) component;
+            }
+            if (component instanceof Container) {
+                JTextArea nested = textAreaIn((Container) component);
+                if (nested != null) {
+                    return nested;
+                }
+            }
+        }
+        throw new AssertionError("No JTextArea found");
+    }
+
     private static final class InlineUiExecutor implements UiExecutor {
         public boolean isUiThread() {
             return true;
@@ -197,6 +247,33 @@ public class AgentArtifactTabsTest {
 
         public ArtifactWriteResult replace(String artifactId, long expectedRevision, String markdown) {
             return ArtifactWriteResult.ok(expectedRevision + 1);
+        }
+    }
+
+    private static final class MutableStore implements AgentArtifactStore {
+        private String markdown;
+        private long revision;
+
+        MutableStore(String markdown, long revision) {
+            this.markdown = markdown;
+            this.revision = revision;
+        }
+
+        public ArtifactContent read(String artifactId) {
+            return new ArtifactContent(markdown, revision);
+        }
+
+        public ArtifactWriteResult replace(String artifactId, long expectedRevision, String markdown) {
+            if (expectedRevision != revision) {
+                return ArtifactWriteResult.conflict(this.markdown, revision);
+            }
+            force(markdown, revision + 1L);
+            return ArtifactWriteResult.ok(revision);
+        }
+
+        void force(String markdown, long revision) {
+            this.markdown = markdown;
+            this.revision = revision;
         }
     }
 
@@ -277,6 +354,70 @@ public class AgentArtifactTabsTest {
 
         public AgentStateSnapshot getState() {
             return AgentStateSnapshot.builder().build();
+        }
+
+        public void activate() {
+        }
+
+        public void deactivate() {
+        }
+
+        public void close() {
+        }
+    }
+
+    private static final class ObservableSession implements AgentSession {
+        private final List<AgentArtifact> artifacts;
+        private final AgentArtifactStore store;
+        private final List<Runnable> listeners = new ArrayList<Runnable>();
+
+        ObservableSession(List<AgentArtifact> artifacts, AgentArtifactStore store) {
+            this.artifacts = artifacts;
+            this.store = store;
+        }
+
+        public ChatSubmissionTarget getChatTarget() {
+            return new ChatSubmissionTarget() {
+                public SubmissionAvailability getAvailability() {
+                    return SubmissionAvailability.AVAILABLE;
+                }
+
+                public void submitText(String text) {
+                }
+
+                public void stop() {
+                }
+            };
+        }
+
+        public List<AgentArtifact> getArtifacts() {
+            return artifacts;
+        }
+
+        public AgentArtifactStore getArtifactStore() {
+            return store;
+        }
+
+        public AgentStateSnapshot getState() {
+            return AgentStateSnapshot.builder().build();
+        }
+
+        public void addStateListener(Runnable listener) {
+            listeners.add(listener);
+        }
+
+        public void removeStateListener(Runnable listener) {
+            listeners.remove(listener);
+        }
+
+        void fire() {
+            for (Runnable listener : new ArrayList<Runnable>(listeners)) {
+                listener.run();
+            }
+        }
+
+        int listenerCount() {
+            return listeners.size();
         }
 
         public void activate() {

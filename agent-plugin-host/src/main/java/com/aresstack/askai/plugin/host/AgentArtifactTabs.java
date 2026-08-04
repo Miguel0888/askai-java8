@@ -119,6 +119,7 @@ public final class AgentArtifactTabs {
     }
 
     private void rebuildFor(AgentSession session) {
+        disposeCurrentTabs();
         builtFor = session;
         if (session == null || session.getArtifacts().isEmpty()) {
             tabs = Collections.emptyList();
@@ -131,6 +132,19 @@ public final class AgentArtifactTabs {
                     buildView(artifact, session, contributions)));
         }
         tabs = Collections.unmodifiableList(rebuilt);
+    }
+
+    private void disposeCurrentTabs() {
+        for (Tab tab : tabs) {
+            JComponent component = tab.getComponent();
+            if (component instanceof AutoCloseable) {
+                try {
+                    ((AutoCloseable) component).close();
+                } catch (Exception ignored) {
+                    // A broken artifact view must not prevent the host from rebuilding the tab set.
+                }
+            }
+        }
     }
 
     private void fireChanged() {
