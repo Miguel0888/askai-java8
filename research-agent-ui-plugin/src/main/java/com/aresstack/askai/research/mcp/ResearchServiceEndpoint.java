@@ -90,8 +90,10 @@ public final class ResearchServiceEndpoint {
                         // found the source is persisted with it (so "already searched" survives a restart).
                         String searchQuery = call.getString("search_query");
                         boolean userRelevant = call.getBoolean("user_relevant", false);
+                        String language = call.getString("language");
                         String result = ctx.acceptCapture(captureId.trim(),
-                                searchQuery == null ? "" : searchQuery, userRelevant);
+                                searchQuery == null ? "" : searchQuery, userRelevant,
+                                language == null ? "" : language);
                         return result == null
                                 ? McpToolResult.error("Unknown capture: " + captureId)
                                 : McpToolResult.ok(result);
@@ -101,7 +103,9 @@ public final class ResearchServiceEndpoint {
                 McpToolParameter.string("search_query", false,
                         "The user web-search query that found this capture"),
                 McpToolParameter.string("user_relevant", false,
-                        "true when the user marked this page relevant in the HUD (⭐)"));
+                        "true when the user marked this page relevant in the HUD (⭐)"),
+                McpToolParameter.string("language", false,
+                        "the language snapshot of the search that found this capture (en/de)"));
     }
 
     private static McpToolContribution manualSourceParkTool(final ResearchControlContext ctx) {

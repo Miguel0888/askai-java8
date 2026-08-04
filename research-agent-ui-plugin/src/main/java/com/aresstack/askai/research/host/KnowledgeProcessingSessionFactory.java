@@ -37,25 +37,61 @@ final class KnowledgeProcessingSessionFactory {
     }
 
     /**
+     * Resolves a research language into the session's sentence segmenter — the seam behind which the host NLP
+     * snapshot provider (with its documented regex-fallback / hard-failure semantics) stays. Resolved lazily
+     * PER LANGUAGE and cached by the factory below, so a job's immutable language snapshot picks its sentence
+     * model without re-loading the artifact per capture.
+     */
+    interface SentenceSegmenterResolver {
+        SessionSentenceSegmenter resolve(String languageCode);
+    }
+
+    /**
      * Build (but do not start) the serial worker for a session's authoritative embedding world. The caller starts
      * the runner once construction has fully succeeded and stops it on session close (Variant B lifted only here).
      */
     static KnowledgeProcessingRunner buildRunner(File projectDir, String projectId,
-                                                 EmbeddingEndpointDescriptor descriptor, String languageCode,
-                                                 SentenceSegmentationPort segmenter, String segmenterDescription,
+                                                 EmbeddingEndpointDescriptor descriptor,
+                                                 String sessionLanguageCode,
+                                                 final SentenceSegmenterResolver segmenterResolver,
                                                  CaptureStore captures,
                                                  ResearchSourceRepository sourceRepository,
                                                  FileSourceProcessingQueue queue,
                                                  KnowledgeProcessingSettings settings) {
         // Embedding: strict batch /api/embed adapter over the SESSION descriptor (its own timeout).
-        HttpEmbeddingPortAdapter embeddings = new HttpEmbeddingPortAdapter(descriptor,
+        final HttpEmbeddingPortAdapter embeddings = new HttpEmbeddingPortAdapter(descriptor,
                 new UrlConnectionEmbeddingHttpTransport((int) descriptor.timeoutMillis));
 
-        // Sentences: the SESSION segmenter already resolved from the host NLP snapshot (OpenNLP over the selected
-        // model's artifact, or the regex fallback) — resolved once at session build, not here and not per capture.
-        PassageSegmentation segmentation = new PassageSegmentation(segmenter, embeddings,
-                settings.segmentationPipelineVersion, settings.windowSize, settings.boundaryThreshold,
-                settings.minPassageSentences, settings.maxPassageSentences);
+        // Sentences: resolved PER JOB LANGUAGE (cached) — a job's immutable language snapshot picks its own
+        // sentence model, so the job enqueued after a language switch segments with the NEW language while a
+        // running job keeps its instance. Resolution failures surface as that job's stage failure.
+        final KnowledgeProcessingSettings s = settings;
+        final java.util.Map<String, PassageSegmentation> byLanguage =
+                new java.util.concurrent.ConcurrentHashMap<String, PassageSegmentation>();
+        final java.util.Map<String, String> descriptionByLanguage =
+                new java.util.concurrent.ConcurrentHashMap<String, String>();
+        final SourceProcessingWorker.SegmentationFactory segmentationFactory =
+                new SourceProcessingWorker.SegmentationFactory() {
+                    public PassageSegmentation forLanguage(String languageCode) {
+                        String lang = "de".equalsIgnoreCase(languageCode == null ? "" : languageCode.trim())
+                                ? "de" : "en";
+                        PassageSegmentation cached = byLanguage.get(lang);
+                        if (cached == null) {
+                            SentenceSegmenterResolver r = segmenterResolver;
+                            SessionSentenceSegmenter resolved = r.resolve(lang);
+                            cached = new PassageSegmentation(resolved.segmenter, embeddings,
+                                    s.segmentationPipelineVersion, lang, s.windowSize, s.boundaryThreshold,
+                                    s.minPassageSentences, s.maxPassageSentences);
+                            byLanguage.put(lang, cached);
+                            descriptionByLanguage.put(lang, resolved.description);
+                        }
+                        return cached;
+                    }
+                };
+        // Eager fail-fast + the one-time ready line for the SESSION language (the same behavior as before):
+        // a broken selected model for the session language still fails the session build, not the first job.
+        segmentationFactory.forLanguage(sessionLanguageCode);
+        String segmenterDescription = descriptionByLanguage.values().iterator().next();
 
         // Canonical persistence (source of truth) + rebuildable index projection.
         FileResearchProjectRepository repository = new FileResearchProjectRepository(projectDir);
@@ -72,16 +108,16 @@ final class KnowledgeProcessingSessionFactory {
         // One-time readiness line for the live gate: language, the resolved segmenter (model id/version/artifact
         // name — never an absolute path — or the regex reason), and the embedding world.
         System.err.println("[research-knowledge] worker ready project=" + projectId
-                + " language=" + languageCode
+                + " language=" + sessionLanguageCode
                 + " segmenter=" + segmenterDescription
                 + " embeddingModel=" + descriptor.modelId
                 + " fingerprint=" + descriptor.embeddingFingerprint()
                 + " dimension=" + descriptor.embeddingDimension
                 + " endpoint=" + descriptor.endpointUrl());
 
-        final SourceProcessingWorker worker = new SourceProcessingWorker(queue, reader, segmentation,
+        final SourceProcessingWorker worker = new SourceProcessingWorker(queue, reader, segmentationFactory,
                 passageStore, index, generations, projectId, settings.maxProcessingAttempts,
-                descriptor.embeddingFingerprint(), diagnosticListener(projectId, languageCode));
+                descriptor.embeddingFingerprint(), diagnosticListener(projectId, descriptionByLanguage));
 
         return new KnowledgeProcessingRunner(new KnowledgeProcessingRunner.ProcessingStep() {
             public boolean processOne() {
@@ -94,13 +130,17 @@ final class KnowledgeProcessingSessionFactory {
      * Per-job diagnostics to the app console (the live-gate evidence: captureId, sentence/passage counts,
      * embedding fingerprint, COMPLETED / failure stage). Cheap and side-effect free.
      */
-    private static SourceProcessingWorker.Listener diagnosticListener(final String projectId,
-                                                                      final String languageCode) {
+    private static SourceProcessingWorker.Listener diagnosticListener(
+            final String projectId, final java.util.Map<String, String> descriptionByLanguage) {
         return new SourceProcessingWorker.Listener() {
             public void onStarted(
                     com.aresstack.askai.research.knowledge.processing.SourceProcessingJob job) {
+                // PER-JOB language + segmenter: a mixed language state in a live run is immediately visible.
+                String jobLanguage = job.getRequest().getLanguageCode();
+                String segmenter = descriptionByLanguage.get(jobLanguage);
                 System.err.println("[research-knowledge] processing captureId=" + job.getRequest().getCaptureId()
-                        + " project=" + projectId + " language=" + languageCode
+                        + " project=" + projectId + " language=" + jobLanguage
+                        + " segmenter=" + (segmenter == null ? "(resolved on first use)" : segmenter)
                         + " fingerprint=" + job.getRequest().getEmbeddingModelFingerprint());
             }
 

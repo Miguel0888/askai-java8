@@ -110,6 +110,17 @@ public final class SourceAcceptanceService {
 
     /** As {@link #accept(String, String)} but also records the HUD ⭐ (the user marked this page relevant). */
     public synchronized Result accept(String captureId, String searchQuery, boolean userRelevant) {
+        return accept(captureId, searchQuery, userRelevant, "");
+    }
+
+    /**
+     * As {@link #accept(String, String, boolean)} but with the AUTHORITATIVE language snapshot of the search
+     * that found this capture ("en"/"de") - persisted on the knowledge-processing job so the sentence-model
+     * world stays unambiguous even after a restart. Empty = no snapshot (agent path / legacy): the scheduler's
+     * composition root substitutes the session language.
+     */
+    public synchronized Result accept(String captureId, String searchQuery, boolean userRelevant,
+                                      String languageCode) {
         // Idempotency first: a completed acceptance always returns the same source id.
         String existing = acceptedByCapture.get(captureId);
         if (existing != null) {
@@ -202,7 +213,7 @@ public final class SourceAcceptanceService {
         }
         // Enqueue for knowledge processing LAST and independent of the index outcome (§3): a Lucene failure
         // above already only marked the index stale; the accepted capture must still be enqueued. Best-effort.
-        scheduleKnowledgeProcessing(captureId, sourceId);
+        scheduleKnowledgeProcessing(captureId, sourceId, languageCode);
         return new Result(Status.ACCEPTED, sourceId, title, doc.getPassageCount(), contentDuplicate, stale);
     }
 
@@ -211,9 +222,9 @@ public final class SourceAcceptanceService {
         this.knowledgeScheduler = scheduler == null ? KnowledgeProcessingScheduler.NONE : scheduler;
     }
 
-    private void scheduleKnowledgeProcessing(String captureId, String sourceId) {
+    private void scheduleKnowledgeProcessing(String captureId, String sourceId, String languageCode) {
         try {
-            knowledgeScheduler.enqueue(captureId, sourceId);
+            knowledgeScheduler.enqueue(captureId, sourceId, languageCode);
         } catch (RuntimeException ex) {
             // The scheduler is a downstream reaction: its failure must never fail (or roll back) acceptance.
         }

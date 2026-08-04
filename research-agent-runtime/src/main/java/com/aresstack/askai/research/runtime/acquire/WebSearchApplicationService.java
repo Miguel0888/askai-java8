@@ -908,7 +908,8 @@ public final class WebSearchApplicationService {
             if (gate != null) {
                 return gate;
             }
-            String accepted = sourceAcceptancePort.accept(captureId, hudRelevantCurrentPage);
+            String accepted = sourceAcceptancePort.accept(captureId, hudRelevantCurrentPage,
+                    searchLanguage == null ? "" : searchLanguage);
             progress.success();
             String sourceId = WebAcquisitionText.field(accepted, "source_id");
             boolean duplicate = accepted.contains("duplicate=true");

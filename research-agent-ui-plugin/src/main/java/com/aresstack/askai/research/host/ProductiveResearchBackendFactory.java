@@ -334,13 +334,19 @@ public final class ProductiveResearchBackendFactory {
             // Compose (but do not start) the productive worker for THIS session's embedding world (C4 lifts
             // Variant B). The scheduler stamps jobs with the descriptor fingerprint and wakes the worker so an
             // accepted source is processed promptly rather than at the next idle poll.
-            // Resolve the SESSION's sentence segmenter ONCE from the host NLP snapshot (OpenNLP over the selected
-            // model's artifact, or the regex fallback). A tampered/checksum-mismatch model fails HARD here.
-            SessionSentenceSegmenter sentence =
-                    SessionSentenceSegmenter.resolve(nlpSnapshots, researchLanguageCode);
+            // Sentence segmenters resolve PER JOB LANGUAGE from the host NLP snapshot (OpenNLP over the
+            // selected model's artifact, or the regex fallback; a tampered/checksum-mismatch model fails
+            // HARD). The session language is eagerly resolved inside buildRunner (fail-fast + ready line);
+            // the other language resolves lazily when the first job of that language actually runs.
+            final com.aresstack.askai.agent.model.nlp.NlpConfigurationSnapshotProvider nlp = nlpSnapshots;
             knowledgeRunner[0] = KnowledgeProcessingSessionFactory.buildRunner(
                     projectContext.getProjectDirectory(), sessionKey, embeddingDescriptor,
-                    researchLanguageCode, sentence.segmenter, sentence.description,
+                    researchLanguageCode,
+                    new KnowledgeProcessingSessionFactory.SentenceSegmenterResolver() {
+                        public SessionSentenceSegmenter resolve(String languageCode) {
+                            return SessionSentenceSegmenter.resolve(nlp, languageCode);
+                        }
+                    },
                     captures, repository, processingQueue, knowledgeSettings);
             final com.aresstack.askai.research.knowledge.processing.KnowledgeProcessingScheduler base =
                     new com.aresstack.askai.research.knowledge.processing
@@ -349,7 +355,16 @@ public final class ProductiveResearchBackendFactory {
             acceptance.setKnowledgeProcessingScheduler(
                     new com.aresstack.askai.research.knowledge.processing.KnowledgeProcessingScheduler() {
                         public void enqueue(String captureId, String sourceId) {
-                            base.enqueue(captureId, sourceId);
+                            enqueue(captureId, sourceId, "");
+                        }
+
+                        @Override
+                        public void enqueue(String captureId, String sourceId, String languageCode) {
+                            // The acceptance-time language snapshot wins; a caller without one (agent path /
+                            // legacy) gets the session language — resolved HERE at the composition root.
+                            base.enqueue(captureId, sourceId,
+                                    languageCode == null || languageCode.trim().isEmpty()
+                                            ? researchLanguageCode : languageCode);
                             knowledgeRunner[0].wake();
                         }
                     });
@@ -417,6 +432,14 @@ public final class ProductiveResearchBackendFactory {
                         public String acceptCapture(String captureId, String searchQuery, boolean userRelevant) {
                             // Delegate WITH the ⭐ flag so the productive context persists it on the source.
                             return holder[0].controlContext().acceptCapture(captureId, searchQuery, userRelevant);
+                        }
+
+                        @Override
+                        public String acceptCapture(String captureId, String searchQuery, boolean userRelevant,
+                                                    String languageCode) {
+                            // Delegate WITH the language snapshot so the knowledge job carries its world.
+                            return holder[0].controlContext().acceptCapture(captureId, searchQuery,
+                                    userRelevant, languageCode);
                         }
 
                         @Override

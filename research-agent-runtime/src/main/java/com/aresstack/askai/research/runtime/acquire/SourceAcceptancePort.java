@@ -29,6 +29,16 @@ public interface SourceAcceptancePort {
     }
 
     /**
+     * As {@link #accept(String, boolean)} but with the search's AUTHORITATIVE language snapshot ("en"/"de"),
+     * so the host can stamp the knowledge-processing job with the language world of the search that found the
+     * page. Empty = no snapshot. The default ignores it (agent path).
+     */
+    default String accept(String captureId, boolean userRelevant, String languageCode)
+            throws ToolInvoker.ToolFailure, ToolInvoker.EndpointUnavailable {
+        return accept(captureId, userRelevant);
+    }
+
+    /**
      * Park a reranked candidate as a scored source BEFORE it is visited (empty full text, status PARKED).
      * Best-effort bookkeeping — a failure must never abort the search. Mirrors {@link #accept}'s split:
      * <pre>

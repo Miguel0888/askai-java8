@@ -50,6 +50,15 @@ public interface ResearchControlContext {
     }
 
     /**
+     * As {@link #acceptCapture(String, String, boolean)} but with the search's language snapshot ("en"/"de";
+     * empty = none), stamped onto the knowledge-processing job. The default ignores it (agent path / fakes).
+     */
+    default String acceptCapture(String captureId, String searchQuery, boolean userRelevant,
+                                 String languageCode) {
+        return acceptCapture(captureId, searchQuery, userRelevant);
+    }
+
+    /**
      * Park a reranked search candidate as a scored source BEFORE the page is visited (empty full text, status
      * PARKED). Backed by the same {@code SourceAcceptanceService} as acceptance. The default is a no-op
      * (agent path / test fakes); the productive context overrides it.

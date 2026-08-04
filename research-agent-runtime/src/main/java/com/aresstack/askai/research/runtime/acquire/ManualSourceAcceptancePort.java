@@ -31,6 +31,12 @@ public final class ManualSourceAcceptancePort implements SourceAcceptancePort {
     @Override
     public String accept(String captureId, boolean userRelevant)
             throws ToolInvoker.ToolFailure, ToolInvoker.EndpointUnavailable {
+        return accept(captureId, userRelevant, "");
+    }
+
+    @Override
+    public String accept(String captureId, boolean userRelevant, String languageCode)
+            throws ToolInvoker.ToolFailure, ToolInvoker.EndpointUnavailable {
         Map<String, Object> args = new HashMap<String, Object>();
         args.put("capture_id", captureId);
         if (!searchQuery.isEmpty()) {
@@ -39,6 +45,10 @@ public final class ManualSourceAcceptancePort implements SourceAcceptancePort {
         }
         if (userRelevant) {
             args.put("user_relevant", "true"); // the HUD ⭐ toggle for this page
+        }
+        if (languageCode != null && !languageCode.trim().isEmpty()) {
+            // The language snapshot of the SEARCH that found this page - the knowledge job's world.
+            args.put("language", languageCode.trim());
         }
         return service.call("manual_source_accept", args);
     }
