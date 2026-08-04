@@ -6,6 +6,7 @@ import com.aresstack.askai.browser.search.inference.InferenceBudgetGate;
 import com.aresstack.askai.browser.search.inference.RetryDelay;
 import com.aresstack.askai.browser.search.inference.StructuredInferencePort;
 import com.aresstack.askai.browser.search.layout.SearchPageAnalysisArtifact;
+import com.aresstack.askai.browser.search.layout.SearchPageAnalysisAttempt;
 import com.aresstack.askai.browser.search.layout.SearchPageLayoutProfileStore;
 import com.aresstack.askai.browser.search.layout.SearchPageLayoutResolutionRequest;
 import com.aresstack.askai.browser.search.layout.SearchPageLayoutResolverResult;
@@ -65,6 +66,25 @@ public final class SearchLayoutRepairCoordinator {
                 artifact, settings.aiLayoutResolver, settings.diagnostics, cancellationSignal));
         diagnostics.add("AI layout resolver: " + ai.outcome + " after " + ai.attempts.size()
                 + " attempt(s)");
+        // D2 diagnostics: every non-accepted attempt names its CONCRETE violations (kind + message,
+        // already human-readable) — the raw response only ever appears when the attempt carries one,
+        // which the resolver gates behind storeRawModelResponses. Pure diagnostics, no behaviour.
+        for (SearchPageAnalysisAttempt attempt : ai.attempts) {
+            if (attempt.accepted && attempt.violations.isEmpty()) {
+                continue;
+            }
+            StringBuilder line = new StringBuilder("AI attempt ").append(attempt.attemptNumber)
+                    .append(": inference=").append(attempt.inferenceStatus)
+                    .append(" parsed=").append(attempt.parsed)
+                    .append(" accepted=").append(attempt.accepted);
+            if (!attempt.violations.isEmpty()) {
+                line.append(" violations=").append(attempt.violations);
+            }
+            if (!attempt.rawResponse.isEmpty()) {
+                line.append(" raw=").append(attempt.rawResponse);
+            }
+            diagnostics.add(line.toString());
+        }
         if (!ai.isResolved()) {
             return SearchLayoutRepairCoordination.giveUp(ai, diagnostics);
         }
