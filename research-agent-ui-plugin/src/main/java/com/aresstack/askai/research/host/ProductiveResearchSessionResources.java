@@ -54,6 +54,19 @@ public final class ProductiveResearchSessionResources {
     /** The debounced live-projection worker (C5), or null when the knowledge capability is unavailable. */
     private volatile com.aresstack.askai.research.knowledge.processing.live.LiveKnowledgeProjectionRunner
             projectionRunner;
+    private volatile com.aresstack.askai.research.knowledge.processing.FileSourceProcessingQueue
+            sourceProcessingQueue;
+    private final java.util.concurrent.ScheduledExecutorService outlineBarrierExecutor =
+            java.util.concurrent.Executors.newSingleThreadScheduledExecutor(
+                    new java.util.concurrent.ThreadFactory() {
+                        public Thread newThread(Runnable runnable) {
+                            Thread thread = new Thread(runnable, "research-outline-barrier");
+                            thread.setDaemon(true);
+                            return thread;
+                        }
+                    });
+    private volatile boolean outlineDirty;
+    private volatile boolean outlineRebuildPending;
     private volatile boolean closed;
 
     ProductiveResearchSessionResources(String sessionKey, OoResearchStateMachine stateMachine,
@@ -131,6 +144,53 @@ public final class ProductiveResearchSessionResources {
     void setProjectionRunner(
             com.aresstack.askai.research.knowledge.processing.live.LiveKnowledgeProjectionRunner runner) {
         this.projectionRunner = runner;
+    }
+
+    void setSourceProcessingQueue(
+            com.aresstack.askai.research.knowledge.processing.FileSourceProcessingQueue queue) {
+        this.sourceProcessingQueue = queue;
+    }
+
+    public void markOutlineDirty(String reason) {
+        outlineDirty = true;
+        System.err.println("[outline] dirty project=" + sessionKey + " reason="
+                + (reason == null ? "" : reason));
+    }
+
+    public void requestOutlineRebuildWhenKnowledgeIdle(String reason) {
+        if (projectionRunner == null || closed) {
+            return;
+        }
+        markOutlineDirty(reason);
+        if (outlineRebuildPending) {
+            return;
+        }
+        outlineRebuildPending = true;
+        outlineBarrierExecutor.execute(new Runnable() {
+            public void run() {
+                waitForKnowledgeIdleAndRebuild();
+            }
+        });
+    }
+
+    private void waitForKnowledgeIdleAndRebuild() {
+        if (closed) {
+            return;
+        }
+        com.aresstack.askai.research.knowledge.processing.FileSourceProcessingQueue queue =
+                sourceProcessingQueue;
+        if (queue != null && queue.hasPendingWork()) {
+            outlineBarrierExecutor.schedule(new Runnable() {
+                public void run() {
+                    waitForKnowledgeIdleAndRebuild();
+                }
+            }, 1000L, java.util.concurrent.TimeUnit.MILLISECONDS);
+            return;
+        }
+        outlineDirty = false;
+        outlineRebuildPending = false;
+        System.err.println("[outline] rebuild requested after knowledge idle project=" + sessionKey);
+        projectionRunner.knowledgeChanged();
     }
 
     /** Set by the SESSION: notified (worker thread) after every persisted live-projection rebuild. */
@@ -332,6 +392,7 @@ public final class ProductiveResearchSessionResources {
             return;
         }
         closed = true;
+        outlineBarrierExecutor.shutdownNow();
         toolRefreshExecutor.shutdownNow();
         // Stop the knowledge worker FIRST (graceful: lets the current job finish). The persistent FIFO and the
         // canonical corpus outlive the session, so a mid-flight job is simply recovered on the next open.

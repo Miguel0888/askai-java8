@@ -109,8 +109,8 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         if (resources != null) {
             this.state = resources.currentState(); // one truth from the start
             wireBrowserActivity(resources);
-            // C5: when the live outline projection was rebuilt (worker thread), let every state listener —
-            // including an open Live Outline artifact view — re-read; marshalled like any other refresh.
+            // C5: when the outline projection was rebuilt (worker thread), let every state listener —
+            // including an open Outline artifact view — re-read; marshalled like any other refresh.
             resources.setProjectionUpdateListener(new Runnable() {
                 public void run() {
                     uiExecutor.execute(new Runnable() {
@@ -1100,6 +1100,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             finishPostSearchThinking("");
             agentTurnInFlight = false; // release the composer — the review is over (success, failure or cancel)
             activeManualSearchRequestId = null;
+            if (productiveResources != null) {
+                productiveResources.requestOutlineRebuildWhenKnowledgeIdle("manual-search-review-finished");
+            }
         } else if ("failed".equals(subKind)) {
             // Both surfaces: close the transient activity AND raise a PERSISTENT, readable problem so the
             // reason does not merely flash away.
@@ -1348,6 +1351,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 // TeamAgent alive; a later research run lazily starts a fresh browser generation.
                 if (productiveResources != null) {
                     productiveResources.stopBrowserPhase();
+                    productiveResources.requestOutlineRebuildWhenKnowledgeIdle("research-run-outcome");
                 }
                 break;
             case USER_ATTENTION:

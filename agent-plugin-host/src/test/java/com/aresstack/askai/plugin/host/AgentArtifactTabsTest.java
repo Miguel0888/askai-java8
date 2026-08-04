@@ -143,15 +143,15 @@ public class AgentArtifactTabsTest {
 
     @Test
     public void markdownArtifactViewReloadsAlreadyOpenContentOnSessionChange() {
-        MutableStore store = new MutableStore("# Live Outline\n\nNoch keine verarbeiteten Recherchequellen.", 1L);
+        MutableStore store = new MutableStore("# Outline\n\nNoch keine verarbeiteten Recherchequellen.", 1L);
         ObservableSession session = new ObservableSession(
-                Collections.singletonList(artifact("outline", "Live Outline", AgentArtifactTabs.MARKDOWN_TYPE_ID)),
+                Collections.singletonList(artifact("outline", "Outline", AgentArtifactTabs.MARKDOWN_TYPE_ID)),
                 store);
         HostMarkdownArtifactView view = new HostMarkdownArtifactView(new DefaultArtifactViewContext(
                 session.getArtifacts().get(0), session, new InlineUiExecutor(), null, null));
 
         assertTrue(textAreaIn(view).getText().contains("Noch keine verarbeiteten"));
-        store.force("# Live Outline\n\n## Wearable health monitoring\n- Sensors", 2L);
+        store.force("# Outline\n\n## Wearable health monitoring\n- Sensors", 2L);
         session.fire();
 
         assertTrue(textAreaIn(view).getText().contains("Wearable health monitoring"));
@@ -161,7 +161,7 @@ public class AgentArtifactTabsTest {
     public void markdownArtifactViewUnregistersWhenTabSetIsRebuilt() {
         MutableStore store = new MutableStore("# one", 1L);
         ObservableSession session = new ObservableSession(
-                Collections.singletonList(artifact("outline", "Live Outline", AgentArtifactTabs.MARKDOWN_TYPE_ID)),
+                Collections.singletonList(artifact("outline", "Outline", AgentArtifactTabs.MARKDOWN_TYPE_ID)),
                 store);
         HostMarkdownArtifactView view = new HostMarkdownArtifactView(new DefaultArtifactViewContext(
                 session.getArtifacts().get(0), session, new InlineUiExecutor(), null, null));

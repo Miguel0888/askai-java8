@@ -130,6 +130,17 @@ public final class FileSourceProcessingQueue implements SourceProcessingQueue {
         return false;
     }
 
+    /** True while a job is still queued or actively being processed by the session worker. */
+    public synchronized boolean hasPendingWork() {
+        for (SourceProcessingJob job : loadAll()) {
+            if (job.getState() == SourceProcessingJob.State.QUEUED
+                    || job.getState() == SourceProcessingJob.State.PROCESSING) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     // ------------------------------------------------------------------ persistence
 
     private File file(String jobId) {

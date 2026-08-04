@@ -332,8 +332,6 @@ public final class ProductiveResearchBackendFactory {
                 {null};
         final com.aresstack.askai.research.knowledge.processing.live.LiveKnowledgeProjectionRunner[]
                 projectionRunner = {null};
-        final com.aresstack.askai.research.knowledge.processing.live.KnowledgeProjectionInvalidator[]
-                projectionInvalidator = {null};
         // Set once the session resources exist, so the projection listener can notify an open view.
         final ProductiveResearchSessionResources[] resourcesRef = {null};
         if (embeddingDescriptor != null) {
@@ -384,20 +382,20 @@ public final class ProductiveResearchBackendFactory {
                                         projectContext.getArtifactStore().replace("outline",
                                                 current.getRevision(), markdown);
                                 if (write.isSuccess()) {
-                                    System.err.println("[live-outline-ui] artifact updated project="
+                                    System.err.println("[outline-ui] artifact updated project="
                                             + sessionKey + " revision="
                                             + projection.getProjectionRevision() + " artifactRevision="
                                             + write.getRevision() + " topics="
                                             + projection.getTopics().size() + " sections="
                                             + projection.getSections().size());
                                 } else {
-                                    System.err.println("[live-outline-ui] artifact update failed project="
+                                    System.err.println("[outline-ui] artifact update failed project="
                                             + sessionKey + " revision="
                                             + projection.getProjectionRevision() + " reason="
                                             + write.getReason());
                                 }
                             } catch (RuntimeException renderFailed) {
-                                System.err.println("[research-knowledge] live outline artifact write "
+                                System.err.println("[research-knowledge] outline artifact write "
                                         + "failed: " + renderFailed.getMessage());
                             }
                             if (resourcesRef[0] != null) {
@@ -407,7 +405,6 @@ public final class ProductiveResearchBackendFactory {
                     });
             knowledgeRunner[0] = knowledgeSession.worker;
             projectionRunner[0] = knowledgeSession.projection;
-            projectionInvalidator[0] = knowledgeSession.invalidator;
             final com.aresstack.askai.research.knowledge.processing.KnowledgeProcessingScheduler base =
                     new com.aresstack.askai.research.knowledge.processing
                             .QueueBackedKnowledgeProcessingScheduler(processingQueue, knowledgeSettings,
@@ -557,11 +554,17 @@ public final class ProductiveResearchBackendFactory {
             backend = new AcpResearchSessionBackend(connector, spec, researchDescriptor, browserDescriptor,
                     serviceDescriptor);
 
-            // The UI-facing repository notifies the live projection on a successful update (Save/Exclude/star)
-            // so the ACTIVE corpus re-derives; the acceptance path keeps the raw repository (its effects are
-            // covered by the worker's COMPLETED invalidation).
+            // The UI-facing repository marks the outline dirty on a successful update (Save/Exclude/star).
+            // It does NOT rebuild immediately; the next research-run completion barrier owns the single
+            // post-search outline rebuild.
             resources = new ProductiveResearchSessionResources(sessionKey, stateMachine, captures,
-                    new NotifyingSourceRepository(repository, projectionInvalidator[0]),
+                    new NotifyingSourceRepository(repository, new NotifyingSourceRepository.SourceChangeListener() {
+                        public void sourceChanged(String sourceId) {
+                            if (resourcesRef[0] != null) {
+                                resourcesRef[0].markOutlineDirty("source-updated:" + sourceId);
+                            }
+                        }
+                    }),
                     acceptance, projectContext, control, bridge,
                     browser, backend, service);
             resources.setSearchProfile(profile);
@@ -576,9 +579,7 @@ public final class ProductiveResearchBackendFactory {
                 if (projectionRunner[0] != null) {
                     projectionRunner[0].start();
                     resources.setProjectionRunner(projectionRunner[0]);
-                    // Rebuild once at start: a missing/corrupt persisted projection heals here (debounced,
-                    // off this thread) — the session start itself is never blocked.
-                    projectionInvalidator[0].knowledgeChanged();
+                    resources.setSourceProcessingQueue(processingQueue);
                 }
             }
             return resources;
