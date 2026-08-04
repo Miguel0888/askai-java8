@@ -380,22 +380,8 @@ public final class ProductiveResearchBackendFactory {
                                         .LiveOutlineMarkdown.render(projection);
                                 com.aresstack.askai.plugin.api.agent.artifact.ArtifactContent current =
                                         projectContext.getArtifactStore().read("outline");
-                                com.aresstack.askai.plugin.api.agent.artifact.ArtifactWriteResult write =
-                                        projectContext.getArtifactStore().replace("outline",
-                                                current.getRevision(), markdown);
-                                if (write.isSuccess()) {
-                                    System.err.println("[live-outline-ui] artifact updated project="
-                                            + sessionKey + " revision="
-                                            + projection.getProjectionRevision() + " artifactRevision="
-                                            + write.getRevision() + " topics="
-                                            + projection.getTopics().size() + " sections="
-                                            + projection.getSections().size());
-                                } else {
-                                    System.err.println("[live-outline-ui] artifact update failed project="
-                                            + sessionKey + " revision="
-                                            + projection.getProjectionRevision() + " reason="
-                                            + write.getReason());
-                                }
+                                projectContext.getArtifactStore().replace("outline",
+                                        current.getRevision(), markdown);
                             } catch (RuntimeException renderFailed) {
                                 System.err.println("[research-knowledge] live outline artifact write "
                                         + "failed: " + renderFailed.getMessage());

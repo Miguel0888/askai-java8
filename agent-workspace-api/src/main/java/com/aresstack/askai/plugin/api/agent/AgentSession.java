@@ -24,18 +24,6 @@ public interface AgentSession {
 
     AgentStateSnapshot getState();
 
-    /**
-     * Register a listener for session-visible state/content changes. Generic host views use this to re-read
-     * session-backed data such as artifacts after a backend update. Implementations that do not publish
-     * change events may keep the default no-op behavior.
-     */
-    default void addStateListener(Runnable listener) {
-    }
-
-    /** Remove a listener previously registered with {@link #addStateListener(Runnable)}. */
-    default void removeStateListener(Runnable listener) {
-    }
-
     /** Bring the session to the foreground; may start or resume its run. Idempotent. */
     void activate();
 
