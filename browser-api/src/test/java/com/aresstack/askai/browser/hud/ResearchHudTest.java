@@ -42,6 +42,25 @@ public class ResearchHudTest {
     }
 
     @Test
+    public void delaySliderValueAndNextSurviveTheWire() {
+        ResearchHudState back = ResearchHudState.parse(new ResearchHudState(
+                "DELAY", "waiting", false, ResearchHudState.NO_COUNTDOWN, false, 12).render());
+        assertEquals(12, back.delaySeconds);
+
+        List<ResearchHudCommand> commands = ResearchHudCommand.parseBatch("NEXT\nSET_DELAY:8");
+        assertEquals(ResearchHudCommand.Type.NEXT, commands.get(0).type);
+        assertEquals(ResearchHudCommand.Type.SET_DELAY, commands.get(1).type);
+        assertEquals("8", commands.get(1).arg);
+    }
+
+    @Test
+    public void anOldStateWithoutADelayLineDefaultsToZero() {
+        ResearchHudState back = ResearchHudState.parse(
+                "phase=READABLE\nstatus=ok\nwaiting=false\ncountdown=-1\npaused=false");
+        assertEquals(0, back.delaySeconds);
+    }
+
+    @Test
     public void commandRenderRoundTrips() {
         assertEquals("PAUSE", new ResearchHudCommand(ResearchHudCommand.Type.PAUSE, "").render());
         assertEquals(ResearchHudCommand.Type.SET_DELAY,

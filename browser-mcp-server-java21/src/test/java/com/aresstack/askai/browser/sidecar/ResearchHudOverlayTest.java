@@ -39,6 +39,23 @@ public class ResearchHudOverlayTest {
     }
 
     @Test
+    public void bottomBarHasADelaySliderAndNextButton() {
+        String js = ResearchHudOverlay.installScript();
+        assertTrue("delay slider", js.contains("id='hud-delay'"));
+        assertTrue("range input", js.contains("type='range'"));
+        assertTrue("next button wired", js.contains("cmd('NEXT')"));
+        assertTrue("slider emits SET_DELAY with its value", js.contains("cmd('SET_DELAY:' + slider.value)"));
+    }
+
+    @Test
+    public void renderReflectsTheDelayValueButNotWhileDragging() {
+        String js = ResearchHudOverlay.renderScript(new ResearchHudState(
+                "DELAY", "waiting", false, ResearchHudState.NO_COUNTDOWN, false, 9));
+        assertTrue("slider value comes from state", js.contains("slider.value = 9"));
+        assertTrue("but never while the user drags it", js.contains("document.activeElement !== slider"));
+    }
+
+    @Test
     public void statusTextCannotInjectMarkupOrBreakTheString() {
         String js = ResearchHudOverlay.renderScript(
                 new ResearchHudState("X", "</style><script>evil()</script>'; alert(1)//", false, -1, false));

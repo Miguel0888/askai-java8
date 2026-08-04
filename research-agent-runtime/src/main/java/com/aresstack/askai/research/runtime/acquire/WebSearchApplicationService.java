@@ -138,6 +138,10 @@ public final class WebSearchApplicationService {
     private long lastChallengeProbeAt;
     /** Research HUD: the user paused autonomous navigation (Pause button); resumed via the overlay. */
     private volatile boolean hudPaused;
+    /** Research HUD: user-set inter-page delay (Delay slider), applied before opening each page; NOT budgeted. */
+    private volatile long hudDelayMillis;
+    /** Upper bound for the inter-page delay slider (mirrors the overlay's max), so a stray value cannot stall a run. */
+    private static final long HUD_MAX_DELAY_MILLIS = 30_000L;
     /** Soft cap for an in-page user-wait (consent/challenge) so a stuck wait self-parks; Skip is the immediate escape. */
     private static final long HUD_USER_WAIT_TIMEOUT_MILLIS = 180_000L;
     /**
@@ -304,6 +308,11 @@ public final class WebSearchApplicationService {
                 ResearchStopReason g2 = beforeToolCall();
                 if (g2 != null) {
                     return g2;
+                }
+                // HUD: honour the user-set inter-page delay before opening this page (Next/Skip/cancel interrupt).
+                ResearchStopReason delayed = interPageDelay();
+                if (delayed != null) {
+                    return delayed;
                 }
                 String page = openWithReadiness(url);
                 if (page == null) {
@@ -573,11 +582,7 @@ public final class WebSearchApplicationService {
                     listener.status("[browser] user skipped page: " + url);
                     return null;
                 }
-                if (command.type == ResearchHudCommand.Type.PAUSE) {
-                    hudPaused = true;
-                } else if (command.type == ResearchHudCommand.Type.RESUME) {
-                    hudPaused = false;
-                }
+                applyHudSideEffect(command); // PAUSE/RESUME/SET_DELAY (the slider works during a wait too)
             }
             if (clock.currentTimeMillis() >= deadline) {
                 listener.status("[browser] user-wait timed out, parked: " + url);
@@ -638,7 +643,8 @@ public final class WebSearchApplicationService {
         }
         try {
             callBrowser("web_hud_render", args("state",
-                    new ResearchHudState(phase, status, waiting, countdownSeconds, hudPaused).render()));
+                    new ResearchHudState(phase, status, waiting, countdownSeconds, hudPaused,
+                            (int) (hudDelayMillis / 1000L)).render()));
             lastHudErrorLine = null; // a success clears the throttle so the next distinct failure is logged
         } catch (ToolInvoker.ToolFailure | ToolInvoker.EndpointUnavailable | RuntimeException ex) {
             logHudFailure("render", ex);
@@ -689,14 +695,78 @@ public final class WebSearchApplicationService {
         return sb.toString();
     }
 
-    /** Apply PAUSE/RESUME from the overlay (SKIP is handled contextually where a page can be abandoned). */
+    /** Apply PAUSE/RESUME/SET_DELAY from the overlay (SKIP/NEXT are handled contextually where a page/wait ends). */
     private void applyHudPauseResume() {
         for (ResearchHudCommand command : pollHudCommands()) {
-            if (command.type == ResearchHudCommand.Type.PAUSE) {
-                hudPaused = true;
-            } else if (command.type == ResearchHudCommand.Type.RESUME) {
-                hudPaused = false;
+            applyHudSideEffect(command);
+        }
+    }
+
+    /** Apply the non-contextual side effects of a HUD command (pause state + delay); ignores SKIP/NEXT. */
+    private void applyHudSideEffect(ResearchHudCommand command) {
+        if (command.type == ResearchHudCommand.Type.PAUSE) {
+            hudPaused = true;
+        } else if (command.type == ResearchHudCommand.Type.RESUME) {
+            hudPaused = false;
+        } else if (command.type == ResearchHudCommand.Type.SET_DELAY) {
+            setHudDelayFrom(command.arg);
+        }
+    }
+
+    /** Parse a slider value (seconds) into the clamped inter-page delay; a malformed value leaves it unchanged. */
+    private void setHudDelayFrom(String arg) {
+        if (arg == null || arg.trim().isEmpty()) {
+            return;
+        }
+        try {
+            double seconds = Double.parseDouble(arg.trim());
+            long millis = (long) (Math.max(0.0, seconds) * 1000.0);
+            hudDelayMillis = Math.max(0L, Math.min(HUD_MAX_DELAY_MILLIS, millis));
+        } catch (NumberFormatException ignored) {
+            // keep the current delay
+        }
+    }
+
+    /**
+     * Wait the user-set inter-page delay before opening the next page. The delay is a deliberate slow-down for a
+     * watching user, so it is NOT counted against the time budget (accumulated into {@code waitedForUserMillis},
+     * like a manual wait). Cancel/stop, the NEXT button and the SKIP button all end it immediately; the slider can
+     * be adjusted live. Returns a stop reason on cancel/stop, else {@code null} to proceed.
+     */
+    private ResearchStopReason interPageDelay() {
+        if (hudDelayMillis <= 0) {
+            return null;
+        }
+        long endAt = clock.currentTimeMillis() + hudDelayMillis;
+        while (true) {
+            if (cancelled.get()) {
+                return ResearchStopReason.USER_CANCELLED;
             }
+            ResearchStopReason gate = stopReasonNow();
+            if (gate != null) {
+                return gate;
+            }
+            long now = clock.currentTimeMillis();
+            if (now >= endAt) {
+                return null;
+            }
+            int remaining = (int) Math.max(1, (endAt - now + 999L) / 1000L);
+            renderHud("DELAY", "Waiting " + remaining + "s before the next page (Next skips)", false,
+                    ResearchHudState.NO_COUNTDOWN);
+            for (ResearchHudCommand command : pollHudCommands()) {
+                if (command.type == ResearchHudCommand.Type.NEXT
+                        || command.type == ResearchHudCommand.Type.SKIP) {
+                    return null; // proceed to the next page now
+                }
+                applyHudSideEffect(command);
+                if (command.type == ResearchHudCommand.Type.SET_DELAY) {
+                    endAt = clock.currentTimeMillis() + hudDelayMillis; // live re-target
+                }
+            }
+            if (hudPaused) {
+                return null; // a pause during the delay abandons it; the loop-top pause gate takes over
+            }
+            waitedForUserMillis += tickWait(); // excluded from the time budget
         }
     }
 
