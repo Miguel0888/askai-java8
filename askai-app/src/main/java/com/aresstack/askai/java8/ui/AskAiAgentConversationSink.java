@@ -28,6 +28,9 @@ final class AskAiAgentConversationSink implements AgentConversationSink {
         void persistUser(String text);
 
         void persistAssistant(String text);
+
+        /** Persist a muted italic info/system breadcrumb (e.g. "Websuche: …") so it survives a restart. */
+        void persistInfo(String text);
     }
 
     private final ChatTranscript transcript;
@@ -142,6 +145,15 @@ final class AskAiAgentConversationSink implements AgentConversationSink {
         transcript.finishAssistant();
         if (persister != null && prompt != null && !prompt.trim().isEmpty()) {
             persister.persistAssistant(prompt);
+        }
+        refresh();
+    }
+
+    @Override
+    public void appendInfoMessage(String messageId, String markdown) {
+        transcript.appendInfo(markdown);
+        if (persister != null && markdown != null && !markdown.trim().isEmpty()) {
+            persister.persistInfo(markdown); // survives a restart as a muted italic line (not a bubble)
         }
         refresh();
     }

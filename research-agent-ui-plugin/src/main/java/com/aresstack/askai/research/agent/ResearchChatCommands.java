@@ -238,7 +238,9 @@ public final class ResearchChatCommands {
                 return CommandExecutionResult.rejected("Usage: /search <query>");
             }
             session.requestManualWebSearch(query);
-            return CommandExecutionResult.handled("Websuche: " + query);
+            // No command-result line: the visible "Websuche: <query>" breadcrumb is emitted (and persisted)
+            // uniformly from the search's 'started' event, so the typed command and a suggestion click match.
+            return CommandExecutionResult.handled("");
         }
     }
 

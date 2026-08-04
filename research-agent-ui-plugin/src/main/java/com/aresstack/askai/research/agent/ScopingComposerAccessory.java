@@ -29,11 +29,11 @@ final class ScopingComposerAccessory implements ComposerAccessory {
         this.view = new ScopingSupportView();
         this.view.setSearchAction(new Consumer<String>() {
             public void accept(String query) {
-                // A yellow suggestion click IS a /search: show the exact command line the user could have typed,
-                // then run the SAME phase-independent manual web search the typed `/search` command runs. It must
-                // NOT go through ChatSubmissionTarget.submitText — that would disguise a phase-independent service
-                // as an agent prompt and couple the search to the phase/turn availability.
-                research.echoSearchCommand(query);
+                // A yellow suggestion click IS a /search: run the SAME phase-independent manual web search the
+                // typed `/search` command runs. It must NOT go through ChatSubmissionTarget.submitText — that
+                // would disguise a phase-independent service as an agent prompt and couple it to the phase/turn
+                // availability. The visible, persisted "Websuche: <query>" breadcrumb is emitted uniformly from
+                // the search's 'started' event (applyManualSearch), so both entry points look identical.
                 research.requestManualWebSearch(query);
             }
         });

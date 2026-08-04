@@ -1611,6 +1611,10 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
                 public void persistAssistant(String text) {
                     persistAssistantMessage(text, "Agent");
                 }
+
+                public void persistInfo(String text) {
+                    persistInfoMessage(text);
+                }
             });
         }
         return agentConversationSink;
@@ -2272,6 +2276,17 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         saveChatRecord();
     }
 
+    /** Persist a muted italic info/system breadcrumb (e.g. "Websuche: …") so it survives a restart. */
+    private void persistInfoMessage(String text) {
+        if (historyStore == null || text == null || text.trim().isEmpty()) {
+            return;
+        }
+        chatRecord().getMessages().add(new com.aresstack.askai.java8.history.ChatMessageRecord(
+                com.aresstack.askai.java8.history.ChatMessageRecord.ROLE_INFO,
+                text, System.currentTimeMillis(), null, null));
+        saveChatRecord();
+    }
+
     private void saveChatRecord() {
         if (historyStore == null || chatRecord == null) {
             return;
@@ -2321,7 +2336,10 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         }
         transcript.clear();
         for (com.aresstack.askai.java8.history.ChatMessageRecord message : record.getMessages()) {
-            if (message.isAssistant()) {
+            if (message.isInfo()) {
+                // A muted italic breadcrumb (e.g. "Websuche: …") — restore the line, but it is NOT a model turn.
+                transcript.appendInfo(message.getText());
+            } else if (message.isAssistant()) {
                 transcript.startAssistant(message.getModel() != null ? message.getModel() : "Assistant");
                 transcript.appendAssistantDelta(message.getText());
                 transcript.finishAssistant();

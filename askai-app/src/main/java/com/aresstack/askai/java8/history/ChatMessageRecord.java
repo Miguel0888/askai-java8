@@ -8,6 +8,8 @@ public final class ChatMessageRecord {
 
     public static final String ROLE_USER = "user";
     public static final String ROLE_ASSISTANT = "assistant";
+    /** A muted italic info/system breadcrumb (e.g. "Websuche: …") — persisted, but not a model turn. */
+    public static final String ROLE_INFO = "info";
 
     private String role;
     private String text;
@@ -41,4 +43,5 @@ public final class ChatMessageRecord {
 
     public boolean isUser() { return ROLE_USER.equals(role); }
     public boolean isAssistant() { return ROLE_ASSISTANT.equals(role); }
+    public boolean isInfo() { return ROLE_INFO.equals(role); }
 }

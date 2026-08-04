@@ -37,6 +37,16 @@ public interface AgentConversationSink {
     void showProblem(String problemId, String publicMessage);
 
     /**
+     * A muted, centered ITALIC info/system line in the shared chat (e.g. {@code "Websuche: <query>"}) — NOT a
+     * user or assistant bubble. It is a persisted breadcrumb: it survives a restart (as content), unlike a
+     * transient activity card. A host without an info line falls back to an assistant message so the text is
+     * never lost.
+     */
+    default void appendInfoMessage(String messageId, String markdown) {
+        appendAssistantMessage(messageId, markdown);
+    }
+
+    /**
      * One technical diagnostic line for the host's collapsible "Technical details" area — NEVER rendered
      * in the visible chat or inside a card. Hosts without such an area may drop the line.
      */
