@@ -107,8 +107,8 @@ public class ResearchAgentSessionTest {
         f.session.activate();
         // Creation is passive: the user's first question starts the run.
         f.session.getChatTarget().submitText("investigate pf4j");
-        f.scheduler.runUntilIdle(); // → OUTLINE / WAITING with a pending approval
-        assertEquals("OUTLINE", f.session.getState().getPhaseLabel());
+        f.scheduler.runUntilIdle(); // → EVIDENCE / WAITING with a pending approval (C5: no outline gate)
+        assertEquals("EVIDENCE", f.session.getState().getPhaseLabel());
         assertTrue(f.session.getState().hasPendingApproval());
         assertTrue(f.sink.approvals > 0);
         assertTrue(f.session.getState().getAllowedCommandNames().contains("approve"));
@@ -137,12 +137,12 @@ public class ResearchAgentSessionTest {
         CommandExecutionResult early = approve.execute(new CommandInvocation("approve", null, "/approve"), ctx);
         assertEquals(CommandExecutionResult.Status.REJECTED, early.getStatus());
 
-        // Once the run reaches the outline gate, approving is HANDLED and advances the run.
+        // Once the run reaches the evidence gate, approving is HANDLED and advances the run.
         f.scheduler.runUntilIdle();
         CommandExecutionResult ok = approve.execute(new CommandInvocation("approve", null, "/approve"), ctx);
         assertEquals(CommandExecutionResult.Status.HANDLED, ok.getStatus());
         f.scheduler.runUntilIdle();
-        assertEquals("EVIDENCE", f.session.getState().getPhaseLabel());
+        assertEquals("REVIEW", f.session.getState().getPhaseLabel());
     }
 
     @Test
@@ -194,15 +194,15 @@ public class ResearchAgentSessionTest {
         });
         f.session.activate();
         f.session.getChatTarget().submitText("investigate pf4j"); // the question starts the run
-        f.scheduler.runUntilIdle(); // → OUTLINE / waiting_approval
+        f.scheduler.runUntilIdle(); // → EVIDENCE / waiting_approval (C5: no outline gate)
         com.aresstack.askai.research.agent.ResearchStateSnapshot snapshot =
                 f.session.currentResearchSnapshot();
-        assertEquals(com.aresstack.askai.research.state.oo.ResearchStateIds.OUTLINE,
+        assertEquals(com.aresstack.askai.research.state.oo.ResearchStateIds.EVIDENCE,
                 snapshot.getCurrentPhaseId());
         assertEquals(com.aresstack.askai.research.state.oo.ResearchStateIds.WAITING_APPROVAL,
                 snapshot.getCurrentStateId());
         assertTrue(snapshot.getAllowedCommands().contains(
-                com.aresstack.askai.research.state.ResearchCommandType.APPROVE_OUTLINE));
+                com.aresstack.askai.research.state.ResearchCommandType.APPROVE_EVIDENCE));
         assertTrue("state listener should have fired", stateChanges[0] > 0);
     }
 

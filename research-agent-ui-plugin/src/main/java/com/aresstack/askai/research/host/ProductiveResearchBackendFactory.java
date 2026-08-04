@@ -334,6 +334,8 @@ public final class ProductiveResearchBackendFactory {
                 projectionRunner = {null};
         final com.aresstack.askai.research.knowledge.processing.live.KnowledgeProjectionInvalidator[]
                 projectionInvalidator = {null};
+        // Set once the session resources exist, so the projection listener can notify an open view.
+        final ProductiveResearchSessionResources[] resourcesRef = {null};
         if (embeddingDescriptor != null) {
             // Compose (but do not start) the productive worker for THIS session's embedding world (C4 lifts
             // Variant B). The scheduler stamps jobs with the descriptor fingerprint and wakes the worker so an
@@ -366,7 +368,29 @@ public final class ProductiveResearchBackendFactory {
                         }
                     },
                     captures, repository, processingQueue, knowledgeSettings, briefQuestions,
-                    KnowledgeProcessingSessionFactory.ProjectionListener.NONE);
+                    new KnowledgeProcessingSessionFactory.ProjectionListener() {
+                        public void onProjectionUpdated(
+                                com.aresstack.askai.research.knowledge.live.LiveOutlineProjection projection) {
+                            // Render the projection into the "outline" artifact slot (a visible LIVE view,
+                            // no approval anywhere) and let the session refresh an open view. Best-effort:
+                            // an artifact write failure only costs THIS render — the persisted projection
+                            // is already durable and the next rebuild retries.
+                            try {
+                                String markdown = com.aresstack.askai.research.knowledge.live
+                                        .LiveOutlineMarkdown.render(projection);
+                                com.aresstack.askai.plugin.api.agent.artifact.ArtifactContent current =
+                                        projectContext.getArtifactStore().read("outline");
+                                projectContext.getArtifactStore().replace("outline",
+                                        current.getRevision(), markdown);
+                            } catch (RuntimeException renderFailed) {
+                                System.err.println("[research-knowledge] live outline artifact write "
+                                        + "failed: " + renderFailed.getMessage());
+                            }
+                            if (resourcesRef[0] != null) {
+                                resourcesRef[0].fireProjectionUpdated();
+                            }
+                        }
+                    });
             knowledgeRunner[0] = knowledgeSession.worker;
             projectionRunner[0] = knowledgeSession.projection;
             projectionInvalidator[0] = knowledgeSession.invalidator;
@@ -528,6 +552,7 @@ public final class ProductiveResearchBackendFactory {
                     browser, backend, service);
             resources.setSearchProfile(profile);
             holder[0] = resources;
+            resourcesRef[0] = resources;
             control.refreshTools(); // now that the live context resolves, publish the initial tool set
             // Start the continuous knowledge worker LAST, once everything else is wired: it drains the
             // recovered persistent FIFO and processes newly accepted sources until the session closes.

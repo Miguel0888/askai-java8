@@ -133,6 +133,24 @@ public final class ProductiveResearchSessionResources {
         this.projectionRunner = runner;
     }
 
+    /** Set by the SESSION: notified (worker thread) after every persisted live-projection rebuild. */
+    private volatile Runnable projectionUpdateListener;
+
+    public void setProjectionUpdateListener(Runnable listener) {
+        this.projectionUpdateListener = listener;
+    }
+
+    void fireProjectionUpdated() {
+        Runnable listener = projectionUpdateListener;
+        if (listener != null) {
+            try {
+                listener.run();
+            } catch (RuntimeException never) {
+                // a UI refresh failure must never disturb the projection worker
+            }
+        }
+    }
+
     /** The settings snapshot this RUNNING session uses (global changes only affect NEW sessions). */
     public com.aresstack.askai.browser.search.SearchProcessingProfileSnapshot getSearchProfile() {
         return searchProfile;

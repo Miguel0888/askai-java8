@@ -49,13 +49,12 @@ public class HierarchicalResearchStateTest {
         assertEquals(ResearchStateIds.SCOPING, s.getPhaseId());
         assertEquals(ResearchStateIds.NEW, s.getCurrentState().getStateId());
         s = accept(s, ResearchCommandType.START, ResearchStateIds.SCOPING, ResearchStateIds.RUNNING);
-        s = accept(s, ResearchCommandType.SUBMIT_SCOPE, ResearchStateIds.OUTLINE, ResearchStateIds.RUNNING);
-        s = accept(s, ResearchCommandType.PROPOSE_OUTLINE, ResearchStateIds.OUTLINE, ResearchStateIds.WAITING_APPROVAL);
-        assertTrue(s.getCurrentState().requiresApproval());
-        assertNotNull(s.getCurrentState().getPendingApprovalId());
-        s = accept(s, ResearchCommandType.APPROVE_OUTLINE, ResearchStateIds.RESEARCH, ResearchStateIds.WAITING);
+        // C5: a confirmed scope goes STRAIGHT to research; the first approval gate is the evidence gate.
+        s = accept(s, ResearchCommandType.SUBMIT_SCOPE, ResearchStateIds.RESEARCH, ResearchStateIds.WAITING);
         s = accept(s, ResearchCommandType.START_RESEARCH, ResearchStateIds.RESEARCH, ResearchStateIds.RUNNING);
         s = accept(s, ResearchCommandType.REQUEST_EVIDENCE_REVIEW, ResearchStateIds.EVIDENCE, ResearchStateIds.WAITING_APPROVAL);
+        assertTrue(s.getCurrentState().requiresApproval());
+        assertNotNull(s.getCurrentState().getPendingApprovalId());
         s = accept(s, ResearchCommandType.APPROVE_EVIDENCE, ResearchStateIds.DRAFT, ResearchStateIds.WAITING);
         s = accept(s, ResearchCommandType.START_DRAFTING, ResearchStateIds.DRAFT, ResearchStateIds.RUNNING);
         s = accept(s, ResearchCommandType.REQUEST_DRAFT_REVIEW, ResearchStateIds.REVIEW, ResearchStateIds.WAITING_APPROVAL);

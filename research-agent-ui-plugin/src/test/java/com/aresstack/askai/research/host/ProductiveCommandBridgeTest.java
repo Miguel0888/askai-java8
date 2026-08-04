@@ -152,20 +152,14 @@ public class ProductiveCommandBridgeTest {
         assertEquals("a plain turn commits no scope", ResearchStateIds.SCOPING,
                 fx.resources.currentState().getPhaseId());
 
-        // Only the HOST executing a VALIDATED agent proposal commits the scope and reaches the outline gate.
+        // Only the HOST executing a VALIDATED agent proposal commits the scope. C5: no outline gate —
+        // the commit auto-advances straight into RESEARCH/running and submits the stored question.
         fx.session.onEvent(ResearchBackendEvent.builder(
                 com.aresstack.askai.research.backend.ResearchBackendEventType.SCOPE_PROPOSAL)
                 .envelope("evt-1", "s1", "p1", 1L, 0L, 1L, null)
                 .title("SUBMIT_SCOPE").text("just a question").messages("", "focus on isolation").build());
-        assertEquals(ResearchStateIds.OUTLINE, fx.resources.currentState().getPhaseId());
-        assertEquals(ResearchStateIds.WAITING_APPROVAL, fx.resources.currentState().getStateId());
-        String outline = fx.resources.getArtifactStore().read("outline").getMarkdown();
-        assertTrue(outline.contains("just a question"));
-        assertTrue("the confirmed aspect is part of the outline", outline.contains("focus on isolation"));
-
-        // The user's approve advances to RESEARCH/running AND automatically submits the STORED question —
-        // the user never types it twice.
-        fx.session.approveCurrent();
+        assertEquals("the outline slot stays the LIVE projection (scoping writes none)",
+                "", fx.resources.getArtifactStore().read("outline").getMarkdown());
         assertEquals(ResearchStateIds.RESEARCH, fx.resources.currentState().getPhaseId());
         assertEquals(ResearchStateIds.RUNNING, fx.resources.currentState().getStateId());
         assertEquals("RESEARCH", fx.session.getState().getPhaseLabel());
@@ -174,7 +168,7 @@ public class ProductiveCommandBridgeTest {
     }
 
     @Test
-    public void aValidatedScopeProposalFromTheAgentCommitsScopeAndReachesTheOutlineGate() {
+    public void aValidatedScopeProposalFromTheAgentCommitsScopeAndStartsResearch() {
         Fx fx = new Fx();
         int afterActivate = fx.backend.prompts.size(); // the greeting bootstrap turn
         // The runtime TeamAgent proposes a validated scope (as it arrives over the ACP "scope" wire line and
@@ -190,14 +184,14 @@ public class ProductiveCommandBridgeTest {
                 .build();
         fx.session.onEvent(proposal);
 
-        assertEquals(ResearchStateIds.OUTLINE, fx.resources.currentState().getPhaseId());
-        assertEquals(ResearchStateIds.WAITING_APPROVAL, fx.resources.currentState().getStateId());
-        String outline = fx.resources.getArtifactStore().read("outline").getMarkdown();
-        assertTrue("the outline reflects the model-confirmed question",
-                outline.contains("How does pf4j isolate plugins?"));
-        assertTrue("the confirmed aspect is part of the outline", outline.contains("class isolation"));
-        assertEquals("the proposal itself forwards no new prompt before approval",
-                afterActivate, fx.backend.prompts.size());
+        // C5: the committed scope auto-advances into RESEARCH/running and submits the stored question —
+        // there is no outline approval gate anymore (the live outline is a mobile projection).
+        assertEquals(ResearchStateIds.RESEARCH, fx.resources.currentState().getPhaseId());
+        assertEquals(ResearchStateIds.RUNNING, fx.resources.currentState().getStateId());
+        assertEquals("the outline slot stays the LIVE projection (scoping writes none)",
+                "", fx.resources.getArtifactStore().read("outline").getMarkdown());
+        assertEquals("the stored question started the research turn",
+                afterActivate + 1, fx.backend.prompts.size());
 
         // The host stays the authority: approving advances to RESEARCH/running and auto-continues with the
         // stored question exactly once.

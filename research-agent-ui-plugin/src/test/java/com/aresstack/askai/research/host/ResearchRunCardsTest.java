@@ -214,12 +214,10 @@ public class ResearchRunCardsTest {
         }
 
         /** Drive to a running research the model-driven way: a validated scope proposal from the agent is
-         *  executed host-side to the outline gate, then the user approves. */
+         *  executed host-side. C5: no outline gate — the commit lands directly in RESEARCH/running. */
         void reachRunningResearch() {
             event(ResearchBackendEvent.builder(ResearchBackendEventType.SCOPE_PROPOSAL)
                     .title("SUBMIT_SCOPE").text("investigate pf4j").messages("", "focus on isolation"));
-            // The outline approval is a card with real buttons — press "Approve".
-            press(lastCardActionId("approve"));
             assertEquals(ResearchStateIds.RESEARCH, resources.currentState().getPhaseId());
             assertEquals(ResearchStateIds.RUNNING, resources.currentState().getStateId());
         }
@@ -248,9 +246,10 @@ public class ResearchRunCardsTest {
     @Test
     public void aRestoredSessionAtTheApprovalGateReShowsTheApprovalButtons() {
         Fx fx = new Fx();
-        // Reach the outline approval gate via a validated scope proposal (without approving).
-        fx.event(ResearchBackendEvent.builder(ResearchBackendEventType.SCOPE_PROPOSAL)
-                .title("SUBMIT_SCOPE").text("investigate pf4j").messages("", "focus on isolation"));
+        // C5: the scope commit has no gate anymore — reach the EVIDENCE approval gate instead.
+        fx.reachRunningResearch();
+        fx.session.dispatch(com.aresstack.askai.research.state.ResearchCommandType
+                .REQUEST_EVIDENCE_REVIEW, null);
         assertEquals(ResearchStateIds.WAITING_APPROVAL, fx.resources.currentState().getStateId());
 
         // Simulate a restart: a NEW session on the SAME (persisted) resources with a fresh sink. Its
@@ -749,7 +748,8 @@ public class ResearchRunCardsTest {
                 null, null, null, null);
         first.dispatch(com.aresstack.askai.research.state.ResearchCommandType.START);
         first.dispatch(com.aresstack.askai.research.state.ResearchCommandType.SUBMIT_SCOPE);
-        first.dispatch(com.aresstack.askai.research.state.ResearchCommandType.PROPOSE_OUTLINE);
+        first.dispatch(com.aresstack.askai.research.state.ResearchCommandType.START_RESEARCH);
+        first.dispatch(com.aresstack.askai.research.state.ResearchCommandType.REQUEST_EVIDENCE_REVIEW);
 
         // Session 2 over the same directory: fresh context, fresh resources, fresh session.
         RecordingSink sink = new RecordingSink();

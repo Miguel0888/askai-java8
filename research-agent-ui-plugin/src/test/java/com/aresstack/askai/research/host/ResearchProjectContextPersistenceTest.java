@@ -56,8 +56,9 @@ public class ResearchProjectContextPersistenceTest {
 
         ProductiveResearchSessionResources first = resources(context);
         assertTrue(first.dispatch(ResearchCommandType.START).isAccepted());
-        assertTrue(first.dispatch(ResearchCommandType.SUBMIT_SCOPE).isAccepted());
-        assertTrue(first.dispatch(ResearchCommandType.PROPOSE_OUTLINE).isAccepted());
+        assertTrue(first.dispatch(ResearchCommandType.SUBMIT_SCOPE).isAccepted()); // C5: -> RESEARCH/WAITING
+        assertTrue(first.dispatch(ResearchCommandType.START_RESEARCH).isAccepted());
+        assertTrue(first.dispatch(ResearchCommandType.REQUEST_EVIDENCE_REVIEW).isAccepted());
         assertEquals(ResearchStateIds.WAITING_APPROVAL, first.currentState().getStateId());
         String pendingApproval = first.currentState().getPendingApprovalId();
         assertNotNull("the approval gate must carry its id", pendingApproval);
@@ -79,17 +80,15 @@ public class ResearchProjectContextPersistenceTest {
         assertEquals(1, restoredContext.getSourceRepository().find(SourceQuery.all()).size());
 
         ResearchStateMemento state = restored.currentState();
-        assertEquals(ResearchStateIds.OUTLINE, state.getPhaseId());
+        assertEquals(ResearchStateIds.EVIDENCE, state.getPhaseId());
         assertEquals(ResearchStateIds.WAITING_APPROVAL, state.getStateId());
         assertEquals("the SAME pending approval survives the restart",
                 pendingApproval, state.getPendingApprovalId());
 
-        // ---- continuation from the restored state — no repeated scoping/outline ceremony ----
-        assertTrue(restored.dispatch(ResearchCommandType.APPROVE_OUTLINE).isAccepted());
-        assertEquals(ResearchStateIds.RESEARCH, restored.currentState().getPhaseId());
+        // ---- continuation from the restored state — no repeated scoping ceremony ----
+        assertTrue(restored.dispatch(ResearchCommandType.APPROVE_EVIDENCE).isAccepted());
+        assertEquals(ResearchStateIds.DRAFT, restored.currentState().getPhaseId());
         assertEquals(ResearchStateIds.WAITING, restored.currentState().getStateId());
-        assertTrue(restored.dispatch(ResearchCommandType.START_RESEARCH).isAccepted());
-        assertEquals(ResearchStateIds.RUNNING, restored.currentState().getStateId());
     }
 
     @Test

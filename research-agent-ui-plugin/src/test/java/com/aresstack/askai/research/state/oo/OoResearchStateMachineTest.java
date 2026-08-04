@@ -40,13 +40,14 @@ public class OoResearchStateMachineTest {
         return r.getNextMemento();
     }
 
-    /** Drive to OUTLINE / WAITING_APPROVAL, the first human approval gate. */
+    /** Drive to EVIDENCE / WAITING_APPROVAL — since C5 the FIRST human approval gate. */
     private ResearchStateMemento toOutlineApproval() {
         ResearchStateMemento m = machine.initialMemento();
-        m = accept(m, ResearchCommandType.START);          // scoping/running
-        m = accept(m, ResearchCommandType.SUBMIT_SCOPE);   // outline/running
-        m = accept(m, ResearchCommandType.PROPOSE_OUTLINE); // outline/waiting_approval (+approval id)
-        assertEquals(ResearchStateIds.OUTLINE, m.getPhaseId());
+        m = accept(m, ResearchCommandType.START);            // scoping/running
+        m = accept(m, ResearchCommandType.SUBMIT_SCOPE);     // research/waiting (C5: no outline gate)
+        m = accept(m, ResearchCommandType.START_RESEARCH);   // research/running
+        m = accept(m, ResearchCommandType.REQUEST_EVIDENCE_REVIEW); // evidence/waiting_approval (+id)
+        assertEquals(ResearchStateIds.EVIDENCE, m.getPhaseId());
         assertEquals(ResearchStateIds.WAITING_APPROVAL, m.getStateId());
         assertNotNull("entering an approval gate assigns an approval id", m.getPendingApprovalId());
         return m;
@@ -73,14 +74,14 @@ public class OoResearchStateMachineTest {
         assertEquals("the approval id survives the interruption", approvalId, blocked.getPendingApprovalId());
 
         ResearchStateMemento unblocked = accept(blocked, ResearchCommandType.UNBLOCK);
-        assertEquals(ResearchStateIds.OUTLINE, unblocked.getPhaseId());
+        assertEquals(ResearchStateIds.EVIDENCE, unblocked.getPhaseId());
         assertEquals(ResearchStateIds.WAITING_APPROVAL, unblocked.getStateId());
         assertEquals("unblock restores the SAME approval id, not a fresh one",
                 approvalId, unblocked.getPendingApprovalId());
 
         // And the restored gate is fully functional.
-        ResearchStateMemento approved = accept(unblocked, ResearchCommandType.APPROVE_OUTLINE);
-        assertEquals(ResearchStateIds.RESEARCH, approved.getPhaseId());
+        ResearchStateMemento approved = accept(unblocked, ResearchCommandType.APPROVE_EVIDENCE);
+        assertEquals(ResearchStateIds.DRAFT, approved.getPhaseId());
         assertNull("leaving the gate clears the approval id", approved.getPendingApprovalId());
     }
 

@@ -109,6 +109,17 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         if (resources != null) {
             this.state = resources.currentState(); // one truth from the start
             wireBrowserActivity(resources);
+            // C5: when the live outline projection was rebuilt (worker thread), let every state listener —
+            // including an open Live Outline artifact view — re-read; marshalled like any other refresh.
+            resources.setProjectionUpdateListener(new Runnable() {
+                public void run() {
+                    uiExecutor.execute(new Runnable() {
+                        public void run() {
+                            fireStateChanged();
+                        }
+                    });
+                }
+            });
         }
     }
 
@@ -594,7 +605,11 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             return;
         }
         researchQuestion = question.trim();
-        autoAdvanceTowardsResearch(); // → the outline approval gate (existing machinery)
+        // C5: no outline approval gate anymore — a committed scope auto-advances STRAIGHT into
+        // RESEARCH/running, so the stored question must start the research turn HERE (previously the
+        // outline-gate approval triggered it).
+        autoAdvanceTowardsResearch();
+        maybeStartResearchTurn();
     }
 
     /**
@@ -689,9 +704,6 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             } else if (com.aresstack.askai.research.state.oo.ResearchStateIds.SCOPING.equals(phase)
                     && com.aresstack.askai.research.state.oo.ResearchStateIds.RUNNING.equals(stateId)) {
                 next = ResearchCommandType.SUBMIT_SCOPE;
-            } else if (com.aresstack.askai.research.state.oo.ResearchStateIds.OUTLINE.equals(phase)
-                    && com.aresstack.askai.research.state.oo.ResearchStateIds.RUNNING.equals(stateId)) {
-                next = ResearchCommandType.PROPOSE_OUTLINE;
             } else if (com.aresstack.askai.research.state.oo.ResearchStateIds.RESEARCH.equals(phase)
                     && com.aresstack.askai.research.state.oo.ResearchStateIds.WAITING.equals(stateId)) {
                 next = ResearchCommandType.START_RESEARCH;
@@ -707,12 +719,10 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 productiveResources.currentState();
         if (com.aresstack.askai.research.state.oo.ResearchStateIds.WAITING_APPROVAL
                 .equals(after.getStateId()) && sink != null) {
-            // The approval SHOWS what is being approved — the real outline artifact, never a bare gate.
-            String outline = productiveResources.getArtifactStore().read("outline").getMarkdown();
-            final String message = (outline.isEmpty()
-                    ? "The " + after.getPhaseId() + " needs your approval."
-                    : outline + "\n")
-                    + "\nApprove to start the web research, or request changes.";
+            // Phase-neutral gate (C5: scoping no longer routes through an outline approval — the live
+            // outline is a mobile projection; this card serves the remaining gates, e.g. evidence).
+            final String message = "The " + after.getPhaseId()
+                    + " needs your approval.\n\nApprove to continue, or request changes.";
             uiExecutor.execute(new Runnable() {
                 public void run() {
                     String approvalId = after.getPendingApprovalId() == null
@@ -937,6 +947,14 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         com.aresstack.askai.research.state.oo.ResearchStateMemento after =
                 productiveResources.currentState();
         scopeApproveDiag("after=" + after.getPhaseId() + "/" + after.getStateId());
+        // C5: SUBMIT_SCOPE now lands directly in RESEARCH (no outline gate). The user's ONE decision here IS
+        // "finish scoping → research begins"; the technical WAITING→RUNNING step belongs to that same
+        // decision, so the click also releases the research turn (with the stored question, when present).
+        if (com.aresstack.askai.research.state.oo.ResearchStateIds.RESEARCH.equals(after.getPhaseId())
+                && com.aresstack.askai.research.state.oo.ResearchStateIds.WAITING.equals(after.getStateId())
+                && dispatch(ResearchCommandType.START_RESEARCH, null).isAccepted()) {
+            maybeStartResearchTurn();
+        }
         return ScopingApprovalOutcome.SUCCESS;
     }
 

@@ -95,12 +95,13 @@ public class ManualSearchWiringTest {
         assertEquals(1, port.queries.size());
         assertEquals(ResearchStateIds.SCOPING, fx.resources.currentState().getPhaseId());
 
-        // OUTLINE: still accepted (the service never gates on the phase), phase unchanged by the search.
+        // RESEARCH (C5: SUBMIT_SCOPE lands there directly): still accepted — the service never gates
+        // on the phase — and the phase is unchanged by the search.
         fx.session.dispatch(ResearchCommandType.SUBMIT_SCOPE, null);
-        assertEquals(ResearchStateIds.OUTLINE, fx.resources.currentState().getPhaseId());
-        fx.session.requestManualWebSearch("query in outline");
+        assertEquals(ResearchStateIds.RESEARCH, fx.resources.currentState().getPhaseId());
+        fx.session.requestManualWebSearch("query in research");
         assertEquals(2, port.queries.size());
-        assertEquals(ResearchStateIds.OUTLINE, fx.resources.currentState().getPhaseId());
+        assertEquals(ResearchStateIds.RESEARCH, fx.resources.currentState().getPhaseId());
 
         // A blank query is ignored (no spurious search).
         fx.session.requestManualWebSearch("   ");

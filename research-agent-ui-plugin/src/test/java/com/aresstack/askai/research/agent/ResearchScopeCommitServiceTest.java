@@ -33,7 +33,7 @@ public class ResearchScopeCommitServiceTest {
     }
 
     @Test
-    public void aFullySuccessfulCommitPersistsMetadataAndBothDocuments() throws Exception {
+    public void aFullySuccessfulCommitPersistsMetadataAndTheConcept() throws Exception {
         File dir = tempDir();
         ResearchProjectContext context = context(dir);
         ResearchScopeCommitService.ScopeCommitResult result =
@@ -45,7 +45,8 @@ public class ResearchScopeCommitServiceTest {
         assertEquals("How does PF4J isolation work?",
                 metadata.getMetadata().getResearchQuestion());
         assertEquals("# Concept\n", context.getArtifactStore().read("concept").getMarkdown());
-        assertEquals("# Outline\n", context.getArtifactStore().read("outline").getMarkdown());
+        // C5: scoping writes NO outline anymore - the "outline" slot is the LIVE corpus projection.
+        assertEquals("", context.getArtifactStore().read("outline").getMarkdown());
     }
 
     @Test
@@ -63,14 +64,14 @@ public class ResearchScopeCommitServiceTest {
                 new ResearchScopeCommitService(context).commit(scope());
         assertFalse(result.isSuccess());
         assertEquals(ResearchScopeCommitService.Status.CONCEPT_FAILED, result.getStatus());
-        assertEquals("the outline was never attempted after the concept failure",
+        assertEquals("the outline slot is never touched by the scope commit (C5)",
                 "", context.getArtifactStore().read("outline").getMarkdown());
         // The metadata write preceded the failure — the commit is fail-closed, not atomic (a
         // later project commit marker will harden crash consistency across files).
     }
 
     @Test
-    public void aRejectedOutlineWriteIsItsOwnTypedFailure() throws Exception {
+    public void anUnwritableOutlineSlotNoLongerAffectsTheScopeCommit() throws Exception {
         File dir = tempDir();
         ResearchProjectContext context = context(dir);
         File artifacts = new File(dir, "artifacts");
@@ -79,10 +80,10 @@ public class ResearchScopeCommitServiceTest {
         assertTrue(outlineAsDir.mkdirs());
         assertTrue(new File(outlineAsDir, "blocker").createNewFile());
 
+        // C5: scoping never touches the outline slot - even a sabotaged outline.md cannot fail it.
         ResearchScopeCommitService.ScopeCommitResult result =
                 new ResearchScopeCommitService(context).commit(scope());
-        assertFalse(result.isSuccess());
-        assertEquals(ResearchScopeCommitService.Status.OUTLINE_FAILED, result.getStatus());
+        assertTrue(result.getDetail(), result.isSuccess());
     }
 
     @Test

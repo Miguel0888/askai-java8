@@ -65,16 +65,13 @@ public final class ResearchScopeCommitService {
             return new ScopeCommitResult(Status.METADATA_FAILED, persistFailed.getMessage());
         }
 
-        // 2. Concept, 3. Outline — every ArtifactWriteResult is judged, never ignored.
+        // 2. Concept — every ArtifactWriteResult is judged, never ignored. C5: scoping writes NO outline
+        // anymore; the "outline" slot is the LIVE projection of the growing knowledge corpus, derived (and
+        // continuously rebuilt) from accepted sources — never a pre-research document structure.
         ScopeCommitResult concept = writeArtifact("concept", scope.getConceptMarkdown(),
                 Status.CONCEPT_FAILED);
         if (concept != null) {
             return concept;
-        }
-        ScopeCommitResult outline = writeArtifact("outline", scope.getOutlineMarkdown(),
-                Status.OUTLINE_FAILED);
-        if (outline != null) {
-            return outline;
         }
         return new ScopeCommitResult(Status.SUCCESS, "");
     }

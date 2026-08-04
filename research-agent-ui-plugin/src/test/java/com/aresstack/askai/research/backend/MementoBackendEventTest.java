@@ -83,7 +83,7 @@ public class MementoBackendEventTest {
 
         ResearchBackendEvent lastState = listener.last(ResearchBackendEventType.SESSION_STATE_CHANGED);
         assertNotNull(lastState);
-        assertEquals(ResearchStateIds.OUTLINE, lastState.getStateMemento().getPhaseId());
+        assertEquals(ResearchStateIds.EVIDENCE, lastState.getStateMemento().getPhaseId());
         assertEquals(ResearchStateIds.WAITING_APPROVAL, lastState.getStateMemento().getStateId());
         assertNotNull(lastState.getStateMemento().getPendingApprovalId());
     }
@@ -101,7 +101,7 @@ public class MementoBackendEventTest {
         scheduler.runUntilIdle();
 
         ResearchBackendEvent approval = listener.last(ResearchBackendEventType.APPROVAL_REQUESTED);
-        assertNotNull("expected to reach the outline approval gate", approval);
+        assertNotNull("expected to reach the evidence approval gate", approval);
         String originalApprovalId = approval.getApprovalId();
 
         backend.simulateBlocked(handle, "network down");
@@ -125,8 +125,8 @@ public class MementoBackendEventTest {
         scheduler.runUntilIdle();
         ResearchStateMemento afterApprove =
                 listener.last(ResearchBackendEventType.SESSION_STATE_CHANGED).getStateMemento();
-        assertTrue("approval must move past the outline gate",
-                !ResearchStateIds.OUTLINE.equals(afterApprove.getPhaseId())
+        assertTrue("approval must move past the evidence gate",
+                !ResearchStateIds.EVIDENCE.equals(afterApprove.getPhaseId())
                         || !ResearchStateIds.WAITING_APPROVAL.equals(afterApprove.getStateId()));
     }
 }

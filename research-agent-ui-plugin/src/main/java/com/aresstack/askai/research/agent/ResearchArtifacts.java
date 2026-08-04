@@ -33,7 +33,7 @@ public final class ResearchArtifacts {
         // visualization is a DERIVED, rebuildable view of it (no approval/revision), shown right next to it.
         list.add(new Artifact("research-brief", "Fragestellung", TYPE_BRIEF, ""));
         list.add(new Artifact("research-visualization", "Visualisierung", TYPE_VISUALIZATION, ""));
-        list.add(markdown("outline", "Outline", "outline.md"));
+        list.add(markdown("outline", "Live Outline", "outline.md")); // C5: the mobile corpus projection
         list.add(markdown("concept", "Concept", "concept.md"));
         list.add(markdown("research-notes", "Research Notes", "research-notes.md"));
         list.add(markdown("findings", "Findings", "findings.md"));

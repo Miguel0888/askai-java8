@@ -114,18 +114,19 @@ public class FakeResearchSessionBackendTest {
 
     // 2
     @Test
-    public void happyPathReachesCompletionThroughFourApprovals() {
+    public void happyPathReachesCompletionThroughThreeApprovals() {
+        // C5: scoping goes STRAIGHT to research (the live outline is a mobile projection, not a gate) —
+        // the first approval is the evidence gate.
         Fixture f = new Fixture("s1");
-        f.scheduler.runUntilIdle(); // → OUTLINE/WAITING (approval 1)
-        assertEquals(ResearchPhase.OUTLINE, f.listener.lastState().getPhase());
+        f.scheduler.runUntilIdle(); // → EVIDENCE/WAITING (approval 1)
+        assertEquals(ResearchPhase.EVIDENCE, f.listener.lastState().getPhase());
         assertEquals(ResearchRunState.WAITING_FOR_USER, f.listener.lastState().getRunState());
 
-        f.approveLatestAndRun(); // outline → evidence gate
         f.approveLatestAndRun(); // evidence → draft review gate
         f.approveLatestAndRun(); // draft → final review gate
         f.approveLatestAndRun(); // final → completed
 
-        assertEquals(4, f.listener.ofType(ResearchBackendEventType.APPROVAL_REQUESTED).size());
+        assertEquals(3, f.listener.ofType(ResearchBackendEventType.APPROVAL_REQUESTED).size());
         assertEquals(ResearchRunState.COMPLETED, f.listener.lastState().getRunState());
         assertEquals(1, f.listener.ofType(ResearchBackendEventType.COMPLETED).size());
     }
@@ -181,10 +182,10 @@ public class FakeResearchSessionBackendTest {
     public void approveAdvancesPastTheGate() {
         Fixture f = new Fixture("s1");
         f.scheduler.runUntilIdle();
-        assertEquals(ResearchPhase.OUTLINE, f.listener.lastState().getPhase());
-        f.approveLatestAndRun();
-        // After approving the outline the run auto-runs research and stops at the evidence gate.
         assertEquals(ResearchPhase.EVIDENCE, f.listener.lastState().getPhase());
+        f.approveLatestAndRun();
+        // After approving the evidence the run auto-runs drafting and stops at the review gate.
+        assertEquals(ResearchPhase.REVIEW, f.listener.lastState().getPhase());
         assertEquals(ResearchRunState.WAITING_FOR_USER, f.listener.lastState().getRunState());
     }
 
@@ -195,8 +196,8 @@ public class FakeResearchSessionBackendTest {
         f.scheduler.runUntilIdle();
         ResearchBackendEvent approval = f.listener.last(ResearchBackendEventType.APPROVAL_REQUESTED);
         f.backend.reject(f.handle, approval.getApprovalId(), "needs more detail");
-        // Immediately after the rejection (before auto-advance) we are back in OUTLINE/RUNNING.
-        assertEquals(ResearchPhase.OUTLINE, f.listener.lastState().getPhase());
+        // Immediately after the rejection (before auto-advance) we are back in RESEARCH/RUNNING.
+        assertEquals(ResearchPhase.RESEARCH, f.listener.lastState().getPhase());
         assertEquals(ResearchRunState.RUNNING, f.listener.lastState().getRunState());
         assertFalse(f.listener.ofType(ResearchBackendEventType.ASSISTANT_MESSAGE).isEmpty());
     }
@@ -256,7 +257,7 @@ public class FakeResearchSessionBackendTest {
             }
         }
         assertEquals(2, thinkingStarts);
-        assertEquals(ResearchPhase.OUTLINE, f.listener.lastState().getPhase());
+        assertEquals(ResearchPhase.EVIDENCE, f.listener.lastState().getPhase());
     }
 
     // 12
@@ -328,7 +329,7 @@ public class FakeResearchSessionBackendTest {
         assertEquals(ResearchRunState.BLOCKED, f.listener.lastState().getRunState());
         f.backend.executeCommand(f.handle, ResearchCommandType.UNBLOCK);
         f.scheduler.runUntilIdle();
-        assertEquals(ResearchPhase.OUTLINE, f.listener.lastState().getPhase());
+        assertEquals(ResearchPhase.EVIDENCE, f.listener.lastState().getPhase());
     }
 
     // 18
@@ -342,7 +343,7 @@ public class FakeResearchSessionBackendTest {
         assertEquals("HTTP 503 from upstream", error.getTechnicalDetail());
         f.backend.executeCommand(f.handle, ResearchCommandType.RETRY);
         f.scheduler.runUntilIdle();
-        assertEquals(ResearchPhase.OUTLINE, f.listener.lastState().getPhase());
+        assertEquals(ResearchPhase.EVIDENCE, f.listener.lastState().getPhase());
     }
 
     // 19

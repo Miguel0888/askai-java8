@@ -188,8 +188,7 @@ public class ProductiveResearchMvpEndToEndTest {
 
             // ---- host is the only state authority: drive the machine to RESEARCH/running ----
             for (ResearchCommandType command : new ResearchCommandType[]{
-                    ResearchCommandType.START, ResearchCommandType.SUBMIT_SCOPE,
-                    ResearchCommandType.PROPOSE_OUTLINE, ResearchCommandType.APPROVE_OUTLINE,
+                    ResearchCommandType.START, ResearchCommandType.SUBMIT_SCOPE, // C5: -> RESEARCH directly
                     ResearchCommandType.START_RESEARCH}) {
                 assertTrue("command must be accepted: " + command,
                         resources.dispatch(command).isAccepted());

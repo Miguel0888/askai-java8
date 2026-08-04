@@ -40,7 +40,12 @@ final class ResearchStateGraph {
     static {
         // SCOPING
         edge(SCOPING, ResearchStateIds.NEW, ResearchCommandType.START, SCOPING, ResearchStateIds.RUNNING);
-        edge(SCOPING, ResearchStateIds.RUNNING, ResearchCommandType.SUBMIT_SCOPE, OUTLINE, ResearchStateIds.RUNNING);
+        // C5: NO pre-research outline approval — a confirmed scope goes STRAIGHT to research; the live
+        // outline is a mobile projection of the growing corpus. The OUTLINE phase below is deliberately KEPT:
+        // persisted old sessions sitting in OUTLINE stay operable, and the phase returns later as the
+        // post-evidence freeze/approval step before drafting.
+        edge(SCOPING, ResearchStateIds.RUNNING, ResearchCommandType.SUBMIT_SCOPE,
+                RESEARCH, ResearchStateIds.WAITING);
         // OUTLINE
         edge(OUTLINE, ResearchStateIds.RUNNING, ResearchCommandType.PROPOSE_OUTLINE,
                 OUTLINE, ResearchStateIds.WAITING_APPROVAL);

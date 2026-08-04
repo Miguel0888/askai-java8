@@ -69,10 +69,11 @@ public class ScopingBriefApprovalTest {
 
         // The brief was approved into exactly one immutable revision.
         assertEquals(1, fx.session.researchBriefStore().load().getApprovedRevisions().size());
-        // Exactly ONE transition: SCOPING → OUTLINE, still RUNNING — NOT chained on to WAITING_APPROVAL.
-        assertEquals(ResearchStateIds.OUTLINE, fx.resources.currentState().getPhaseId());
+        // C5: the ONE user decision "finish scoping" lands directly in RESEARCH/running (the technical
+        // WAITING step belongs to the same decision; there is no outline approval gate anymore).
+        assertEquals(ResearchStateIds.RESEARCH, fx.resources.currentState().getPhaseId());
         assertEquals(ResearchStateIds.RUNNING, fx.resources.currentState().getStateId());
-        assertEquals("OUTLINE", fx.session.getState().getPhaseLabel());
+        assertEquals("RESEARCH", fx.session.getState().getPhaseLabel());
     }
 
     @Test
@@ -113,7 +114,7 @@ public class ScopingBriefApprovalTest {
         assertEquals(ScopingApprovalOutcome.SUCCESS, fx.session.approveScopingBriefAndContinue());
 
         assertEquals("no duplicate revision", 1, store.load().getApprovedRevisions().size());
-        assertEquals(ResearchStateIds.OUTLINE, fx.resources.currentState().getPhaseId());
+        assertEquals(ResearchStateIds.RESEARCH, fx.resources.currentState().getPhaseId());
     }
 
     @Test
@@ -139,12 +140,12 @@ public class ScopingBriefApprovalTest {
         fx.session.dispatch(ResearchCommandType.START, null);        // SCOPING/RUNNING
         completeTurn(fx, 1L);
         fx.session.researchBriefStore().updateWorkingCopy("# Brief\nx", 1000L);
-        fx.session.dispatch(ResearchCommandType.SUBMIT_SCOPE, null); // → OUTLINE
-        assertEquals(ResearchStateIds.OUTLINE, fx.resources.currentState().getPhaseId());
+        fx.session.dispatch(ResearchCommandType.SUBMIT_SCOPE, null); // → RESEARCH (C5)
+        assertEquals(ResearchStateIds.RESEARCH, fx.resources.currentState().getPhaseId());
 
         assertFalse(fx.session.canApproveScopingBriefAndContinue());
         assertEquals(ScopingApprovalOutcome.WRONG_PHASE, fx.session.approveScopingBriefAndContinue());
-        assertEquals(ResearchStateIds.OUTLINE, fx.resources.currentState().getPhaseId());
+        assertEquals(ResearchStateIds.RESEARCH, fx.resources.currentState().getPhaseId());
     }
 
     @Test
@@ -179,7 +180,7 @@ public class ScopingBriefApprovalTest {
         // The visualizer never ran here (no inference port) — the transition is independent of it: only the
         // explicit click advances the phase, exactly once.
         assertEquals(ScopingApprovalOutcome.SUCCESS, fx.session.approveScopingBriefAndContinue());
-        assertEquals(ResearchStateIds.OUTLINE, fx.resources.currentState().getPhaseId());
+        assertEquals(ResearchStateIds.RESEARCH, fx.resources.currentState().getPhaseId());
     }
 
     @Test
@@ -189,9 +190,9 @@ public class ScopingBriefApprovalTest {
 
         assertEquals(ScopingApprovalOutcome.SUCCESS, fx.session.approveScopingBriefAndContinue());
 
-        // The authoritative, persisted memento IS OUTLINE; the session view-model only mirrors that truth.
-        assertEquals(ResearchStateIds.OUTLINE, fx.resources.currentState().getPhaseId());
-        assertEquals("OUTLINE", fx.session.getState().getPhaseLabel());
+        // The authoritative, persisted memento IS RESEARCH; the session view-model only mirrors that truth.
+        assertEquals(ResearchStateIds.RESEARCH, fx.resources.currentState().getPhaseId());
+        assertEquals("RESEARCH", fx.session.getState().getPhaseLabel());
     }
 
     // ------------------------------------------------------------------ real Swing path (the missing test)
@@ -208,7 +209,7 @@ public class ScopingBriefApprovalTest {
 
         approve.doClick(); // REAL click → accessory callback → live ResearchAgentSession → state machine
 
-        assertEquals(ResearchStateIds.OUTLINE, fx.resources.currentState().getPhaseId());
+        assertEquals(ResearchStateIds.RESEARCH, fx.resources.currentState().getPhaseId());
         assertEquals(ResearchStateIds.RUNNING, fx.resources.currentState().getStateId());
         assertFalse("the scoping-only accessory disappears once the phase leaves scoping", view.isVisible());
     }

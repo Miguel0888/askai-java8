@@ -48,9 +48,9 @@ public class ResearchStateMachineTest {
         ResearchSessionState s = ResearchSessionState.initial();
         assertEquals(0L, s.getRevision());
         s = accept(sm, s, ResearchCommandType.START, ResearchPhase.SCOPING, ResearchRunState.RUNNING);
-        s = accept(sm, s, ResearchCommandType.SUBMIT_SCOPE, ResearchPhase.OUTLINE, ResearchRunState.RUNNING);
-        s = accept(sm, s, ResearchCommandType.PROPOSE_OUTLINE, ResearchPhase.OUTLINE, ResearchRunState.WAITING_FOR_USER);
-        s = accept(sm, s, ResearchCommandType.APPROVE_OUTLINE, ResearchPhase.RESEARCH, ResearchRunState.WAITING_FOR_USER);
+        // C5: a confirmed scope goes STRAIGHT to research (the OUTLINE phase stays for old sessions
+        // and returns later as the post-evidence freeze step).
+        s = accept(sm, s, ResearchCommandType.SUBMIT_SCOPE, ResearchPhase.RESEARCH, ResearchRunState.WAITING_FOR_USER);
         s = accept(sm, s, ResearchCommandType.START_RESEARCH, ResearchPhase.RESEARCH, ResearchRunState.RUNNING);
         s = accept(sm, s, ResearchCommandType.REQUEST_EVIDENCE_REVIEW, ResearchPhase.EVIDENCE, ResearchRunState.WAITING_FOR_USER);
         s = accept(sm, s, ResearchCommandType.APPROVE_EVIDENCE, ResearchPhase.DRAFT, ResearchRunState.WAITING_FOR_USER);
