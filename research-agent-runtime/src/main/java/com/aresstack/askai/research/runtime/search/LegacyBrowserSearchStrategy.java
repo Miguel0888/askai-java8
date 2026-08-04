@@ -35,6 +35,7 @@ public final class LegacyBrowserSearchStrategy implements SearchStrategy {
             throws ToolInvoker.ToolFailure, ToolInvoker.EndpointUnavailable {
         // nowEpochMillis feeds only the layout-repair coordinator's clock-aware retries; it comes from the
         // loop's injected clock so scripted-clock tests stay faithful.
+        long t0 = System.currentTimeMillis();
         McpLayoutRepairClient.Result result = repairClient.searchWithRepair(
                 request.getQuery(), cancellation, nowEpochMillis.getAsLong(),
                 new McpLayoutRepairClient.ToolBudget() {
@@ -42,6 +43,15 @@ public final class LegacyBrowserSearchStrategy implements SearchStrategy {
                         return budget.beforeToolCall();
                     }
                 });
+        // D1 diagnostics: the ORIGINAL repair outcome (before it collapses to RESULTS/TECHNICAL_PROBLEM/NO_RESULTS)
+        // plus counts + the step diagnostics — so a first-click cold-start failure shows whether it was
+        // EXTRACTION_FAILED, CHALLENGE_PENDING or something else, instead of an opaque SEARCH_TECHNICAL_PROBLEM.
+        System.err.println("[initial-search] outcome=" + result.status
+                + " candidates=" + result.candidates.size()
+                + " providerHosts=" + result.providerHosts
+                + " challenges=" + result.challenges.size()
+                + " elapsedMs=" + (System.currentTimeMillis() - t0)
+                + (result.diagnostics.isEmpty() ? "" : " diagnostics=" + result.diagnostics));
         return new InitialSearchResult(result.candidates, result.providerHosts, result.challenges,
                 result.diagnostics, statusOf(result.status));
     }

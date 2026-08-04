@@ -77,11 +77,20 @@ public final class McpLayoutRepairClient {
             return result(Outcome.BUDGET_EXHAUSTED, noCandidates(), providerHosts, challenges,
                     diagnostics);
         }
+        long prepareStart = System.currentTimeMillis();
         PreparedWebSearchResult prepared = SearchLayoutRepairJson.decodePrepared(
                 browser.call("web_search_prepare", singletonArg("query", query)));
         diagnostics.addAll(prepared.diagnostics);
         providerHosts.addAll(prepared.providerHosts);
         challenges.addAll(prepared.challenges);
+        // D1 per-step diagnostics: what web_search_prepare actually returned (the cold-start suspect).
+        System.err.println("[initial-search] prepare status=" + prepared.status
+                + " candidates=" + prepared.candidates.size()
+                + " repairTickets=" + prepared.repairRequests.size()
+                + " challenges=" + prepared.challenges.size()
+                + " providerHosts=" + prepared.providerHosts
+                + " elapsedMs=" + (System.currentTimeMillis() - prepareStart)
+                + (prepared.diagnostics.isEmpty() ? "" : " diagnostics=" + prepared.diagnostics));
 
         switch (prepared.status) {
             case ORGANIC_RESULTS:
@@ -109,6 +118,8 @@ public final class McpLayoutRepairClient {
             SearchLayoutRepairCoordination coordination =
                     coordinator.coordinate(ticket, cancellationSignal, nowEpochMillis);
             diagnostics.addAll(coordination.diagnostics);
+            System.err.println("[initial-search] repair coordinate submit=" + coordination.shouldSubmit()
+                    + (coordination.diagnostics.isEmpty() ? "" : " diagnostics=" + coordination.diagnostics));
             if (!coordination.shouldSubmit()) {
                 continue; // AI disabled/unavailable/validation-failed for this engine — try the next
             }
@@ -121,6 +132,9 @@ public final class McpLayoutRepairClient {
                             singletonArg("submission",
                                     SearchLayoutRepairJson.encodeSubmission(coordination.submission))));
             diagnostics.addAll(applied.diagnostics);
+            System.err.println("[initial-search] apply organic=" + applied.isOrganic()
+                    + " candidates=" + applied.candidates.size()
+                    + (applied.diagnostics.isEmpty() ? "" : " diagnostics=" + applied.diagnostics));
             if (applied.isOrganic()) {
                 return result(Outcome.ORGANIC_RESULTS, applied.candidates, providerHosts, challenges,
                         diagnostics);
