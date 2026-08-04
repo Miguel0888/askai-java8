@@ -24,12 +24,19 @@ import static org.junit.Assert.assertTrue;
  * RenderedPageDocument — snapshot-local ids, similar-sibling computation, background distances,
  * search-redirect enrichment (the resolved DIRECT url is the navigation candidate, the raw wrapper
  * url stays diagnostic), domain classification against the page host, and the fingerprint guard
- * that retries once and then marks the capture inconsistent instead of mixing two DOM states.
+ * that settles + recaptures (bounded) and then marks the capture inconsistent instead of mixing
+ * two DOM states.
  */
 public class RenderedPageDocumentCaptureTest {
 
-    private final RenderedPageDocumentCapture capture =
-            new RenderedPageDocumentCapture(LegacyBrowserSearchDefaults.create().analysis);
+    private final List<Long> settles = new ArrayList<Long>();
+    private final RenderedPageDocumentCapture capture = new RenderedPageDocumentCapture(
+            LegacyBrowserSearchDefaults.create().analysis,
+            new RenderedPageDocumentCapture.SettleDelay() {
+                public void settle(long millis) {
+                    settles.add(millis);
+                }
+            });
 
     @Test
     public void convertsContainersLinksAndSimilarSiblings() {
@@ -76,17 +83,37 @@ public class RenderedPageDocumentCaptureTest {
     }
 
     @Test
-    public void domChangeDuringCaptureRetriesOnceThenMarksInconsistent() {
-        // Fingerprints: f1 → capture → f2 (mismatch → retry) → capture → f3 (mismatch again).
+    public void domChangeThenSettledRecaptureHealsWithoutWarning() {
+        // f1 → capture → f2 (mismatch) → settle → f3 → capture → f3 (stable): the recapture heals
+        // the snapshot, no DOM_CHANGED warning survives into the ticket.
         FakeRunner page = new FakeRunner("https://www.bing.com/search?q=x", "SERP",
-                Arrays.asList("f1", "f2", "f3"));
+                Arrays.asList("f1", "f2", "f3", "f3"));
         page.result = result(
                 Arrays.asList(container("container-0001", "", 0, "body", "s")),
                 java.util.Collections.<Map<String, Object>>emptyList());
         RenderedPageDocument document = capture.capture(page,
                 new PublicSuffixDomainKeyResolver(), 1L);
-        assertEquals("capture script must have run exactly twice (one retry)",
-                2, page.captureRuns);
+        assertEquals("one settled recapture must have run", 2, page.captureRuns);
+        assertEquals("exactly one settle before the recapture", 1, settles.size());
+        assertEquals(RenderedPageDocumentCapture.SETTLE_MILLIS, settles.get(0).longValue());
+        assertTrue("a healed capture carries no consistency warning",
+                document.captureWarnings.isEmpty());
+    }
+
+    @Test
+    public void unsettledDomExhaustsBoundedRecapturesThenMarksInconsistent() {
+        // Fingerprints keep changing through every settled recapture: after the bounded budget the
+        // capture is marked inconsistent — never an unbounded loop, never silently mixed states.
+        FakeRunner page = new FakeRunner("https://www.bing.com/search?q=x", "SERP",
+                Arrays.asList("f1", "f2", "f3", "f4", "f5", "f6"));
+        page.result = result(
+                Arrays.asList(container("container-0001", "", 0, "body", "s")),
+                java.util.Collections.<Map<String, Object>>emptyList());
+        RenderedPageDocument document = capture.capture(page,
+                new PublicSuffixDomainKeyResolver(), 1L);
+        assertEquals("initial capture + the bounded recaptures",
+                1 + RenderedPageDocumentCapture.MAX_RECAPTURES, page.captureRuns);
+        assertEquals(RenderedPageDocumentCapture.MAX_RECAPTURES, settles.size());
         assertTrue(describe(document.captureWarnings).contains("DOM_CHANGED_DURING_CAPTURE"));
     }
 

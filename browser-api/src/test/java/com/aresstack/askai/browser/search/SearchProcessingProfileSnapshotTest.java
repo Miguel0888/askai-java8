@@ -48,7 +48,7 @@ public class SearchProcessingProfileSnapshotTest {
     public void unknownOlderSchemaHasNoGuessedMigration() {
         String json = SearchProcessingProfileSnapshot.create(
                         "s", 1L, 1L, LegacyBrowserSearchDefaults.create()).toJson()
-                .replace("\"schemaVersion\": 3", "\"schemaVersion\": 0");
+                .replace("\"schemaVersion\": 4", "\"schemaVersion\": 0");
         try {
             SearchProcessingProfileSnapshot.parse(json);
             fail("expected missing migration path");
@@ -84,6 +84,45 @@ public class SearchProcessingProfileSnapshotTest {
                 migrated.settings.analysis.repeatedBlockWeight, 0.0001);
         assertEquals("new A4 layout-repair fields take their central defaults", 16,
                 migrated.settings.layoutRepair.maximumCachedTickets);
-        assertEquals(3, migrated.schemaVersion);
+        assertEquals(4, migrated.schemaVersion);
+    }
+
+    @Test
+    public void v3StaleDisabledAiResolverDefaultIsLiftedToTheProductiveDefault() {
+        // A frozen pre-v4 session profile carrying the stale SHIPPED default (disabled AND empty
+        // model profile — the validator never accepted that combination as a deliberate choice):
+        // migration lifts exactly this pair to the productive default, everything else stays frozen.
+        java.util.Map<String, String> v3Values = new java.util.LinkedHashMap<String, String>(
+                LegacyBrowserSearchSettingsCodec.toValues(LegacyBrowserSearchDefaults.create()));
+        v3Values.put("aiLayoutResolver.enabled", "false");
+        v3Values.put("aiLayoutResolver.modelProfileId", "");
+        v3Values.put("captcha.challengeProbeIntervalMillis", "3000"); // a real frozen override
+        String v3Json = new LegacyBrowserSearchConfigDocument(3, 7L, "v3-digest-not-verified",
+                "old-session", 42L, v3Values).toJson();
+        SearchProcessingProfileSnapshot migrated = SearchProcessingProfileSnapshot.parse(v3Json);
+        assertTrue("the stale shipped default must be lifted",
+                migrated.settings.aiLayoutResolver.enabled);
+        assertEquals(LegacyBrowserSearchDefaults.create().aiLayoutResolver.modelProfileId,
+                migrated.settings.aiLayoutResolver.modelProfileId);
+        assertEquals("frozen overrides stay exactly as stored", 3000,
+                migrated.settings.captcha.challengeProbeIntervalMillis);
+        assertEquals(4, migrated.schemaVersion);
+    }
+
+    @Test
+    public void v3DeliberatelyDisabledAiResolverStaysDisabled() {
+        // enabled=false WITH a configured model profile is a valid deliberate configuration — the
+        // migration must never override a real choice.
+        java.util.Map<String, String> v3Values = new java.util.LinkedHashMap<String, String>(
+                LegacyBrowserSearchSettingsCodec.toValues(LegacyBrowserSearchDefaults.create()));
+        v3Values.put("aiLayoutResolver.enabled", "false");
+        v3Values.put("aiLayoutResolver.modelProfileId", "my-deliberate-profile");
+        String v3Json = new LegacyBrowserSearchConfigDocument(3, 7L, "v3-digest-not-verified",
+                "old-session", 42L, v3Values).toJson();
+        SearchProcessingProfileSnapshot migrated = SearchProcessingProfileSnapshot.parse(v3Json);
+        assertTrue("a deliberate disable must survive the migration",
+                !migrated.settings.aiLayoutResolver.enabled);
+        assertEquals("my-deliberate-profile",
+                migrated.settings.aiLayoutResolver.modelProfileId);
     }
 }

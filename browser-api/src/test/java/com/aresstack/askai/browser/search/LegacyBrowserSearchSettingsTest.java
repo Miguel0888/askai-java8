@@ -34,6 +34,18 @@ public class LegacyBrowserSearchSettingsTest {
     }
 
     @Test
+    public void aiLayoutResolverShipsProductivelyEnabled() {
+        // The model-backed SERP layout repair is productive: enabled by default with a non-empty
+        // symbolic model profile (the runtime port targets the host-published main-model descriptor).
+        // Without an inference port the resolver stays a typed AI_UNAVAILABLE — that honesty lives in
+        // the resolver, not in a disabled default.
+        AiLayoutResolverSettings ai = LegacyBrowserSearchDefaults.create().aiLayoutResolver;
+        assertTrue("the AI layout resolver must ship enabled", ai.enabled);
+        assertFalse("an enabled resolver needs its (symbolic) model profile",
+                ai.modelProfileId.trim().isEmpty());
+    }
+
+    @Test
     public void codecRoundTripsLosslesslyWithStableDigest() {
         LegacyBrowserSearchSettings defaults = LegacyBrowserSearchDefaults.create();
         Map<String, String> values = LegacyBrowserSearchSettingsCodec.toValues(defaults);

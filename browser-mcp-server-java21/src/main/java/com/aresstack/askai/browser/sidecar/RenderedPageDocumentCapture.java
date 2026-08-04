@@ -25,8 +25,8 @@ import java.util.Map;
  * Captures the rendered page as one NEUTRAL {@link RenderedPageDocument}: a single in-page script
  * measures the container hierarchy, text/link statistics, geometry, visibility and computed colors
  * in ONE DOM pass (structure and geometry from the same state), guarded by a cheap DOM fingerprint
- * before and after — on a mismatch the capture is retried once and otherwise marked inconsistent,
- * never silently mixed. All limits come from {@link SearchPageAnalysisSettings}; the script writes
+ * before and after — on a mismatch the capture settles briefly and is recaptured (bounded, at most
+ * {@link #MAX_RECAPTURES} times) and otherwise marked inconsistent, never silently mixed. All limits come from {@link SearchPageAnalysisSettings}; the script writes
  * nothing into the page, navigates nowhere and opens nothing.
  *
  * <p>Link enrichment happens Java-side: static search-redirect resolution (the resolved DIRECT URL
@@ -44,10 +44,34 @@ final class RenderedPageDocumentCapture {
         String title();
     }
 
+    /** The injectable settle wait between recaptures, so the bounded loop is unit-testable. */
+    interface SettleDelay {
+        void settle(long millis);
+    }
+
+    /** Bounded recaptures after a mid-capture DOM change — never a full search retry. */
+    static final int MAX_RECAPTURES = 2;
+    /** The settle wait BEFORE each recapture, giving late layout mutations time to finish. */
+    static final long SETTLE_MILLIS = 300;
+
     private final SearchPageAnalysisSettings limits;
+    private final SettleDelay settleDelay;
 
     RenderedPageDocumentCapture(SearchPageAnalysisSettings limits) {
+        this(limits, new SettleDelay() {
+            public void settle(long millis) {
+                try {
+                    Thread.sleep(millis);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        });
+    }
+
+    RenderedPageDocumentCapture(SearchPageAnalysisSettings limits, SettleDelay settleDelay) {
         this.limits = limits;
+        this.settleDelay = settleDelay;
     }
 
     RenderedPageDocument capture(PageScriptRunner page, DomainKeyResolver domainKeys,
@@ -56,15 +80,17 @@ final class RenderedPageDocumentCapture {
         RenderedPageFingerprint before = fingerprint(page);
         Object raw = page.evaluate(captureScript());
         RenderedPageFingerprint after = fingerprint(page);
-        if (!before.matches(after)) {
-            // The DOM changed DURING capture: one controlled retry against the settled state.
-            before = after;
+        // The DOM changed DURING capture: bounded settle + FULL fresh recapture (fingerprint taken
+        // anew after the settle — the retry must describe ONE state, not straddle the mutation).
+        for (int recapture = 0; !before.matches(after) && recapture < MAX_RECAPTURES; recapture++) {
+            settleDelay.settle(SETTLE_MILLIS);
+            before = fingerprint(page);
             raw = page.evaluate(captureScript());
             after = fingerprint(page);
-            if (!before.matches(after)) {
-                warnings.add("DOM_CHANGED_DURING_CAPTURE: geometry and structure may not describe "
-                        + "one consistent state");
-            }
+        }
+        if (!before.matches(after)) {
+            warnings.add("DOM_CHANGED_DURING_CAPTURE: geometry and structure may not describe "
+                    + "one consistent state");
         }
         return convert(raw, page.url(), page.title(), after, snapshotGeneration, domainKeys,
                 warnings);

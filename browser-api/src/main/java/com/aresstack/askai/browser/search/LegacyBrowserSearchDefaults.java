@@ -151,8 +151,10 @@ public final class LegacyBrowserSearchDefaults {
 
     private static AiLayoutResolverSettings aiLayoutResolver() {
         return new AiLayoutResolverSettings(
-                false,  // disabled until the model call ships; the contract is fixed now
-                "",     // modelProfileId: none configured
+                true,   // productive: consulted ONLY on REPAIR_REQUIRED; without an inference port the
+                        // resolver stays a typed AI_UNAVAILABLE — never a fabricated layout
+                "central-main-model", // symbolic profile: the runtime's StructuredInferencePort targets
+                        // the host-published central main-model descriptor (no registry lookup)
                 ReasoningEffort.MEDIUM,
                 0.0,
                 2_000,

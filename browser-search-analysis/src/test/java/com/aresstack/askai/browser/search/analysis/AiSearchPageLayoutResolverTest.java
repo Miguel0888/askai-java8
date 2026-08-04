@@ -90,6 +90,34 @@ public class AiSearchPageLayoutResolverTest {
     }
 
     @Test
+    public void sponsoredContainersStayExcludedFromTheOrganicSelection() {
+        // A DuckDuckGo-style variant: the model classifies one candidate as an advertisement. The
+        // accepted decision carries it ONLY as excluded — the organic set never contains it. This is
+        // the generic classification path, no engine- or ad-specific special case.
+        SearchPageAnalysisArtifact artifact = artifact();
+        assertTrue("fixture must offer at least two candidates",
+                artifact.containerCandidates.size() >= 2);
+        String organic = artifact.containerCandidates.get(0).containerId;
+        String sponsored = artifact.containerCandidates.get(1).containerId;
+        String response = "{\"analysisId\":\"" + artifact.analysisId + "\",\"snapshotId\":\""
+                + artifact.snapshotId + "\","
+                + "\"organicResultContainerIds\":[\"" + organic + "\"],"
+                + "\"resultBlockContainerIds\":[],"
+                + "\"excludedContainerIds\":[\"" + sponsored + "\"],"
+                + "\"confidence\":0.9,\"explanation\":\"second candidate is a sponsored module\"}";
+        ScriptedStructuredInferencePort port =
+                new ScriptedStructuredInferencePort().thenSuccess(response);
+        SearchPageLayoutResolverResult result =
+                new AiSearchPageLayoutResolver(port, defaults.extraction).resolve(request(artifact, true, 3));
+
+        assertEquals(SearchPageLayoutResolverOutcome.RESOLVED, result.outcome);
+        assertNotNull(result.acceptedDecision);
+        assertTrue(result.acceptedDecision.organicResultContainerIds.contains(organic));
+        assertTrue("an advertisement container must never enter the organic selection",
+                !result.acceptedDecision.organicResultContainerIds.contains(sponsored));
+    }
+
+    @Test
     public void parseFailureRepairsWithinBudgetThenResolves() {
         SearchPageAnalysisArtifact artifact = artifact();
         ScriptedStructuredInferencePort port = new ScriptedStructuredInferencePort()

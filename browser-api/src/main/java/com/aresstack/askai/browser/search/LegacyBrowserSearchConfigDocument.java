@@ -24,10 +24,12 @@ public final class LegacyBrowserSearchConfigDocument {
 
     /**
      * v1 = A2 field set; v2 = A3 mechanical-analysis fields added to the analysis section;
-     * v3 = A4 layout-repair ticket-cache settings. Older documents decode cleanly: missing keys fall
-     * back to {@link LegacyBrowserSearchDefaults}, which is the migration.
+     * v3 = A4 layout-repair ticket-cache settings; v4 = the AI layout resolver ships productively
+     * enabled (the stale disabled shipped default in frozen session profiles is lifted by the typed
+     * snapshot migration). Older documents decode cleanly: missing keys fall back to
+     * {@link LegacyBrowserSearchDefaults}, which is the migration.
      */
-    public static final int CURRENT_SCHEMA_VERSION = 3;
+    public static final int CURRENT_SCHEMA_VERSION = 4;
 
     public final int schemaVersion;
     public final long settingsRevision;

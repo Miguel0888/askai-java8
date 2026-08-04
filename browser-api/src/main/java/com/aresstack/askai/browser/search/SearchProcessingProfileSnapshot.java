@@ -80,15 +80,42 @@ public final class SearchProcessingProfileSnapshot {
                 return document;
             case 1:
             case 2:
+            case 3:
                 // v1 → v2 (A3 analysis fields) and v2 → v3 (A4 layout-repair ticket-cache settings):
                 // every older value stays valid and the new keys take their central defaults during
-                // decoding. The stored digest covered the older key set, so it is recomputed (digest
-                // verification only applies to un-migrated current-version snapshots).
-                return document;
+                // decoding. v3 → v4: the AI layout resolver ships productively enabled — a frozen
+                // profile still carrying the stale disabled SHIPPED default is lifted below. The
+                // stored digest covered the older key set, so it is recomputed (digest verification
+                // only applies to un-migrated current-version snapshots).
+                return withProductiveAiLayoutResolver(document);
             default:
                 // parse() already rejects NEWER versions; an unknown older one has no migration path.
                 throw new IllegalArgumentException("search profile snapshot schema "
                         + document.schemaVersion + " has no migration path");
         }
+    }
+
+    /**
+     * v3 → v4: lift ONLY the stale shipped default (disabled AND empty model profile — a combination
+     * the validator never accepted as a deliberate configuration) to the current productive default.
+     * Any other stored value is a real choice and stays exactly as frozen.
+     */
+    private static LegacyBrowserSearchConfigDocument withProductiveAiLayoutResolver(
+            LegacyBrowserSearchConfigDocument document) {
+        String enabled = document.values.get("aiLayoutResolver.enabled");
+        String profile = document.values.get("aiLayoutResolver.modelProfileId");
+        boolean staleShippedDefault = enabled != null && "false".equalsIgnoreCase(enabled.trim())
+                && (profile == null || profile.trim().isEmpty());
+        if (!staleShippedDefault) {
+            return document;
+        }
+        AiLayoutResolverSettings current = LegacyBrowserSearchDefaults.create().aiLayoutResolver;
+        java.util.Map<String, String> values =
+                new java.util.LinkedHashMap<String, String>(document.values);
+        values.put("aiLayoutResolver.enabled", String.valueOf(current.enabled));
+        values.put("aiLayoutResolver.modelProfileId", current.modelProfileId);
+        return new LegacyBrowserSearchConfigDocument(document.schemaVersion,
+                document.settingsRevision, document.settingsDigest, document.profileId,
+                document.createdAtEpochMillis, values);
     }
 }

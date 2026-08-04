@@ -115,10 +115,15 @@ public final class McpLayoutRepairClient {
                 return result(Outcome.CANCELLED, noCandidates(), providerHosts, challenges,
                         diagnostics);
             }
+            // D1 per-ticket diagnostics: the mechanical situation the coordinator starts from.
+            String ticketSummary = ticketSummary(ticket);
+            diagnostics.add(ticketSummary);
+            System.err.println("[initial-search] " + ticketSummary);
             SearchLayoutRepairCoordination coordination =
                     coordinator.coordinate(ticket, cancellationSignal, nowEpochMillis);
             diagnostics.addAll(coordination.diagnostics);
             System.err.println("[initial-search] repair coordinate submit=" + coordination.shouldSubmit()
+                    + selectedOrganicInfo(coordination)
                     + (coordination.diagnostics.isEmpty() ? "" : " diagnostics=" + coordination.diagnostics));
             if (!coordination.shouldSubmit()) {
                 continue; // AI disabled/unavailable/validation-failed for this engine — try the next
@@ -143,6 +148,29 @@ public final class McpLayoutRepairClient {
         }
         return result(Outcome.EXTRACTION_FAILED, noCandidates(), providerHosts, challenges,
                 diagnostics);
+    }
+
+    /** One line answering: which engine, which snapshot, how sure was mechanics, was capture stable. */
+    private static String ticketSummary(SearchLayoutRepairRequest ticket) {
+        boolean unstableCapture = false;
+        for (String warning : ticket.artifact.captureWarnings) {
+            if (warning.startsWith("DOM_CHANGED_DURING_CAPTURE")) {
+                unstableCapture = true;
+            }
+        }
+        return "repair ticket engine=" + ticket.engineHost
+                + " snapshot=" + ticket.snapshotId
+                + " mechanicalConfidence=" + ticket.artifact.mechanicalConfidence
+                + " capture=" + (unstableCapture ? "DOM_CHANGED" : "stable")
+                + " candidateContainers=" + ticket.artifact.containerCandidates.size();
+    }
+
+    private static String selectedOrganicInfo(SearchLayoutRepairCoordination coordination) {
+        if (!coordination.shouldSubmit()) {
+            return "";
+        }
+        return " selectedOrganicContainers="
+                + coordination.submission.decision.organicResultContainerIds.size();
     }
 
     private static Result result(Outcome status, List<SearchResultCandidate> candidates,
