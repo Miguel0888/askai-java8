@@ -22,6 +22,7 @@ public final class SourceUpdate {
     private final SourceRelevance relevance;
     private final SourceReliability reliability;
     private final SourceStatus status;
+    private final boolean userRelevant;
 
     private SourceUpdate(Builder b) {
         this.title = b.title;
@@ -34,6 +35,7 @@ public final class SourceUpdate {
         this.relevance = b.relevance;
         this.reliability = b.reliability;
         this.status = b.status;
+        this.userRelevant = b.userRelevant;
     }
 
     /** Start from an existing record so the editor changes only what it wants. */
@@ -43,7 +45,7 @@ public final class SourceUpdate {
                 .sourceType(record.getSourceType()).author(record.getAuthor())
                 .linkedSectionIds(record.getLinkedSectionIds()).comment(record.getComment())
                 .relevance(record.getRelevance()).reliability(record.getReliability())
-                .status(record.getStatus());
+                .status(record.getStatus()).userRelevant(record.isUserRelevant());
     }
 
     public String getTitle() { return title; }
@@ -56,6 +58,7 @@ public final class SourceUpdate {
     public SourceRelevance getRelevance() { return relevance; }
     public SourceReliability getReliability() { return reliability; }
     public SourceStatus getStatus() { return status; }
+    public boolean isUserRelevant() { return userRelevant; }
 
     public static final class Builder {
         private String title = "";
@@ -68,6 +71,7 @@ public final class SourceUpdate {
         private SourceRelevance relevance = SourceRelevance.UNKNOWN;
         private SourceReliability reliability = SourceReliability.UNKNOWN;
         private SourceStatus status = SourceStatus.NEW;
+        private boolean userRelevant;
 
         public Builder title(String v) { this.title = v == null ? "" : v; return this; }
         public Builder origin(String v) { this.origin = v == null ? "" : v; return this; }
@@ -96,6 +100,7 @@ public final class SourceUpdate {
         public Builder relevance(SourceRelevance v) { this.relevance = v == null ? SourceRelevance.UNKNOWN : v; return this; }
         public Builder reliability(SourceReliability v) { this.reliability = v == null ? SourceReliability.UNKNOWN : v; return this; }
         public Builder status(SourceStatus v) { this.status = v == null ? SourceStatus.NEW : v; return this; }
+        public Builder userRelevant(boolean v) { this.userRelevant = v; return this; }
 
         public SourceUpdate build() {
             return new SourceUpdate(this);

@@ -90,6 +90,7 @@ public final class FileResearchSourceRepository implements ResearchSourceReposit
                 .relevance(update.getRelevance())
                 .reliability(update.getReliability())
                 .status(update.getStatus())
+                .userRelevant(update.isUserRelevant())
                 .revision(current.getRevision() + 1L)
                 .build();
         try {
@@ -127,6 +128,7 @@ public final class FileResearchSourceRepository implements ResearchSourceReposit
         line(sb, "fullText", r.getFullText());
         // A NaN score is written as "" so an old file (no key) and an unscored source read back the same.
         line(sb, "rerankScore", r.hasRerankScore() ? Double.toString(r.getRerankScore()) : "");
+        line(sb, "userRelevant", Boolean.toString(r.isUserRelevant()));
         StoreIo.atomicWrite(file(r.getSourceId()), sb.toString());
     }
 
@@ -163,6 +165,7 @@ public final class FileResearchSourceRepository implements ResearchSourceReposit
                     .excerpt(p.getProperty("excerpt", ""))
                     .fullText(p.getProperty("fullText", "")) // "" for old files / parked (unread) sources
                     .rerankScore(parseScore(p.getProperty("rerankScore")))
+                    .userRelevant(Boolean.parseBoolean(p.getProperty("userRelevant", "false"))) // false for old files
                     .build();
         } catch (Exception corrupt) {
             return null; // isolate a corrupt source file

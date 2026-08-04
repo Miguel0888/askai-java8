@@ -93,6 +93,7 @@ public final class InMemoryResearchSourceRepository implements ResearchSourceRep
                 .relevance(update.getRelevance())
                 .reliability(update.getReliability())
                 .status(update.getStatus())
+                .userRelevant(update.isUserRelevant())
                 .revision(current.getRevision() + 1L)
                 .build();
         byId.put(sourceId, next);

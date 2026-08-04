@@ -2,6 +2,8 @@ package com.aresstack.askai.research.store;
 
 import com.aresstack.askai.research.sources.ResearchSourceRecord;
 import com.aresstack.askai.research.sources.SourceStatus;
+import com.aresstack.askai.research.sources.SourceUpdate;
+import com.aresstack.askai.research.sources.SourceUpdateResult;
 
 import org.junit.Test;
 
@@ -60,6 +62,41 @@ public class FileResearchSourceRepositoryFullTextTest {
         assertEquals("", back.getFullText());
         assertEquals(0.75, back.getRerankScore(), 1e-9);
         assertEquals(SourceStatus.PARKED, back.getStatus());
+    }
+
+    @Test
+    public void userRelevantPersistsAndIsReversibleViaUpdate() throws IOException {
+        File dir = java.nio.file.Files.createTempDirectory("askai-sources-userrel").toFile();
+        FileResearchSourceRepository repo = new FileResearchSourceRepository(dir);
+        repo.put(ResearchSourceRecord.builder("source-4").title("t").url("https://x/y").revision(1L).build());
+        assertFalse("defaults to not user-relevant", repo.get("source-4").isUserRelevant());
+
+        // ⭐ on
+        ResearchSourceRecord current = repo.get("source-4");
+        SourceUpdateResult on = repo.update("source-4", current.getRevision(),
+                SourceUpdate.from(current).userRelevant(true).build());
+        assertEquals(SourceUpdateResult.Status.UPDATED, on.getStatus());
+        assertTrue(new FileResearchSourceRepository(dir).get("source-4").isUserRelevant());
+
+        // ⭐ off again (reversible) — and it survives a reload
+        current = repo.get("source-4");
+        repo.update("source-4", current.getRevision(),
+                SourceUpdate.from(current).userRelevant(false).build());
+        assertFalse(new FileResearchSourceRepository(dir).get("source-4").isUserRelevant());
+    }
+
+    @Test
+    public void anEditThatDoesNotTouchRelevanceKeepsTheUserFlag() throws IOException {
+        // A normal detail-editor update (SourceUpdate.from) preserves ⭐ — it is copied by from().
+        File dir = java.nio.file.Files.createTempDirectory("askai-sources-userrel-keep").toFile();
+        FileResearchSourceRepository repo = new FileResearchSourceRepository(dir);
+        repo.put(ResearchSourceRecord.builder("source-5").title("t").revision(1L).userRelevant(true).build());
+        ResearchSourceRecord current = repo.get("source-5");
+        repo.update("source-5", current.getRevision(),
+                SourceUpdate.from(current).comment("edited").build());
+        ResearchSourceRecord back = new FileResearchSourceRepository(dir).get("source-5");
+        assertTrue("⭐ is preserved across an unrelated edit", back.isUserRelevant());
+        assertEquals("edited", back.getComment());
     }
 
     @Test

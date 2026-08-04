@@ -34,6 +34,12 @@ public final class ResearchSourceRecord {
     private final String fullText;
     /** The reranker relevance score for the search query, or {@code NaN} when unknown/not reranked. */
     private final double rerankScore;
+    /**
+     * The USER marked this source as relevant (the HUD ⭐ toggle) — a reversible signal DISTINCT from the model's
+     * {@link #relevance} assessment and the {@link #rerankScore}. Fed to the Continuous Knowledge Processing
+     * corpus (C5). Defaults to false.
+     */
+    private final boolean userRelevant;
 
     private ResearchSourceRecord(Builder b) {
         this.sourceId = b.sourceId;
@@ -55,6 +61,7 @@ public final class ResearchSourceRecord {
         this.excerpt = str(b.excerpt);
         this.fullText = str(b.fullText);
         this.rerankScore = b.rerankScore;
+        this.userRelevant = b.userRelevant;
     }
 
     private static String str(String v) {
@@ -151,13 +158,18 @@ public final class ResearchSourceRecord {
         return !Double.isNaN(rerankScore);
     }
 
+    /** True when the USER marked this source relevant via the HUD ⭐ toggle (reversible; distinct from relevance). */
+    public boolean isUserRelevant() {
+        return userRelevant;
+    }
+
     public Builder toBuilder() {
         return new Builder(sourceId)
                 .title(title).origin(origin).url(url).sourceType(sourceType).capturedAt(capturedAt)
                 .author(author).linkedSectionIds(linkedSectionIds).comment(comment).relevance(relevance)
                 .reliability(reliability).status(status).snapshotReference(snapshotReference)
                 .checksum(checksum).revision(revision).searchQuery(searchQuery)
-                .excerpt(excerpt).fullText(fullText).rerankScore(rerankScore);
+                .excerpt(excerpt).fullText(fullText).rerankScore(rerankScore).userRelevant(userRelevant);
     }
 
     public static Builder builder(String sourceId) {
@@ -184,6 +196,7 @@ public final class ResearchSourceRecord {
         private String excerpt;
         private String fullText;
         private double rerankScore = Double.NaN;
+        private boolean userRelevant;
 
         private Builder(String sourceId) {
             if (sourceId == null || sourceId.trim().isEmpty()) {
@@ -215,6 +228,7 @@ public final class ResearchSourceRecord {
         public Builder excerpt(String v) { this.excerpt = v; return this; }
         public Builder fullText(String v) { this.fullText = v; return this; }
         public Builder rerankScore(double v) { this.rerankScore = v; return this; }
+        public Builder userRelevant(boolean v) { this.userRelevant = v; return this; }
 
         public ResearchSourceRecord build() {
             return new ResearchSourceRecord(this);
