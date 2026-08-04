@@ -230,16 +230,16 @@ public class ResearchRuntimeModeTest {
         assertEquals("en", ResearchRuntimeSettings.loadLanguage(store)); // English default
         ResearchRuntimeSettings.saveLanguage(store, "de");
         assertEquals("de", ResearchRuntimeSettings.loadLanguage(store));
-        try {
-            com.aresstack.askai.research.agent.ResearchPlaybook.setLanguage(
-                    ResearchRuntimeSettings.loadLanguage(store));
-            assertTrue(com.aresstack.askai.research.agent.ResearchPlaybook.greeting()
-                    .contains("Was möchtest du herausfinden?"));
-        } finally {
-            com.aresstack.askai.research.agent.ResearchPlaybook.setLanguage("en"); // no test bleed
-        }
-        assertTrue(com.aresstack.askai.research.agent.ResearchPlaybook.greeting()
-                .contains("what would you like to find out?"));
+        // The persisted code seeds a session-LOCAL playbook; two instances never influence each other.
+        com.aresstack.askai.research.agent.ResearchPlaybook german =
+                new com.aresstack.askai.research.agent.ResearchPlaybook(
+                        com.aresstack.askai.research.agent.ResearchLanguage.fromCode(
+                                ResearchRuntimeSettings.loadLanguage(store)));
+        com.aresstack.askai.research.agent.ResearchPlaybook english =
+                new com.aresstack.askai.research.agent.ResearchPlaybook(
+                        com.aresstack.askai.research.agent.ResearchLanguage.ENGLISH);
+        assertTrue(german.greeting().contains("Was möchtest du herausfinden?"));
+        assertTrue(english.greeting().contains("what would you like to find out?"));
     }
 
     @Test

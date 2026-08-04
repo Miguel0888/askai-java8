@@ -435,6 +435,17 @@ public final class AgentSessionCoordinator
     }
 
 
+    /** @return the active agent's top-bar toolbar contributions (empty when no agent is active). */
+    public List<com.aresstack.askai.plugin.api.agent.toolbar.AgentToolbarContribution>
+            getActiveToolbarContributions() {
+        List<com.aresstack.askai.plugin.api.agent.toolbar.AgentToolbarContribution> contributions =
+                activeExtension == null ? null : activeExtension.getToolbarContributions();
+        return contributions == null
+                ? Collections.<com.aresstack.askai.plugin.api.agent.toolbar.AgentToolbarContribution>
+                        emptyList()
+                : contributions;
+    }
+
     /**
      * The settings pages of the ACTIVE agent (empty without one): the gear menu renders them only for
      * the tab whose agent is selected, with that tab's session — session-based by contract.

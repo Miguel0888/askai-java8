@@ -11,42 +11,43 @@ import java.util.Locale;
  */
 public final class ResearchPlaybook {
 
-    /** UI language of every agent utterance (default English; switchable in the Runtime tab). */
-    public enum Language { ENGLISH, GERMAN }
+    private final ResearchLanguageProvider language;
 
-    private static volatile Language language = Language.ENGLISH;
-
-    public static void setLanguage(Language value) {
-        language = value == null ? Language.ENGLISH : value;
+    /**
+     * The playbook reads the CURRENT session language on every utterance, so a live switch applies to the
+     * next generated text — it never copies the language at construction time.
+     */
+    public ResearchPlaybook(ResearchLanguageProvider language) {
+        this.language = language == null
+                ? new SessionResearchLanguage(ResearchLanguage.ENGLISH)
+                : language;
     }
 
-    /** Convenience for persisted codes ("de" → German, anything else → English default). */
-    public static void setLanguage(String code) {
-        setLanguage("de".equalsIgnoreCase(code) ? Language.GERMAN : Language.ENGLISH);
+    /** Convenience for callers with a FIXED language (settings previews, tests). */
+    public ResearchPlaybook(ResearchLanguage fixedLanguage) {
+        this(new SessionResearchLanguage(fixedLanguage));
     }
 
-    public static Language getLanguage() {
-        return language;
+    /** The live language check narrators and the session share for their own bilingual texts. */
+    public boolean isGerman() {
+        return language.currentLanguage() == ResearchLanguage.GERMAN;
     }
 
-    private static boolean de() {
-        return language == Language.GERMAN;
-    }
-
-    private ResearchPlaybook() {
+    private boolean de() {
+        return isGerman();
     }
 
     /** First contact: friendly, takes initiative, ONE open question — never an approval. */
     /** A failed scope commit: explain, keep the dialog repeatable — never a silent advance. */
-    public static String scopeCommitFailed(String detail) {
-        return language == Language.GERMAN
+    public String scopeCommitFailed(String detail) {
+        return de()
                 ? "Der Forschungsauftrag konnte nicht gespeichert werden (" + detail
                         + "). Es wurde nichts fortgeschaltet - bitte bestaetige den Umfang erneut."
                 : "The research scope could not be saved (" + detail
                         + "). Nothing was advanced - please confirm the scope again.";
     }
 
-    public static String greeting() {
+    public String greeting() {
         if (de()) {
             return "Hallo! Ich unterstütze dich bei einer strukturierten Recherche: Wir klären zuerst, "
                     + "WAS du herausfinden willst, dann schlage ich dir eine Gliederung zur Freigabe "
@@ -61,7 +62,7 @@ public final class ResearchPlaybook {
     }
 
     /** Echo-based paraphrase + ONE focused follow-up (honest: mirrors, does not pretend deep analysis). */
-    public static String paraphraseAndFocus(String question) {
+    public String paraphraseAndFocus(String question) {
         if (de()) {
             return "Verstanden — du möchtest recherchieren:\n\n> " + question + "\n\n"
                     + "Eine fokussierende Frage: Gibt es bestimmte Aspekte, die dir besonders wichtig "
@@ -75,7 +76,7 @@ public final class ResearchPlaybook {
     }
 
     /** Scope summary + the explicit missing-anything check. */
-    public static String summarizeAndCheck(String question, java.util.List<String> aspects) {
+    public String summarizeAndCheck(String question, java.util.List<String> aspects) {
         StringBuilder sb = new StringBuilder(de()
                 ? "So verstehe ich den Umfang bisher:\n\n"
                 : "Here is my current understanding of the scope:\n\n");
@@ -111,7 +112,7 @@ public final class ResearchPlaybook {
      * "why do you ask", "which phase", "what happens next"), or {@code null} for normal content.
      * Answers combine the stable playbook with the LIVE state description passed in.
      */
-    public static String explain(String text, String phaseDescription) {
+    public String explain(String text, String phaseDescription) {
         String t = normalize(text);
         boolean asksWhat = t.contains("what can you") || t.contains("was kannst du")
                 || t.contains("what do you do") || t.contains("was machst du")
@@ -147,7 +148,7 @@ public final class ResearchPlaybook {
     }
 
     /** Human wording for the current situation (no internal identifiers). */
-    public static String describePhase(String phaseId, String stateId, boolean hasQuestion) {
+    public String describePhase(String phaseId, String stateId, boolean hasQuestion) {
         if ("scoping".equals(phaseId) || !hasQuestion) {
             return de()
                     ? "Wir klären gerade, was du herausfinden möchtest. Als Nächstes fasse ich den "
@@ -180,58 +181,58 @@ public final class ResearchPlaybook {
     // ------------------------------------------------------------------ run progress card (one per run)
 
     /** Title of the single in-place progress card. */
-    public static String progressTitle() {
+    public String progressTitle() {
         return de() ? "Webrecherche läuft" : "Web research in progress";
     }
 
     /** The search the agent is running right now — the query is the user's own request, so it is shown. */
-    public static String progressSearchLine(String query) {
+    public String progressSearchLine(String query) {
         return (de() ? "Suche im Web nach:\n" : "Searching the web for:\n") + "„" + query + "“";
     }
 
     /** REST-provider search: no browser is involved in this step, and the card says so. */
-    public static String progressApiSearchLine(String provider, String query) {
+    public String progressApiSearchLine(String provider, String query) {
         return (de() ? "Suche per " + provider + " (ohne Browser) nach:\n"
                 : "Searching via " + provider + " (no browser) for:\n") + "„" + query + "“";
     }
 
     /** Thought bubble while a REST provider answers the search — the browser stays closed here. */
-    public static String apiSearchThinking(String provider, String query) {
+    public String apiSearchThinking(String provider, String query) {
         return de()
                 ? "fragt " + provider + " nach „" + query + "“ …"
                 : "asking " + provider + " about “" + query + "” …";
     }
 
     /** Closes the REST-search thought bubble once the provider answered. */
-    public static String apiSearchDone(String provider) {
+    public String apiSearchDone(String provider) {
         return de()
                 ? "Ergebnisse von " + provider + " erhalten."
                 : "Results from " + provider + " received.";
     }
 
     /** The real target website the browser is on right now (final host + page title, never raw URLs). */
-    public static String progressPageLine(String host, String pageTitle) {
+    public String progressPageLine(String host, String pageTitle) {
         String head = de() ? "Gerade geöffnet:\n" : "Currently open:\n";
         return head + host + (pageTitle == null || pageTitle.isEmpty() ? "" : "\n" + pageTitle);
     }
 
     /** Heading of the compact visible activity history (the last few processed websites). */
-    public static String recentPagesTitle() {
+    public String recentPagesTitle() {
         return de() ? "Zuletzt:" : "Recently:";
     }
 
     /** One history entry for a page recorded as a source. */
-    public static String historyAccepted(String host, String pageTitle) {
+    public String historyAccepted(String host, String pageTitle) {
         return "✓ " + host + (pageTitle == null || pageTitle.isEmpty() ? "" : " — " + pageTitle);
     }
 
     /** One history entry for a page checked and found not relevant. */
-    public static String historySkipped(String host) {
+    public String historySkipped(String host) {
         return "– " + host + (de() ? " — nicht relevant" : " — not relevant");
     }
 
     /** Explains the headless switch: transparency comes from the chat, not from a visible browser window. */
-    public static String headlessHint() {
+    public String headlessHint() {
         return de()
                 ? "Headless: Das Browserfenster bleibt verborgen. Die besuchten Websites werden "
                         + "während der Recherche im Chat angezeigt."
@@ -240,22 +241,22 @@ public final class ResearchPlaybook {
     }
 
     /** Static title of the narration thought bubble while the LLM narrator phrases a milestone. */
-    public static String narratorThinking() {
+    public String narratorThinking() {
         return de() ? "überlegt, wie es das am besten formuliert …" : "thinking about how to put this …";
     }
 
     /** Transient activity while the lazy browser sidecar starts for a research run. */
-    public static String browserStarting() {
+    public String browserStarting() {
         return de() ? "Starte Browser …" : "Starting browser…";
     }
 
     /** Finishes the "Starte Browser" bubble once the sidecar is ready. */
-    public static String browserReady() {
+    public String browserReady() {
         return de() ? "Browser bereit." : "Browser ready.";
     }
 
     /** A visible, honest failure when the browser could not be started (no success, no state progress). */
-    public static String browserFailed(String detail) {
+    public String browserFailed(String detail) {
         String suffix = detail == null || detail.trim().isEmpty() ? "" : " (" + detail.trim() + ")";
         return de()
                 ? "**Der Browser konnte nicht gestartet werden.**" + suffix
@@ -267,7 +268,7 @@ public final class ResearchPlaybook {
     }
 
     /** The card's live counters + a readable current activity (never enum names or raw URLs). */
-    public static String progressLine(int pages, int sources, int hosts, String activityToken) {
+    public String progressLine(int pages, int sources, int hosts, String activityToken) {
         String counters = de()
                 ? pages + " Seiten geprüft · " + sources + " Quellen aufgenommen · " + hosts
                         + (hosts == 1 ? " Website" : " Websites")
@@ -276,7 +277,7 @@ public final class ResearchPlaybook {
         return counters + "\n" + activityLabel(activityToken);
     }
 
-    private static String activityLabel(String token) {
+    private String activityLabel(String token) {
         String t = token == null ? "" : token;
         if ("SEARCHING".equals(t)) {
             return de() ? "Suche läuft …" : "Searching …";
@@ -301,7 +302,7 @@ public final class ResearchPlaybook {
     }
 
     /** Persistent notice when a website demands a manual security check (CAPTCHA) from the user. */
-    public static String attentionRequired(String domain) {
+    public String attentionRequired(String domain) {
         String site = domain == null || domain.isEmpty() ? (de() ? "Eine Website" : "A website") : domain;
         return de()
                 ? "**Manuelle Eingabe erforderlich**\n\n" + site + " verlangt eine Sicherheitsprüfung. "
@@ -313,7 +314,7 @@ public final class ResearchPlaybook {
     }
 
     /** Visible all-clear once the user solved the manual security check. */
-    public static String attentionResolved(String domain) {
+    public String attentionResolved(String domain) {
         String site = domain == null || domain.isEmpty() ? (de() ? "Die Website" : "The website") : domain;
         return de()
                 ? "Sicherheitsprüfung gelöst — " + site + " steht der Recherche wieder zur Verfügung."
@@ -321,7 +322,7 @@ public final class ResearchPlaybook {
     }
 
     /** Summary shown when the progress card completes. */
-    public static String runFinishedSummary(int pages, int sources, int hosts) {
+    public String runFinishedSummary(int pages, int sources, int hosts) {
         return de()
                 ? "Recherche-Durchlauf beendet — " + pages + " Seiten, " + sources + " Quellen, "
                         + hosts + (hosts == 1 ? " Website" : " Websites")
@@ -336,7 +337,7 @@ public final class ResearchPlaybook {
      * still missing and what the agent recommends — plain language, no stop-reason enum names, no internal
      * ids, no raw URLs. The matching actions are chosen by the session.
      */
-    public static String outcomeCard(com.aresstack.askai.research.backend.ResearchRunOutcomeInfo o) {
+    public String outcomeCard(com.aresstack.askai.research.backend.ResearchRunOutcomeInfo o) {
         String stop = o.getStopReason();
         boolean sufficient = o.isEvidenceSufficient();
         StringBuilder sb = new StringBuilder();
@@ -481,7 +482,7 @@ public final class ResearchPlaybook {
         return sb.toString();
     }
 
-    private static String achieved(com.aresstack.askai.research.backend.ResearchRunOutcomeInfo o) {
+    private String achieved(com.aresstack.askai.research.backend.ResearchRunOutcomeInfo o) {
         int s = o.getAcceptedSources();
         int h = o.getDistinctHosts();
         return de()
@@ -491,7 +492,7 @@ public final class ResearchPlaybook {
                         + (h == 1 ? " website" : " different websites") + ".";
     }
 
-    private static String missing(com.aresstack.askai.research.backend.ResearchRunOutcomeInfo o) {
+    private String missing(com.aresstack.askai.research.backend.ResearchRunOutcomeInfo o) {
         if ("INSUFFICIENT_SOURCES".equals(o.getLimitation())) {
             return de()
                     ? "Für ein belastbares Ergebnis fehlen noch Quellen (mindestens "
@@ -509,7 +510,7 @@ public final class ResearchPlaybook {
         return de() ? "Die Mindestanforderungen sind erfüllt." : "The minimum requirements are met.";
     }
 
-    private static String recommendation(com.aresstack.askai.research.backend.ResearchRunOutcomeInfo o) {
+    private String recommendation(com.aresstack.askai.research.backend.ResearchRunOutcomeInfo o) {
         String action = o.getRecommendedAction();
         if ("CONTINUE_RESEARCH".equals(action)) {
             return de()
@@ -540,7 +541,7 @@ public final class ResearchPlaybook {
     }
 
     /** Localized labels for the typed result-card actions (ids are stable, labels are language-bound). */
-    public static String actionLabel(String actionId) {
+    public String actionLabel(String actionId) {
         if ("continue".equals(actionId)) {
             return de() ? "Weiterrecherchieren" : "Continue research";
         }
@@ -578,7 +579,7 @@ public final class ResearchPlaybook {
     }
 
     /** Visible confirmation once the user chose to proceed despite an unmet evidence requirement. */
-    public static String limitationRecorded(com.aresstack.askai.research.backend.ResearchRunOutcomeInfo o) {
+    public String limitationRecorded(com.aresstack.askai.research.backend.ResearchRunOutcomeInfo o) {
         return de()
                 ? "Einschränkung festgehalten: " + missing(o) + " Der aktuelle Stand wird NICHT als "
                         + "uneingeschränkt ausreichend behandelt."
@@ -587,7 +588,7 @@ public final class ResearchPlaybook {
     }
 
     /** The focused follow-up when the user chose to refine the research scope. */
-    public static String refinePrompt() {
+    public String refinePrompt() {
         return de()
                 ? "Gern — welche Richtung soll ich ergänzen oder ändern? Nenne z. B. zusätzliche "
                         + "Aspekte, andere Suchbegriffe oder Quellenarten."

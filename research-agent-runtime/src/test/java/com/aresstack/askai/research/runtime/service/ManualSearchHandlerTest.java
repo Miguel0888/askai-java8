@@ -39,15 +39,21 @@ public class ManualSearchHandlerTest {
     @Test
     public void runsTheStrategyAndEmitsStartedThenCompleted() {
         final String[] seenQuery = new String[1];
+        final String[] seenLanguage = new String[1];
+        final String[] seenCountry = {"unset"};
         SearchStrategy strategy = new SearchStrategy() {
             public InitialSearchResult search(InitialSearchRequest r, CancellationSignal c, SearchBudgetGate b) {
                 seenQuery[0] = r.getQuery();
+                seenLanguage[0] = r.getLanguage();
+                seenCountry[0] = r.getCountry();
                 return InitialSearchResult.empty(Collections.<String>emptyList());
             }
         };
-        new ManualSearchHandler(strategy, NOT_CANCELLED).handle("R1", "wearables audio", emitter);
+        new ManualSearchHandler(strategy, NOT_CANCELLED).handle("R1", "wearables audio", "de", emitter);
 
         assertEquals("the productive strategy ran with exactly the query", "wearables audio", seenQuery[0]);
+        assertEquals("the language snapshot overrides the provider default", "de", seenLanguage[0]);
+        assertEquals("the country is never derived from the language", null, seenCountry[0]);
         assertEquals(2, lines.size());
         assertTrue(lines.get(0).contains("manual_search_started"));
         assertTrue(lines.get(0).contains("request_id=R1"));
@@ -56,8 +62,22 @@ public class ManualSearchHandlerTest {
     }
 
     @Test
+    public void aMissingLanguageKeepsTheProviderDefault() {
+        final String[] seenLanguage = {"unset"};
+        SearchStrategy strategy = new SearchStrategy() {
+            public InitialSearchResult search(InitialSearchRequest r, CancellationSignal c, SearchBudgetGate b) {
+                seenLanguage[0] = r.getLanguage();
+                return InitialSearchResult.empty(Collections.<String>emptyList());
+            }
+        };
+        new ManualSearchHandler(strategy, NOT_CANCELLED).handle("R1", "q", null, emitter);
+        assertEquals("a legacy request without a language keeps the provider default",
+                null, seenLanguage[0]);
+    }
+
+    @Test
     public void aMissingStrategyIsAnHonestUnavailableFailureNotANoOp() {
-        new ManualSearchHandler(null, NOT_CANCELLED).handle("R1", "q", emitter);
+        new ManualSearchHandler(null, NOT_CANCELLED).handle("R1", "q", null, emitter);
         assertTrue(lines.get(0).contains("manual_search_started"));
         assertTrue(lines.get(1).contains("manual_search_failed"));
         assertTrue(lines.get(1).contains("reason=SEARCH_UNAVAILABLE"));
@@ -70,7 +90,7 @@ public class ManualSearchHandlerTest {
                 throw new RuntimeException("provider down");
             }
         };
-        new ManualSearchHandler(strategy, NOT_CANCELLED).handle("R1", "q", emitter);
+        new ManualSearchHandler(strategy, NOT_CANCELLED).handle("R1", "q", null, emitter);
         assertTrue(lines.get(1).contains("manual_search_failed"));
         assertTrue(lines.get(1).contains("reason=SEARCH_FAILED"));
     }
@@ -87,14 +107,14 @@ public class ManualSearchHandlerTest {
                 return true;
             }
         };
-        new ManualSearchHandler(strategy, cancelled).handle("R1", "q", emitter);
+        new ManualSearchHandler(strategy, cancelled).handle("R1", "q", null, emitter);
         assertTrue(lines.get(1).contains("manual_search_failed"));
         assertTrue(lines.get(1).contains("reason=CANCELLED"));
     }
 
     @Test
     public void anEmptyQueryIsRejectedBeforeTouchingTheStrategy() {
-        new ManualSearchHandler(null, NOT_CANCELLED).handle("R1", "   ", emitter);
+        new ManualSearchHandler(null, NOT_CANCELLED).handle("R1", "   ", null, emitter);
         assertTrue(lines.get(0).contains("manual_search_started"));
         assertTrue(lines.get(1).contains("reason=EMPTY_QUERY"));
     }

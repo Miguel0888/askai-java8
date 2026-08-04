@@ -11,7 +11,8 @@ import java.util.Map;
  * field ever contains a space. The ui-plugin's encoder of the same name is the ONLY producer; a round-trip
  * test pins the format across the process boundary.
  *
- * <pre>#RSC1# manual_search request_id=&lt;uuid&gt; query=&lt;urlenc&gt;</pre>
+ * <pre>#RSC1# manual_search request_id=&lt;uuid&gt; query=&lt;urlenc&gt;
+ * #RSC1# set_language language=de|en</pre>
  */
 public final class ResearchServiceCommandWire {
 
@@ -42,7 +43,8 @@ public final class ResearchServiceCommandWire {
                 }
             }
         }
-        return new ResearchServiceCommand(type, fields.get("request_id"), decode(fields.get("query")));
+        return new ResearchServiceCommand(type, fields.get("request_id"), decode(fields.get("query")),
+                fields.get("language"));
     }
 
     private static String decode(String value) {

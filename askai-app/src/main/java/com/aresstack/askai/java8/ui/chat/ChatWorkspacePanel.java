@@ -77,6 +77,8 @@ public final class ChatWorkspacePanel extends JPanel {
 
     private final ChatSidebarPanel sidebar;
     private final JButton burger;
+    /** Slot for the ACTIVE agent's generic toolbar contributions, left of the gear (may stay empty). */
+    private final JPanel agentToolbarSlot = new JPanel(new BorderLayout());
     private final com.aresstack.askai.java8.ui.sidebar.SidebarTabRibbon ribbon =
             new com.aresstack.askai.java8.ui.sidebar.SidebarTabRibbon();
     private JPanel chatListPanel;
@@ -273,6 +275,20 @@ public final class ChatWorkspacePanel extends JPanel {
         persistBurgerPinned();
     }
 
+    /** Show the active agent's toolbar controls left of the gear (replaces any previous ones). */
+    public void setAgentToolbar(javax.swing.JComponent component) {
+        agentToolbarSlot.removeAll();
+        if (component != null) {
+            agentToolbarSlot.add(component, BorderLayout.CENTER);
+        }
+        agentToolbarSlot.revalidate();
+        agentToolbarSlot.repaint();
+    }
+
+    public void clearAgentToolbar() {
+        setAgentToolbar(null);
+    }
+
     // ------------------------------------------------------------------ layout + sidebar behavior
 
     private void buildTopLevelLayout() {
@@ -318,7 +334,14 @@ public final class ChatWorkspacePanel extends JPanel {
         topBar.setBorder(BorderFactory.createEmptyBorder(2, 4, 0, 4));
         topBar.add(burger, BorderLayout.WEST);
         topBar.add(ribbon, BorderLayout.CENTER); // unfolds to the right of the burger
-        topBar.add(gear, BorderLayout.EAST);
+        // Generic agent toolbar contributions (e.g. a session language switch) sit LEFT of the gear.
+        // The workspace only hosts the slot; the components come from the active agent's plugin.
+        JPanel topRight = new JPanel(new BorderLayout(4, 0));
+        topRight.setOpaque(false);
+        agentToolbarSlot.setOpaque(false);
+        topRight.add(agentToolbarSlot, BorderLayout.CENTER);
+        topRight.add(gear, BorderLayout.EAST);
+        topBar.add(topRight, BorderLayout.EAST);
 
         sidebar.setVisible(false);
         sidebar.setExtraTabsSupplier(() -> sidebarTabsSource == null

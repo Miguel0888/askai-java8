@@ -44,9 +44,8 @@ public final class ResearchAgentSessionFactory implements AgentSessionFactory {
 
     @Override
     public AgentSession create(AgentSessionCreationRequest request, AgentHostContext hostContext) {
-        // The agent speaks the persisted language (English default, German translation) from the start.
-        ResearchPlaybook.setLanguage(
-                ResearchRuntimeSettings.loadLanguage(hostContext.getStateStore()));
+        // The persisted language is only the DEFAULT for new sessions — each ResearchAgentSession reads
+        // it itself and owns its language from then on (live-switchable per session, nothing global).
         ResearchRuntimeSettings settings = ResearchRuntimeSettings.load(hostContext.getStateStore());
         // There is NO user-facing mode choice: productive is simply THE mode whenever its requirements
         // are met (auto-completed defaults). A persisted FAKE value remains a developer-only override.
@@ -77,7 +76,9 @@ public final class ResearchAgentSessionFactory implements AgentSessionFactory {
                                     String visibleNotice) {
         RealResearchScheduler scheduler = new RealResearchScheduler();
         FakeResearchSessionBackend backend = new FakeResearchSessionBackend(
-                scheduler, ResearchClock.system(), ResearchIdGenerator.random(), STEP_DELAY_MILLIS);
+                scheduler, ResearchClock.system(), ResearchIdGenerator.random(), STEP_DELAY_MILLIS,
+                ResearchLanguage.fromCode(
+                        ResearchRuntimeSettings.loadLanguage(hostContext.getStateStore())));
         ResearchAgentSession session = new ResearchAgentSession(backend, scheduler, hostContext,
                 request.getSessionId(), request.getProjectId());
         if (visibleNotice != null) {
@@ -100,7 +101,8 @@ public final class ResearchAgentSessionFactory implements AgentSessionFactory {
                 com.aresstack.askai.agent.model.inference.AgentInferencePort.class);
         if (port != null) {
             session.configureNarration(
-                    new com.aresstack.askai.research.agent.narration.LlmNarrator(port));
+                    new com.aresstack.askai.research.agent.narration.LlmNarrator(
+                            port, session.getSessionLanguage()));
         }
     }
 

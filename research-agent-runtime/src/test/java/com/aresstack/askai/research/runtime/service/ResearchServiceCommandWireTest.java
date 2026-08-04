@@ -23,6 +23,27 @@ public class ResearchServiceCommandWireTest {
         assertEquals(ResearchServiceCommand.TYPE_MANUAL_SEARCH, command.getType());
         assertEquals("abc-123", command.getRequestId());
         assertEquals("the query round-trips through URL encoding", query, command.getQuery());
+        assertEquals("no language field → empty (provider default stays)", "", command.getLanguage());
+    }
+
+    @Test
+    public void parsesTheAuthoritativeLanguageSnapshotOfAManualSearch() {
+        ResearchServiceCommand command = ResearchServiceCommandWire.parse(
+                "#RSC1# manual_search request_id=R1 query=wearables language=de");
+        assertEquals(ResearchServiceCommand.TYPE_MANUAL_SEARCH, command.getType());
+        assertEquals("R1", command.getRequestId());
+        assertEquals("wearables", command.getQuery());
+        assertEquals("de", command.getLanguage());
+    }
+
+    @Test
+    public void parsesASetLanguageEnvelope() {
+        ResearchServiceCommand command =
+                ResearchServiceCommandWire.parse("#RSC1# set_language language=de");
+        assertEquals(ResearchServiceCommand.TYPE_SET_LANGUAGE, command.getType());
+        assertEquals("de", command.getLanguage());
+        assertEquals("no request id, no query — a pure context mutation", "", command.getRequestId());
+        assertEquals("", command.getQuery());
     }
 
     @Test

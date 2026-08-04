@@ -125,9 +125,96 @@ public class ManualSearchWiringTest {
         assertTrue("carries a correlation id", envelope.contains(" request_id="));
         assertTrue("carries the url-encoded query",
                 envelope.contains("query=" + java.net.URLEncoder.encode("wearables audio video", "UTF-8")));
+        assertTrue("carries the session-language snapshot", envelope.contains(" language=en"));
         assertEquals("no chat prompt was submitted", promptsBefore, fx.backend.prompts.size());
         assertEquals("the phase is unchanged", ResearchStateIds.SCOPING,
                 fx.resources.currentState().getPhaseId());
+    }
+
+    @Test
+    public void aLanguageSwitchIsAServiceCommandNeverAChatTurnAndNeverAStateChange() {
+        Fx fx = new Fx();
+        fx.session.dispatch(ResearchCommandType.START, null); // SCOPING/RUNNING
+        completeTurn(fx, 1L);
+        int promptsBefore = fx.backend.prompts.size();
+
+        fx.session.changeLanguage(com.aresstack.askai.research.agent.ResearchLanguage.GERMAN);
+
+        assertEquals("exactly one typed control envelope", 1, fx.backend.serviceCommands.size());
+        assertEquals("#RSC1# set_language language=de", fx.backend.serviceCommands.get(0));
+        assertEquals("no chat prompt was submitted", promptsBefore, fx.backend.prompts.size());
+        assertEquals("the phase is unchanged", ResearchStateIds.SCOPING,
+                fx.resources.currentState().getPhaseId());
+        assertEquals("the state is unchanged", ResearchStateIds.RUNNING,
+                fx.resources.currentState().getStateId());
+        assertEquals("the host session mirrors the new language",
+                com.aresstack.askai.research.agent.ResearchLanguage.GERMAN,
+                fx.session.getSessionLanguage().currentLanguage());
+    }
+
+    @Test
+    public void aSearchSnapshotsTheSessionLanguageAtSubmitTime() {
+        Fx fx = new Fx();
+        fx.session.dispatch(ResearchCommandType.START, null); // SCOPING/RUNNING
+        completeTurn(fx, 1L);
+
+        fx.session.changeLanguage(com.aresstack.askai.research.agent.ResearchLanguage.GERMAN);
+        fx.session.requestManualWebSearch("wearables"); // search A snapshots de
+        fx.session.changeLanguage(com.aresstack.askai.research.agent.ResearchLanguage.ENGLISH);
+        fx.session.requestManualWebSearch("medical devices"); // search B snapshots en
+
+        List<String> searches = new ArrayList<String>();
+        for (String envelope : fx.backend.serviceCommands) {
+            if (envelope.startsWith("#RSC1# manual_search")) {
+                searches.add(envelope);
+            }
+        }
+        assertEquals(2, searches.size());
+        assertTrue("search A keeps its German snapshot", searches.get(0).contains(" language=de"));
+        assertTrue("search B carries the new English snapshot", searches.get(1).contains(" language=en"));
+    }
+
+    @Test
+    public void theToolbarDropdownSwitchesTheSessionLanguageViaTheServiceCommandPath() {
+        final Fx fx = new Fx();
+        fx.session.dispatch(ResearchCommandType.START, null);
+        completeTurn(fx, 1L);
+        com.aresstack.askai.research.agent.ResearchLanguageToolbarContribution contribution =
+                new com.aresstack.askai.research.agent.ResearchLanguageToolbarContribution();
+        assertTrue("the control applies to research sessions", contribution.supports(fx.session));
+
+        javax.swing.JComboBox<?> combo = (javax.swing.JComboBox<?>) contribution.createComponent(
+                new com.aresstack.askai.plugin.api.agent.toolbar.AgentToolbarContext() {
+                    public com.aresstack.askai.plugin.api.agent.AgentSession getSession() {
+                        return fx.session;
+                    }
+
+                    public UiExecutor getUiExecutor() {
+                        return inlineUi();
+                    }
+
+                    public ThemeService getThemeService() {
+                        return null;
+                    }
+                });
+        assertEquals("the dropdown mirrors the session language",
+                com.aresstack.askai.research.agent.ResearchLanguage.ENGLISH, combo.getSelectedItem());
+
+        int promptsBefore = fx.backend.prompts.size();
+        combo.setSelectedItem(com.aresstack.askai.research.agent.ResearchLanguage.GERMAN);
+
+        assertEquals("the switch reaches the host session first",
+                com.aresstack.askai.research.agent.ResearchLanguage.GERMAN,
+                fx.session.getSessionLanguage().currentLanguage());
+        assertEquals("exactly one set_language control envelope", 1, fx.backend.serviceCommands.size());
+        assertEquals("#RSC1# set_language language=de", fx.backend.serviceCommands.get(0));
+        assertEquals("never a chat turn", promptsBefore, fx.backend.prompts.size());
+        assertEquals("never a state change", ResearchStateIds.RUNNING,
+                fx.resources.currentState().getStateId());
+
+        combo.setSelectedItem(com.aresstack.askai.research.agent.ResearchLanguage.GERMAN);
+        assertEquals("re-selecting the current language sends nothing",
+                1, fx.backend.serviceCommands.size());
     }
 
     @Test

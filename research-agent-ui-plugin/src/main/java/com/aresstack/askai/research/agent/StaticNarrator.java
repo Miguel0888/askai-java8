@@ -12,20 +12,24 @@ import java.util.Map;
  */
 public final class StaticNarrator implements ResearchNarrator {
 
+    private final ResearchPlaybook playbook;
     private final int seed;
     private final Map<String, Integer> uses = new HashMap<String, Integer>();
 
-    public StaticNarrator() {
-        this(0);
+    public StaticNarrator(ResearchPlaybook playbook) {
+        this(playbook, 0);
     }
 
     /** @param seed per-session offset into the variant rotation (0 → the playbook wording first). */
-    public StaticNarrator(int seed) {
+    public StaticNarrator(ResearchPlaybook playbook, int seed) {
+        this.playbook = playbook == null
+                ? new ResearchPlaybook(ResearchLanguage.ENGLISH)
+                : playbook;
         this.seed = seed < 0 ? 0 : seed;
     }
 
-    private static boolean de() {
-        return ResearchPlaybook.getLanguage() == ResearchPlaybook.Language.GERMAN;
+    private boolean de() {
+        return playbook.isGerman();
     }
 
     /** The rotating variant index for a message kind: seed + how often this kind was said already. */
@@ -58,7 +62,7 @@ public final class StaticNarrator implements ResearchNarrator {
                                 + "the outline, then I research web sources and collect the evidence.\n\n"
                                 + "Tell me: what do you want to find out?";
             default:
-                return ResearchPlaybook.greeting();
+                return playbook.greeting();
         }
     }
 
@@ -86,7 +90,7 @@ public final class StaticNarrator implements ResearchNarrator {
                                 + "updates, security, alternatives)? Or just say \"start\" and I'll "
                                 + "work with what we have.");
             default:
-                return ResearchPlaybook.paraphraseAndFocus(question);
+                return playbook.paraphraseAndFocus(question);
         }
     }
 
@@ -107,7 +111,7 @@ public final class StaticNarrator implements ResearchNarrator {
                             + "the outline.");
             return sb.toString();
         }
-        return ResearchPlaybook.summarizeAndCheck(question, aspects);
+        return playbook.summarizeAndCheck(question, aspects);
     }
 
     @Override
@@ -124,12 +128,12 @@ public final class StaticNarrator implements ResearchNarrator {
 
     @Override
     public String describePhase(String phaseId, String stateId, boolean hasQuestion) {
-        return ResearchPlaybook.describePhase(phaseId, stateId, hasQuestion);
+        return playbook.describePhase(phaseId, stateId, hasQuestion);
     }
 
     @Override
     public String explainOrNull(String userText, String phaseDescription) {
-        return ResearchPlaybook.explain(userText, phaseDescription);
+        return playbook.explain(userText, phaseDescription);
     }
 
     @Override
@@ -148,7 +152,7 @@ public final class StaticNarrator implements ResearchNarrator {
                         : "Happy to. Which direction should it take? You can add aspects, change search "
                                 + "terms or specify types of sources.";
             default:
-                return ResearchPlaybook.refinePrompt();
+                return playbook.refinePrompt();
         }
     }
 
@@ -167,6 +171,6 @@ public final class StaticNarrator implements ResearchNarrator {
     @Override
     public String outcomeNarrative(com.aresstack.askai.research.backend.ResearchRunOutcomeInfo outcome) {
         // Precision text: facts, stop reason and recommendation — no phrasing variants on purpose.
-        return ResearchPlaybook.outcomeCard(outcome);
+        return playbook.outcomeCard(outcome);
     }
 }

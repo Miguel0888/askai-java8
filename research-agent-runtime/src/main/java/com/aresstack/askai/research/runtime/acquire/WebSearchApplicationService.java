@@ -130,6 +130,8 @@ public final class WebSearchApplicationService {
     private final java.util.Map<String, String> expectedContentByUrl = new java.util.HashMap<String, String>();
     /** Expected-content similarity at/above which an ambiguous verdict is rescued to READABLE. */
     private static final double EXPECTED_CONTENT_HIGH = 0.80;
+    /** Authoritative language snapshot (ISO code) for the INITIAL SERP request; null keeps the provider default. */
+    private volatile String searchLanguage;
 
     /** Sites of the search engine(s) used this run — pure TRANSIT: never a page, host, source or link farm. */
     private final Set<String> searchProviderSites = new HashSet<String>();
@@ -216,6 +218,11 @@ public final class WebSearchApplicationService {
         }
     }
 
+    /** Set the authoritative language snapshot for the initial SERP request (null keeps the provider default). */
+    public void setSearchLanguage(String language) {
+        this.searchLanguage = language == null || language.trim().isEmpty() ? null : language.trim();
+    }
+
     /** Wire the Layer 2 expected-content similarity (embedding-backed); null keeps the no-op default. */
     public void setContentSimilarity(PageContentSimilarity similarity) {
         if (similarity != null) {
@@ -261,7 +268,7 @@ public final class WebSearchApplicationService {
             // straight from typed SearchResultCandidates — no ATTEMPT:/CHALLENGE: text parsing.
             com.aresstack.askai.research.runtime.search.InitialSearchResult result = searchStrategy.search(
                     new com.aresstack.askai.research.runtime.search.InitialSearchRequest(
-                            query, INITIAL_SEARCH_RESULT_COUNT, null, null),
+                            query, INITIAL_SEARCH_RESULT_COUNT, searchLanguage, null),
                     cancellationSignal(),
                     new com.aresstack.askai.research.runtime.search.SearchBudgetGate() {
                         public boolean beforeToolCall() {

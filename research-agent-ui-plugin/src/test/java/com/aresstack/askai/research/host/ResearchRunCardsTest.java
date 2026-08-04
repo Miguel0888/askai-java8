@@ -175,7 +175,7 @@ public class ResearchRunCardsTest {
         long sequence;
 
         Fx() {
-            ResearchPlaybook.setLanguage(ResearchPlaybook.Language.ENGLISH);
+            // Sessions default to English without a persisted store value — nothing global to reset.
             final ProductiveResearchSessionResources[] holder = new ProductiveResearchSessionResources[1];
             ResearchControlEndpoint control = new ResearchControlEndpoint(registry, "s1", 7L,
                     new ResearchControlContext() {
@@ -733,7 +733,8 @@ public class ResearchRunCardsTest {
 
     @Test
     public void aRestoredSessionResumesWithoutRepeatingTheScopingCeremony() throws Exception {
-        ResearchPlaybook.setLanguage(ResearchPlaybook.Language.ENGLISH);
+        ResearchPlaybook english = new ResearchPlaybook(
+                com.aresstack.askai.research.agent.ResearchLanguage.ENGLISH);
         // Session 1 persisted an assignment + reached the outline approval gate.
         java.io.File projectDir =
                 java.nio.file.Files.createTempDirectory("askai-restore-test").toFile();
@@ -765,10 +766,10 @@ public class ResearchRunCardsTest {
                 ResearchStateIds.WAITING_APPROVAL, resources.currentState().getStateId());
         String firstMessage = sink.assistantMessages.isEmpty() ? "" : sink.assistantMessages.get(0);
         assertFalse("no fresh-start greeting on a restored project",
-                firstMessage.equals(ResearchPlaybook.greeting()));
+                firstMessage.equals(english.greeting()));
         assertFalse("no scoping paraphrase either — the assignment is already confirmed",
-                firstMessage.contains(ResearchPlaybook.paraphraseAndFocus("x")
-                        .substring(0, Math.min(12, ResearchPlaybook.paraphraseAndFocus("x").length()))));
+                firstMessage.contains(english.paraphraseAndFocus("x")
+                        .substring(0, Math.min(12, english.paraphraseAndFocus("x").length()))));
         session.close();
     }
 

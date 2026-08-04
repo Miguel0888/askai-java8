@@ -213,6 +213,12 @@ build.dependsOn fatJar
 
 def devPluginsDir = rootProject.layout.buildDirectory.dir('dev-plugins')
 
+// Immutable per-run plugin generations (D1). Each runWithDevPlugins invocation stages the assembled
+// plugin distribution into its OWN generation directory under here, so a later Gradle build (which
+// produces a NEW generation) can never overwrite the .class files an already-running JVM will still
+// load lazily via PF4J — the root cause of the random ClassFormatError ($2 / $7) failures.
+def devPluginRunsDir = rootProject.layout.buildDirectory.dir('dev-plugin-runs')
+
 // One assembled research runtime distribution (Commit 42): agent jar + sidecar thin jar + its lib/
 // directory in a single, stable layout the app can auto-detect — no manually typed build paths.
 def researchRuntimeDir = rootProject.layout.buildDirectory.dir('research-runtime')
@@ -278,18 +284,45 @@ run {
     }
 }
 
-// Same runtime classpath, main class and (default) JVM options as the regular `run`, but pointed at the
-// shared dev-plugins directory so the externally-built research plugin is discovered by PF4J at runtime.
+// Same runtime classpath, main class and (default) JVM options as the regular `run`, but pointed at a
+// FRESH IMMUTABLE plugin generation (D1) so the externally-built research plugin is discovered by PF4J at
+// runtime WITHOUT any risk that a concurrent/subsequent Gradle build overwrites the classes this process
+// still loads lazily. It depends on pluginDistribution (the immutable assembled source) rather than
+// installDevPlugin (which mutates the shared dev-plugins dir in place).
 task runWithDevPlugins(type: JavaExec) {
     group = 'application'
-    description = 'Run AskAI with the research plugin installed into <root>/build/dev-plugins.'
-    dependsOn ':research-agent-ui-plugin:installDevPlugin'
+    description = 'Run AskAI from a fresh immutable plugin generation under <root>/build/dev-plugin-runs.'
+    dependsOn ':research-agent-ui-plugin:pluginDistribution'
     dependsOn researchRuntimeDist
     dependsOn localRuntimeDist
     classpath = sourceSets.main.runtimeClasspath
     mainClass = mainClassName
     doFirst {
-        systemProperty 'askai.pluginsDir', devPluginsDir.get().asFile.absolutePath
+        // The assembled, immutable plugin directory (…/plugin-dist/research-agent-ui-plugin).
+        def pluginDistDir = project(':research-agent-ui-plugin')
+                .tasks.getByName('pluginDistribution').destinationDir
+        def runsRoot = devPluginRunsDir.get().asFile
+        runsRoot.mkdirs()
+
+        // A unique generation per invocation. currentTimeMillis is monotonic enough for run isolation and
+        // gives a stable, sortable id; concurrent runs get distinct ids and thus distinct directories.
+        def generation = String.valueOf(System.currentTimeMillis())
+        def genRoot = new File(runsRoot, generation)
+        def genPluginDir = new File(genRoot, pluginDistDir.name)
+        // Snapshot the assembled plugin into this generation. From here on NO build task touches it: the
+        // next build stages a NEW generation elsewhere, leaving this one frozen for the JVM's lifetime.
+        ant.copy(todir: genPluginDir.absolutePath, overwrite: true, force: true) {
+            fileset(dir: pluginDistDir.absolutePath)
+        }
+
+        // The lock file lives at the GENERATION ROOT (not inside the plugin dir), so PF4J — which only
+        // treats sub-directories / jars as plugins — ignores it. The launched JVM holds an exclusive lock
+        // on it for its whole lifetime; cleanup below uses it to prove a generation is no longer in use.
+        def lockFile = new File(genRoot, '.run.lock')
+        lockFile.createNewFile()
+
+        systemProperty 'askai.pluginsDir', genRoot.absolutePath
+        systemProperty 'askai.devPluginRun.lock', lockFile.absolutePath
         // DOCUMENTED hand-off of the assembled distribution (read by ResearchRuntimeDefaults; the
         // settings themselves stay in the typed, persisted model — this only feeds the defaults).
         systemProperty 'askai.research.runtime.dir', researchRuntimeDir.get().asFile.absolutePath
@@ -302,6 +335,38 @@ task runWithDevPlugins(type: JavaExec) {
             systemProperty 'askai.local.runtime.java', launcher21.executablePath.asFile.absolutePath
         } catch (Exception noJava21) {
             // Without a Java-21 toolchain the manager falls back to ASKAI_LOCAL_RUNTIME_JAVA / PATH.
+        }
+
+        // Prune generations that are GUARANTEED unused: a prior run that has exited releases its OS-level
+        // lock, so tryLock on its .run.lock succeeds — only then do we delete. A generation whose JVM is
+        // still alive keeps the lock; we leave it completely untouched (never a partial delete). The
+        // current generation is skipped outright because its JVM has not started yet.
+        runsRoot.listFiles()?.each { File dir ->
+            if (!dir.isDirectory() || dir.name == generation) {
+                return
+            }
+            def otherLock = new File(dir, '.run.lock')
+            boolean inUse = false
+            if (otherLock.exists()) {
+                def raf = new java.io.RandomAccessFile(otherLock, 'rw')
+                try {
+                    def held = raf.channel.tryLock()
+                    if (held == null) {
+                        inUse = true
+                    } else {
+                        held.release()
+                    }
+                } catch (Exception lockBusy) {
+                    inUse = true
+                } finally {
+                    raf.close()
+                }
+            }
+            if (inUse) {
+                logger.lifecycle("runWithDevPlugins: keeping in-use plugin generation ${dir.name}")
+            } else {
+                project.delete(dir)
+            }
         }
     }
 }

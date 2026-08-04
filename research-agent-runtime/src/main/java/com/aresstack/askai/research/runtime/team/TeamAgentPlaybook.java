@@ -15,6 +15,24 @@ public final class TeamAgentPlaybook {
     }
 
     /**
+     * The per-turn WORKING-LANGUAGE instruction: it directs all NEWLY generated content to the session's
+     * current language while explicitly protecting the existing history — a mid-conversation switch yields
+     * mixed-language history by design, never a retroactive translation.
+     */
+    public static String workingLanguageContext(String displayName) {
+        return "Current working language: " + displayName + ".\n\n"
+                + "Use " + displayName + " for all newly generated content:\n"
+                + "- assistant messages\n"
+                + "- research brief changes\n"
+                + "- search suggestions\n"
+                + "- search queries\n"
+                + "- labels and explanations\n\n"
+                + "Existing conversation history and existing artifact text may contain other languages. "
+                + "Do not translate or rewrite historical content merely because the working language "
+                + "changed.";
+    }
+
+    /**
      * The SCOPING phase assistant prompt: an ASSISTANT that helps the user scope a research — it understands,
      * fills gaps and proposes, it does NOT drive a workflow or police a command set. The process itself is
      * owned by the application; this model only helps the user say what they want to find out. Language-neutral.

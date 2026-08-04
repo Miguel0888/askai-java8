@@ -46,6 +46,12 @@ public final class ResearchAgentMain {
     private com.aresstack.askai.research.runtime.team.ReloadableMainModelChat mainModelChat;
     private com.aresstack.askai.research.runtime.team.ResearchTeamAgent teamAgent;
     /**
+     * The session's live working language (runtime mirror). set_language updates it best-effort; the
+     * language snapshot on operation requests (manual_search) is authoritative and re-synchronises it.
+     */
+    private final com.aresstack.askai.research.runtime.service.SessionResearchLanguage sessionLanguage =
+            new com.aresstack.askai.research.runtime.service.SessionResearchLanguage();
+    /**
      * The MANDATORY reranker, built ONCE at session/new for a browser session (validated + endpoint
      * readiness-checked there, not mid-prompt). Null only when this session has no browser endpoint.
      */
@@ -127,7 +133,17 @@ public final class ResearchAgentMain {
         // live under hasBrowser() or the research loop.
         this.mainModelChat = new com.aresstack.askai.research.runtime.team.ReloadableMainModelChat(
                 buildMainModelChat());
-        this.teamAgent = new com.aresstack.askai.research.runtime.team.ResearchTeamAgent(mainModelChat);
+        // The assembler reads the session's LIVE working language per turn: a set_language between turns
+        // changes the next turn's context, never the history.
+        this.teamAgent = new com.aresstack.askai.research.runtime.team.ResearchTeamAgent(mainModelChat,
+                com.aresstack.askai.research.runtime.team.PhaseAssistantProfileRegistry.defaults(),
+                new com.aresstack.askai.research.runtime.team.PhaseContextAssembler(
+                        new com.aresstack.askai.research.runtime.team.PhaseContextAssembler
+                                .CurrentLanguage() {
+                            public String displayName() {
+                                return sessionLanguage.displayName();
+                            }
+                        }));
         System.err.println("[research-agent] TeamAgent ready on main model: " + mainModelChat.modelName());
 
         // A browser research session REQUIRES the mandatory reranker. Build and readiness-check it here,
@@ -535,6 +551,11 @@ public final class ResearchAgentMain {
         if (com.aresstack.askai.research.runtime.service.ResearchServiceCommand.TYPE_MANUAL_SEARCH
                 .equals(command.getType())) {
             handleManualSearch(ctx, command);
+        } else if (com.aresstack.askai.research.runtime.service.ResearchServiceCommand.TYPE_SET_LANGUAGE
+                .equals(command.getType())) {
+            // Pure session-context mutation: the next TeamAgent turn assembles with the new working
+            // language. No model call, no history entry, no state change, no event back to the host.
+            sessionLanguage.changeFromCode(command.getLanguage());
         }
     }
 
@@ -558,6 +579,17 @@ public final class ResearchAgentMain {
             ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
                     .manualSearchFailed(requestId, "EMPTY_QUERY"));
             return;
+        }
+        // The request's language snapshot is AUTHORITATIVE: it re-synchronises the session language (a lost
+        // set_language heals here) and then fixes THIS search's language for its whole duration. A legacy
+        // envelope without a language field changes nothing and keeps the provider default. The full pipeline
+        // below applies it to the SERP request via acquisition.setSearchLanguage(...).
+        final String searchLanguage;
+        if (command.getLanguage().isEmpty()) {
+            searchLanguage = null;
+        } else {
+            sessionLanguage.changeFromCode(command.getLanguage());
+            searchLanguage = sessionLanguage.code();
         }
         // The FULL pipeline browses/captures/accepts, so it needs BOTH the browser and the internal service
         // endpoint (manual_source_accept). Missing either → an honest failure, never a silent no-op.
@@ -688,6 +720,9 @@ public final class ResearchAgentMain {
                                 }
                             },
                             loadBrowserSearchSettings().readiness.minimumReadableCharacters));
+            // The authoritative language snapshot flows into the SERP request (dev's language feature),
+            // preserved through arch's full browse→capture→accept pipeline.
+            acquisition.setSearchLanguage(searchLanguage);
             com.aresstack.askai.research.runtime.loop.ResearchStopReason reason = acquisition.execute(
                     com.aresstack.askai.research.runtime.acquire.WebAcquisitionText.queryTerms(query));
             if (cancelled.get()) {
