@@ -521,6 +521,23 @@ public final class ChatComposerPanel extends JPanel {
         return menuButton;
     }
 
+    /** One entry of the unfolding sidebar tab ribbon, in the composer's Java2D button style. */
+    public static JButton createRibbonEntryButton(String text, boolean active) {
+        ComposerButton button = new ComposerButton(null, text, false);
+        button.setEmphasized(active);
+        configureButton(button, text);
+        return button;
+    }
+
+    /** A slim ‹/› scroll arrow for the sidebar tab ribbon (hovering it scrolls the ribbon). */
+    public static JButton createRibbonArrowButton(boolean leftDirection) {
+        ComposerButton button = new ComposerButton(
+                leftDirection ? new ChevronLeftIcon() : new ChevronRightIcon(), null, false);
+        configureButton(button, leftDirection ? "Scroll left" : "Scroll right");
+        button.setPreferredSize(new Dimension(18, 28));
+        return button;
+    }
+
     /** Set the label shown on the in-composer mode selector (e.g. "Yapping" or an agent name). */
     public void setModeName(String name) {
         modeButton.setText(name == null || name.trim().length() == 0 ? "Yapping" : name.trim());
@@ -1027,6 +1044,20 @@ public final class ChatComposerPanel extends JPanel {
         protected void paint(Graphics2D g2) {
             paintSpeaker(g2);
             g2.drawLine(9, 4, 14, 11);
+        }
+    }
+
+    private static final class ChevronLeftIcon extends StrokeIcon {
+        protected void paint(Graphics2D g2) {
+            g2.drawLine(9, 3, 5, 7);
+            g2.drawLine(5, 7, 9, 11);
+        }
+    }
+
+    private static final class ChevronRightIcon extends StrokeIcon {
+        protected void paint(Graphics2D g2) {
+            g2.drawLine(6, 3, 10, 7);
+            g2.drawLine(10, 7, 6, 11);
         }
     }
 }
