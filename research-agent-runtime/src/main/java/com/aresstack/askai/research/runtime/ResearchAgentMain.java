@@ -790,11 +790,13 @@ public final class ResearchAgentMain {
                 // Bracket the (possibly slow, model-backed) review with a started/finished lifecycle so the
                 // host shows a cancellable thinking bubble and ALWAYS clears it — even on model failure/cancel.
                 if (progress.getAcceptedSources() > 0) {
+                    System.err.println("[manual-search] review started requestId=" + requestId);
                     ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
                             .manualSearchReview(requestId, "started"));
                     try {
                         reviewNewSourcesAndRefreshSuggestions(ctx);
                     } finally {
+                        System.err.println("[manual-search] review finished requestId=" + requestId);
                         ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
                                 .manualSearchReview(requestId, "finished"));
                     }
@@ -824,28 +826,43 @@ public final class ResearchAgentMain {
     }
 
     /**
-     * D: right after a user search adds sources, have the scoping TeamAgent REVIEW them (it now sees them via
-     * source_list, feature A) and emit a FRESH scoping projection — new search suggestions informed by the
-     * findings. Runs inline in the control turn; the review instruction is internal (never echoed as a user
-     * chat message), only the agent's short note + the refreshed suggestions surface. Scoping-only; a failed
-     * review turn stays silent (no error bubble).
+     * D: right after a user search adds sources, have the TeamAgent REVIEW them (it sees them via
+     * source_list, feature A). Runs inline in the control turn; the review instruction is internal (never
+     * echoed as a user chat message). The SUMMARY is phase-independent — a search during RESEARCH gets a
+     * visible review too; only the scoping projection (yellow suggestion chips) stays scoping-only, which
+     * {@code emitTeamAgentResult} already enforces (wireLineFor returns null outside scoping). A failed
+     * model turn surfaces a neutral visible acknowledgement instead of disappearing silently.
      */
-    private void reviewNewSourcesAndRefreshSuggestions(SyncPromptContext ctx) {
+    private void reviewNewSourcesAndRefreshSuggestions(final SyncPromptContext ctx) {
         if (teamAgent == null) {
             return;
         }
         com.aresstack.askai.research.runtime.team.TeamAgentStateView view = readStateView(ctx);
-        if (!"scoping".equalsIgnoreCase(view.getPhaseId())) {
-            return; // search suggestions only make sense during scoping
-        }
-        com.aresstack.askai.research.runtime.team.TeamAgentResult result = teamAgent.respond(
-                com.aresstack.askai.research.runtime.team.TeamAgentPlaybook.sourceReviewInstruction(), view);
-        if (result.isOk()) {
-            emitTeamAgentResult(ctx, result, view.getPhaseId());
-        } else {
-            ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
-                    .log("source review turn not ok: " + result.getStatus()));
-        }
+        com.aresstack.askai.research.runtime.team.PostSearchReview.run(view,
+                new com.aresstack.askai.research.runtime.team.PostSearchReview.Model() {
+                    public com.aresstack.askai.research.runtime.team.TeamAgentResult respond(
+                            String instruction,
+                            com.aresstack.askai.research.runtime.team.TeamAgentStateView v) {
+                        return teamAgent.respond(instruction, v);
+                    }
+                },
+                new com.aresstack.askai.research.runtime.team.PostSearchReview.Emitter() {
+                    public void emitResult(
+                            com.aresstack.askai.research.runtime.team.TeamAgentResult result,
+                            String phaseId) {
+                        emitTeamAgentResult(ctx, result, phaseId);
+                    }
+
+                    public void emitVisible(String message) {
+                        ctx.sendMessage(message);
+                    }
+
+                    public void emitLog(String line) {
+                        ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
+                                .log(line));
+                    }
+                },
+                sessionLanguage.code());
     }
 
     /**

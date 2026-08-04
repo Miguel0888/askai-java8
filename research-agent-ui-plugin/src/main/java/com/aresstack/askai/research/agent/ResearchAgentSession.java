@@ -1055,12 +1055,17 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         }
         String requestId = event.getTechnicalDetail();
         if (requestId == null || !requestId.equals(activeManualSearchRequestId)) {
+            // Visible in the diagnostics when the review chain breaks: which event was dropped and why.
+            System.err.println("[manual-search] host event " + event.getTitle()
+                    + " DROPPED (stale) requestId=" + requestId
+                    + " active=" + activeManualSearchRequestId);
             return; // stale/late event from a request the user did not (or no longer) launched
         }
         String activityId = event.getActivityId() != null
                 ? event.getActivityId() : "manual-search-" + requestId;
         String subKind = event.getTitle();
         String message = event.getText();
+        System.err.println("[manual-search] host event " + subKind + " requestId=" + requestId);
         if ("started".equals(subKind)) {
             // ONE unified, persisted breadcrumb for BOTH entry points (typed /search AND a yellow-suggestion
             // click both funnel through here): a muted italic "Websuche: <query>" line that survives a restart.
@@ -1088,8 +1093,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             postSearchThinkingId = "post-search-summary-" + requestId;
             postSearchSummaryInFlight = true;
             agentTurnInFlight = true;
-            sink.startThinking(postSearchThinkingId,
-                    "Ich sichte die neuen Quellen und aktualisiere die Vorschläge …");
+            // Phase-neutral wording: outside scoping there are no suggestions to refresh, but the
+            // summary review runs everywhere.
+            sink.startThinking(postSearchThinkingId, "Ich sichte die neuen Quellen …");
         } else if ("review_finished".equals(subKind)) {
             finishPostSearchThinking("");
             agentTurnInFlight = false; // release the composer — the review is over (success, failure or cancel)
@@ -1323,6 +1329,10 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             case ASSISTANT_MESSAGE:
                 // If the bot's post-search summary is what is arriving, collapse the thinking bubble first so
                 // the summary renders as the assistant turn and the composer is released.
+                if (postSearchSummaryInFlight) {
+                    System.err.println("[manual-search] host assistant summary received requestId="
+                            + activeManualSearchRequestId);
+                }
                 finishPostSearchThinking("");
                 sink.appendAssistantMessage(event.getEventId(), event.getText());
                 break;

@@ -238,6 +238,25 @@ public final class TeamAgentPlaybook {
     }
 
     /**
+     * The phase-INDEPENDENT post-search summary: outside scoping a manual web search still deserves a
+     * visible review of what the new material contributes — but WITHOUT refreshing scoping search
+     * suggestions (the yellow chips exist only in the scoping workspace). Never echoed as a user message.
+     */
+    public static String sourceSummaryInstruction() {
+        return "A web search just finished and added new research sources (listed in the research context "
+                + "above). Take a moment to review them, then in assistantMessage report back what the NEW "
+                + "material contributes, in a natural, human tone:\n"
+                + "- Start with a short overview at a HIGHER LEVEL OF ABSTRACTION — the big picture the new "
+                + "sources collectively add, not a per-source recap.\n"
+                + "- Then name the THEME CLUSTERS the material covers: 2-4 clearly named areas and how they "
+                + "relate to the research question.\n"
+                + "- End with exactly ONE OPEN, exploratory question that invites the user to steer where to go "
+                + "— it must be genuinely open, NOT something specific and NEVER a closed yes/no question.\n"
+                + "Do NOT manufacture or inflate surprises or corrections that did not happen. Respond with "
+                + "the JSON object only.";
+    }
+
+    /**
      * The single bounded-repair nudge sent when the previous structured answer could not be read. This is a
      * pure transport instruction: it must NOT ask the model to apologize or to talk to the user about
      * formatting, because a repaired {@code assistantMessage} is still shown verbatim. The host additionally

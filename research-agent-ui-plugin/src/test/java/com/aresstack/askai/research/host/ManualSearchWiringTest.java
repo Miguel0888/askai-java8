@@ -241,6 +241,40 @@ public class ManualSearchWiringTest {
         assertEquals("manual-search-R1|3 Treffer", manualEntries(fx.sink.completed).get(0));
     }
 
+    @Test
+    public void completedIsNotTerminalTheReviewBracketDeliversTheSummaryAndReleasesTheComposer() {
+        Fx fx = new Fx();
+        fx.session.dispatch(ResearchCommandType.START, null);
+        completeTurn(fx, 1L);
+        fx.session.setManualWebSearchPort(new FixedRequestIdPort("R1"));
+        fx.session.requestManualWebSearch("wearables");
+
+        // completed = acquisition finished, NOT the whole operation: the correlation id survives so
+        // the following review_* events still apply.
+        manualSearchEvent(fx, 2L, "R1", "completed", "8 Treffer");
+        assertEquals(1, manualEntries(fx.sink.completed).size());
+
+        manualSearchEvent(fx, 3L, "R1", "review_started", "");
+        assertEquals("one post-search thinking bubble",
+                Collections.singletonList("post-search-summary-R1"), fx.sink.thinkingStarted);
+        assertTrue("the review keeps the composer busy", fx.session.getState().isBusy());
+
+        // The runtime's summary arrives as a plain assistant message BETWEEN started and finished.
+        fx.session.onEvent(ResearchBackendEvent.builder(ResearchBackendEventType.ASSISTANT_MESSAGE)
+                .envelope("evt-sum", "s1", "p1", 4L, 0L, 4L, null)
+                .text("Die neuen Quellen zeigen …").build());
+        assertEquals(Collections.singletonList("Die neuen Quellen zeigen …"),
+                fx.sink.assistantMessages);
+        assertEquals("the bubble collapses into the summary",
+                Collections.singletonList("post-search-summary-R1"), fx.sink.thinkingFinished);
+
+        manualSearchEvent(fx, 5L, "R1", "review_finished", "");
+        // review_finished is the overall terminal: the correlation id is cleared, so...
+        manualSearchEvent(fx, 6L, "R1", "review_started", "");
+        assertEquals("no second thinking bubble after the terminal",
+                1, fx.sink.thinkingStarted.size());
+    }
+
     private static List<String> manualEntries(List<String> entries) {
         List<String> out = new ArrayList<String>();
         for (String entry : entries) {
@@ -539,20 +573,26 @@ public class ManualSearchWiringTest {
         final List<String> updated = new ArrayList<String>();
         final List<String> completed = new ArrayList<String>();
         final List<String> failed = new ArrayList<String>();
+        final List<String> assistantMessages = new ArrayList<String>();
+        final List<String> thinkingStarted = new ArrayList<String>();
+        final List<String> thinkingFinished = new ArrayList<String>();
 
         public void appendUserMessage(String messageId, String markdown) {
         }
 
         public void appendAssistantMessage(String messageId, String markdown) {
+            assistantMessages.add(markdown);
         }
 
         public void startThinking(String activityId, String title) {
+            thinkingStarted.add(activityId);
         }
 
         public void updateThinking(String activityId, String text) {
         }
 
         public void finishThinking(String activityId, String summary) {
+            thinkingFinished.add(activityId);
         }
 
         public void startToolActivity(String activityId, String title, String explanation) {
