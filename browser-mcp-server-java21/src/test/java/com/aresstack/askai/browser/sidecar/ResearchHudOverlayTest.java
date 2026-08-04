@@ -48,6 +48,13 @@ public class ResearchHudOverlayTest {
     }
 
     @Test
+    public void theWaitBarHasAResolvedButtonThatProceeds() {
+        String js = ResearchHudOverlay.installScript();
+        assertTrue("a 'resolved' control in the wait bar", js.contains("id='hud-resolve'"));
+        assertTrue("resolved proceeds (reads the page now)", js.contains("cmd('NEXT')"));
+    }
+
+    @Test
     public void renderReflectsTheDelayValueButNotWhileDragging() {
         String js = ResearchHudOverlay.renderScript(new ResearchHudState(
                 "DELAY", "waiting", false, ResearchHudState.NO_COUNTDOWN, false, 9));

@@ -142,6 +142,14 @@ public final class WebSearchApplicationService {
     private volatile long hudDelayMillis;
     /** Upper bound for the inter-page delay slider (mirrors the overlay's max), so a stray value cannot stall a run. */
     private static final long HUD_MAX_DELAY_MILLIS = 30_000L;
+    /**
+     * Set when a browser call reports the endpoint is gone (the browser was closed / the sidecar died even after
+     * one restart). It makes {@link #stopReasonNow} return MCP_UNAVAILABLE so the run ends TECHNICALLY instead of
+     * spinning forever on a dead browser (→ manualSearchFailed → the composer is freed + a red error shows).
+     */
+    private volatile boolean browserGone;
+    /** One-shot: a Skip/Next just fired, so the NEXT inter-page delay is bypassed (don't make the user wait again). */
+    private volatile boolean skipNextInterPageDelay;
     /** Soft cap for an in-page user-wait (consent/challenge) so a stuck wait self-parks; Skip is the immediate escape. */
     private static final long HUD_USER_WAIT_TIMEOUT_MILLIS = 180_000L;
     /**
@@ -580,7 +588,16 @@ public final class WebSearchApplicationService {
             for (ResearchHudCommand command : pollHudCommands()) {
                 if (command.type == ResearchHudCommand.Type.SKIP) {
                     listener.status("[browser] user skipped page: " + url);
+                    skipNextInterPageDelay = true; // don't stall on the delay before the next page
                     return null;
+                }
+                if (command.type == ResearchHudCommand.Type.NEXT) {
+                    // The user marks the obstruction RESOLVED (e.g. a solved CAPTCHA the reprobe hasn't caught,
+                    // or a page they accept as-is): read it now — an explicit user override of the READABLE
+                    // heuristic. The page still passes the term-match gate before it can be accepted.
+                    listener.status("[browser] user marked the page resolved — reading now: " + url);
+                    skipNextInterPageDelay = true;
+                    return callBrowser("web_read", args());
                 }
                 applyHudSideEffect(command); // PAUSE/RESUME/SET_DELAY (the slider works during a wait too)
             }
@@ -669,6 +686,12 @@ public final class WebSearchApplicationService {
     /** Log a HUD failure once per distinct cause (render/poll run every tick — do not flood the log). */
     private void logHudFailure(String stage, Throwable ex) {
         boolean endpoint = ex instanceof ToolInvoker.EndpointUnavailable;
+        if (endpoint) {
+            // The overlay call reaches the browser through the SAME restart-and-retry bridge as every other
+            // browser call, so an EndpointUnavailable here means the browser is genuinely gone (a restart did
+            // not recover it). End the run technically instead of silently swallowing it and looping forever.
+            browserGone = true;
+        }
         String line = "[browser-hud] " + stage + " failed"
                 + (endpoint ? " (endpoint unavailable — sidecar may be dead)" : "") + " cause=" + describe(ex);
         if (!line.equals(lastHudErrorLine)) {
@@ -698,6 +721,10 @@ public final class WebSearchApplicationService {
     /** Apply PAUSE/RESUME/SET_DELAY from the overlay (SKIP/NEXT are handled contextually where a page/wait ends). */
     private void applyHudPauseResume() {
         for (ResearchHudCommand command : pollHudCommands()) {
+            if (command.type == ResearchHudCommand.Type.NEXT
+                    || command.type == ResearchHudCommand.Type.SKIP) {
+                skipNextInterPageDelay = true; // "proceed now" → do not stall on the delay before the next page
+            }
             applyHudSideEffect(command);
         }
     }
@@ -734,6 +761,10 @@ public final class WebSearchApplicationService {
      * be adjusted live. Returns a stop reason on cancel/stop, else {@code null} to proceed.
      */
     private ResearchStopReason interPageDelay() {
+        if (skipNextInterPageDelay) {
+            skipNextInterPageDelay = false; // a Skip/Next just fired — do not make the user wait the delay again
+            return null;
+        }
         if (hudDelayMillis <= 0) {
             return null;
         }
@@ -971,6 +1002,9 @@ public final class WebSearchApplicationService {
     private ResearchStopReason stopReasonNow() {
         if (cancelled.get()) {
             return ResearchStopReason.USER_CANCELLED;
+        }
+        if (browserGone) {
+            return ResearchStopReason.MCP_UNAVAILABLE; // browser closed/dead → end technically, never hang
         }
         if (progress.getToolCalls() >= budget.getMaxToolCalls()) {
             return sufficientOr(ResearchStopReason.TOOL_BUDGET_EXHAUSTED);
