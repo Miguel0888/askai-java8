@@ -231,7 +231,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             } else {
                 // Restored session: the conversation text comes back from the persisted transcript, but the
                 // interactive buttons do not. Re-derive the decision buttons from the live state
-                // (non-persisted, so they never duplicate/accumulate across restarts).
+                // (non-persisted, so they never duplicate/accumulate across restarts), and bring back the
+                // display-only scoping tags (persisted separately; the runtime does not re-emit them).
+                restoreScopingProjection();
                 showRestoredActionsIfAny();
             }
         }
@@ -1295,6 +1297,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 // (a later turn replaces it — the chat keeps every turn, this panel shows the current state).
                 // It moves nothing and writes no artifact; fireStateChanged() lets the workspace re-read it.
                 latestScopingProjection = event.getScopingProjection();
+                persistScopingProjection(latestScopingProjection); // survive a restart (display-only working state)
                 finishPostSearchThinking(""); // refreshed suggestions are the last step of the summary
                 break;
             case RESEARCH_BRIEF:
@@ -1329,6 +1332,47 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     /** The latest scoping assistant projection (search suggestions), or {@code null} if none yet. */
     public com.aresstack.askai.research.backend.ScopingAssistantUpdate latestScopingProjection() {
         return latestScopingProjection;
+    }
+
+    /** File-backed store of the latest scoping projection so the yellow tags survive a restart. Lazy; null in the clickdummy. */
+    private com.aresstack.askai.research.store.FileScopingProjectionStore scopingProjectionStore;
+
+    /** The per-project store for the latest scoping projection (yellow suggestion tags); {@code null} in the clickdummy. */
+    private synchronized com.aresstack.askai.research.store.FileScopingProjectionStore scopingProjectionStore() {
+        if (scopingProjectionStore == null && productiveResources != null && !productiveResources.isClosed()) {
+            java.io.File projectDir = productiveResources.getProjectContext().getProjectDirectory();
+            scopingProjectionStore = new com.aresstack.askai.research.store.FileScopingProjectionStore(
+                    new java.io.File(projectDir, "scoping"));
+        }
+        return scopingProjectionStore;
+    }
+
+    /**
+     * Restore the persisted scoping projection (yellow tags) after a restart — the transcript comes back from
+     * history but this display-only state was previously in-memory only. Only fills a still-empty projection so
+     * a live one is never clobbered; already-searched suggestions are filtered by {@link #wasManuallySearched}.
+     */
+    private void persistScopingProjection(
+            com.aresstack.askai.research.backend.ScopingAssistantUpdate projection) {
+        com.aresstack.askai.research.store.FileScopingProjectionStore store = scopingProjectionStore();
+        if (store != null && projection != null) {
+            store.save(projection);
+        }
+    }
+
+    private void restoreScopingProjection() {
+        if (latestScopingProjection != null) {
+            return;
+        }
+        com.aresstack.askai.research.store.FileScopingProjectionStore store = scopingProjectionStore();
+        if (store == null) {
+            return;
+        }
+        com.aresstack.askai.research.backend.ScopingAssistantUpdate restored = store.load();
+        if (restored != null) {
+            latestScopingProjection = restored;
+            fireStateChanged(); // let a mounted scoping accessory re-read + render the tags
+        }
     }
 
     /**
