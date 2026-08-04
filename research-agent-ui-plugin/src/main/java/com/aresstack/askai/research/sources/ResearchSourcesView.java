@@ -46,6 +46,8 @@ public final class ResearchSourcesView extends JPanel {
     private final JComboBox<SourceRelevance> relevanceCombo = new JComboBox<SourceRelevance>(SourceRelevance.values());
     private final JComboBox<SourceReliability> reliabilityCombo =
             new JComboBox<SourceReliability>(SourceReliability.values());
+    /** The user-relevant (⭐) toggle — the same reversible signal the HUD ⭐ sets, editable here for any source. */
+    private final javax.swing.JCheckBox relevantCheck = new javax.swing.JCheckBox("Relevant (⭐)");
     private final JLabel status = new JLabel(" ");
 
     private String selectedId;
@@ -95,6 +97,8 @@ public final class ResearchSourcesView extends JPanel {
         form.add(relevanceCombo);
         form.add(new JLabel("Reliability"));
         form.add(reliabilityCombo);
+        form.add(new JLabel("User-relevant (⭐)"));
+        form.add(relevantCheck);
         form.add(new JLabel("Rerank score"));
         form.add(scoreField);
         form.add(new JLabel("Search excerpt"));
@@ -200,6 +204,7 @@ public final class ResearchSourcesView extends JPanel {
         statusCombo.setSelectedItem(record.getStatus());
         relevanceCombo.setSelectedItem(record.getRelevance());
         reliabilityCombo.setSelectedItem(record.getReliability());
+        relevantCheck.setSelected(record.isUserRelevant());
         status.setText("Loaded " + record.getSourceId() + " (rev " + loadedRevision + ")."
                 + orphanNote(record.getLinkedSectionIds()));
     }
@@ -215,6 +220,7 @@ public final class ResearchSourcesView extends JPanel {
         scoreField.setText("");
         excerptArea.setText("");
         fullTextArea.setText("");
+        relevantCheck.setSelected(false);
         status.setText(" ");
     }
 
@@ -237,6 +243,7 @@ public final class ResearchSourcesView extends JPanel {
                 .status((SourceStatus) statusCombo.getSelectedItem())
                 .relevance((SourceRelevance) relevanceCombo.getSelectedItem())
                 .reliability((SourceReliability) reliabilityCombo.getSelectedItem())
+                .userRelevant(relevantCheck.isSelected())
                 .build();
         SourceUpdateResult result = repository.update(selectedId, loadedRevision, update);
         switch (result.getStatus()) {
@@ -328,8 +335,13 @@ public final class ResearchSourcesView extends JPanel {
         return tableModel.getRowCount();
     }
 
+    // Visible for tests.
+    Object cellAt(int row, int col) {
+        return tableModel.getValueAt(row, col);
+    }
+
     private static final class SourcesTableModel extends AbstractTableModel {
-        private final String[] columns = {"Title", "Origin", "Type", "Status", "Score", "Full text",
+        private final String[] columns = {"⭐", "Title", "Origin", "Type", "Status", "Score", "Full text",
                 "Reliability", "Relevance", "Linked sections", "Revision"};
         private List<ResearchSourceRecord> rows = new ArrayList<ResearchSourceRecord>();
 
@@ -357,19 +369,20 @@ public final class ResearchSourcesView extends JPanel {
         public Object getValueAt(int rowIndex, int columnIndex) {
             ResearchSourceRecord r = rows.get(rowIndex);
             switch (columnIndex) {
-                case 0: return r.getTitle();
-                case 1: return r.getOrigin();
-                case 2: return r.getSourceType();
-                case 3: return r.getStatus();
+                case 0: return r.isUserRelevant() ? "★" : "";
+                case 1: return r.getTitle();
+                case 2: return r.getOrigin();
+                case 3: return r.getSourceType();
+                case 4: return r.getStatus();
                 // Score makes gaps visible: a high-scored source with no full text is a promising hit still
                 // waiting to be read (parked). "—" when the source carries no reranker score.
-                case 4: return r.hasRerankScore() ? String.format(java.util.Locale.ROOT, "%.2f",
+                case 5: return r.hasRerankScore() ? String.format(java.util.Locale.ROOT, "%.2f",
                         r.getRerankScore()) : "—";
-                case 5: return r.isParked() ? "parked" : "✓";
-                case 6: return r.getReliability();
-                case 7: return r.getRelevance();
-                case 8: return r.getLinkedSectionIds();
-                case 9: return r.getRevision();
+                case 6: return r.isParked() ? "parked" : "✓";
+                case 7: return r.getReliability();
+                case 8: return r.getRelevance();
+                case 9: return r.getLinkedSectionIds();
+                case 10: return r.getRevision();
                 default: return "";
             }
         }

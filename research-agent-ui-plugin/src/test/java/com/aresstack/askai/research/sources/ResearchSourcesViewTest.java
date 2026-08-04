@@ -26,4 +26,27 @@ public class ResearchSourcesViewTest {
         assertEquals(3, a.get().rowCount());
         assertEquals(3, b.get().rowCount());
     }
+
+    @Test
+    public void theStarColumnReflectsUserRelevant() throws Exception {
+        final InMemoryResearchSourceRepository repo = InMemoryResearchSourceRepository.empty();
+        repo.put(ResearchSourceRecord.builder("s-rel").title("Rel").revision(1L).userRelevant(true).build());
+        repo.put(ResearchSourceRecord.builder("s-plain").title("Plain").revision(1L).build());
+        final AtomicReference<ResearchSourcesView> v = new AtomicReference<ResearchSourcesView>();
+        SwingUtilities.invokeAndWait(new Runnable() {
+            public void run() {
+                v.set(new ResearchSourcesView(repo, ResearchSourcesView.demoKnownSections()));
+            }
+        });
+        ResearchSourcesView view = v.get();
+        for (int row = 0; row < view.rowCount(); row++) {
+            String title = String.valueOf(view.cellAt(row, 1)); // column 1 = Title (⭐ is column 0)
+            String star = String.valueOf(view.cellAt(row, 0));
+            if ("Rel".equals(title)) {
+                assertEquals("★", star);
+            } else if ("Plain".equals(title)) {
+                assertEquals("", star);
+            }
+        }
+    }
 }
