@@ -51,6 +51,9 @@ public final class ProductiveResearchSessionResources {
     private volatile com.aresstack.askai.browser.search.SearchProcessingProfileSnapshot searchProfile;
     /** The continuous knowledge worker (persistent FIFO drainer), or null when the capability is unavailable. */
     private volatile com.aresstack.askai.research.knowledge.processing.KnowledgeProcessingRunner knowledgeRunner;
+    /** The debounced live-projection worker (C5), or null when the knowledge capability is unavailable. */
+    private volatile com.aresstack.askai.research.knowledge.processing.live.LiveKnowledgeProjectionRunner
+            projectionRunner;
     private volatile boolean closed;
 
     ProductiveResearchSessionResources(String sessionKey, OoResearchStateMachine stateMachine,
@@ -122,6 +125,12 @@ public final class ProductiveResearchSessionResources {
 
     public com.aresstack.askai.research.knowledge.processing.KnowledgeProcessingRunner getKnowledgeRunner() {
         return knowledgeRunner;
+    }
+
+    /** The live-projection runner owned by this session (stopped in {@link #close()}); may be null. */
+    void setProjectionRunner(
+            com.aresstack.askai.research.knowledge.processing.live.LiveKnowledgeProjectionRunner runner) {
+        this.projectionRunner = runner;
     }
 
     /** The settings snapshot this RUNNING session uses (global changes only affect NEW sessions). */
@@ -308,6 +317,9 @@ public final class ProductiveResearchSessionResources {
         toolRefreshExecutor.shutdownNow();
         // Stop the knowledge worker FIRST (graceful: lets the current job finish). The persistent FIFO and the
         // canonical corpus outlive the session, so a mid-flight job is simply recovered on the next open.
+        if (projectionRunner != null) {
+            projectionRunner.stop();
+        }
         if (knowledgeRunner != null) {
             knowledgeRunner.stop();
         }

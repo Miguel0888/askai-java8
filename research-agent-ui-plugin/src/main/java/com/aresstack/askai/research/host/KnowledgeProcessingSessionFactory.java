@@ -46,18 +46,49 @@ final class KnowledgeProcessingSessionFactory {
         SessionSentenceSegmenter resolve(String languageCode);
     }
 
+    /** Everything the continuous knowledge capability of one session owns: worker + live projection. */
+    static final class KnowledgeSession {
+        final KnowledgeProcessingRunner worker;
+        final com.aresstack.askai.research.knowledge.processing.live.LiveKnowledgeProjectionRunner projection;
+        final com.aresstack.askai.research.knowledge.processing.live.KnowledgeProjectionInvalidator invalidator;
+
+        KnowledgeSession(KnowledgeProcessingRunner worker,
+                         com.aresstack.askai.research.knowledge.processing.live.LiveKnowledgeProjectionRunner
+                                 projection,
+                         com.aresstack.askai.research.knowledge.processing.live.KnowledgeProjectionInvalidator
+                                 invalidator) {
+            this.worker = worker;
+            this.projection = projection;
+            this.invalidator = invalidator;
+        }
+    }
+
+    /** A hook fired after every persisted projection rebuild (C5d writes the outline artifact here). */
+    interface ProjectionListener {
+        void onProjectionUpdated(
+                com.aresstack.askai.research.knowledge.live.LiveOutlineProjection projection);
+
+        ProjectionListener NONE = new ProjectionListener() {
+            public void onProjectionUpdated(
+                    com.aresstack.askai.research.knowledge.live.LiveOutlineProjection projection) {
+            }
+        };
+    }
+
     /**
      * Build (but do not start) the serial worker for a session's authoritative embedding world. The caller starts
      * the runner once construction has fully succeeded and stops it on session close (Variant B lifted only here).
      */
-    static KnowledgeProcessingRunner buildRunner(File projectDir, String projectId,
+    static KnowledgeSession buildRunner(File projectDir, String projectId,
                                                  EmbeddingEndpointDescriptor descriptor,
                                                  String sessionLanguageCode,
                                                  final SentenceSegmenterResolver segmenterResolver,
                                                  CaptureStore captures,
-                                                 ResearchSourceRepository sourceRepository,
+                                                 final ResearchSourceRepository sourceRepository,
                                                  FileSourceProcessingQueue queue,
-                                                 KnowledgeProcessingSettings settings) {
+                                                 KnowledgeProcessingSettings settings,
+                                                 final java.util.List<String> briefQuestions,
+                                                 final ProjectionListener projectionListener) {
         // Embedding: strict batch /api/embed adapter over the SESSION descriptor (its own timeout).
         final HttpEmbeddingPortAdapter embeddings = new HttpEmbeddingPortAdapter(descriptor,
                 new UrlConnectionEmbeddingHttpTransport((int) descriptor.timeoutMillis));
@@ -115,15 +146,103 @@ final class KnowledgeProcessingSessionFactory {
                 + " dimension=" + descriptor.embeddingDimension
                 + " endpoint=" + descriptor.endpointUrl());
 
+        // C5: the live projection stack — active corpus (persisted passages + vectors, source-filtered) →
+        // deterministic clustering → LiveOutlineProjection → rebuildable store. NEVER re-embeds; a corrupt or
+        // missing persisted projection only costs a rebuild and never blocks the session start.
+        final com.aresstack.askai.research.knowledge.processing.live.ActiveKnowledgeCorpusReader corpusReader =
+                new com.aresstack.askai.research.knowledge.processing.live.ActiveKnowledgeCorpusReader(
+                        repository, vectorStore, projectId, descriptor.embeddingFingerprint());
+        final com.aresstack.askai.research.knowledge.processing.live.ActiveKnowledgeCorpusReader.SourceFilter
+                sourceFilter = new com.aresstack.askai.research.knowledge.processing.live
+                        .ActiveKnowledgeCorpusReader.SourceFilter() {
+                    public boolean includeSource(String sourceId) {
+                        com.aresstack.askai.research.sources.ResearchSourceRecord record =
+                                sourceRepository.get(sourceId);
+                        if (record == null) {
+                            return true; // unknown → include (canonical data decides, never a silent drop)
+                        }
+                        com.aresstack.askai.research.sources.SourceStatus status = record.getStatus();
+                        return status != com.aresstack.askai.research.sources.SourceStatus.EXCLUDED
+                                && status != com.aresstack.askai.research.sources.SourceStatus.DUPLICATE
+                                && status != com.aresstack.askai.research.sources.SourceStatus.SUPERSEDED;
+                    }
+
+                    public boolean isUserRelevant(String sourceId) {
+                        com.aresstack.askai.research.sources.ResearchSourceRecord record =
+                                sourceRepository.get(sourceId);
+                        return record != null && record.isUserRelevant();
+                    }
+                };
+        final com.aresstack.askai.research.knowledge.processing.live.FileLiveOutlineProjectionStore
+                projectionStore = new com.aresstack.askai.research.knowledge.processing.live
+                        .FileLiveOutlineProjectionStore(projectDir);
+        final com.aresstack.askai.research.knowledge.live.LiveOutlineProjectionBuilder projectionBuilder =
+                new com.aresstack.askai.research.knowledge.live.LiveOutlineProjectionBuilder();
+        final String fingerprint = descriptor.embeddingFingerprint();
+        final com.aresstack.askai.research.knowledge.processing.live.LiveKnowledgeProjectionRunner projection =
+                new com.aresstack.askai.research.knowledge.processing.live.LiveKnowledgeProjectionRunner(
+                        new com.aresstack.askai.research.knowledge.processing.live
+                                .LiveKnowledgeProjectionRunner.RebuildStep() {
+                            public void rebuild() {
+                                com.aresstack.askai.research.knowledge.processing.live
+                                        .ActiveKnowledgeCorpusReader.Corpus corpus =
+                                        corpusReader.read(sourceFilter);
+                                com.aresstack.askai.research.knowledge.live.LiveOutlineProjection previous =
+                                        projectionStore.load();
+                                long nextRevision = (previous == null ? 0L
+                                        : previous.getProjectionRevision()) + 1L;
+                                com.aresstack.askai.research.knowledge.live.LiveOutlineProjection next =
+                                        projectionBuilder.build(nextRevision, fingerprint,
+                                                System.currentTimeMillis(), corpus.getPassages(),
+                                                corpus.getVectors(), briefQuestions);
+                                projectionStore.save(next);
+                                System.err.println("[research-knowledge] live outline rebuilt revision="
+                                        + next.getProjectionRevision()
+                                        + " topics=" + next.getTopics().size()
+                                        + " sections=" + next.getSections().size());
+                                (projectionListener == null ? ProjectionListener.NONE : projectionListener)
+                                        .onProjectionUpdated(next);
+                            }
+                        }, "knowledge-projection-" + projectId, 1500L);
+
         final SourceProcessingWorker worker = new SourceProcessingWorker(queue, reader, segmentationFactory,
                 passageStore, index, generations, projectId, settings.maxProcessingAttempts,
-                descriptor.embeddingFingerprint(), diagnosticListener(projectId, descriptionByLanguage));
+                descriptor.embeddingFingerprint(),
+                invalidating(diagnosticListener(projectId, descriptionByLanguage), projection));
 
-        return new KnowledgeProcessingRunner(new KnowledgeProcessingRunner.ProcessingStep() {
-            public boolean processOne() {
-                return worker.processOne();
+        KnowledgeProcessingRunner workerRunner = new KnowledgeProcessingRunner(
+                new KnowledgeProcessingRunner.ProcessingStep() {
+                    public boolean processOne() {
+                        return worker.processOne();
+                    }
+                }, "knowledge-processing-" + projectId, 1000L, 5000L);
+        return new KnowledgeSession(workerRunner, projection, projection);
+    }
+
+    /** Wrap the diagnostics listener so every COMPLETED job invalidates the live projection (debounced). */
+    private static SourceProcessingWorker.Listener invalidating(
+            final SourceProcessingWorker.Listener delegate,
+            final com.aresstack.askai.research.knowledge.processing.live.KnowledgeProjectionInvalidator
+                    invalidator) {
+        return new SourceProcessingWorker.Listener() {
+            public void onStarted(
+                    com.aresstack.askai.research.knowledge.processing.SourceProcessingJob job) {
+                delegate.onStarted(job);
             }
-        }, "knowledge-processing-" + projectId, 1000L, 5000L);
+
+            public void onCompleted(
+                    com.aresstack.askai.research.knowledge.processing.SourceProcessingJob job,
+                    int sentenceCount, int passageCount) {
+                delegate.onCompleted(job, sentenceCount, passageCount);
+                invalidator.knowledgeChanged(); // new passages exist → the projection is stale
+            }
+
+            public void onFailed(
+                    com.aresstack.askai.research.knowledge.processing.SourceProcessingJob job,
+                    com.aresstack.askai.research.knowledge.processing.SourceProcessingFailure failure) {
+                delegate.onFailed(job, failure);
+            }
+        };
     }
 
     /**

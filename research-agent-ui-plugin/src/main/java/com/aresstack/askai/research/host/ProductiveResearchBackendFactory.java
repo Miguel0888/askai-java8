@@ -330,6 +330,10 @@ public final class ProductiveResearchBackendFactory {
                 prepareEmbeddingDescriptor(sessionKey, projectDir);
         final com.aresstack.askai.research.knowledge.processing.KnowledgeProcessingRunner[] knowledgeRunner =
                 {null};
+        final com.aresstack.askai.research.knowledge.processing.live.LiveKnowledgeProjectionRunner[]
+                projectionRunner = {null};
+        final com.aresstack.askai.research.knowledge.processing.live.KnowledgeProjectionInvalidator[]
+                projectionInvalidator = {null};
         if (embeddingDescriptor != null) {
             // Compose (but do not start) the productive worker for THIS session's embedding world (C4 lifts
             // Variant B). The scheduler stamps jobs with the descriptor fingerprint and wakes the worker so an
@@ -339,7 +343,21 @@ public final class ProductiveResearchBackendFactory {
             // HARD). The session language is eagerly resolved inside buildRunner (fail-fast + ready line);
             // the other language resolves lazily when the first job of that language actually runs.
             final com.aresstack.askai.agent.model.nlp.NlpConfigurationSnapshotProvider nlp = nlpSnapshots;
-            knowledgeRunner[0] = KnowledgeProcessingSessionFactory.buildRunner(
+            // The confirmed scope (question + focus areas) anchors the projection's gap analysis.
+            java.util.List<String> briefQuestions = new java.util.ArrayList<String>();
+            com.aresstack.askai.research.store.MetadataLoadResult scopeMetadata =
+                    projectContext.getMetadataStore().load(sessionKey);
+            if (scopeMetadata.getStatus()
+                    == com.aresstack.askai.research.store.MetadataLoadResult.Status.LOADED) {
+                com.aresstack.askai.research.store.ResearchProjectMetadata scope =
+                        scopeMetadata.getMetadata();
+                if (scope.hasResearchQuestion()) {
+                    briefQuestions.add(scope.getResearchQuestion());
+                }
+                briefQuestions.addAll(scope.getConfirmedFocusAreas());
+            }
+            KnowledgeProcessingSessionFactory.KnowledgeSession knowledgeSession =
+                    KnowledgeProcessingSessionFactory.buildRunner(
                     projectContext.getProjectDirectory(), sessionKey, embeddingDescriptor,
                     researchLanguageCode,
                     new KnowledgeProcessingSessionFactory.SentenceSegmenterResolver() {
@@ -347,7 +365,11 @@ public final class ProductiveResearchBackendFactory {
                             return SessionSentenceSegmenter.resolve(nlp, languageCode);
                         }
                     },
-                    captures, repository, processingQueue, knowledgeSettings);
+                    captures, repository, processingQueue, knowledgeSettings, briefQuestions,
+                    KnowledgeProcessingSessionFactory.ProjectionListener.NONE);
+            knowledgeRunner[0] = knowledgeSession.worker;
+            projectionRunner[0] = knowledgeSession.projection;
+            projectionInvalidator[0] = knowledgeSession.invalidator;
             final com.aresstack.askai.research.knowledge.processing.KnowledgeProcessingScheduler base =
                     new com.aresstack.askai.research.knowledge.processing
                             .QueueBackedKnowledgeProcessingScheduler(processingQueue, knowledgeSettings,
@@ -497,8 +519,12 @@ public final class ProductiveResearchBackendFactory {
             backend = new AcpResearchSessionBackend(connector, spec, researchDescriptor, browserDescriptor,
                     serviceDescriptor);
 
+            // The UI-facing repository notifies the live projection on a successful update (Save/Exclude/star)
+            // so the ACTIVE corpus re-derives; the acceptance path keeps the raw repository (its effects are
+            // covered by the worker's COMPLETED invalidation).
             resources = new ProductiveResearchSessionResources(sessionKey, stateMachine, captures,
-                    repository, acceptance, projectContext, control, bridge,
+                    new NotifyingSourceRepository(repository, projectionInvalidator[0]),
+                    acceptance, projectContext, control, bridge,
                     browser, backend, service);
             resources.setSearchProfile(profile);
             holder[0] = resources;
@@ -508,11 +534,21 @@ public final class ProductiveResearchBackendFactory {
             if (knowledgeRunner[0] != null) {
                 knowledgeRunner[0].start();
                 resources.setKnowledgeRunner(knowledgeRunner[0]);
+                if (projectionRunner[0] != null) {
+                    projectionRunner[0].start();
+                    resources.setProjectionRunner(projectionRunner[0]);
+                    // Rebuild once at start: a missing/corrupt persisted projection heals here (debounced,
+                    // off this thread) — the session start itself is never blocked.
+                    projectionInvalidator[0].knowledgeChanged();
+                }
             }
             return resources;
         } catch (RuntimeException ex) {
             // The lazy browser runtime no longer starts a process here, so the only failures are endpoint
             // registration / agent-backend wiring (runtime) — rolled back the same way.
+            if (projectionRunner[0] != null) {
+                projectionRunner[0].stop(); // safe even if never started
+            }
             if (knowledgeRunner[0] != null) {
                 knowledgeRunner[0].stop(); // safe even if never started
             }
