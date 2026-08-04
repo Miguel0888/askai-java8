@@ -43,6 +43,11 @@ public class LegacyBrowserSearchSettingsTest {
         assertTrue("the AI layout resolver must ship enabled", ai.enabled);
         assertFalse("an enabled resolver needs its (symbolic) model profile",
                 ai.modelProfileId.trim().isEmpty());
+        // D3: a semantic violation (e.g. BLOCK_OUTSIDE_REGION) is exactly what the repair suffix
+        // can fix — the default policy retries it, bounded by maximumAttempts.
+        assertTrue("semantic validation failures must be repairable by default",
+                ai.retryPolicy.retryOnSemanticValidationFailure);
+        assertEquals(3, ai.retryPolicy.maximumAttempts);
     }
 
     @Test

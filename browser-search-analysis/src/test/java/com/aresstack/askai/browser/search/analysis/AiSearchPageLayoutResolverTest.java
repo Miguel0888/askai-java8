@@ -146,6 +146,87 @@ public class AiSearchPageLayoutResolverTest {
         assertNull(result.acceptedDecision);
     }
 
+    // ------------------------------------------------------------------ D3: hierarchy contract
+
+    /** root → column → two result cards: the graph the region/direct-child contract is about. */
+    private SearchPageAnalysisArtifact hierarchyArtifact() {
+        return LayoutTestSupport.artifactOf("snap-d3",
+                LayoutTestSupport.candidate("container-root", ""),
+                LayoutTestSupport.candidate("container-col", "container-root"),
+                LayoutTestSupport.candidate("container-b1", "container-col"),
+                LayoutTestSupport.candidate("container-b2", "container-col"));
+    }
+
+    private SearchPageLayoutResolutionRequest defaultPolicyRequest(
+            SearchPageAnalysisArtifact artifact) {
+        // The PRODUCTIVE retry policy — this is what makes the semantic repair loop real.
+        return new SearchPageLayoutResolutionRequest(artifact,
+                LayoutTestSupport.aiSettings(true, "profile-x",
+                        LegacyBrowserSearchDefaults.create().aiLayoutResolver.retryPolicy),
+                defaults.diagnostics, CancellationSignal.NONE);
+    }
+
+    private String response(SearchPageAnalysisArtifact artifact, String organicIds,
+                            String blockIds) {
+        return "{\"analysisId\":\"" + artifact.analysisId + "\",\"snapshotId\":\""
+                + artifact.snapshotId + "\","
+                + "\"organicResultContainerIds\":[" + organicIds + "],"
+                + "\"resultBlockContainerIds\":[" + blockIds + "],"
+                + "\"excludedContainerIds\":[],"
+                + "\"confidence\":0.8,\"explanation\":\"r\"}";
+    }
+
+    @Test
+    public void blockOutsideRegionIsRepairedOnTheSecondAttempt() {
+        // Attempt 1 makes the observed live mistake: a result CARD as the region and a block whose
+        // parent (the column) is not in the organic set → BLOCK_OUTSIDE_REGION. The default policy
+        // now retries semantic violations, the repair suffix carries the concrete violation, and
+        // attempt 2 answers with the correct region + direct children.
+        SearchPageAnalysisArtifact artifact = hierarchyArtifact();
+        ScriptedStructuredInferencePort port = new ScriptedStructuredInferencePort()
+                .thenSuccess(response(artifact, "\"container-b1\"", "\"container-b2\""))
+                .thenSuccess(response(artifact, "\"container-col\"",
+                        "\"container-b1\",\"container-b2\""));
+        SearchPageLayoutResolverResult result = new AiSearchPageLayoutResolver(port,
+                defaults.extraction).resolve(defaultPolicyRequest(artifact));
+
+        assertEquals(SearchPageLayoutResolverOutcome.RESOLVED, result.outcome);
+        assertEquals("the semantic violation must be repaired, not terminal", 2, port.callCount());
+        assertTrue("attempt 1 records the concrete violation",
+                result.attempts.get(0).violations.toString().contains("BLOCK_OUTSIDE_REGION"));
+        assertNotNull(result.acceptedDecision);
+        assertTrue(result.acceptedDecision.organicResultContainerIds.contains("container-col"));
+    }
+
+    @Test
+    public void persistentBlockOutsideRegionExhaustsAttemptsThenFailsTyped() {
+        SearchPageAnalysisArtifact artifact = hierarchyArtifact();
+        String bad = response(artifact, "\"container-b1\"", "\"container-b2\"");
+        ScriptedStructuredInferencePort port = new ScriptedStructuredInferencePort()
+                .thenSuccess(bad).thenSuccess(bad).thenSuccess(bad);
+        SearchPageLayoutResolverResult result = new AiSearchPageLayoutResolver(port,
+                defaults.extraction).resolve(defaultPolicyRequest(artifact));
+
+        assertEquals(SearchPageLayoutResolverOutcome.VALIDATION_FAILED, result.outcome);
+        assertEquals("bounded by the default maximumAttempts", 3, result.attempts.size());
+        assertEquals(3, port.callCount());
+        assertNull(result.acceptedDecision);
+    }
+
+    @Test
+    public void userPromptSpellsOutTheRegionDirectChildContract() {
+        // The validator's two-level hierarchy contract must be visible to the model — including on
+        // frozen session profiles, so it lives in the factory code, not only in the template.
+        SearchPageAnalysisArtifact artifact = hierarchyArtifact();
+        String prompt = new SearchPageLayoutPromptFactory().userPrompt(artifact,
+                LegacyBrowserSearchDefaults.create().aiLayoutResolver);
+        assertTrue(prompt.contains("DIRECT CHILD"));
+        assertTrue(prompt.contains("parent REGION container"));
+        assertTrue("the candidate descriptors carry the parent relation",
+                prompt.contains("parent=container-col"));
+        assertTrue(prompt.contains("verify for EVERY resultBlockContainerId"));
+    }
+
     @Test
     public void cancellationBeforeFirstAttemptIsTyped() {
         SearchPageAnalysisArtifact artifact = artifact();

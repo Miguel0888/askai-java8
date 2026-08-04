@@ -59,6 +59,20 @@ final class SearchPageLayoutPromptFactory {
         sb.append('\n').append(allowedIds(artifact));
         sb.append("\nDo not invent ids, urls, css selectors or DOM paths. Do not rerank results by");
         sb.append(" relevance and do not judge target-page content.");
+        // The two-level hierarchy contract the machine validator enforces — spelled out explicitly,
+        // because "name the organic containers" alone reads as one flat list. It lives here (code,
+        // not the configurable template) so even a frozen session profile gets the full contract.
+        sb.append("\nField contract (your answer is machine-validated against it):");
+        sb.append("\n- organicResultContainerIds: the parent REGION container(s) that contain the");
+        sb.append(" organic result list. NOT individual result cards. NOT a root or full-page");
+        sb.append(" container.");
+        sb.append("\n- resultBlockContainerIds: the individual organic result cards. Every block");
+        sb.append(" MUST be a DIRECT CHILD of one selected organic region: its parent= id shown in");
+        sb.append(" the candidate list must itself appear in organicResultContainerIds.");
+        sb.append("\n- excludedContainerIds: advertisements, sponsored results, navigation,");
+        sb.append(" vertical modules and other unrelated containers.");
+        sb.append("\nBefore answering, verify for EVERY resultBlockContainerId that its parent=");
+        sb.append(" value is contained in organicResultContainerIds.");
         return sb.toString();
     }
 

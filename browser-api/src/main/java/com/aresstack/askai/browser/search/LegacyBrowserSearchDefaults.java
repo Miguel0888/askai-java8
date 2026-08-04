@@ -200,7 +200,10 @@ public final class LegacyBrowserSearchDefaults {
                 true,   // retryOnParsingFailure
                 true,   // retryOnSchemaViolation
                 true,   // retryOnUnknownIds
-                false,  // retryOnSemanticValidationFailure
+                true,   // retryOnSemanticValidationFailure: the repair suffix hands the model the
+                        // concrete violation (e.g. BLOCK_OUTSIDE_REGION) — exactly the class of
+                        // mistake a second attempt can fix; still bounded by maximumAttempts
+
                 true,   // retryOnModelTimeout
                 true,   // includePreviousResponse
                 true);  // includeValidationErrors
