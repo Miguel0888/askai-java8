@@ -94,6 +94,26 @@ public final class LocalRerankerConfigurationSnapshotProvider
         };
     }
 
+    /**
+     * Language-aware resolution seam. DELIBERATE initial configuration: the one explicitly selected reranker
+     * serves BOTH research languages ("en"/"de") — the seam exists so a per-language selection (e.g. a
+     * multilingual/German cross-encoder for "de" next to the English MS-MARCO model) can slot in HERE without
+     * touching the language selector or the session-start chain. The language is logged so a German session
+     * running on an English-trained model is visible, never silent.
+     */
+    @Override
+    public RerankerConfigurationSnapshot prepareForSession(String sessionId, File sessionDirectory,
+                                                           String selectedModel, String languageCode)
+            throws RerankerConfigurationException {
+        String language = languageCode == null || languageCode.trim().isEmpty() ? "en" : languageCode.trim();
+        RerankerConfigurationSnapshot snapshot = prepareForSession(sessionId, sessionDirectory, selectedModel);
+        System.err.println("[reranker] session=" + sessionId + " language=" + language
+                + " model=" + snapshot.getModelName()
+                + ("de".equals(language) ? " (note: language-independent selection — the configured model"
+                        + " also serves German until a per-language selection exists)" : ""));
+        return snapshot;
+    }
+
     @Override
     public RerankerConfigurationSnapshot prepareForSession(String sessionId, File sessionDirectory,
                                                            String selectedModel)

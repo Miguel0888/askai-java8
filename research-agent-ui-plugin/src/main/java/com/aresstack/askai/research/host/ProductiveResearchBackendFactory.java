@@ -220,8 +220,10 @@ public final class ProductiveResearchBackendFactory {
         }
         RerankerConfigurationSnapshot rerankerSnapshot;
         try {
+            // The SAME session research language the search/NLP path sees: the provider MAY resolve a
+            // language-appropriate reranker (today: the one configured selection serves both, visibly logged).
             rerankerSnapshot = rerankerSnapshots.prepareForSession(sessionKey, projectDir,
-                    config.getSelectedRerankerModel());
+                    config.getSelectedRerankerModel(), researchLanguageCode);
         } catch (RerankerConfigurationException ex) {
             throw new IOException("The mandatory reranker could not be prepared for this session: "
                     + ex.getMessage(), ex);

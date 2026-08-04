@@ -59,6 +59,47 @@ public class MandatoryRerankerWiringTest {
     }
 
     @Test
+    public void createSessionPassesTheSessionResearchLanguageToTheRerankerResolution() throws Exception {
+        File exe = folder.newFile("java");
+        File jar = folder.newFile("agent.jar");
+        File sidecarJava = folder.newFile("java21");
+        File sidecarJar = folder.newFile("sidecar.jar");
+        ResearchRuntimeConfig config = new ResearchRuntimeConfig(exe.getAbsolutePath(),
+                jar.getAbsolutePath(), sidecarJava.getAbsolutePath(), sidecarJar.getAbsolutePath(),
+                "chrome", true, true, null);
+        // Records the language the factory resolves the reranker with, then aborts the start (visible error).
+        final String[] seenLanguage = new String[1];
+        com.aresstack.askai.agent.model.reranker.RerankerConfigurationSnapshotProvider recording =
+                new com.aresstack.askai.agent.model.reranker.RerankerConfigurationSnapshotProvider() {
+                    public com.aresstack.askai.agent.model.reranker.RerankerConfigurationSnapshot
+                            prepareForSession(String sessionId, File dir, String selected)
+                            throws com.aresstack.askai.agent.model.reranker.RerankerConfigurationException {
+                        throw new com.aresstack.askai.agent.model.reranker
+                                .RerankerConfigurationException("language-less path must not be used");
+                    }
+
+                    @Override
+                    public com.aresstack.askai.agent.model.reranker.RerankerConfigurationSnapshot
+                            prepareForSession(String sessionId, File dir, String selected, String language)
+                            throws com.aresstack.askai.agent.model.reranker.RerankerConfigurationException {
+                        seenLanguage[0] = language;
+                        throw new com.aresstack.askai.agent.model.reranker
+                                .RerankerConfigurationException("recorded");
+                    }
+                };
+        ProductiveResearchBackendFactory factory = new ProductiveResearchBackendFactory(
+                null, null, null, config, 1L, recording);
+        factory.setResearchLanguageCode("de");
+        try {
+            factory.createSession("s1", folder.newFolder("session"));
+            fail("the recording provider aborts the start");
+        } catch (IOException expected) {
+            assertTrue(expected.getMessage(), expected.getMessage().contains("recorded"));
+        }
+        assertEquals("the session research language reaches the reranker resolution", "de", seenLanguage[0]);
+    }
+
+    @Test
     public void createSessionWithoutARerankerProviderFailsVisibly() throws Exception {
         File exe = folder.newFile("java");
         File jar = folder.newFile("agent.jar");

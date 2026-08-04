@@ -30,4 +30,23 @@ public interface RerankerConfigurationSnapshotProvider {
     RerankerConfigurationSnapshot prepareForSession(String sessionId, File sessionDirectory,
                                                     String selectedModel)
             throws RerankerConfigurationException;
+
+    /**
+     * As {@link #prepareForSession(String, File, String)} but with the session's RESEARCH LANGUAGE, so the
+     * resolution MAY select a language-appropriate reranker model (e.g. a multilingual/German cross-encoder for
+     * {@code "de"} instead of an English-trained MS-MARCO model). The language selector itself never knows a
+     * reranker implementation — the mapping language→model belongs entirely to the provider/configuration.
+     *
+     * <p>Contract: when a language-specific selection is CONFIGURED but not usable, the provider throws
+     * {@link RerankerConfigurationException} (never a silent fallback to another language's model). The default
+     * ignores the language and resolves the single configured selection — the deliberate initial configuration
+     * "en/de → the same explicitly selected reranker" until per-language selections exist.</p>
+     *
+     * @param languageCode the session research language ISO code ({@code "en"}/{@code "de"}); null/empty = "en"
+     */
+    default RerankerConfigurationSnapshot prepareForSession(String sessionId, File sessionDirectory,
+                                                            String selectedModel, String languageCode)
+            throws RerankerConfigurationException {
+        return prepareForSession(sessionId, sessionDirectory, selectedModel);
+    }
 }
