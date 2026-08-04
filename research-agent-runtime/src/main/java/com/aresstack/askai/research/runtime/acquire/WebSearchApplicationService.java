@@ -124,6 +124,12 @@ public final class WebSearchApplicationService {
     private final int minReadableChars;
     /** The readiness verdict seam (default heuristic; a model-backed judge can be set for user searches). */
     private PageReadinessJudge readinessJudge;
+    /** Layer 2: expected-content similarity (SERP anchor vs page text); default NONE → no override. */
+    private PageContentSimilarity contentSimilarity = PageContentSimilarity.NONE;
+    /** SERP anchor (result title + snippet) per seed candidate URL, for the semantic readiness override. */
+    private final java.util.Map<String, String> expectedContentByUrl = new java.util.HashMap<String, String>();
+    /** Expected-content similarity at/above which an ambiguous verdict is rescued to READABLE. */
+    private static final double EXPECTED_CONTENT_HIGH = 0.80;
 
     /** Sites of the search engine(s) used this run — pure TRANSIT: never a page, host, source or link farm. */
     private final Set<String> searchProviderSites = new HashSet<String>();
@@ -208,6 +214,32 @@ public final class WebSearchApplicationService {
         if (judge != null) {
             this.readinessJudge = judge;
         }
+    }
+
+    /** Wire the Layer 2 expected-content similarity (embedding-backed); null keeps the no-op default. */
+    public void setContentSimilarity(PageContentSimilarity similarity) {
+        if (similarity != null) {
+            this.contentSimilarity = similarity;
+        }
+    }
+
+    /**
+     * Layer 2 semantic safety net: rescue an AMBIGUOUS verdict (INTERACTIVE_CHALLENGE / UNREADABLE — the two
+     * false-positive-prone outcomes) to READABLE when the page's own text is highly similar to what the SERP
+     * result promised. Never touches ACCESS_BLOCKED (terminal), CONSENT_REQUIRED (resolve first) or READABLE.
+     * A missing anchor, empty text or an unavailable embedder ({@code NaN}) leaves the base verdict unchanged.
+     */
+    static PageReadinessJudge.Verdict withExpectedContent(PageReadinessJudge.Verdict base, String expected,
+            String actual, PageContentSimilarity similarity, double threshold) {
+        if (base != PageReadinessJudge.Verdict.INTERACTIVE_CHALLENGE
+                && base != PageReadinessJudge.Verdict.UNREADABLE) {
+            return base;
+        }
+        if (expected == null || expected.trim().isEmpty() || actual == null || actual.trim().isEmpty()) {
+            return base;
+        }
+        double s = similarity.score(expected, actual);
+        return !Double.isNaN(s) && s >= threshold ? PageReadinessJudge.Verdict.READABLE : base;
     }
 
     /** Execute the deterministic acquisition for {@code terms}; returns the explicit acquisition stop reason. */
@@ -431,6 +463,10 @@ public final class WebSearchApplicationService {
                         : result.selected) {
                     if (!ranked.candidate.resolvedTargetUrl.isEmpty()) {
                         frontier.add(ranked.candidate.resolvedTargetUrl);
+                        // Remember what the SERP promised for this URL, for the Layer 2 semantic readiness net.
+                        expectedContentByUrl.put(
+                                WebAcquisitionText.canonicalish(ranked.candidate.resolvedTargetUrl),
+                                (ranked.candidate.title + " " + ranked.candidate.snippet).trim());
                         // Park the candidate with its reranker score BEFORE it is visited, so every hit is
                         // in the store immediately (score visible) and its full text is filled only on a
                         // successful visit. Best-effort: a park failure never aborts the search.
@@ -514,6 +550,17 @@ public final class WebSearchApplicationService {
         // ONE classification per page (the model, when set, may recognise an obstruction the DOM selectors
         // missed); the subsequent waiting uses the cheap heuristic so we do not re-invoke the model per tick.
         PageReadinessJudge.Verdict verdict = readinessJudge.judge(pr);
+        // Layer 2 (additive): a SERP-anchored semantic safety net can rescue an AMBIGUOUS verdict
+        // (INTERACTIVE_CHALLENGE / UNREADABLE) to READABLE when the page text closely matches what the search
+        // result promised. No-op by default (no embedder → NaN → unchanged); never touches a block/consent verdict.
+        PageReadinessJudge.Verdict semantic = withExpectedContent(verdict,
+                expectedContentByUrl.get(WebAcquisitionText.canonicalish(url)),
+                pr.title + " " + pr.excerpt, contentSimilarity, EXPECTED_CONTENT_HIGH);
+        if (semantic != verdict) {
+            listener.status("readiness override " + verdict + "->" + semantic
+                    + " (expected-content match) " + url);
+            verdict = semantic;
+        }
         String blockReason = AccessBlockSignals.reason(pr);
         listener.status("readiness=" + verdict
                 + (verdict == PageReadinessJudge.Verdict.ACCESS_BLOCKED ? " reason=" + blockReason : "")
