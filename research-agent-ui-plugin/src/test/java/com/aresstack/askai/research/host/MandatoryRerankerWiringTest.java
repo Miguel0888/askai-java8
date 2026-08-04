@@ -100,6 +100,65 @@ public class MandatoryRerankerWiringTest {
     }
 
     @Test
+    public void createSessionPublishesPerLanguageRerankerSnapshots() throws Exception {
+        File exe = folder.newFile("java");
+        File jar = folder.newFile("agent.jar");
+        File sidecarJava = folder.newFile("java21");
+        File sidecarJar = folder.newFile("sidecar.jar");
+        ResearchRuntimeConfig config = new ResearchRuntimeConfig(exe.getAbsolutePath(),
+                jar.getAbsolutePath(), sidecarJava.getAbsolutePath(), sidecarJar.getAbsolutePath(),
+                "chrome", true, true, null);
+        // Serves the session-default and "en" snapshots, then aborts on the "de" publication — proving the
+        // factory resolves session-language + en + de (in that order) before the runtime is launched.
+        final java.util.List<String> languages = new java.util.ArrayList<String>();
+        com.aresstack.askai.agent.model.reranker.RerankerConfigurationSnapshotProvider provider =
+                new com.aresstack.askai.agent.model.reranker.RerankerConfigurationSnapshotProvider() {
+                    public com.aresstack.askai.agent.model.reranker.RerankerConfigurationSnapshot
+                            prepareForSession(String sessionId, File dir, String selected)
+                            throws com.aresstack.askai.agent.model.reranker.RerankerConfigurationException {
+                        throw new com.aresstack.askai.agent.model.reranker
+                                .RerankerConfigurationException("language-less path must not be used");
+                    }
+
+                    @Override
+                    public com.aresstack.askai.agent.model.reranker.RerankerConfigurationSnapshot
+                            prepareForSession(String sessionId, File dir, String selected, String language)
+                            throws com.aresstack.askai.agent.model.reranker.RerankerConfigurationException {
+                        languages.add(language);
+                        if (languages.size() == 3) {
+                            throw new com.aresstack.askai.agent.model.reranker
+                                    .RerankerConfigurationException("stop-after-de");
+                        }
+                        com.aresstack.askai.agent.model.reranker.RerankerEndpointDescriptor descriptor =
+                                new com.aresstack.askai.agent.model.reranker.RerankerEndpointDescriptor(
+                                        com.aresstack.askai.agent.model.reranker.RerankerProvider.ASKAI_LOCAL,
+                                        "http://127.0.0.1:1", "m",
+                                        java.util.Collections.singletonList(com.aresstack.askai.agent.model
+                                                .reranker.RerankerCapability.RERANK),
+                                        com.aresstack.askai.agent.model.reranker.RerankerScoreSemantics
+                                                .RAW_LOGIT, 1000L,
+                                        com.aresstack.askai.agent.model.reranker
+                                                .RerankerSelectionConfiguration.topN(5));
+                        return new com.aresstack.askai.agent.model.reranker.RerankerConfigurationSnapshot(
+                                new File(dir, "reranker-config.json"),
+                                com.aresstack.askai.agent.model.reranker.RerankerConfigurationDocument
+                                        .current(0L, descriptor));
+                    }
+                };
+        ProductiveResearchBackendFactory factory = new ProductiveResearchBackendFactory(
+                null, null, null, config, 1L, provider);
+        factory.setResearchLanguageCode("de");
+        try {
+            factory.createSession("s1", folder.newFolder("session"));
+            fail("the provider aborts on the de publication");
+        } catch (IOException expected) {
+            assertTrue(expected.getMessage(), expected.getMessage().contains("stop-after-de"));
+        }
+        assertEquals("session-language default, then en, then de",
+                java.util.Arrays.asList("de", "en", "de"), languages);
+    }
+
+    @Test
     public void createSessionWithoutARerankerProviderFailsVisibly() throws Exception {
         File exe = folder.newFile("java");
         File jar = folder.newFile("agent.jar");

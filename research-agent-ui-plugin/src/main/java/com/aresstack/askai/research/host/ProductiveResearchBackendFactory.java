@@ -228,6 +228,25 @@ public final class ProductiveResearchBackendFactory {
             throw new IOException("The mandatory reranker could not be prepared for this session: "
                     + ex.getMessage(), ex);
         }
+        // Per-LANGUAGE reranker snapshots (both resolve the same selected model today): the runtime picks the
+        // search's language snapshot per manual search, so the NEXT search after a language switch uses its
+        // language's reranker WITHOUT a host round-trip or a session restart; a running search keeps its
+        // instance. Fail-fast like the mandatory default above — never a silent cross-language fallback.
+        final String rerankerEnPath;
+        final String rerankerDePath;
+        try {
+            File rerankerEnDir = new File(projectDir, "reranker-lang/en");
+            File rerankerDeDir = new File(projectDir, "reranker-lang/de");
+            rerankerEnDir.mkdirs();
+            rerankerDeDir.mkdirs();
+            rerankerEnPath = rerankerSnapshots.prepareForSession(sessionKey, rerankerEnDir,
+                    config.getSelectedRerankerModel(), "en").getAbsolutePath();
+            rerankerDePath = rerankerSnapshots.prepareForSession(sessionKey, rerankerDeDir,
+                    config.getSelectedRerankerModel(), "de").getAbsolutePath();
+        } catch (RerankerConfigurationException ex) {
+            throw new IOException("The per-language reranker snapshots could not be prepared: "
+                    + ex.getMessage(), ex);
+        }
 
         // OPTIONAL structured-inference descriptor (the central main model for SERP layout repair). Unlike
         // the reranker this NEVER fails the session: an absent provider or an unresolvable main model just
@@ -422,6 +441,8 @@ public final class ProductiveResearchBackendFactory {
             Map<String, String> baseEnv = agentLaunchEnvironment(fullConfigFile.getAbsolutePath(),
                     rerankerSnapshot.getAbsolutePath(), inferenceSnapshotPath, inferenceUnavailableReason,
                     searchStrategySnapshotPath);
+            baseEnv.put("ASKAI_RERANKER_CONFIG_EN", rerankerEnPath);
+            baseEnv.put("ASKAI_RERANKER_CONFIG_DE", rerankerDePath);
             // DEV/TEST-only hand-off (mirrors askai.research.sidecar.args for the browser sidecar): extra JVM
             // args for the research-agent-runtime child, inserted BEFORE -jar so they are JVM flags. Empty by
             // default → no production effect. Set on the HOST JVM, e.g. to A/B the overlay:

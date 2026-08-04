@@ -173,13 +173,51 @@ public final class ResearchAgentMain {
             throw new IllegalStateException("ASKAI_RERANKER_CONFIG is required for a browser research "
                     + "session (the local reranker is mandatory; no raw-order fallback).");
         }
+        return buildRerankerFromPath(environment.rerankerConfigPath);
+    }
+
+    /**
+     * Per-language reranker snapshots, built lazily from the host-published per-language files and cached.
+     * A search resolves its reranker HERE with its immutable language snapshot: the next search after a
+     * language switch uses the new language's reranker, while a running search keeps the instance it was
+     * constructed with. When no per-language snapshot is published, the session-start default serves every
+     * language (the deliberate initial configuration — both entries are the same selected model today). A
+     * published-but-unusable language snapshot FAILS the search visibly, never falls back to another
+     * language's model.
+     */
+    private final java.util.Map<String, com.aresstack.askai.research.runtime.rerank.CandidateReranker>
+            rerankerByLanguage = new java.util.HashMap<String,
+                    com.aresstack.askai.research.runtime.rerank.CandidateReranker>();
+
+    private com.aresstack.askai.research.runtime.rerank.CandidateReranker rerankerFor(String languageCode) {
+        String lang = "de".equalsIgnoreCase(languageCode) ? "de" : "en";
+        String path = "de".equals(lang) ? environment.rerankerConfigDePath
+                : environment.rerankerConfigEnPath;
+        if (path == null) {
+            return reranker; // no per-language snapshot published → the session-start default
+        }
+        synchronized (rerankerByLanguage) {
+            com.aresstack.askai.research.runtime.rerank.CandidateReranker cached =
+                    rerankerByLanguage.get(lang);
+            if (cached == null) {
+                // Reuse the already readiness-checked default when the language file IS the default file.
+                cached = path.equals(environment.rerankerConfigPath) && reranker != null
+                        ? reranker : buildRerankerFromPath(path);
+                rerankerByLanguage.put(lang, cached);
+            }
+            return cached;
+        }
+    }
+
+    private com.aresstack.askai.research.runtime.rerank.CandidateReranker buildRerankerFromPath(
+            String configPath) {
         com.aresstack.askai.agent.model.reranker.RerankerConfigurationDocument document;
         try {
             document = com.aresstack.askai.research.runtime.rerank.RerankerConfigurationLoader
-                    .load(environment.rerankerConfigPath);
+                    .load(configPath);
         } catch (java.io.IOException ex) {
             throw new IllegalStateException("The reranker configuration is unusable ("
-                    + environment.rerankerConfigPath + "): " + ex.getMessage(), ex);
+                    + configPath + "): " + ex.getMessage(), ex);
         }
         com.aresstack.askai.agent.model.reranker.RerankerEndpointDescriptor descriptor =
                 document.descriptor;
@@ -634,6 +672,11 @@ public final class ResearchAgentMain {
             }
             com.aresstack.askai.research.runtime.loop.ResearchRunProgress progress =
                     new com.aresstack.askai.research.runtime.loop.ResearchRunProgress();
+            // The reranker for THIS search, resolved with the same immutable language snapshot as the SERP
+            // request — the next search after a language switch gets the new language's reranker, a running
+            // search keeps this instance (constructor injection below).
+            com.aresstack.askai.research.runtime.rerank.CandidateReranker searchReranker =
+                    rerankerFor(searchLanguage == null ? sessionLanguage.code() : searchLanguage);
             com.aresstack.askai.research.runtime.acquire.WebSearchApplicationService acquisition =
                     new com.aresstack.askai.research.runtime.acquire.WebSearchApplicationService(
                             browser,
@@ -683,7 +726,7 @@ public final class ResearchAgentMain {
                             cancelled,
                             strategy,
                             apiLabel,
-                            reranker,
+                            searchReranker,
                             new com.aresstack.askai.browser.domain.PublicSuffixDomainKeyResolver(),
                             new com.aresstack.askai.research.runtime.acquire.ManualSourceAcceptancePort(
                                     service, query),

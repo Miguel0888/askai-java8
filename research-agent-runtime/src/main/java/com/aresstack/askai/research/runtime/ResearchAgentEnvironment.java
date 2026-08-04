@@ -23,6 +23,13 @@ final class ResearchAgentEnvironment {
     final String browserSearchConfigPath;
     /** Path of the reranker start snapshot (the mandatory local cross-encoder endpoint), or null. */
     final String rerankerConfigPath;
+    /**
+     * Optional per-language reranker snapshots (published by the host so the NEXT search after a language
+     * switch resolves its language's reranker without a host round-trip). Null when not published — the
+     * session-start default then serves every language (today both entries are the same selected model).
+     */
+    final String rerankerConfigEnPath;
+    final String rerankerConfigDePath;
     /** Path of the initial-search strategy snapshot (legacy browser vs. API provider), or null. */
     final String searchStrategyConfigPath;
     /** Path of the structured-inference descriptor (the central main model for SERP repair), or null. */
@@ -33,6 +40,7 @@ final class ResearchAgentEnvironment {
     private ResearchAgentEnvironment(String sessionId, String projectId, String researchUrl,
                                      String researchTransport, String browserUrl, String browserTransport,
                                      String browserSearchConfigPath, String rerankerConfigPath,
+                                     String rerankerConfigEnPath, String rerankerConfigDePath,
                                      String searchStrategyConfigPath, String inferenceConfigPath,
                                      String inferenceUnavailableReason,
                                      String serviceUrl, String serviceTransport) {
@@ -44,6 +52,8 @@ final class ResearchAgentEnvironment {
         this.browserTransport = browserTransport;
         this.browserSearchConfigPath = browserSearchConfigPath;
         this.rerankerConfigPath = rerankerConfigPath;
+        this.rerankerConfigEnPath = rerankerConfigEnPath;
+        this.rerankerConfigDePath = rerankerConfigDePath;
         this.searchStrategyConfigPath = searchStrategyConfigPath;
         this.inferenceConfigPath = inferenceConfigPath;
         this.inferenceUnavailableReason = inferenceUnavailableReason;
@@ -64,6 +74,8 @@ final class ResearchAgentEnvironment {
                 browserUrl == null ? null : orDefault(env.get("ASKAI_BROWSER_MCP_TRANSPORT"), "streamable"),
                 blankToNull(env.get("ASKAI_BROWSER_SEARCH_CONFIG")),
                 blankToNull(env.get("ASKAI_RERANKER_CONFIG")),
+                blankToNull(env.get("ASKAI_RERANKER_CONFIG_EN")),
+                blankToNull(env.get("ASKAI_RERANKER_CONFIG_DE")),
                 blankToNull(env.get("ASKAI_SEARCH_STRATEGY_CONFIG")),
                 blankToNull(env.get("ASKAI_INFERENCE_CONFIG")),
                 blankToNull(env.get("ASKAI_INFERENCE_UNAVAILABLE_REASON")),
