@@ -223,18 +223,21 @@ public class ResearchRunCardsTest {
         }
 
         String lastCardActionId(String id) {
-            List<AgentConversationSink.ActionOption> options =
-                    sink.cardOptions.get(sink.cardOptions.size() - 1);
-            for (AgentConversationSink.ActionOption option : options) {
-                if (option.getId().equals(id)) {
+            // Uniform surface: the offer must exist as a RED action tag (command projection).
+            String command = "limit".equals(id) ? "accept-limitation" : id;
+            for (com.aresstack.askai.research.agent.ResearchActionTag tag
+                    : session.availableActionTags()) {
+                if (tag.getCommand().equals(command)) {
                     return id;
                 }
             }
-            throw new AssertionError("no action '" + id + "' on the last card");
+            throw new AssertionError("no action tag '" + command + "' offered");
         }
 
         void press(String actionId) {
-            sink.cardHandlers.get(sink.cardHandlers.size() - 1).onAction(actionId);
+            // Uniform surface: pressing = running the command through the ONE processor.
+            String command = "limit".equals(actionId) ? "accept-limitation" : actionId;
+            session.executeCommand(command, "");
         }
 
         void event(ResearchBackendEvent.Builder builder) {
@@ -386,14 +389,18 @@ public class ResearchRunCardsTest {
                 .activity("research-run-p1", null, "", "")
                 .runProgress(new ResearchRunProgressInfo("p1", 10, 7, 1, 30, "OPENING_PAGE", "")));
         int cardsBefore = fx.sink.cardMarkdowns.size();
+        int messagesBefore = fx.sink.assistantMessages.size();
         fx.event(ResearchBackendEvent.builder(ResearchBackendEventType.RUN_OUTCOME)
                 .activity("research-run-p1", null, "", "")
                 .runOutcome(new ResearchRunOutcomeInfo("p1", "TOOL_BUDGET_EXHAUSTED", 10, 7, 1, 3, 2,
                         true, "INSUFFICIENT_HOST_DIVERSITY", "CONTINUE_RESEARCH")));
         fx.event(ResearchBackendEvent.builder(ResearchBackendEventType.COMPLETED).text(""));
 
-        assertEquals("exactly one result card", cardsBefore + 1, fx.sink.cardMarkdowns.size());
-        String card = fx.sink.cardMarkdowns.get(fx.sink.cardMarkdowns.size() - 1);
+        assertEquals("NO result card anymore — the narrative is a plain assistant message",
+                cardsBefore, fx.sink.cardMarkdowns.size());
+        assertTrue("the narrative arrived as a message",
+                fx.sink.assistantMessages.size() > messagesBefore);
+        String card = lastOutcomeNarrative(fx);
         assertTrue("plain-language summary", card.contains("7 relevant sources"));
         assertFalse("no stop-reason enum names", card.contains("TOOL_BUDGET_EXHAUSTED"));
         assertFalse("no internal source ids", card.contains("source-"));
@@ -405,13 +412,8 @@ public class ResearchRunCardsTest {
         assertFalse("no 'Agent turn completed.' bubble",
                 fx.sink.assistantMessages.toString().contains("Agent turn completed"));
 
-        // The budget-exhausted-with-open-requirements card offers the full decision set.
-        List<AgentConversationSink.ActionOption> options =
-                fx.sink.cardOptions.get(fx.sink.cardOptions.size() - 1);
-        List<String> ids = new ArrayList<String>();
-        for (AgentConversationSink.ActionOption option : options) {
-            ids.add(option.getId());
-        }
+        // The budget-exhausted-with-open-requirements outcome offers the full decision set as tags.
+        List<String> ids = lastActionIds(fx);
         assertTrue(ids.contains("continue"));
         assertTrue(ids.contains("sources"));
         assertTrue(ids.contains("refine"));
@@ -486,26 +488,19 @@ public class ResearchRunCardsTest {
                 .runOutcome(new ResearchRunOutcomeInfo("p1", "TOOL_BUDGET_EXHAUSTED", 10, 7, 1, 3, 2,
                         true, "INSUFFICIENT_HOST_DIVERSITY", "CONTINUE_RESEARCH")));
 
-        List<AgentConversationSink.ActionOption> options =
-                fx.sink.cardOptions.get(fx.sink.cardOptions.size() - 1);
-        for (AgentConversationSink.ActionOption option : options) {
-            if ("sources".equals(option.getId()) || "config".equals(option.getId())) {
-                assertEquals(AgentConversationSink.ActionKind.NAVIGATION, option.getKind());
-            } else {
-                assertEquals(AgentConversationSink.ActionKind.DECISION, option.getKind());
-            }
-        }
+        assertTrue("the decision set is offered as tags", lastActionIds(fx).contains("continue"));
 
-        AgentConversationSink.ActionHandler handler =
-                fx.sink.cardHandlers.get(fx.sink.cardHandlers.size() - 1);
+        // NAVIGATION does not consume the offers: after viewing the sources, continue is still there.
+        fx.press("sources");
+        assertTrue("navigation keeps the decision usable", lastActionIds(fx).contains("continue"));
+
+        // A DECISION consumes the offer set and starts exactly one new run.
         int promptsBefore = fx.backend.prompts.size();
-        assertEquals("viewing sources changes no state",
-                AgentConversationSink.ActionExecutionResult.NO_STATE_CHANGE,
-                handler.onAction("sources"));
-        assertEquals("the decision still works after navigating",
-                AgentConversationSink.ActionExecutionResult.ACCEPTED, handler.onAction("continue"));
+        fx.press("continue");
+        assertFalse("a decision consumes the offers", lastActionIds(fx).contains("continue"));
         assertEquals("continue starts exactly one new run", promptsBefore + 1,
                 fx.backend.prompts.size());
+
     }
 
     @Test
@@ -524,7 +519,7 @@ public class ResearchRunCardsTest {
                     .activity("research-run-p1", null, "", "")
                     .runOutcome(new ResearchRunOutcomeInfo("p1", reason[0], 0, 0, 0, 3, 2,
                             true, "INSUFFICIENT_SOURCES", "RETRY")));
-            String card = fx.sink.cardMarkdowns.get(fx.sink.cardMarkdowns.size() - 1);
+            String card = lastOutcomeNarrative(fx);
             assertTrue(reason[0] + " names the technical problem: " + card,
                     card.contains("technical problem") && card.contains(reason[1]));
             assertFalse(reason[0] + " must never read like a budget stop: " + card,
@@ -553,7 +548,7 @@ public class ResearchRunCardsTest {
                 .activity("research-run-p1", null, "", "")
                 .runOutcome(new ResearchRunOutcomeInfo("p1", "RERANKER_CONFIGURATION_ERROR", 0, 0, 0,
                         3, 2, false, "INSUFFICIENT_SOURCES", "OPEN_CONFIGURATION")));
-        String card = fx.sink.cardMarkdowns.get(fx.sink.cardMarkdowns.size() - 1);
+        String card = lastOutcomeNarrative(fx);
         assertTrue("the card points to the runtime settings: " + card,
                 card.contains("runtime settings"));
         assertTrue(card.contains("configuration or model selection is invalid"));
@@ -574,7 +569,7 @@ public class ResearchRunCardsTest {
                 .activity("research-run-p1", null, "", "")
                 .runOutcome(new ResearchRunOutcomeInfo("p1", "NO_SEMANTIC_MATCHES", 0, 0, 0, 3, 2,
                         true, "INSUFFICIENT_SOURCES", "REFINE_RESEARCH_SCOPE")));
-        String card = fx.sink.cardMarkdowns.get(fx.sink.cardMarkdowns.size() - 1);
+        String card = lastOutcomeNarrative(fx);
         assertTrue("the semantic outcome is explained: " + card, card.contains("similar enough"));
         assertFalse("not presented as a technical problem", card.contains("technical problem"));
         assertFalse("never presented as a budget stop", card.toLowerCase().contains("budget"));
@@ -588,13 +583,19 @@ public class ResearchRunCardsTest {
                 ids.contains("limit"));
     }
 
+    /** The offered outcome follow-ups, read from the uniform RED tag surface (card-era ids). */
     private static List<String> lastActionIds(Fx fx) {
         List<String> ids = new ArrayList<String>();
-        for (AgentConversationSink.ActionOption option
-                : fx.sink.cardOptions.get(fx.sink.cardOptions.size() - 1)) {
-            ids.add(option.getId());
+        for (com.aresstack.askai.research.agent.ResearchActionTag tag
+                : fx.session.availableActionTags()) {
+            ids.add("accept-limitation".equals(tag.getCommand()) ? "limit" : tag.getCommand());
         }
         return ids;
+    }
+
+    /** The outcome narrative, now a plain assistant message instead of a card. */
+    private static String lastOutcomeNarrative(Fx fx) {
+        return fx.sink.assistantMessages.get(fx.sink.assistantMessages.size() - 1);
     }
 
     @Test

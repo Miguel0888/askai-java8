@@ -342,6 +342,10 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         addTagIfAvailable(tags, "continue", playbook.actionLabel("continue"));
         addTagIfAvailable(tags, "retry", playbook.actionLabel("retry"));
         addTagIfAvailable(tags, "resume", playbook.actionLabel("resume"));
+        for (String id : outcomeOffers) {
+            tags.add(new ResearchActionTag("limit".equals(id) ? "accept-limitation" : id,
+                    playbook.actionLabel(id), "", true));
+        }
         if (postSearchReviewOffered) {
             tags.add(new ResearchActionTag("review-sources",
                     playbook.isGerman() ? "Neue Quellen auswerten" : "Review new sources",
@@ -1738,6 +1742,11 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         if ("generate-outline".equals(cmd)) {
             return renderOutcome(derivedActions.generateOutline());
         }
+        // Transient OUTCOME offers (the follow-up choices of a finished run) — same names as the tags.
+        String offerId = "accept-limitation".equals(cmd) ? "limit" : cmd;
+        if (outcomeOffers.contains(offerId)) {
+            return runOutcomeOffer(offerId);
+        }
         // SEMANTIC state commands — internal ResearchCommandType names are NEVER user/bot API. The
         // processor resolves the semantic name against the CURRENT state (the same projection the buttons
         // use), so "approve" hits whichever approval gate is pending.
@@ -1828,6 +1837,12 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 "search <query>, generate-visualization, generate-outline, review-sources");
         for (String name : SEMANTIC_COMMANDS) {
             if (resolveSemanticCommand(name) != null) {
+                sb.append(", ").append(name);
+            }
+        }
+        for (String id : outcomeOffers) {
+            String name = "limit".equals(id) ? "accept-limitation" : id;
+            if (sb.indexOf(", " + name) < 0) {
                 sb.append(", ").append(name);
             }
         }
@@ -2131,13 +2146,11 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         currentRunActivityId = null;
         runCardStarted = false;
         resetRunActivityContext();
-        sink.showActionCard("research-outcome-" + outcome.getPromptId(),
-                narrator.outcomeNarrative(outcome), outcomeActions(outcome),
-                new AgentConversationSink.ActionHandler() {
-                    public AgentConversationSink.ActionExecutionResult onAction(String actionId) {
-                        return handleOutcomeAction(actionId, outcome);
-                    }
-                });
+        // Uniform action surface: the narrative is a normal assistant message; the follow-up choices
+        // become RED tags (offered commands) — the LAST chat card is gone.
+        sayAsAgent(narrator.outcomeNarrative(outcome));
+        lastOutcome = outcome;
+        outcomeOffers = outcomeOfferIds(outcome);
     }
 
     // ------------------------------------------------------------------ user attention (manual challenge)
@@ -2212,7 +2225,11 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     }
 
     /** The typed actions offered on the result card — chosen by stop situation (never enum names). */
-    private java.util.List<AgentConversationSink.ActionOption> outcomeActions(
+    /** The transient follow-up choices of a finished run — offered as red tags until a DECISION runs. */
+    private volatile java.util.List<String> outcomeOffers = java.util.Collections.emptyList();
+    private volatile com.aresstack.askai.research.backend.ResearchRunOutcomeInfo lastOutcome;
+
+    private java.util.List<String> outcomeOfferIds(
             com.aresstack.askai.research.backend.ResearchRunOutcomeInfo o) {
         java.util.List<String> ids = new ArrayList<String>();
         String stop = o.getStopReason();
@@ -2261,57 +2278,49 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             ids.add("limit");
             ids.add("end");
         }
-        java.util.List<AgentConversationSink.ActionOption> options =
-                new ArrayList<AgentConversationSink.ActionOption>();
-        for (String id : ids) {
-            // Viewing something (sources tab, configuration) never consumes the decision card.
-            AgentConversationSink.ActionKind kind = "sources".equals(id) || "config".equals(id)
-                    ? AgentConversationSink.ActionKind.NAVIGATION
-                    : AgentConversationSink.ActionKind.DECISION;
-            options.add(new AgentConversationSink.ActionOption(id, playbook.actionLabel(id), kind));
-        }
-        return options;
+        return ids;
     }
 
-    /** Typed result-card actions — dispatched over the command port, never synthetic chat messages. */
-    private AgentConversationSink.ActionExecutionResult handleOutcomeAction(String actionId,
-            com.aresstack.askai.research.backend.ResearchRunOutcomeInfo outcome) {
-        if ("continue".equals(actionId) || "retry".equals(actionId) || "resume".equals(actionId)) {
+    /**
+     * Run ONE offered outcome follow-up (red tag / run_command). Navigation offers (sources, config) never
+     * consume the offer set; a DECISION consumes ALL offers — the same semantics the old result card had.
+     */
+    private String runOutcomeOffer(String id) {
+        boolean navigation = "sources".equals(id) || "config".equals(id);
+        if ("continue".equals(id) || "retry".equals(id) || "resume".equals(id)) {
             continueResearchTurn();
-            return AgentConversationSink.ActionExecutionResult.ACCEPTED;
-        }
-        if ("sources".equals(actionId)) {
-            // Pure NAVIGATION: showing a tab never consumes the result card.
+        } else if ("sources".equals(id)) {
             openArtifactView("sources");
-            return AgentConversationSink.ActionExecutionResult.NO_STATE_CHANGE;
-        }
-        if ("config".equals(actionId)) {
-            // The runtime configuration lives in the gear menu at the composer now (session-based
-            // plugin settings), not in the artifact area — point there instead of opening a tab.
+        } else if ("config".equals(id)) {
             sayAsAgent(playbook.isGerman()
                     ? "Die Einstellungen findest du im Zahnrad-Menü unten am Eingabefeld "
                             + "(Kategorie „Research Agent“)."
                     : "You find the settings in the gear menu at the composer "
                             + "(category „Research Agent“).");
-            return AgentConversationSink.ActionExecutionResult.NO_STATE_CHANGE;
-        }
-        if ("refine".equals(actionId)) {
+        } else if ("refine".equals(id)) {
             narrateAsAgent("refine", narrator.refinePrompt()); // the composer is free; the user just types
-            return AgentConversationSink.ActionExecutionResult.ACCEPTED;
-        }
-        if ("limit".equals(actionId)) {
+        } else if ("limit".equals(id)) {
+            com.aresstack.askai.research.backend.ResearchRunOutcomeInfo outcome = lastOutcome;
+            if (outcome == null) {
+                return "rejected: no run outcome to accept a limitation for";
+            }
             recordLimitation(outcome);
-            return AgentConversationSink.ActionExecutionResult.ACCEPTED;
-        }
-        if ("end".equals(actionId)) {
+        } else if ("end".equals(id)) {
             cancel(); // the controlled end of the research phase (state machine stays the authority)
-            return AgentConversationSink.ActionExecutionResult.ACCEPTED;
-        }
-        if ("review".equals(actionId)) {
+        } else if ("review".equals(id)) {
             requestEvidenceReview();
-            return AgentConversationSink.ActionExecutionResult.ACCEPTED;
+        } else {
+            return "rejected: unknown outcome action " + id;
         }
-        return AgentConversationSink.ActionExecutionResult.NO_STATE_CHANGE;
+        if (!navigation) {
+            outcomeOffers = java.util.Collections.emptyList();
+            uiExecutor.execute(new Runnable() {
+                public void run() {
+                    fireStateChanged();
+                }
+            });
+        }
+        return "handled: " + id;
     }
 
     /** Continue with the STORED question, a fresh budget and no re-visits (the agent keeps its history). */
