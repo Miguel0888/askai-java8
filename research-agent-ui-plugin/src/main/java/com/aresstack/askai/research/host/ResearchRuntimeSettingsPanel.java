@@ -315,6 +315,11 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
             results.setText(runtime.isRunning()
                     ? "ChatGPT connector: listening on port " + runtime.runningPort()
                     : "ChatGPT connector: NOT running - " + failure);
+            if (!runtime.isRunning()) {
+                javax.swing.JOptionPane.showMessageDialog(this,
+                        "Der ChatGPT-Connector konnte nicht starten:\n" + failure,
+                        "ChatGPT connector", javax.swing.JOptionPane.WARNING_MESSAGE);
+            }
         } else {
             runtime.stop();
         }
