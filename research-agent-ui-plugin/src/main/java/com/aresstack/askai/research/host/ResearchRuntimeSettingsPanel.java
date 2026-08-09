@@ -48,6 +48,13 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
     private final javax.swing.JButton botTools = new javax.swing.JButton("\u24D8");
     /** The live session behind this settings page (nullable: store-only construction in tests). */
     private final com.aresstack.askai.research.agent.ResearchAgentSession session;
+    /** ChatGPT connector (default OFF): AskAI as its own public MCP+OAuth face behind the TLS proxy. */
+    private final JCheckBox chatGptConnector = new JCheckBox(
+            "ChatGPT connector (public endpoint behind the reverse proxy; applies to new sessions)", false);
+    private final JTextField connectorOrigin = new JTextField(38);
+    private final JTextField connectorPort = new JTextField(6);
+    private final JTextField connectorClientId = new JTextField(12);
+    private final javax.swing.JPasswordField connectorClientSecret = new javax.swing.JPasswordField(18);
     /**
      * Initial-search source (applies to new sessions): the legacy browser SERP (default) or one of the
      * REST search providers. Provider credentials are NOT configured here — they live in
@@ -110,6 +117,20 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         botRow.add(javax.swing.Box.createHorizontalStrut(6));
         botRow.add(botTools);
         form.add(row("", botRow));
+        form.add(row("", chatGptConnector));
+        form.add(row("Public origin:", connectorOrigin));
+        JPanel connectorDetails = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0));
+        connectorDetails.setOpaque(false);
+        connectorDetails.add(connectorPort);
+        connectorDetails.add(javax.swing.Box.createHorizontalStrut(12));
+        connectorDetails.add(new JLabel("Client-ID:"));
+        connectorDetails.add(javax.swing.Box.createHorizontalStrut(4));
+        connectorDetails.add(connectorClientId);
+        connectorDetails.add(javax.swing.Box.createHorizontalStrut(12));
+        connectorDetails.add(new JLabel("Secret:"));
+        connectorDetails.add(javax.swing.Box.createHorizontalStrut(4));
+        connectorDetails.add(connectorClientSecret);
+        form.add(row("Connector port:", connectorDetails));
         // The initial-search PROVIDER selection + its provider-specific settings live on their own
         // "Search" gear tab (SearchProviderCardsPanel), not as shared fields here.
         form.add(pathRow("Research agent jar:", agentJar));
@@ -162,6 +183,21 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
                 // Persisted immediately; running sessions keep their endpoint until they close.
                 ResearchRuntimeSettings.saveBotControlMcp(ResearchRuntimeSettingsPanel.this.store,
                         botControlMcp.isSelected());
+            }
+        });
+        ResearchRuntimeSettings.ChatGptConnectorSettings connector =
+                ResearchRuntimeSettings.loadChatGptConnectorSettings(store);
+        chatGptConnector.setSelected(connector.isEnabled());
+        connectorOrigin.setText(connector.getPublicOrigin());
+        connectorOrigin.setToolTipText(
+                "The public HTTPS origin the Apache proxy serves, e.g. https://askai.current-car.com");
+        connectorPort.setText(String.valueOf(connector.getPort()));
+        connectorPort.setToolTipText("Local plain-HTTP listen port; the proxy machine forwards to it");
+        connectorClientId.setText(connector.getClientId());
+        connectorClientSecret.setText(connector.getClientSecret());
+        chatGptConnector.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent event) {
+                persistConnectorSettings();
             }
         });
         llmNarration.setSelected(ResearchRuntimeSettings.loadLlmNarration(store));
@@ -223,10 +259,26 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         allowPrivate.setSelected(settings.isAllowPrivateNetworks());
     }
 
+    /** All five connector controls as ONE persisted unit (from the toggle and from Save). */
+    private void persistConnectorSettings() {
+        int port;
+        try {
+            port = Integer.parseInt(connectorPort.getText().trim());
+        } catch (NumberFormatException invalid) {
+            port = 8082;
+        }
+        ResearchRuntimeSettings.saveChatGptConnectorSettings(store,
+                new ResearchRuntimeSettings.ChatGptConnectorSettings(
+                        chatGptConnector.isSelected(), port, connectorOrigin.getText().trim(),
+                        connectorClientId.getText().trim(),
+                        new String(connectorClientSecret.getPassword())));
+    }
+
     private void saveSettings() {
         ResearchRuntimeSettings settings = currentSettings();
         // Always save — configuration is never rejected; what NEW sessions do is computed from it.
         settings.save(store);
+        persistConnectorSettings();
         List<String> problems = ResearchRuntimeDefaults.complete(settings).validateProductive();
         refreshBackendStatus();
         StringBuilder sb = new StringBuilder("Saved.\n");

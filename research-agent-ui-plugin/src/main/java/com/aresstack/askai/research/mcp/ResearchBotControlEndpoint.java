@@ -82,8 +82,16 @@ public final class ResearchBotControlEndpoint {
         }
         handle = registry.registerEndpoint(
                 new McpEndpointDefinition(endpointId, "Research Bot Control"));
-        registry.updateTools(handle, Arrays.asList(
-                runCommandTool(gateway), sessionStateTool(gateway), chatHistoryTool(gateway)));
+        registry.updateTools(handle, drivingTools(gateway));
+    }
+
+    /**
+     * The fixed THREE-tool set over one gateway — shared by this registry endpoint and the public
+     * ChatGPT connector, so both faces always offer the identical contract.
+     */
+    public static java.util.List<McpToolContribution> drivingTools(SessionGateway gateway) {
+        return Arrays.asList(
+                runCommandTool(gateway), sessionStateTool(gateway), chatHistoryTool(gateway));
     }
 
     /** The client-facing streamable-HTTP URL (token in the path), or {@code null} while not open. */

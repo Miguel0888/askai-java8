@@ -71,6 +71,81 @@ public final class ResearchRuntimeSettings {
         }
     }
 
+    static final String KEY_CONNECTOR = "research.runtime.chatgptConnector";
+    static final String KEY_CONNECTOR_PORT = "research.runtime.chatgptConnector.port";
+    static final String KEY_CONNECTOR_ORIGIN = "research.runtime.chatgptConnector.publicOrigin";
+    static final String KEY_CONNECTOR_CLIENT_ID = "research.runtime.chatgptConnector.clientId";
+    static final String KEY_CONNECTOR_CLIENT_SECRET = "research.runtime.chatgptConnector.clientSecret";
+
+    /**
+     * ChatGPT-connector toggle (DEFAULT OFF — this listener is reachable from other machines; enabling
+     * a public face must be an explicit decision). When on, AskAI serves the OAuth endpoints + the MCP
+     * endpoint /askai on the configured port; TLS terminates at the external Apache reverse proxy.
+     */
+    public static boolean loadChatGptConnector(WorkspaceStateStore store) {
+        return store != null && store.getBoolean(KEY_CONNECTOR, false);
+    }
+
+    public static void saveChatGptConnector(WorkspaceStateStore store, boolean enabled) {
+        if (store != null) {
+            store.putBoolean(KEY_CONNECTOR, enabled);
+        }
+    }
+
+    public static ChatGptConnectorSettings loadChatGptConnectorSettings(WorkspaceStateStore store) {
+        if (store == null) {
+            return new ChatGptConnectorSettings(false, 8082, "", "askai", "");
+        }
+        int port;
+        try {
+            port = Integer.parseInt(store.get(KEY_CONNECTOR_PORT, "8082").trim());
+        } catch (NumberFormatException invalid) {
+            port = 8082;
+        }
+        return new ChatGptConnectorSettings(
+                store.getBoolean(KEY_CONNECTOR, false),
+                port,
+                store.get(KEY_CONNECTOR_ORIGIN, ""),
+                store.get(KEY_CONNECTOR_CLIENT_ID, "askai"),
+                store.get(KEY_CONNECTOR_CLIENT_SECRET, ""));
+    }
+
+    public static void saveChatGptConnectorSettings(WorkspaceStateStore store,
+                                                    ChatGptConnectorSettings settings) {
+        if (store == null || settings == null) {
+            return;
+        }
+        store.putBoolean(KEY_CONNECTOR, settings.isEnabled());
+        store.put(KEY_CONNECTOR_PORT, String.valueOf(settings.getPort()));
+        store.put(KEY_CONNECTOR_ORIGIN, settings.getPublicOrigin());
+        store.put(KEY_CONNECTOR_CLIENT_ID, settings.getClientId());
+        store.put(KEY_CONNECTOR_CLIENT_SECRET, settings.getClientSecret());
+    }
+
+    /** The typed ChatGPT-connector configuration (persisted; applies to NEW sessions). */
+    public static final class ChatGptConnectorSettings {
+        private final boolean enabled;
+        private final int port;
+        private final String publicOrigin;
+        private final String clientId;
+        private final String clientSecret;
+
+        public ChatGptConnectorSettings(boolean enabled, int port, String publicOrigin,
+                                        String clientId, String clientSecret) {
+            this.enabled = enabled;
+            this.port = port;
+            this.publicOrigin = nullToEmpty(publicOrigin);
+            this.clientId = nullToEmpty(clientId);
+            this.clientSecret = nullToEmpty(clientSecret);
+        }
+
+        public boolean isEnabled() { return enabled; }
+        public int getPort() { return port; }
+        public String getPublicOrigin() { return publicOrigin; }
+        public String getClientId() { return clientId; }
+        public String getClientSecret() { return clientSecret; }
+    }
+
     static final String KEY_SEARCH_STRATEGY = "research.search.strategy";
     static final String KEY_SEARCH_PROVIDER = "research.search.provider";
     static final String KEY_SEARCH_ENGINE = "research.search.engine";

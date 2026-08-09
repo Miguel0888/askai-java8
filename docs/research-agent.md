@@ -46,6 +46,7 @@ Questing + Research Agent selected
 External bots drive a session over the per-session bot-control MCP endpoint (`run_command`,
 `session_state`, `chat_history`) — the same command processor the buttons and slash commands use.
 See `docs/research-bot-control.md` for the connection recipe, discovery and the command vocabulary.
+See `docs/research-chatgpt-connector.md` for exposing AskAI as its OWN ChatGPT connector (OAuth + public MCP endpoint behind the reverse proxy).
 
 Switching back to Yapping deactivates (keeps) the session; disabling the plugin closes it and falls back to
 Yapping. See `docs/plugin-lifecycle.md`.
