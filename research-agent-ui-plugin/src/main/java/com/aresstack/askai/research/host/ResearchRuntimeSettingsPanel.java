@@ -44,10 +44,8 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
     /** Bot-control MCP (default ON): run_command/session_state/chat_history + service-endpoint.json. */
     private final JCheckBox botControlMcp = new JCheckBox(
             "Bot control via MCP (applies to new sessions)", true);
-    /** THIS session's live connection line: transport + URL (token in the path), or why there is none. */
-    private final JLabel botConnection = new JLabel(" ");
-    /** Square, margin-less icon button: fetches THIS session's tool list ON DEMAND from the registry. */
-    private final javax.swing.JButton botTools = new javax.swing.JButton("\u2630");
+    /** Square, margin-less info button (Unicode \u24D8): opens the live connection/tool details. */
+    private final javax.swing.JButton botTools = new javax.swing.JButton("\u24D8");
     /** The live session behind this settings page (nullable: store-only construction in tests). */
     private final com.aresstack.askai.research.agent.ResearchAgentSession session;
     /**
@@ -92,26 +90,26 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         form.add(row("Backend:", backendStatus));
         form.add(row("Language / Sprache:", agentLanguage));
         form.add(row("", llmNarration));
-        form.add(row("", botControlMcp));
-        // The LIVE connection of THIS session: Streamable HTTP (MCP JSON-RPC over loopback), token in the
-        // URL path — plus the square on-demand tools button (never a hardcoded list).
         botTools.setMargin(new java.awt.Insets(0, 0, 0, 0));
-        java.awt.Dimension square = new java.awt.Dimension(24, 24);
-        botTools.setPreferredSize(square);
-        botTools.setMinimumSize(square);
-        botTools.setMaximumSize(square);
-        botTools.setToolTipText("List the endpoint's tools (fetched live)");
+        botTools.setPreferredSize(new java.awt.Dimension(24, 24));
+        botTools.setFont(botTools.getFont().deriveFont(java.awt.Font.PLAIN, 15f));
         botTools.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent event) {
                 showBotTools();
             }
         });
-        JPanel botRow = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 0));
+        com.aresstack.askai.research.mcp.ResearchBotControlEndpoint liveEndpoint =
+                session == null ? null : session.botControlEndpoint();
+        botTools.setEnabled(liveEndpoint != null);
+        botTools.setToolTipText(liveEndpoint != null
+                ? "Streamable HTTP (MCP JSON-RPC): " + liveEndpoint.connectionUrl()
+                : "Diese Session hat keinen Bot-Endpoint (deaktiviert oder keine produktive Session)");
+        JPanel botRow = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0));
         botRow.setOpaque(false);
+        botRow.add(botControlMcp);
+        botRow.add(javax.swing.Box.createHorizontalStrut(6));
         botRow.add(botTools);
-        botRow.add(botConnection);
-        form.add(row("Bot MCP:", botRow));
-        refreshBotConnection();
+        form.add(row("", botRow));
         // The initial-search PROVIDER selection + its provider-specific settings live on their own
         // "Search" gear tab (SearchProviderCardsPanel), not as shared fields here.
         form.add(pathRow("Research agent jar:", agentJar));
@@ -307,96 +305,33 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         row.add(Box.createHorizontalGlue());
         return row;
     }
-    /** The live connection line of THIS session (re-evaluated on open; the endpoint lives per session). */
-    private void refreshBotConnection() {
-        com.aresstack.askai.research.mcp.ResearchBotControlEndpoint endpoint =
-                session == null ? null : session.botControlEndpoint();
-        String url = endpoint == null ? null : endpoint.connectionUrl();
-        if (url == null) {
-            botConnection.setText("off for this session");
-            botConnection.setToolTipText("Transport: Streamable HTTP (MCP JSON-RPC), loopback only; "
-                    + "connection data in <project>/service-endpoint.json when enabled");
-            botTools.setEnabled(false);
-            return;
-        }
-        // Short, readable status; the full URL lives in the tooltip and the details dialog (copyable).
-        String host = url;
-        int pathStart = url.indexOf('/', "http://".length());
-        if (pathStart > 0) {
-            host = url.substring(0, pathStart);
-        }
-        botConnection.setText("Streamable HTTP (MCP JSON-RPC) · " + host + " · Token im URL-Pfad");
-        botConnection.setToolTipText(url);
-        botTools.setEnabled(true);
-    }
-
-    /** The connection details + the live tool catalog (names AND descriptions) — nothing hardcoded. */
+    /** The connection details + the live tool catalog — ONE compact block, uniformly formatted. */
     private void showBotTools() {
         com.aresstack.askai.research.mcp.ResearchBotControlEndpoint endpoint =
                 session == null ? null : session.botControlEndpoint();
         if (endpoint == null) {
             return;
         }
-        JPanel content = new JPanel(new java.awt.GridBagLayout());
-        java.awt.GridBagConstraints c = new java.awt.GridBagConstraints();
-        c.gridx = 0;
-        c.gridy = 0;
-        c.anchor = java.awt.GridBagConstraints.NORTHWEST;
-        c.insets = new java.awt.Insets(2, 0, 2, 8);
-
-        addDetailRow(content, c, "Transport:", plainValue("Streamable HTTP (MCP JSON-RPC), "
-                + "127.0.0.1, Token im URL-Pfad"));
-        addDetailRow(content, c, "URL:", copyableValue(endpoint.connectionUrl()));
-        addDetailRow(content, c, "Datei:", plainValue("<Projektverzeichnis>/service-endpoint.json "
-                + "(URL, Token, Usage-Guide)"));
-
-        c.gridx = 0;
-        c.gridwidth = 2;
-        c.insets = new java.awt.Insets(10, 0, 4, 0);
-        JLabel toolsTitle = new JLabel("Tools (live von der Registry):");
-        toolsTitle.setFont(toolsTitle.getFont().deriveFont(java.awt.Font.BOLD));
-        content.add(toolsTitle, c);
-        c.gridy++;
-        c.insets = new java.awt.Insets(2, 0, 2, 0);
+        StringBuilder html = new StringBuilder("<html><body style='width:520px'>")
+                .append("<b>Transport:</b> Streamable HTTP (MCP JSON-RPC), 127.0.0.1, "
+                        + "Token im URL-Pfad<br>")
+                .append("<b>Verbindungsdatei:</b> &lt;Projekt&gt;/service-endpoint.json "
+                        + "(URL, Token, Usage-Guide)<br><br>")
+                .append("<b>Tools (live):</b><br>");
         for (java.util.Map.Entry<String, String> tool : endpoint.toolCatalog().entrySet()) {
-            JLabel name = new JLabel(tool.getKey());
-            name.setFont(name.getFont().deriveFont(java.awt.Font.BOLD));
-            content.add(name, c);
-            c.gridy++;
-            javax.swing.JTextArea description = new javax.swing.JTextArea(tool.getValue());
-            description.setEditable(false);
-            description.setLineWrap(true);
-            description.setWrapStyleWord(true);
-            description.setOpaque(false);
-            description.setFocusable(false);
-            description.setBorder(BorderFactory.createEmptyBorder(0, 12, 6, 0));
-            description.setColumns(52);
-            content.add(description, c);
-            c.gridy++;
+            html.append("<b>").append(tool.getKey()).append("</b> \u2014 ")
+                .append(escapeHtml(tool.getValue())).append("<br><br>");
         }
-        content.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        html.append("</body></html>");
+        JPanel content = new JPanel(new BorderLayout(0, 8));
+        content.add(copyableValue(endpoint.connectionUrl()), java.awt.BorderLayout.NORTH);
+        content.add(new JLabel(html.toString()), java.awt.BorderLayout.CENTER);
         javax.swing.JOptionPane.showMessageDialog(this, content, "Bot control (MCP)",
                 javax.swing.JOptionPane.PLAIN_MESSAGE);
     }
 
-    private void addDetailRow(JPanel content, java.awt.GridBagConstraints c, String label,
-                              javax.swing.JComponent value) {
-        c.gridx = 0;
-        c.gridwidth = 1;
-        JLabel key = new JLabel(label);
-        key.setFont(key.getFont().deriveFont(java.awt.Font.BOLD));
-        content.add(key, c);
-        c.gridx = 1;
-        c.weightx = 1;
-        c.fill = java.awt.GridBagConstraints.HORIZONTAL;
-        content.add(value, c);
-        c.fill = java.awt.GridBagConstraints.NONE;
-        c.weightx = 0;
-        c.gridy++;
-    }
-
-    private javax.swing.JComponent plainValue(String text) {
-        return new JLabel(text);
+    private static String escapeHtml(String text) {
+        return text == null ? "" : text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
     /** A selectable, borderless field + copy button — the URL is DATA, not decoration. */
