@@ -41,14 +41,11 @@ Questing + Research Agent selected
   → artifacts open in the shared artifact area
 ```
 
-## Headless control (issue #33)
+## Headless / bot control
 
-The explicit derived actions (review sources, generate visualization, generate outline) are application
-commands (`ResearchDerivedActions`) with TWO adapters: the UI buttons and the per-session internal service
-MCP endpoint (`review_sources`, `visualization_generate`, `outline_generate`). The agent-facing
-research-control endpoint never offers them. For headless clients (gates, tests, an MCP-driving AI) each
-productive session writes `<projectDir>/service-endpoint.json` (endpoint id, localhost URL, transport,
-per-session token — invalidated on close, file overwritten on the next session start).
+External bots drive a session over the per-session bot-control MCP endpoint (`run_command`,
+`session_state`, `chat_history`) — the same command processor the buttons and slash commands use.
+See `docs/research-bot-control.md` for the connection recipe, discovery and the command vocabulary.
 
 Switching back to Yapping deactivates (keeps) the session; disabling the plugin closes it and falls back to
 Yapping. See `docs/plugin-lifecycle.md`.

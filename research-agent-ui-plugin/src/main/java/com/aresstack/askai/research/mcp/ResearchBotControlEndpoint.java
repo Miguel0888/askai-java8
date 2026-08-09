@@ -22,6 +22,22 @@ import java.util.Arrays;
 public final class ResearchBotControlEndpoint {
 
     /**
+     * The bot USAGE guide — ONE text, handed out wherever a bot looks first: in service-endpoint.json
+     * ("usage") and in the tools/list descriptions. The MCP-standard initialize.instructions field would be
+     * the native place, but the current Solon server API cannot set it; tools/list IS the standard
+     * discovery, so every MCP client sees this contract without any custom endpoint.
+     */
+    public static final String USAGE =
+            "AskAI Research bot control. Workflow: 1) call session_state to learn the current phase, the "
+            + "currently valid commands, the clickable buttons and the search suggestions (each suggestion "
+            + "is directly executable). 2) act via run_command: pass command + arguments "
+            + "(e.g. command=search, arguments=<query>); omit 'command' to send arguments as a plain chat "
+            + "message to the research agent. Unknown or currently-not-allowed commands are rejected with "
+            + "the reason AND the valid command list. 3) read the conversation via chat_history "
+            + "(phase summaries by default, raw=true for every message). Commands are state-dependent — "
+            + "re-check session_state after every action.";
+
+    /**
      * THE session gateway: structured command execution, the structured session state, and the
      * phase-attributed chat history. Implemented by the session, resolved at call time; {@code null}
      * results mean "no session attached".
@@ -88,9 +104,12 @@ public final class ResearchBotControlEndpoint {
      */
     private static McpToolContribution runCommandTool(final SessionGateway gateway) {
         return McpToolContribution.of("run_command",
-                "Execute one research command with arguments (e.g. command=search, arguments=<query>; "
-                        + "command=approve; command=generate-outline). Omit 'command' to send the "
-                        + "arguments as a plain chat message. Use session_state for the valid commands.",
+                "Execute one research command. Always-on commands: search <query> (web search), "
+                        + "generate-visualization, generate-outline, review-sources. State commands "
+                        + "(only when the phase allows them): submit-scope, approve, request-changes, "
+                        + "continue, retry, resume, pause, cancel. Omit 'command' to send the arguments "
+                        + "as a plain CHAT MESSAGE to the research agent. Unknown/not-allowed commands "
+                        + "are rejected with the currently valid list. Call session_state first.",
                 new McpToolHandler() {
                     public McpToolResult invoke(McpToolCall call) {
                         String result = gateway == null ? null

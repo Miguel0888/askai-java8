@@ -233,5 +233,7 @@ public class ResearchServiceEndpointTest {
         assertTrue(json.contains("\"url\": \"http://127.0.0.1:4242/mcp\""));
         assertTrue(json.contains("\"transport\": \"streamable\""));
         assertTrue("quotes/backslashes are escaped", json.contains("\"token\": \"tok\\\"en\\\\x\""));
+        assertTrue("the usage guide travels with the connection data",
+                json.contains("\"usage\": \"AskAI Research bot control."));
     }
 }

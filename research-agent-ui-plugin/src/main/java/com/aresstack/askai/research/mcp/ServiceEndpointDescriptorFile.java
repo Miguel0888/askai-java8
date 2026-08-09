@@ -17,7 +17,8 @@ public final class ServiceEndpointDescriptorFile {
                 + "  \"endpointId\": \"" + escape(endpointId) + "\",\n"
                 + "  \"url\": \"" + escape(url) + "\",\n"
                 + "  \"transport\": \"" + escape(transport) + "\",\n"
-                + "  \"token\": \"" + escape(token) + "\"\n"
+                + "  \"token\": \"" + escape(token) + "\",\n"
+                + "  \"usage\": \"" + escape(ResearchBotControlEndpoint.USAGE) + "\"\n"
                 + "}\n";
     }
 
