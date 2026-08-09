@@ -119,6 +119,10 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         form.add(row("", botRow));
         form.add(row("", chatGptConnector));
         form.add(row("Public origin:", connectorOrigin));
+        JLabel originHint = new JLabel("z. B. https://askai.current-car.com — die öffentliche "
+                + "HTTPS-Basis des Reverse Proxy (ohne Pfad); die Connector-URL ist <origin>/askai");
+        originHint.setEnabled(false);
+        form.add(row("", originHint));
         JPanel connectorDetails = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0));
         connectorDetails.setOpaque(false);
         connectorDetails.add(connectorPort);
