@@ -164,7 +164,7 @@ public class ResearchLoopMcpIntegrationTest {
             assertTrue(loop.getProgress().getPagesVisited() >= 3);
             assertTrue(loop.getProgress().getAcceptedSources() >= 2);
             assertTrue(loop.getProgress().getDistinctHosts().size() >= 2);
-            assertTrue(findings.size() >= 1);
+            assertTrue("issue #32: no findings are recorded anymore", findings.isEmpty());
             assertEquals(1, ready.size());
         } finally {
             browser.close();

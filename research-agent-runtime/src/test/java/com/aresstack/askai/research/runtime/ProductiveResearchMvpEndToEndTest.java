@@ -235,15 +235,8 @@ public class ProductiveResearchMvpEndToEndTest {
             }
             assertEquals("sources from two distinct hosts", 2, origins.size());
 
-            String findings = resources.getArtifactStore().read("findings").getMarkdown();
-            assertTrue("findings recorded", findings.contains("- [source-"));
-            for (String line : findings.split("\n")) {
-                if (line.startsWith("- [")) {
-                    String sourceId = line.substring(3, line.indexOf(']'));
-                    assertNotNull("finding must reference a committed source: " + sourceId,
-                            resources.getRepository().get(sourceId));
-                }
-            }
+            assertEquals("issue #32: no findings artifact is written anymore - accepted sources are the record",
+                    "", resources.getArtifactStore().read("findings").getMarkdown());
 
             // PHASE_READY was an event only — the state did NOT change until the HOST reacts.
             assertEquals(ResearchStateIds.RUNNING, resources.currentState().getStateId());

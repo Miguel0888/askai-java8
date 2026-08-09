@@ -83,25 +83,42 @@ public class ResearchControlEndpointTest {
         ResearchControlEndpoint ep = new ResearchControlEndpoint(reg, "s1", 1L, ctx);
         ep.open();
 
-        // SCOPING/running: always-tools + concept_save, no outline/draft tools.
+        // SCOPING/running: only the always-tools — issue #32: NO concept_save (the ResearchBrief is the
+        // canonical scoping artifact) and no legacy per-stage tools anywhere.
         List<String> t = tools(reg, ep);
         assertTrue(t.containsAll(java.util.Arrays.asList("research_status", "artifact_read", "source_list")));
-        assertTrue(t.contains("concept_save"));
+        assertFalse(t.contains("concept_save"));
         assertFalse(t.contains("outline_save"));
         assertFalse(t.contains("draft_save"));
+        assertEquals("scoping offers exactly the 3 read tools", 3, t.size());
 
-        // OUTLINE/running → outline_save only.
+        // OUTLINE/running → outline_save only (legacy operability for old persisted sessions).
         ctx.phaseId = ResearchStateIds.OUTLINE;
         ep.refreshTools();
         t = tools(reg, ep);
         assertTrue(t.contains("outline_save"));
         assertFalse(t.contains("concept_save"));
 
-        // RESEARCH/running → research write tools.
+        // RESEARCH/running → source tools only; the legacy findings/notes writers are gone.
         ctx.phaseId = ResearchStateIds.RESEARCH;
         ep.refreshTools();
         t = tools(reg, ep);
-        assertTrue(t.containsAll(java.util.Arrays.asList("source_accept", "finding_add", "notes_append")));
+        assertTrue(t.containsAll(java.util.Arrays.asList("source_accept", "source_park")));
+        assertFalse(t.contains("finding_add"));
+        assertFalse(t.contains("notes_append"));
+
+        // DRAFT/running and FINALIZATION/running → the ONE canonical document, same tools in both phases.
+        for (String phase : new String[]{ResearchStateIds.DRAFT, ResearchStateIds.FINALIZATION}) {
+            ctx.phaseId = phase;
+            ep.refreshTools();
+            t = tools(reg, ep);
+            assertTrue(phase + " offers document_read", t.contains("document_read"));
+            assertTrue(phase + " offers document_save", t.contains("document_save"));
+            assertFalse(t.contains("draft_read"));
+            assertFalse(t.contains("draft_save"));
+            assertFalse(t.contains("final_read"));
+            assertFalse(t.contains("final_save"));
+        }
 
         // Any non-running run state removes ALL write tools (approval gate, paused, blocked, failed, terminal).
         for (String s : new String[]{ResearchStateIds.WAITING_APPROVAL, ResearchStateIds.PAUSED,
@@ -118,14 +135,15 @@ public class ResearchControlEndpointTest {
     public void executionRechecksLiveStateEvenWhenToolWasListed() {
         InProcessMcpServerRegistry reg = new InProcessMcpServerRegistry();
         Ctx ctx = new Ctx();
-        ctx.phaseId = ResearchStateIds.RESEARCH;
+        ctx.phaseId = ResearchStateIds.DRAFT;
         ResearchControlEndpoint ep = new ResearchControlEndpoint(reg, "s1", 1L, ctx);
         ep.open();
-        assertTrue(tools(reg, ep).contains("notes_append"));
+        assertTrue(tools(reg, ep).contains("document_save"));
 
         // Transition happens AFTER tools/list but BEFORE tools/call: the handler must reject server-side.
         ctx.stateId = ResearchStateIds.WAITING_APPROVAL;
-        McpToolResult denied = call(reg, ep, "notes_append", "markdown", "late write");
+        McpToolResult denied = call(reg, ep, "document_save", "markdown", "late write",
+                "expected_revision", "0");
         assertTrue(denied.isError());
         assertTrue(denied.getText().contains("Not allowed in the current state"));
         ep.close();
@@ -148,16 +166,26 @@ public class ResearchControlEndpointTest {
         assertTrue(stale.isError());
         assertEquals("# New", ctx.store.read("outline").getMarkdown());
 
-        // RESEARCH/running: finding_add validates the source id; notes_append appends.
-        ctx.phaseId = ResearchStateIds.RESEARCH;
+        // DRAFT and FINALIZATION write the SAME document (issue #32): a draft save is visible to the
+        // finalization phase — one canonical document, no second final artifact.
+        ctx.phaseId = ResearchStateIds.DRAFT;
         ep.refreshTools();
-        assertTrue(call(reg, ep, "finding_add", "source_id", "nope", "text", "x").isError());
-        assertFalse(call(reg, ep, "finding_add", "source_id", "src1", "text", "PF4J is Java 8").isError());
-        assertTrue(ctx.store.read("findings").getMarkdown().contains("[src1] PF4J is Java 8"));
-        assertFalse(call(reg, ep, "notes_append", "markdown", "- note").isError());
-        assertTrue(ctx.store.read("research-notes").getMarkdown().endsWith("- note"));
+        long docRev = ctx.store.read("document").getRevision();
+        assertFalse(call(reg, ep, "document_save", "markdown", "# Working document",
+                "expected_revision", String.valueOf(docRev)).isError());
+        ctx.phaseId = ResearchStateIds.FINALIZATION;
+        ep.refreshTools();
+        McpToolResult finalized = call(reg, ep, "document_read");
+        assertFalse(finalized.isError());
+        assertTrue("finalization reads the draft's document", finalized.getText()
+                .contains("# Working document"));
+        assertFalse(call(reg, ep, "document_save", "markdown", "# Working document\n\nDone.",
+                "expected_revision", String.valueOf(ctx.store.read("document").getRevision())).isError());
+        assertEquals("# Working document\n\nDone.", ctx.store.read("document").getMarkdown());
 
         // source_accept: unknown capture rejected; known capture reports the new source id.
+        ctx.phaseId = ResearchStateIds.RESEARCH;
+        ep.refreshTools();
         assertTrue(call(reg, ep, "source_accept", "capture_id", "nope").isError());
         McpToolResult accepted = call(reg, ep, "source_accept", "capture_id", "cap1");
         assertFalse(accepted.isError());

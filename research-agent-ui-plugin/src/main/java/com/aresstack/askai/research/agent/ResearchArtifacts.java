@@ -7,9 +7,11 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * The research agent's artifact catalog. Documents (outline, concept, notes, findings, draft, final) are plain
- * Markdown so the KI and the user share one editable format and the host can render them with its default
- * Markdown view. Sources and the state visualization are structured and get their own specialized views.
+ * The research agent's artifact catalog — only artifacts with a CLEAR user-facing responsibility (issue #32):
+ * the research brief (scoping truth), its derived visualization, the derived outline, ONE working document and
+ * the structured sources/state views. The former per-processing-stage Markdown artifacts (concept,
+ * research-notes, findings, draft, final) are legacy: their files may still exist on disk in old projects but
+ * they are no longer part of the catalog, get no tabs and are never required by the active workflow.
  *
  * <p>Type ids: {@code "markdown"} (host default view), {@code "research.sources"} and {@code "research.state"}
  * (plugin views). This is the single source of the artifact list in the new agent model.</p>
@@ -37,11 +39,10 @@ public final class ResearchArtifacts {
         // Issue #29: the outline is a DERIVED projection with its own view (persisted result + stale marker
         // + explicit "Inhaltsverzeichnis erzeugen" action) — no longer a live-updating markdown tab.
         list.add(new Artifact("outline", "Inhaltsverzeichnis", TYPE_OUTLINE, "outline.md"));
-        list.add(markdown("concept", "Concept", "concept.md"));
-        list.add(markdown("research-notes", "Research Notes", "research-notes.md"));
-        list.add(markdown("findings", "Findings", "findings.md"));
-        list.add(markdown("draft", "Draft", "draft.md"));
-        list.add(markdown("final", "Final Document", "final.md"));
+        // ONE canonical working document (issue #32): DRAFT and FINALIZATION both work on it. The legacy
+        // concept/research-notes/findings/draft/final artifacts are deliberately NOT listed anymore — old
+        // files stay untouched on disk, but they get no tabs and no active-workflow writes.
+        list.add(markdown("document", "Document", "document.md"));
         list.add(new Artifact("sources", "Sources", TYPE_SOURCES, ""));
         list.add(new Artifact("state", "State", TYPE_STATE, ""));
         // Runtime + search settings are deliberately NOT artifacts anymore: they live as the plugin's

@@ -18,8 +18,7 @@ public class ResearchArtifactStoreTest {
         // Regression (user-reported clickdummy behavior): a fabricated outline at revision 1 caused an
         // approval for content nobody created. Every artifact starts empty at revision 0.
         ResearchArtifactStore store = new ResearchArtifactStore();
-        for (String id : new String[]{"outline", "concept", "research-notes", "findings",
-                "draft", "final"}) {
+        for (String id : new String[]{"outline", "document"}) {
             assertEquals("", store.read(id).getMarkdown());
             assertEquals(0L, store.read(id).getRevision());
         }

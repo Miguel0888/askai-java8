@@ -263,11 +263,8 @@ public class ResearchLoopTest {
         boolean bAccepted = fx.research.sourceByCapture.containsKey(
                 fx.browser.captureByUrl.get("https://host1.com/b"));
         assertFalse("irrelevant page must not be accepted", bAccepted);
-        // Findings reference existing sources; the duplicate D did not repeat the same claim.
-        assertTrue("at least one finding", fx.research.findings.size() >= 1);
-        for (String finding : fx.research.findings) {
-            assertTrue(finding.startsWith("source-"));
-        }
+        // Issue #32: the loop records NO findings artifact anymore — acceptance is the evidence record.
+        assertTrue("no finding_add calls anymore (issue #32)", fx.research.findings.isEmpty());
         assertEquals(ResearchStopReason.SUFFICIENT_EVIDENCE, reason);
         assertEquals(1, fx.ready.size()); // PHASE_READY event sent — but only as an event
     }
@@ -291,8 +288,7 @@ public class ResearchLoopTest {
         assertEquals("a, c, d, e accepted (b irrelevant)", 4, loop.getProgress().getAcceptedSources());
         assertFalse("the irrelevant SERP page is never accepted",
                 fx.research.sourceByCapture.containsKey(fx.browser.captureByUrl.get("https://host1.com/b")));
-        assertEquals("d is a content-duplicate → accepted but no repeated finding; a, c, e each add a finding",
-                3, fx.research.findings.size());
+        assertTrue("issue #32: acceptance no longer records findings", fx.research.findings.isEmpty());
         assertEquals(ResearchStopReason.SUFFICIENT_EVIDENCE, reason);
     }
 

@@ -8,9 +8,12 @@ chat. It is selected under **Questing → Research Agent**. There is no standalo
 
 - **Slash commands** to steer the session (see below).
 - **Agent activity** in the normal chat (thinking, tool activity, approval requests, problems).
-- **Artifacts** in the shared, collapsible artifact area:
-  - Markdown: `outline.md`, `concept.md`, `research-notes.md`, `findings.md`, `draft.md`, `final.md`.
+- **Artifacts** in the shared, collapsible artifact area (issue #32 catalog):
+  - **Fragestellung** (ResearchBrief — the canonical scoping artifact), **Visualisierung** (derived Mermaid),
+    **Inhaltsverzeichnis** (derived outline projection), and the ONE Markdown work product `document.md`
+    (DRAFT and FINALIZATION both work on it).
   - Structured: **Sources** (a writing manager) and **State** (state-machine visualization).
+  - Legacy `concept/research-notes/findings/draft/final` files in old projects stay on disk but get no tabs.
 - A deterministic **fake backend** (`FakeResearchSessionBackend`) drives a simulated run; the same
   `ResearchSessionBackend` port will later be implemented by an ACP backend without UI changes.
 

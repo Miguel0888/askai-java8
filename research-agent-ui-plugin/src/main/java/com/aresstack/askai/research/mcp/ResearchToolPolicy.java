@@ -21,10 +21,13 @@ import java.util.List;
  *
  * <p>Always readable: {@code research_status}, {@code artifact_read(name)}, {@code source_list}. Write tools
  * are bound to phase AND run-state (never in waiting_approval/paused/blocked/failed/terminal):
- * SCOPING/running → {@code concept_save}; OUTLINE/running → {@code outline_save}; RESEARCH/running →
- * {@code source_accept}, {@code finding_add}, {@code notes_append}; DRAFT/running → {@code draft_read},
- * {@code draft_save}; FINALIZATION/running → {@code final_read}, {@code final_save}. There is deliberately NO
- * phase-transition tool (no advance_phase/approve_phase/set_state).</p>
+ * RESEARCH/running → {@code source_accept}, {@code source_park}; DRAFT/running and FINALIZATION/running →
+ * {@code document_read}, {@code document_save} — BOTH phases work on the ONE canonical document (issue #32).
+ * The legacy per-stage tools ({@code concept_save}, {@code finding_add}, {@code notes_append},
+ * {@code draft_*}, {@code final_*}) are gone: the ResearchBrief is the scoping truth and the removed legacy
+ * artifacts must no longer be written by the active workflow. {@code outline_save} stays ONLY for persisted
+ * old sessions still sitting in the legacy OUTLINE phase. There is deliberately NO phase-transition tool
+ * (no advance_phase/approve_phase/set_state).</p>
  */
 public final class ResearchToolPolicy {
 
@@ -44,26 +47,25 @@ public final class ResearchToolPolicy {
         tools.add(statusTool(ctx));
         tools.add(artifactReadTool(ctx));
         tools.add(sourceListTool(ctx));
-        // Phase + run-state gated writes.
-        if (writable(phaseId, stateId, ResearchStateIds.SCOPING)) {
-            tools.add(saveTool(ctx, "concept_save", "concept", ResearchStateIds.SCOPING));
-        }
+        // Phase + run-state gated writes. SCOPING has NO document tool anymore: the ResearchBrief is the
+        // canonical scoping artifact (issue #32) — no second concept document beside it.
         if (writable(phaseId, stateId, ResearchStateIds.OUTLINE)) {
+            // Legacy operability only: persisted old sessions still sitting in the OUTLINE phase.
             tools.add(saveTool(ctx, "outline_save", "outline", ResearchStateIds.OUTLINE));
         }
         if (writable(phaseId, stateId, ResearchStateIds.RESEARCH)) {
             tools.add(sourceAcceptTool(ctx));
             tools.add(sourceParkTool(ctx));
-            tools.add(findingAddTool(ctx));
-            tools.add(notesAppendTool(ctx));
         }
+        // DRAFT and FINALIZATION both work on the ONE canonical document; whether FINALIZATION survives as
+        // its own outer phase is #30's decision — this policy does not pre-empt it.
         if (writable(phaseId, stateId, ResearchStateIds.DRAFT)) {
-            tools.add(readTool(ctx, "draft_read", "draft"));
-            tools.add(saveTool(ctx, "draft_save", "draft", ResearchStateIds.DRAFT));
+            tools.add(readTool(ctx, "document_read", "document"));
+            tools.add(saveTool(ctx, "document_save", "document", ResearchStateIds.DRAFT));
         }
         if (writable(phaseId, stateId, ResearchStateIds.FINALIZATION)) {
-            tools.add(readTool(ctx, "final_read", "final"));
-            tools.add(saveTool(ctx, "final_save", "final", ResearchStateIds.FINALIZATION));
+            tools.add(readTool(ctx, "document_read", "document"));
+            tools.add(saveTool(ctx, "document_save", "document", ResearchStateIds.FINALIZATION));
         }
         return tools;
     }
@@ -100,8 +102,7 @@ public final class ResearchToolPolicy {
                                 + "\n" + content.getMarkdown());
                     }
                 },
-                McpToolParameter.string("name", true,
-                        "Artifact id: outline, concept, research-notes, findings, draft, final"));
+                McpToolParameter.string("name", true, "Artifact id: outline, document"));
     }
 
     private static McpToolContribution sourceListTool(final ResearchControlContext ctx) {
@@ -224,54 +225,4 @@ public final class ResearchToolPolicy {
         }
     }
 
-    private static McpToolContribution findingAddTool(final ResearchControlContext ctx) {
-        return McpToolContribution.of("finding_add", "Record a finding referencing an accepted source.",
-                new McpToolHandler() {
-                    public McpToolResult invoke(McpToolCall call) {
-                        McpToolResult denied = requireWritable(ctx, ResearchStateIds.RESEARCH);
-                        if (denied != null) {
-                            return denied;
-                        }
-                        String sourceId = call.getString("source_id");
-                        String text = call.getString("text");
-                        if (sourceId == null || text == null || text.trim().isEmpty()) {
-                            return McpToolResult.error("Required: source_id, text");
-                        }
-                        if (ctx.sourceRepository().get(sourceId) == null) {
-                            return McpToolResult.error("Unknown source: " + sourceId);
-                        }
-                        return appendTo(ctx, "findings", "- [" + sourceId + "] " + text.trim());
-                    }
-                },
-                McpToolParameter.string("source_id", true, "An accepted source id"),
-                McpToolParameter.string("text", true, "The finding text"));
-    }
-
-    private static McpToolContribution notesAppendTool(final ResearchControlContext ctx) {
-        return McpToolContribution.of("notes_append", "Append markdown to the research notes.",
-                new McpToolHandler() {
-                    public McpToolResult invoke(McpToolCall call) {
-                        McpToolResult denied = requireWritable(ctx, ResearchStateIds.RESEARCH);
-                        if (denied != null) {
-                            return denied;
-                        }
-                        String markdown = call.getString("markdown");
-                        if (markdown == null || markdown.trim().isEmpty()) {
-                            return McpToolResult.error("Missing argument: markdown");
-                        }
-                        return appendTo(ctx, "research-notes", markdown.trim());
-                    }
-                },
-                McpToolParameter.string("markdown", true, "The markdown to append"));
-    }
-
-    /** Read-modify-write append with the store's optimistic lock (single retry is unnecessary: same thread). */
-    private static McpToolResult appendTo(ResearchControlContext ctx, String artifactId, String block) {
-        ArtifactContent current = ctx.artifactStore().read(artifactId);
-        String next = current.getMarkdown().isEmpty() ? block : current.getMarkdown() + "\n" + block;
-        ArtifactWriteResult result = ctx.artifactStore().replace(artifactId, current.getRevision(), next);
-        return result.isSuccess()
-                ? McpToolResult.ok("appended revision=" + result.getRevision())
-                : McpToolResult.error("Conflict while appending: " + result.getReason());
-    }
 }

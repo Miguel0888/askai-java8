@@ -1,7 +1,5 @@
 package com.aresstack.askai.research.agent;
 
-import com.aresstack.askai.plugin.api.agent.artifact.ArtifactContent;
-import com.aresstack.askai.plugin.api.agent.artifact.ArtifactWriteResult;
 import com.aresstack.askai.research.store.MetadataLoadResult;
 import com.aresstack.askai.research.store.ResearchProjectContext;
 import com.aresstack.askai.research.store.ResearchProjectMetadata;
@@ -9,15 +7,15 @@ import com.aresstack.askai.research.store.ResearchProjectMetadata;
 import java.io.IOException;
 
 /**
- * FAIL-CLOSED commit of a confirmed research scope: metadata, concept and outline are written in
- * order and EVERY write result is checked. Only {@link ScopeCommitResult#isSuccess()} may trigger
- * the state-machine auto-advance; any failure leaves the state machine untouched and the scoping
- * dialog repeatable. This is not yet an atomic multi-file transaction — but a detected failure
- * never progresses the workflow.
+ * FAIL-CLOSED commit of a confirmed research scope: the typed metadata is written and the write result is
+ * checked. Only {@link ScopeCommitResult#isSuccess()} may trigger the state-machine auto-advance; any failure
+ * leaves the state machine untouched and the scoping dialog repeatable. Issue #32: the commit writes NO
+ * concept (and since C5 no outline) Markdown artifact anymore — the ResearchBrief is the canonical scoping
+ * truth and the metadata is the typed contract; there is no second document beside them.
  */
 public final class ResearchScopeCommitService {
 
-    public enum Status { SUCCESS, METADATA_FAILED, CONCEPT_FAILED, OUTLINE_FAILED, REVISION_CONFLICT }
+    public enum Status { SUCCESS, METADATA_FAILED, REVISION_CONFLICT }
 
     /** Typed outcome with the concrete failure detail for the (localized) user message. */
     public static final class ScopeCommitResult {
@@ -65,40 +63,8 @@ public final class ResearchScopeCommitService {
             return new ScopeCommitResult(Status.METADATA_FAILED, persistFailed.getMessage());
         }
 
-        // 2. Concept — every ArtifactWriteResult is judged, never ignored. C5: scoping writes NO outline
-        // anymore; the "outline" slot is the LIVE projection of the growing knowledge corpus, derived (and
-        // continuously rebuilt) from accepted sources — never a pre-research document structure.
-        ScopeCommitResult concept = writeArtifact("concept", scope.getConceptMarkdown(),
-                Status.CONCEPT_FAILED);
-        if (concept != null) {
-            return concept;
-        }
+        // Issue #32: no concept artifact write anymore — the metadata above IS the commit. C5 already
+        // removed the outline write (the "outline" slot is the derived projection of the corpus).
         return new ScopeCommitResult(Status.SUCCESS, "");
-    }
-
-    /** @return null on success, otherwise the typed failure (conflict vs. write error). */
-    private ScopeCommitResult writeArtifact(String artifactId, String markdown,
-                                            Status failureStatus) {
-        ArtifactContent current = context.getArtifactStore().read(artifactId);
-        ArtifactWriteResult result = context.getArtifactStore()
-                .replace(artifactId, current.getRevision(), markdown);
-        if (result.isSuccess()) {
-            return null;
-        }
-        return classifyFailure(artifactId, result, failureStatus);
-    }
-
-    /**
-     * A rejected replace that still carries a CURRENT revision (>= 0) is the optimistic-locking
-     * conflict shape; a plain write error carries revision -1.
-     */
-    static ScopeCommitResult classifyFailure(String artifactId, ArtifactWriteResult result,
-                                             Status failureStatus) {
-        if (result.getRevision() >= 0) {
-            return new ScopeCommitResult(Status.REVISION_CONFLICT,
-                    artifactId + " changed concurrently (revision conflict at revision "
-                            + result.getRevision() + ")");
-        }
-        return new ScopeCommitResult(failureStatus, artifactId + ": " + result.getReason());
     }
 }
