@@ -331,18 +331,8 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
                     com.aresstack.askai.research.connector.ChatGptConnectorRuntime
                             .defaultRefreshStore()));
             String failure = runtime.lastStartFailure();
-            // Show the EFFECTIVE pair (empty fields fall back to the defaults) — what ChatGPT must use.
-            com.aresstack.askai.research.connector.ConnectorConfig effective =
-                    new com.aresstack.askai.research.connector.ConnectorConfig(
-                            settings.getPort(), settings.getPublicOrigin(), settings.getClientId(),
-                            settings.getClientSecret(), null);
             results.setText(runtime.isRunning()
                     ? "ChatGPT connector: listening on port " + runtime.runningPort()
-                            + "\nClient-ID: " + effective.getClientId()
-                            + "\nSecret: " + effective.getClientSecret()
-                            + (com.aresstack.askai.research.connector.ConnectorConfig
-                                    .DEFAULT_CLIENT_SECRET.equals(effective.getClientSecret())
-                                    ? " (Default)" : " (eigenes)")
                     : "ChatGPT connector: NOT running - " + failure);
             if (!runtime.isRunning()) {
                 javax.swing.JOptionPane.showMessageDialog(this,
