@@ -517,6 +517,13 @@ public final class ProductiveResearchBackendFactory {
                         public com.aresstack.askai.research.agent.ResearchDerivedActions derivedActions() {
                             return holder[0] == null ? null : holder[0].getDerivedActions();
                         }
+                    },
+                    new com.aresstack.askai.research.mcp.ResearchServiceEndpoint.ComposerLineRunner() {
+                        public String run(String line) {
+                            com.aresstack.askai.research.mcp.ResearchServiceEndpoint.ComposerLineRunner
+                                    runner = holder[0] == null ? null : holder[0].getComposerLineRunner();
+                            return runner == null ? null : runner.run(line);
+                        }
                     });
 
             // 4. Backend with BOTH endpoint descriptors (structured env hand-off; tokens never logged).
