@@ -133,11 +133,11 @@ public class ResearchAgentSessionTest {
         f.session.activate();
         f.session.getChatTarget().submitText("investigate pf4j"); // the question starts the run
 
-        String early = f.session.executeCommand("approve-evidence", "");
+        String early = f.session.executeCommand("approve", "");
         assertTrue(early, early.startsWith("rejected:"));
 
         f.scheduler.runUntilIdle();
-        String ok = f.session.executeCommand("approve-evidence", "");
+        String ok = f.session.executeCommand("approve", "");
         assertTrue(ok, ok.startsWith("handled:"));
         f.scheduler.runUntilIdle();
         assertEquals("REVIEW", f.session.getState().getPhaseLabel());

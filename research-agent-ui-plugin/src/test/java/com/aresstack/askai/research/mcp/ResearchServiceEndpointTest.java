@@ -109,13 +109,13 @@ public class ResearchServiceEndpointTest {
         ResearchServiceEndpoint service = new ResearchServiceEndpoint(reg, "s1", 1L, new Ctx());
         service.open();
         List<String> names = reg.listToolNames(service.getEndpointId(), service.getHandle().getToken());
-        assertEquals(java.util.Arrays.asList("manual_source_accept", "manual_source_park",
-                "run_command", "session_state"), names);
+        assertEquals("runtime plumbing ONLY — the bot tools live on their own endpoint",
+                java.util.Arrays.asList("manual_source_accept", "manual_source_park"), names);
         service.close();
     }
 
-    /** Records execute()/describeState() calls; configurable result. */
-    private static final class RecordingGateway implements ResearchServiceEndpoint.SessionGateway {
+    /** Records gateway calls; configurable result. */
+    private static final class RecordingGateway implements ResearchBotControlEndpoint.SessionGateway {
         final List<String> invoked = new java.util.ArrayList<String>();
         String executeResult = "handled: ok";
 
@@ -128,18 +128,32 @@ public class ResearchServiceEndpointTest {
             invoked.add("describeState");
             return "phase=scoping state=running revision=1 pendingApproval=- busy=false";
         }
+
+        public String describeHistory(boolean raw) {
+            invoked.add("describeHistory(" + raw + ")");
+            return raw ? "raw history" : "summarized history";
+        }
     }
 
     @Test
-    public void runCommandAndSessionStateDriveTheOneSessionGateway() {
-        // Issue #33: ONE structured driving tool + ONE state tool over the session gateway. A rejected
-        // command surfaces as a typed MCP error; without a gateway the tools answer honestly.
+    public void theBotControlEndpointOffersExactlyTheThreeDrivingTools() {
+        InProcessMcpServerRegistry reg = new InProcessMcpServerRegistry();
+        ResearchBotControlEndpoint bot = new ResearchBotControlEndpoint(reg, "s1", 1L,
+                new RecordingGateway());
+        bot.open();
+        assertEquals(java.util.Arrays.asList("run_command", "session_state", "chat_history"),
+                reg.listToolNames(bot.getEndpointId(), bot.getHandle().getToken()));
+        bot.close();
+    }
+
+    @Test
+    public void theBotToolsDriveTheOneSessionGateway() {
         InProcessMcpServerRegistry reg = new InProcessMcpServerRegistry();
         RecordingGateway gateway = new RecordingGateway();
-        ResearchServiceEndpoint service = new ResearchServiceEndpoint(reg, "s1", 1L, new Ctx(), gateway);
-        service.open();
-        String id = service.getEndpointId();
-        String token = service.getHandle().getToken();
+        ResearchBotControlEndpoint bot = new ResearchBotControlEndpoint(reg, "s1", 1L, gateway);
+        bot.open();
+        String id = bot.getEndpointId();
+        String token = bot.getHandle().getToken();
 
         assertFalse(call(reg, id, token, "run_command", "command", "search",
                 "arguments", "wearables").isError());
@@ -147,28 +161,50 @@ public class ResearchServiceEndpointTest {
         McpToolResult state = call(reg, id, token, "session_state");
         assertFalse(state.isError());
         assertTrue(state.getText().contains("phase=scoping state=running"));
+        McpToolResult summary = call(reg, id, token, "chat_history");
+        assertFalse(summary.isError());
+        assertEquals("summarized history", summary.getText());
+        McpToolResult raw = call(reg, id, token, "chat_history", "raw", "true");
+        assertEquals("raw history", raw.getText());
         assertEquals(java.util.Arrays.asList("execute(search|wearables)",
-                "execute(null|just a chat message)", "describeState"), gateway.invoked);
+                "execute(null|just a chat message)", "describeState",
+                "describeHistory(false)", "describeHistory(true)"), gateway.invoked);
 
+        // A rejected command surfaces as a typed MCP error with the reason.
         gateway.executeResult = "rejected: unknown command 'nope'. Valid now: search <query>";
         McpToolResult rejected = call(reg, id, token, "run_command", "command", "nope");
         assertTrue(rejected.isError());
         assertTrue(rejected.getText().contains("unknown command"));
-        service.close();
+        bot.close();
 
-        // Without a gateway (no session attached): an honest error, never a silent no-op.
-        ResearchServiceEndpoint bare = new ResearchServiceEndpoint(reg, "s2", 1L, new Ctx());
+        // Without a gateway result (no session attached): an honest error, never a silent no-op.
+        ResearchBotControlEndpoint bare = new ResearchBotControlEndpoint(reg, "s2", 1L,
+                new ResearchBotControlEndpoint.SessionGateway() {
+                    public String execute(String command, String arguments) {
+                        return null;
+                    }
+
+                    public String describeState() {
+                        return null;
+                    }
+
+                    public String describeHistory(boolean raw) {
+                        return null;
+                    }
+                });
         bare.open();
         assertTrue(call(reg, bare.getEndpointId(), bare.getHandle().getToken(),
                 "run_command", "command", "search").isError());
         assertTrue(call(reg, bare.getEndpointId(), bare.getHandle().getToken(),
                 "session_state").isError());
+        assertTrue(call(reg, bare.getEndpointId(), bare.getHandle().getToken(),
+                "chat_history").isError());
         bare.close();
     }
 
     @Test
     public void theDrivingToolsAreNeverInTheAgentToolCatalog() {
-        // Issue #33 authority boundary: the TeamAgent gets NEITHER the driving tool NOR the state tool —
+        // Authority boundary: the TeamAgent gets NEITHER the driving tools NOR the state/history tools —
         // in no phase/state does the control endpoint offer them.
         InProcessMcpServerRegistry reg = new InProcessMcpServerRegistry();
         Ctx ctx = new Ctx();
@@ -181,7 +217,7 @@ public class ResearchServiceEndpointTest {
             agent.open();
             List<String> agentTools = reg.listToolNames(agent.getEndpointId(),
                     agent.getHandle().getToken());
-            for (String tool : new String[]{"run_command", "session_state"}) {
+            for (String tool : new String[]{"run_command", "session_state", "chat_history"}) {
                 assertFalse(tool + " must never be an agent tool in " + phase,
                         agentTools.contains(tool));
             }

@@ -200,16 +200,23 @@ public final class ProductiveResearchSessionResources {
         return derivedActions;
     }
 
-    /** Set by the SESSION: the structured command/state gateway for the service MCP. */
-    private volatile com.aresstack.askai.research.mcp.ResearchServiceEndpoint.SessionGateway sessionGateway;
+    /** The bot-control endpoint (run_command/session_state/chat_history); owned + closed here. */
+    private volatile com.aresstack.askai.research.mcp.ResearchBotControlEndpoint botControlEndpoint;
+
+    void setBotControlEndpoint(com.aresstack.askai.research.mcp.ResearchBotControlEndpoint endpoint) {
+        this.botControlEndpoint = endpoint;
+    }
+
+    /** Set by the SESSION: the structured command/state gateway for the bot-control MCP. */
+    private volatile com.aresstack.askai.research.mcp.ResearchBotControlEndpoint.SessionGateway sessionGateway;
 
     public void setSessionGateway(
-            com.aresstack.askai.research.mcp.ResearchServiceEndpoint.SessionGateway gateway) {
+            com.aresstack.askai.research.mcp.ResearchBotControlEndpoint.SessionGateway gateway) {
         this.sessionGateway = gateway;
     }
 
     /** The session's gateway, or {@code null} while no session is attached. */
-    public com.aresstack.askai.research.mcp.ResearchServiceEndpoint.SessionGateway getSessionGateway() {
+    public com.aresstack.askai.research.mcp.ResearchBotControlEndpoint.SessionGateway getSessionGateway() {
         return sessionGateway;
     }
 
@@ -429,6 +436,9 @@ public final class ProductiveResearchSessionResources {
         }
         if (serviceEndpoint != null) {
             serviceEndpoint.close();
+        }
+        if (botControlEndpoint != null) {
+            botControlEndpoint.close();
         }
         if (browserBridge != null) {
             browserBridge.close();

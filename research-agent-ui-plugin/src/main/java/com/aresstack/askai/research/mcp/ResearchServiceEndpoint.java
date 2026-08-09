@@ -30,35 +30,16 @@ public final class ResearchServiceEndpoint {
     public static final String MANUAL_SOURCE_ACCEPT = "manual_source_accept";
     public static final String MANUAL_SOURCE_PARK = "manual_source_park";
 
-     /**
-     * THE session gateway (issue #33): structured command execution plus the structured session state.
-     * Implemented by the session, resolved at call time; {@code null} results mean "no session attached".
-     */
-    public interface SessionGateway {
-        /** Execute one command with arguments; empty command = the arguments are a plain chat message. */
-        String execute(String command, String arguments);
-
-        /** Phase/run state + currently valid commands, clickable buttons and search suggestions. */
-        String describeState();
-    }
-
-    private final McpServerRegistry registry;
+     private final McpServerRegistry registry;
     private final ResearchControlContext context;
-    private final SessionGateway gateway;
     private final String endpointId;
     private McpEndpointHandle handle;
     private boolean closed;
 
     public ResearchServiceEndpoint(McpServerRegistry registry, String sessionKey, long pluginGenerationId,
                                    ResearchControlContext context) {
-        this(registry, sessionKey, pluginGenerationId, context, null);
-    }
-
-    public ResearchServiceEndpoint(McpServerRegistry registry, String sessionKey, long pluginGenerationId,
-                                   ResearchControlContext context, SessionGateway gateway) {
         this.registry = registry;
         this.context = context;
-        this.gateway = gateway;
         this.endpointId = "research-service." + sessionKey + ".g" + pluginGenerationId;
     }
 
@@ -79,8 +60,7 @@ public final class ResearchServiceEndpoint {
         handle = registry.registerEndpoint(
                 new McpEndpointDefinition(endpointId, "Research Service (internal)"));
         registry.updateTools(handle, Arrays.asList(
-                manualSourceAcceptTool(context), manualSourceParkTool(context),
-                runCommandTool(gateway), sessionStateTool(gateway)));
+                manualSourceAcceptTool(context), manualSourceParkTool(context)));
     }
 
     /** Unregister the endpoint (invalidates the token). Idempotent. */
@@ -93,53 +73,6 @@ public final class ResearchServiceEndpoint {
             registry.unregisterEndpoint(handle);
             handle = null;
         }
-    }
-
-    /**
-     * THE generic driving tool (issue #33): one structured command + arguments. No command = the arguments
-     * are a plain chat message. Unknown / currently-not-allowed commands come back as typed rejections.
-     */
-    private static McpToolContribution runCommandTool(final SessionGateway gateway) {
-        return McpToolContribution.of("run_command",
-                "Execute one research command with arguments (e.g. command=search, arguments=<query>; "
-                        + "command=generate-outline; command=submit-scope). Omit 'command' to send the "
-                        + "arguments as a plain chat message. Use session_state for the valid commands.",
-                new McpToolHandler() {
-                    public McpToolResult invoke(McpToolCall call) {
-                        if (gateway == null) {
-                            return McpToolResult.error(
-                                    "No research session is attached to this endpoint yet.");
-                        }
-                        String result = gateway.execute(call.getString("command"),
-                                call.getString("arguments"));
-                        if (result == null) {
-                            return McpToolResult.error(
-                                    "No research session is attached to this endpoint yet.");
-                        }
-                        return result.startsWith("rejected")
-                                ? McpToolResult.error(result) : McpToolResult.ok(result);
-                    }
-                },
-                McpToolParameter.string("command", false,
-                        "The command name (see session_state); omit for a plain chat message"),
-                McpToolParameter.string("arguments", false,
-                        "The command arguments, or the chat message when no command is given"));
-    }
-
-    /** The structured session state: phase/run state first, then valid commands, buttons, suggestions. */
-    private static McpToolContribution sessionStateTool(final SessionGateway gateway) {
-        return McpToolContribution.of("session_state",
-                "Current research phase and run state, plus the currently valid commands (the same set the "
-                        + "UI buttons offer), the clickable decision buttons and the search suggestions.",
-                new McpToolHandler() {
-                    public McpToolResult invoke(McpToolCall call) {
-                        String state = gateway == null ? null : gateway.describeState();
-                        return state == null
-                                ? McpToolResult.error(
-                                        "No research session is attached to this endpoint yet.")
-                                : McpToolResult.ok(state);
-                    }
-                });
     }
 
     private static McpToolContribution manualSourceAcceptTool(final ResearchControlContext ctx) {

@@ -263,8 +263,8 @@ public class ResearchRunCardsTest {
         // Unified action surface: no chat card — the restored session derives its RED action tags
         // (approve/changes) from the live WAITING_APPROVAL state.
         assertTrue("the approve tag is re-derived from the WAITING_APPROVAL state",
-                hasActionTag(restored, "approve-evidence"));
-        assertTrue("the changes tag is re-derived as well", hasActionTag(restored, "request-revision"));
+                hasActionTag(restored, "approve"));
+        assertTrue("the changes tag is re-derived as well", hasActionTag(restored, "request-changes"));
     }
 
     private static boolean hasActionTag(ResearchAgentSession session, String command) {
@@ -472,7 +472,7 @@ public class ResearchRunCardsTest {
 
         // Unified action surface: the gate presents its decision as RED action tags, not a chat card.
         assertTrue("the evidence gate derives its approve tag (no dead end)",
-                hasActionTag(fx.session, "approve-evidence"));
+                hasActionTag(fx.session, "approve"));
     }
 
     @Test

@@ -511,21 +511,9 @@ public final class ProductiveResearchBackendFactory {
             // The INTERNAL service endpoint (manual_source_accept + the explicit derived actions, #33)
             // shares the SAME acceptance context but its own namespace — user/host/test operations,
             // never agent tools. The derived actions resolve through the session at call time.
+            // The runtime-plumbing endpoint (manual_source_*) — internal runtime->host traffic only.
             service = new com.aresstack.askai.research.mcp.ResearchServiceEndpoint(
-                    registry, sessionKey, generationId, controlContext,
-                    new com.aresstack.askai.research.mcp.ResearchServiceEndpoint.SessionGateway() {
-                        public String execute(String command, String arguments) {
-                            com.aresstack.askai.research.mcp.ResearchServiceEndpoint.SessionGateway
-                                    gateway = holder[0] == null ? null : holder[0].getSessionGateway();
-                            return gateway == null ? null : gateway.execute(command, arguments);
-                        }
-
-                        public String describeState() {
-                            com.aresstack.askai.research.mcp.ResearchServiceEndpoint.SessionGateway
-                                    gateway = holder[0] == null ? null : holder[0].getSessionGateway();
-                            return gateway == null ? null : gateway.describeState();
-                        }
-                    });
+                    registry, sessionKey, generationId, controlContext);
 
             // 4. Backend with BOTH endpoint descriptors (structured env hand-off; tokens never logged).
             String agentJava = config.getAgentJavaExecutable();
@@ -556,6 +544,34 @@ public final class ProductiveResearchBackendFactory {
             ProductiveResearchSessionResources resources;
             control.open();
             service.open();
+            // The BOT-CONTROL endpoint: exactly run_command/session_state/chat_history over the session's
+            // command processor (resolved at call time). This — and only this — goes to external clients.
+            final com.aresstack.askai.research.mcp.ResearchBotControlEndpoint botControl =
+                    new com.aresstack.askai.research.mcp.ResearchBotControlEndpoint(
+                            registry, sessionKey, generationId,
+                            new com.aresstack.askai.research.mcp.ResearchBotControlEndpoint.SessionGateway() {
+                                public String execute(String command, String arguments) {
+                                    com.aresstack.askai.research.mcp.ResearchBotControlEndpoint
+                                            .SessionGateway gateway = holder[0] == null ? null
+                                            : holder[0].getSessionGateway();
+                                    return gateway == null ? null : gateway.execute(command, arguments);
+                                }
+
+                                public String describeState() {
+                                    com.aresstack.askai.research.mcp.ResearchBotControlEndpoint
+                                            .SessionGateway gateway = holder[0] == null ? null
+                                            : holder[0].getSessionGateway();
+                                    return gateway == null ? null : gateway.describeState();
+                                }
+
+                                public String describeHistory(boolean raw) {
+                                    com.aresstack.askai.research.mcp.ResearchBotControlEndpoint
+                                            .SessionGateway gateway = holder[0] == null ? null
+                                            : holder[0].getSessionGateway();
+                                    return gateway == null ? null : gateway.describeHistory(raw);
+                                }
+                            });
+            botControl.open();
             String researchUrl = registry.endpointUrl(control.getHandle());
             AcpEndpointDescriptor researchDescriptor = new AcpEndpointDescriptor(
                     control.getEndpointId(), researchUrl, "streamable", control.getHandle().getToken());
@@ -569,10 +585,11 @@ public final class ProductiveResearchBackendFactory {
             // endpoint's connection data as a file under the project directory. Localhost-only endpoint,
             // per-session token, invalidated on close — the file merely makes the explicit user/host
             // actions scriptable without the GUI. Overwritten on every session start (stale after close).
+            String botUrl = registry.endpointUrl(botControl.getHandle());
             writeUtf8(new File(projectDir, "service-endpoint.json"),
                     com.aresstack.askai.research.mcp.ServiceEndpointDescriptorFile.toJson(
-                            service.getEndpointId(), serviceUrl, "streamable",
-                            service.getHandle().getToken()));
+                            botControl.getEndpointId(), botUrl, "streamable",
+                            botControl.getHandle().getToken()));
             backend = new AcpResearchSessionBackend(connector, spec, researchDescriptor, browserDescriptor,
                     serviceDescriptor);
 
@@ -589,6 +606,7 @@ public final class ProductiveResearchBackendFactory {
                     acceptance, projectContext, control, bridge,
                     browser, backend, service);
             resources.setSearchProfile(profile);
+            resources.setBotControlEndpoint(botControl);
             holder[0] = resources;
             resourcesRef[0] = resources;
             control.refreshTools(); // now that the live context resolves, publish the initial tool set
