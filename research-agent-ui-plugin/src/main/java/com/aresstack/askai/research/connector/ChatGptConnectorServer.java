@@ -89,9 +89,7 @@ public final class ChatGptConnectorServer {
         try {
             String path = exchange.getRequestURI().getPath();
             String method = exchange.getRequestMethod();
-            if ("GET".equals(method) && "/".equals(path)) {
-                status(exchange);
-            } else if ("GET".equals(method) && isAuthorizationServerMetadataPath(path)) {
+            if ("GET".equals(method) && isAuthorizationServerMetadataPath(path)) {
                 authorizationServerMetadata(exchange);
             } else if ("GET".equals(method) && path.startsWith("/.well-known/oauth-protected-resource")) {
                 protectedResourceMetadata(exchange);
@@ -101,7 +99,8 @@ public final class ChatGptConnectorServer {
                 token(exchange);
             } else if ("GET".equals(method) && "/health".equals(path)) {
                 sendJson(exchange, 200, singleton("status", "ok"));
-            } else if (ConnectorConfig.MCP_PUBLIC_PATH.equals(path)) {
+            } else if ("/".equals(path) || path.isEmpty()) {
+                // The ROOT is the MCP endpoint (GET = SSE discovery, POST = JSON-RPC).
                 if ("GET".equals(method)) {
                     mcpSse(exchange);
                 } else if ("POST".equals(method)) {
@@ -125,20 +124,7 @@ public final class ChatGptConnectorServer {
 
     private static boolean isAuthorizationServerMetadataPath(String path) {
         return path.startsWith("/.well-known/oauth-authorization-server")
-                || path.startsWith("/.well-known/openid-configuration")
-                || path.equals(ConnectorConfig.MCP_PUBLIC_PATH + "/.well-known/oauth-authorization-server")
-                || path.equals(ConnectorConfig.MCP_PUBLIC_PATH + "/.well-known/openid-configuration");
-    }
-
-    private void status(HttpExchange exchange) throws Exception {
-        JsonObject body = new JsonObject();
-        body.addProperty("status", "ok");
-        body.addProperty("name", "askai");
-        body.addProperty("mcp", config.getPublicOrigin() + ConnectorConfig.MCP_PUBLIC_PATH);
-        body.addProperty("authorization_endpoint", config.getPublicOrigin() + "/oauth/authorize");
-        body.addProperty("token_endpoint", config.getPublicOrigin() + "/oauth/token");
-        body.addProperty("advertised_pkce_method", "S256");
-        sendJson(exchange, 200, body);
+                || path.startsWith("/.well-known/openid-configuration");
     }
 
     private void authorizationServerMetadata(HttpExchange exchange) throws Exception {
@@ -157,7 +143,7 @@ public final class ChatGptConnectorServer {
 
     private void protectedResourceMetadata(HttpExchange exchange) throws Exception {
         JsonObject body = new JsonObject();
-        body.addProperty("resource", config.getPublicOrigin() + ConnectorConfig.MCP_PUBLIC_PATH);
+        body.addProperty("resource", config.getPublicOrigin() + "/");
         body.add("authorization_servers", array(config.getPublicOrigin()));
         body.add("scopes_supported", array("mcp"));
         body.add("bearer_methods_supported", array("header"));

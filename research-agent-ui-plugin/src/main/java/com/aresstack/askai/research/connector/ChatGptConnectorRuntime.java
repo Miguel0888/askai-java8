@@ -74,8 +74,7 @@ public final class ChatGptConnectorRuntime {
             runningConfig = config;
             startFailure = null;
             System.out.println("[chatgpt-connector] listening on port " + created.boundPort()
-                    + " for " + config.getPublicOrigin() + ConnectorConfig.MCP_PUBLIC_PATH
-                    + " (TLS at the reverse proxy)");
+                    + " for " + config.getPublicOrigin() + "/ (TLS at the reverse proxy)");
         } catch (Exception bindFailure) {
             startFailure = bindFailure.getMessage() == null
                     ? bindFailure.getClass().getSimpleName() : bindFailure.getMessage();

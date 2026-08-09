@@ -9,8 +9,12 @@ import java.io.File;
  */
 public final class ConnectorConfig {
 
-    /** The public MCP path — the connector URL is {@code <publicOrigin>/askai}. */
-    public static final String MCP_PUBLIC_PATH = "/askai";
+    /**
+     * The MCP endpoint lives at the ROOT: the connector already has a DEDICATED public origin
+     * (subdomain), so the ChatGPT URL is simply {@code <publicOrigin>/}. The reverse proxy forwards
+     * paths unchanged; /oauth/* and /.well-known/* sit next to it.
+     */
+    public static final String MCP_PUBLIC_PATH = "/";
 
     /** Pyloros-style property defaults: the server always has a usable client pair. */
     public static final String DEFAULT_CLIENT_ID = "askai";

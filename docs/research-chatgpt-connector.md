@@ -12,7 +12,7 @@ ChatGPT ──HTTPS──> Apache (anderer Rechner, TLS)  ──HTTP──> AskA
                                                             /oauth/token
                                                             /.well-known/oauth-authorization-server
                                                             /.well-known/oauth-protected-resource
-                                                            /askai   (MCP JSON-RPC, Bearer)
+                                                            /        (MCP JSON-RPC, Bearer - die ROOT der Subdomain)
 ```
 
 - **OAuth**: authorization_code + PKCE (S256, Kompatibilitätsmodus ohne Challenge), refresh_token-Grant.
@@ -57,7 +57,7 @@ für den Proxy-Rechner öffnen.
 
 Neuen Connector anlegen mit:
 
-- **URL**: `https://askai.example.com/askai`
+- **URL**: `https://askai.example.com/`
 - **OAuth Client-ID / Client-Secret**: dasselbe Paar wie in den AskAI-Settings (genau wie bei Pyloros)
 - Authorization-/Token-Endpoint entdeckt ChatGPT selbst über `/.well-known/oauth-authorization-server`.
 

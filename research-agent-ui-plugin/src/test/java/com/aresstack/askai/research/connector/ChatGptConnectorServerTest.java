@@ -72,12 +72,12 @@ public class ChatGptConnectorServerTest {
         assertEquals("https://askai.example.com/oauth/token", metadata.get("token_endpoint").getAsString());
 
         JsonObject resource = getJson(base + "/.well-known/oauth-protected-resource", null);
-        assertEquals("https://askai.example.com/askai", resource.get("resource").getAsString());
+        assertEquals("https://askai.example.com/", resource.get("resource").getAsString());
     }
 
     @Test
     public void theMcpEndpointDemandsABearerTokenAndTheHandshakeProducesOne() throws Exception {
-        HttpURLConnection unauthorized = (HttpURLConnection) new URL(base + "/askai").openConnection();
+        HttpURLConnection unauthorized = (HttpURLConnection) new URL(base + "/").openConnection();
         unauthorized.setRequestMethod("POST");
         unauthorized.setDoOutput(true);
         write(unauthorized, "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}");
@@ -146,7 +146,7 @@ public class ChatGptConnectorServerTest {
     }
 
     private JsonObject rpc(String token, String body) throws Exception {
-        HttpURLConnection connection = (HttpURLConnection) new URL(base + "/askai").openConnection();
+        HttpURLConnection connection = (HttpURLConnection) new URL(base + "/").openConnection();
         connection.setRequestMethod("POST");
         connection.setDoOutput(true);
         connection.setRequestProperty("Authorization", "Bearer " + token);
