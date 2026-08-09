@@ -99,6 +99,8 @@ public final class ChatGptConnectorServer {
                 authorize(exchange);
             } else if ("POST".equals(method) && "/oauth/token".equals(path)) {
                 token(exchange);
+            } else if ("POST".equals(method) && "/oauth/register".equals(path)) {
+                register(exchange);
             } else if ("GET".equals(method) && "/health".equals(path)) {
                 sendJson(exchange, 200, singleton("status", "ok"));
             } else if (ConnectorConfig.MCP_PUBLIC_PATH.equals(path)) {
@@ -148,7 +150,9 @@ public final class ChatGptConnectorServer {
         body.addProperty("token_endpoint", config.getPublicOrigin() + "/oauth/token");
         body.add("response_types_supported", array("code"));
         body.add("grant_types_supported", array("authorization_code", "refresh_token"));
-        body.add("token_endpoint_auth_methods_supported", array("client_secret_basic", "client_secret_post"));
+        body.addProperty("registration_endpoint", config.getPublicOrigin() + "/oauth/register");
+        body.add("token_endpoint_auth_methods_supported",
+                array("client_secret_basic", "client_secret_post", "none"));
         body.add("code_challenge_methods_supported", array("S256"));
         body.add("scopes_supported", array("mcp"));
         sendJson(exchange, 200, body);
@@ -202,6 +206,24 @@ public final class ChatGptConnectorServer {
         } catch (OAuthError error) {
             sendOAuthError(exchange, error);
         }
+    }
+
+    /** Dynamic client registration: echo the requested redirect_uris, assign OUR client. */
+    private void register(HttpExchange exchange) throws Exception {
+        JsonObject request;
+        try {
+            String body = readBody(exchange);
+            request = body.trim().isEmpty() ? new JsonObject()
+                    : JsonParser.parseString(body).getAsJsonObject();
+        } catch (RuntimeException invalid) {
+            request = new JsonObject();
+        }
+        JsonObject body = GSON.toJsonTree(oauth.registerClient()).getAsJsonObject();
+        if (request.has("redirect_uris")) {
+            body.add("redirect_uris", request.get("redirect_uris"));
+        }
+        exchange.getResponseHeaders().set("Cache-Control", "no-store");
+        sendJson(exchange, 201, body);
     }
 
     private void mcpSse(HttpExchange exchange) throws Exception {

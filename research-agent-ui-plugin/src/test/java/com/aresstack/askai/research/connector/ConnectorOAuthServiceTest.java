@@ -123,6 +123,24 @@ public class ConnectorOAuthServiceTest {
     }
 
     @Test
+    public void anEmptyConfiguredSecretMeansPublicClient_pkceOnly_asChatGptRegistersItself() throws Exception {
+        ConnectorConfig publicClient = new ConnectorConfig(0, "https://askai.example.com",
+                "askai", "", null);
+        ConnectorOAuthService oauth = new ConnectorOAuthService(publicClient, clock);
+
+        Map<String, Object> registered = oauth.registerClient();
+        assertEquals("askai", registered.get("client_id"));
+        assertEquals("none", registered.get("token_endpoint_auth_method"));
+        assertFalse(registered.containsKey("client_secret"));
+
+        String code = codeFromLocation(oauth.authorize("code", "askai",
+                "https://chatgpt.com/cb", null, "mcp", challenge("v1"), "S256"));
+        Map<String, Object> token = oauth.token("askai", null, "authorization_code", code, null,
+                "https://chatgpt.com/cb", "v1");
+        assertTrue(oauth.isBearerAuthorized("Bearer " + token.get("access_token")));
+    }
+
+    @Test
     public void theRefreshGrantIssuesANewAccessTokenAndSurvivesARestartViaTheStore() throws Exception {
         File store = new File(temp.getRoot(), "refresh.json");
         ConnectorOAuthService oauth = new ConnectorOAuthService(config(store), clock);

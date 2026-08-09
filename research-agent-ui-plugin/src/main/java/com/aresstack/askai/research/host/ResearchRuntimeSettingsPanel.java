@@ -287,15 +287,9 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         } catch (NumberFormatException invalid) {
             port = 8082;
         }
+        // The secret is OPTIONAL: empty = public client (PKCE only) — exactly what ChatGPT's own
+        // dynamic client registration expects. A non-empty secret is enforced on the token endpoint.
         String secret = new String(connectorClientSecret.getPassword()).trim();
-        if (chatGptConnector.isSelected() && secret.isEmpty()) {
-            // An empty secret would only produce a dead "incomplete configuration" listener — generate
-            // one; the user copies the SAME value into the ChatGPT connector form.
-            byte[] bytes = new byte[32];
-            new java.security.SecureRandom().nextBytes(bytes);
-            secret = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
-            connectorClientSecret.setText(secret);
-        }
         ResearchRuntimeSettings.ChatGptConnectorSettings settings =
                 new ResearchRuntimeSettings.ChatGptConnectorSettings(
                         chatGptConnector.isSelected(), port, connectorOrigin.getText().trim(),

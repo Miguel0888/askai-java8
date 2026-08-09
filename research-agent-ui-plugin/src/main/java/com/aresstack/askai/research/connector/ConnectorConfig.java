@@ -70,8 +70,11 @@ public final class ConnectorConfig {
         return refreshTokenTtlSeconds;
     }
 
-    /** A usable configuration has a client pair and a public origin; otherwise the server must not start. */
+    /**
+     * A usable configuration has a client id and a public origin. The secret is OPTIONAL: empty =
+     * public client (PKCE only) — the mode ChatGPT's dynamic client registration uses.
+     */
     public boolean isComplete() {
-        return !clientId.isEmpty() && !clientSecret.isEmpty() && !publicOrigin.isEmpty();
+        return !clientId.isEmpty() && !publicOrigin.isEmpty();
     }
 }
