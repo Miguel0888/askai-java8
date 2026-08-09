@@ -53,8 +53,10 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
             "ChatGPT connector (public endpoint behind the reverse proxy; applies to new sessions)", false);
     private final JTextField connectorOrigin = placeholderField("https://askai.example.com", 38);
     private final JTextField connectorPort = new JTextField(6);
-    private final JTextField connectorClientId = new JTextField(12);
-    private final javax.swing.JPasswordField connectorClientSecret = new javax.swing.JPasswordField(18);
+    private final JTextField connectorClientId =
+            placeholderField(com.aresstack.askai.research.connector.ConnectorConfig.DEFAULT_CLIENT_ID, 12);
+    private final javax.swing.JPasswordField connectorClientSecret = placeholderPasswordField(
+            com.aresstack.askai.research.connector.ConnectorConfig.DEFAULT_CLIENT_SECRET, 18);
     /**
      * Initial-search source (applies to new sessions): the legacy browser SERP (default) or one of the
      * REST search providers. Provider credentials are NOT configured here — they live in
@@ -193,8 +195,11 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
                 "The public HTTPS origin the Apache proxy serves, e.g. https://askai.example.com");
         connectorPort.setText(String.valueOf(connector.getPort()));
         connectorPort.setToolTipText("Local plain-HTTP listen port; the proxy machine forwards to it");
-        connectorClientId.setText(connector.getClientId());
-        connectorClientSecret.setText(connector.getClientSecret());
+        connectorClientId.setText(com.aresstack.askai.research.connector.ConnectorConfig
+                .DEFAULT_CLIENT_ID.equals(connector.getClientId()) ? "" : connector.getClientId());
+        connectorClientSecret.setText(com.aresstack.askai.research.connector.ConnectorConfig
+                .DEFAULT_CLIENT_SECRET.equals(connector.getClientSecret()) ? ""
+                : connector.getClientSecret());
         chatGptConnector.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent event) {
                 persistConnectorSettings();
@@ -277,6 +282,26 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
             }
         };
         return field;
+    }
+
+    /** A password field with a gray in-field placeholder (the effective default), shown while empty. */
+    private static javax.swing.JPasswordField placeholderPasswordField(final String placeholder,
+                                                                       int columns) {
+        return new javax.swing.JPasswordField(columns) {
+            protected void paintComponent(java.awt.Graphics g) {
+                super.paintComponent(g);
+                if (getPassword().length == 0) {
+                    java.awt.Graphics2D g2 = (java.awt.Graphics2D) g.create();
+                    g2.setRenderingHint(java.awt.RenderingHints.KEY_TEXT_ANTIALIASING,
+                            java.awt.RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+                    g2.setColor(java.awt.Color.GRAY);
+                    g2.setFont(getFont());
+                    g2.drawString(placeholder, getInsets().left + 2,
+                            getBaseline(getWidth(), getHeight()));
+                    g2.dispose();
+                }
+            }
+        };
     }
 
     /** All five connector controls as ONE persisted unit (from the toggle and from Save). */

@@ -94,7 +94,7 @@ public final class ResearchRuntimeSettings {
 
     public static ChatGptConnectorSettings loadChatGptConnectorSettings(WorkspaceStateStore store) {
         if (store == null) {
-            return new ChatGptConnectorSettings(false, 8082, "", "askai", "");
+            return new ChatGptConnectorSettings(false, 8082, "", "", "");
         }
         int port;
         try {
@@ -106,7 +106,7 @@ public final class ResearchRuntimeSettings {
                 store.getBoolean(KEY_CONNECTOR, false),
                 port,
                 store.get(KEY_CONNECTOR_ORIGIN, ""),
-                store.get(KEY_CONNECTOR_CLIENT_ID, "askai"),
+                store.get(KEY_CONNECTOR_CLIENT_ID, ""),
                 store.get(KEY_CONNECTOR_CLIENT_SECRET, ""));
     }
 
