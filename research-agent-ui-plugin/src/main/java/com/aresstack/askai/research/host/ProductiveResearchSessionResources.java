@@ -200,17 +200,17 @@ public final class ProductiveResearchSessionResources {
         return derivedActions;
     }
 
-    /** Set by the SESSION: the composer-line runner (slash commands + chat prompts) for the service MCP. */
-    private volatile com.aresstack.askai.research.mcp.ResearchServiceEndpoint.ComposerLineRunner composerLine;
+    /** Set by the SESSION: the structured command/state gateway for the service MCP. */
+    private volatile com.aresstack.askai.research.mcp.ResearchServiceEndpoint.SessionGateway sessionGateway;
 
-    public void setComposerLineRunner(
-            com.aresstack.askai.research.mcp.ResearchServiceEndpoint.ComposerLineRunner runner) {
-        this.composerLine = runner;
+    public void setSessionGateway(
+            com.aresstack.askai.research.mcp.ResearchServiceEndpoint.SessionGateway gateway) {
+        this.sessionGateway = gateway;
     }
 
-    /** The session's composer-line runner, or {@code null} while no session is attached. */
-    public com.aresstack.askai.research.mcp.ResearchServiceEndpoint.ComposerLineRunner getComposerLineRunner() {
-        return composerLine;
+    /** The session's gateway, or {@code null} while no session is attached. */
+    public com.aresstack.askai.research.mcp.ResearchServiceEndpoint.SessionGateway getSessionGateway() {
+        return sessionGateway;
     }
 
     /** Set by the SESSION: notified (worker thread) after every persisted live-projection rebuild. */

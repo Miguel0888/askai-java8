@@ -27,13 +27,10 @@ public final class ResearchChatCommands {
     }
 
     public static List<ChatCommandContribution> all() {
+        // Issue #33 cleanup: ONE synchronized command surface. /do covers every state-machine command the
+        // buttons show (approve/pause/resume/cancel/... were redundant hardcoded twins and are gone);
+        // /search is the user web search; /open reveals artifact tabs (a GUI-only concern).
         List<ChatCommandContribution> commands = new ArrayList<ChatCommandContribution>();
-        commands.add(new StatusCommand());
-        commands.add(new ApproveCommand());
-        commands.add(new RequestChangesCommand());
-        commands.add(new PauseCommand());
-        commands.add(new ResumeCommand());
-        commands.add(new CancelCommand());
         commands.add(new OpenCommand());
         commands.add(new DoCommand());
         commands.add(new SearchCommand());
@@ -49,114 +46,6 @@ public final class ResearchChatCommands {
     private abstract static class Base implements ChatCommandContribution {
         public CommandCompletionResult complete(CommandCompletionRequest request, AgentSessionContext context) {
             return CommandCompletionResult.empty();
-        }
-    }
-
-    private static final class StatusCommand extends Base {
-        public ChatCommandDescriptor getDescriptor() {
-            return ChatCommandDescriptor.of("status", "Show the current research phase and run state");
-        }
-
-        public CommandExecutionResult execute(CommandInvocation invocation, AgentSessionContext context) {
-            ResearchAgentSession session = research(context);
-            if (session == null) {
-                return CommandExecutionResult.unknown();
-            }
-            return CommandExecutionResult.handled(session.getState().getStatusLine());
-        }
-    }
-
-    private static final class ApproveCommand extends Base {
-        public ChatCommandDescriptor getDescriptor() {
-            return ChatCommandDescriptor.of("approve", "Approve the currently pending research gate");
-        }
-
-        public CommandExecutionResult execute(CommandInvocation invocation, AgentSessionContext context) {
-            ResearchAgentSession session = research(context);
-            if (session == null) {
-                return CommandExecutionResult.unknown();
-            }
-            if (!session.hasPendingApproval()) {
-                return CommandExecutionResult.rejected("There is no pending approval to approve.");
-            }
-            session.approveCurrent();
-            return CommandExecutionResult.handled("Approved.");
-        }
-    }
-
-    private static final class RequestChangesCommand extends Base {
-        public ChatCommandDescriptor getDescriptor() {
-            return ChatCommandDescriptor.of("request-changes", "Reject the pending proposal and ask for changes");
-        }
-
-        public CommandExecutionResult execute(CommandInvocation invocation, AgentSessionContext context) {
-            ResearchAgentSession session = research(context);
-            if (session == null) {
-                return CommandExecutionResult.unknown();
-            }
-            if (!session.hasPendingApproval()) {
-                return CommandExecutionResult.rejected("There is no pending proposal to change.");
-            }
-            String reason = String.join(" ", invocation.getArguments()).trim();
-            session.requestChanges(reason.isEmpty() ? "Please revise." : reason);
-            return CommandExecutionResult.handled("Changes requested.");
-        }
-    }
-
-    private static final class PauseCommand extends Base {
-        public ChatCommandDescriptor getDescriptor() {
-            return ChatCommandDescriptor.of("pause", "Pause the active research run");
-        }
-
-        public CommandExecutionResult execute(CommandInvocation invocation, AgentSessionContext context) {
-            ResearchAgentSession session = research(context);
-            if (session == null) {
-                return CommandExecutionResult.unknown();
-            }
-            if (!session.canDispatch(
-                    com.aresstack.askai.research.state.ResearchCommandType.PAUSE)) {
-                return CommandExecutionResult.rejected("The run cannot be paused right now.");
-            }
-            session.pause();
-            return CommandExecutionResult.handled("Paused.");
-        }
-    }
-
-    private static final class ResumeCommand extends Base {
-        public ChatCommandDescriptor getDescriptor() {
-            return ChatCommandDescriptor.of("resume", "Resume the paused research run");
-        }
-
-        public CommandExecutionResult execute(CommandInvocation invocation, AgentSessionContext context) {
-            ResearchAgentSession session = research(context);
-            if (session == null) {
-                return CommandExecutionResult.unknown();
-            }
-            if (!session.canDispatch(
-                    com.aresstack.askai.research.state.ResearchCommandType.RESUME)) {
-                return CommandExecutionResult.rejected("The run is not paused.");
-            }
-            session.resume();
-            return CommandExecutionResult.handled("Resumed.");
-        }
-    }
-
-    private static final class CancelCommand extends Base {
-        public ChatCommandDescriptor getDescriptor() {
-            return ChatCommandDescriptor.of("cancel", "Cancel the research session");
-        }
-
-        public CommandExecutionResult execute(CommandInvocation invocation, AgentSessionContext context) {
-            ResearchAgentSession session = research(context);
-            if (session == null) {
-                return CommandExecutionResult.unknown();
-            }
-            if (!session.canDispatch(
-                    com.aresstack.askai.research.state.ResearchCommandType.CANCEL)) {
-                return CommandExecutionResult.rejected("The session cannot be cancelled right now.");
-            }
-            session.cancel();
-            return CommandExecutionResult.handled("Cancelled.");
         }
     }
 

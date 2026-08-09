@@ -110,77 +110,66 @@ public class ResearchServiceEndpointTest {
         service.open();
         List<String> names = reg.listToolNames(service.getEndpointId(), service.getHandle().getToken());
         assertEquals(java.util.Arrays.asList("manual_source_accept", "manual_source_park",
-                "review_sources", "visualization_generate", "outline_generate", "run_command"), names);
+                "run_command", "session_state"), names);
         service.close();
     }
 
-    /** Records which derived-action command was invoked; configurable outcome. */
-    private static final class RecordingActions
-            implements com.aresstack.askai.research.agent.ResearchDerivedActions {
+    /** Records execute()/describeState() calls; configurable result. */
+    private static final class RecordingGateway implements ResearchServiceEndpoint.SessionGateway {
         final List<String> invoked = new java.util.ArrayList<String>();
-        boolean accept = true;
+        String executeResult = "handled: ok";
 
-        public ActionOutcome reviewSources() {
-            invoked.add("reviewSources");
-            return outcome();
+        public String execute(String command, String arguments) {
+            invoked.add("execute(" + command + "|" + arguments + ")");
+            return executeResult;
         }
 
-        public ActionOutcome generateVisualization() {
-            invoked.add("generateVisualization");
-            return outcome();
-        }
-
-        public ActionOutcome generateOutline() {
-            invoked.add("generateOutline");
-            return outcome();
-        }
-
-        private ActionOutcome outcome() {
-            return accept ? ActionOutcome.accepted("started") : ActionOutcome.rejected("unavailable");
+        public String describeState() {
+            invoked.add("describeState");
+            return "phase=scoping state=running revision=1 pendingApproval=- busy=false";
         }
     }
 
     @Test
-    public void theDerivedActionToolsInvokeTheOneSessionCommandImplementation() {
-        // Issue #33: the MCP tools and the UI buttons are two adapters over the SAME commands — the
-        // endpoint resolves the session's implementation at call time and reports its typed outcome.
+    public void runCommandAndSessionStateDriveTheOneSessionGateway() {
+        // Issue #33: ONE structured driving tool + ONE state tool over the session gateway. A rejected
+        // command surfaces as a typed MCP error; without a gateway the tools answer honestly.
         InProcessMcpServerRegistry reg = new InProcessMcpServerRegistry();
-        final RecordingActions actions = new RecordingActions();
-        final com.aresstack.askai.research.agent.ResearchDerivedActions[] attached = {null};
-        ResearchServiceEndpoint service = new ResearchServiceEndpoint(reg, "s1", 1L, new Ctx(),
-                new ResearchServiceEndpoint.DerivedActionsSource() {
-                    public com.aresstack.askai.research.agent.ResearchDerivedActions derivedActions() {
-                        return attached[0];
-                    }
-                });
+        RecordingGateway gateway = new RecordingGateway();
+        ResearchServiceEndpoint service = new ResearchServiceEndpoint(reg, "s1", 1L, new Ctx(), gateway);
         service.open();
         String id = service.getEndpointId();
         String token = service.getHandle().getToken();
 
-        // Before the session attached: an honest error, never a silent no-op.
-        McpToolResult early = call(reg, id, token, "outline_generate");
-        assertTrue(early.isError());
-        assertTrue(early.getText().contains("No research session"));
+        assertFalse(call(reg, id, token, "run_command", "command", "search",
+                "arguments", "wearables").isError());
+        assertFalse(call(reg, id, token, "run_command", "arguments", "just a chat message").isError());
+        McpToolResult state = call(reg, id, token, "session_state");
+        assertFalse(state.isError());
+        assertTrue(state.getText().contains("phase=scoping state=running"));
+        assertEquals(java.util.Arrays.asList("execute(search|wearables)",
+                "execute(null|just a chat message)", "describeState"), gateway.invoked);
 
-        attached[0] = actions;
-        assertFalse(call(reg, id, token, "review_sources").isError());
-        assertFalse(call(reg, id, token, "visualization_generate").isError());
-        assertFalse(call(reg, id, token, "outline_generate").isError());
-        assertEquals(java.util.Arrays.asList("reviewSources", "generateVisualization", "generateOutline"),
-                actions.invoked);
-
-        // A rejected command surfaces as a typed MCP error with the reason.
-        actions.accept = false;
-        McpToolResult rejected = call(reg, id, token, "outline_generate");
+        gateway.executeResult = "rejected: unknown command 'nope'. Valid now: search <query>";
+        McpToolResult rejected = call(reg, id, token, "run_command", "command", "nope");
         assertTrue(rejected.isError());
-        assertTrue(rejected.getText().contains("unavailable"));
+        assertTrue(rejected.getText().contains("unknown command"));
         service.close();
+
+        // Without a gateway (no session attached): an honest error, never a silent no-op.
+        ResearchServiceEndpoint bare = new ResearchServiceEndpoint(reg, "s2", 1L, new Ctx());
+        bare.open();
+        assertTrue(call(reg, bare.getEndpointId(), bare.getHandle().getToken(),
+                "run_command", "command", "search").isError());
+        assertTrue(call(reg, bare.getEndpointId(), bare.getHandle().getToken(),
+                "session_state").isError());
+        bare.close();
     }
 
     @Test
-    public void theDerivedActionToolsAreNeverInTheAgentToolCatalog() {
-        // Issue #33 authority boundary: the TeamAgent must not re-acquire the implicit orchestration that
-        // #29 removed — in NO phase/state does the control endpoint offer the derived-action tools.
+    public void theDrivingToolsAreNeverInTheAgentToolCatalog() {
+        // Issue #33 authority boundary: the TeamAgent gets NEITHER the driving tool NOR the state tool —
+        // in no phase/state does the control endpoint offer them.
         InProcessMcpServerRegistry reg = new InProcessMcpServerRegistry();
         Ctx ctx = new Ctx();
         for (String phase : new String[]{ResearchStateIds.SCOPING, ResearchStateIds.OUTLINE,
@@ -192,8 +181,7 @@ public class ResearchServiceEndpointTest {
             agent.open();
             List<String> agentTools = reg.listToolNames(agent.getEndpointId(),
                     agent.getHandle().getToken());
-            for (String tool : new String[]{"review_sources", "visualization_generate",
-                    "outline_generate"}) {
+            for (String tool : new String[]{"run_command", "session_state"}) {
                 assertFalse(tool + " must never be an agent tool in " + phase,
                         agentTools.contains(tool));
             }

@@ -114,10 +114,14 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             // Issue #33: hand the session's derived-action commands to the resources so the internal
             // service-MCP endpoint can invoke the SAME use cases as the UI buttons.
             resources.setDerivedActions(derivedActions);
-            resources.setComposerLineRunner(
-                    new com.aresstack.askai.research.mcp.ResearchServiceEndpoint.ComposerLineRunner() {
-                        public String run(String line) {
-                            return runComposerLine(line);
+            resources.setSessionGateway(
+                    new com.aresstack.askai.research.mcp.ResearchServiceEndpoint.SessionGateway() {
+                        public String execute(String command, String arguments) {
+                            return executeCommand(command, arguments);
+                        }
+
+                        public String describeState() {
+                            return describeSessionState();
                         }
                     });
             resources.setProjectionUpdateListener(new Runnable() {
@@ -1695,25 +1699,27 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     }
 
     /**
-     * ONE headless entry with the EXACT composer contract (issue #33): a line starting with "/" runs the
-     * matching slash command from {@link ResearchChatCommands}; anything else is a normal chat prompt.
-     * Executed on the EDT like real user input; returns the command result line (or an honest rejection).
+     * STRUCTURED headless command execution (issue #33): a bot sends a COMMAND plus ARGUMENTS - never a
+     * chat line with a slash prefix. No command = the arguments are a plain chat message. Unknown commands
+     * and commands not allowed in the current phase are rejected with the honest reason and the currently
+     * valid command list. Executed on the EDT like real user input.
      */
-    public String runComposerLine(final String line) {
-        if (line == null || line.trim().isEmpty()) {
-            return "rejected: empty line";
+    public String executeCommand(final String command, final String arguments) {
+        final String cmd = command == null ? "" : command.trim().toLowerCase(java.util.Locale.ROOT);
+        final String args = arguments == null ? "" : arguments.trim();
+        if (cmd.isEmpty() && args.isEmpty()) {
+            return "rejected: empty input (send a command, or arguments only for a chat message)";
         }
         if (handle == null || disposed
                 || (productiveResources != null && productiveResources.isClosed())) {
             return "rejected: the research session is not active";
         }
-        final String trimmed = line.trim();
         final String[] result = {null};
         final java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
         uiExecutor.execute(new Runnable() {
             public void run() {
                 try {
-                    result[0] = runComposerLineOnUiThread(trimmed);
+                    result[0] = executeCommandOnUiThread(cmd, args);
                 } catch (RuntimeException failed) {
                     result[0] = "rejected: " + failed.getMessage();
                 } finally {
@@ -1732,46 +1738,107 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         return result[0] == null ? "rejected: no result" : result[0];
     }
 
-    private String runComposerLineOnUiThread(String trimmed) {
-        if (!trimmed.startsWith("/")) {
-            submitPrompt(trimmed, "");
-            return "handled: prompt submitted (TeamAgent turn started)";
+    private String executeCommandOnUiThread(String cmd, String args) {
+        if (cmd.isEmpty()) {
+            submitPrompt(args, "");
+            return "handled: message sent (TeamAgent turn started)";
         }
-        String[] parts = trimmed.substring(1).split("\\s+");
-        String name = parts[0];
-        java.util.List<String> args = new java.util.ArrayList<String>();
-        for (int i = 1; i < parts.length; i++) {
-            args.add(parts[i]);
-        }
-        for (com.aresstack.askai.plugin.api.agent.command.ChatCommandContribution command
-                : ResearchChatCommands.all()) {
-            if (command.getDescriptor().getName().equals(name)) {
-                com.aresstack.askai.plugin.api.agent.command.CommandExecutionResult r =
-                        command.execute(new com.aresstack.askai.plugin.api.agent.command.CommandInvocation(
-                                name, args, trimmed), composerCommandContext());
-                String message = r.getMessage() == null ? "" : r.getMessage();
-                return r.getStatus() + (message.isEmpty() ? "" : ": " + message);
+        if ("search".equals(cmd)) {
+            if (args.isEmpty()) {
+                return "rejected: search needs arguments (the query)";
             }
+            requestManualWebSearch(args);
+            return "handled: web search started (manual_search lifecycle events follow)";
         }
-        return "rejected: unknown command /" + name;
+        if ("review-sources".equals(cmd)) {
+            return renderOutcome(derivedActions.reviewSources());
+        }
+        if ("generate-visualization".equals(cmd)) {
+            return renderOutcome(derivedActions.generateVisualization());
+        }
+        if ("generate-outline".equals(cmd)) {
+            return renderOutcome(derivedActions.generateOutline());
+        }
+        // State-machine command (the same set the buttons show), kebab-case.
+        com.aresstack.askai.research.state.ResearchCommandType type;
+        try {
+            type = com.aresstack.askai.research.state.ResearchCommandType.valueOf(
+                    cmd.toUpperCase(java.util.Locale.ROOT).replace('-', '_'));
+        } catch (IllegalArgumentException unknown) {
+            return "rejected: unknown command '" + cmd + "'. Valid now: " + validCommandNames();
+        }
+        if (!currentAllowedCommands().contains(type)) {
+            com.aresstack.askai.research.state.oo.ResearchStateMemento memento = state;
+            return "rejected: '" + cmd + "' is not allowed in " + memento.getPhaseId() + "/"
+                    + memento.getStateId() + ". Valid now: " + validCommandNames();
+        }
+        com.aresstack.askai.research.backend.ResearchCommandDispatchResult dispatched =
+                dispatch(type, null);
+        return dispatched.isAccepted() ? "handled: dispatched " + cmd
+                : "rejected: " + dispatched.getStatus() + " " + dispatched.getDetail();
     }
 
-    /** The same context shape the host composer passes to slash commands — session, artifact hook, EDT. */
-    private com.aresstack.askai.plugin.api.agent.AgentSessionContext composerCommandContext() {
-        final ResearchAgentSession self = this;
-        return new com.aresstack.askai.plugin.api.agent.AgentSessionContext() {
-            public com.aresstack.askai.plugin.api.agent.AgentSession getSession() {
-                return self;
-            }
+    private static String renderOutcome(ResearchDerivedActions.ActionOutcome outcome) {
+        return (outcome.isAccepted() ? "handled: " : "rejected: ") + outcome.getDetail();
+    }
 
-            public void openArtifact(String artifactId) {
-                openArtifactView(artifactId);
-            }
+    /** Every command valid RIGHT NOW: the always-on service commands + the allowed state commands. */
+    private String validCommandNames() {
+        StringBuilder sb = new StringBuilder(
+                "search <query>, generate-visualization, generate-outline, review-sources");
+        for (com.aresstack.askai.research.state.ResearchCommandType type : currentAllowedCommands()) {
+            sb.append(", ").append(kebab(type));
+        }
+        return sb.toString();
+    }
 
-            public com.aresstack.askai.plugin.api.service.UiExecutor getUiExecutor() {
-                return uiExecutor;
+    private static String kebab(com.aresstack.askai.research.state.ResearchCommandType type) {
+        return type.name().toLowerCase(java.util.Locale.ROOT).replace('_', '-');
+    }
+
+    /**
+     * STRUCTURED session state for a bot (issue #33): PRIMARILY the current phase/run state, plus everything
+     * currently actionable - the valid commands (the same set the buttons show), the clickable decision
+     * buttons and the current search suggestions. Pure read; triggers nothing.
+     */
+    public String describeSessionState() {
+        com.aresstack.askai.research.state.oo.ResearchStateMemento memento =
+                productiveResources != null ? productiveResources.currentState() : state;
+        StringBuilder sb = new StringBuilder();
+        sb.append("phase=").append(memento.getPhaseId())
+          .append(" state=").append(memento.getStateId())
+          .append(" revision=").append(memento.getRevision())
+          .append(" pendingApproval=").append(memento.getPendingApprovalId() == null ? "-"
+                  : memento.getPendingApprovalId())
+          .append(" busy=").append(agentTurnInFlight).append('\n');
+        sb.append("commands: ").append(validCommandNames()).append('\n');
+        sb.append("buttons:");
+        java.util.List<RestoredActionsProvider.RestoredAction> buttons = restoredActionsProvider
+                .deriveFrom(stateFactory.restore(memento));
+        if (buttons.isEmpty()) {
+            sb.append(" -");
+        } else {
+            for (RestoredActionsProvider.RestoredAction action : buttons) {
+                sb.append(' ').append(action.getActionId()).append('=').append(kebab(action.getCommand()));
             }
-        };
+        }
+        sb.append('\n');
+        sb.append("suggestions:");
+        com.aresstack.askai.research.backend.ScopingAssistantUpdate projection = latestScopingProjection;
+        boolean any = false;
+        if (projection != null) {
+            for (com.aresstack.askai.research.backend.ScopingAssistantUpdate.Suggestion suggestion
+                    : projection.getSearchSuggestions()) {
+                if (!wasManuallySearched(suggestion.getQuery())) {
+                    sb.append(any ? " | " : " ").append(suggestion.getQuery());
+                    any = true;
+                }
+            }
+        }
+        if (!any) {
+            sb.append(" -");
+        }
+        return sb.toString();
     }
 
     // ------------------------------------------------------------------ outline (explicit action, issue #29)

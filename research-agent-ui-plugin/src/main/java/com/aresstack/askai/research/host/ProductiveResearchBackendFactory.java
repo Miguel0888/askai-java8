@@ -513,16 +513,17 @@ public final class ProductiveResearchBackendFactory {
             // never agent tools. The derived actions resolve through the session at call time.
             service = new com.aresstack.askai.research.mcp.ResearchServiceEndpoint(
                     registry, sessionKey, generationId, controlContext,
-                    new com.aresstack.askai.research.mcp.ResearchServiceEndpoint.DerivedActionsSource() {
-                        public com.aresstack.askai.research.agent.ResearchDerivedActions derivedActions() {
-                            return holder[0] == null ? null : holder[0].getDerivedActions();
+                    new com.aresstack.askai.research.mcp.ResearchServiceEndpoint.SessionGateway() {
+                        public String execute(String command, String arguments) {
+                            com.aresstack.askai.research.mcp.ResearchServiceEndpoint.SessionGateway
+                                    gateway = holder[0] == null ? null : holder[0].getSessionGateway();
+                            return gateway == null ? null : gateway.execute(command, arguments);
                         }
-                    },
-                    new com.aresstack.askai.research.mcp.ResearchServiceEndpoint.ComposerLineRunner() {
-                        public String run(String line) {
-                            com.aresstack.askai.research.mcp.ResearchServiceEndpoint.ComposerLineRunner
-                                    runner = holder[0] == null ? null : holder[0].getComposerLineRunner();
-                            return runner == null ? null : runner.run(line);
+
+                        public String describeState() {
+                            com.aresstack.askai.research.mcp.ResearchServiceEndpoint.SessionGateway
+                                    gateway = holder[0] == null ? null : holder[0].getSessionGateway();
+                            return gateway == null ? null : gateway.describeState();
                         }
                     });
 

@@ -29,58 +29,36 @@ public final class ResearchServiceEndpoint {
     /** The internal tool names — deliberately distinct from the agent's phase-gated {@code source_accept}. */
     public static final String MANUAL_SOURCE_ACCEPT = "manual_source_accept";
     public static final String MANUAL_SOURCE_PARK = "manual_source_park";
-    /** Issue #33: the explicit derived actions as SERVICE tools (user/host/test origin — never the agent). */
-    public static final String REVIEW_SOURCES = "review_sources";
-    public static final String VISUALIZATION_GENERATE = "visualization_generate";
-    public static final String OUTLINE_GENERATE = "outline_generate";
 
-    /**
-     * Runs ONE composer line with the exact GUI contract (issue #33): "/..." executes the matching slash
-     * command, anything else is a chat prompt. Implemented by the session; resolved at call time.
+     /**
+     * THE session gateway (issue #33): structured command execution plus the structured session state.
+     * Implemented by the session, resolved at call time; {@code null} results mean "no session attached".
      */
-    public interface ComposerLineRunner {
-        String run(String line);
-    }
+    public interface SessionGateway {
+        /** Execute one command with arguments; empty command = the arguments are a plain chat message. */
+        String execute(String command, String arguments);
 
-    /**
-     * Resolves the session's derived-action commands AT CALL TIME (the session attaches after this endpoint
-     * opens). {@code null} → the action tools answer with an honest "no session attached" error.
-     */
-    public interface DerivedActionsSource {
-        com.aresstack.askai.research.agent.ResearchDerivedActions derivedActions();
-
-        DerivedActionsSource NONE = new DerivedActionsSource() {
-            public com.aresstack.askai.research.agent.ResearchDerivedActions derivedActions() {
-                return null;
-            }
-        };
+        /** Phase/run state + currently valid commands, clickable buttons and search suggestions. */
+        String describeState();
     }
 
     private final McpServerRegistry registry;
     private final ResearchControlContext context;
-    private final DerivedActionsSource derivedActions;
-    private final ComposerLineRunner composerLine;
+    private final SessionGateway gateway;
     private final String endpointId;
     private McpEndpointHandle handle;
     private boolean closed;
 
     public ResearchServiceEndpoint(McpServerRegistry registry, String sessionKey, long pluginGenerationId,
                                    ResearchControlContext context) {
-        this(registry, sessionKey, pluginGenerationId, context, DerivedActionsSource.NONE);
+        this(registry, sessionKey, pluginGenerationId, context, null);
     }
 
     public ResearchServiceEndpoint(McpServerRegistry registry, String sessionKey, long pluginGenerationId,
-                                   ResearchControlContext context, DerivedActionsSource derivedActions) {
-        this(registry, sessionKey, pluginGenerationId, context, derivedActions, null);
-    }
-
-    public ResearchServiceEndpoint(McpServerRegistry registry, String sessionKey, long pluginGenerationId,
-                                   ResearchControlContext context, DerivedActionsSource derivedActions,
-                                   ComposerLineRunner composerLine) {
+                                   ResearchControlContext context, SessionGateway gateway) {
         this.registry = registry;
         this.context = context;
-        this.derivedActions = derivedActions == null ? DerivedActionsSource.NONE : derivedActions;
-        this.composerLine = composerLine;
+        this.gateway = gateway;
         this.endpointId = "research-service." + sessionKey + ".g" + pluginGenerationId;
     }
 
@@ -102,67 +80,7 @@ public final class ResearchServiceEndpoint {
                 new McpEndpointDefinition(endpointId, "Research Service (internal)"));
         registry.updateTools(handle, Arrays.asList(
                 manualSourceAcceptTool(context), manualSourceParkTool(context),
-                derivedActionTool(derivedActions, REVIEW_SOURCES,
-                        "Explicit action: let the TeamAgent review the accepted sources "
-                                + "(same command as the 'Neue Quellen auswerten' button)."),
-                derivedActionTool(derivedActions, VISUALIZATION_GENERATE,
-                        "Explicit action: generate the derived visualization from the current brief "
-                                + "(same command as the 'Visualisierung erzeugen' button)."),
-                derivedActionTool(derivedActions, OUTLINE_GENERATE,
-                        "Explicit action: run topic discovery + outline rebuild from the persisted corpus "
-                                + "(same command as the 'Inhaltsverzeichnis erzeugen' button)."),
-                runCommandTool(composerLine)));
-    }
-
-    /** THE generic UI-driving tool: one composer line — "/search ...", "/status", "/do ...", or chat text. */
-    private static McpToolContribution runCommandTool(final ComposerLineRunner runner) {
-        return McpToolContribution.of("run_command",
-                "Run one composer line exactly like typed input: a '/...' line executes the matching slash "
-                        + "command (/status, /search <query>, /do <cmd>, /approve, ...); any other line is "
-                        + "a chat prompt to the research agent.",
-                new McpToolHandler() {
-                    public McpToolResult invoke(McpToolCall call) {
-                        String line = call.getString("line");
-                        if (line == null || line.trim().isEmpty()) {
-                            return McpToolResult.error("Missing argument: line");
-                        }
-                        String result = runner == null ? null : runner.run(line);
-                        if (result == null) {
-                            return McpToolResult.error(
-                                    "No research session is attached to this endpoint yet.");
-                        }
-                        return result.startsWith("rejected") || result.startsWith("REJECTED")
-                                ? McpToolResult.error(result) : McpToolResult.ok(result);
-                    }
-                },
-                McpToolParameter.string("line", true,
-                        "The composer line (slash command or chat prompt)"));
-    }
-
-    /** One derived-action tool (issue #33): resolves the session's commands at call time, no arguments. */
-    private static McpToolContribution derivedActionTool(final DerivedActionsSource source,
-                                                         final String toolName, String description) {
-        return McpToolContribution.of(toolName, description,
-                new McpToolHandler() {
-                    public McpToolResult invoke(McpToolCall call) {
-                        com.aresstack.askai.research.agent.ResearchDerivedActions actions =
-                                source.derivedActions();
-                        if (actions == null) {
-                            return McpToolResult.error(
-                                    "No research session is attached to this endpoint yet.");
-                        }
-                        com.aresstack.askai.research.agent.ResearchDerivedActions.ActionOutcome outcome;
-                        if (REVIEW_SOURCES.equals(toolName)) {
-                            outcome = actions.reviewSources();
-                        } else if (VISUALIZATION_GENERATE.equals(toolName)) {
-                            outcome = actions.generateVisualization();
-                        } else {
-                            outcome = actions.generateOutline();
-                        }
-                        return outcome.isAccepted() ? McpToolResult.ok("accepted: " + outcome.getDetail())
-                                : McpToolResult.error("rejected: " + outcome.getDetail());
-                    }
-                });
+                runCommandTool(gateway), sessionStateTool(gateway)));
     }
 
     /** Unregister the endpoint (invalidates the token). Idempotent. */
@@ -175,6 +93,53 @@ public final class ResearchServiceEndpoint {
             registry.unregisterEndpoint(handle);
             handle = null;
         }
+    }
+
+    /**
+     * THE generic driving tool (issue #33): one structured command + arguments. No command = the arguments
+     * are a plain chat message. Unknown / currently-not-allowed commands come back as typed rejections.
+     */
+    private static McpToolContribution runCommandTool(final SessionGateway gateway) {
+        return McpToolContribution.of("run_command",
+                "Execute one research command with arguments (e.g. command=search, arguments=<query>; "
+                        + "command=generate-outline; command=submit-scope). Omit 'command' to send the "
+                        + "arguments as a plain chat message. Use session_state for the valid commands.",
+                new McpToolHandler() {
+                    public McpToolResult invoke(McpToolCall call) {
+                        if (gateway == null) {
+                            return McpToolResult.error(
+                                    "No research session is attached to this endpoint yet.");
+                        }
+                        String result = gateway.execute(call.getString("command"),
+                                call.getString("arguments"));
+                        if (result == null) {
+                            return McpToolResult.error(
+                                    "No research session is attached to this endpoint yet.");
+                        }
+                        return result.startsWith("rejected")
+                                ? McpToolResult.error(result) : McpToolResult.ok(result);
+                    }
+                },
+                McpToolParameter.string("command", false,
+                        "The command name (see session_state); omit for a plain chat message"),
+                McpToolParameter.string("arguments", false,
+                        "The command arguments, or the chat message when no command is given"));
+    }
+
+    /** The structured session state: phase/run state first, then valid commands, buttons, suggestions. */
+    private static McpToolContribution sessionStateTool(final SessionGateway gateway) {
+        return McpToolContribution.of("session_state",
+                "Current research phase and run state, plus the currently valid commands (the same set the "
+                        + "UI buttons offer), the clickable decision buttons and the search suggestions.",
+                new McpToolHandler() {
+                    public McpToolResult invoke(McpToolCall call) {
+                        String state = gateway == null ? null : gateway.describeState();
+                        return state == null
+                                ? McpToolResult.error(
+                                        "No research session is attached to this endpoint yet.")
+                                : McpToolResult.ok(state);
+                    }
+                });
     }
 
     private static McpToolContribution manualSourceAcceptTool(final ResearchControlContext ctx) {

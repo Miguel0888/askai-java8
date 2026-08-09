@@ -126,34 +126,43 @@ public class ResearchAgentSessionTest {
     }
 
     @Test
-    public void approveCommandGatedThenAdvances() {
+    public void executeCommandHonoursTheStateMachineGate() {
+        // Issue #33: the structured command surface replaces the removed hardcoded /approve twin. A state
+        // command that is not allowed yet is REJECTED with the reason; once the gate is reached it runs.
         Fixture f = new Fixture();
         f.session.activate();
         f.session.getChatTarget().submitText("investigate pf4j"); // the question starts the run
-        AgentSessionContext ctx = new FixedContext(f.session);
-        ChatCommandContribution approve = command("approve");
 
-        // No gate is pending yet in SCOPING/RUNNING → /approve is REJECTED (state-machine gate honoured).
-        CommandExecutionResult early = approve.execute(new CommandInvocation("approve", null, "/approve"), ctx);
-        assertEquals(CommandExecutionResult.Status.REJECTED, early.getStatus());
+        String early = f.session.executeCommand("approve-evidence", "");
+        assertTrue(early, early.startsWith("rejected:"));
 
-        // Once the run reaches the evidence gate, approving is HANDLED and advances the run.
         f.scheduler.runUntilIdle();
-        CommandExecutionResult ok = approve.execute(new CommandInvocation("approve", null, "/approve"), ctx);
-        assertEquals(CommandExecutionResult.Status.HANDLED, ok.getStatus());
+        String ok = f.session.executeCommand("approve-evidence", "");
+        assertTrue(ok, ok.startsWith("handled:"));
         f.scheduler.runUntilIdle();
         assertEquals("REVIEW", f.session.getState().getPhaseLabel());
     }
 
     @Test
-    public void statusCommandReportsPhaseAndRunState() {
+    public void executeCommandRejectsUnknownCommandsAndSendsPlainTextAsChat() {
         Fixture f = new Fixture();
         f.session.activate();
-        CommandExecutionResult result =
-                command("status").execute(new CommandInvocation("status", null, "/status"),
-                        new FixedContext(f.session));
-        assertEquals(CommandExecutionResult.Status.HANDLED, result.getStatus());
-        assertTrue(result.getMessage().contains("SCOPING"));
+        String unknown = f.session.executeCommand("frobnicate", "");
+        assertTrue(unknown, unknown.startsWith("rejected: unknown command"));
+        assertTrue("the rejection lists the valid commands", unknown.contains("search <query>"));
+        String chat = f.session.executeCommand(null, "investigate pf4j");
+        assertTrue(chat, chat.startsWith("handled: message sent"));
+    }
+
+    @Test
+    public void describeSessionStateReportsPhaseCommandsButtonsAndSuggestions() {
+        Fixture f = new Fixture();
+        f.session.activate();
+        String state = f.session.describeSessionState();
+        assertTrue(state, state.contains("phase=scoping"));
+        assertTrue("the valid commands are listed", state.contains("commands: search <query>"));
+        assertTrue("buttons and suggestions lines exist", state.contains("buttons:")
+                && state.contains("suggestions:"));
     }
 
     @Test
