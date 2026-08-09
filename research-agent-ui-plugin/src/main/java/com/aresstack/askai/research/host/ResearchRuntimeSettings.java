@@ -54,6 +54,23 @@ public final class ResearchRuntimeSettings {
         }
     }
 
+    static final String KEY_BOT_CONTROL = "research.runtime.botControlMcp";
+
+    /**
+     * Bot-control MCP toggle (DEFAULT ON): whether a new session opens the bot-control endpoint
+     * (run_command/session_state/chat_history) and writes service-endpoint.json. OFF = the session is
+     * GUI-only; no endpoint is registered and no connection file is written. Applies to NEW sessions.
+     */
+    public static boolean loadBotControlMcp(WorkspaceStateStore store) {
+        return store == null || store.getBoolean(KEY_BOT_CONTROL, true);
+    }
+
+    public static void saveBotControlMcp(WorkspaceStateStore store, boolean enabled) {
+        if (store != null) {
+            store.putBoolean(KEY_BOT_CONTROL, enabled);
+        }
+    }
+
     static final String KEY_SEARCH_STRATEGY = "research.search.strategy";
     static final String KEY_SEARCH_PROVIDER = "research.search.provider";
     static final String KEY_SEARCH_ENGINE = "research.search.engine";

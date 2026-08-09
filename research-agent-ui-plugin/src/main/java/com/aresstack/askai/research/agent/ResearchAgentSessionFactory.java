@@ -166,6 +166,8 @@ public final class ResearchAgentSessionFactory implements AgentSessionFactory {
                 embeddingSnapshots);
         // The knowledge worker's OpenNLP sentence resolver uses the SAME persisted session language ("en"/"de").
         factory.setResearchLanguageCode(ResearchRuntimeSettings.loadLanguage(hostContext.getStateStore()));
+        factory.setBotControlMcpEnabled(
+                ResearchRuntimeSettings.loadBotControlMcp(hostContext.getStateStore()));
         // OPTIONAL host NLP provider: the session resolves its SELECTED sentence model through it (absent →
         // regex fallback). Looked up leniently; the knowledge worker never scans a store or reads global settings.
         factory.setNlpConfigurationSnapshotProvider(hostContext.getService(

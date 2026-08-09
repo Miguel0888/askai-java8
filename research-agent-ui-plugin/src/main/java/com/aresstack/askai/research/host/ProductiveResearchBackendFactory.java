@@ -70,6 +70,12 @@ public final class ProductiveResearchBackendFactory {
     private final SearchStrategySelection searchStrategy;
     /** The session's research language ISO code ("en"/"de") for the OpenNLP sentence resolver; default English. */
     private volatile String researchLanguageCode = "en";
+    /** Bot-control MCP toggle (default ON): endpoint + service-endpoint.json only when enabled. */
+    private volatile boolean botControlMcpEnabled = true;
+
+    public void setBotControlMcpEnabled(boolean enabled) {
+        this.botControlMcpEnabled = enabled;
+    }
     /** OPTIONAL host NLP snapshot provider; resolves the session's selected sentence model (else regex). */
     private volatile com.aresstack.askai.agent.model.nlp.NlpConfigurationSnapshotProvider nlpSnapshots;
 
@@ -547,7 +553,8 @@ public final class ProductiveResearchBackendFactory {
             // The BOT-CONTROL endpoint: exactly run_command/session_state/chat_history over the session's
             // command processor (resolved at call time). This — and only this — goes to external clients.
             final com.aresstack.askai.research.mcp.ResearchBotControlEndpoint botControl =
-                    new com.aresstack.askai.research.mcp.ResearchBotControlEndpoint(
+                    !botControlMcpEnabled ? null
+                    : new com.aresstack.askai.research.mcp.ResearchBotControlEndpoint(
                             registry, sessionKey, generationId,
                             new com.aresstack.askai.research.mcp.ResearchBotControlEndpoint.SessionGateway() {
                                 public String execute(String command, String arguments) {
@@ -571,7 +578,18 @@ public final class ProductiveResearchBackendFactory {
                                     return gateway == null ? null : gateway.describeHistory(raw);
                                 }
                             });
-            botControl.open();
+            if (botControl != null) {
+                botControl.open();
+            } else {
+                // Configurable OFF (default ON): GUI-only session — remove any stale connection file so
+                // no external client connects against a dead world.
+                File staleDescriptor = new File(projectDir, "service-endpoint.json");
+                if (staleDescriptor.isFile() && !staleDescriptor.delete()) {
+                    System.err.println("[research-bot] could not remove stale " + staleDescriptor);
+                }
+                System.err.println("[research-bot] bot-control MCP disabled by configuration - "
+                        + "this session is GUI-only");
+            }
             String researchUrl = registry.endpointUrl(control.getHandle());
             AcpEndpointDescriptor researchDescriptor = new AcpEndpointDescriptor(
                     control.getEndpointId(), researchUrl, "streamable", control.getHandle().getToken());
@@ -585,11 +603,13 @@ public final class ProductiveResearchBackendFactory {
             // endpoint's connection data as a file under the project directory. Localhost-only endpoint,
             // per-session token, invalidated on close — the file merely makes the explicit user/host
             // actions scriptable without the GUI. Overwritten on every session start (stale after close).
-            String botUrl = registry.endpointUrl(botControl.getHandle());
-            writeUtf8(new File(projectDir, "service-endpoint.json"),
-                    com.aresstack.askai.research.mcp.ServiceEndpointDescriptorFile.toJson(
-                            botControl.getEndpointId(), botUrl, "streamable",
-                            botControl.getHandle().getToken()));
+            if (botControl != null) {
+                String botUrl = registry.endpointUrl(botControl.getHandle());
+                writeUtf8(new File(projectDir, "service-endpoint.json"),
+                        com.aresstack.askai.research.mcp.ServiceEndpointDescriptorFile.toJson(
+                                botControl.getEndpointId(), botUrl, "streamable",
+                                botControl.getHandle().getToken()));
+            }
             backend = new AcpResearchSessionBackend(connector, spec, researchDescriptor, browserDescriptor,
                     serviceDescriptor);
 
@@ -606,7 +626,9 @@ public final class ProductiveResearchBackendFactory {
                     acceptance, projectContext, control, bridge,
                     browser, backend, service);
             resources.setSearchProfile(profile);
-            resources.setBotControlEndpoint(botControl);
+            if (botControl != null) {
+                resources.setBotControlEndpoint(botControl);
+            }
             holder[0] = resources;
             resourcesRef[0] = resources;
             control.refreshTools(); // now that the live context resolves, publish the initial tool set

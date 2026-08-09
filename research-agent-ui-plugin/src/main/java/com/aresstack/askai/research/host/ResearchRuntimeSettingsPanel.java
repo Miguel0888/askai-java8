@@ -41,6 +41,9 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
     /** LLM narration (default off): milestone texts phrased by the main model, validated, with fallback. */
     private final JCheckBox llmNarration = new JCheckBox(
             "AI-phrased guidance (uses the main model; applies to new sessions)", false);
+    /** Bot-control MCP (default ON): run_command/session_state/chat_history + service-endpoint.json. */
+    private final JCheckBox botControlMcp = new JCheckBox(
+            "Bot control via MCP (run_command/session_state/chat_history; applies to new sessions)", true);
     /**
      * Initial-search source (applies to new sessions): the legacy browser SERP (default) or one of the
      * REST search providers. Provider credentials are NOT configured here — they live in
@@ -77,6 +80,7 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         form.add(row("Backend:", backendStatus));
         form.add(row("Language / Sprache:", agentLanguage));
         form.add(row("", llmNarration));
+        form.add(row("", botControlMcp));
         // The initial-search PROVIDER selection + its provider-specific settings live on their own
         // "Search" gear tab (SearchProviderCardsPanel), not as shared fields here.
         form.add(pathRow("Research agent jar:", agentJar));
@@ -121,6 +125,14 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
             public void actionPerformed(ActionEvent event) {
                 String code = agentLanguage.getSelectedIndex() == 1 ? "de" : "en";
                 ResearchRuntimeSettings.saveLanguage(ResearchRuntimeSettingsPanel.this.store, code);
+            }
+        });
+        botControlMcp.setSelected(ResearchRuntimeSettings.loadBotControlMcp(store));
+        botControlMcp.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent event) {
+                // Persisted immediately; running sessions keep their endpoint until they close.
+                ResearchRuntimeSettings.saveBotControlMcp(ResearchRuntimeSettingsPanel.this.store,
+                        botControlMcp.isSelected());
             }
         });
         llmNarration.setSelected(ResearchRuntimeSettings.loadLlmNarration(store));
