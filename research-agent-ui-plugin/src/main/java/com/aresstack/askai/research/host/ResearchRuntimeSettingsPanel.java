@@ -119,7 +119,7 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         form.add(row("", botRow));
         form.add(row("", chatGptConnector));
         form.add(row("Public origin:", connectorOrigin));
-        JLabel originHint = new JLabel("z. B. https://askai.current-car.com — die öffentliche "
+        JLabel originHint = new JLabel("z. B. https://askai.example.com — die öffentliche "
                 + "HTTPS-Basis des Reverse Proxy (ohne Pfad); die Connector-URL ist <origin>/askai");
         originHint.setEnabled(false);
         form.add(row("", originHint));
@@ -194,7 +194,7 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         chatGptConnector.setSelected(connector.isEnabled());
         connectorOrigin.setText(connector.getPublicOrigin());
         connectorOrigin.setToolTipText(
-                "The public HTTPS origin the Apache proxy serves, e.g. https://askai.current-car.com");
+                "The public HTTPS origin the Apache proxy serves, e.g. https://askai.example.com");
         connectorPort.setText(String.valueOf(connector.getPort()));
         connectorPort.setToolTipText("Local plain-HTTP listen port; the proxy machine forwards to it");
         connectorClientId.setText(connector.getClientId());

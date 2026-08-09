@@ -8,7 +8,7 @@ externen Apache-Reverse-Proxy.
 
 ```
 ChatGPT ──HTTPS──> Apache (anderer Rechner, TLS)  ──HTTP──> AskAI :8082
-                   https://askai.current-car.com            /oauth/authorize
+                   https://askai.example.com            /oauth/authorize
                                                             /oauth/token
                                                             /.well-known/oauth-authorization-server
                                                             /.well-known/oauth-protected-resource
@@ -31,7 +31,7 @@ ChatGPT ──HTTPS──> Apache (anderer Rechner, TLS)  ──HTTP──> AskA
 | Feld | Bedeutung |
 |---|---|
 | ChatGPT connector | Default **AUS** — öffentlicher Listener nur nach bewusster Entscheidung |
-| Public origin | z. B. `https://askai.current-car.com` (wird in den OAuth-Metadaten annonciert) |
+| Public origin | z. B. `https://askai.example.com` (wird in den OAuth-Metadaten annonciert) |
 | Connector port | lokaler Klartext-HTTP-Port (Default 8082); der Proxy-Rechner muss ihn erreichen |
 | Client-ID / Secret | das OAuth-Client-Paar, das auch in ChatGPT eingetragen wird |
 
@@ -41,7 +41,7 @@ Gilt für NEUE Sessions; der Listener ist app-weit (ein Port), Sessions docken i
 
 ```apache
 <VirtualHost *:443>
-    ServerName askai.current-car.com
+    ServerName askai.example.com
     SSLEngine on
     # ... Zertifikat wie für current-car.com ...
     ProxyPreserveHost On
@@ -57,7 +57,7 @@ für den Proxy-Rechner öffnen.
 
 Neuen Connector anlegen mit:
 
-- **URL**: `https://askai.current-car.com/askai`
+- **URL**: `https://askai.example.com/askai`
 - **OAuth Client-ID / Client-Secret**: wie in den AskAI-Settings
 - Authorization-/Token-Endpoint entdeckt ChatGPT selbst über `/.well-known/oauth-authorization-server`.
 
