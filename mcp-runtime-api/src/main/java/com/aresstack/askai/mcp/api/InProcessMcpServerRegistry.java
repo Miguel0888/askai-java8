@@ -84,6 +84,12 @@ public final class InProcessMcpServerRegistry implements McpServerRegistry {
     }
 
     /** @return the tool names currently offered by the endpoint, or empty on a bad token / unknown endpoint. */
+    @Override
+    public List<String> toolNames(McpEndpointHandle handle) {
+        return handle == null ? new ArrayList<String>()
+                : listToolNames(handle.getEndpointId(), handle.getToken());
+    }
+
     public List<String> listToolNames(String endpointId, String token) {
         Endpoint endpoint = lookup(endpointId, token);
         return endpoint == null ? new ArrayList<String>()

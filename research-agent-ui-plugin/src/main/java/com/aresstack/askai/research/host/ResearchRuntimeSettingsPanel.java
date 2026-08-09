@@ -43,7 +43,13 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
             "AI-phrased guidance (uses the main model; applies to new sessions)", false);
     /** Bot-control MCP (default ON): run_command/session_state/chat_history + service-endpoint.json. */
     private final JCheckBox botControlMcp = new JCheckBox(
-            "Bot control via MCP (run_command/session_state/chat_history; applies to new sessions)", true);
+            "Bot control via MCP (applies to new sessions)", true);
+    /** THIS session's live connection line: transport + URL (token in the path), or why there is none. */
+    private final JLabel botConnection = new JLabel(" ");
+    /** Square, margin-less icon button: fetches THIS session's tool list ON DEMAND from the registry. */
+    private final javax.swing.JButton botTools = new javax.swing.JButton("\u2630");
+    /** The live session behind this settings page (nullable: store-only construction in tests). */
+    private final com.aresstack.askai.research.agent.ResearchAgentSession session;
     /**
      * Initial-search source (applies to new sessions): the legacy browser SERP (default) or one of the
      * REST search providers. Provider credentials are NOT configured here — they live in
@@ -71,7 +77,13 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
     private final JTextArea results = new JTextArea(8, 48);
 
     public ResearchRuntimeSettingsPanel(WorkspaceStateStore store) {
+        this(store, null);
+    }
+
+    public ResearchRuntimeSettingsPanel(WorkspaceStateStore store,
+            com.aresstack.askai.research.agent.ResearchAgentSession session) {
         super(new BorderLayout(8, 8));
+        this.session = session;
         this.store = store;
         setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
@@ -81,6 +93,25 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         form.add(row("Language / Sprache:", agentLanguage));
         form.add(row("", llmNarration));
         form.add(row("", botControlMcp));
+        // The LIVE connection of THIS session: Streamable HTTP (MCP JSON-RPC over loopback), token in the
+        // URL path — plus the square on-demand tools button (never a hardcoded list).
+        botTools.setMargin(new java.awt.Insets(0, 0, 0, 0));
+        java.awt.Dimension square = new java.awt.Dimension(24, 24);
+        botTools.setPreferredSize(square);
+        botTools.setMinimumSize(square);
+        botTools.setMaximumSize(square);
+        botTools.setToolTipText("List the endpoint's tools (fetched live)");
+        botTools.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent event) {
+                showBotTools();
+            }
+        });
+        JPanel botRow = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 0));
+        botRow.setOpaque(false);
+        botRow.add(botTools);
+        botRow.add(botConnection);
+        form.add(row("Bot MCP:", botRow));
+        refreshBotConnection();
         // The initial-search PROVIDER selection + its provider-specific settings live on their own
         // "Search" gear tab (SearchProviderCardsPanel), not as shared fields here.
         form.add(pathRow("Research agent jar:", agentJar));
@@ -275,5 +306,38 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         row.add(field);
         row.add(Box.createHorizontalGlue());
         return row;
+    }
+    /** The live connection line of THIS session (re-evaluated on open; the endpoint lives per session). */
+    private void refreshBotConnection() {
+        com.aresstack.askai.research.mcp.ResearchBotControlEndpoint endpoint =
+                session == null ? null : session.botControlEndpoint();
+        String url = endpoint == null ? null : endpoint.connectionUrl();
+        if (url == null) {
+            botConnection.setText("off for this session (transport: Streamable HTTP / MCP JSON-RPC, "
+                    + "loopback only; connection data in <project>/service-endpoint.json)");
+            botTools.setEnabled(false);
+            return;
+        }
+        botConnection.setText("Streamable HTTP (MCP JSON-RPC, token in the URL path): " + url);
+        botTools.setEnabled(true);
+    }
+
+    /** Fetch the CURRENT tool list from the live registry and show it — nothing is hardcoded here. */
+    private void showBotTools() {
+        com.aresstack.askai.research.mcp.ResearchBotControlEndpoint endpoint =
+                session == null ? null : session.botControlEndpoint();
+        if (endpoint == null) {
+            return;
+        }
+        StringBuilder sb = new StringBuilder("Endpoint: ").append(endpoint.getEndpointId())
+                .append("\nTransport: Streamable HTTP (MCP JSON-RPC)\nURL: ")
+                .append(endpoint.connectionUrl()).append("\n\nTools (live):\n");
+        for (String name : endpoint.toolNames()) {
+            sb.append("  - ").append(name).append('\n');
+        }
+        javax.swing.JTextArea text = new javax.swing.JTextArea(sb.toString(), 10, 60);
+        text.setEditable(false);
+        javax.swing.JOptionPane.showMessageDialog(this, new javax.swing.JScrollPane(text),
+                "Bot control MCP", javax.swing.JOptionPane.INFORMATION_MESSAGE);
     }
 }

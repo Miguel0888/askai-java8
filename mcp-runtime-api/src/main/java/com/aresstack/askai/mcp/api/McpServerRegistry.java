@@ -23,4 +23,10 @@ public interface McpServerRegistry {
      * URI usable only for identity, never for connecting.
      */
     String endpointUrl(McpEndpointHandle handle);
+
+    /**
+     * The CURRENT tool names of a registered endpoint (live, on demand — never a cached client copy), or
+     * an empty list when the handle is unknown/unregistered.
+     */
+    java.util.List<String> toolNames(McpEndpointHandle handle);
 }

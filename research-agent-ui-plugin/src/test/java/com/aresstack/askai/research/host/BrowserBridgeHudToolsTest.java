@@ -100,6 +100,10 @@ public class BrowserBridgeHudToolsTest {
             return "inprocess:test";
         }
 
+        public java.util.List<String> toolNames(com.aresstack.askai.mcp.api.McpEndpointHandle handle) {
+            return new java.util.ArrayList<String>();
+        }
+
         boolean hasTool(String name) {
             return tool(name) != null;
         }

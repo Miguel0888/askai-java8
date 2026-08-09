@@ -29,7 +29,7 @@ public final class ResearchSettingsContribution implements AgentSettingsContribu
         final SearchProviderCardsPanel searchProviders =
                 new SearchProviderCardsPanel(research.getHostStateStore());
         JTabbedPane tabs = new JTabbedPane();
-        tabs.addTab("Runtime", new ResearchRuntimeSettingsPanel(research.getHostStateStore()));
+        tabs.addTab("Runtime", new ResearchRuntimeSettingsPanel(research.getHostStateStore(), research));
         // The provider PICKER + each provider's own settings card (browser default, full DataForSEO
         // editor). The old shared engine/locale fields are gone — each provider owns its full config.
         tabs.addTab("Search", searchProviders);

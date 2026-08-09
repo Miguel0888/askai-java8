@@ -1681,6 +1681,12 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         return derivedActions;
     }
 
+    /** The session's bot-control endpoint, or {@code null} (fake mode / disabled by configuration). */
+    public com.aresstack.askai.research.mcp.ResearchBotControlEndpoint botControlEndpoint() {
+        return productiveResources == null || productiveResources.isClosed() ? null
+                : productiveResources.getBotControlEndpoint();
+    }
+
     /**
      * STRUCTURED headless command execution (issue #33): a bot sends a COMMAND plus ARGUMENTS - never a
      * chat line with a slash prefix. No command = the arguments are a plain chat message. Unknown commands

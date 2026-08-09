@@ -256,6 +256,10 @@ public final class AgentRuntimeServices {
             return runtime().endpointUrl(handle);
         }
 
+        public java.util.List<String> toolNames(com.aresstack.askai.mcp.api.McpEndpointHandle handle) {
+            return runtime().toolNames(handle);
+        }
+
         void shutdown() {
             SolonMcpServerRuntime current = runtime;
             if (current != null) {

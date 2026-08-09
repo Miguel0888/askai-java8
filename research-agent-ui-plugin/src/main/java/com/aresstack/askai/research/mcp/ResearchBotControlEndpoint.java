@@ -86,6 +86,16 @@ public final class ResearchBotControlEndpoint {
                 runCommandTool(gateway), sessionStateTool(gateway), chatHistoryTool(gateway)));
     }
 
+    /** The client-facing streamable-HTTP URL (token in the path), or {@code null} while not open. */
+    public String connectionUrl() {
+        return handle == null ? null : registry.endpointUrl(handle);
+    }
+
+    /** The CURRENT tool names, fetched live from the registry (never a hardcoded copy). */
+    public java.util.List<String> toolNames() {
+        return handle == null ? new java.util.ArrayList<String>() : registry.toolNames(handle);
+    }
+
     /** Unregister the endpoint (invalidates the token). Idempotent. */
     public void close() {
         if (closed) {

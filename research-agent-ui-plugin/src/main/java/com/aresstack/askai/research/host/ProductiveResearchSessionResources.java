@@ -207,6 +207,11 @@ public final class ProductiveResearchSessionResources {
         this.botControlEndpoint = endpoint;
     }
 
+    /** The session's bot-control endpoint, or {@code null} (disabled by configuration / not attached). */
+    public com.aresstack.askai.research.mcp.ResearchBotControlEndpoint getBotControlEndpoint() {
+        return botControlEndpoint;
+    }
+
     /** Set by the SESSION: the structured command/state gateway for the bot-control MCP. */
     private volatile com.aresstack.askai.research.mcp.ResearchBotControlEndpoint.SessionGateway sessionGateway;
 
