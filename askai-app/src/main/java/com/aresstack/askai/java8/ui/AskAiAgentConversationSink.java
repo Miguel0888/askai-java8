@@ -162,9 +162,9 @@ final class AskAiAgentConversationSink implements AgentConversationSink {
     public void showProblem(String problemId, String publicMessage) {
         transcript.appendInfo("⚠ " + publicMessage);
         if (persister != null && publicMessage != null && !publicMessage.trim().isEmpty()) {
-            // Persist the problem TEXT so it survives a restart (as content). The live warning styling is
-            // ephemeral; the information is not lost.
-            persister.persistAssistant("⚠ " + publicMessage);
+            // Persist as INFO so the restored line looks exactly like the live one (muted italic),
+            // not like an agent bubble per problem.
+            persister.persistInfo("⚠ " + publicMessage);
         }
         refresh();
     }
