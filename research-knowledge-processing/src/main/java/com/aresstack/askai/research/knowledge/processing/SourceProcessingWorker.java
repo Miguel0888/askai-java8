@@ -179,7 +179,7 @@ public final class SourceProcessingWorker {
         List<PassageIndexDocument> documents = loadPersisted(captureId, segVersion, fingerprint, languageCode);
         int sentenceCount = Listener.RESUMED;
         if (documents.isEmpty()) {
-            SourceCapture capture = readCapture(captureId);
+            SourceCapture capture = readCapture(captureId, req.getSourceId());
             PassageSegmentation.Result result = segment(capture, languageCode);
             storePassages(capture, result); // passages + vectors durable BEFORE the index (which is a projection)
             documents = toIndexDocuments(capture, result, segVersion, fingerprint);
@@ -239,10 +239,10 @@ public final class SourceProcessingWorker {
         }
     }
 
-    private SourceCapture readCapture(String captureId) {
+    private SourceCapture readCapture(String captureId, String sourceId) {
         SourceCapture capture;
         try {
-            capture = captureReader.read(captureId);
+            capture = captureReader.read(captureId, sourceId);
         } catch (RuntimeException ex) {
             throw new StageFailure(SourceProcessingStage.EXTRACTION, message(ex), true);
         }

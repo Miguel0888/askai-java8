@@ -46,20 +46,36 @@ final class KnowledgeProcessingSessionFactory {
         SessionSentenceSegmenter resolve(String languageCode);
     }
 
+    /** Cheap deterministic staleness metadata: is the persisted outline older than its inputs? */
+    interface OutlineStalenessCheck {
+        /**
+         * {@code true} when the persisted projection's corpus fingerprint no longer matches the ACTIVE
+         * corpus (new passages, source Save/Exclude/⭐), or when no projection exists yet but the corpus
+         * has content. Pure read — never triggers a rebuild.
+         */
+        boolean isStale();
+
+        /** Whether a persisted projection exists at all (the tab shows "not generated yet" without one). */
+        boolean hasPersistedProjection();
+    }
+
     /** Everything the continuous knowledge capability of one session owns: worker + live projection. */
     static final class KnowledgeSession {
         final KnowledgeProcessingRunner worker;
         final com.aresstack.askai.research.knowledge.processing.live.LiveKnowledgeProjectionRunner projection;
         final com.aresstack.askai.research.knowledge.processing.live.KnowledgeProjectionInvalidator invalidator;
+        final OutlineStalenessCheck staleness;
 
         KnowledgeSession(KnowledgeProcessingRunner worker,
                          com.aresstack.askai.research.knowledge.processing.live.LiveKnowledgeProjectionRunner
                                  projection,
                          com.aresstack.askai.research.knowledge.processing.live.KnowledgeProjectionInvalidator
-                                 invalidator) {
+                                 invalidator,
+                         OutlineStalenessCheck staleness) {
             this.worker = worker;
             this.projection = projection;
             this.invalidator = invalidator;
+            this.staleness = staleness;
         }
     }
 
@@ -88,7 +104,8 @@ final class KnowledgeProcessingSessionFactory {
                                                  FileSourceProcessingQueue queue,
                                                  KnowledgeProcessingSettings settings,
                                                  final java.util.List<String> briefQuestions,
-                                                 final ProjectionListener projectionListener) {
+                                                 final ProjectionListener projectionListener,
+                                                 final Runnable knowledgeChangedNotifier) {
         // Embedding: strict batch /api/embed adapter over the SESSION descriptor (its own timeout).
         final HttpEmbeddingPortAdapter embeddings = new HttpEmbeddingPortAdapter(descriptor,
                 new UrlConnectionEmbeddingHttpTransport((int) descriptor.timeoutMillis));
@@ -133,8 +150,11 @@ final class KnowledgeProcessingSessionFactory {
         RepositoryIndexableGenerationSource generations =
                 new RepositoryIndexableGenerationSource(repository, vectorStore, projectId);
 
+        // The DURABLE fallback (issue #29): when the bounded in-memory capture store no longer holds the
+        // capture (restart, eviction), the reader rebuilds it from the persisted source record's full text —
+        // a delayed, user-triggered segmentation never depends on in-memory state.
         SourceCaptureReader reader = new CaptureStoreSourceCaptureReader(captures,
-                new CanonicalUrlSourceIdResolver(sourceRepository));
+                new CanonicalUrlSourceIdResolver(sourceRepository), sourceRepository);
 
         // One-time readiness line for the live gate: language, the resolved segmenter (model id/version/artifact
         // name — never an absolute path — or the regex reason), and the embedding world.
@@ -184,19 +204,30 @@ final class KnowledgeProcessingSessionFactory {
                         new com.aresstack.askai.research.knowledge.processing.live
                                 .LiveKnowledgeProjectionRunner.RebuildStep() {
                             public void rebuild() {
+                                // EXPLICIT two-stage pipeline (issue #29): topic discovery and outline
+                                // building are separate, visibly orchestrated stages — the outline never
+                                // hides an implicit cluster run. This step only runs after the user's
+                                // explicit "Inhaltsverzeichnis erzeugen" action (nothing invalidates it
+                                // automatically anymore).
                                 com.aresstack.askai.research.knowledge.processing.live
                                         .ActiveKnowledgeCorpusReader.Corpus corpus =
                                         corpusReader.read(sourceFilter);
+                                java.util.List<com.aresstack.askai.research.knowledge.live
+                                        .LiveTopicProjection> topics =
+                                        projectionBuilder.discoverTopics(corpus.getPassages(),
+                                                corpus.getVectors());
+                                System.err.println("[research-knowledge] topics discovered passages="
+                                        + corpus.getPassages().size() + " topics=" + topics.size());
                                 com.aresstack.askai.research.knowledge.live.LiveOutlineProjection previous =
                                         projectionStore.load();
                                 long nextRevision = (previous == null ? 0L
                                         : previous.getProjectionRevision()) + 1L;
                                 com.aresstack.askai.research.knowledge.live.LiveOutlineProjection next =
-                                        projectionBuilder.build(nextRevision, fingerprint,
+                                        projectionBuilder.buildOutline(nextRevision, fingerprint,
                                                 System.currentTimeMillis(), corpus.getPassages(),
-                                                corpus.getVectors(), briefQuestions);
+                                                topics, briefQuestions);
                                 projectionStore.save(next);
-                                System.err.println("[research-knowledge] live outline rebuilt revision="
+                                System.err.println("[research-knowledge] outline rebuilt revision="
                                         + next.getProjectionRevision()
                                         + " topics=" + next.getTopics().size()
                                         + " sections=" + next.getSections().size());
@@ -205,10 +236,12 @@ final class KnowledgeProcessingSessionFactory {
                             }
                         }, "knowledge-projection-" + projectId, 1500L);
 
+        // Issue #29: a COMPLETED job no longer rebuilds the projection. It only NOTIFIES (cheap staleness
+        // metadata for the open Outline tab); recalculation is an explicit user action.
         final SourceProcessingWorker worker = new SourceProcessingWorker(queue, reader, segmentationFactory,
                 passageStore, index, generations, projectId, settings.maxProcessingAttempts,
                 descriptor.embeddingFingerprint(),
-                invalidating(diagnosticListener(projectId, descriptionByLanguage), projection));
+                notifying(diagnosticListener(projectId, descriptionByLanguage), knowledgeChangedNotifier));
 
         KnowledgeProcessingRunner workerRunner = new KnowledgeProcessingRunner(
                 new KnowledgeProcessingRunner.ProcessingStep() {
@@ -216,14 +249,35 @@ final class KnowledgeProcessingSessionFactory {
                         return worker.processOne();
                     }
                 }, "knowledge-processing-" + projectId, 1000L, 5000L);
-        return new KnowledgeSession(workerRunner, projection, projection);
+        OutlineStalenessCheck staleness = new OutlineStalenessCheck() {
+            public boolean isStale() {
+                com.aresstack.askai.research.knowledge.live.LiveOutlineProjection persisted =
+                        projectionStore.load();
+                com.aresstack.askai.research.knowledge.processing.live.ActiveKnowledgeCorpusReader.Corpus
+                        corpus = corpusReader.read(sourceFilter);
+                java.util.List<String> ids = new java.util.ArrayList<String>();
+                for (com.aresstack.askai.research.domain.Passage p : corpus.getPassages()) {
+                    ids.add(p.getPassageId());
+                }
+                String currentFingerprint = com.aresstack.askai.research.knowledge.live
+                        .LiveOutlineProjection.corpusFingerprintOf(ids);
+                if (persisted == null) {
+                    return !ids.isEmpty(); // nothing generated yet but there IS content to project
+                }
+                return !currentFingerprint.equals(persisted.getCorpusFingerprint())
+                        || !fingerprint.equals(persisted.getEmbeddingFingerprint());
+            }
+
+            public boolean hasPersistedProjection() {
+                return projectionStore.load() != null;
+            }
+        };
+        return new KnowledgeSession(workerRunner, projection, projection, staleness);
     }
 
-    /** Wrap the diagnostics listener so every COMPLETED job invalidates the live projection (debounced). */
-    private static SourceProcessingWorker.Listener invalidating(
-            final SourceProcessingWorker.Listener delegate,
-            final com.aresstack.askai.research.knowledge.processing.live.KnowledgeProjectionInvalidator
-                    invalidator) {
+    /** Wrap the diagnostics listener so a COMPLETED job NOTIFIES the UI (staleness re-check) — no rebuild. */
+    private static SourceProcessingWorker.Listener notifying(
+            final SourceProcessingWorker.Listener delegate, final Runnable knowledgeChangedNotifier) {
         return new SourceProcessingWorker.Listener() {
             public void onStarted(
                     com.aresstack.askai.research.knowledge.processing.SourceProcessingJob job) {
@@ -234,7 +288,13 @@ final class KnowledgeProcessingSessionFactory {
                     com.aresstack.askai.research.knowledge.processing.SourceProcessingJob job,
                     int sentenceCount, int passageCount) {
                 delegate.onCompleted(job, sentenceCount, passageCount);
-                invalidator.knowledgeChanged(); // new passages exist → the projection is stale
+                if (knowledgeChangedNotifier != null) {
+                    try {
+                        knowledgeChangedNotifier.run(); // new passages exist → the outline tab shows STALE
+                    } catch (RuntimeException never) {
+                        // a UI notification must never fail the worker
+                    }
+                }
             }
 
             public void onFailed(

@@ -16,9 +16,10 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 /**
- * C5b builder: a deterministic FULL rebuild over the active corpus — the same corpus always yields the same
- * projection (fingerprints, topics, section order); distinct vector directions cluster apart; uncovered brief
- * questions surface as a visible gap section; an empty corpus is a valid empty projection.
+ * C5b builder, restructured for issue #29 into two EXPLICIT stages: {@code discoverTopics} (deterministic
+ * clustering, independently invokable) and {@code buildOutline} (sections from an explicit topic result, no
+ * hidden cluster run). The same corpus always yields the same topics, the same topics the same projection;
+ * uncovered brief questions surface as a visible gap section; an empty corpus is a valid empty projection.
  */
 public class LiveOutlineProjectionBuilderTest {
 
@@ -52,14 +53,17 @@ public class LiveOutlineProjectionBuilderTest {
     public void theSameCorpusRebuildsToTheIdenticalProjection() {
         Object[] c = corpus();
         LiveOutlineProjectionBuilder builder = new LiveOutlineProjectionBuilder();
-        LiveOutlineProjection first = builder.build(1L, "fpA", 100L,
-                (List<Passage>) c[0], (Map<String, EmbeddingPort.EmbeddingVector>) c[1],
-                Collections.<String>emptyList());
-        // Shuffled input order → the deterministic sort inside the builder normalizes it.
+        List<LiveTopicProjection> firstTopics = builder.discoverTopics(
+                (List<Passage>) c[0], (Map<String, EmbeddingPort.EmbeddingVector>) c[1]);
+        LiveOutlineProjection first = builder.buildOutline(1L, "fpA", 100L,
+                (List<Passage>) c[0], firstTopics, Collections.<String>emptyList());
+        // Shuffled input order → the deterministic sort inside both stages normalizes it.
         List<Passage> shuffled = new ArrayList<Passage>((List<Passage>) c[0]);
         Collections.reverse(shuffled);
-        LiveOutlineProjection second = builder.build(2L, "fpA", 200L, shuffled,
-                (Map<String, EmbeddingPort.EmbeddingVector>) c[1], Collections.<String>emptyList());
+        List<LiveTopicProjection> secondTopics = builder.discoverTopics(shuffled,
+                (Map<String, EmbeddingPort.EmbeddingVector>) c[1]);
+        LiveOutlineProjection second = builder.buildOutline(2L, "fpA", 200L, shuffled,
+                secondTopics, Collections.<String>emptyList());
 
         assertEquals(first.getCorpusFingerprint(), second.getCorpusFingerprint());
         assertEquals(first.getTopics().size(), second.getTopics().size());
@@ -75,8 +79,11 @@ public class LiveOutlineProjectionBuilderTest {
     @Test
     public void uncoveredBriefQuestionsSurfaceAsAVisibleGapSection() {
         Object[] c = corpus();
-        LiveOutlineProjection projection = new LiveOutlineProjectionBuilder().build(1L, "fpA", 100L,
-                (List<Passage>) c[0], (Map<String, EmbeddingPort.EmbeddingVector>) c[1],
+        LiveOutlineProjectionBuilder builder = new LiveOutlineProjectionBuilder();
+        List<LiveTopicProjection> topics = builder.discoverTopics(
+                (List<Passage>) c[0], (Map<String, EmbeddingPort.EmbeddingVector>) c[1]);
+        LiveOutlineProjection projection = builder.buildOutline(1L, "fpA", 100L,
+                (List<Passage>) c[0], topics,
                 Arrays.asList("How do waveguide displays work?", "What about pricing and market share?"));
         LiveOutlineSection last = projection.getSections().get(projection.getSections().size() - 1);
         assertEquals("Open questions", last.getTitle());
@@ -87,10 +94,12 @@ public class LiveOutlineProjectionBuilderTest {
 
     @Test
     public void anEmptyCorpusYieldsAValidEmptyProjection() {
-        LiveOutlineProjection projection = new LiveOutlineProjectionBuilder().build(5L, "fpA", 100L,
-                Collections.<Passage>emptyList(),
-                Collections.<String, EmbeddingPort.EmbeddingVector>emptyMap(),
-                Collections.<String>emptyList());
+        LiveOutlineProjectionBuilder builder = new LiveOutlineProjectionBuilder();
+        List<LiveTopicProjection> topics = builder.discoverTopics(Collections.<Passage>emptyList(),
+                Collections.<String, EmbeddingPort.EmbeddingVector>emptyMap());
+        assertTrue(topics.isEmpty());
+        LiveOutlineProjection projection = builder.buildOutline(5L, "fpA", 100L,
+                Collections.<Passage>emptyList(), topics, Collections.<String>emptyList());
         assertTrue(projection.getTopics().isEmpty());
         assertTrue(projection.getSections().isEmpty());
         assertEquals(5L, projection.getProjectionRevision());

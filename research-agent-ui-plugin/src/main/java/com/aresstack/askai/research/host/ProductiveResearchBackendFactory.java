@@ -334,6 +334,7 @@ public final class ProductiveResearchBackendFactory {
                 projectionRunner = {null};
         final com.aresstack.askai.research.knowledge.processing.live.KnowledgeProjectionInvalidator[]
                 projectionInvalidator = {null};
+        final KnowledgeProcessingSessionFactory.OutlineStalenessCheck[] outlineStaleness = {null};
         // Set once the session resources exist, so the projection listener can notify an open view.
         final ProductiveResearchSessionResources[] resourcesRef = {null};
         if (embeddingDescriptor != null) {
@@ -390,10 +391,20 @@ public final class ProductiveResearchBackendFactory {
                                 resourcesRef[0].fireProjectionUpdated();
                             }
                         }
+                    },
+                    new Runnable() {
+                        public void run() {
+                            // A COMPLETED passage job only refreshes an open view (staleness re-check) —
+                            // it never rebuilds topics or the outline (issue #29).
+                            if (resourcesRef[0] != null) {
+                                resourcesRef[0].fireProjectionUpdated();
+                            }
+                        }
                     });
             knowledgeRunner[0] = knowledgeSession.worker;
             projectionRunner[0] = knowledgeSession.projection;
             projectionInvalidator[0] = knowledgeSession.invalidator;
+            outlineStaleness[0] = knowledgeSession.staleness;
             final com.aresstack.askai.research.knowledge.processing.KnowledgeProcessingScheduler base =
                     new com.aresstack.askai.research.knowledge.processing
                             .QueueBackedKnowledgeProcessingScheduler(processingQueue, knowledgeSettings,
@@ -543,11 +554,16 @@ public final class ProductiveResearchBackendFactory {
             backend = new AcpResearchSessionBackend(connector, spec, researchDescriptor, browserDescriptor,
                     serviceDescriptor);
 
-            // The UI-facing repository notifies the live projection on a successful update (Save/Exclude/star)
-            // so the ACTIVE corpus re-derives; the acceptance path keeps the raw repository (its effects are
-            // covered by the worker's COMPLETED invalidation).
+            // The UI-facing repository only REFRESHES an open view on a successful update (Save/Exclude/star)
+            // so the outline tab re-checks its staleness — it never triggers a rebuild (issue #29).
             resources = new ProductiveResearchSessionResources(sessionKey, stateMachine, captures,
-                    new NotifyingSourceRepository(repository, projectionInvalidator[0]),
+                    new NotifyingSourceRepository(repository, new Runnable() {
+                        public void run() {
+                            if (resourcesRef[0] != null) {
+                                resourcesRef[0].fireProjectionUpdated();
+                            }
+                        }
+                    }),
                     acceptance, projectContext, control, bridge,
                     browser, backend, service);
             resources.setSearchProfile(profile);
@@ -560,11 +576,12 @@ public final class ProductiveResearchBackendFactory {
                 knowledgeRunner[0].start();
                 resources.setKnowledgeRunner(knowledgeRunner[0]);
                 if (projectionRunner[0] != null) {
+                    // The projection runner thread only WAITS for an explicit trigger — session open never
+                    // invalidates or rebuilds the outline anymore (issue #29). The persisted projection is
+                    // simply displayed; "Inhaltsverzeichnis erzeugen" is the ONLY rebuild trigger.
                     projectionRunner[0].start();
                     resources.setProjectionRunner(projectionRunner[0]);
-                    // Rebuild once at start: a missing/corrupt persisted projection heals here (debounced,
-                    // off this thread) — the session start itself is never blocked.
-                    projectionInvalidator[0].knowledgeChanged();
+                    resources.setOutlineStaleness(outlineStaleness[0]);
                 }
             }
             return resources;

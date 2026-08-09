@@ -11,4 +11,13 @@ public interface SourceCaptureReader {
 
     /** @return the capture as a domain SourceCapture, or {@code null} when the capture id is unknown. */
     SourceCapture read(String captureId);
+
+    /**
+     * As {@link #read(String)} but with the job's ACCEPTED source id, so an implementation can fall back to
+     * the DURABLE source record when the transient in-memory capture is gone (issue #29: a delayed,
+     * user-triggered segmentation must survive a session restart). Default: source-id-blind read.
+     */
+    default SourceCapture read(String captureId, String sourceId) {
+        return read(captureId);
+    }
 }

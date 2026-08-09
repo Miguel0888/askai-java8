@@ -12,7 +12,8 @@ import java.util.Map;
  * test pins the format across the process boundary.
  *
  * <pre>#RSC1# manual_search request_id=&lt;uuid&gt; query=&lt;urlenc&gt;
- * #RSC1# set_language language=de|en</pre>
+ * #RSC1# set_language language=de|en
+ * #RSC1# review_sources request_id=&lt;uuid&gt;</pre>
  */
 public final class ResearchServiceCommandWire {
 

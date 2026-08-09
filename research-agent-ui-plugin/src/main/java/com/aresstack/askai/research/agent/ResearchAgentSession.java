@@ -257,6 +257,8 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             // Still restore the persisted assignment (question + focus areas) so a resumed project keeps its
             // scope for continuation; the scoping ceremony is no longer host-driven.
             restoreProjectMetadata();
+            // Show the last PERSISTED visualization (possibly stale) — never regenerate on open (issue #29).
+            restorePersistedVisualization();
             // The greeting depends ONLY on the state: greet exactly once, when the scope state is still fresh
             // (SCOPING/NEW). A restored session whose state already advanced past NEW is NOT greeted again —
             // its prior greeting comes back from the persisted chat transcript instead (no double greeting).
@@ -1082,10 +1084,19 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             if (searched != null && !searched.trim().isEmpty()) {
                 manualSearchedQueries.add(searched.trim().toLowerCase(java.util.Locale.ROOT));
             }
-            // Keep activeManualSearchRequestId set so the following review_* events still correlate; it is
-            // cleared on review_finished / failed. The browser closes now; the bot's post-search review (if
-            // any) is bracketed by review_started/review_finished below.
             stopManualSearchBrowser();
+            // Issue #29: the search is over here — the runtime no longer auto-reviews. When sources were
+            // accepted, OFFER the derived AI step as an explicit action instead of running it implicitly.
+            activeManualSearchRequestId = null;
+            int accepted;
+            try {
+                accepted = Integer.parseInt(event.getPublicMessage().trim());
+            } catch (RuntimeException noCount) {
+                accepted = 0;
+            }
+            if (accepted > 0) {
+                offerPostSearchReview(requestId);
+            }
         } else if ("review_started".equals(subKind)) {
             // The bot is now at the wheel (skimming the new sources, refreshing suggestions): show a thinking
             // bubble AND make the composer BUSY (red, cancellable) exactly like a normal agent turn, so the
@@ -1110,6 +1121,45 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             agentTurnInFlight = false;
             stopManualSearchBrowser();
         }
+    }
+
+    /**
+     * Offer the DERIVED post-search AI step as an explicit action (issue #29): a compact card with
+     * "Neue Quellen auswerten". Nothing runs until the user presses it; dismissing it costs nothing —
+     * the sources are already persisted.
+     */
+    private void offerPostSearchReview(final String searchRequestId) {
+        java.util.List<AgentConversationSink.ActionOption> options =
+                new ArrayList<AgentConversationSink.ActionOption>();
+        options.add(new AgentConversationSink.ActionOption("review", "Neue Quellen auswerten"));
+        sink.showActionCard("post-search-review-" + searchRequestId,
+                "Die neuen Quellen sind übernommen. Soll ich sie kurz sichten und zusammenfassen?",
+                options,
+                new AgentConversationSink.ActionHandler() {
+                    public AgentConversationSink.ActionExecutionResult onAction(String actionId) {
+                        if ("review".equals(actionId)) {
+                            requestPostSearchReview();
+                        }
+                        return AgentConversationSink.ActionExecutionResult.ACCEPTED;
+                    }
+                });
+    }
+
+    /**
+     * EXPLICIT user action (issue #29): let the TeamAgent review the accepted sources (summary; suggestion
+     * refresh stays scoping-only in the runtime). Runs as a service command — asynchronous AFTER the explicit
+     * request, bracketed by the same review_started/review_finished lifecycle as before.
+     */
+    public void requestPostSearchReview() {
+        if (handle == null || disposed
+                || (productiveResources != null && productiveResources.isClosed())) {
+            return;
+        }
+        String reviewRequestId = "review-" + java.util.UUID.randomUUID();
+        activeManualSearchRequestId = reviewRequestId; // the review_* events correlate against this id
+        backend.submitServiceCommand(handle,
+                com.aresstack.askai.research.search.ResearchServiceCommandWire
+                        .reviewSources(reviewRequestId));
     }
 
     /** End the post-search thinking bubble + release the composer (red send button), if one is in flight. */
@@ -1477,9 +1527,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 com.aresstack.askai.research.visualize.VisualizerDiagnostics.log(
                         "briefChanged changed=" + changed + " briefChars=" + markdown.length());
                 if (changed) {
-                    // Refresh the Fragestellung view, and lazily (re)build the DERIVED visualization for the
-                    // new brief — a separate consumer, hash-guarded, that never blocks this write or the agent.
-                    scheduleVisualization(phaseId, markdown);
+                    // Refresh the Fragestellung view. Issue #29: a brief write is CORE persistence and has
+                    // NO visualization side effect anymore — the existing visualization merely becomes
+                    // stale (visible in the tab); regeneration is the user's explicit button action.
                     uiExecutor.execute(new Runnable() {
                         public void run() {
                             fireStateChanged();
@@ -1498,6 +1548,135 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     /** The visualization lifecycle status (never-ran / preparing / running / diagram / none / failed). */
     public com.aresstack.askai.research.visualize.VisualizationStatus visualizationStatus() {
         return visualizationStatus;
+    }
+
+    /** File-backed store of the persisted visualization (survives a restart). Lazy; null in the clickdummy. */
+    private com.aresstack.askai.research.store.FileVisualizationStore visualizationStore;
+
+    private synchronized com.aresstack.askai.research.store.FileVisualizationStore visualizationStore() {
+        if (visualizationStore == null && productiveResources != null && !productiveResources.isClosed()) {
+            java.io.File projectDir = productiveResources.getProjectContext().getProjectDirectory();
+            visualizationStore = new com.aresstack.askai.research.store.FileVisualizationStore(
+                    new java.io.File(projectDir, "visualization"));
+        }
+        return visualizationStore;
+    }
+
+    /**
+     * Restore the PERSISTED visualization on session start (issue #29): opening the tab shows the last
+     * generated diagram (possibly marked stale) — it never regenerates. Only fills a still-empty projection.
+     */
+    private void restorePersistedVisualization() {
+        if (latestVisualization != null) {
+            return;
+        }
+        com.aresstack.askai.research.store.FileVisualizationStore store = visualizationStore();
+        if (store == null) {
+            return;
+        }
+        com.aresstack.askai.research.visualize.VisualizationProjection restored = store.load();
+        if (restored != null) {
+            latestVisualization = restored;
+            visualizationStatus = restored.getResult().isPresent()
+                    ? com.aresstack.askai.research.visualize.VisualizationStatus.HAS_DIAGRAM
+                    : com.aresstack.askai.research.visualize.VisualizationStatus.NONE_DECIDED;
+        }
+    }
+
+    /**
+     * EXPLICIT user action (issue #29): generate/regenerate the DERIVED visualization from the CURRENT brief.
+     * The only path that invokes the visualization model — neither a brief write nor opening the tab does.
+     * Reads the brief and schedules off the EDT; the tab re-renders through the normal state listeners.
+     */
+    public void requestVisualization() {
+        final com.aresstack.askai.research.store.FileResearchBriefStore store = researchBriefStore();
+        if (store == null) {
+            return; // clickdummy: no brief, nothing to visualize
+        }
+        final String phaseId = productiveResources == null
+                ? state.getPhaseId() : productiveResources.currentState().getPhaseId();
+        briefWriteExecutor.execute(new Runnable() {
+            public void run() {
+                String markdown;
+                try {
+                    markdown = store.effectiveContent();
+                } catch (RuntimeException unreadable) {
+                    markdown = "";
+                }
+                if (markdown == null || markdown.trim().isEmpty()) {
+                    // Nothing to visualize yet: an honest NONE, never a model call on an empty brief.
+                    visualizationStatus =
+                            com.aresstack.askai.research.visualize.VisualizationStatus.NONE_DECIDED;
+                    uiExecutor.execute(new Runnable() {
+                        public void run() {
+                            fireStateChanged();
+                        }
+                    });
+                    return;
+                }
+                scheduleVisualization(phaseId, markdown);
+            }
+        });
+    }
+
+    /**
+     * Whether the current visualization is STALE: the brief changed since it was generated. Cheap hash
+     * comparison against the persisted brief — never a recomputation (issue #29).
+     */
+    public boolean visualizationStale() {
+        com.aresstack.askai.research.visualize.VisualizationProjection current = latestVisualization;
+        if (current == null) {
+            return false; // nothing generated yet — the tab shows the explicit not-generated state instead
+        }
+        com.aresstack.askai.research.store.FileResearchBriefStore store = researchBriefStore();
+        if (store == null) {
+            return false;
+        }
+        try {
+            String effective = store.effectiveContent();
+            if (effective == null || effective.trim().isEmpty()) {
+                return false; // no brief content — nothing the visualization could be stale against
+            }
+            // The SAME hash the visualizer stamps on its projection (ArtifactSnapshot.getContentHash()).
+            String briefHash = new com.aresstack.askai.research.visualize.ArtifactSnapshot(
+                    "research-brief", effective, "").getContentHash();
+            return !briefHash.equals(current.getSourceContentHash());
+        } catch (RuntimeException unreadable) {
+            return false;
+        }
+    }
+
+    // ------------------------------------------------------------------ outline (explicit action, issue #29)
+
+    /** The persisted outline artifact markdown, or "" when none exists yet. Pure read for the Outline tab. */
+    public String outlineMarkdown() {
+        if (productiveResources == null || productiveResources.isClosed()) {
+            return "";
+        }
+        try {
+            return productiveResources.getArtifactStore().read("outline").getMarkdown();
+        } catch (RuntimeException unreadable) {
+            return "";
+        }
+    }
+
+    /**
+     * Whether the persisted outline is stale relative to its inputs (new passages, Save/Exclude/⭐), or
+     * {@code null} when the knowledge capability is unavailable. Pure metadata — never a rebuild.
+     */
+    public Boolean outlineStale() {
+        return productiveResources == null || productiveResources.isClosed()
+                ? null : productiveResources.isOutlineStale();
+    }
+
+    /**
+     * EXPLICIT user action (issue #29): rebuild topics + outline from the persisted corpus. The ONLY rebuild
+     * trigger — session open, tab open, passage completion and source changes never invoke it.
+     * @return false when the knowledge capability is unavailable.
+     */
+    public boolean requestOutlineRebuild() {
+        return productiveResources != null && !productiveResources.isClosed()
+                && productiveResources.triggerOutlineRebuild();
     }
 
     private void scheduleVisualization(String phaseId, String markdown) {
@@ -1536,6 +1715,18 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                         public void accept(
                                 com.aresstack.askai.research.visualize.VisualizationProjection projection) {
                             latestVisualization = projection;
+                            // Persist the derived result so a restart shows it instead of regenerating
+                            // (issue #29). Best-effort: a write failure only costs the restore.
+                            try {
+                                com.aresstack.askai.research.store.FileVisualizationStore store =
+                                        visualizationStore();
+                                if (store != null) {
+                                    store.save(projection);
+                                }
+                            } catch (RuntimeException persistFailed) {
+                                com.aresstack.askai.research.visualize.VisualizerDiagnostics.log(
+                                        "persist failed: " + persistFailed.getMessage());
+                            }
                             uiExecutor.execute(new Runnable() {
                                 public void run() {
                                     fireStateChanged();

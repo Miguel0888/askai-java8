@@ -165,6 +165,7 @@ public final class ResearchAcpEventMapper {
         String requestId = f.get("request_id") == null ? "" : f.get("request_id");
         String subKind;
         String message;
+        String publicMessage = "";
         if (ResearchRunWire.TYPE_MANUAL_SEARCH_STARTED.equals(type)) {
             subKind = "started";
             String query = ResearchRunWire.decodedField(f, "query");
@@ -176,6 +177,8 @@ public final class ResearchAcpEventMapper {
             subKind = "completed";
             int results = ResearchRunWire.intField(f, "results");
             message = results == 1 ? "1 Treffer" : results + " Treffer";
+            // The raw accepted-source count for the session's post-search decision (review button or not).
+            publicMessage = Integer.toString(results);
         } else if (ResearchRunWire.TYPE_MANUAL_SEARCH_REVIEW.equals(type)) {
             subKind = "review_" + (f.get("state") == null ? "" : f.get("state").trim());
             message = "";
@@ -185,7 +188,7 @@ public final class ResearchAcpEventMapper {
         }
         return ResearchBackendEvent.builder(ResearchBackendEventType.MANUAL_SEARCH)
                 .activity("manual-search-" + requestId, ResearchActivityKind.TOOL_UPDATE, subKind, message)
-                .messages("", requestId);
+                .messages(publicMessage, requestId);
     }
 
     private static String manualSearchFailureText(String reason) {

@@ -133,6 +133,57 @@ public final class ProductiveResearchSessionResources {
         this.projectionRunner = runner;
     }
 
+    /** Cheap deterministic outline-staleness metadata, or null when the knowledge capability is unavailable. */
+    private volatile KnowledgeProcessingSessionFactory.OutlineStalenessCheck outlineStaleness;
+
+    void setOutlineStaleness(KnowledgeProcessingSessionFactory.OutlineStalenessCheck staleness) {
+        this.outlineStaleness = staleness;
+    }
+
+    /**
+     * EXPLICIT user action (issue #29): trigger ONE debounced topic-discovery + outline rebuild off this
+     * thread. This is the only rebuild trigger left — nothing invalidates the projection automatically.
+     * @return false when the knowledge capability is unavailable (no embedding world).
+     */
+    public boolean triggerOutlineRebuild() {
+        com.aresstack.askai.research.knowledge.processing.live.LiveKnowledgeProjectionRunner runner =
+                projectionRunner;
+        if (runner == null) {
+            return false;
+        }
+        runner.knowledgeChanged();
+        return true;
+    }
+
+    /**
+     * Whether the persisted outline is stale relative to the ACTIVE corpus (new passages, Save/Exclude/⭐),
+     * or {@code null} when the knowledge capability is unavailable. Pure read, never a rebuild.
+     */
+    public Boolean isOutlineStale() {
+        KnowledgeProcessingSessionFactory.OutlineStalenessCheck check = outlineStaleness;
+        if (check == null) {
+            return null;
+        }
+        try {
+            return Boolean.valueOf(check.isStale());
+        } catch (RuntimeException unreadable) {
+            return null; // an unreadable corpus/projection must never break the view
+        }
+    }
+
+    /** Whether a persisted outline projection exists at all; {@code null} when the capability is unavailable. */
+    public Boolean hasPersistedOutline() {
+        KnowledgeProcessingSessionFactory.OutlineStalenessCheck check = outlineStaleness;
+        if (check == null) {
+            return null;
+        }
+        try {
+            return Boolean.valueOf(check.hasPersistedProjection());
+        } catch (RuntimeException unreadable) {
+            return null;
+        }
+    }
+
     /** Set by the SESSION: notified (worker thread) after every persisted live-projection rebuild. */
     private volatile Runnable projectionUpdateListener;
 

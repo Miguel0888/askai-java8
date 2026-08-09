@@ -594,6 +594,27 @@ public final class ResearchAgentMain {
             // Pure session-context mutation: the next TeamAgent turn assembles with the new working
             // language. No model call, no history entry, no state change, no event back to the host.
             sessionLanguage.changeFromCode(command.getLanguage());
+        } else if (com.aresstack.askai.research.runtime.service.ResearchServiceCommand.TYPE_REVIEW_SOURCES
+                .equals(command.getType())) {
+            handleReviewSources(ctx, command.getRequestId());
+        }
+    }
+
+    /**
+     * The EXPLICIT post-search review (issue #29): runs ONLY on the user's "Neue Quellen auswerten" action,
+     * never implicitly after a search. Bracketed by the same started/finished lifecycle as before, so the
+     * host shows the cancellable thinking bubble and ALWAYS clears it — even on model failure/cancel.
+     */
+    private void handleReviewSources(final SyncPromptContext ctx, String requestId) {
+        System.err.println("[manual-search] explicit review started requestId=" + requestId);
+        ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
+                .manualSearchReview(requestId, "started"));
+        try {
+            reviewNewSourcesAndRefreshSuggestions(ctx);
+        } finally {
+            System.err.println("[manual-search] explicit review finished requestId=" + requestId);
+            ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
+                    .manualSearchReview(requestId, "finished"));
         }
     }
 
@@ -786,25 +807,9 @@ public final class ResearchAgentMain {
                         + progress.getAcceptedSources() + " reason=" + reason);
                 ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
                         .manualSearchCompleted(requestId, progress.getAcceptedSources(), reason.name()));
-                // D: new sources were added → let the scoping agent skim them and refresh its suggestions.
-                // Bracket the (possibly slow, model-backed) review with a started/finished lifecycle so the
-                // host shows a cancellable thinking bubble and ALWAYS clears it — even on model failure/cancel.
-                if (progress.getAcceptedSources() > 0) {
-                    System.err.println("[manual-search] review started requestId=" + requestId);
-                    ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
-                            .manualSearchReview(requestId, "started"));
-                    try {
-                        reviewNewSourcesAndRefreshSuggestions(ctx);
-                    } finally {
-                        System.err.println("[manual-search] review finished requestId=" + requestId);
-                        ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
-                                .manualSearchReview(requestId, "finished"));
-                    }
-                } else {
-                    // Nothing to review: still emit 'finished' so the host clears its manual-search tracking.
-                    ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
-                            .manualSearchReview(requestId, "finished"));
-                }
+                // Issue #29: the derived AI review no longer runs implicitly here. The host offers an
+                // explicit "Neue Quellen auswerten" action that arrives as a review_sources service
+                // command (see handleReviewSources) — the search turn ends with 'completed'.
             }
         } catch (Exception failure) {
             // The concrete cause (type + message + cause chain) is the only way anyone can act on a manual
@@ -826,12 +831,13 @@ public final class ResearchAgentMain {
     }
 
     /**
-     * D: right after a user search adds sources, have the TeamAgent REVIEW them (it sees them via
-     * source_list, feature A). Runs inline in the control turn; the review instruction is internal (never
-     * echoed as a user chat message). The SUMMARY is phase-independent — a search during RESEARCH gets a
-     * visible review too; only the scoping projection (yellow suggestion chips) stays scoping-only, which
-     * {@code emitTeamAgentResult} already enforces (wireLineFor returns null outside scoping). A failed
-     * model turn surfaces a neutral visible acknowledgement instead of disappearing silently.
+     * The TeamAgent REVIEWS the accepted sources (it sees them via source_list, feature A). Issue #29: this
+     * runs ONLY from the explicit review_sources service command ("Neue Quellen auswerten"), never as an
+     * automatic continuation of a search. The review instruction is internal (never echoed as a user chat
+     * message). The SUMMARY is phase-independent; only the scoping projection (yellow suggestion chips)
+     * stays scoping-only, which {@code emitTeamAgentResult} already enforces (wireLineFor returns null
+     * outside scoping). A failed model turn surfaces a neutral visible acknowledgement instead of
+     * disappearing silently.
      */
     private void reviewNewSourcesAndRefreshSuggestions(final SyncPromptContext ctx) {
         if (teamAgent == null) {

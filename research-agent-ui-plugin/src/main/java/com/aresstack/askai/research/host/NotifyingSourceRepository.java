@@ -1,6 +1,5 @@
 package com.aresstack.askai.research.host;
 
-import com.aresstack.askai.research.knowledge.processing.live.KnowledgeProjectionInvalidator;
 import com.aresstack.askai.research.sources.ResearchSourceRecord;
 import com.aresstack.askai.research.sources.ResearchSourceRepository;
 import com.aresstack.askai.research.sources.SourceQuery;
@@ -11,18 +10,19 @@ import java.util.List;
 
 /**
  * Decorates the session's source repository so a SUCCESSFUL update (the sources tab's Save/Exclude/⭐, all of
- * which change what the ACTIVE projection corpus may include) invalidates the live knowledge projection —
- * debounced downstream, never a rebuild per keystroke. Reads delegate untouched; a failed/conflicted update
- * fires nothing. The invalidator is best-effort: its absence (knowledge capability unavailable) is a no-op.
+ * which change what the ACTIVE projection corpus may include) NOTIFIES an observer — issue #29: this only lets
+ * an open Outline tab re-check its staleness metadata; it NEVER triggers a topic/outline rebuild. Reads
+ * delegate untouched; a failed/conflicted update fires nothing. The notifier is best-effort: its absence is a
+ * no-op and its failure never fails the user's save.
  */
 final class NotifyingSourceRepository implements ResearchSourceRepository {
 
     private final ResearchSourceRepository delegate;
-    private final KnowledgeProjectionInvalidator invalidator;
+    private final Runnable changeNotifier;
 
-    NotifyingSourceRepository(ResearchSourceRepository delegate, KnowledgeProjectionInvalidator invalidator) {
+    NotifyingSourceRepository(ResearchSourceRepository delegate, Runnable changeNotifier) {
         this.delegate = delegate;
-        this.invalidator = invalidator == null ? KnowledgeProjectionInvalidator.NONE : invalidator;
+        this.changeNotifier = changeNotifier;
     }
 
     @Override
@@ -38,11 +38,11 @@ final class NotifyingSourceRepository implements ResearchSourceRepository {
     @Override
     public SourceUpdateResult update(String sourceId, long expectedRevision, SourceUpdate update) {
         SourceUpdateResult result = delegate.update(sourceId, expectedRevision, update);
-        if (result.getStatus() == SourceUpdateResult.Status.UPDATED) {
+        if (result.getStatus() == SourceUpdateResult.Status.UPDATED && changeNotifier != null) {
             try {
-                invalidator.sourceRelevanceChanged(sourceId);
+                changeNotifier.run();
             } catch (RuntimeException never) {
-                // a projection trigger must never fail the user's save
+                // a staleness notification must never fail the user's save
             }
         }
         return result;
