@@ -158,14 +158,15 @@ public class AgentPluginLoadIntegrationTest {
             assertFalse("expected slash commands", extension.getChatCommands().isEmpty());
             assertFalse("expected at least one artifact view", extension.getArtifactViews().isEmpty());
 
-            // The chat commands include the research controls.
-            boolean hasApprove = false;
+            // The chat commands are thin TEXT adapters (/search, /open) — all state control goes
+            // through the semantic command processor, not slash commands.
+            boolean hasSearch = false;
             for (ChatCommandContribution c : extension.getChatCommands()) {
-                if ("approve".equals(c.getDescriptor().getName())) {
-                    hasApprove = true;
+                if ("search".equals(c.getDescriptor().getName())) {
+                    hasSearch = true;
                 }
             }
-            assertTrue("expected an /approve command", hasApprove);
+            assertTrue("expected a /search command", hasSearch);
 
             // A specialized (non-Markdown) artifact view is contributed for the state artifact.
             boolean hasStateView = false;

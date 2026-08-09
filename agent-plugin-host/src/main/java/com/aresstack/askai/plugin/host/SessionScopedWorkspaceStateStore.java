@@ -29,6 +29,9 @@ public final class SessionScopedWorkspaceStateStore implements WorkspaceStateSto
 
     @Override
     public String get(String key, String defaultValue) {
+        if (key != null && key.startsWith(GLOBAL_KEY_PREFIX)) {
+            return agentTemplate.get(key, defaultValue); // app-wide: never frozen per session
+        }
         String own = session.get(key, null);
         if (own != null) {
             return own;
@@ -57,6 +60,10 @@ public final class SessionScopedWorkspaceStateStore implements WorkspaceStateSto
 
     @Override
     public void put(String key, String value) {
+        if (key != null && key.startsWith(GLOBAL_KEY_PREFIX)) {
+            agentTemplate.put(key, value); // app-wide: exactly ONE authoritative copy
+            return;
+        }
         session.put(key, value);
         agentTemplate.put(key, value); // the user's LAST setting is the default for NEW chats
     }

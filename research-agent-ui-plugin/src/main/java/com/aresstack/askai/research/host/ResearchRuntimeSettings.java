@@ -71,11 +71,16 @@ public final class ResearchRuntimeSettings {
         }
     }
 
-    static final String KEY_CONNECTOR = "research.runtime.chatgptConnector";
-    static final String KEY_CONNECTOR_PORT = "research.runtime.chatgptConnector.port";
-    static final String KEY_CONNECTOR_ORIGIN = "research.runtime.chatgptConnector.publicOrigin";
-    static final String KEY_CONNECTOR_CLIENT_ID = "research.runtime.chatgptConnector.clientId";
-    static final String KEY_CONNECTOR_CLIENT_SECRET = "research.runtime.chatgptConnector.clientSecret";
+    // The connector is APP-WIDE (one listener) — its keys carry the GLOBAL prefix so a session-scoping
+    // store never freezes per-chat copies (the panel and the server must always see the SAME values).
+    static final String KEY_CONNECTOR = WorkspaceStateStore.GLOBAL_KEY_PREFIX
+            + "research.runtime.chatgptConnector";
+    static final String KEY_CONNECTOR_PORT = KEY_CONNECTOR + ".port";
+    static final String KEY_CONNECTOR_ORIGIN = KEY_CONNECTOR + ".publicOrigin";
+    static final String KEY_CONNECTOR_CLIENT_ID = KEY_CONNECTOR + ".clientId";
+    static final String KEY_CONNECTOR_CLIENT_SECRET = KEY_CONNECTOR + ".clientSecret";
+    /** Pre-global legacy keys (may exist frozen in session scopes) — read-only migration fallback. */
+    private static final String LEGACY_CONNECTOR = "research.runtime.chatgptConnector";
 
     /**
      * ChatGPT-connector toggle (DEFAULT OFF — this listener is reachable from other machines; enabling
@@ -98,16 +103,21 @@ public final class ResearchRuntimeSettings {
         }
         int port;
         try {
-            port = Integer.parseInt(store.get(KEY_CONNECTOR_PORT, "8082").trim());
+            port = Integer.parseInt(store.get(KEY_CONNECTOR_PORT,
+                    store.get(LEGACY_CONNECTOR + ".port", "8082")).trim());
         } catch (NumberFormatException invalid) {
             port = 8082;
         }
         return new ChatGptConnectorSettings(
-                store.getBoolean(KEY_CONNECTOR, false),
+                store.getBoolean(KEY_CONNECTOR,
+                        store.getBoolean(LEGACY_CONNECTOR, false)),
                 port,
-                store.get(KEY_CONNECTOR_ORIGIN, ""),
-                store.get(KEY_CONNECTOR_CLIENT_ID, ""),
-                store.get(KEY_CONNECTOR_CLIENT_SECRET, ""));
+                store.get(KEY_CONNECTOR_ORIGIN,
+                        store.get(LEGACY_CONNECTOR + ".publicOrigin", "")),
+                store.get(KEY_CONNECTOR_CLIENT_ID,
+                        store.get(LEGACY_CONNECTOR + ".clientId", "")),
+                store.get(KEY_CONNECTOR_CLIENT_SECRET,
+                        store.get(LEGACY_CONNECTOR + ".clientSecret", "")));
     }
 
     public static void saveChatGptConnectorSettings(WorkspaceStateStore store,
