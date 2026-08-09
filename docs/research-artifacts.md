@@ -5,14 +5,27 @@ closed, AskAI looks like the normal chat).
 
 ## Markdown artifacts
 
-`outline.md`, `concept.md`, `research-notes.md`, `findings.md`, `draft.md`, `final.md`. Each uses the host's
-default Markdown editor (`HostMarkdownArtifactView`) over the generic `AgentArtifactStore`:
+`document.md` — the ONE canonical working document (issue #32): the DRAFT and FINALIZATION phases both work
+on it via `document_read`/`document_save`. It uses the host's default Markdown editor
+(`HostMarkdownArtifactView`) over the generic `AgentArtifactStore`:
 
 - `read(id) → ArtifactContent(markdown, revision)`
 - `replace(id, expectedRevision, markdown) → ArtifactWriteResult` (UPDATED / CONFLICT / error)
 
 Revisions + optimistic locking prevent lost updates between the user's editor and (future) agent tools.
 Content lives in the store, not in UI state. Type id: `"markdown"`.
+
+Legacy note (issue #32): earlier versions kept one Markdown artifact per processing stage — `concept.md`,
+`research-notes.md`, `findings.md`, `draft.md`, `final.md`. These are no longer part of the catalog, get no
+tabs and are never written by the active workflow; files in old project directories stay untouched. The
+ResearchBrief is the canonical scoping artifact (no concept document beside it).
+
+## Derived projections
+
+- **Visualisierung** (`research.visualization`): Mermaid diagram derived from the brief; generated only via
+  the explicit button (issue #29), persisted under `visualization/`.
+- **Inhaltsverzeichnis** (`research.outline`, `outline.md` artifact slot): the outline projection of the
+  knowledge corpus; rebuilt only via the explicit button (issue #29), with a stale marker when inputs changed.
 
 ## Structured artifacts
 

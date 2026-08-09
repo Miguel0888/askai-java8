@@ -13,9 +13,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * The deterministic autonomous research loop. It now DELEGATES the web-acquisition engine (SearchStrategy →
  * rerank → frontier → browse → capture → source acceptance → links → budgets/cancel/CAPTCHA/cleanup) to
  * {@link com.aresstack.askai.research.runtime.acquire.WebSearchApplicationService}, and keeps ONLY the
- * research-specific concerns: deriving the query terms, recording a finding ({@code finding_add}) for each
- * newly accepted source, the run summary, and the PHASE_READY event. The host stays the only state authority.
- * A user-triggered manual search reuses the SAME acquisition service but records no findings.
+ * research-specific concerns: deriving the query terms, the run summary, and the PHASE_READY event. The host
+ * stays the only state authority. Issue #32: the loop records NO findings artifact anymore — the legacy
+ * {@code finding_add} tool is gone; accepted sources (with full text) plus their derived passages ARE the
+ * evidence record.
  */
 public final class ResearchLoop {
 
@@ -185,9 +186,9 @@ public final class ResearchLoop {
 
     /**
      * Run for a task: derive the research terms, delegate the deterministic acquisition to the
-     * {@link com.aresstack.askai.research.runtime.acquire.WebSearchApplicationService} (recording a finding
-     * for each newly accepted source at the acceptance point, so {@code source_accept → finding_add →
-     * web_links} order is preserved), then emit the run summary and — for SUFFICIENT_EVIDENCE — PHASE_READY.
+     * {@link com.aresstack.askai.research.runtime.acquire.WebSearchApplicationService}, then emit the run
+     * summary and — for SUFFICIENT_EVIDENCE — PHASE_READY. Issue #32: acceptance records no findings
+     * artifact anymore; the listener is a no-op like the manual search's.
      */
     public ResearchStopReason run(String task) {
         final Set<String> terms = queryTerms(task);
@@ -201,10 +202,9 @@ public final class ResearchLoop {
                                     com.aresstack.askai.research.runtime.acquire.WebSearchApplicationService
                                             .AcceptedSource source,
                                     com.aresstack.askai.research.runtime.acquire.WebSearchApplicationService
-                                            .ToolBudget budgetGate)
-                                    throws ToolInvoker.ToolFailure, ToolInvoker.EndpointUnavailable {
-                                return recordFinding(source.getSourceId(), source.isDuplicate(),
-                                        source.getPage(), terms, budgetGate);
+                                            .ToolBudget budgetGate) {
+                                // Acceptance already persisted the source (full text) — nothing derived here.
+                                return null;
                             }
                         },
                         challengeWaitForUser,
@@ -224,43 +224,6 @@ public final class ResearchLoop {
     /** The structured, user-facing result of this run (built from the final progress vs. the budget). */
     public ResearchRunOutcome outcome(ResearchStopReason reason) {
         return ResearchRunOutcome.from(reason, progress, budget);
-    }
-
-    /**
-     * RESEARCH-SPECIFIC finding recording (NOT part of the shared web-acquisition service): one finding per
-     * NEW claim; a duplicate source never repeats the same claim, and the {@code finding_add} write is budgeted
-     * exactly like before through the acquisition's own gate. Invoked by the acquisition service as its
-     * accepted-source listener, at the acceptance point (before web_links), so a user-triggered manual search
-     * can reuse the acquisition but record no agent findings.
-     */
-    private ResearchStopReason recordFinding(String sourceId, boolean duplicate, String page, Set<String> terms,
-            com.aresstack.askai.research.runtime.acquire.WebSearchApplicationService.ToolBudget budgetGate)
-            throws ToolInvoker.ToolFailure, ToolInvoker.EndpointUnavailable {
-        String claim = "Evidence for [" + join(terms) + "] in \"" + field(page, "title") + "\"";
-        if (!duplicate && claimedSourceIds.add(claim)) {
-            ResearchStopReason g2 = budgetGate.beforeToolCall();
-            if (g2 != null) {
-                return g2;
-            }
-            callResearch("finding_add", args("source_id", sourceId, "text", claim));
-            progress.success();
-        }
-        return null;
-    }
-
-    // ------------------------------------------------------------------ research tool plumbing
-
-    private String callResearch(String tool, Map<String, Object> a)
-            throws ToolInvoker.ToolFailure, ToolInvoker.EndpointUnavailable {
-        return research.call(tool, a);
-    }
-
-    private static Map<String, Object> args(Object... kv) {
-        Map<String, Object> m = new HashMap<String, Object>();
-        for (int i = 0; i + 1 < kv.length; i += 2) {
-            m.put(String.valueOf(kv[i]), kv[i + 1]);
-        }
-        return m;
     }
 
     // ------------------------------------------------------------------ pure text helpers (see WebAcquisitionText)
@@ -302,7 +265,4 @@ public final class ResearchLoop {
         return com.aresstack.askai.research.runtime.acquire.WebAcquisitionText.hostOf(url);
     }
 
-    private static String join(Set<String> terms) {
-        return com.aresstack.askai.research.runtime.acquire.WebAcquisitionText.join(terms);
-    }
 }

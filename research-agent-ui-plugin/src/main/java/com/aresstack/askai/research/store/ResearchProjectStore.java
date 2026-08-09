@@ -7,7 +7,8 @@ import java.io.File;
  *
  * <pre>
  * project/
- * ├── artifacts/   outline.md, concept.md, research-notes.md, findings.md, draft.md, final.md (+ .meta)
+ * ├── artifacts/   outline.md, document.md (+ .meta); legacy projects may still hold concept.md,
+ * │                research-notes.md, findings.md, draft.md, final.md — kept untouched, never re-tabbed
  * ├── sources/     &lt;sourceId&gt;.properties
  * └── state/       research-session.json
  * </pre>

@@ -254,11 +254,7 @@ public class ResearchLoopPlaywrightSidecarIntegrationTest {
                     loop.getProgress().getAcceptedSources() >= 2);
             assertEquals("two distinct hosts (two local servers)",
                     2, loop.getProgress().getDistinctHosts().size());
-            assertTrue("at least one finding referencing a real source", findings.size() >= 1);
-            for (String finding : findings) {
-                String sourceId = finding.substring(0, finding.indexOf(':'));
-                assertNotNull("finding must reference a committed source", repository.get(sourceId));
-            }
+            assertTrue("issue #32: no findings are recorded anymore", findings.isEmpty());
             assertEquals(1, phaseReady.size());
             // The decisive Playwright proof: every capture text exists ONLY after JS execution.
             assertTrue(captures.size() >= 3);

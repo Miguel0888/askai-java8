@@ -49,7 +49,7 @@ public class ResearchProjectContextPersistenceTest {
                 ResearchProjectMetadata.SCHEMA_VERSION, "proj-1",
                 "How does PF4J plugin isolation work?",
                 Arrays.asList("classloading", "extension points"), 1L));
-        context.getArtifactStore().replace("concept", 0L, "# Concept\n\n> PF4J isolation\n");
+        context.getArtifactStore().replace("document", 0L, "# Document\n\n> PF4J isolation\n");
         context.getArtifactStore().replace("outline", 0L, "# Outline — PF4J\n1. Background\n");
         context.getFileSourceRepository().put(ResearchSourceRecord.builder("source-1")
                 .title("PF4J docs").url("https://pf4j.org/doc").origin("pf4j.org").build());
@@ -75,8 +75,8 @@ public class ResearchProjectContextPersistenceTest {
         assertEquals("# Outline — PF4J\n1. Background\n",
                 restoredContext.getArtifactStore().read("outline").getMarkdown());
         assertTrue(restoredContext.getArtifactStore().read("outline").getRevision() > 0);
-        assertEquals("# Concept\n\n> PF4J isolation\n",
-                restoredContext.getArtifactStore().read("concept").getMarkdown());
+        assertEquals("# Document\n\n> PF4J isolation\n",
+                restoredContext.getArtifactStore().read("document").getMarkdown());
         assertEquals(1, restoredContext.getSourceRepository().find(SourceQuery.all()).size());
 
         ResearchStateMemento state = restored.currentState();

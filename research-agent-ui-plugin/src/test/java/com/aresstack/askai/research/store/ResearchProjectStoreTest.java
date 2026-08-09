@@ -47,10 +47,10 @@ public class ResearchProjectStoreTest {
     @Test
     public void artifactRevisionConflictDoesNotOverwrite() {
         ResearchProjectStore store = new ResearchProjectStore(tmp());
-        store.artifacts().replace("draft", 0L, "v1"); // -> rev 1
-        ArtifactWriteResult stale = store.artifacts().replace("draft", 0L, "v2-from-old-copy");
+        store.artifacts().replace("document", 0L, "v1"); // -> rev 1
+        ArtifactWriteResult stale = store.artifacts().replace("document", 0L, "v2-from-old-copy");
         assertFalse(stale.isSuccess());
-        assertEquals("v1", store.artifacts().read("draft").getMarkdown());
+        assertEquals("v1", store.artifacts().read("document").getMarkdown());
     }
 
     @Test

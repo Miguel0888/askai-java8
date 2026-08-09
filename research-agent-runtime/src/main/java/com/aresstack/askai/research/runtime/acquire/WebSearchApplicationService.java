@@ -28,10 +28,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * acquisition stop reason. Every effect goes through MCP tools; decisions are content-driven.
  *
  * <p>It is caller-agnostic: the autonomous research loop and a user-triggered manual search both consume it.
- * It NEVER calls {@code finding_add}/{@code notes_append}, never signals PHASE_READY and never touches the
- * state machine or the model. When it accepts a source it notifies an {@link AcceptedSourceListener} AT THAT
- * POINT (before {@code web_links}) so the caller can do its own research-specific work (e.g. recording a
- * finding) without changing the observable {@code source_accept → finding_add → web_links} order.</p>
+ * It never signals PHASE_READY and never touches the state machine or the model. When it accepts a source
+ * it notifies an {@link AcceptedSourceListener} AT THAT POINT (before {@code web_links}) so a caller can do
+ * research-specific work there; since issue #32 both callers are no-ops (no findings artifact anymore).</p>
  */
 public final class WebSearchApplicationService {
 
@@ -922,8 +921,8 @@ public final class WebSearchApplicationService {
             progress.sourceAccepted();
             listener.status("accepted " + sourceId + (duplicate ? " (duplicate content)" : ""));
             listener.progress(progress, ResearchRunActivity.sourceAccepted(pageUrl, pageHost, pageTitle));
-            // Research-specific per-source work (e.g. finding_add) happens in the caller's listener at THIS
-            // exact point, budgeted via budgetGate, so source_accept → (finding_add) → web_links is preserved.
+            // Research-specific per-source work happens in the caller's listener at THIS exact point,
+            // budgeted via budgetGate (since issue #32 both callers are no-ops here).
             return acceptedSourceListener.onAccepted(
                     new AcceptedSource(sourceId, duplicate, captureId, pageUrl, pageHost, pageTitle, page),
                     budgetGate);

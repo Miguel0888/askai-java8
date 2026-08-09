@@ -132,7 +132,7 @@ public class ResearchLoopProviderIndependenceTest {
         assertTrue(browser.opened.contains("https://c.example/z"));
         assertEquals(3, loop.getProgress().getPagesVisited());
         assertEquals(3, loop.getProgress().getDistinctHosts().size());
-        assertTrue("sources were accepted through the unchanged lifecycle", research.findings.size() >= 1);
+        assertTrue("issue #32: no findings are recorded anymore", research.findings.isEmpty());
         assertEquals(ResearchStopReason.SUFFICIENT_EVIDENCE, reason);
     }
 

@@ -59,7 +59,8 @@ public class ResearchSettingsContributionTest {
 
     @Test
     public void workProductsStayInTheArtifactArea() {
-        // The artifact area keeps exactly the work products + structured research views.
-        assertTrue(ResearchArtifacts.all().size() >= 8);
+        // The artifact area keeps exactly the work products + structured research views (issue #32:
+        // brief, visualization, outline, document, sources, state — no legacy per-stage tabs).
+        assertTrue(ResearchArtifacts.all().size() == 6);
     }
 }

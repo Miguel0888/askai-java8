@@ -13,9 +13,9 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 /**
- * Commit 1b: the scope commit is FAIL-CLOSED. Every write result is judged; a failed metadata,
- * concept or outline write yields a typed failure and (in the session) neither auto-advance nor an
- * approval — while a fully successful commit persists metadata + both documents.
+ * The scope commit is FAIL-CLOSED and — since issue #32 — writes the TYPED METADATA ONLY: the ResearchBrief
+ * is the canonical scoping artifact, so the commit produces no concept (and since C5 no outline) Markdown
+ * document anymore. Legacy artifact files, however broken, can no longer fail the commit.
  */
 public class ResearchScopeCommitServiceTest {
 
@@ -33,7 +33,7 @@ public class ResearchScopeCommitServiceTest {
     }
 
     @Test
-    public void aFullySuccessfulCommitPersistsMetadataAndTheConcept() throws Exception {
+    public void aSuccessfulCommitPersistsTheMetadataAndWritesNoLegacyArtifacts() throws Exception {
         File dir = tempDir();
         ResearchProjectContext context = context(dir);
         ResearchScopeCommitService.ScopeCommitResult result =
@@ -44,16 +44,19 @@ public class ResearchScopeCommitServiceTest {
         assertEquals(MetadataLoadResult.Status.LOADED, metadata.getStatus());
         assertEquals("How does PF4J isolation work?",
                 metadata.getMetadata().getResearchQuestion());
-        assertEquals("# Concept\n", context.getArtifactStore().read("concept").getMarkdown());
-        // C5: scoping writes NO outline anymore - the "outline" slot is the LIVE corpus projection.
+        // Issue #32: NO concept document beside the brief; C5: the outline slot is the corpus projection.
+        assertEquals("", context.getArtifactStore().read("concept").getMarkdown());
         assertEquals("", context.getArtifactStore().read("outline").getMarkdown());
+        assertFalse("no concept.md is created anymore",
+                new File(new File(dir, "artifacts"), "concept.md").exists());
     }
 
     @Test
-    public void aRejectedConceptWriteStopsBeforeTheOutline() throws Exception {
+    public void aLegacyConceptFileIsLeftUntouchedAndCannotFailTheCommit() throws Exception {
         File dir = tempDir();
         ResearchProjectContext context = context(dir);
-        // Sabotage: concept.md becomes a NON-EMPTY directory, so the atomic write must fail.
+        // A legacy project: concept.md exists (even as an unwritable sabotage shape). Issue #32: the
+        // commit neither reads, rewrites nor deletes it — it can no longer fail anything.
         File artifacts = new File(dir, "artifacts");
         assertTrue(artifacts.mkdirs());
         File conceptAsDir = new File(artifacts, "concept.md");
@@ -62,16 +65,13 @@ public class ResearchScopeCommitServiceTest {
 
         ResearchScopeCommitService.ScopeCommitResult result =
                 new ResearchScopeCommitService(context).commit(scope());
-        assertFalse(result.isSuccess());
-        assertEquals(ResearchScopeCommitService.Status.CONCEPT_FAILED, result.getStatus());
-        assertEquals("the outline slot is never touched by the scope commit (C5)",
-                "", context.getArtifactStore().read("outline").getMarkdown());
-        // The metadata write preceded the failure — the commit is fail-closed, not atomic (a
-        // later project commit marker will harden crash consistency across files).
+        assertTrue(result.getDetail(), result.isSuccess());
+        assertTrue("the legacy file shape is preserved verbatim",
+                new File(conceptAsDir, "blocker").exists());
     }
 
     @Test
-    public void anUnwritableOutlineSlotNoLongerAffectsTheScopeCommit() throws Exception {
+    public void anUnwritableOutlineSlotDoesNotAffectTheScopeCommit() throws Exception {
         File dir = tempDir();
         ResearchProjectContext context = context(dir);
         File artifacts = new File(dir, "artifacts");
@@ -98,21 +98,5 @@ public class ResearchScopeCommitServiceTest {
                 new ResearchScopeCommitService(context).commit(scope());
         assertFalse(result.isSuccess());
         assertEquals(ResearchScopeCommitService.Status.METADATA_FAILED, result.getStatus());
-    }
-
-    @Test
-    public void aReasonlessRejectionClassifiesAsRevisionConflict() {
-        ResearchScopeCommitService.ScopeCommitResult conflict =
-                ResearchScopeCommitService.classifyFailure("outline",
-                        com.aresstack.askai.plugin.api.agent.artifact.ArtifactWriteResult
-                                .conflict("someone else's text", 4L),
-                        ResearchScopeCommitService.Status.OUTLINE_FAILED);
-        assertEquals(ResearchScopeCommitService.Status.REVISION_CONFLICT, conflict.getStatus());
-        ResearchScopeCommitService.ScopeCommitResult error =
-                ResearchScopeCommitService.classifyFailure("outline",
-                        com.aresstack.askai.plugin.api.agent.artifact.ArtifactWriteResult
-                                .error("disk full"),
-                        ResearchScopeCommitService.Status.OUTLINE_FAILED);
-        assertEquals(ResearchScopeCommitService.Status.OUTLINE_FAILED, error.getStatus());
     }
 }

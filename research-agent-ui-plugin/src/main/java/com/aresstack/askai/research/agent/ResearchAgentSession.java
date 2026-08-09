@@ -2113,18 +2113,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
 
     /** Record the unmet evidence requirement VISIBLY and move on towards review — never silently. */
     private void recordLimitation(com.aresstack.askai.research.backend.ResearchRunOutcomeInfo outcome) {
-        String note = playbook.limitationRecorded(outcome);
-        try {
-            com.aresstack.askai.plugin.api.agent.artifact.AgentArtifactStore store =
-                    productiveResources != null ? productiveResources.getArtifactStore() : artifactStore;
-            com.aresstack.askai.plugin.api.agent.artifact.ArtifactContent notes =
-                    store.read("research-notes");
-            store.replace("research-notes", notes.getRevision(),
-                    (notes.getMarkdown().isEmpty() ? "" : notes.getMarkdown() + "\n\n") + "> " + note);
-        } catch (RuntimeException ignored) {
-            // The visible chat confirmation below is the primary record; a store hiccup must not block it.
-        }
-        sayAsAgent(note);
+        // Issue #32: no research-notes artifact anymore — the visible chat note (persisted transcript) plus
+        // the structured run-outcome card ARE the record; diagnostics are never copied into a notes document.
+        sayAsAgent(playbook.limitationRecorded(outcome));
         requestEvidenceReview();
     }
 

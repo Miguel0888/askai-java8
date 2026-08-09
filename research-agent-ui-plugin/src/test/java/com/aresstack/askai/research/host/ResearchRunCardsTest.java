@@ -445,9 +445,8 @@ public class ResearchRunCardsTest {
         fx.press("limit");
         String lastMessage = fx.sink.assistantMessages.get(fx.sink.assistantMessages.size() - 1);
         assertTrue("the limitation is stated visibly", lastMessage.contains("Limitation recorded"));
-        String notes = fx.resources.getArtifactStore().read("research-notes").getMarkdown();
-        assertTrue("the limitation is persisted in the notes artifact",
-                notes.contains("Limitation recorded"));
+        assertEquals("issue #32: no research-notes artifact is written anymore",
+                "", fx.resources.getArtifactStore().read("research-notes").getMarkdown());
         assertEquals("the state moved on towards the evidence review",
                 ResearchStateIds.EVIDENCE, fx.resources.currentState().getPhaseId());
     }

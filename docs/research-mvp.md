@@ -44,7 +44,8 @@ sidecar process (which ends the GraalJS driver child and Chromium). All closes a
   Commit-37 acceptance path.
 - 38: the productive HOST wiring end to end (`ProductiveResearchMvpEndToEndTest`): generation
   publish → real agent + sidecar + Chrome + two JS hosts → SUFFICIENT_EVIDENCE, ≥3 JS captures,
-  ≥2 persisted sources on 2 hosts, findings only on committed sources, exactly one PHASE_READY with
+  ≥2 persisted sources on 2 hosts, no findings artifact anymore (issue #32: accepted sources are
+  the evidence record), exactly one PHASE_READY with
   the state unchanged until the host reacts, ordered teardown, failed switch keeps the old
   generation usable, successful switch locks it.
 
@@ -100,7 +101,7 @@ Environment: Windows, Java 8 + Java 21 installed, Chrome installed, jars built.
 14. `source_accept` outside RESEARCH/running is rejected with "Not allowed in the current state".
 15. The run stops with `RESEARCH_RUN_STOPPED: SUFFICIENT_EVIDENCE …` and exactly one `PHASE_READY` line.
 16. `<projectDir>/sources` contains the persisted source records; origins cover both test hosts.
-17. The findings artifact references only existing source ids.
+17. No findings artifact is written (issue #32) — the persisted sources are the evidence record.
 18. The host command REQUEST_EVIDENCE_REVIEW moves the session to waiting_approval; the agent never did.
 19. Closing the session ends agent + sidecar processes and invalidates both endpoint URLs (client calls fail).
 20. A second close is a no-op (no exception, no log spam).
@@ -127,7 +128,7 @@ AskAI UI → runtime configuration → ResearchSessionCommandPort → host state
 
 ### Research methodology — Evidence-Collection MVP
 
-Proven today: autonomous discovery, web page access, source acceptance, findings, evidence
+Proven today: autonomous discovery, web page access, source acceptance, evidence
 threshold, approval gate. The loop is DETERMINISTIC (query-term matching) by design — it proves the
 platform, not semantic research quality.
 
