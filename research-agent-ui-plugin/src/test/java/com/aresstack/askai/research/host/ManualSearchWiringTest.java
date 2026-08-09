@@ -259,8 +259,9 @@ public class ManualSearchWiringTest {
         // Accepted sources → the session OFFERS the derived step as an explicit action card.
         assertEquals(Collections.singletonList("post-search-review-R1"), fx.sink.actionCards);
 
-        // The user presses "Neue Quellen auswerten": exactly one typed review_sources service command.
-        fx.session.requestPostSearchReview();
+        // The user presses "Neue Quellen auswerten": the card is an adapter over the derived-action
+        // command (issue #33) — exactly one typed review_sources service command follows.
+        assertTrue(fx.session.derivedActions().reviewSources().isAccepted());
         String envelope = null;
         for (String sent : fx.backend.serviceCommands) {
             if (sent.startsWith("#RSC1# review_sources")) {

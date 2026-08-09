@@ -29,17 +29,42 @@ public final class ResearchServiceEndpoint {
     /** The internal tool names — deliberately distinct from the agent's phase-gated {@code source_accept}. */
     public static final String MANUAL_SOURCE_ACCEPT = "manual_source_accept";
     public static final String MANUAL_SOURCE_PARK = "manual_source_park";
+    /** Issue #33: the explicit derived actions as SERVICE tools (user/host/test origin — never the agent). */
+    public static final String REVIEW_SOURCES = "review_sources";
+    public static final String VISUALIZATION_GENERATE = "visualization_generate";
+    public static final String OUTLINE_GENERATE = "outline_generate";
+
+    /**
+     * Resolves the session's derived-action commands AT CALL TIME (the session attaches after this endpoint
+     * opens). {@code null} → the action tools answer with an honest "no session attached" error.
+     */
+    public interface DerivedActionsSource {
+        com.aresstack.askai.research.agent.ResearchDerivedActions derivedActions();
+
+        DerivedActionsSource NONE = new DerivedActionsSource() {
+            public com.aresstack.askai.research.agent.ResearchDerivedActions derivedActions() {
+                return null;
+            }
+        };
+    }
 
     private final McpServerRegistry registry;
     private final ResearchControlContext context;
+    private final DerivedActionsSource derivedActions;
     private final String endpointId;
     private McpEndpointHandle handle;
     private boolean closed;
 
     public ResearchServiceEndpoint(McpServerRegistry registry, String sessionKey, long pluginGenerationId,
                                    ResearchControlContext context) {
+        this(registry, sessionKey, pluginGenerationId, context, DerivedActionsSource.NONE);
+    }
+
+    public ResearchServiceEndpoint(McpServerRegistry registry, String sessionKey, long pluginGenerationId,
+                                   ResearchControlContext context, DerivedActionsSource derivedActions) {
         this.registry = registry;
         this.context = context;
+        this.derivedActions = derivedActions == null ? DerivedActionsSource.NONE : derivedActions;
         this.endpointId = "research-service." + sessionKey + ".g" + pluginGenerationId;
     }
 
@@ -59,8 +84,43 @@ public final class ResearchServiceEndpoint {
         }
         handle = registry.registerEndpoint(
                 new McpEndpointDefinition(endpointId, "Research Service (internal)"));
-        registry.updateTools(handle,
-                Arrays.asList(manualSourceAcceptTool(context), manualSourceParkTool(context)));
+        registry.updateTools(handle, Arrays.asList(
+                manualSourceAcceptTool(context), manualSourceParkTool(context),
+                derivedActionTool(derivedActions, REVIEW_SOURCES,
+                        "Explicit action: let the TeamAgent review the accepted sources "
+                                + "(same command as the 'Neue Quellen auswerten' button)."),
+                derivedActionTool(derivedActions, VISUALIZATION_GENERATE,
+                        "Explicit action: generate the derived visualization from the current brief "
+                                + "(same command as the 'Visualisierung erzeugen' button)."),
+                derivedActionTool(derivedActions, OUTLINE_GENERATE,
+                        "Explicit action: run topic discovery + outline rebuild from the persisted corpus "
+                                + "(same command as the 'Inhaltsverzeichnis erzeugen' button).")));
+    }
+
+    /** One derived-action tool (issue #33): resolves the session's commands at call time, no arguments. */
+    private static McpToolContribution derivedActionTool(final DerivedActionsSource source,
+                                                         final String toolName, String description) {
+        return McpToolContribution.of(toolName, description,
+                new McpToolHandler() {
+                    public McpToolResult invoke(McpToolCall call) {
+                        com.aresstack.askai.research.agent.ResearchDerivedActions actions =
+                                source.derivedActions();
+                        if (actions == null) {
+                            return McpToolResult.error(
+                                    "No research session is attached to this endpoint yet.");
+                        }
+                        com.aresstack.askai.research.agent.ResearchDerivedActions.ActionOutcome outcome;
+                        if (REVIEW_SOURCES.equals(toolName)) {
+                            outcome = actions.reviewSources();
+                        } else if (VISUALIZATION_GENERATE.equals(toolName)) {
+                            outcome = actions.generateVisualization();
+                        } else {
+                            outcome = actions.generateOutline();
+                        }
+                        return outcome.isAccepted() ? McpToolResult.ok("accepted: " + outcome.getDetail())
+                                : McpToolResult.error("rejected: " + outcome.getDetail());
+                    }
+                });
     }
 
     /** Unregister the endpoint (invalidates the token). Idempotent. */

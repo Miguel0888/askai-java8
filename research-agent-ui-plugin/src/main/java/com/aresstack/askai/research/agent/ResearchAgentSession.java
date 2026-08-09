@@ -111,6 +111,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             wireBrowserActivity(resources);
             // C5: when the live outline projection was rebuilt (worker thread), let every state listener —
             // including an open Live Outline artifact view — re-read; marshalled like any other refresh.
+            // Issue #33: hand the session's derived-action commands to the resources so the internal
+            // service-MCP endpoint can invoke the SAME use cases as the UI buttons.
+            resources.setDerivedActions(derivedActions);
             resources.setProjectionUpdateListener(new Runnable() {
                 public void run() {
                     uiExecutor.execute(new Runnable() {
@@ -1138,7 +1141,8 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 new AgentConversationSink.ActionHandler() {
                     public AgentConversationSink.ActionExecutionResult onAction(String actionId) {
                         if ("review".equals(actionId)) {
-                            requestPostSearchReview();
+                            // Issue #33: the card is an ADAPTER over the derived-action command.
+                            derivedActions.reviewSources();
                         }
                         return AgentConversationSink.ActionExecutionResult.ACCEPTED;
                     }
@@ -1644,6 +1648,44 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         } catch (RuntimeException unreadable) {
             return false;
         }
+    }
+
+    // ------------------------------------------------------------------ derived actions (issue #33)
+
+    /**
+     * THE one implementation of the explicit derived-action commands (issue #33): the UI buttons and the
+     * internal service-MCP endpoint both delegate here — same use case, two adapters. Never offered to the
+     * TeamAgent (its research-control endpoint has no such tools).
+     */
+    private final ResearchDerivedActions derivedActions = new ResearchDerivedActions() {
+        public ActionOutcome reviewSources() {
+            if (handle == null || disposed
+                    || (productiveResources != null && productiveResources.isClosed())) {
+                return ActionOutcome.rejected("the research session is not active");
+            }
+            requestPostSearchReview();
+            return ActionOutcome.accepted("review requested (review_started/review_finished bracket follows)");
+        }
+
+        public ActionOutcome generateVisualization() {
+            if (researchBriefStore() == null) {
+                return ActionOutcome.rejected("no productive research project (no brief store)");
+            }
+            requestVisualization();
+            return ActionOutcome.accepted("visualization generation scheduled from the current brief");
+        }
+
+        public ActionOutcome generateOutline() {
+            return requestOutlineRebuild()
+                    ? ActionOutcome.accepted("topic discovery + outline rebuild triggered (debounced)")
+                    : ActionOutcome.rejected(
+                            "knowledge capability unavailable (no embedding world for this session)");
+        }
+    };
+
+    /** The session's derived-action commands — the single entry point for buttons AND the service MCP. */
+    public ResearchDerivedActions derivedActions() {
+        return derivedActions;
     }
 
     // ------------------------------------------------------------------ outline (explicit action, issue #29)
