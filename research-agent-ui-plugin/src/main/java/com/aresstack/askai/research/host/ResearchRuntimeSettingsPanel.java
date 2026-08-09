@@ -51,7 +51,7 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
     /** ChatGPT connector (default OFF): AskAI as its own public MCP+OAuth face behind the TLS proxy. */
     private final JCheckBox chatGptConnector = new JCheckBox(
             "ChatGPT connector (public endpoint behind the reverse proxy; applies to new sessions)", false);
-    private final JTextField connectorOrigin = new JTextField(38);
+    private final JTextField connectorOrigin = placeholderField("https://askai.example.com", 38);
     private final JTextField connectorPort = new JTextField(6);
     private final JTextField connectorClientId = new JTextField(12);
     private final javax.swing.JPasswordField connectorClientSecret = new javax.swing.JPasswordField(18);
@@ -119,10 +119,6 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         form.add(row("", botRow));
         form.add(row("", chatGptConnector));
         form.add(row("Public origin:", connectorOrigin));
-        JLabel originHint = new JLabel("z. B. https://askai.example.com — die öffentliche "
-                + "HTTPS-Basis des Reverse Proxy (ohne Pfad); die Connector-URL ist <origin>/askai");
-        originHint.setEnabled(false);
-        form.add(row("", originHint));
         JPanel connectorDetails = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0));
         connectorDetails.setOpaque(false);
         connectorDetails.add(connectorPort);
@@ -261,6 +257,26 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         searchUrl.setText(settings.getSearchUrlTemplate().isEmpty()
                 ? "https://www.bing.com/search?q={query}" : settings.getSearchUrlTemplate());
         allowPrivate.setSelected(settings.isAllowPrivateNetworks());
+    }
+
+    /** A text field with a gray in-field placeholder, shown while the field is empty. */
+    private static JTextField placeholderField(final String placeholder, int columns) {
+        final JTextField field = new JTextField(columns) {
+            protected void paintComponent(java.awt.Graphics g) {
+                super.paintComponent(g);
+                if (getText().isEmpty()) {
+                    java.awt.Graphics2D g2 = (java.awt.Graphics2D) g.create();
+                    g2.setRenderingHint(java.awt.RenderingHints.KEY_TEXT_ANTIALIASING,
+                            java.awt.RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+                    g2.setColor(java.awt.Color.GRAY);
+                    g2.setFont(getFont());
+                    g2.drawString(placeholder, getInsets().left + 2,
+                            getBaseline(getWidth(), getHeight()));
+                    g2.dispose();
+                }
+            }
+        };
+        return field;
     }
 
     /** All five connector controls as ONE persisted unit (from the toggle and from Save). */
