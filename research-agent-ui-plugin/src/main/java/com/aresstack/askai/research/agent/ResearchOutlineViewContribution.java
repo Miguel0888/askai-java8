@@ -36,9 +36,11 @@ public final class ResearchOutlineViewContribution implements ArtifactViewContri
         final ResearchAgentSession research = (ResearchAgentSession) session;
         final UiExecutor uiExecutor = context.getUiExecutor();
         // Issue #29: the button is the ONLY rebuild trigger — opening/refreshing this view never is.
+        // Issue #33: the button is an ADAPTER over the session's derived-action command (the service MCP
+        // invokes the same command) — no action logic lives in the view.
         view.setGenerateAction(new Runnable() {
             public void run() {
-                research.requestOutlineRebuild();
+                research.derivedActions().generateOutline();
             }
         });
         final Runnable refresh = new Runnable() {

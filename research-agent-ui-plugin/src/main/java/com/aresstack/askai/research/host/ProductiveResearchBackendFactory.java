@@ -508,10 +508,16 @@ public final class ProductiveResearchBackendFactory {
                     };
             control = new com.aresstack.askai.research.mcp.ResearchControlEndpoint(
                     registry, sessionKey, generationId, controlContext);
-            // The INTERNAL service endpoint (manual_source_accept) shares the SAME acceptance context but its
-            // own namespace — a user search accepts sources phase-independently, never as an agent tool.
+            // The INTERNAL service endpoint (manual_source_accept + the explicit derived actions, #33)
+            // shares the SAME acceptance context but its own namespace — user/host/test operations,
+            // never agent tools. The derived actions resolve through the session at call time.
             service = new com.aresstack.askai.research.mcp.ResearchServiceEndpoint(
-                    registry, sessionKey, generationId, controlContext);
+                    registry, sessionKey, generationId, controlContext,
+                    new com.aresstack.askai.research.mcp.ResearchServiceEndpoint.DerivedActionsSource() {
+                        public com.aresstack.askai.research.agent.ResearchDerivedActions derivedActions() {
+                            return holder[0] == null ? null : holder[0].getDerivedActions();
+                        }
+                    });
 
             // 4. Backend with BOTH endpoint descriptors (structured env hand-off; tokens never logged).
             String agentJava = config.getAgentJavaExecutable();
@@ -551,6 +557,14 @@ public final class ProductiveResearchBackendFactory {
             String serviceUrl = registry.endpointUrl(service.getHandle());
             AcpEndpointDescriptor serviceDescriptor = new AcpEndpointDescriptor(
                     service.getEndpointId(), serviceUrl, "streamable", service.getHandle().getToken());
+            // Issue #33: DEV hand-off for HEADLESS clients (gates, tests, an MCP-driving AI): the service
+            // endpoint's connection data as a file under the project directory. Localhost-only endpoint,
+            // per-session token, invalidated on close — the file merely makes the explicit user/host
+            // actions scriptable without the GUI. Overwritten on every session start (stale after close).
+            writeUtf8(new File(projectDir, "service-endpoint.json"),
+                    com.aresstack.askai.research.mcp.ServiceEndpointDescriptorFile.toJson(
+                            service.getEndpointId(), serviceUrl, "streamable",
+                            service.getHandle().getToken()));
             backend = new AcpResearchSessionBackend(connector, spec, researchDescriptor, browserDescriptor,
                     serviceDescriptor);
 

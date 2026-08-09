@@ -109,7 +109,105 @@ public class ResearchServiceEndpointTest {
         ResearchServiceEndpoint service = new ResearchServiceEndpoint(reg, "s1", 1L, new Ctx());
         service.open();
         List<String> names = reg.listToolNames(service.getEndpointId(), service.getHandle().getToken());
-        assertEquals(java.util.Arrays.asList("manual_source_accept", "manual_source_park"), names);
+        assertEquals(java.util.Arrays.asList("manual_source_accept", "manual_source_park",
+                "review_sources", "visualization_generate", "outline_generate"), names);
         service.close();
+    }
+
+    /** Records which derived-action command was invoked; configurable outcome. */
+    private static final class RecordingActions
+            implements com.aresstack.askai.research.agent.ResearchDerivedActions {
+        final List<String> invoked = new java.util.ArrayList<String>();
+        boolean accept = true;
+
+        public ActionOutcome reviewSources() {
+            invoked.add("reviewSources");
+            return outcome();
+        }
+
+        public ActionOutcome generateVisualization() {
+            invoked.add("generateVisualization");
+            return outcome();
+        }
+
+        public ActionOutcome generateOutline() {
+            invoked.add("generateOutline");
+            return outcome();
+        }
+
+        private ActionOutcome outcome() {
+            return accept ? ActionOutcome.accepted("started") : ActionOutcome.rejected("unavailable");
+        }
+    }
+
+    @Test
+    public void theDerivedActionToolsInvokeTheOneSessionCommandImplementation() {
+        // Issue #33: the MCP tools and the UI buttons are two adapters over the SAME commands — the
+        // endpoint resolves the session's implementation at call time and reports its typed outcome.
+        InProcessMcpServerRegistry reg = new InProcessMcpServerRegistry();
+        final RecordingActions actions = new RecordingActions();
+        final com.aresstack.askai.research.agent.ResearchDerivedActions[] attached = {null};
+        ResearchServiceEndpoint service = new ResearchServiceEndpoint(reg, "s1", 1L, new Ctx(),
+                new ResearchServiceEndpoint.DerivedActionsSource() {
+                    public com.aresstack.askai.research.agent.ResearchDerivedActions derivedActions() {
+                        return attached[0];
+                    }
+                });
+        service.open();
+        String id = service.getEndpointId();
+        String token = service.getHandle().getToken();
+
+        // Before the session attached: an honest error, never a silent no-op.
+        McpToolResult early = call(reg, id, token, "outline_generate");
+        assertTrue(early.isError());
+        assertTrue(early.getText().contains("No research session"));
+
+        attached[0] = actions;
+        assertFalse(call(reg, id, token, "review_sources").isError());
+        assertFalse(call(reg, id, token, "visualization_generate").isError());
+        assertFalse(call(reg, id, token, "outline_generate").isError());
+        assertEquals(java.util.Arrays.asList("reviewSources", "generateVisualization", "generateOutline"),
+                actions.invoked);
+
+        // A rejected command surfaces as a typed MCP error with the reason.
+        actions.accept = false;
+        McpToolResult rejected = call(reg, id, token, "outline_generate");
+        assertTrue(rejected.isError());
+        assertTrue(rejected.getText().contains("unavailable"));
+        service.close();
+    }
+
+    @Test
+    public void theDerivedActionToolsAreNeverInTheAgentToolCatalog() {
+        // Issue #33 authority boundary: the TeamAgent must not re-acquire the implicit orchestration that
+        // #29 removed — in NO phase/state does the control endpoint offer the derived-action tools.
+        InProcessMcpServerRegistry reg = new InProcessMcpServerRegistry();
+        Ctx ctx = new Ctx();
+        for (String phase : new String[]{ResearchStateIds.SCOPING, ResearchStateIds.OUTLINE,
+                ResearchStateIds.RESEARCH, ResearchStateIds.EVIDENCE, ResearchStateIds.DRAFT,
+                ResearchStateIds.FINALIZATION}) {
+            ctx.phaseId = phase;
+            ctx.stateId = ResearchStateIds.RUNNING;
+            ResearchControlEndpoint agent = new ResearchControlEndpoint(reg, "s1", 1L, ctx);
+            agent.open();
+            List<String> agentTools = reg.listToolNames(agent.getEndpointId(),
+                    agent.getHandle().getToken());
+            for (String tool : new String[]{"review_sources", "visualization_generate",
+                    "outline_generate"}) {
+                assertFalse(tool + " must never be an agent tool in " + phase,
+                        agentTools.contains(tool));
+            }
+            agent.close();
+        }
+    }
+
+    @Test
+    public void theDescriptorFileCarriesTheHeadlessConnectionData() {
+        String json = ServiceEndpointDescriptorFile.toJson(
+                "research-service.s1.g1", "http://127.0.0.1:4242/mcp", "streamable", "tok\"en\\x");
+        assertTrue(json.contains("\"endpointId\": \"research-service.s1.g1\""));
+        assertTrue(json.contains("\"url\": \"http://127.0.0.1:4242/mcp\""));
+        assertTrue(json.contains("\"transport\": \"streamable\""));
+        assertTrue("quotes/backslashes are escaped", json.contains("\"token\": \"tok\\\"en\\\\x\""));
     }
 }

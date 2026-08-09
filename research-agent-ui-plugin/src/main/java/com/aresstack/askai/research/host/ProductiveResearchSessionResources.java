@@ -184,6 +184,22 @@ public final class ProductiveResearchSessionResources {
         }
     }
 
+    /**
+     * Set by the SESSION (issue #33): the one implementation of the explicit derived-action commands. The
+     * internal service-MCP endpoint reads it at call time; before the session attached it, actions are
+     * honestly unavailable. Never exposed on the agent-facing control endpoint.
+     */
+    private volatile com.aresstack.askai.research.agent.ResearchDerivedActions derivedActions;
+
+    public void setDerivedActions(com.aresstack.askai.research.agent.ResearchDerivedActions actions) {
+        this.derivedActions = actions;
+    }
+
+    /** The session's derived-action commands, or {@code null} while no session is attached. */
+    public com.aresstack.askai.research.agent.ResearchDerivedActions getDerivedActions() {
+        return derivedActions;
+    }
+
     /** Set by the SESSION: notified (worker thread) after every persisted live-projection rebuild. */
     private volatile Runnable projectionUpdateListener;
 

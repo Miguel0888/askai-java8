@@ -102,6 +102,21 @@ public class ExplicitDerivedActionsTest {
         assertEquals("no persisted outline artifact yet", "", fx.session.outlineMarkdown().trim());
     }
 
+    @Test
+    public void theDerivedActionCommandsReportTypedOutcomes() {
+        // Issue #33: UI buttons and the service MCP share these commands; outcomes are honest, not silent.
+        Fx fx = new Fx();
+        assertFalse("no embedding world -> outline rejected with a reason",
+                fx.session.derivedActions().generateOutline().isAccepted());
+        assertTrue(fx.session.derivedActions().generateOutline().getDetail().contains("unavailable"));
+        assertTrue("a productive project accepts the visualization request",
+                fx.session.derivedActions().generateVisualization().isAccepted());
+        assertTrue("an active session accepts the review request",
+                fx.session.derivedActions().reviewSources().isAccepted());
+        assertTrue("the resources expose the SAME implementation for the service endpoint",
+                fx.resources.getDerivedActions() == fx.session.derivedActions());
+    }
+
     // ------------------------------------------------------------------ fixture (mirrors ManualSearchWiringTest)
 
     private interface Check {
