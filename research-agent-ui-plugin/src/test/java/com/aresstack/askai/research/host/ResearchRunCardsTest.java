@@ -260,16 +260,20 @@ public class ResearchRunCardsTest {
                 fx.backend, null, new SinkHost(restoredSink), "s1", "p1", fx.resources);
         restored.activate();
 
-        assertFalse("the restored session re-shows an approval card", restoredSink.cardOptions.isEmpty());
-        List<AgentConversationSink.ActionOption> options =
-                restoredSink.cardOptions.get(restoredSink.cardOptions.size() - 1);
-        boolean hasApprove = false;
-        for (AgentConversationSink.ActionOption option : options) {
-            if ("approve".equals(option.getId())) {
-                hasApprove = true;
+        // Unified action surface: no chat card — the restored session derives its RED action tags
+        // (approve/changes) from the live WAITING_APPROVAL state.
+        assertTrue("the approve tag is re-derived from the WAITING_APPROVAL state",
+                hasActionTag(restored, "approve-evidence"));
+        assertTrue("the changes tag is re-derived as well", hasActionTag(restored, "request-revision"));
+    }
+
+    private static boolean hasActionTag(ResearchAgentSession session, String command) {
+        for (com.aresstack.askai.research.agent.ResearchActionTag tag : session.availableActionTags()) {
+            if (tag.getCommand().equals(command) && tag.isEnabled()) {
+                return true;
             }
         }
-        assertTrue("the approve button is re-derived from the WAITING_APPROVAL state", hasApprove);
+        return false;
     }
 
     @Test
@@ -466,15 +470,9 @@ public class ResearchRunCardsTest {
         assertEquals(ResearchStateIds.EVIDENCE, fx.resources.currentState().getPhaseId());
         assertEquals(ResearchStateIds.WAITING_APPROVAL, fx.resources.currentState().getStateId());
 
-        List<AgentConversationSink.ActionOption> options =
-                fx.sink.cardOptions.get(fx.sink.cardOptions.size() - 1);
-        boolean hasApprove = false;
-        for (AgentConversationSink.ActionOption option : options) {
-            if ("approve".equals(option.getId())) {
-                hasApprove = true;
-            }
-        }
-        assertTrue("the evidence gate re-derives its approve button (no dead end)", hasApprove);
+        // Unified action surface: the gate presents its decision as RED action tags, not a chat card.
+        assertTrue("the evidence gate derives its approve tag (no dead end)",
+                hasActionTag(fx.session, "approve-evidence"));
     }
 
     @Test

@@ -9,12 +9,12 @@ import javax.swing.JComponent;
 import java.util.function.Consumer;
 
 /**
- * The scoping controls as a COMPOSER ACCESSORY (above the composer), not a hidden artifact view. It wraps the
- * reusable {@link ScopingSupportView}, keeps it in sync with the live session (latest projection + scoping-only
- * visibility) via the session's state listener, and is disposed by the host on session/agent/tab change — an
- * explicit lifecycle instead of an AncestorListener. A TAG CLICK submits the query as an immediate search turn
- * (result depth from the configured search settings, default 10); the agent's best query is surfaced only as
- * the chat composer's PLACEHOLDER through the host-provided sink.
+ * The composer accessory: the UNIFORM tag surface above the composer. Yellow suggestion tags (scoping only)
+ * plus the RED action tags of the CURRENT state — one derivation, one click path, no chat action cards and no
+ * special-case buttons. A yellow click runs the search; a red click runs its command through the session's
+ * ONE structured command processor ({@link ResearchAgentSession#executeCommand}) — exactly what {@code /do}
+ * and the MCP {@code run_command} run. Kept in sync via the session's state listener; disposed by the host on
+ * session/agent/tab change.
  */
 final class ScopingComposerAccessory implements ComposerAccessory {
 
@@ -37,11 +37,11 @@ final class ScopingComposerAccessory implements ComposerAccessory {
                 research.requestManualWebSearch(query);
             }
         });
-        this.view.setContinueAction(new Runnable() {
-            public void run() {
-                // The ONLY trigger of the SCOPING → OUTLINE transition: approve the brief, then advance.
-                // All phase rules live in the session/state machine — the button carries none of them.
-                research.approveScopingBriefAndContinue();
+        this.view.setActionHandler(new Consumer<ResearchActionTag>() {
+            public void accept(ResearchActionTag action) {
+                // ONE path for every red tag: the structured command processor. Rejections surface through
+                // the session (problems/diagnostics); the tags re-derive on the resulting state change.
+                research.executeCommand(action.getCommand(), "");
             }
         });
         this.refresh = new Runnable() {
@@ -50,23 +50,15 @@ final class ScopingComposerAccessory implements ComposerAccessory {
                         research.currentResearchSnapshot().getCurrentPhaseId());
                 // Drop suggestions whose query a user search already covered, so a searched (clicked) tag
                 // disappears after the search and the same/covered query is never re-offered; the tags then
-                // re-arrange in the flow layout.
-                final ScopingAssistantUpdate projection =
-                        withoutSearched(research.latestScopingProjection());
-                // Re-derive the enablement from the LIVE session on every state change (phase, brief, busy) in
-                // ONE evaluation: an empty reason means ready; otherwise it is the disabled button's tooltip.
-                final String unavailableReason = research.scopingApprovalUnavailableReason();
-                final boolean canContinue = unavailableReason.isEmpty();
+                // re-arrange in the flow layout. Suggestions are scoping-only; ACTION tags exist in EVERY
+                // phase (approval gates, resume/retry, review offers) — the surface follows the state.
+                final ScopingAssistantUpdate projection = scoping
+                        ? withoutSearched(research.latestScopingProjection()) : null;
+                final java.util.List<ResearchActionTag> actions = research.availableActionTags();
                 uiExecutor.execute(new Runnable() {
                     public void run() {
-                        view.setVisible(scoping); // shown only in scoping; hidden elsewhere
-                        if (scoping && projection != null) {
-                            view.apply(projection);
-                        }
-                        view.setContinueEnabled(canContinue);
-                        view.setContinueTooltip(canContinue
-                                ? "Fragestellung freigeben und zur Gliederung (OUTLINE) wechseln"
-                                : unavailableReason);
+                        view.setVisible(scoping || !actions.isEmpty());
+                        view.apply(projection, actions);
                         pushPlaceholder(scoping, projection);
                     }
                 });

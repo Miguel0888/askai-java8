@@ -45,6 +45,7 @@ import java.util.Collections;
 import java.util.List;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 /**
@@ -256,8 +257,14 @@ public class ManualSearchWiringTest {
         manualSearchEvent(fx, 3L, "R1", "review_started", "", "");
         assertTrue("no implicit post-search thinking bubble", fx.sink.thinkingStarted.isEmpty());
 
-        // Accepted sources → the session OFFERS the derived step as an explicit action card.
-        assertEquals(Collections.singletonList("post-search-review-R1"), fx.sink.actionCards);
+        // Accepted sources → the session OFFERS the derived step as a RED action tag (uniform surface,
+        // no chat card).
+        boolean offered = false;
+        for (com.aresstack.askai.research.agent.ResearchActionTag tag : fx.session.availableActionTags()) {
+            offered |= "review-sources".equals(tag.getCommand());
+        }
+        assertTrue("the review offer appears as an action tag", offered);
+        assertTrue("no chat action card anymore", fx.sink.actionCards.isEmpty());
 
         // The user presses "Neue Quellen auswerten": the card is an adapter over the derived-action
         // command (issue #33) — exactly one typed review_sources service command follows.
@@ -303,7 +310,11 @@ public class ManualSearchWiringTest {
         fx.session.requestManualWebSearch("wearables");
 
         manualSearchEvent(fx, 2L, "R1", "completed", "0 Treffer", "0");
-        assertTrue("nothing to review → no action card", fx.sink.actionCards.isEmpty());
+        boolean offered = false;
+        for (com.aresstack.askai.research.agent.ResearchActionTag tag : fx.session.availableActionTags()) {
+            offered |= "review-sources".equals(tag.getCommand());
+        }
+        assertFalse("nothing to review → no review tag", offered);
     }
 
     private static List<String> manualEntries(List<String> entries) {

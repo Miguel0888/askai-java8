@@ -307,58 +307,53 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
      * decision state: approval gates, ready-to-start waits, paused/blocked/failed interruptions.
      */
     private void showRestoredActionsIfAny() {
-        if (productiveResources == null || sink == null) {
-            return;
-        }
-        final com.aresstack.askai.research.state.oo.ResearchStateMemento current =
-                productiveResources.currentState();
-        final java.util.List<RestoredActionsProvider.RestoredAction> actions =
-                restoredActionsProvider.deriveFrom(stateFactory.restore(current));
-        if (actions.isEmpty()) {
-            return;
-        }
-        uiExecutor.execute(new Runnable() {
-            public void run() {
-                java.util.List<AgentConversationSink.ActionOption> options =
-                        new ArrayList<AgentConversationSink.ActionOption>();
-                for (RestoredActionsProvider.RestoredAction action : actions) {
-                    options.add(new AgentConversationSink.ActionOption(action.getActionId(),
-                            playbook.actionLabel(action.getActionId())));
-                }
-                String cardId = current.getPendingApprovalId() == null
-                        ? "actions-restored-" + current.getRevision() : current.getPendingApprovalId();
-                String text = narrator.describePhase(current.getPhaseId(), current.getStateId(),
-                        !researchQuestion.isEmpty());
-                sink.showLiveActionCard(cardId, text, options,
-                        new AgentConversationSink.ActionHandler() {
-                            public AgentConversationSink.ActionExecutionResult onAction(String actionId) {
-                                return applyRestoredAction(actions, actionId);
-                            }
-                        });
-            }
-        });
+        // Issue #34-style unification: NO chat card anymore — the red action tags above the composer are
+        // the ONE surface for restored/pending decisions. They re-derive from the live state on every
+        // state-change notification, so firing one here is all a restore needs.
+        fireStateChanged();
     }
 
-    /** Applies a restored button press; unknown/no-longer-allowed actions reject and keep the card. */
-    private AgentConversationSink.ActionExecutionResult applyRestoredAction(
-            java.util.List<RestoredActionsProvider.RestoredAction> actions, String actionId) {
-        for (RestoredActionsProvider.RestoredAction action : actions) {
-            if (action.getActionId().equals(actionId)) {
-                if ("approve".equals(actionId)) {
-                    approveCurrent();
-                } else if ("changes".equals(actionId)) {
-                    requestChanges("");
-                    narrateAsAgent("refine", narrator.refinePrompt());
-                } else {
-                    if (!dispatch(action.getCommand(), null).isAccepted()) {
-                        return AgentConversationSink.ActionExecutionResult.REJECTED;
-                    }
-                    maybeStartResearchTurn();
-                }
-                return AgentConversationSink.ActionExecutionResult.ACCEPTED;
-            }
+    /**
+     * The currently available ACTIONS as red tags — ONE derivation for the accessory surface AND the MCP
+     * session_state answer. Every tag is a command of the synchronized command surface; a command that is
+     * not allowed right now yields no tag. The submit-scope tag is the one deliberate disabled-with-reason
+     * case (visible during scoping, greyed with the concrete blocker as tooltip), so scoping never shows an
+     * unexplained dead end.
+     */
+    public java.util.List<ResearchActionTag> availableActionTags() {
+        java.util.List<ResearchActionTag> tags = new java.util.ArrayList<ResearchActionTag>();
+        if (disposed || (productiveResources != null && productiveResources.isClosed())) {
+            return tags;
         }
-        return AgentConversationSink.ActionExecutionResult.REJECTED;
+        com.aresstack.askai.research.state.oo.ResearchStateMemento memento =
+                productiveResources != null ? productiveResources.currentState() : state;
+        java.util.Set<ResearchCommandType> allowed = currentAllowedCommands();
+        if (com.aresstack.askai.research.state.oo.ResearchStateIds.SCOPING.equals(memento.getPhaseId())
+                && allowed.contains(ResearchCommandType.SUBMIT_SCOPE)) {
+            String reason = scopingApprovalUnavailableReason();
+            tags.add(new ResearchActionTag("submit-scope",
+                    playbook.isGerman() ? "Fragestellung freigeben & weiter" : "Approve brief & continue",
+                    reason.isEmpty()
+                            ? (playbook.isGerman()
+                                    ? "Fragestellung freigeben und mit der Recherche beginnen"
+                                    : "Approve the brief and start the research")
+                            : reason,
+                    reason.isEmpty()));
+        }
+        for (RestoredActionsProvider.RestoredAction action
+                : restoredActionsProvider.deriveFrom(stateFactory.restore(memento))) {
+            tags.add(new ResearchActionTag(kebab(action.getCommand()),
+                    playbook.actionLabel(action.getActionId()), "", true));
+        }
+        if (postSearchReviewOffered) {
+            tags.add(new ResearchActionTag("review-sources",
+                    playbook.isGerman() ? "Neue Quellen auswerten" : "Review new sources",
+                    playbook.isGerman()
+                            ? "Die neuen Quellen kurz sichten und zusammenfassen lassen"
+                            : "Have the agent skim and summarize the new sources",
+                    true));
+        }
+        return tags;
     }
 
     @Override
@@ -730,40 +725,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 break;
             }
         }
-        final com.aresstack.askai.research.state.oo.ResearchStateMemento after =
-                productiveResources.currentState();
-        if (com.aresstack.askai.research.state.oo.ResearchStateIds.WAITING_APPROVAL
-                .equals(after.getStateId()) && sink != null) {
-            // Phase-neutral gate (C5: scoping no longer routes through an outline approval — the live
-            // outline is a mobile projection; this card serves the remaining gates, e.g. evidence).
-            final String message = "The " + after.getPhaseId()
-                    + " needs your approval.\n\nApprove to continue, or request changes.";
-            uiExecutor.execute(new Runnable() {
-                public void run() {
-                    String approvalId = after.getPendingApprovalId() == null
-                            ? "approval-" + after.getRevision() : after.getPendingApprovalId();
-                    // Real buttons, no slash ceremony: approve starts the research automatically.
-                    java.util.List<AgentConversationSink.ActionOption> options =
-                            new ArrayList<AgentConversationSink.ActionOption>();
-                    options.add(new AgentConversationSink.ActionOption("approve",
-                            playbook.actionLabel("approve")));
-                    options.add(new AgentConversationSink.ActionOption("changes",
-                            playbook.actionLabel("changes")));
-                    sink.showActionCard(approvalId, message, options,
-                            new AgentConversationSink.ActionHandler() {
-                                public AgentConversationSink.ActionExecutionResult onAction(String actionId) {
-                                    if ("approve".equals(actionId)) {
-                                        approveCurrent();
-                                    } else {
-                                        requestChanges("");
-                                        narrateAsAgent("refine", narrator.refinePrompt());
-                                    }
-                                    return AgentConversationSink.ActionExecutionResult.ACCEPTED;
-                                }
-                            });
-                }
-            });
-        }
+        // Issue #34-style unification: an approval gate shows NO chat card — the red action tags
+        // (approve/changes) derive from WAITING_APPROVAL via availableActionTags(); the state-change
+        // notifications of the dispatches above already refreshed them.
     }
 
     // ------------------------------------------------------------------ ResearchSessionCommandPort
@@ -987,6 +951,11 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
      * ready. The UI uses this for the disabled button's tooltip, so a greyed button is never an unexplained
      * dead end (the same plain-language text a rejected click would show).
      */
+    /** The plain-language text for a non-success approval outcome (same wording the problem uses). */
+    private String scopingApprovalUnavailableReasonFor(ScopingApprovalOutcome outcome) {
+        return scopingApprovalProblemText(outcome);
+    }
+
     public String scopingApprovalUnavailableReason() {
         ScopingApprovalOutcome blocker = scopingApprovalBlocker();
         return blocker == null ? "" : scopingApprovalProblemText(blocker);
@@ -1111,6 +1080,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 offerPostSearchReview(requestId);
             }
         } else if ("review_started".equals(subKind)) {
+            postSearchReviewOffered = false; // the offer is consumed
             // The bot is now at the wheel (skimming the new sources, refreshing suggestions): show a thinking
             // bubble AND make the composer BUSY (red, cancellable) exactly like a normal agent turn, so the
             // user both sees the work and can abort it. Cleared by review_finished (always emitted).
@@ -1141,22 +1111,14 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
      * "Neue Quellen auswerten". Nothing runs until the user presses it; dismissing it costs nothing —
      * the sources are already persisted.
      */
+    /** True while the post-search "Neue Quellen auswerten" action is offered as a red tag. */
+    private volatile boolean postSearchReviewOffered;
+
     private void offerPostSearchReview(final String searchRequestId) {
-        java.util.List<AgentConversationSink.ActionOption> options =
-                new ArrayList<AgentConversationSink.ActionOption>();
-        options.add(new AgentConversationSink.ActionOption("review", "Neue Quellen auswerten"));
-        sink.showActionCard("post-search-review-" + searchRequestId,
-                "Die neuen Quellen sind übernommen. Soll ich sie kurz sichten und zusammenfassen?",
-                options,
-                new AgentConversationSink.ActionHandler() {
-                    public AgentConversationSink.ActionExecutionResult onAction(String actionId) {
-                        if ("review".equals(actionId)) {
-                            // Issue #33: the card is an ADAPTER over the derived-action command.
-                            derivedActions.reviewSources();
-                        }
-                        return AgentConversationSink.ActionExecutionResult.ACCEPTED;
-                    }
-                });
+        // Issue #34-style unification: no chat card — offer the derived AI step as a RED action tag in the
+        // uniform surface. Cleared when the review starts (or the session moves on).
+        postSearchReviewOffered = true;
+        fireStateChanged();
     }
 
     /**
@@ -1673,6 +1635,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                     || (productiveResources != null && productiveResources.isClosed())) {
                 return ActionOutcome.rejected("the research session is not active");
             }
+            postSearchReviewOffered = false; // the offer is consumed by the explicit request
             requestPostSearchReview();
             return ActionOutcome.accepted("review requested (review_started/review_finished bracket follows)");
         }
@@ -1772,6 +1735,27 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             return "rejected: '" + cmd + "' is not allowed in " + memento.getPhaseId() + "/"
                     + memento.getStateId() + ". Valid now: " + validCommandNames();
         }
+        // The buttons' use cases ARE the commands (one processor, no side paths): submit-scope runs the
+        // full brief-approval commit; approvals resolve the pending gate; change requests narrate.
+        if (type == ResearchCommandType.SUBMIT_SCOPE && productiveResources != null) {
+            ScopingApprovalOutcome outcome = approveScopingBriefAndContinue();
+            return outcome == ScopingApprovalOutcome.SUCCESS
+                    ? "handled: brief approved, research started"
+                    : "rejected: " + scopingApprovalUnavailableReasonFor(outcome);
+        }
+        if (hasPendingApproval() && (type == ResearchCommandType.APPROVE_OUTLINE
+                || type == ResearchCommandType.APPROVE_EVIDENCE
+                || type == ResearchCommandType.APPROVE_DRAFT
+                || type == ResearchCommandType.APPROVE_FINAL)) {
+            approveCurrent();
+            return "handled: approved (" + cmd + ")";
+        }
+        if (type == ResearchCommandType.REQUEST_OUTLINE_CHANGES
+                || type == ResearchCommandType.REQUEST_REVISION) {
+            requestChanges("");
+            narrateAsAgent("refine", narrator.refinePrompt());
+            return "handled: changes requested (" + cmd + ")";
+        }
         com.aresstack.askai.research.backend.ResearchCommandDispatchResult dispatched =
                 dispatch(type, null);
         return dispatched.isAccepted() ? "handled: dispatched " + cmd
@@ -1813,13 +1797,13 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
           .append(" busy=").append(agentTurnInFlight).append('\n');
         sb.append("commands: ").append(validCommandNames()).append('\n');
         sb.append("buttons:");
-        java.util.List<RestoredActionsProvider.RestoredAction> buttons = restoredActionsProvider
-                .deriveFrom(stateFactory.restore(memento));
+        java.util.List<ResearchActionTag> buttons = availableActionTags();
         if (buttons.isEmpty()) {
             sb.append(" -");
         } else {
-            for (RestoredActionsProvider.RestoredAction action : buttons) {
-                sb.append(' ').append(action.getActionId()).append('=').append(kebab(action.getCommand()));
+            for (ResearchActionTag tag : buttons) {
+                sb.append(' ').append(tag.getCommand())
+                  .append(tag.isEnabled() ? "" : "(disabled)");
             }
         }
         sb.append('\n');
