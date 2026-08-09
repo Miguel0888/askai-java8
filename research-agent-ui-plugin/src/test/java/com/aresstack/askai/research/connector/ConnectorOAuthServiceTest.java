@@ -123,19 +123,16 @@ public class ConnectorOAuthServiceTest {
     }
 
     @Test
-    public void anEmptyConfiguredSecretMeansPublicClient_pkceOnly_asChatGptRegistersItself() throws Exception {
-        ConnectorConfig publicClient = new ConnectorConfig(0, "https://askai.example.com",
-                "askai", "", null);
-        ConnectorOAuthService oauth = new ConnectorOAuthService(publicClient, clock);
+    public void emptyConfiguredCredentialsFallBackToThePylorosStyleDefaults() throws Exception {
+        ConnectorConfig defaults = new ConnectorConfig(0, "https://askai.example.com", "", "", null);
+        assertEquals("askai", defaults.getClientId());
+        assertEquals("change-me", defaults.getClientSecret());
+        assertTrue(defaults.isComplete());
 
-        Map<String, Object> registered = oauth.registerClient();
-        assertEquals("askai", registered.get("client_id"));
-        assertEquals("none", registered.get("token_endpoint_auth_method"));
-        assertFalse(registered.containsKey("client_secret"));
-
+        ConnectorOAuthService oauth = new ConnectorOAuthService(defaults, clock);
         String code = codeFromLocation(oauth.authorize("code", "askai",
                 "https://chatgpt.com/cb", null, "mcp", challenge("v1"), "S256"));
-        Map<String, Object> token = oauth.token("askai", null, "authorization_code", code, null,
+        Map<String, Object> token = oauth.token("askai", "change-me", "authorization_code", code, null,
                 "https://chatgpt.com/cb", "v1");
         assertTrue(oauth.isBearerAuthorized("Bearer " + token.get("access_token")));
     }

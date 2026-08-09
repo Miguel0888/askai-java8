@@ -56,7 +56,7 @@ public final class ChatGptConnectorRuntime {
             server = null;
         }
         if (!config.isComplete()) {
-            startFailure = "incomplete configuration (public origin and client id are required)";
+            startFailure = "incomplete configuration (the public origin is required)";
             System.out.println("[chatgpt-connector] not started: " + startFailure);
             return;
         }

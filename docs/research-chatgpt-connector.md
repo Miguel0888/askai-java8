@@ -33,7 +33,7 @@ ChatGPT ──HTTPS──> Apache (anderer Rechner, TLS)  ──HTTP──> AskA
 | ChatGPT connector | Default **AUS** — öffentlicher Listener nur nach bewusster Entscheidung |
 | Public origin | z. B. `https://askai.example.com` (wird in den OAuth-Metadaten annonciert) |
 | Connector port | lokaler Klartext-HTTP-Port (Default 8082); der Proxy-Rechner muss ihn erreichen |
-| Client-ID / Secret | Secret OPTIONAL: leer = Public Client (PKCE only) — ChatGPT registriert sich selbst per Dynamic Client Registration; ein gesetztes Secret wird strikt erzwungen |
+| Client-ID / Secret | das OAuth-Client-Paar wie bei Pyloros; leer = Defaults `askai` / `change-me` — der Listener startet IMMER |
 
 Gilt für NEUE Sessions; der Listener ist app-weit (ein Port), Sessions docken ihr Gateway an.
 
@@ -58,7 +58,7 @@ für den Proxy-Rechner öffnen.
 Neuen Connector anlegen mit:
 
 - **URL**: `https://askai.example.com/askai`
-- **OAuth**: nichts eintragen — ChatGPT registriert sich selbst über `/oauth/register` (Dynamic Client Registration); nur wenn in AskAI ein Secret gesetzt ist, dasselbe Paar eintragen
+- **OAuth Client-ID / Client-Secret**: dasselbe Paar wie in den AskAI-Settings (genau wie bei Pyloros)
 - Authorization-/Token-Endpoint entdeckt ChatGPT selbst über `/.well-known/oauth-authorization-server`.
 
 Danach erscheinen `run_command`, `session_state` und `chat_history` als Tools; der Workflow steht in

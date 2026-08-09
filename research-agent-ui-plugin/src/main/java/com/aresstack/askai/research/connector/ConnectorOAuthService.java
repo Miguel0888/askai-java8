@@ -99,13 +99,9 @@ public final class ConnectorOAuthService {
     public synchronized Map<String, Object> token(String clientId, String clientSecret, String grantType,
                                                   String code, String refreshToken, String redirectUri,
                                                   String codeVerifier) {
-        if (clientId == null || !clientId.equals(config.getClientId())) {
-            throw new OAuthError(401, "invalid_client");
-        }
-        // Empty configured secret = PUBLIC client (ChatGPT's dynamic registration): PKCE carries the
-        // security; a configured secret is enforced strictly.
-        if (!config.getClientSecret().isEmpty()
-                && !config.getClientSecret().equals(clientSecret == null ? "" : clientSecret)) {
+        // Exactly Pyloros' isKnownOAuthClient: the configured pair, nothing else.
+        if (clientId == null || !clientId.equals(config.getClientId())
+                || clientSecret == null || !clientSecret.equals(config.getClientSecret())) {
             throw new OAuthError(401, "invalid_client");
         }
         cleanupExpired();
@@ -188,23 +184,6 @@ public final class ConnectorOAuthService {
         body.put("expires_in", config.getAccessTokenTtlSeconds());
         body.put("refresh_token", refreshToken);
         body.put("scope", scope);
-        return body;
-    }
-
-    /**
-     * RFC 7591 dynamic client registration: ChatGPT registers itself and is ASSIGNED our one client —
-     * no pre-shared credentials needed. Public client unless a secret is configured.
-     */
-    public Map<String, Object> registerClient() {
-        Map<String, Object> body = new LinkedHashMap<String, Object>();
-        body.put("client_id", config.getClientId());
-        if (!config.getClientSecret().isEmpty()) {
-            body.put("client_secret", config.getClientSecret());
-        }
-        body.put("token_endpoint_auth_method",
-                config.getClientSecret().isEmpty() ? "none" : "client_secret_post");
-        body.put("grant_types", new String[]{"authorization_code", "refresh_token"});
-        body.put("response_types", new String[]{"code"});
         return body;
     }
 

@@ -12,6 +12,10 @@ public final class ConnectorConfig {
     /** The public MCP path — the connector URL is {@code <publicOrigin>/askai}. */
     public static final String MCP_PUBLIC_PATH = "/askai";
 
+    /** Pyloros-style property defaults: the server always has a usable client pair. */
+    public static final String DEFAULT_CLIENT_ID = "askai";
+    public static final String DEFAULT_CLIENT_SECRET = "change-me";
+
     private final int port;
     private final String publicOrigin;
     private final String clientId;
@@ -29,8 +33,10 @@ public final class ConnectorConfig {
                            File refreshTokenStore, int accessTokenTtlSeconds, int refreshTokenTtlSeconds) {
         this.port = port;
         this.publicOrigin = trimTrailingSlash(publicOrigin);
-        this.clientId = clientId == null ? "" : clientId;
-        this.clientSecret = clientSecret == null ? "" : clientSecret;
+        this.clientId = clientId == null || clientId.trim().isEmpty()
+                ? DEFAULT_CLIENT_ID : clientId.trim();
+        this.clientSecret = clientSecret == null || clientSecret.trim().isEmpty()
+                ? DEFAULT_CLIENT_SECRET : clientSecret.trim();
         this.refreshTokenStore = refreshTokenStore;
         this.accessTokenTtlSeconds = accessTokenTtlSeconds;
         this.refreshTokenTtlSeconds = refreshTokenTtlSeconds;
@@ -71,10 +77,10 @@ public final class ConnectorConfig {
     }
 
     /**
-     * A usable configuration has a client id and a public origin. The secret is OPTIONAL: empty =
-     * public client (PKCE only) — the mode ChatGPT's dynamic client registration uses.
+     * Exactly like Pyloros: the client pair always exists (defaults above), so only the public
+     * origin is genuinely required.
      */
     public boolean isComplete() {
-        return !clientId.isEmpty() && !publicOrigin.isEmpty();
+        return !publicOrigin.isEmpty();
     }
 }
