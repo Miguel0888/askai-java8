@@ -242,37 +242,67 @@ public class ManualSearchWiringTest {
     }
 
     @Test
-    public void completedIsNotTerminalTheReviewBracketDeliversTheSummaryAndReleasesTheComposer() {
+    public void theDerivedReviewIsAnExplicitActionNeverAnAutomaticContinuationOfTheSearch() {
         Fx fx = new Fx();
         fx.session.dispatch(ResearchCommandType.START, null);
         completeTurn(fx, 1L);
         fx.session.setManualWebSearchPort(new FixedRequestIdPort("R1"));
         fx.session.requestManualWebSearch("wearables");
 
-        // completed = acquisition finished, NOT the whole operation: the correlation id survives so
-        // the following review_* events still apply.
-        manualSearchEvent(fx, 2L, "R1", "completed", "8 Treffer");
+        // completed IS the search terminal now (issue #29): the correlation id is cleared, so a stray
+        // review event for the finished search is dropped and NOTHING model-backed starts implicitly.
+        manualSearchEvent(fx, 2L, "R1", "completed", "8 Treffer", "8");
         assertEquals(1, manualEntries(fx.sink.completed).size());
+        manualSearchEvent(fx, 3L, "R1", "review_started", "", "");
+        assertTrue("no implicit post-search thinking bubble", fx.sink.thinkingStarted.isEmpty());
 
-        manualSearchEvent(fx, 3L, "R1", "review_started", "");
-        assertEquals("one post-search thinking bubble",
-                Collections.singletonList("post-search-summary-R1"), fx.sink.thinkingStarted);
+        // Accepted sources → the session OFFERS the derived step as an explicit action card.
+        assertEquals(Collections.singletonList("post-search-review-R1"), fx.sink.actionCards);
+
+        // The user presses "Neue Quellen auswerten": exactly one typed review_sources service command.
+        fx.session.requestPostSearchReview();
+        String envelope = null;
+        for (String sent : fx.backend.serviceCommands) {
+            if (sent.startsWith("#RSC1# review_sources")) {
+                envelope = sent;
+            }
+        }
+        assertTrue("the explicit action sends the review_sources control envelope", envelope != null);
+        assertTrue(envelope.contains(" request_id=review-"));
+        String reviewId = envelope.substring(envelope.indexOf("request_id=") + "request_id=".length());
+
+        // The runtime's review bracket now correlates against the NEW review request id.
+        manualSearchEvent(fx, 4L, reviewId, "review_started", "", "");
+        assertEquals("one post-search thinking bubble after the explicit action",
+                Collections.singletonList("post-search-summary-" + reviewId), fx.sink.thinkingStarted);
         assertTrue("the review keeps the composer busy", fx.session.getState().isBusy());
 
         // The runtime's summary arrives as a plain assistant message BETWEEN started and finished.
         fx.session.onEvent(ResearchBackendEvent.builder(ResearchBackendEventType.ASSISTANT_MESSAGE)
-                .envelope("evt-sum", "s1", "p1", 4L, 0L, 4L, null)
+                .envelope("evt-sum", "s1", "p1", 5L, 0L, 5L, null)
                 .text("Die neuen Quellen zeigen …").build());
         assertEquals(Collections.singletonList("Die neuen Quellen zeigen …"),
                 fx.sink.assistantMessages);
         assertEquals("the bubble collapses into the summary",
-                Collections.singletonList("post-search-summary-R1"), fx.sink.thinkingFinished);
+                Collections.singletonList("post-search-summary-" + reviewId), fx.sink.thinkingFinished);
 
-        manualSearchEvent(fx, 5L, "R1", "review_finished", "");
-        // review_finished is the overall terminal: the correlation id is cleared, so...
-        manualSearchEvent(fx, 6L, "R1", "review_started", "");
+        manualSearchEvent(fx, 6L, reviewId, "review_finished", "", "");
+        // review_finished is the terminal: the correlation id is cleared, so...
+        manualSearchEvent(fx, 7L, reviewId, "review_started", "", "");
         assertEquals("no second thinking bubble after the terminal",
                 1, fx.sink.thinkingStarted.size());
+    }
+
+    @Test
+    public void aSearchWithoutAcceptedSourcesOffersNoReviewAction() {
+        Fx fx = new Fx();
+        fx.session.dispatch(ResearchCommandType.START, null);
+        completeTurn(fx, 1L);
+        fx.session.setManualWebSearchPort(new FixedRequestIdPort("R1"));
+        fx.session.requestManualWebSearch("wearables");
+
+        manualSearchEvent(fx, 2L, "R1", "completed", "0 Treffer", "0");
+        assertTrue("nothing to review → no action card", fx.sink.actionCards.isEmpty());
     }
 
     private static List<String> manualEntries(List<String> entries) {
@@ -314,10 +344,16 @@ public class ManualSearchWiringTest {
 
     /** Feed a MANUAL_SEARCH backend event (as the mapper would produce) straight into the session. */
     private static void manualSearchEvent(Fx fx, long seq, String requestId, String subKind, String message) {
+        manualSearchEvent(fx, seq, requestId, subKind, message, "");
+    }
+
+    /** As above with the mapper's publicMessage (the raw accepted-source count on 'completed'). */
+    private static void manualSearchEvent(Fx fx, long seq, String requestId, String subKind, String message,
+                                          String publicMessage) {
         fx.session.onEvent(ResearchBackendEvent.builder(ResearchBackendEventType.MANUAL_SEARCH)
                 .envelope("evt-ms-" + seq, "s1", "p1", seq, 0L, seq, null)
                 .activity("manual-search-" + requestId, ResearchActivityKind.TOOL_UPDATE, subKind, message)
-                .messages("", requestId)
+                .messages(publicMessage, requestId)
                 .build());
     }
 
@@ -576,6 +612,13 @@ public class ManualSearchWiringTest {
         final List<String> assistantMessages = new ArrayList<String>();
         final List<String> thinkingStarted = new ArrayList<String>();
         final List<String> thinkingFinished = new ArrayList<String>();
+        final List<String> actionCards = new ArrayList<String>();
+
+        @Override
+        public void showActionCard(String cardId, String markdown, List<ActionOption> actions,
+                                   ActionHandler handler) {
+            actionCards.add(cardId);
+        }
 
         public void appendUserMessage(String messageId, String markdown) {
         }

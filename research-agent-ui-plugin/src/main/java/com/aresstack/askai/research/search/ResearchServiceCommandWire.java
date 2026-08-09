@@ -8,7 +8,8 @@ package com.aresstack.askai.research.search;
  * ever contains a space. The runtime's parser of the same name is the ONLY consumer.
  *
  * <pre>#RSC1# manual_search request_id=&lt;uuid&gt; query=&lt;urlenc&gt;
- * #RSC1# set_language language=de|en</pre>
+ * #RSC1# set_language language=de|en
+ * #RSC1# review_sources request_id=&lt;uuid&gt;</pre>
  */
 public final class ResearchServiceCommandWire {
 
@@ -40,6 +41,15 @@ public final class ResearchServiceCommandWire {
     public static String setLanguage(String languageCode) {
         return MARKER + "set_language language="
                 + ("de".equalsIgnoreCase(languageCode) ? "de" : "en");
+    }
+
+    /**
+     * Encode the EXPLICIT post-search review action (issue #29): the user pressed "Neue Quellen auswerten".
+     * The runtime brackets the review with {@code manual_search_review started/finished} events carrying
+     * this request id — a search itself never triggers the review implicitly anymore.
+     */
+    public static String reviewSources(String requestId) {
+        return MARKER + "review_sources request_id=" + (requestId == null ? "" : requestId);
     }
 
     private static void appendEncoded(StringBuilder sb, String key, String value) {

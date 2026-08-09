@@ -43,6 +43,36 @@ public class CaptureStoreSourceCaptureReaderTest {
     }
 
     @Test
+    public void aGoneCaptureFallsBackToTheDurableSourceRecord() {
+        // Issue #29: the in-memory capture store is bounded working material. After a restart/eviction the
+        // job's canonical input comes from the PERSISTED source record (full cleaned text), so a delayed,
+        // user-triggered segmentation still works.
+        CaptureStore captures = new CaptureStore(10, 123L);
+        InMemoryResearchSourceRepository repo = new InMemoryResearchSourceRepository();
+        repo.put(ResearchSourceRecord.builder("source-9")
+                .url("https://example.com/gone")
+                .title("Durable title")
+                .capturedAt(4242L)
+                .checksum("hash-9")
+                .fullText("First paragraph.\n\nSecond paragraph.")
+                .build());
+        CaptureStoreSourceCaptureReader reader = new CaptureStoreSourceCaptureReader(captures,
+                CaptureStoreSourceCaptureReader.SourceIdResolver.NONE, repo);
+
+        SourceCapture capture = reader.read("cap-gone", "source-9");
+        assertEquals("source-9", capture.getSourceId());
+        assertEquals("cap-gone", capture.getCaptureId());
+        assertEquals("Durable title", capture.getTitle());
+        assertEquals("hash-9", capture.getChecksum());
+        assertEquals(2, capture.getBlocks().size());
+        assertEquals("First paragraph.", capture.getBlocks().get(0).getText());
+
+        // Without a source id (or without persisted text) the capture is honestly gone.
+        assertNull(reader.read("cap-gone", ""));
+        assertNull(reader.read("cap-gone", "source-unknown"));
+    }
+
+    @Test
     public void anUnlinkedCaptureGetsAnEmptySourceId() {
         CaptureStore captures = new CaptureStore(10, 123L);
         VisitedCapture visited = captures.record("https://nowhere.test/x", "T", "Body text.");

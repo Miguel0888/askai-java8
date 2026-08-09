@@ -21,6 +21,7 @@ public final class ResearchArtifacts {
     public static final String TYPE_STATE = "research.state";
     public static final String TYPE_BRIEF = "research.brief";
     public static final String TYPE_VISUALIZATION = "research.visualization";
+    public static final String TYPE_OUTLINE = "research.outline";
     public static final String TYPE_RUNTIME = "research.runtime";
     public static final String TYPE_SEARCH_SETTINGS = "research.search.settings";
 
@@ -33,7 +34,9 @@ public final class ResearchArtifacts {
         // visualization is a DERIVED, rebuildable view of it (no approval/revision), shown right next to it.
         list.add(new Artifact("research-brief", "Fragestellung", TYPE_BRIEF, ""));
         list.add(new Artifact("research-visualization", "Visualisierung", TYPE_VISUALIZATION, ""));
-        list.add(markdown("outline", "Live Outline", "outline.md")); // C5: the mobile corpus projection
+        // Issue #29: the outline is a DERIVED projection with its own view (persisted result + stale marker
+        // + explicit "Inhaltsverzeichnis erzeugen" action) — no longer a live-updating markdown tab.
+        list.add(new Artifact("outline", "Inhaltsverzeichnis", TYPE_OUTLINE, "outline.md"));
         list.add(markdown("concept", "Concept", "concept.md"));
         list.add(markdown("research-notes", "Research Notes", "research-notes.md"));
         list.add(markdown("findings", "Findings", "findings.md"));

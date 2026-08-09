@@ -47,6 +47,16 @@ public class ResearchServiceCommandWireTest {
     }
 
     @Test
+    public void parsesTheExplicitReviewSourcesEnvelope() {
+        // Issue #29: the host's "Neue Quellen auswerten" button — pinned across the process boundary.
+        ResearchServiceCommand command =
+                ResearchServiceCommandWire.parse("#RSC1# review_sources request_id=review-42");
+        assertEquals(ResearchServiceCommand.TYPE_REVIEW_SOURCES, command.getType());
+        assertEquals("review-42", command.getRequestId());
+        assertEquals("", command.getQuery());
+    }
+
+    @Test
     public void plainChatTextIsNotAServiceCommand() {
         assertFalse(ResearchServiceCommandWire.isServiceCommand("just a normal question"));
         assertNull(ResearchServiceCommandWire.parse("just a normal question"));

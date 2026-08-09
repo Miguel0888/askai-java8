@@ -17,6 +17,12 @@ public final class ResearchServiceCommand {
      */
     public static final String TYPE_SET_LANGUAGE = "set_language";
 
+    /**
+     * The EXPLICIT post-search review (issue #29): the user pressed "Neue Quellen auswerten". The TeamAgent
+     * reviews the accepted sources; bracketed by manual_search_review started/finished on this request id.
+     */
+    public static final String TYPE_REVIEW_SOURCES = "review_sources";
+
     private final String type;
     private final String requestId;
     private final String query;
