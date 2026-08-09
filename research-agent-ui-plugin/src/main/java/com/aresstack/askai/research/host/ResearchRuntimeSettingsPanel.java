@@ -313,31 +313,112 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
                 session == null ? null : session.botControlEndpoint();
         String url = endpoint == null ? null : endpoint.connectionUrl();
         if (url == null) {
-            botConnection.setText("off for this session (transport: Streamable HTTP / MCP JSON-RPC, "
-                    + "loopback only; connection data in <project>/service-endpoint.json)");
+            botConnection.setText("off for this session");
+            botConnection.setToolTipText("Transport: Streamable HTTP (MCP JSON-RPC), loopback only; "
+                    + "connection data in <project>/service-endpoint.json when enabled");
             botTools.setEnabled(false);
             return;
         }
-        botConnection.setText("Streamable HTTP (MCP JSON-RPC, token in the URL path): " + url);
+        // Short, readable status; the full URL lives in the tooltip and the details dialog (copyable).
+        String host = url;
+        int pathStart = url.indexOf('/', "http://".length());
+        if (pathStart > 0) {
+            host = url.substring(0, pathStart);
+        }
+        botConnection.setText("Streamable HTTP (MCP JSON-RPC) · " + host + " · Token im URL-Pfad");
+        botConnection.setToolTipText(url);
         botTools.setEnabled(true);
     }
 
-    /** Fetch the CURRENT tool list from the live registry and show it — nothing is hardcoded here. */
+    /** The connection details + the live tool catalog (names AND descriptions) — nothing hardcoded. */
     private void showBotTools() {
         com.aresstack.askai.research.mcp.ResearchBotControlEndpoint endpoint =
                 session == null ? null : session.botControlEndpoint();
         if (endpoint == null) {
             return;
         }
-        StringBuilder sb = new StringBuilder("Endpoint: ").append(endpoint.getEndpointId())
-                .append("\nTransport: Streamable HTTP (MCP JSON-RPC)\nURL: ")
-                .append(endpoint.connectionUrl()).append("\n\nTools (live):\n");
-        for (String name : endpoint.toolNames()) {
-            sb.append("  - ").append(name).append('\n');
+        JPanel content = new JPanel(new java.awt.GridBagLayout());
+        java.awt.GridBagConstraints c = new java.awt.GridBagConstraints();
+        c.gridx = 0;
+        c.gridy = 0;
+        c.anchor = java.awt.GridBagConstraints.NORTHWEST;
+        c.insets = new java.awt.Insets(2, 0, 2, 8);
+
+        addDetailRow(content, c, "Transport:", plainValue("Streamable HTTP (MCP JSON-RPC), "
+                + "127.0.0.1, Token im URL-Pfad"));
+        addDetailRow(content, c, "URL:", copyableValue(endpoint.connectionUrl()));
+        addDetailRow(content, c, "Datei:", plainValue("<Projektverzeichnis>/service-endpoint.json "
+                + "(URL, Token, Usage-Guide)"));
+
+        c.gridx = 0;
+        c.gridwidth = 2;
+        c.insets = new java.awt.Insets(10, 0, 4, 0);
+        JLabel toolsTitle = new JLabel("Tools (live von der Registry):");
+        toolsTitle.setFont(toolsTitle.getFont().deriveFont(java.awt.Font.BOLD));
+        content.add(toolsTitle, c);
+        c.gridy++;
+        c.insets = new java.awt.Insets(2, 0, 2, 0);
+        for (java.util.Map.Entry<String, String> tool : endpoint.toolCatalog().entrySet()) {
+            JLabel name = new JLabel(tool.getKey());
+            name.setFont(name.getFont().deriveFont(java.awt.Font.BOLD));
+            content.add(name, c);
+            c.gridy++;
+            javax.swing.JTextArea description = new javax.swing.JTextArea(tool.getValue());
+            description.setEditable(false);
+            description.setLineWrap(true);
+            description.setWrapStyleWord(true);
+            description.setOpaque(false);
+            description.setFocusable(false);
+            description.setBorder(BorderFactory.createEmptyBorder(0, 12, 6, 0));
+            description.setColumns(52);
+            content.add(description, c);
+            c.gridy++;
         }
-        javax.swing.JTextArea text = new javax.swing.JTextArea(sb.toString(), 10, 60);
-        text.setEditable(false);
-        javax.swing.JOptionPane.showMessageDialog(this, new javax.swing.JScrollPane(text),
-                "Bot control MCP", javax.swing.JOptionPane.INFORMATION_MESSAGE);
+        content.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        javax.swing.JOptionPane.showMessageDialog(this, content, "Bot control (MCP)",
+                javax.swing.JOptionPane.PLAIN_MESSAGE);
     }
+
+    private void addDetailRow(JPanel content, java.awt.GridBagConstraints c, String label,
+                              javax.swing.JComponent value) {
+        c.gridx = 0;
+        c.gridwidth = 1;
+        JLabel key = new JLabel(label);
+        key.setFont(key.getFont().deriveFont(java.awt.Font.BOLD));
+        content.add(key, c);
+        c.gridx = 1;
+        c.weightx = 1;
+        c.fill = java.awt.GridBagConstraints.HORIZONTAL;
+        content.add(value, c);
+        c.fill = java.awt.GridBagConstraints.NONE;
+        c.weightx = 0;
+        c.gridy++;
+    }
+
+    private javax.swing.JComponent plainValue(String text) {
+        return new JLabel(text);
+    }
+
+    /** A selectable, borderless field + copy button — the URL is DATA, not decoration. */
+    private javax.swing.JComponent copyableValue(final String text) {
+        JPanel value = new JPanel(new BorderLayout(6, 0));
+        value.setOpaque(false);
+        final javax.swing.JTextField field = new javax.swing.JTextField(text == null ? "" : text);
+        field.setEditable(false);
+        field.setBorder(null);
+        field.setOpaque(false);
+        field.setCaretPosition(0);
+        value.add(field, java.awt.BorderLayout.CENTER);
+        javax.swing.JButton copy = new javax.swing.JButton("Copy");
+        copy.setMargin(new java.awt.Insets(0, 6, 0, 6));
+        copy.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent event) {
+                java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(
+                        new java.awt.datatransfer.StringSelection(field.getText()), null);
+            }
+        });
+        value.add(copy, java.awt.BorderLayout.EAST);
+        return value;
+    }
+
 }

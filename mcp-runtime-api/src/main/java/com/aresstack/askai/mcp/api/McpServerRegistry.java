@@ -29,4 +29,10 @@ public interface McpServerRegistry {
      * an empty list when the handle is unknown/unregistered.
      */
     java.util.List<String> toolNames(McpEndpointHandle handle);
+
+    /**
+     * The CURRENT tools as name -> description (live, insertion-ordered) — the self-describing catalog a
+     * UI can show without hardcoding anything. Empty when the handle is unknown/unregistered.
+     */
+    java.util.Map<String, String> toolCatalog(McpEndpointHandle handle);
 }

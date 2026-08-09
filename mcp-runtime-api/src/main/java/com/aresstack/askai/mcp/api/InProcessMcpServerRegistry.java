@@ -85,6 +85,20 @@ public final class InProcessMcpServerRegistry implements McpServerRegistry {
 
     /** @return the tool names currently offered by the endpoint, or empty on a bad token / unknown endpoint. */
     @Override
+    public java.util.Map<String, String> toolCatalog(McpEndpointHandle handle) {
+        java.util.Map<String, String> catalog = new LinkedHashMap<String, String>();
+        if (handle != null) {
+            Endpoint endpoint = endpoints.get(handle.getEndpointId());
+            if (endpoint != null && endpoint.token.equals(handle.getToken())) {
+                for (McpToolContribution tool : endpoint.tools.values()) {
+                    catalog.put(tool.getName(), tool.getDescription());
+                }
+            }
+        }
+        return catalog;
+    }
+
+    @Override
     public List<String> toolNames(McpEndpointHandle handle) {
         return handle == null ? new ArrayList<String>()
                 : listToolNames(handle.getEndpointId(), handle.getToken());

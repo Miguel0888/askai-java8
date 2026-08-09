@@ -104,6 +104,11 @@ public class BrowserBridgeHudToolsTest {
             return new java.util.ArrayList<String>();
         }
 
+        public java.util.Map<String, String> toolCatalog(
+                com.aresstack.askai.mcp.api.McpEndpointHandle handle) {
+            return new java.util.LinkedHashMap<String, String>();
+        }
+
         boolean hasTool(String name) {
             return tool(name) != null;
         }

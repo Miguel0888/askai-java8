@@ -124,6 +124,20 @@ public final class SolonMcpServerRuntime implements McpServerRegistry {
     }
 
     @Override
+    public java.util.Map<String, String> toolCatalog(McpEndpointHandle handle) {
+        java.util.Map<String, String> catalog = new java.util.LinkedHashMap<String, String>();
+        Registration reg = authorized(handle);
+        if (reg != null) {
+            synchronized (reg) {
+                for (FunctionTool tool : reg.provider.getTools()) {
+                    catalog.put(tool.name(), tool.description());
+                }
+            }
+        }
+        return catalog;
+    }
+
+    @Override
     public java.util.List<String> toolNames(McpEndpointHandle handle) {
         java.util.List<String> names = new ArrayList<String>();
         Registration reg = authorized(handle);

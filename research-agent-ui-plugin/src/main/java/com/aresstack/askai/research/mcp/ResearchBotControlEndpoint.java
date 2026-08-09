@@ -96,6 +96,12 @@ public final class ResearchBotControlEndpoint {
         return handle == null ? new java.util.ArrayList<String>() : registry.toolNames(handle);
     }
 
+    /** The CURRENT tools with their descriptions, fetched live from the registry. */
+    public java.util.Map<String, String> toolCatalog() {
+        return handle == null ? new java.util.LinkedHashMap<String, String>()
+                : registry.toolCatalog(handle);
+    }
+
     /** Unregister the endpoint (invalidates the token). Idempotent. */
     public void close() {
         if (closed) {
