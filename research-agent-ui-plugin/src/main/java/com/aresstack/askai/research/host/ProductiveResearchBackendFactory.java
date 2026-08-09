@@ -600,8 +600,8 @@ public final class ProductiveResearchBackendFactory {
                 connector.ensureStarted(new com.aresstack.askai.research.connector.ConnectorConfig(
                         connectorSettings.getPort(), connectorSettings.getPublicOrigin(),
                         connectorSettings.getClientId(), connectorSettings.getClientSecret(),
-                        new File(projectDir.getParentFile(),
-                                "chatgpt-connector/oauth-refresh-tokens.json")));
+                        com.aresstack.askai.research.connector.ChatGptConnectorRuntime
+                                .defaultRefreshStore()));
             } else {
                 com.aresstack.askai.research.connector.ChatGptConnectorRuntime.get().stop();
             }

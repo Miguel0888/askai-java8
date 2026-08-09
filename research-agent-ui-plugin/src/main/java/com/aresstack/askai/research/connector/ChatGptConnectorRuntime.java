@@ -32,10 +32,28 @@ public final class ChatGptConnectorRuntime {
         this.gateway = sessionGateway;
     }
 
-    /** Start the listener once (idempotent). A bind failure is remembered and visible, never fatal. */
+    /** The ONE canonical refresh-token store, independent of any session/workspace lifecycle. */
+    public static java.io.File defaultRefreshStore() {
+        String appData = System.getenv("APPDATA");
+        java.io.File base = appData == null || appData.trim().isEmpty()
+                ? new java.io.File(System.getProperty("user.home"))
+                : new java.io.File(appData);
+        return new java.io.File(base, ".askai-java8/chatgpt-connector/oauth-refresh-tokens.json");
+    }
+
+    private ConnectorConfig runningConfig;
+
+    /**
+     * Start the listener (idempotent for the SAME configuration; a changed port/origin/client pair
+     * restarts it). A bind failure is remembered and visible, never fatal.
+     */
     public synchronized void ensureStarted(ConnectorConfig config) {
         if (server != null && server.isRunning()) {
-            return;
+            if (sameConfig(runningConfig, config)) {
+                return;
+            }
+            server.stop();
+            server = null;
         }
         if (!config.isComplete()) {
             startFailure = "incomplete configuration (public origin, client id and client secret are required)";
@@ -53,6 +71,7 @@ public final class ChatGptConnectorRuntime {
         try {
             created.start();
             server = created;
+            runningConfig = config;
             startFailure = null;
             System.out.println("[chatgpt-connector] listening on port " + created.boundPort()
                     + " for " + config.getPublicOrigin() + ConnectorConfig.MCP_PUBLIC_PATH
@@ -70,7 +89,16 @@ public final class ChatGptConnectorRuntime {
             server.stop();
             server = null;
         }
+        runningConfig = null;
         startFailure = null;
+    }
+
+    private static boolean sameConfig(ConnectorConfig a, ConnectorConfig b) {
+        return a != null && b != null
+                && a.getPort() == b.getPort()
+                && a.getPublicOrigin().equals(b.getPublicOrigin())
+                && a.getClientId().equals(b.getClientId())
+                && a.getClientSecret().equals(b.getClientSecret());
     }
 
     public synchronized boolean isRunning() {
