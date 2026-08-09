@@ -287,11 +287,19 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         } catch (NumberFormatException invalid) {
             port = 8082;
         }
+        String secret = new String(connectorClientSecret.getPassword()).trim();
+        if (chatGptConnector.isSelected() && secret.isEmpty()) {
+            // An empty secret would only produce a dead "incomplete configuration" listener — generate
+            // one; the user copies the SAME value into the ChatGPT connector form.
+            byte[] bytes = new byte[32];
+            new java.security.SecureRandom().nextBytes(bytes);
+            secret = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+            connectorClientSecret.setText(secret);
+        }
         ResearchRuntimeSettings.ChatGptConnectorSettings settings =
                 new ResearchRuntimeSettings.ChatGptConnectorSettings(
                         chatGptConnector.isSelected(), port, connectorOrigin.getText().trim(),
-                        connectorClientId.getText().trim(),
-                        new String(connectorClientSecret.getPassword()));
+                        connectorClientId.getText().trim(), secret);
         ResearchRuntimeSettings.saveChatGptConnectorSettings(store, settings);
         // The listener follows the setting IMMEDIATELY — no new session required. Sessions merely
         // attach their gateway; until one exists, the MCP tools answer "no session".
