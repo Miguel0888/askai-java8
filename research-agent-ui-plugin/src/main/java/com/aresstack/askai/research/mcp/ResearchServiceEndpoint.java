@@ -35,6 +35,14 @@ public final class ResearchServiceEndpoint {
     public static final String OUTLINE_GENERATE = "outline_generate";
 
     /**
+     * Runs ONE composer line with the exact GUI contract (issue #33): "/..." executes the matching slash
+     * command, anything else is a chat prompt. Implemented by the session; resolved at call time.
+     */
+    public interface ComposerLineRunner {
+        String run(String line);
+    }
+
+    /**
      * Resolves the session's derived-action commands AT CALL TIME (the session attaches after this endpoint
      * opens). {@code null} → the action tools answer with an honest "no session attached" error.
      */
@@ -51,6 +59,7 @@ public final class ResearchServiceEndpoint {
     private final McpServerRegistry registry;
     private final ResearchControlContext context;
     private final DerivedActionsSource derivedActions;
+    private final ComposerLineRunner composerLine;
     private final String endpointId;
     private McpEndpointHandle handle;
     private boolean closed;
@@ -62,9 +71,16 @@ public final class ResearchServiceEndpoint {
 
     public ResearchServiceEndpoint(McpServerRegistry registry, String sessionKey, long pluginGenerationId,
                                    ResearchControlContext context, DerivedActionsSource derivedActions) {
+        this(registry, sessionKey, pluginGenerationId, context, derivedActions, null);
+    }
+
+    public ResearchServiceEndpoint(McpServerRegistry registry, String sessionKey, long pluginGenerationId,
+                                   ResearchControlContext context, DerivedActionsSource derivedActions,
+                                   ComposerLineRunner composerLine) {
         this.registry = registry;
         this.context = context;
         this.derivedActions = derivedActions == null ? DerivedActionsSource.NONE : derivedActions;
+        this.composerLine = composerLine;
         this.endpointId = "research-service." + sessionKey + ".g" + pluginGenerationId;
     }
 
@@ -94,7 +110,33 @@ public final class ResearchServiceEndpoint {
                                 + "(same command as the 'Visualisierung erzeugen' button)."),
                 derivedActionTool(derivedActions, OUTLINE_GENERATE,
                         "Explicit action: run topic discovery + outline rebuild from the persisted corpus "
-                                + "(same command as the 'Inhaltsverzeichnis erzeugen' button).")));
+                                + "(same command as the 'Inhaltsverzeichnis erzeugen' button)."),
+                runCommandTool(composerLine)));
+    }
+
+    /** THE generic UI-driving tool: one composer line — "/search ...", "/status", "/do ...", or chat text. */
+    private static McpToolContribution runCommandTool(final ComposerLineRunner runner) {
+        return McpToolContribution.of("run_command",
+                "Run one composer line exactly like typed input: a '/...' line executes the matching slash "
+                        + "command (/status, /search <query>, /do <cmd>, /approve, ...); any other line is "
+                        + "a chat prompt to the research agent.",
+                new McpToolHandler() {
+                    public McpToolResult invoke(McpToolCall call) {
+                        String line = call.getString("line");
+                        if (line == null || line.trim().isEmpty()) {
+                            return McpToolResult.error("Missing argument: line");
+                        }
+                        String result = runner == null ? null : runner.run(line);
+                        if (result == null) {
+                            return McpToolResult.error(
+                                    "No research session is attached to this endpoint yet.");
+                        }
+                        return result.startsWith("rejected") || result.startsWith("REJECTED")
+                                ? McpToolResult.error(result) : McpToolResult.ok(result);
+                    }
+                },
+                McpToolParameter.string("line", true,
+                        "The composer line (slash command or chat prompt)"));
     }
 
     /** One derived-action tool (issue #33): resolves the session's commands at call time, no arguments. */

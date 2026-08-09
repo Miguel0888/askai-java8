@@ -200,6 +200,19 @@ public final class ProductiveResearchSessionResources {
         return derivedActions;
     }
 
+    /** Set by the SESSION: the composer-line runner (slash commands + chat prompts) for the service MCP. */
+    private volatile com.aresstack.askai.research.mcp.ResearchServiceEndpoint.ComposerLineRunner composerLine;
+
+    public void setComposerLineRunner(
+            com.aresstack.askai.research.mcp.ResearchServiceEndpoint.ComposerLineRunner runner) {
+        this.composerLine = runner;
+    }
+
+    /** The session's composer-line runner, or {@code null} while no session is attached. */
+    public com.aresstack.askai.research.mcp.ResearchServiceEndpoint.ComposerLineRunner getComposerLineRunner() {
+        return composerLine;
+    }
+
     /** Set by the SESSION: notified (worker thread) after every persisted live-projection rebuild. */
     private volatile Runnable projectionUpdateListener;
 

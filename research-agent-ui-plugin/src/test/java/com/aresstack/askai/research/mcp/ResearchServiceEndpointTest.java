@@ -110,7 +110,7 @@ public class ResearchServiceEndpointTest {
         service.open();
         List<String> names = reg.listToolNames(service.getEndpointId(), service.getHandle().getToken());
         assertEquals(java.util.Arrays.asList("manual_source_accept", "manual_source_park",
-                "review_sources", "visualization_generate", "outline_generate"), names);
+                "review_sources", "visualization_generate", "outline_generate", "run_command"), names);
         service.close();
     }
 

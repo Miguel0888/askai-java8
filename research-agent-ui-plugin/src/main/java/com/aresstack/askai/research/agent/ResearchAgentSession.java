@@ -114,6 +114,12 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             // Issue #33: hand the session's derived-action commands to the resources so the internal
             // service-MCP endpoint can invoke the SAME use cases as the UI buttons.
             resources.setDerivedActions(derivedActions);
+            resources.setComposerLineRunner(
+                    new com.aresstack.askai.research.mcp.ResearchServiceEndpoint.ComposerLineRunner() {
+                        public String run(String line) {
+                            return runComposerLine(line);
+                        }
+                    });
             resources.setProjectionUpdateListener(new Runnable() {
                 public void run() {
                     uiExecutor.execute(new Runnable() {
@@ -1686,6 +1692,86 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     /** The session's derived-action commands — the single entry point for buttons AND the service MCP. */
     public ResearchDerivedActions derivedActions() {
         return derivedActions;
+    }
+
+    /**
+     * ONE headless entry with the EXACT composer contract (issue #33): a line starting with "/" runs the
+     * matching slash command from {@link ResearchChatCommands}; anything else is a normal chat prompt.
+     * Executed on the EDT like real user input; returns the command result line (or an honest rejection).
+     */
+    public String runComposerLine(final String line) {
+        if (line == null || line.trim().isEmpty()) {
+            return "rejected: empty line";
+        }
+        if (handle == null || disposed
+                || (productiveResources != null && productiveResources.isClosed())) {
+            return "rejected: the research session is not active";
+        }
+        final String trimmed = line.trim();
+        final String[] result = {null};
+        final java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
+        uiExecutor.execute(new Runnable() {
+            public void run() {
+                try {
+                    result[0] = runComposerLineOnUiThread(trimmed);
+                } catch (RuntimeException failed) {
+                    result[0] = "rejected: " + failed.getMessage();
+                } finally {
+                    done.countDown();
+                }
+            }
+        });
+        try {
+            if (!done.await(15, java.util.concurrent.TimeUnit.SECONDS)) {
+                return "rejected: timed out waiting for the UI thread";
+            }
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            return "rejected: interrupted";
+        }
+        return result[0] == null ? "rejected: no result" : result[0];
+    }
+
+    private String runComposerLineOnUiThread(String trimmed) {
+        if (!trimmed.startsWith("/")) {
+            submitPrompt(trimmed, "");
+            return "handled: prompt submitted (TeamAgent turn started)";
+        }
+        String[] parts = trimmed.substring(1).split("\\s+");
+        String name = parts[0];
+        java.util.List<String> args = new java.util.ArrayList<String>();
+        for (int i = 1; i < parts.length; i++) {
+            args.add(parts[i]);
+        }
+        for (com.aresstack.askai.plugin.api.agent.command.ChatCommandContribution command
+                : ResearchChatCommands.all()) {
+            if (command.getDescriptor().getName().equals(name)) {
+                com.aresstack.askai.plugin.api.agent.command.CommandExecutionResult r =
+                        command.execute(new com.aresstack.askai.plugin.api.agent.command.CommandInvocation(
+                                name, args, trimmed), composerCommandContext());
+                String message = r.getMessage() == null ? "" : r.getMessage();
+                return r.getStatus() + (message.isEmpty() ? "" : ": " + message);
+            }
+        }
+        return "rejected: unknown command /" + name;
+    }
+
+    /** The same context shape the host composer passes to slash commands — session, artifact hook, EDT. */
+    private com.aresstack.askai.plugin.api.agent.AgentSessionContext composerCommandContext() {
+        final ResearchAgentSession self = this;
+        return new com.aresstack.askai.plugin.api.agent.AgentSessionContext() {
+            public com.aresstack.askai.plugin.api.agent.AgentSession getSession() {
+                return self;
+            }
+
+            public void openArtifact(String artifactId) {
+                openArtifactView(artifactId);
+            }
+
+            public com.aresstack.askai.plugin.api.service.UiExecutor getUiExecutor() {
+                return uiExecutor;
+            }
+        };
     }
 
     // ------------------------------------------------------------------ outline (explicit action, issue #29)
