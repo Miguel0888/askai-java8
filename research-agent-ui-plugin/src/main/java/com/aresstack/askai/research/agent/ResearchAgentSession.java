@@ -177,11 +177,21 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
      */
     public void changeLanguage(ResearchLanguage value) {
         sessionLanguage.change(value);
-        if (handle != null && !disposed) {
-            backend.submitServiceCommand(handle,
-                    com.aresstack.askai.research.search.ResearchServiceCommandWire.setLanguage(
-                            sessionLanguage.currentLanguage().getCode()));
+        publishSessionLanguage();
+    }
+
+    /**
+     * Tell the runtime agent THIS session's working language. Sent at session start too, not only on a
+     * switch: the runtime starts on its English default, so a session configured as German produced an
+     * English greeting and English suggestion labels until the user happened to toggle the language.
+     */
+    private void publishSessionLanguage() {
+        if (handle == null || disposed) {
+            return;
         }
+        backend.submitServiceCommand(handle,
+                com.aresstack.askai.research.search.ResearchServiceCommandWire.setLanguage(
+                        sessionLanguage.currentLanguage().getCode()));
     }
 
     /**
@@ -280,6 +290,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         // listener must already accept it even though the handle field is assigned only when the call returns.
         started = true;
         handle = backend.createSession(request, this);
+        // BEFORE any turn: the runtime must know the session language, otherwise its English default
+        // decides the greeting and the suggestion labels of a German session.
+        publishSessionLanguage();
         // The session is now driveable: publish it under its CHAT id so external clients (the public
         // ChatGPT connector) can address exactly this session. Registration is independent of whether the
         // connector listener is running — switching it on later still finds everything that is live.

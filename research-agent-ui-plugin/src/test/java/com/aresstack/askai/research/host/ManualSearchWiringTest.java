@@ -116,13 +116,15 @@ public class ManualSearchWiringTest {
         completeTurn(fx, 1L);
         feedSuggestion(fx, "wearables audio video");
         int promptsBefore = fx.backend.prompts.size();
+        // The session publishes its language at start; count only what THIS click causes.
+        int envelopesBefore = fx.backend.serviceCommands.size();
 
         ScopingSupportView view = buildAccessoryView(fx);
         view.getSuggestionButtons().get(0).doClick(); // real tag → session → productive BackendManualWebSearchPort
 
         // Exactly one typed #RSC1# service command carrying the query — and NOT a chat prompt.
-        assertEquals(1, fx.backend.serviceCommands.size());
-        String envelope = fx.backend.serviceCommands.get(0);
+        assertEquals(envelopesBefore + 1, fx.backend.serviceCommands.size());
+        String envelope = fx.backend.serviceCommands.get(envelopesBefore);
         assertTrue(envelope.startsWith("#RSC1# manual_search"));
         assertTrue("carries a correlation id", envelope.contains(" request_id="));
         assertTrue("carries the url-encoded query",
@@ -133,17 +135,34 @@ public class ManualSearchWiringTest {
                 fx.resources.currentState().getPhaseId());
     }
 
+    /**
+     * The runtime starts on its own English default and only learns the session language from a
+     * set_language command. Without one at session start, a German session got an ENGLISH greeting and
+     * English suggestion labels until the user happened to toggle the dropdown.
+     */
+    @Test
+    public void theSessionLanguageIsPublishedToTheRuntimeAtStartNotOnlyOnASwitch() {
+        Fx fx = new Fx(); // activate() already ran
+
+        assertFalse("the runtime is told the language before the first turn",
+                fx.backend.serviceCommands.isEmpty());
+        assertEquals("#RSC1# set_language language=en", fx.backend.serviceCommands.get(0));
+    }
+
     @Test
     public void aLanguageSwitchIsAServiceCommandNeverAChatTurnAndNeverAStateChange() {
         Fx fx = new Fx();
         fx.session.dispatch(ResearchCommandType.START, null); // SCOPING/RUNNING
         completeTurn(fx, 1L);
         int promptsBefore = fx.backend.prompts.size();
+        int envelopesBefore = fx.backend.serviceCommands.size();
 
         fx.session.changeLanguage(com.aresstack.askai.research.agent.ResearchLanguage.GERMAN);
 
-        assertEquals("exactly one typed control envelope", 1, fx.backend.serviceCommands.size());
-        assertEquals("#RSC1# set_language language=de", fx.backend.serviceCommands.get(0));
+        assertEquals("exactly one typed control envelope for the switch",
+                envelopesBefore + 1, fx.backend.serviceCommands.size());
+        assertEquals("#RSC1# set_language language=de",
+                fx.backend.serviceCommands.get(envelopesBefore));
         assertEquals("no chat prompt was submitted", promptsBefore, fx.backend.prompts.size());
         assertEquals("the phase is unchanged", ResearchStateIds.SCOPING,
                 fx.resources.currentState().getPhaseId());
@@ -203,20 +222,24 @@ public class ManualSearchWiringTest {
                 com.aresstack.askai.research.agent.ResearchLanguage.ENGLISH, combo.getSelectedItem());
 
         int promptsBefore = fx.backend.prompts.size();
+        int envelopesBefore = fx.backend.serviceCommands.size();
         combo.setSelectedItem(com.aresstack.askai.research.agent.ResearchLanguage.GERMAN);
 
         assertEquals("the switch reaches the host session first",
                 com.aresstack.askai.research.agent.ResearchLanguage.GERMAN,
                 fx.session.getSessionLanguage().currentLanguage());
-        assertEquals("exactly one set_language control envelope", 1, fx.backend.serviceCommands.size());
-        assertEquals("#RSC1# set_language language=de", fx.backend.serviceCommands.get(0));
+        assertEquals("exactly one set_language control envelope for the switch",
+                envelopesBefore + 1, fx.backend.serviceCommands.size());
+        assertEquals("#RSC1# set_language language=de",
+                fx.backend.serviceCommands.get(envelopesBefore));
         assertEquals("never a chat turn", promptsBefore, fx.backend.prompts.size());
         assertEquals("never a state change", ResearchStateIds.RUNNING,
                 fx.resources.currentState().getStateId());
 
+        int envelopesAfterSwitch = fx.backend.serviceCommands.size();
         combo.setSelectedItem(com.aresstack.askai.research.agent.ResearchLanguage.GERMAN);
         assertEquals("re-selecting the current language sends nothing",
-                1, fx.backend.serviceCommands.size());
+                envelopesAfterSwitch, fx.backend.serviceCommands.size());
     }
 
     @Test
