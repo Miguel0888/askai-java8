@@ -6,6 +6,7 @@ import com.aresstack.askai.research.domain.scope.ResearchDeliverable;
 import com.aresstack.askai.research.domain.scope.ResearchScopeDraft;
 import com.aresstack.askai.research.domain.scope.ScopeFacet;
 import com.aresstack.askai.research.domain.scope.SynthesisPolicy;
+import com.aresstack.askai.research.domain.scope.UnresolvedScopeIssue;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -45,7 +46,7 @@ public final class ResearchScopeDraftCodec {
         document.addProperty("geographicScope", draft.getGeographicScope());
         document.addProperty("temporalScope", draft.getTemporalScope());
         document.add("terminology", strings(draft.getTerminology()));
-        document.add("unresolvedIssues", strings(draft.getUnresolvedIssues()));
+        document.add("unresolvedIssues", issues(draft.getUnresolvedIssues()));
         document.add("coverageEmphasis", coverage(draft.getCoverageEmphasis()));
         document.add("crossCuttingEmphasis", crossCutting(draft.getCrossCuttingEmphasis()));
         document.add("deliverable", deliverable(draft.getDeliverable()));
@@ -84,8 +85,20 @@ public final class ResearchScopeDraftCodec {
                 .geographicScope(stringOf(document, "geographicScope"))
                 .temporalScope(stringOf(document, "temporalScope"))
                 .terminology(stringList(document, "terminology"))
-                .unresolvedIssues(stringList(document, "unresolvedIssues"))
                 .deliverable(readDeliverable(document.getAsJsonObject("deliverable")));
+        // Open points were plain strings before they became first-class issues: such a document is still
+        // read (description only), so an early draft never loses its open questions.
+        for (JsonElement element : array(document, "unresolvedIssues")) {
+            if (element.isJsonPrimitive()) {
+                builder.addUnresolvedIssue(element.getAsString());
+            } else if (element.isJsonObject()) {
+                JsonObject issue = element.getAsJsonObject();
+                builder.putUnresolvedIssue(new UnresolvedScopeIssue(stringOf(issue, "issueId"),
+                        stringOf(issue, "description"), stringList(issue, "affectedFacetIds"),
+                        enumOf(UnresolvedScopeIssue.Significance.class, stringOf(issue, "significance"),
+                                UnresolvedScopeIssue.Significance.SIGNIFICANT)));
+            }
+        }
         for (JsonElement element : array(document, "facets")) {
             JsonObject facet = element.getAsJsonObject();
             builder.putFacet(new ScopeFacet(stringOf(facet, "facetId"), stringOf(facet, "label"),
@@ -130,6 +143,19 @@ public final class ResearchScopeDraftCodec {
         JsonArray array = new JsonArray();
         for (String value : values) {
             array.add(value);
+        }
+        return array;
+    }
+
+    private static JsonArray issues(List<UnresolvedScopeIssue> values) {
+        JsonArray array = new JsonArray();
+        for (UnresolvedScopeIssue issue : values) {
+            JsonObject item = new JsonObject();
+            item.addProperty("issueId", issue.getIssueId());
+            item.addProperty("description", issue.getDescription());
+            item.add("affectedFacetIds", strings(issue.getAffectedFacetIds()));
+            item.addProperty("significance", issue.getSignificance().name());
+            array.add(item);
         }
         return array;
     }

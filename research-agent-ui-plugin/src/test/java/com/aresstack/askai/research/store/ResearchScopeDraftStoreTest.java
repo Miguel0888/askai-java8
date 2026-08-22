@@ -74,7 +74,11 @@ public class ResearchScopeDraftStoreTest {
         assertEquals(Arrays.asList("Patient", "Zulassungsbehörde"), draft.getPerspectives());
         assertEquals(Arrays.asList("nur frei zugängliche Quellen"), draft.getConstraints());
         assertEquals(Arrays.asList("HRV"), draft.getTerminology());
-        assertEquals(Arrays.asList("Reichen Herstellerangaben?"), draft.getUnresolvedIssues());
+        assertEquals(1, draft.getUnresolvedIssues().size());
+        assertEquals("Reichen Herstellerangaben?",
+                draft.getUnresolvedIssues().get(0).getDescription());
+        assertEquals(com.aresstack.askai.research.domain.scope.UnresolvedScopeIssue.Significance.SIGNIFICANT,
+                draft.getUnresolvedIssues().get(0).getSignificance());
         assertEquals(Arrays.asList("Kaufberatung"), draft.getExclusions());
 
         assertEquals("the excluded facet is persisted too, not dropped", 2, draft.getFacets().size());

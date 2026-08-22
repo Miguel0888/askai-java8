@@ -28,7 +28,7 @@ public final class ResearchScopeDraft {
     private final String geographicScope;
     private final String temporalScope;
     private final List<String> terminology;
-    private final List<String> unresolvedIssues;
+    private final List<UnresolvedScopeIssue> unresolvedIssues;
     private final List<CoverageEmphasis> coverageEmphasis;
     private final List<CrossCuttingEmphasis> crossCuttingEmphasis;
     private final ResearchDeliverable deliverable;
@@ -75,7 +75,7 @@ public final class ResearchScopeDraft {
         builder.geographicScope = geographicScope;
         builder.temporalScope = temporalScope;
         builder.terminology = new ArrayList<String>(terminology);
-        builder.unresolvedIssues = new ArrayList<String>(unresolvedIssues);
+        builder.unresolvedIssues = new ArrayList<UnresolvedScopeIssue>(unresolvedIssues);
         builder.coverageEmphasis = new ArrayList<CoverageEmphasis>(coverageEmphasis);
         builder.crossCuttingEmphasis = new ArrayList<CrossCuttingEmphasis>(crossCuttingEmphasis);
         builder.deliverable = deliverable;
@@ -134,8 +134,11 @@ public final class ResearchScopeDraft {
         return terminology;
     }
 
-    /** Open points that do NOT block the scope; they are carried forward, not resolved by guessing. */
-    public List<String> getUnresolvedIssues() {
+    /**
+     * Open points that do NOT block the scope: they are carried forward, never resolved by guessing, and
+     * never a gate — the user may confirm the scope with any number of them open.
+     */
+    public List<UnresolvedScopeIssue> getUnresolvedIssues() {
         return unresolvedIssues;
     }
 
@@ -221,7 +224,7 @@ public final class ResearchScopeDraft {
         private String geographicScope = "";
         private String temporalScope = "";
         private List<String> terminology = new ArrayList<String>();
-        private List<String> unresolvedIssues = new ArrayList<String>();
+        private List<UnresolvedScopeIssue> unresolvedIssues = new ArrayList<UnresolvedScopeIssue>();
         private List<CoverageEmphasis> coverageEmphasis = new ArrayList<CoverageEmphasis>();
         private List<CrossCuttingEmphasis> crossCuttingEmphasis = new ArrayList<CrossCuttingEmphasis>();
         private ResearchDeliverable deliverable = ResearchDeliverable.unspecified();
@@ -284,6 +287,22 @@ public final class ResearchScopeDraft {
             return addDistinct(exclusions, value);
         }
 
+        public Builder addDomain(String value) {
+            return addDistinct(domains, value);
+        }
+
+        public Builder addContext(String value) {
+            return addDistinct(contexts, value);
+        }
+
+        public Builder addPerspective(String value) {
+            return addDistinct(perspectives, value);
+        }
+
+        public Builder addConstraint(String value) {
+            return addDistinct(constraints, value);
+        }
+
         public Builder perspectives(List<String> values) {
             this.perspectives = values == null ? new ArrayList<String>() : new ArrayList<String>(values);
             return this;
@@ -313,14 +332,49 @@ public final class ResearchScopeDraft {
             return addDistinct(terminology, value);
         }
 
-        public Builder unresolvedIssues(List<String> values) {
+        public Builder unresolvedIssues(List<UnresolvedScopeIssue> values) {
             this.unresolvedIssues = values == null
-                    ? new ArrayList<String>() : new ArrayList<String>(values);
+                    ? new ArrayList<UnresolvedScopeIssue>()
+                    : new ArrayList<UnresolvedScopeIssue>(values);
             return this;
         }
 
-        public Builder addUnresolvedIssue(String value) {
-            return addDistinct(unresolvedIssues, value);
+        /** Add or REPLACE an open point by its id — restating the same uncertainty is not a new one. */
+        public Builder putUnresolvedIssue(UnresolvedScopeIssue issue) {
+            if (issue == null) {
+                return this;
+            }
+            for (int index = 0; index < unresolvedIssues.size(); index++) {
+                if (unresolvedIssues.get(index).getIssueId().equals(issue.getIssueId())) {
+                    unresolvedIssues.set(index, issue);
+                    return this;
+                }
+            }
+            unresolvedIssues.add(issue);
+            return this;
+        }
+
+        /** Convenience for plain wording; the id is DERIVED from the text, so restating it never duplicates. */
+        public Builder addUnresolvedIssue(String description) {
+            if (description == null || description.trim().isEmpty()) {
+                return this;
+            }
+            return putUnresolvedIssue(new UnresolvedScopeIssue(issueIdFor(description), description,
+                    null, UnresolvedScopeIssue.Significance.SIGNIFICANT));
+        }
+
+        /** An answered point disappears — unlike a facet it carries no decision worth keeping. */
+        public Builder resolveUnresolvedIssue(String issueId) {
+            if (issueId == null) {
+                return this;
+            }
+            for (int index = 0; index < unresolvedIssues.size(); index++) {
+                if (unresolvedIssues.get(index).getIssueId().equals(issueId.trim())) {
+                    unresolvedIssues.remove(index);
+                    return this;
+                }
+            }
+            return this;
         }
 
         public Builder coverageEmphasis(List<CoverageEmphasis> values) {
@@ -373,6 +427,21 @@ public final class ResearchScopeDraft {
 
         public ResearchScopeDraft build() {
             return new ResearchScopeDraft(this);
+        }
+
+        /** A stable, DERIVED id (no randomness): the domain must stay deterministic and testable. */
+        static String issueIdFor(String description) {
+            StringBuilder slug = new StringBuilder("issue-");
+            String source = description.trim().toLowerCase(java.util.Locale.ROOT);
+            for (int index = 0; index < source.length() && slug.length() < 46; index++) {
+                char character = source.charAt(index);
+                if (Character.isLetterOrDigit(character)) {
+                    slug.append(character);
+                } else if (slug.charAt(slug.length() - 1) != '-') {
+                    slug.append('-');
+                }
+            }
+            return slug.toString();
         }
 
         private Builder addDistinct(List<String> target, String value) {
