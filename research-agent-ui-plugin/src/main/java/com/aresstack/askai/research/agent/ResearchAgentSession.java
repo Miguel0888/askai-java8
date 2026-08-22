@@ -227,6 +227,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                                     return; // a late failure after close applies nothing
                                 }
                                 sink.finishThinking("browser-start-" + generation, "");
+                                attributeToCurrentPhase("browser-start-" + generation);
                                 sink.showProblem("browser-start-" + generation,
                                         playbook.browserFailed(detail));
                             }
@@ -297,6 +298,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         if (notice != null && sink != null) {
             uiExecutor.execute(new Runnable() {
                 public void run() {
+                    attributeToCurrentPhase("research-runtime-mode");
                     sink.showProblem("research-runtime-mode", notice);
                 }
             });
@@ -1148,6 +1150,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             // Both surfaces: close the transient activity AND raise a PERSISTENT, readable problem so the
             // reason does not merely flash away.
             sink.failToolActivity(activityId, message);
+            attributeToCurrentPhase("manual-search-failed-" + requestId);
             sink.showProblem("manual-search-failed-" + requestId, message);
             activeManualSearchRequestId = null;
             finishPostSearchThinking(""); // no summary is coming
@@ -1250,6 +1253,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         final String message = scopingApprovalProblemText(outcome);
         uiExecutor.execute(new Runnable() {
             public void run() {
+                attributeToCurrentPhase("scope-approve-" + outcome);
                 sink.showProblem("scope-approve-" + outcome, message);
             }
         });
@@ -1384,12 +1388,14 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 break;
             case APPROVAL_REQUESTED:
                 // The pending approval id already lives in the memento; this only drives the chat approval bubble.
+                attributeToCurrentPhase(event.getApprovalId());
                 sink.requestApproval(event.getApprovalId(), event.getText());
                 break;
             case ACTIVITY:
                 applyActivity(event);
                 break;
             case USER_MESSAGE:
+                attributeToCurrentPhase(event.getEventId());
                 sink.appendUserMessage(event.getEventId(), event.getText());
                 break;
             case COMPLETED:
@@ -2318,11 +2324,13 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         if (!resolved) {
             if (attentionEpisodes.add(domain)) {
                 attentionSound.run();
+                attributeToCurrentPhase("attention-" + domain);
                 sink.showProblem("attention-" + domain, playbook.attentionRequired(domain));
             }
             return;
         }
         if (attentionEpisodes.remove(domain)) {
+            attributeToCurrentPhase("attention-resolved-" + domain);
             sink.appendAssistantMessage("attention-resolved-" + domain,
                     playbook.attentionResolved(domain));
         }
@@ -2535,6 +2543,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 sink.failToolActivity(id, event.getText());
                 break;
             case APPROVAL_REQUIRED:
+                attributeToCurrentPhase(id);
                 sink.requestApproval(id, event.getText());
                 break;
             default:
