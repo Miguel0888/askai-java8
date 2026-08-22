@@ -106,10 +106,14 @@ public final class ScopingAssistantOutputParser {
                     asString(adviceMap.get("reason")));
         }
 
-        // The scope changes this turn proposes. Malformed proposals are dropped HERE (with a reason in the
-        // technical trace) rather than travelling on to be rejected invisibly by the host.
+        // The scope changes this turn proposes. A malformed element invalidates the WHOLE turn: forwarding
+        // the well-formed rest would let the visible answer claim a change that was never stored. This is a
+        // contract violation like any other, so it takes the existing repair-then-honest-error path.
         ScopeUpdateDocument scopeUpdate = ScopeUpdateDocument.from(object.get("scopePatch"),
                 object.get("unresolvedIssues"), object.get("orientationSuggestions"));
+        if (!scopeUpdate.isValid()) {
+            return fail("invalid scope update: " + scopeUpdate.describeViolations());
+        }
         return new Result(new ScopingAssistantOutput(assistantMessage, brief, suggestions, advice,
                 scopeUpdate.isEmpty() ? null : scopeUpdate), null);
     }

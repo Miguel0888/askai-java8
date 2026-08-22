@@ -11,8 +11,13 @@ import java.util.Map;
  * <p>
  * The runtime deliberately does NOT know the host's domain objects here. The process boundary carries data,
  * not types, so both sides can evolve on their own; the host decodes this into its operations and decides
- * what to do with them. The runtime's job is to make sure only WELL-FORMED proposals cross: a malformed
- * operation is dropped with a reason instead of travelling on and being rejected invisibly later.
+ * what to do with them.
+ * <p>
+ * Validation is ALL-OR-NOTHING, exactly like the host's decoding: if a single operation, issue or
+ * suggestion is malformed, the whole scope update of this turn is invalid. Dropping only the bad element and
+ * forwarding the rest would be worse than useless — the assistant would say it noted an emphasis, the facet
+ * would be stored and the emphasis silently missing. A partially applied turn makes the conversation and the
+ * stored scope disagree, which is the one failure mode this design exists to prevent.
  */
 public final class ScopeUpdateDocument {
 
@@ -44,9 +49,26 @@ public final class ScopeUpdateDocument {
         return operations.isEmpty() && issues.isEmpty() && suggestions.isEmpty();
     }
 
-    /** What was dropped and why — surfaced in the technical trace, never silently swallowed. */
-    public List<String> getRejections() {
+    /** False when ANY element was malformed — the turn is then a contract violation, not a partial update. */
+    public boolean isValid() {
+        return rejections.isEmpty();
+    }
+
+    /** Why the update is invalid; empty for a valid one. Never a list of silently skipped elements. */
+    public List<String> getViolations() {
         return rejections;
+    }
+
+    /** One line naming every violation — the reason the whole turn is rejected. */
+    public String describeViolations() {
+        StringBuilder sb = new StringBuilder();
+        for (String violation : rejections) {
+            if (sb.length() > 0) {
+                sb.append("; ");
+            }
+            sb.append(violation);
+        }
+        return sb.toString();
     }
 
     @SuppressWarnings("unchecked")

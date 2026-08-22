@@ -31,7 +31,7 @@ public class ScopeUpdateDocumentTest {
         assertTrue(json, json.contains("\"kind\":\"addFacet\""));
         assertTrue(json, json.contains("\"facetId\":\"health\""));
         assertTrue(json, json.contains("\"label\":\"Gesundheit\""));
-        assertTrue(document.getRejections().isEmpty());
+        assertTrue(document.isValid());
     }
 
     @Test
@@ -43,24 +43,34 @@ public class ScopeUpdateDocumentTest {
                 null, result.getOutput().getScopeUpdate());
     }
 
+    /**
+     * ONE malformed element invalidates the whole turn. Forwarding the valid rest would be the worst
+     * outcome: the assistant claims it noted the emphasis, the facet is stored, the emphasis is not — and
+     * nobody sees it. The turn takes the same repair-then-honest-error path as any contract violation.
+     */
     @Test
-    public void malformedProposalsAreDroppedWithAReasonRatherThanForwarded() {
+    public void oneMalformedElementInvalidatesTheWholeTurnInsteadOfBeingSkipped() {
         ScopingAssistantOutputParser.Result result = parse(
                 "\"scopePatch\":{\"operations\":["
-                        + "{\"kind\":\"addFacet\",\"facetId\":\"ok\",\"label\":\"Fein\"},"
-                        + "{\"kind\":\"addFacet\",\"facetId\":\"nolabel\"},"
-                        + "{\"kind\":\"invent\",\"facetId\":\"x\"}]},"
-                        + "\"orientationSuggestions\":[{\"query\":\"only a query\"}]");
+                        + "{\"kind\":\"addFacet\",\"facetId\":\"health\",\"label\":\"Gesundheit\"},"
+                        + "{\"kind\":\"setFacetEmphasis\"}]}");
 
-        assertTrue(result.getError(), result.isOk());
-        ScopeUpdateDocument document = result.getOutput().getScopeUpdate();
-        assertTrue(document.toJson(), document.toJson().contains("\"facetId\":\"ok\""));
-        assertFalse(document.toJson(), document.toJson().contains("nolabel"));
-        assertFalse("an unknown kind never reaches the host",
-                document.toJson().contains("invent"));
-        assertFalse("a suggestion without a label would show the query as UI text",
-                document.toJson().contains("only a query"));
-        assertEquals(3, document.getRejections().size());
+        assertFalse("a partially valid scope update is not a valid turn", result.isOk());
+        assertTrue(result.getError(), result.getError().contains("invalid scope update"));
+        assertTrue(result.getError(), result.getError().contains("setFacetEmphasis"));
+    }
+
+    @Test
+    public void anUnknownOperationKindOrALabellessSuggestionAlsoFailsTheTurn() {
+        ScopingAssistantOutputParser.Result unknownKind = parse(
+                "\"scopePatch\":{\"operations\":[{\"kind\":\"invent\",\"facetId\":\"x\"}]}");
+        assertFalse(unknownKind.isOk());
+        assertTrue(unknownKind.getError(), unknownKind.getError().contains("invent"));
+
+        ScopingAssistantOutputParser.Result labelless = parse(
+                "\"orientationSuggestions\":[{\"query\":\"only a query\"}]");
+        assertFalse(labelless.isOk());
+        assertTrue(labelless.getError(), labelless.getError().contains("label"));
     }
 
     @Test

@@ -952,12 +952,10 @@ public final class ResearchAgentMain {
                         ((com.aresstack.askai.research.runtime.team.ScopingAssistantOutput)
                                 result.getOutput()).getScopeUpdate();
                 if (scopeUpdate != null) {
+                    // Only a VALID update can reach this point: an invalid one already failed the turn in
+                    // the parser, so a partially applied scope cannot come into existence.
                     ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
                             .scopeUpdate(phaseId, scopeUpdate.toJson()));
-                    for (String rejection : scopeUpdate.getRejections()) {
-                        ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
-                                .log("scopeupdate dropped: " + rejection));
-                    }
                 }
             }
             String brief = com.aresstack.askai.research.runtime.team.ScopingBriefSource
