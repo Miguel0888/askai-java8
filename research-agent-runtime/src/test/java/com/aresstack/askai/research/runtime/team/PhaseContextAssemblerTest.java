@@ -70,6 +70,12 @@ public class PhaseContextAssemblerTest {
                 containsSystem(turnTwo, "Current working language: English."));
         assertTrue("the instruction protects historical content",
                 containsSystem(turnTwo, "Do not translate or rewrite historical content"));
+        // The REPLY follows the user (answering German input in English reads as a defect), while brief
+        // and search queries follow the configured setting.
+        assertTrue("the reply language follows the user's message",
+                containsSystem(turnTwo, "ANSWER THE USER IN THE LANGUAGE THEY WRITE IN"));
+        assertTrue("the configured language still governs the generated artifacts",
+                containsSystem(turnTwo, "Use English for all other newly generated content"));
         assertTrue("the German history is still part of the context, untranslated",
                 turnTwo.get(turnTwo.size() - 2).getContent().contains("Wearables interessieren mich."));
         assertTrue(turnTwo.get(turnTwo.size() - 1).getContent()

@@ -22,6 +22,28 @@ public class PhaseAssistantProfileRegistryTest {
         assertEquals(PhaseContextPolicy.OWN_PHASE_CHAT_AND_LATEST_ARTIFACTS, scoping.getContextPolicy());
     }
 
+    /**
+     * Scoping must CONVERGE. In the live gate the assistant ended nearly every turn with "which of these
+     * three directions first?" — even when the user explicitly asked for a summary to decide on. That turns
+     * a conversation into a form, so the prompt now names the convergence signals, demands a consolidated
+     * scope instead of another option menu, and forbids the repeated branching formula.
+     */
+    @Test
+    public void theScopingAssistantMustRecognizeConvergenceInsteadOfBranchingForever() {
+        String prompt = PhaseAssistantProfileRegistry.defaults().forPhase("scoping").getSystemPrompt();
+
+        assertTrue(prompt.contains("CONVERGENCE SIGNALS"));
+        assertTrue("a converged scope is delivered as a whole, not as new alternatives",
+                prompt.contains("CONSOLIDATED SCOPE"));
+        assertTrue("the repeated branching formula is explicitly ruled out",
+                prompt.contains("Do NOT end every turn the same way"));
+        assertTrue("already decided or excluded options must not come back",
+                prompt.contains("Never re-offer an option the user already chose or explicitly ruled out"));
+        assertTrue("convergence never turns the assistant into a gatekeeper",
+                prompt.contains("neither\nask for permission nor claim to start anything")
+                        || prompt.contains("neither ask for permission nor claim to start anything"));
+    }
+
     @Test
     public void phaseLookupIsCaseInsensitive() {
         PhaseAssistantProfileRegistry registry = PhaseAssistantProfileRegistry.defaults();
