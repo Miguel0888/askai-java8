@@ -19,21 +19,25 @@ public final class ResearchProjectContext {
     private final File projectDirectory;
     private final ResearchProjectStore store;
     private final ResearchProjectMetadataStore metadataStore;
+    private final FileResearchScopeDraftStore scopeDraftStore;
 
     private ResearchProjectContext(String projectId, File projectDirectory,
                                    ResearchProjectStore store,
-                                   ResearchProjectMetadataStore metadataStore) {
+                                   ResearchProjectMetadataStore metadataStore,
+                                   FileResearchScopeDraftStore scopeDraftStore) {
         this.projectId = projectId;
         this.projectDirectory = projectDirectory;
         this.store = store;
         this.metadataStore = metadataStore;
+        this.scopeDraftStore = scopeDraftStore;
     }
 
     /** Open (or lazily create on first write) the persistent context of one project directory. */
     public static ResearchProjectContext open(String projectId, File projectDirectory) {
         return new ResearchProjectContext(projectId, projectDirectory,
                 new ResearchProjectStore(projectDirectory),
-                new ResearchProjectMetadataStore(projectDirectory));
+                new ResearchProjectMetadataStore(projectDirectory),
+                new FileResearchScopeDraftStore(projectDirectory));
     }
 
     public String getProjectId() {
@@ -63,5 +67,10 @@ public final class ResearchProjectContext {
 
     public ResearchProjectMetadataStore getMetadataStore() {
         return metadataStore;
+    }
+
+    /** The structured, versioned scope draft of this project — the working result of the scoping phase. */
+    public FileResearchScopeDraftStore getScopeDraftStore() {
+        return scopeDraftStore;
     }
 }

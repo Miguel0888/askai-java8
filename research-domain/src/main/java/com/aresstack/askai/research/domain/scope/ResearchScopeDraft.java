@@ -1,0 +1,394 @@
+package com.aresstack.askai.research.domain.scope;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * THE working result of scoping: the fenced-in investigation area the user and the assistant work out
+ * together. It is deliberately NOT a research question, NOT an outline and NOT a set of search queries — a
+ * single question is at most a PROJECTION of this draft, and the other two belong to later phases.
+ * <p>
+ * The draft is immutable and carries a {@code revision}: every accepted change produces the next revision,
+ * so the scoping history stays reconstructable and the application (never the model) owns continuity. Use
+ * {@link #builder()} for a new draft and {@link #toBuilder()} to derive the next revision.
+ */
+public final class ResearchScopeDraft {
+
+    private final long revision;
+    private final String mission;
+    private final List<String> domains;
+    private final List<String> contexts;
+    private final List<ScopeFacet> facets;
+    private final List<String> exclusions;
+    private final List<String> perspectives;
+    private final List<String> constraints;
+    private final String geographicScope;
+    private final String temporalScope;
+    private final List<String> terminology;
+    private final List<String> unresolvedIssues;
+    private final List<CoverageEmphasis> coverageEmphasis;
+    private final List<CrossCuttingEmphasis> crossCuttingEmphasis;
+    private final ResearchDeliverable deliverable;
+
+    private ResearchScopeDraft(Builder builder) {
+        this.revision = builder.revision;
+        this.mission = safe(builder.mission);
+        this.domains = copy(builder.domains);
+        this.contexts = copy(builder.contexts);
+        this.facets = copy(builder.facets);
+        this.exclusions = copy(builder.exclusions);
+        this.perspectives = copy(builder.perspectives);
+        this.constraints = copy(builder.constraints);
+        this.geographicScope = safe(builder.geographicScope);
+        this.temporalScope = safe(builder.temporalScope);
+        this.terminology = copy(builder.terminology);
+        this.unresolvedIssues = copy(builder.unresolvedIssues);
+        this.coverageEmphasis = copy(builder.coverageEmphasis);
+        this.crossCuttingEmphasis = copy(builder.crossCuttingEmphasis);
+        this.deliverable = builder.deliverable == null
+                ? ResearchDeliverable.unspecified() : builder.deliverable;
+    }
+
+    /** An empty draft at revision 0 — a scoping conversation that has not produced anything yet. */
+    public static ResearchScopeDraft empty() {
+        return builder().build();
+    }
+
+    public static Builder builder() {
+        return new Builder();
+    }
+
+    /** A builder seeded with this draft; {@link Builder#nextRevision()} produces the following revision. */
+    public Builder toBuilder() {
+        Builder builder = new Builder();
+        builder.revision = revision;
+        builder.mission = mission;
+        builder.domains = new ArrayList<String>(domains);
+        builder.contexts = new ArrayList<String>(contexts);
+        builder.facets = new ArrayList<ScopeFacet>(facets);
+        builder.exclusions = new ArrayList<String>(exclusions);
+        builder.perspectives = new ArrayList<String>(perspectives);
+        builder.constraints = new ArrayList<String>(constraints);
+        builder.geographicScope = geographicScope;
+        builder.temporalScope = temporalScope;
+        builder.terminology = new ArrayList<String>(terminology);
+        builder.unresolvedIssues = new ArrayList<String>(unresolvedIssues);
+        builder.coverageEmphasis = new ArrayList<CoverageEmphasis>(coverageEmphasis);
+        builder.crossCuttingEmphasis = new ArrayList<CrossCuttingEmphasis>(crossCuttingEmphasis);
+        builder.deliverable = deliverable;
+        return builder;
+    }
+
+    public long getRevision() {
+        return revision;
+    }
+
+    /** What the user actually wants to find out, in their own words — the anchor for everything else. */
+    public String getMission() {
+        return mission;
+    }
+
+    /** The subject areas the mission lives in (e.g. "Wearables", "Medizintechnik"). */
+    public List<String> getDomains() {
+        return domains;
+    }
+
+    /** The situations/settings of interest (e.g. "klinische Nutzung", "Alltag"). */
+    public List<String> getContexts() {
+        return contexts;
+    }
+
+    /** The investigation area, aspect by aspect, each with its own status. */
+    public List<ScopeFacet> getFacets() {
+        return facets;
+    }
+
+    /** What is explicitly OUT — in the user's words, not as negated facets. */
+    public List<String> getExclusions() {
+        return exclusions;
+    }
+
+    /** Through whose eyes it should be looked at (e.g. "Patient", "Zulassungsbehörde"). */
+    public List<String> getPerspectives() {
+        return perspectives;
+    }
+
+    /** Boundary conditions of the work itself (e.g. "nur frei zugängliche Quellen"). */
+    public List<String> getConstraints() {
+        return constraints;
+    }
+
+    public String getGeographicScope() {
+        return geographicScope;
+    }
+
+    public String getTemporalScope() {
+        return temporalScope;
+    }
+
+    /** Terms that matter for this scope — later a starting point for search vocabulary, not queries. */
+    public List<String> getTerminology() {
+        return terminology;
+    }
+
+    /** Open points that do NOT block the scope; they are carried forward, not resolved by guessing. */
+    public List<String> getUnresolvedIssues() {
+        return unresolvedIssues;
+    }
+
+    public List<CoverageEmphasis> getCoverageEmphasis() {
+        return coverageEmphasis;
+    }
+
+    public List<CrossCuttingEmphasis> getCrossCuttingEmphasis() {
+        return crossCuttingEmphasis;
+    }
+
+    public ResearchDeliverable getDeliverable() {
+        return deliverable;
+    }
+
+    /** The facet with this id, or {@code null}. */
+    public ScopeFacet facet(String facetId) {
+        if (facetId == null) {
+            return null;
+        }
+        for (ScopeFacet facet : facets) {
+            if (facet.getFacetId().equals(facetId.trim())) {
+                return facet;
+            }
+        }
+        return null;
+    }
+
+    /** The emphasis recorded for this facet, or {@code null} when the user weighted nothing. */
+    public CoverageEmphasis emphasisOf(String facetId) {
+        if (facetId == null) {
+            return null;
+        }
+        for (CoverageEmphasis emphasis : coverageEmphasis) {
+            if (emphasis.getTargetFacetId().equals(facetId.trim())) {
+                return emphasis;
+            }
+        }
+        return null;
+    }
+
+    /** The facets that are IN right now (provisional or confirmed) — excluded ones are kept, not deleted. */
+    public List<ScopeFacet> includedFacets() {
+        List<ScopeFacet> included = new ArrayList<ScopeFacet>();
+        for (ScopeFacet facet : facets) {
+            if (!facet.isExcluded()) {
+                included.add(facet);
+            }
+        }
+        return Collections.unmodifiableList(included);
+    }
+
+    /** Nothing said yet — an untouched draft. */
+    public boolean isEmpty() {
+        return mission.isEmpty() && domains.isEmpty() && contexts.isEmpty() && facets.isEmpty()
+                && exclusions.isEmpty() && perspectives.isEmpty() && constraints.isEmpty()
+                && geographicScope.isEmpty() && temporalScope.isEmpty() && terminology.isEmpty()
+                && unresolvedIssues.isEmpty() && coverageEmphasis.isEmpty()
+                && crossCuttingEmphasis.isEmpty() && !deliverable.hasTargetLength();
+    }
+
+    private static String safe(String value) {
+        return value == null ? "" : value.trim();
+    }
+
+    private static <T> List<T> copy(List<T> values) {
+        return values == null || values.isEmpty()
+                ? Collections.<T>emptyList()
+                : Collections.unmodifiableList(new ArrayList<T>(values));
+    }
+
+    /** Builds a draft; list setters replace, the {@code add*} helpers keep what is already there. */
+    public static final class Builder {
+
+        private long revision;
+        private String mission = "";
+        private List<String> domains = new ArrayList<String>();
+        private List<String> contexts = new ArrayList<String>();
+        private List<ScopeFacet> facets = new ArrayList<ScopeFacet>();
+        private List<String> exclusions = new ArrayList<String>();
+        private List<String> perspectives = new ArrayList<String>();
+        private List<String> constraints = new ArrayList<String>();
+        private String geographicScope = "";
+        private String temporalScope = "";
+        private List<String> terminology = new ArrayList<String>();
+        private List<String> unresolvedIssues = new ArrayList<String>();
+        private List<CoverageEmphasis> coverageEmphasis = new ArrayList<CoverageEmphasis>();
+        private List<CrossCuttingEmphasis> crossCuttingEmphasis = new ArrayList<CrossCuttingEmphasis>();
+        private ResearchDeliverable deliverable = ResearchDeliverable.unspecified();
+
+        public Builder revision(long value) {
+            this.revision = value;
+            return this;
+        }
+
+        /** The next revision — every accepted change produces one. */
+        public Builder nextRevision() {
+            this.revision = revision + 1;
+            return this;
+        }
+
+        public Builder mission(String value) {
+            this.mission = value;
+            return this;
+        }
+
+        public Builder domains(List<String> values) {
+            this.domains = values == null ? new ArrayList<String>() : new ArrayList<String>(values);
+            return this;
+        }
+
+        public Builder contexts(List<String> values) {
+            this.contexts = values == null ? new ArrayList<String>() : new ArrayList<String>(values);
+            return this;
+        }
+
+        public Builder facets(List<ScopeFacet> values) {
+            this.facets = values == null ? new ArrayList<ScopeFacet>() : new ArrayList<ScopeFacet>(values);
+            return this;
+        }
+
+        /**
+         * Add a facet, or REFINE the one with the same id — a repeated statement about the same aspect must
+         * never create a duplicate, and must never lose the earlier rationale.
+         */
+        public Builder putFacet(ScopeFacet facet) {
+            if (facet == null) {
+                return this;
+            }
+            for (int index = 0; index < facets.size(); index++) {
+                if (facets.get(index).getFacetId().equals(facet.getFacetId())) {
+                    facets.set(index, facets.get(index).with(facet.getStatus(), facet.getRationale()));
+                    return this;
+                }
+            }
+            facets.add(facet);
+            return this;
+        }
+
+        public Builder exclusions(List<String> values) {
+            this.exclusions = values == null ? new ArrayList<String>() : new ArrayList<String>(values);
+            return this;
+        }
+
+        public Builder addExclusion(String value) {
+            return addDistinct(exclusions, value);
+        }
+
+        public Builder perspectives(List<String> values) {
+            this.perspectives = values == null ? new ArrayList<String>() : new ArrayList<String>(values);
+            return this;
+        }
+
+        public Builder constraints(List<String> values) {
+            this.constraints = values == null ? new ArrayList<String>() : new ArrayList<String>(values);
+            return this;
+        }
+
+        public Builder geographicScope(String value) {
+            this.geographicScope = value;
+            return this;
+        }
+
+        public Builder temporalScope(String value) {
+            this.temporalScope = value;
+            return this;
+        }
+
+        public Builder terminology(List<String> values) {
+            this.terminology = values == null ? new ArrayList<String>() : new ArrayList<String>(values);
+            return this;
+        }
+
+        public Builder addTerminology(String value) {
+            return addDistinct(terminology, value);
+        }
+
+        public Builder unresolvedIssues(List<String> values) {
+            this.unresolvedIssues = values == null
+                    ? new ArrayList<String>() : new ArrayList<String>(values);
+            return this;
+        }
+
+        public Builder addUnresolvedIssue(String value) {
+            return addDistinct(unresolvedIssues, value);
+        }
+
+        public Builder coverageEmphasis(List<CoverageEmphasis> values) {
+            this.coverageEmphasis = values == null
+                    ? new ArrayList<CoverageEmphasis>() : new ArrayList<CoverageEmphasis>(values);
+            return this;
+        }
+
+        /** Set (or replace) the emphasis of ONE facet — the latest statement about it wins. */
+        public Builder putCoverageEmphasis(CoverageEmphasis emphasis) {
+            if (emphasis == null) {
+                return this;
+            }
+            for (int index = 0; index < coverageEmphasis.size(); index++) {
+                if (coverageEmphasis.get(index).getTargetFacetId()
+                        .equals(emphasis.getTargetFacetId())) {
+                    coverageEmphasis.set(index, emphasis);
+                    return this;
+                }
+            }
+            coverageEmphasis.add(emphasis);
+            return this;
+        }
+
+        public Builder crossCuttingEmphasis(List<CrossCuttingEmphasis> values) {
+            this.crossCuttingEmphasis = values == null
+                    ? new ArrayList<CrossCuttingEmphasis>() : new ArrayList<CrossCuttingEmphasis>(values);
+            return this;
+        }
+
+        /** Set (or replace) the weight of ONE cross-cutting dimension. */
+        public Builder putCrossCuttingEmphasis(CrossCuttingEmphasis emphasis) {
+            if (emphasis == null) {
+                return this;
+            }
+            for (int index = 0; index < crossCuttingEmphasis.size(); index++) {
+                if (crossCuttingEmphasis.get(index).getDimension().equals(emphasis.getDimension())) {
+                    crossCuttingEmphasis.set(index, emphasis);
+                    return this;
+                }
+            }
+            crossCuttingEmphasis.add(emphasis);
+            return this;
+        }
+
+        public Builder deliverable(ResearchDeliverable value) {
+            this.deliverable = value;
+            return this;
+        }
+
+        public ResearchScopeDraft build() {
+            return new ResearchScopeDraft(this);
+        }
+
+        private Builder addDistinct(List<String> target, String value) {
+            if (value != null && !value.trim().isEmpty() && !target.contains(value.trim())) {
+                target.add(value.trim());
+            }
+            return this;
+        }
+    }
+
+    /** Facet ids by label — used by adapters that only know the user's wording. */
+    public Map<String, String> facetIdsByLabel() {
+        Map<String, String> byLabel = new LinkedHashMap<String, String>();
+        for (ScopeFacet facet : facets) {
+            byLabel.put(facet.getLabel(), facet.getFacetId());
+        }
+        return Collections.unmodifiableMap(byLabel);
+    }
+}
