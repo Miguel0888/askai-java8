@@ -45,6 +45,8 @@ public final class ChatGptConnectorServer {
     private final ConnectorOAuthService oauth;
     private final ToolProvider toolProvider;
     private HttpServer server;
+    /** The request workers; owned here so stop() really releases them (never leaked across restarts). */
+    private java.util.concurrent.ExecutorService workers;
 
     public ChatGptConnectorServer(ConnectorConfig config, ConnectorOAuthService oauth,
                                   ToolProvider toolProvider) {
@@ -64,15 +66,38 @@ public final class ChatGptConnectorServer {
                 route(exchange);
             }
         });
-        created.setExecutor(Executors.newFixedThreadPool(4));
+        // DAEMON workers, deliberately: AskAI's shutdown path closes the window and then lets the JVM exit
+        // NATURALLY (see AskAiFrame.performShutdown) — a single non-daemon pool thread here keeps the whole
+        // process alive forever, and with it this bound port. The next AskAI start then cannot bind it and
+        // silently keeps serving the OLD generation's tool catalog to connected clients.
+        java.util.concurrent.ExecutorService pool = Executors.newFixedThreadPool(4,
+                new java.util.concurrent.ThreadFactory() {
+                    private final java.util.concurrent.atomic.AtomicInteger counter =
+                            new java.util.concurrent.atomic.AtomicInteger();
+
+                    public Thread newThread(Runnable runnable) {
+                        Thread thread = new Thread(runnable,
+                                "chatgpt-connector-" + counter.incrementAndGet());
+                        thread.setDaemon(true);
+                        return thread;
+                    }
+                });
+        created.setExecutor(pool);
         created.start();
         server = created;
+        workers = pool;
     }
 
     public synchronized void stop() {
         if (server != null) {
             server.stop(0);
             server = null;
+        }
+        // The HttpServer never owns the executor it was given: without this every stop/start cycle would
+        // strand four idle threads.
+        if (workers != null) {
+            workers.shutdownNow();
+            workers = null;
         }
     }
 
