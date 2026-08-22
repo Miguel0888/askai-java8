@@ -2305,6 +2305,13 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         saveChatRecord();
     }
 
+    /** Notified after every persist so a visible chat list can pick up a new title/timestamp. */
+    private Runnable historyChangedListener;
+
+    public void setHistoryChangedListener(Runnable listener) {
+        this.historyChangedListener = listener;
+    }
+
     private void saveChatRecord() {
         if (historyStore == null || chatRecord == null) {
             return;
@@ -2315,6 +2322,11 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         chatRecord.setSystemPrompt(systemPromptArea.getText());
         chatRecord.setModifiedAt(System.currentTimeMillis());
         historyStore.save(chatRecord);
+        // The persisted state just changed — an OPEN sidebar would otherwise keep its stale label until
+        // the next tab switch (a chat created with an explicit title stayed "(new chat)" the whole time).
+        if (historyChangedListener != null) {
+            historyChangedListener.run();
+        }
     }
 
     private static String deriveTitle(String text, java.util.List<ImageAttachment> attachments) {

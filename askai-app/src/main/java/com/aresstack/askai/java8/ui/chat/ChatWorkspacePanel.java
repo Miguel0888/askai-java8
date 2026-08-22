@@ -254,6 +254,17 @@ public final class ChatWorkspacePanel extends JPanel {
         }
     }
 
+    /**
+     * Re-read the chat list in place — used when a chat's PERSISTED state changed (a title appeared, a
+     * message was written). Without this the open sidebar keeps showing "(new chat)" for a chat that has
+     * long since been titled, e.g. one an agent created with an explicit title.
+     */
+    public void refreshChatTitles() {
+        if (sidebar.isVisible()) {
+            refreshChatList();
+        }
+    }
+
     /** Refresh the drawer's panes/ribbon in place (e.g. the active agent's tab set changed). */
     public void refreshSidebarTabs() {
         if (sidebar.isVisible()) {

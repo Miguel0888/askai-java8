@@ -862,6 +862,14 @@ public final class AskAiFrame extends JFrame {
                         audioProfileRepository, applicationState, historyStore);
                 chat.setInstallAudioModelHandler(installHandler);
                 chat.setAudioProcessingSettingsHandler(audioHandler);
+                // A persisted title/timestamp must reach an OPEN chat list right away.
+                chat.setHistoryChangedListener(new Runnable() {
+                    public void run() {
+                        if (chatWorkspace != null) {
+                            chatWorkspace.refreshChatTitles();
+                        }
+                    }
+                });
                 wireChatTabToAgentHost(chat);
                 return chat;
             }
