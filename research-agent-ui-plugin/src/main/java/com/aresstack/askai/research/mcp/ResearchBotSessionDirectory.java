@@ -31,6 +31,8 @@ public final class ResearchBotSessionDirectory {
 
     /** The host's read-only chat catalog (titles + the selected chat), or null before a host provided it. */
     private volatile ChatSessionCatalog catalog;
+    /** The host's WRITING chat port, or null when this host cannot create chats for a plugin. */
+    private volatile com.aresstack.askai.plugin.api.service.ChatSessionLauncher launcher;
 
     private ResearchBotSessionDirectory() {
     }
@@ -47,6 +49,19 @@ public final class ResearchBotSessionDirectory {
         if (chatSessionCatalog != null) {
             this.catalog = chatSessionCatalog;
         }
+    }
+
+    /** The host port that can open a NEW research chat; a null argument is ignored (see the catalog above). */
+    public void setChatSessionLauncher(
+            com.aresstack.askai.plugin.api.service.ChatSessionLauncher chatSessionLauncher) {
+        if (chatSessionLauncher != null) {
+            this.launcher = chatSessionLauncher;
+        }
+    }
+
+    /** The host port for creating a chat, or null when this host does not offer one. */
+    public com.aresstack.askai.plugin.api.service.ChatSessionLauncher launcher() {
+        return launcher;
     }
 
     /**
@@ -89,9 +104,15 @@ public final class ResearchBotSessionDirectory {
         return publicSessionId == null ? null : sessions.get(publicSessionId.trim());
     }
 
-    /** Drop every registration (plugin stop / generation swap). Sessions themselves are closed by the host. */
+    /**
+     * Drop every registration AND the host ports (plugin stop / generation swap). Sessions themselves are
+     * closed by the host; releasing the ports here keeps a dying plugin generation from holding host objects
+     * alive — the next generation publishes its own on the first productive start.
+     */
     public synchronized void clear() {
         sessions.clear();
+        catalog = null;
+        launcher = null;
     }
 
     /** The chat id currently SELECTED in the UI ("" when unknown) — never "the last session that started". */

@@ -36,8 +36,73 @@ public final class ResearchBotDirectoryTools {
             + "in the AskAI window. Driving another session does NOT switch the user's visible chat.";
 
     public static List<McpToolContribution> of(ResearchBotSessionDirectory directory) {
-        return Arrays.asList(sessionsListTool(directory), runCommandTool(directory),
-                sessionStateTool(directory), chatHistoryTool(directory));
+        return Arrays.asList(sessionsListTool(directory), sessionCreateTool(directory),
+                runCommandTool(directory), sessionStateTool(directory), chatHistoryTool(directory));
+    }
+
+    /** How long a create may take before it is reported as not confirmed (agent start spawns processes). */
+    private static final long CREATE_CONFIRM_TIMEOUT_MILLIS = 30_000L;
+
+    /**
+     * Open a NEW research chat. This is the ONE tool that deliberately changes what the user sees: creating
+     * a chat means opening it. Everything else stays addressing-only.
+     */
+    private static McpToolContribution sessionCreateTool(final ResearchBotSessionDirectory directory) {
+        return McpToolContribution.of("session_create",
+                "Open a NEW research chat in AskAI and return its sessionId, ready to be driven with the "
+                        + "other tools. Unlike every other tool this one is visible to the user: the new "
+                        + "chat is brought to the foreground. Use it to start a fresh research; to work "
+                        + "with an existing one call sessions_list instead.",
+                new McpToolHandler() {
+                    public McpToolResult invoke(McpToolCall call) {
+                        com.aresstack.askai.plugin.api.service.ChatSessionLauncher launcher =
+                                directory.launcher();
+                        if (launcher == null) {
+                            return McpToolResult.error("This AskAI instance does not allow creating chats "
+                                    + "from outside. Open a research chat in the app; sessions_list will "
+                                    + "then show it.");
+                        }
+                        String title = call.getString("title");
+                        String sessionId = launcher.createChatSession(
+                                com.aresstack.askai.research.plugin.ResearchPluginDescriptor.PLUGIN_ID,
+                                title == null ? "" : title);
+                        if (sessionId == null || sessionId.trim().isEmpty()) {
+                            return McpToolResult.error(
+                                    "AskAI could not open a new research chat (see its log for the reason).");
+                        }
+                        return awaitRegistration(directory, sessionId.trim());
+                    }
+                },
+                McpToolParameter.string("title", false,
+                        "An optional title for the new chat; it becomes visible once the chat has content"));
+    }
+
+    /**
+     * The chat exists — now wait for ITS research session to be registered. The agent is activated
+     * synchronously while the chat is created, so this normally returns at once; a productive start that
+     * spawns processes may lag, and a start that FAILED must be reported as such instead of handing back an
+     * id nothing answers on.
+     */
+    private static McpToolResult awaitRegistration(ResearchBotSessionDirectory directory, String sessionId) {
+        long deadline = System.currentTimeMillis() + CREATE_CONFIRM_TIMEOUT_MILLIS;
+        while (true) {
+            ResearchBotSessionRegistration registration = directory.find(sessionId);
+            if (registration != null) {
+                String state = registration.getGateway().describeState();
+                return McpToolResult.ok("sessionId=" + sessionId + "\n" + (state == null ? "" : state));
+            }
+            if (System.currentTimeMillis() >= deadline) {
+                return McpToolResult.error("The chat " + sessionId + " was opened, but no research session "
+                        + "came up in it (the agent may have failed to start — the chat shows the reason). "
+                        + "Call sessions_list to check.");
+            }
+            try {
+                Thread.sleep(100L);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                return McpToolResult.error("Interrupted while waiting for the new session " + sessionId);
+            }
+        }
     }
 
     private static final String SESSION_ID_PARAMETER =

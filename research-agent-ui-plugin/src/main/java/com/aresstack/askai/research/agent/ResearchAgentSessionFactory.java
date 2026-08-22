@@ -229,6 +229,10 @@ public final class ResearchAgentSessionFactory implements AgentSessionFactory {
         // and callers simply have to pass sessionId explicitly.
         runtime.sessions().setChatSessionCatalog(hostContext.getService(
                 com.aresstack.askai.plugin.api.service.ChatSessionCatalog.class));
+        // The WRITING port (session_create). Also optional: a host without it simply cannot be asked to
+        // open a chat, and the tool says so instead of failing obscurely.
+        runtime.sessions().setChatSessionLauncher(hostContext.getService(
+                com.aresstack.askai.plugin.api.service.ChatSessionLauncher.class));
         ResearchRuntimeSettings.ChatGptConnectorSettings connector =
                 ResearchRuntimeSettings.loadChatGptConnectorSettings(hostContext.getStateStore());
         if (connector.isEnabled()) {

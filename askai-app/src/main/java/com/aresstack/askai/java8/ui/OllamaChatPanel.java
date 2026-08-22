@@ -2292,6 +2292,19 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         saveChatRecord();
     }
 
+    /**
+     * Set this chat's display title explicitly (a chat created programmatically, e.g. by an agent). The
+     * first user message no longer overwrites it — {@link #persistUserMessage} only derives a title when
+     * none is set. An empty chat is not persisted, so the title becomes visible once the chat has content.
+     */
+    public void setChatTitle(String title) {
+        if (title == null || title.trim().isEmpty()) {
+            return;
+        }
+        chatRecord().setTitle(title.trim());
+        saveChatRecord();
+    }
+
     private void saveChatRecord() {
         if (historyStore == null || chatRecord == null) {
             return;

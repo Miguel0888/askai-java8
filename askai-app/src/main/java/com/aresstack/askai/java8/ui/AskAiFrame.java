@@ -113,6 +113,8 @@ public final class AskAiFrame extends JFrame {
     private com.aresstack.askai.java8.plugin.host.LocalChatSessionCatalog chatSessionCatalog;
     /** Reads the PERSISTED messages of a chat for plugins — same store, no second message truth. */
     private com.aresstack.askai.java8.plugin.host.LocalChatSessionHistoryReader chatSessionHistory;
+    /** The one WRITING chat port for plugins: create a chat and activate an agent in it. */
+    private com.aresstack.askai.java8.plugin.host.LocalChatSessionLauncher chatSessionLauncher;
     /** Builds the active agent's composer accessories above the active tab's composer (kept to avoid GC). */
     private com.aresstack.askai.plugin.host.AgentComposerAccessoryArea composerAccessoryArea;
     /** The tab currently showing a composer accessory, so it can be cleared when the active tab changes. */
@@ -569,6 +571,12 @@ public final class AskAiFrame extends JFrame {
                                     com.aresstack.askai.plugin.api.service.ChatSessionHistoryReader.class,
                                     chatSessionHistory);
                         }
+                        // The only WRITING chat port: create a chat + activate an agent in it. Unlike the
+                        // read ports this one deliberately changes what the user sees.
+                        if (chatSessionLauncher != null) {
+                            services.put(com.aresstack.askai.plugin.api.service.ChatSessionLauncher.class,
+                                    chatSessionLauncher);
+                        }
                         services.put(com.aresstack.askai.plugin.api.service.ArtifactViewOpener.class,
                                 new com.aresstack.askai.plugin.api.service.ArtifactViewOpener() {
                                     public void openArtifact(String artifactId) {
@@ -925,6 +933,26 @@ public final class AskAiFrame extends JFrame {
         if (initialChat != null) {
             catalogForTabs.setActiveSessionId(initialChat.getSessionId().toString());
         }
+        // The WRITING port: a new chat + its agent, exactly like the user doing it by hand (new chat →
+        // Questing → agent). Runs on the EDT; the agent session is up when this returns, because
+        // selecting the agent activates it synchronously for the now-active tab.
+        final com.aresstack.askai.plugin.host.ChatWorkspaceHostPanel hostForLauncher = this.chatWorkspaceHost;
+        final ChatWorkspacePanel workspaceForLauncher = this.chatWorkspace;
+        this.chatSessionLauncher = new com.aresstack.askai.java8.plugin.host.LocalChatSessionLauncher(
+                new com.aresstack.askai.java8.plugin.host.LocalChatSessionLauncher.EdtChatCreator() {
+                    public String create(String agentId, String title) {
+                        ChatSessionComponent created = workspaceForLauncher.openNewChat();
+                        if (created instanceof OllamaChatPanel) {
+                            ((OllamaChatPanel) created).setChatTitle(title);
+                        }
+                        if (hostForLauncher != null && agentId != null && !agentId.trim().isEmpty()) {
+                            hostForLauncher.selectAgent(agentId.trim());
+                            hostForLauncher.setInteractionMode(
+                                    com.aresstack.askai.plugin.host.WorkspaceModeEntry.QUESTING_ID);
+                        }
+                        return created.getSessionId().toString();
+                    }
+                });
         contentPanel.add(chatWorkspaceHost, CHAT_VIEW);
         // One-click "Use in chat" from an installed model card: switch to Chat and select the model.
         modelsPanel.setUseInChatHandler(new OllamaModelsPanel.UseInChatHandler() {

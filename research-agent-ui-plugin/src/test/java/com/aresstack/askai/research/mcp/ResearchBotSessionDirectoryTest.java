@@ -89,8 +89,9 @@ public class ResearchBotSessionDirectoryTest {
     }
 
     @Test
-    public void thePublicFaceOffersTheFourMultiSessionTools() {
-        assertEquals(Arrays.asList("sessions_list", "run_command", "session_state", "chat_history"),
+    public void thePublicFaceOffersTheMultiSessionTools() {
+        assertEquals(Arrays.asList("sessions_list", "session_create", "run_command", "session_state",
+                        "chat_history"),
                 registry.listToolNames("public-connector", handle.getToken()));
         // The catalog is STABLE: with nothing running the tools still exist and answer honestly.
         McpToolResult empty = call("sessions_list");
@@ -187,6 +188,55 @@ public class ResearchBotSessionDirectoryTest {
 
         assertEquals("phase=scoping state=running session=new",
                 call("session_state", "sessionId", "uuid-a").getText());
+    }
+
+    /**
+     * session_create is the ONE tool that changes what the user sees. It must hand back an id that is
+     * immediately usable — i.e. one whose research session is registered — and it must confirm that, rather
+     * than returning an id nothing answers on.
+     */
+    @Test
+    public void sessionCreateReturnsAnIdThatIsImmediatelyDriveable() {
+        directory.setChatSessionLauncher(
+                new com.aresstack.askai.plugin.api.service.ChatSessionLauncher() {
+                    public String createChatSession(String agentId, String title) {
+                        // The host activates the agent while creating the chat, so by the time it returns
+                        // the session has registered itself — reproduced here.
+                        catalog.titles.put("uuid-new", title);
+                        directory.register("uuid-new", "research#uuid-new", new Gateway("new"));
+                        return "uuid-new";
+                    }
+                });
+
+        McpToolResult created = call("session_create", "title", "wearables");
+        assertFalse(created.getText(), created.isError());
+        assertTrue(created.getText(), created.getText().contains("sessionId=uuid-new"));
+        assertTrue("the answer already carries the new session's state",
+                created.getText().contains("session=new"));
+        assertEquals("handled by new",
+                call("run_command", "sessionId", "uuid-new", "command", "search").getText());
+    }
+
+    @Test
+    public void aChatThatComesUpWithoutAResearchSessionIsReportedInsteadOfHandingBackADeadId() {
+        directory.setChatSessionLauncher(
+                new com.aresstack.askai.plugin.api.service.ChatSessionLauncher() {
+                    public String createChatSession(String agentId, String title) {
+                        return ""; // the host could not open a chat at all
+                    }
+                });
+
+        McpToolResult failed = call("session_create");
+        assertTrue(failed.isError());
+        assertTrue(failed.getText(), failed.getText().contains("could not open"));
+    }
+
+    @Test
+    public void withoutAWritingHostPortSessionCreateSaysSoAndPointsAtTheApp() {
+        // The directory is a process singleton; this test relies on no launcher having been published.
+        McpToolResult unsupported = call("session_create");
+        assertTrue(unsupported.isError());
+        assertTrue(unsupported.getText(), unsupported.getText().contains("does not allow creating chats"));
     }
 
     @Test
