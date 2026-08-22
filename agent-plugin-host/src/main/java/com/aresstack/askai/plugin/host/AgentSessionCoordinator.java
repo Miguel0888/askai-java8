@@ -114,6 +114,12 @@ public final class AgentSessionCoordinator
         return hash < 0 ? sessionKey : sessionKey.substring(0, hash);
     }
 
+    /** The SCOPE embedded in a session key (everything after the first '#'); "" when there is none. */
+    private static String scopeOf(String sessionKey) {
+        int hash = sessionKey.indexOf('#');
+        return hash < 0 ? "" : sessionKey.substring(hash + 1);
+    }
+
     /** Set (or replace) the host hook invoked by {@code /open <artifact>}; may be null (no-op). */
     public void setArtifactOpener(ArtifactOpener opener) {
         this.artifactOpener = opener;
@@ -160,7 +166,9 @@ public final class AgentSessionCoordinator
         try {
             if (session == null) {
                 session = extension.getSessionFactory().create(
-                        new AgentSessionCreationRequest(sessionKey, "", null), host);
+                        // Both ids explicitly: the internal per-tab key AND the host scope (the chat
+                        // session id) a plugin needs to publish this session to the outside world.
+                        new AgentSessionCreationRequest(sessionKey, scopeOf(sessionKey), "", null), host);
                 sessions.put(sessionKey, session);
             }
             session.activate();

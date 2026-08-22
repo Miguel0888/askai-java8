@@ -3,13 +3,6 @@ package com.aresstack.askai.research.mcp;
 import com.aresstack.askai.mcp.api.McpEndpointDefinition;
 import com.aresstack.askai.mcp.api.McpEndpointHandle;
 import com.aresstack.askai.mcp.api.McpServerRegistry;
-import com.aresstack.askai.mcp.api.McpToolCall;
-import com.aresstack.askai.mcp.api.McpToolContribution;
-import com.aresstack.askai.mcp.api.McpToolHandler;
-import com.aresstack.askai.mcp.api.McpToolParameter;
-import com.aresstack.askai.mcp.api.McpToolResult;
-
-import java.util.Arrays;
 
 /**
  * The per-session BOT-CONTROL MCP endpoint: exactly the tools an external driver (a bot, a headless gate, a
@@ -18,6 +11,10 @@ import java.util.Arrays;
  * both the agent-facing {@link ResearchControlEndpoint} (the TeamAgent never gets these tools) and the
  * runtime-plumbing {@link ResearchServiceEndpoint} (manual_source_* is internal runtime→host traffic, not a
  * bot API). {@code <projectDir>/service-endpoint.json} hands THIS endpoint to external clients.
+ * <p>
+ * This endpoint is bound to EXACTLY ONE session: its own token IS the session selection, so none of its
+ * tools takes a session id. The app-wide public ChatGPT connector is a different face with a different
+ * catalog ({@link ResearchBotDirectoryTools}) — the two are deliberately no longer the same tool set.
  */
 public final class ResearchBotControlEndpoint {
 
@@ -37,30 +34,14 @@ public final class ResearchBotControlEndpoint {
             + "(phase summaries by default, raw=true for every message). Commands are state-dependent — "
             + "re-check session_state after every action.";
 
-    /**
-     * THE session gateway: structured command execution, the structured session state, and the
-     * phase-attributed chat history. Implemented by the session, resolved at call time; {@code null}
-     * results mean "no session attached".
-     */
-    public interface SessionGateway {
-        /** Execute one command with arguments; empty command = the arguments are a plain chat message. */
-        String execute(String command, String arguments);
-
-        /** Phase/run state + currently valid commands, clickable buttons and search suggestions. */
-        String describeState();
-
-        /** The phase-attributed chat record; {@code raw} = every entry instead of phase summaries. */
-        String describeHistory(boolean raw);
-    }
-
     private final McpServerRegistry registry;
-    private final SessionGateway gateway;
+    private final ResearchBotSessionGateway gateway;
     private final String endpointId;
     private McpEndpointHandle handle;
     private boolean closed;
 
     public ResearchBotControlEndpoint(McpServerRegistry registry, String sessionKey,
-                                      long pluginGenerationId, SessionGateway gateway) {
+                                      long pluginGenerationId, ResearchBotSessionGateway gateway) {
         this.registry = registry;
         this.gateway = gateway;
         this.endpointId = "research-bot." + sessionKey + ".g" + pluginGenerationId;
@@ -82,16 +63,7 @@ public final class ResearchBotControlEndpoint {
         }
         handle = registry.registerEndpoint(
                 new McpEndpointDefinition(endpointId, "Research Bot Control"));
-        registry.updateTools(handle, drivingTools(gateway));
-    }
-
-    /**
-     * The fixed THREE-tool set over one gateway — shared by this registry endpoint and the public
-     * ChatGPT connector, so both faces always offer the identical contract.
-     */
-    public static java.util.List<McpToolContribution> drivingTools(SessionGateway gateway) {
-        return Arrays.asList(
-                runCommandTool(gateway), sessionStateTool(gateway), chatHistoryTool(gateway));
+        registry.updateTools(handle, ResearchBotSessionTools.of(gateway));
     }
 
     /** The client-facing streamable-HTTP URL (token in the path), or {@code null} while not open. */
@@ -120,72 +92,5 @@ public final class ResearchBotControlEndpoint {
             registry.unregisterEndpoint(handle);
             handle = null;
         }
-    }
-
-    /**
-     * THE generic driving tool: one structured command + arguments. No command = the arguments are a plain
-     * chat message. Unknown / currently-not-allowed commands come back as typed rejections.
-     */
-    private static McpToolContribution runCommandTool(final SessionGateway gateway) {
-        return McpToolContribution.of("run_command",
-                "Execute one research command. Always-on commands: search <query> (web search), "
-                        + "generate-visualization, generate-outline, review-sources. State commands "
-                        + "(only when the phase allows them): submit-scope, approve, request-changes, "
-                        + "continue, retry, resume, pause, cancel. Omit 'command' to send the arguments "
-                        + "as a plain CHAT MESSAGE to the research agent. Unknown/not-allowed commands "
-                        + "are rejected with the currently valid list. Call session_state first.",
-                new McpToolHandler() {
-                    public McpToolResult invoke(McpToolCall call) {
-                        String result = gateway == null ? null
-                                : gateway.execute(call.getString("command"), call.getString("arguments"));
-                        if (result == null) {
-                            return McpToolResult.error(
-                                    "No research session is attached to this endpoint yet.");
-                        }
-                        return result.startsWith("rejected")
-                                ? McpToolResult.error(result) : McpToolResult.ok(result);
-                    }
-                },
-                McpToolParameter.string("command", false,
-                        "The command name (see session_state); omit for a plain chat message"),
-                McpToolParameter.string("arguments", false,
-                        "The command arguments, or the chat message when no command is given"));
-    }
-
-    /** The structured session state: phase/run state first, then valid commands, buttons, suggestions. */
-    private static McpToolContribution sessionStateTool(final SessionGateway gateway) {
-        return McpToolContribution.of("session_state",
-                "Current research phase and run state, plus the currently valid commands (the same set the "
-                        + "UI buttons offer), the clickable decision buttons and the search suggestions "
-                        + "(each directly executable via run_command).",
-                new McpToolHandler() {
-                    public McpToolResult invoke(McpToolCall call) {
-                        String state = gateway == null ? null : gateway.describeState();
-                        return state == null
-                                ? McpToolResult.error(
-                                        "No research session is attached to this endpoint yet.")
-                                : McpToolResult.ok(state);
-                    }
-                });
-    }
-
-    /** The phase-attributed chat record: summaries per finished phase by default, raw=true for everything. */
-    private static McpToolContribution chatHistoryTool(final SessionGateway gateway) {
-        return McpToolContribution.of("chat_history",
-                "The chat record of this session, attributed to research phases: finished phases as ONE "
-                        + "summary (outcome + message count), the current phase in detail. Pass raw=true "
-                        + "for every recorded message of every phase.",
-                new McpToolHandler() {
-                    public McpToolResult invoke(McpToolCall call) {
-                        boolean raw = call.getBoolean("raw", false);
-                        String history = gateway == null ? null : gateway.describeHistory(raw);
-                        return history == null
-                                ? McpToolResult.error(
-                                        "No research session is attached to this endpoint yet.")
-                                : McpToolResult.ok(history);
-                    }
-                },
-                McpToolParameter.string("raw", false,
-                        "true = every recorded message of every phase (default: phase summaries)"));
     }
 }

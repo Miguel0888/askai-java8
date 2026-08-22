@@ -106,6 +106,11 @@ public final class AskAiFrame extends JFrame {
     private com.aresstack.askai.plugin.host.PluginEnablementService pluginEnablement;
     private java.io.File pluginsDirectory;
     private com.aresstack.askai.plugin.host.AgentSessionCoordinator agentCoordinator;
+    /**
+     * The read-only chat catalog handed to plugins as a host service: it answers "which chat is selected"
+     * and "what is this chat called". Created with the chat history store, updated on every tab switch.
+     */
+    private com.aresstack.askai.java8.plugin.host.LocalChatSessionCatalog chatSessionCatalog;
     /** Builds the active agent's composer accessories above the active tab's composer (kept to avoid GC). */
     private com.aresstack.askai.plugin.host.AgentComposerAccessoryArea composerAccessoryArea;
     /** The tab currently showing a composer accessory, so it can be cleared when the active tab changes. */
@@ -549,6 +554,12 @@ public final class AskAiFrame extends JFrame {
                         java.util.Map<Class<?>, Object> services =
                                 new java.util.LinkedHashMap<Class<?>, Object>(
                                         agentRuntimeServices.asServiceMap());
+                        // READ-ONLY view of the chat tabs: which one is selected, what each is called.
+                        // A plugin needs it to publish its sessions under the host's own chat ids.
+                        if (chatSessionCatalog != null) {
+                            services.put(com.aresstack.askai.plugin.api.service.ChatSessionCatalog.class,
+                                    chatSessionCatalog);
+                        }
                         services.put(com.aresstack.askai.plugin.api.service.ArtifactViewOpener.class,
                                 new com.aresstack.askai.plugin.api.service.ArtifactViewOpener() {
                                     public void openArtifact(String artifactId) {
@@ -823,6 +834,9 @@ public final class AskAiFrame extends JFrame {
         // Each tab is an independent chat session, created on demand by the workspace sidebar.
         final com.aresstack.askai.java8.history.ChatHistoryStore historyStore =
                 new com.aresstack.askai.java8.history.ChatHistoryStore();
+        // The SAME store backs the plugin-facing chat catalog — no second persistence, no copied titles.
+        this.chatSessionCatalog =
+                new com.aresstack.askai.java8.plugin.host.LocalChatSessionCatalog(historyStore);
         ChatWorkspacePanel.ChatSessionFactory chatFactory = new ChatWorkspacePanel.ChatSessionFactory() {
             public ChatSessionComponent create(ChatSessionId id) {
                 OllamaChatPanel chat = new OllamaChatPanel(id, model, ollamaService, speechToTextService,
@@ -882,13 +896,24 @@ public final class AskAiFrame extends JFrame {
         // initial selection) the host loads and activates that tab's own mode. Closing the last research tab
         // therefore opens a fresh tab whose default mode restarts the agent with a new greeting.
         final com.aresstack.askai.plugin.host.ChatWorkspaceHostPanel hostForTabs = this.chatWorkspaceHost;
+        final com.aresstack.askai.java8.plugin.host.LocalChatSessionCatalog catalogForTabs =
+                this.chatSessionCatalog;
         chatWorkspace.setActiveSessionListener(new ChatWorkspacePanel.ActiveSessionListener() {
             public void activeSessionChanged(ChatSessionId id) {
                 if (hostForTabs != null) {
                     hostForTabs.setActiveChatSession(id.toString());
                 }
+                // Publish the selection for plugins (read off-EDT by MCP workers): an agent session that
+                // is addressed WITHOUT an explicit id follows the visible chat immediately — no session
+                // restart, no re-attach anywhere.
+                catalogForTabs.setActiveSessionId(id.toString());
             }
         });
+        // Seed the initial selection: the listener only fires on CHANGES.
+        OllamaChatPanel initialChat = activeChat();
+        if (initialChat != null) {
+            catalogForTabs.setActiveSessionId(initialChat.getSessionId().toString());
+        }
         contentPanel.add(chatWorkspaceHost, CHAT_VIEW);
         // One-click "Use in chat" from an installed model card: switch to Chat and select the model.
         modelsPanel.setUseInChatHandler(new OllamaModelsPanel.UseInChatHandler() {

@@ -1,7 +1,7 @@
 package com.aresstack.askai.research.connector;
 
 import com.aresstack.askai.mcp.api.McpToolContribution;
-import com.aresstack.askai.research.mcp.ResearchBotControlEndpoint;
+import com.aresstack.askai.research.mcp.ResearchBotSessionGateway;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.junit.After;
@@ -22,16 +22,16 @@ import static org.junit.Assert.assertTrue;
 
 /**
  * The public ChatGPT-connector face over REAL HTTP: discovery metadata, the OAuth handshake, Bearer
- * enforcement on the MCP endpoint and the JSON-RPC bridge onto the session gateway (the same three
- * driving tools the loopback bot endpoint serves).
+ * enforcement on the MCP endpoint and the JSON-RPC bridge onto the multi-session directory tools.
  */
 public class ChatGptConnectorServerTest {
 
     private ChatGptConnectorServer server;
     private String base;
+    private com.aresstack.askai.research.mcp.ResearchBotSessionRegistration registration;
 
-    private final ResearchBotControlEndpoint.SessionGateway gateway =
-            new ResearchBotControlEndpoint.SessionGateway() {
+    private final ResearchBotSessionGateway gateway =
+            new ResearchBotSessionGateway() {
                 public String execute(String command, String arguments) {
                     return "handled: " + command + "/" + arguments;
                 }
@@ -45,13 +45,17 @@ public class ChatGptConnectorServerTest {
                 }
             };
 
+    private final com.aresstack.askai.research.mcp.ResearchBotSessionDirectory directory =
+            com.aresstack.askai.research.mcp.ResearchBotSessionDirectory.get();
+
     @Before
     public void start() throws Exception {
+        registration = directory.register("chat-uuid-1", "agent#chat-uuid-1", gateway);
         ConnectorConfig config = new ConnectorConfig(0, "https://askai.example.com", "askai", "secret", null);
         server = new ChatGptConnectorServer(config, new ConnectorOAuthService(config),
                 new ChatGptConnectorServer.ToolProvider() {
                     public List<McpToolContribution> tools() {
-                        return ResearchBotControlEndpoint.drivingTools(gateway);
+                        return com.aresstack.askai.research.mcp.ResearchBotDirectoryTools.of(directory);
                     }
                 });
         server.start();
@@ -61,6 +65,7 @@ public class ChatGptConnectorServerTest {
     @After
     public void stop() {
         server.stop();
+        directory.unregister(registration);
     }
 
     @Test
@@ -97,10 +102,18 @@ public class ChatGptConnectorServerTest {
         String token = obtainAccessToken();
         JsonObject listed = rpc(token, "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}");
         String tools = listed.getAsJsonObject("result").getAsJsonArray("tools").toString();
+        assertTrue(tools, tools.contains("sessions_list"));
         assertTrue(tools, tools.contains("run_command"));
         assertTrue(tools, tools.contains("session_state"));
         assertTrue(tools, tools.contains("chat_history"));
         assertTrue(tools, tools.contains("inputSchema"));
+
+        JsonObject listedSessions = rpc(token, "{\"jsonrpc\":\"2.0\",\"id\":6,\"method\":\"tools/call\","
+                + "\"params\":{\"name\":\"sessions_list\"}}");
+        String sessions = listedSessions.getAsJsonObject("result").getAsJsonArray("content")
+                .get(0).getAsJsonObject().get("text").getAsString();
+        assertTrue(sessions, sessions.contains("chat-uuid-1"));
+        assertTrue(sessions, sessions.contains("phase=scoping"));
 
         JsonObject called = rpc(token, "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\","
                 + "\"params\":{\"name\":\"run_command\","

@@ -77,15 +77,6 @@ public final class ProductiveResearchBackendFactory {
         this.botControlMcpEnabled = enabled;
     }
 
-    /** The ChatGPT-connector settings (default: disabled) — the public face starts with the session. */
-    private volatile ResearchRuntimeSettings.ChatGptConnectorSettings chatGptConnector =
-            new ResearchRuntimeSettings.ChatGptConnectorSettings(false, 8082, "", "askai", "");
-
-    public void setChatGptConnectorSettings(ResearchRuntimeSettings.ChatGptConnectorSettings settings) {
-        if (settings != null) {
-            this.chatGptConnector = settings;
-        }
-    }
     /** OPTIONAL host NLP snapshot provider; resolves the session's selected sentence model (else regex). */
     private volatile com.aresstack.askai.agent.model.nlp.NlpConfigurationSnapshotProvider nlpSnapshots;
 
@@ -562,27 +553,23 @@ public final class ProductiveResearchBackendFactory {
             service.open();
             // The BOT-CONTROL endpoint: exactly run_command/session_state/chat_history over the session's
             // command processor (resolved at call time). This — and only this — goes to external clients.
-            final com.aresstack.askai.research.mcp.ResearchBotControlEndpoint.SessionGateway
-                    callTimeGateway =
-                    new com.aresstack.askai.research.mcp.ResearchBotControlEndpoint.SessionGateway() {
+            final com.aresstack.askai.research.mcp.ResearchBotSessionGateway callTimeGateway =
+                    new com.aresstack.askai.research.mcp.ResearchBotSessionGateway() {
                                 public String execute(String command, String arguments) {
-                                    com.aresstack.askai.research.mcp.ResearchBotControlEndpoint
-                                            .SessionGateway gateway = holder[0] == null ? null
-                                            : holder[0].getSessionGateway();
+                                    com.aresstack.askai.research.mcp.ResearchBotSessionGateway gateway =
+                                            holder[0] == null ? null : holder[0].getSessionGateway();
                                     return gateway == null ? null : gateway.execute(command, arguments);
                                 }
 
                                 public String describeState() {
-                                    com.aresstack.askai.research.mcp.ResearchBotControlEndpoint
-                                            .SessionGateway gateway = holder[0] == null ? null
-                                            : holder[0].getSessionGateway();
+                                    com.aresstack.askai.research.mcp.ResearchBotSessionGateway gateway =
+                                            holder[0] == null ? null : holder[0].getSessionGateway();
                                     return gateway == null ? null : gateway.describeState();
                                 }
 
                                 public String describeHistory(boolean raw) {
-                                    com.aresstack.askai.research.mcp.ResearchBotControlEndpoint
-                                            .SessionGateway gateway = holder[0] == null ? null
-                                            : holder[0].getSessionGateway();
+                                    com.aresstack.askai.research.mcp.ResearchBotSessionGateway gateway =
+                                            holder[0] == null ? null : holder[0].getSessionGateway();
                                     return gateway == null ? null : gateway.describeHistory(raw);
                                 }
                             };
@@ -590,21 +577,9 @@ public final class ProductiveResearchBackendFactory {
                     !botControlMcpEnabled ? null
                     : new com.aresstack.askai.research.mcp.ResearchBotControlEndpoint(
                             registry, sessionKey, generationId, callTimeGateway);
-            // The PUBLIC ChatGPT-connector face (default OFF): one app-wide listener behind the external
-            // Apache TLS proxy; this session's gateway becomes the current one.
-            ResearchRuntimeSettings.ChatGptConnectorSettings connectorSettings = chatGptConnector;
-            if (connectorSettings.isEnabled()) {
-                com.aresstack.askai.research.connector.ChatGptConnectorRuntime connector =
-                        com.aresstack.askai.research.connector.ChatGptConnectorRuntime.get();
-                connector.attachGateway(callTimeGateway);
-                connector.ensureStarted(new com.aresstack.askai.research.connector.ConnectorConfig(
-                        connectorSettings.getPort(), connectorSettings.getPublicOrigin(),
-                        connectorSettings.getClientId(), connectorSettings.getClientSecret(),
-                        com.aresstack.askai.research.connector.ChatGptConnectorRuntime
-                                .defaultRefreshStore()));
-            } else {
-                com.aresstack.askai.research.connector.ChatGptConnectorRuntime.get().stop();
-            }
+            // The app-wide PUBLIC ChatGPT connector is deliberately NOT touched here: an app-wide HTTP
+            // listener is not this per-session factory's business. The session registers itself in the
+            // ResearchBotSessionDirectory (ResearchAgentSession), which is what the connector serves.
             if (botControl != null) {
                 botControl.open();
             } else {

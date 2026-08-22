@@ -168,8 +168,11 @@ public final class ResearchAgentSessionFactory implements AgentSessionFactory {
         factory.setResearchLanguageCode(ResearchRuntimeSettings.loadLanguage(hostContext.getStateStore()));
         factory.setBotControlMcpEnabled(
                 ResearchRuntimeSettings.loadBotControlMcp(hostContext.getStateStore()));
-        factory.setChatGptConnectorSettings(
-                ResearchRuntimeSettings.loadChatGptConnectorSettings(hostContext.getStateStore()));
+        // The APP-WIDE public connector is configured here, not inside the per-session backend factory:
+        // one listener for the whole app, idempotent for an unchanged configuration. The sessions it serves
+        // come from the session directory, so this call carries no session state at all. The host's chat
+        // catalog gives that directory the titles and the currently SELECTED chat.
+        applyChatGptConnectorSettings(hostContext);
         // OPTIONAL host NLP provider: the session resolves its SELECTED sentence model through it (absent →
         // regex fallback). Looked up leniently; the knowledge worker never scans a store or reads global settings.
         factory.setNlpConfigurationSnapshotProvider(hostContext.getService(
@@ -194,9 +197,48 @@ public final class ResearchAgentSessionFactory implements AgentSessionFactory {
         // The session OWNS the resources: structured commands route to their state machine, close() tears
         // them down last (endpoints → sidecar client → sidecar process).
         ResearchAgentSession session = new ResearchAgentSession(resources.getBackend(), null, hostContext,
-                request.getSessionId(), request.getProjectId(), resources);
+                request.getSessionId(), request.getProjectId(), resources,
+                publicChatSessionId(request));
         configureNarration(session, hostContext);
         return session;
+    }
+
+    /**
+     * The PUBLIC id of this session for external addressing: the host's chat session id. Older hosts that
+     * do not fill {@code scopeId} yet still carry it inside the session key ({@code agentId#chatId}).
+     */
+    private static String publicChatSessionId(AgentSessionCreationRequest request) {
+        String scope = request.getScopeId();
+        if (scope != null && !scope.trim().isEmpty()) {
+            return scope.trim();
+        }
+        String sessionId = request.getSessionId();
+        int hash = sessionId.indexOf('#');
+        return hash < 0 ? "" : sessionId.substring(hash + 1);
+    }
+
+    /**
+     * Apply the APP-WIDE ChatGPT-connector settings: enabled → the one listener runs (idempotent for an
+     * unchanged configuration), disabled → only the LISTENER stops. Running sessions stay registered either
+     * way, so a later switch-on reaches them without a session restart.
+     */
+    private static void applyChatGptConnectorSettings(AgentHostContext hostContext) {
+        com.aresstack.askai.research.connector.ChatGptConnectorRuntime runtime =
+                com.aresstack.askai.research.connector.ChatGptConnectorRuntime.get();
+        // The host catalog is OPTIONAL: without it the directory cannot resolve titles or the selected chat,
+        // and callers simply have to pass sessionId explicitly.
+        runtime.sessions().setChatSessionCatalog(hostContext.getService(
+                com.aresstack.askai.plugin.api.service.ChatSessionCatalog.class));
+        ResearchRuntimeSettings.ChatGptConnectorSettings connector =
+                ResearchRuntimeSettings.loadChatGptConnectorSettings(hostContext.getStateStore());
+        if (connector.isEnabled()) {
+            runtime.ensureStarted(new com.aresstack.askai.research.connector.ConnectorConfig(
+                    connector.getPort(), connector.getPublicOrigin(), connector.getClientId(),
+                    connector.getClientSecret(),
+                    com.aresstack.askai.research.connector.ChatGptConnectorRuntime.defaultRefreshStore()));
+        } else {
+            runtime.stopListener();
+        }
     }
 
     private static <T> T requireService(AgentHostContext hostContext, Class<T> type) {

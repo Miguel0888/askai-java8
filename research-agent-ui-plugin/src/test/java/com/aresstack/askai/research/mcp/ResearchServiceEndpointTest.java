@@ -115,7 +115,7 @@ public class ResearchServiceEndpointTest {
     }
 
     /** Records gateway calls; configurable result. */
-    private static final class RecordingGateway implements ResearchBotControlEndpoint.SessionGateway {
+    private static final class RecordingGateway implements ResearchBotSessionGateway {
         final List<String> invoked = new java.util.ArrayList<String>();
         String executeResult = "handled: ok";
 
@@ -179,7 +179,7 @@ public class ResearchServiceEndpointTest {
 
         // Without a gateway result (no session attached): an honest error, never a silent no-op.
         ResearchBotControlEndpoint bare = new ResearchBotControlEndpoint(reg, "s2", 1L,
-                new ResearchBotControlEndpoint.SessionGateway() {
+                new ResearchBotSessionGateway() {
                     public String execute(String command, String arguments) {
                         return null;
                     }

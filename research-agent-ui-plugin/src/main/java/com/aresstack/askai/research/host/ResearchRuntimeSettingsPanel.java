@@ -320,8 +320,8 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
                         chatGptConnector.isSelected(), port, connectorOrigin.getText().trim(),
                         connectorClientId.getText().trim(), secret);
         ResearchRuntimeSettings.saveChatGptConnectorSettings(store, settings);
-        // The listener follows the setting IMMEDIATELY — no new session required. Sessions merely
-        // attach their gateway; until one exists, the MCP tools answer "no session".
+        // The listener follows the setting IMMEDIATELY — no new session required. It serves whatever is
+        // in the session directory; OFF stops only the listener, the running sessions stay registered.
         com.aresstack.askai.research.connector.ChatGptConnectorRuntime runtime =
                 com.aresstack.askai.research.connector.ChatGptConnectorRuntime.get();
         if (settings.isEnabled()) {
@@ -340,7 +340,7 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
                         "ChatGPT connector", javax.swing.JOptionPane.WARNING_MESSAGE);
             }
         } else {
-            runtime.stop();
+            runtime.stopListener();
         }
     }
 

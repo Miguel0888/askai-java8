@@ -213,15 +213,15 @@ public final class ProductiveResearchSessionResources {
     }
 
     /** Set by the SESSION: the structured command/state gateway for the bot-control MCP. */
-    private volatile com.aresstack.askai.research.mcp.ResearchBotControlEndpoint.SessionGateway sessionGateway;
+    private volatile com.aresstack.askai.research.mcp.ResearchBotSessionGateway sessionGateway;
 
     public void setSessionGateway(
-            com.aresstack.askai.research.mcp.ResearchBotControlEndpoint.SessionGateway gateway) {
+            com.aresstack.askai.research.mcp.ResearchBotSessionGateway gateway) {
         this.sessionGateway = gateway;
     }
 
     /** The session's gateway, or {@code null} while no session is attached. */
-    public com.aresstack.askai.research.mcp.ResearchBotControlEndpoint.SessionGateway getSessionGateway() {
+    public com.aresstack.askai.research.mcp.ResearchBotSessionGateway getSessionGateway() {
         return sessionGateway;
     }
 

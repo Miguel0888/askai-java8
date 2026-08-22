@@ -1,22 +1,26 @@
 package com.aresstack.askai.research.connector;
 
 import com.aresstack.askai.mcp.api.McpToolContribution;
-import com.aresstack.askai.research.mcp.ResearchBotControlEndpoint;
+import com.aresstack.askai.research.mcp.ResearchBotDirectoryTools;
+import com.aresstack.askai.research.mcp.ResearchBotSessionDirectory;
 
-import java.util.Collections;
 import java.util.List;
 
 /**
  * The process-wide owner of the ChatGPT-connector server: ONE listener for the whole app, while research
- * sessions come and go. Sessions attach/detach their {@link ResearchBotControlEndpoint.SessionGateway};
- * the server resolves the CURRENT gateway at call time, so a ChatGPT conversation survives a session
- * restart (calls without an attached session return the MCP "no session" error).
+ * sessions come and go. It holds NO session itself — the tools resolve through the
+ * {@link ResearchBotSessionDirectory} at call time, so a ChatGPT conversation survives session starts,
+ * closes and chat switches, and every live session is reachable by its id.
+ * <p>
+ * Listener lifecycle and session lifecycle are SEPARATE: switching the connector off only stops the HTTP
+ * listener, it never empties the directory, so switching it back on immediately serves the sessions that
+ * kept running meanwhile.
  */
 public final class ChatGptConnectorRuntime {
 
     private static final ChatGptConnectorRuntime INSTANCE = new ChatGptConnectorRuntime();
 
-    private volatile ResearchBotControlEndpoint.SessionGateway gateway;
+    private final ResearchBotSessionDirectory sessions = ResearchBotSessionDirectory.get();
     private ChatGptConnectorServer server;
     private String startFailure;
 
@@ -27,9 +31,9 @@ public final class ChatGptConnectorRuntime {
         return INSTANCE;
     }
 
-    /** The session's driving gateway (or null on session close). */
-    public void attachGateway(ResearchBotControlEndpoint.SessionGateway sessionGateway) {
-        this.gateway = sessionGateway;
+    /** The directory of live research sessions this connector serves. */
+    public ResearchBotSessionDirectory sessions() {
+        return sessions;
     }
 
     /** The ONE canonical refresh-token store, independent of any session/workspace lifecycle. */
@@ -63,9 +67,11 @@ public final class ChatGptConnectorRuntime {
         ChatGptConnectorServer created = new ChatGptConnectorServer(config,
                 new ConnectorOAuthService(config), new ChatGptConnectorServer.ToolProvider() {
                     public List<McpToolContribution> tools() {
-                        ResearchBotControlEndpoint.SessionGateway current = gateway;
-                        return current == null ? Collections.<McpToolContribution>emptyList()
-                                : ResearchBotControlEndpoint.drivingTools(current);
+                        // STABLE surface: the four tools exist even with no live session (sessions_list
+                        // then returns an empty list), so a connected client never sees them vanish.
+                        List<McpToolContribution> published = ResearchBotDirectoryTools.of(sessions);
+                        logPublishedTools(published);
+                        return published;
                     }
                 });
         try {
@@ -75,21 +81,79 @@ public final class ChatGptConnectorRuntime {
             startFailure = null;
             System.out.println("[chatgpt-connector] listening on port " + created.boundPort()
                     + " for " + config.getPublicOrigin() + "/ (TLS at the reverse proxy)");
+            logGenerationIdentity(created);
         } catch (Exception bindFailure) {
             startFailure = bindFailure.getMessage() == null
                     ? bindFailure.getClass().getSimpleName() : bindFailure.getMessage();
             System.out.println("[chatgpt-connector] start FAILED on port " + config.getPort()
-                    + ": " + startFailure);
+                    + ": " + startFailure + " — an OLDER AskAI instance still holding this port is the "
+                    + "usual cause; that instance keeps serving its OWN (stale) tool catalog to clients.");
         }
     }
 
-    public synchronized void stop() {
+    /**
+     * WHICH build is actually serving the public face. A green local build proves nothing about the JVM a
+     * client reaches — a surviving older instance keeps the port and answers with its own catalog. These
+     * lines make that visible in one look: the code location, the plugin classloader, the bound port and
+     * the tool catalog this generation publishes.
+     */
+    private void logGenerationIdentity(ChatGptConnectorServer started) {
+        String codeSource;
+        try {
+            java.security.CodeSource source =
+                    ChatGptConnectorRuntime.class.getProtectionDomain().getCodeSource();
+            codeSource = source == null || source.getLocation() == null
+                    ? "<unknown>" : source.getLocation().toString();
+        } catch (RuntimeException notAvailable) {
+            codeSource = "<unavailable: " + notAvailable + ">";
+        }
+        System.out.println("[chatgpt-connector] generation: codeSource=" + codeSource);
+        System.out.println("[chatgpt-connector] generation: classLoader="
+                + ChatGptConnectorRuntime.class.getClassLoader()
+                + " boundPort=" + started.boundPort()
+                + " toolCatalog=" + ResearchBotDirectoryTools.class.getSimpleName());
+        logPublishedTools(ResearchBotDirectoryTools.of(sessions));
+    }
+
+    /** The last catalog logged — so a per-request log line appears only when the set actually changes. */
+    private volatile String lastLoggedToolNames = "";
+
+    /** The tool names this connector hands out, logged whenever the published set changes. */
+    private void logPublishedTools(List<McpToolContribution> published) {
+        StringBuilder names = new StringBuilder();
+        for (McpToolContribution tool : published) {
+            if (names.length() > 0) {
+                names.append(", ");
+            }
+            names.append(tool.getName());
+        }
+        String current = names.toString();
+        if (!current.equals(lastLoggedToolNames)) {
+            lastLoggedToolNames = current;
+            System.out.println("[chatgpt-connector] public MCP tools: [" + current + "]");
+        }
+    }
+
+    /**
+     * Stop the public LISTENER only (the settings toggle turned it off). Running research sessions stay
+     * registered, so switching the connector back on reaches them again without a session restart.
+     */
+    public synchronized void stopListener() {
         if (server != null) {
             server.stop();
             server = null;
         }
         runningConfig = null;
         startFailure = null;
+    }
+
+    /**
+     * FINAL teardown, owned by the plugin's stop(): the listener releases its port BEFORE a new plugin
+     * generation tries to bind it, and the session directory of this (dying) generation is emptied.
+     */
+    public synchronized void shutdown() {
+        stopListener();
+        sessions.clear();
     }
 
     private static boolean sameConfig(ConnectorConfig a, ConnectorConfig b) {

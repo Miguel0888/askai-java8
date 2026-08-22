@@ -70,6 +70,12 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     private final AgentHostContext hostContext;
     /** This session's id — used to unregister from the host active-session registry on close. */
     private final String sessionId;
+    /** The host CHAT id this session belongs to: its PUBLIC id for external (MCP) addressing; may be "". */
+    private final String chatSessionId;
+    /** This session's entry in the public session directory (productive only), or null. */
+    private volatile com.aresstack.askai.research.mcp.ResearchBotSessionRegistration botRegistration;
+    /** The structured command/state/history gateway onto THIS session (productive only), or null. */
+    private com.aresstack.askai.research.mcp.ResearchBotSessionGateway botGateway;
     /** Productive mode only: the session's OWN generation-scoped resources (state authority + processes). */
     private final com.aresstack.askai.research.host.ProductiveResearchSessionResources productiveResources;
 
@@ -89,6 +95,21 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     public ResearchAgentSession(ResearchSessionBackend backend, ResearchScheduler ownedScheduler,
                                 AgentHostContext host, String sessionId, String projectId,
                                 com.aresstack.askai.research.host.ProductiveResearchSessionResources resources) {
+        this(backend, ownedScheduler, host, sessionId, projectId, resources, "");
+    }
+
+    /**
+     * @param chatSessionId the host CHAT session id (the stable chat UUID) this session belongs to. It is
+     *                      the PUBLIC id under which the session registers in the
+     *                      {@link com.aresstack.askai.research.mcp.ResearchBotSessionDirectory}, so an
+     *                      external client can address exactly this session. Empty = not published (fake
+     *                      sessions, unit tests).
+     */
+    public ResearchAgentSession(ResearchSessionBackend backend, ResearchScheduler ownedScheduler,
+                                AgentHostContext host, String sessionId, String projectId,
+                                com.aresstack.askai.research.host.ProductiveResearchSessionResources resources,
+                                String chatSessionId) {
+        this.chatSessionId = chatSessionId == null ? "" : chatSessionId.trim();
         this.backend = backend;
         this.ownedScheduler = ownedScheduler;
         this.hostContext = host;
@@ -114,8 +135,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             // Issue #33: hand the session's derived-action commands to the resources so the internal
             // service-MCP endpoint can invoke the SAME use cases as the UI buttons.
             resources.setDerivedActions(derivedActions);
-            resources.setSessionGateway(
-                    new com.aresstack.askai.research.mcp.ResearchBotControlEndpoint.SessionGateway() {
+            // ONE gateway object serves both faces: the session's own bot-control endpoint (through the
+            // resources) and the app-wide public connector (through the session directory, see activate()).
+            this.botGateway = new com.aresstack.askai.research.mcp.ResearchBotSessionGateway() {
                         public String execute(String command, String arguments) {
                             return executeCommand(command, arguments);
                         }
@@ -128,7 +150,8 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                             return transcript.describe(productiveResources.currentState().getPhaseId(),
                                     raw);
                         }
-                    });
+                    };
+            resources.setSessionGateway(botGateway);
             resources.setProjectionUpdateListener(new Runnable() {
                 public void run() {
                     uiExecutor.execute(new Runnable() {
@@ -257,6 +280,13 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         // listener must already accept it even though the handle field is assigned only when the call returns.
         started = true;
         handle = backend.createSession(request, this);
+        // The session is now driveable: publish it under its CHAT id so external clients (the public
+        // ChatGPT connector) can address exactly this session. Registration is independent of whether the
+        // connector listener is running — switching it on later still finds everything that is live.
+        if (botGateway != null && !chatSessionId.isEmpty()) {
+            botRegistration = com.aresstack.askai.research.mcp.ResearchBotSessionDirectory.get()
+                    .register(chatSessionId, sessionId, botGateway);
+        }
         // Wire the user web search onto the productive backend transport (a #RSC1# service command over ACP).
         // Transport-agnostic: a fake/clickdummy backend's submitServiceCommand is a no-op. Tests may override
         // the port AFTER activate().
@@ -374,6 +404,12 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             return;
         }
         disposed = true;
+        // FIRST: leave the public session directory, so no new external call can reach a session that is
+        // being torn down. unregister() removes exactly THIS registration — a chat that was reopened in the
+        // meantime keeps its own. deactivate() deliberately does NOT do this: a background session stays
+        // driveable while the user looks at another chat.
+        com.aresstack.askai.research.mcp.ResearchBotSessionDirectory.get().unregister(botRegistration);
+        botRegistration = null;
         briefWriteExecutor.shutdown(); // stop accepting brief writes; in-flight writes are atomic
         if (artifactVisualizer != null) {
             artifactVisualizer.shutdown(); // stop the lazy visualizer; a running visualize is discarded
