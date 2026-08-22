@@ -159,10 +159,10 @@ public class ManualSearchWiringTest {
 
         fx.session.changeLanguage(com.aresstack.askai.research.agent.ResearchLanguage.GERMAN);
 
-        assertEquals("exactly one typed control envelope for the switch",
-                envelopesBefore + 1, fx.backend.serviceCommands.size());
-        assertEquals("#RSC1# set_language language=de",
-                fx.backend.serviceCommands.get(envelopesBefore));
+        assertEquals("exactly one set_language envelope for the switch",
+                1, countEnvelopes(fx, "#RSC1# set_language language=de"));
+        assertTrue("the switch travels as a typed control envelope",
+                fx.backend.serviceCommands.contains("#RSC1# set_language language=de"));
         assertEquals("no chat prompt was submitted", promptsBefore, fx.backend.prompts.size());
         assertEquals("the phase is unchanged", ResearchStateIds.SCOPING,
                 fx.resources.currentState().getPhaseId());
@@ -228,18 +228,15 @@ public class ManualSearchWiringTest {
         assertEquals("the switch reaches the host session first",
                 com.aresstack.askai.research.agent.ResearchLanguage.GERMAN,
                 fx.session.getSessionLanguage().currentLanguage());
-        assertEquals("exactly one set_language control envelope for the switch",
-                envelopesBefore + 1, fx.backend.serviceCommands.size());
-        assertEquals("#RSC1# set_language language=de",
-                fx.backend.serviceCommands.get(envelopesBefore));
+        assertEquals("exactly one set_language envelope for the switch",
+                1, countEnvelopes(fx, "#RSC1# set_language language=de"));
         assertEquals("never a chat turn", promptsBefore, fx.backend.prompts.size());
         assertEquals("never a state change", ResearchStateIds.RUNNING,
                 fx.resources.currentState().getStateId());
 
-        int envelopesAfterSwitch = fx.backend.serviceCommands.size();
         combo.setSelectedItem(com.aresstack.askai.research.agent.ResearchLanguage.GERMAN);
         assertEquals("re-selecting the current language sends nothing",
-                envelopesAfterSwitch, fx.backend.serviceCommands.size());
+                1, countEnvelopes(fx, "#RSC1# set_language language=de"));
     }
 
     @Test
@@ -495,6 +492,17 @@ public class ManualSearchWiringTest {
             session = new ResearchAgentSession(backend, null, new PlainHost(sink), "s1", "p1", resources);
             session.activate();
         }
+    }
+
+    /** How often exactly this envelope was sent — the session also publishes language and scope context. */
+    private static int countEnvelopes(Fx fx, String envelope) {
+        int count = 0;
+        for (String sent : fx.backend.serviceCommands) {
+            if (envelope.equals(sent)) {
+                count++;
+            }
+        }
+        return count;
     }
 
     private static final class RecordingBackend implements ResearchSessionBackend {

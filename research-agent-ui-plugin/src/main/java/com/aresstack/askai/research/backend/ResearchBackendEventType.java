@@ -39,6 +39,11 @@ public enum ResearchBackendEventType {
      */
     SCOPING_PROJECTION,
     /**
+     * The proposed CHANGES to the scope the host owns (neutral JSON in {@code text}). Unlike the display
+     * projection this one is applied to the persisted scope draft — or visibly refused.
+     */
+    SCOPE_UPDATE,
+    /**
      * The research brief markdown (the scoping phase's primary artifact), in {@code text}. The host persists it
      * to the brief working copy (one path) and shows it in the "Fragestellung" view. No approval, no transition.
      */

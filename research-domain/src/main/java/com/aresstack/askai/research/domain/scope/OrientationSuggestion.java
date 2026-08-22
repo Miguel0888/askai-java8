@@ -15,12 +15,22 @@ public final class OrientationSuggestion {
     private final String query;
     private final String rationale;
 
+    /**
+     * @throws IllegalArgumentException when the label is missing. It deliberately does NOT fall back to the
+     *         query: the query may be English on purpose (better results), while the tag the user reads must
+     *         be in the session language. Silently showing the query would reintroduce exactly the
+     *         English-labels-in-a-German-session defect.
+     */
     public OrientationSuggestion(String label, String query, String rationale) {
         if (query == null || query.trim().isEmpty()) {
             throw new IllegalArgumentException("query must not be empty");
         }
+        if (label == null || label.trim().isEmpty()) {
+            throw new IllegalArgumentException(
+                    "label must not be empty (it is the user-visible text, never the query)");
+        }
         this.query = query.trim();
-        this.label = label == null || label.trim().isEmpty() ? this.query : label.trim();
+        this.label = label.trim();
         this.rationale = rationale == null ? "" : rationale.trim();
     }
 

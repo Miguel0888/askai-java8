@@ -178,6 +178,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     public void changeLanguage(ResearchLanguage value) {
         sessionLanguage.change(value);
         publishSessionLanguage();
+        publishScopeFence(); // the model must see the scope the HOST holds, from the very first turn
     }
 
     /**
@@ -619,6 +620,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             // The productive ACP agent cannot echo the user's OWN message back, so show it in the shared chat
             // here (right-aligned, by role) before the agent replies — otherwise the user's turn is invisible.
             echoUserMessage(text);
+            publishScopeFence(); // authoritative scope FIRST, then the turn that may change it
             beginAgentTurn(); // busy + preempt visualizer; cleared by the turn's terminal event
             backend.submitPrompt(handle, new ResearchPrompt(text, activeSectionId));
             return;
@@ -1447,6 +1449,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             case GREETING_DONE:
                 handleGreetingDone();
                 break;
+            case SCOPE_UPDATE:
+                applyScopeUpdate(event.getText());
+                break;
             case SCOPING_PROJECTION:
                 // Display-only support content for the scoping workspace: keep only the LATEST projection
                 // (a later turn replaces it — the chat keeps every turn, this panel shows the current state).
@@ -1754,6 +1759,77 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         if (journal.attribute(messageId, transcriptPhase())) {
             persistJournal();
         }
+    }
+
+    /** Owns the persisted scope draft of this session; null in fake mode (no project context). */
+    private com.aresstack.askai.research.scope.ResearchScopeCoordinator scopeCoordinator;
+
+    private com.aresstack.askai.research.scope.ResearchScopeCoordinator scopeCoordinator() {
+        if (scopeCoordinator == null && productiveResources != null) {
+            scopeCoordinator = new com.aresstack.askai.research.scope.ResearchScopeCoordinator(
+                    productiveResources.getProjectContext().getScopeDraftStore());
+        }
+        return scopeCoordinator;
+    }
+
+    /**
+     * Apply what a scoping turn proposed. A failure here must NEVER look like success: if the assistant
+     * says "ich habe AR als Nebenaspekt notiert" while the update was refused, the conversation and the
+     * stored scope would silently diverge — so a rejection becomes a visible problem.
+     */
+    private void applyScopeUpdate(String documentJson) {
+        com.aresstack.askai.research.scope.ResearchScopeCoordinator coordinator = scopeCoordinator();
+        if (coordinator == null) {
+            return; // fake mode: no persisted scope to update
+        }
+        com.aresstack.askai.research.scope.ScopeUpdateWireCodec.Result decoded =
+                com.aresstack.askai.research.scope.ScopeUpdateWireCodec.decode(documentJson);
+        if (!decoded.isOk()) {
+            reportScopeProblem("Der Rechercheumfang konnte nicht aktualisiert werden: "
+                    + decoded.getError());
+            return;
+        }
+        com.aresstack.askai.research.scope.ScopeUpdateResult applied =
+                coordinator.apply(decoded.getTurn());
+        if (applied.getStatus()
+                == com.aresstack.askai.research.scope.ScopeUpdateResult.Status.REJECTED) {
+            reportScopeProblem("Der Rechercheumfang konnte nicht gespeichert werden: "
+                    + applied.getReason());
+            return;
+        }
+        for (String change : applied.getChanges()) {
+            System.err.println("[research-scope] " + change);
+        }
+    }
+
+    private void reportScopeProblem(final String message) {
+        System.err.println("[research-scope] " + message);
+        if (sink == null) {
+            return;
+        }
+        final String problemId = publish("scope-update-" + playbookMessageIds.incrementAndGet());
+        uiExecutor.execute(new Runnable() {
+            public void run() {
+                if (!disposed) {
+                    sink.showProblem(problemId, message);
+                }
+            }
+        });
+    }
+
+    /**
+     * Send the AUTHORITATIVE scope to the runtime before a turn. The host owns the draft; without this the
+     * model would rebuild the scope from the chat history and lose earlier decisions in the process.
+     */
+    private void publishScopeFence() {
+        com.aresstack.askai.research.scope.ResearchScopeCoordinator coordinator = scopeCoordinator();
+        if (coordinator == null || handle == null || disposed || !coordinator.isUsable()) {
+            return;
+        }
+        backend.submitServiceCommand(handle,
+                com.aresstack.askai.research.search.ResearchServiceCommandWire.setScope(
+                        com.aresstack.askai.research.domain.scope.ResearchScopeFenceView.render(
+                                coordinator.current())));
     }
 
     /** The journal file of this research project, or null (fake mode / no project context). */

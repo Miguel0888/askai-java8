@@ -27,9 +27,17 @@ public final class ScopingAssistantOutput implements PhaseAssistantOutput {
     private final String researchBriefMarkdown;
     private final List<SearchSuggestion> searchSuggestions;
     private final PhaseAdvice advice;
+    /** What this turn proposes to CHANGE about the host-held scope; null when it proposes nothing. */
+    private final ScopeUpdateDocument scopeUpdate;
 
     public ScopingAssistantOutput(String assistantMessage, String researchBriefMarkdown,
                                   List<SearchSuggestion> searchSuggestions, PhaseAdvice advice) {
+        this(assistantMessage, researchBriefMarkdown, searchSuggestions, advice, null);
+    }
+
+    public ScopingAssistantOutput(String assistantMessage, String researchBriefMarkdown,
+                                  List<SearchSuggestion> searchSuggestions, PhaseAdvice advice,
+                                  ScopeUpdateDocument scopeUpdate) {
         if (assistantMessage == null || assistantMessage.trim().isEmpty()) {
             throw new IllegalArgumentException("assistantMessage must not be blank");
         }
@@ -46,6 +54,12 @@ public final class ScopingAssistantOutput implements PhaseAssistantOutput {
         this.searchSuggestions = Collections.unmodifiableList(
                 new ArrayList<SearchSuggestion>(searchSuggestions));
         this.advice = advice == null ? PhaseAdvice.neutral() : advice;
+        this.scopeUpdate = scopeUpdate;
+    }
+
+    /** The proposed scope changes, or {@code null} when this turn changes nothing about the scope. */
+    public ScopeUpdateDocument getScopeUpdate() {
+        return scopeUpdate;
     }
 
     public String getAssistantMessage() {

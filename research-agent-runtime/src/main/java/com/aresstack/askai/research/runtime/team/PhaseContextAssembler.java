@@ -25,6 +25,17 @@ public final class PhaseContextAssembler {
         String displayName();
     }
 
+    /** Supplies the rendered scope fence for the NEXT turn — read at assemble time, like the language. */
+    public interface CurrentScope {
+        String rendered();
+    }
+
+    private static final CurrentScope EMPTY_SCOPE = new CurrentScope() {
+        public String rendered() {
+            return "";
+        }
+    };
+
     private static final CurrentLanguage ENGLISH_DEFAULT = new CurrentLanguage() {
         public String displayName() {
             return "English";
@@ -33,6 +44,8 @@ public final class PhaseContextAssembler {
 
     private final CurrentDate currentDate;
     private final CurrentLanguage currentLanguage;
+    /** Supplies the host's AUTHORITATIVE scope projection per turn; "" when the host sent none. */
+    private volatile CurrentScope currentScope = EMPTY_SCOPE;
 
     public PhaseContextAssembler() {
         this(systemDate(), ENGLISH_DEFAULT);
@@ -46,6 +59,12 @@ public final class PhaseContextAssembler {
     /** System clock + the session's live working language (the production wiring). */
     public PhaseContextAssembler(CurrentLanguage currentLanguage) {
         this(systemDate(), currentLanguage);
+    }
+
+    /** The scope projection source; without it a turn simply carries no scope context. */
+    public PhaseContextAssembler withCurrentScope(CurrentScope scope) {
+        this.currentScope = scope == null ? EMPTY_SCOPE : scope;
+        return this;
     }
 
     public PhaseContextAssembler(CurrentDate currentDate, CurrentLanguage currentLanguage) {
@@ -79,6 +98,12 @@ public final class PhaseContextAssembler {
                 TeamAgentPlaybook.workingLanguageContext(currentLanguage.displayName())));
         messages.add(ChatMessage.system(TeamAgentPlaybook.stateContext(
                 state, confirmedQuestion, confirmedAspects, proposedQuestion, proposedAspects)));
+        // The scope the HOST holds — authoritative for this turn. Without it the model would rebuild the
+        // scope from the conversation, which is how earlier decisions quietly disappear.
+        String scope = currentScope.rendered();
+        if (!scope.isEmpty()) {
+            messages.add(ChatMessage.system(TeamAgentPlaybook.scopeFenceContext(scope)));
+        }
         if (history != null) {
             messages.addAll(history);
         }

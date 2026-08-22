@@ -13,6 +13,7 @@ import java.util.Map;
  *
  * <pre>#RSC1# manual_search request_id=&lt;uuid&gt; query=&lt;urlenc&gt;
  * #RSC1# set_language language=de|en
+ * #RSC1# set_scope scope=&lt;urlenc&gt;
  * #RSC1# review_sources request_id=&lt;uuid&gt;</pre>
  */
 public final class ResearchServiceCommandWire {
@@ -45,7 +46,7 @@ public final class ResearchServiceCommandWire {
             }
         }
         return new ResearchServiceCommand(type, fields.get("request_id"), decode(fields.get("query")),
-                fields.get("language"));
+                fields.get("language"), decode(fields.get("scope")));
     }
 
     private static String decode(String value) {

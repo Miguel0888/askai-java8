@@ -155,6 +155,18 @@ public final class ResearchRunWire {
         return sb.toString();
     }
 
+    /**
+     * The scope UPDATE line: the neutral JSON document of proposed scope changes. Deliberately its own line
+     * kind and not part of the display projection - one is what the user sees, the other is what the
+     * application applies to the persisted scope.
+     */
+    public static String scopeUpdate(String phaseId, String documentJson) {
+        StringBuilder sb = new StringBuilder(MARKER).append("scopeupdate");
+        appendEncoded(sb, "phase", phaseId);
+        appendEncoded(sb, "doc", documentJson);
+        return sb.toString();
+    }
+
     private static String encodeSuggestions(java.util.List<ScopingProjectionSuggestion> suggestions) {
         if (suggestions == null || suggestions.isEmpty()) {
             return "";

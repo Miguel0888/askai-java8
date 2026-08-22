@@ -106,7 +106,12 @@ public final class ScopingAssistantOutputParser {
                     asString(adviceMap.get("reason")));
         }
 
-        return new Result(new ScopingAssistantOutput(assistantMessage, brief, suggestions, advice), null);
+        // The scope changes this turn proposes. Malformed proposals are dropped HERE (with a reason in the
+        // technical trace) rather than travelling on to be rejected invisibly by the host.
+        ScopeUpdateDocument scopeUpdate = ScopeUpdateDocument.from(object.get("scopePatch"),
+                object.get("unresolvedIssues"), object.get("orientationSuggestions"));
+        return new Result(new ScopingAssistantOutput(assistantMessage, brief, suggestions, advice,
+                scopeUpdate.isEmpty() ? null : scopeUpdate), null);
     }
 
     private static Result fail(String error) {

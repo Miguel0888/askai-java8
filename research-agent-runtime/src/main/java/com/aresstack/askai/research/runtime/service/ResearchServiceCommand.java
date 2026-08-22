@@ -23,20 +23,34 @@ public final class ResearchServiceCommand {
      */
     public static final String TYPE_REVIEW_SOURCES = "review_sources";
 
+    /**
+     * The AUTHORITATIVE scope projection for the next turn: the host owns the research scope, the model
+     * reads it as context. Without it the model would reconstruct the scope from the chat history, which is
+     * exactly how earlier decisions get lost.
+     */
+    public static final String TYPE_SET_SCOPE = "set_scope";
+
     private final String type;
     private final String requestId;
     private final String query;
     private final String language;
+    private final String scope;
 
     public ResearchServiceCommand(String type, String requestId, String query) {
         this(type, requestId, query, null);
     }
 
     public ResearchServiceCommand(String type, String requestId, String query, String language) {
+        this(type, requestId, query, language, null);
+    }
+
+    public ResearchServiceCommand(String type, String requestId, String query, String language,
+                                  String scope) {
         this.type = type == null ? "" : type;
         this.requestId = requestId == null ? "" : requestId;
         this.query = query == null ? "" : query;
         this.language = language == null ? "" : language;
+        this.scope = scope == null ? "" : scope;
     }
 
     public String getType() {
@@ -55,5 +69,10 @@ public final class ResearchServiceCommand {
     /** The language code ("en"/"de") of a {@code set_language} command; empty when absent. */
     public String getLanguage() {
         return language;
+    }
+
+    /** The rendered scope projection of a {@code set_scope} command; empty when absent. */
+    public String getScope() {
+        return scope;
     }
 }

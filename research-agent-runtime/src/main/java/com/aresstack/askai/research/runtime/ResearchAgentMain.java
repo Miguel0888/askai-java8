@@ -51,6 +51,9 @@ public final class ResearchAgentMain {
      */
     private final com.aresstack.askai.research.runtime.service.SessionResearchLanguage sessionLanguage =
             new com.aresstack.askai.research.runtime.service.SessionResearchLanguage();
+    /** The host's AUTHORITATIVE scope projection for the next turn (set_scope); empty until one arrives. */
+    private final com.aresstack.askai.research.runtime.service.SessionScopeFence scopeFence =
+            new com.aresstack.askai.research.runtime.service.SessionScopeFence();
     /**
      * The MANDATORY reranker, built ONCE at session/new for a browser session (validated + endpoint
      * readiness-checked there, not mid-prompt). Null only when this session has no browser endpoint.
@@ -142,6 +145,12 @@ public final class ResearchAgentMain {
                                 .CurrentLanguage() {
                             public String displayName() {
                                 return sessionLanguage.displayName();
+                            }
+                        }).withCurrentScope(
+                        new com.aresstack.askai.research.runtime.team.PhaseContextAssembler
+                                .CurrentScope() {
+                            public String rendered() {
+                                return scopeFence.rendered();
                             }
                         }));
         System.err.println("[research-agent] TeamAgent ready on main model: " + mainModelChat.modelName());
@@ -594,6 +603,10 @@ public final class ResearchAgentMain {
             // Pure session-context mutation: the next TeamAgent turn assembles with the new working
             // language. No model call, no history entry, no state change, no event back to the host.
             sessionLanguage.changeFromCode(command.getLanguage());
+        } else if (com.aresstack.askai.research.runtime.service.ResearchServiceCommand.TYPE_SET_SCOPE
+                .equals(command.getType())) {
+            // The host's authoritative scope for the NEXT turn — context only, exactly like set_language.
+            scopeFence.update(command.getScope());
         } else if (com.aresstack.askai.research.runtime.service.ResearchServiceCommand.TYPE_REVIEW_SOURCES
                 .equals(command.getType())) {
             handleReviewSources(ctx, command.getRequestId());
@@ -931,6 +944,22 @@ public final class ResearchAgentMain {
             }
             // The research brief (the phase artifact) travels on its OWN wire line so the host persists it on
             // exactly one path (its working copy). Only a scoping output has a brief; other phases emit none.
+            // The proposed SCOPE CHANGES travel on their own line: the host applies them to the scope it
+            // owns. Display projection (above) and scope update are different concerns.
+            if (result.getOutput() instanceof com.aresstack.askai.research.runtime.team
+                    .ScopingAssistantOutput) {
+                com.aresstack.askai.research.runtime.team.ScopeUpdateDocument scopeUpdate =
+                        ((com.aresstack.askai.research.runtime.team.ScopingAssistantOutput)
+                                result.getOutput()).getScopeUpdate();
+                if (scopeUpdate != null) {
+                    ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
+                            .scopeUpdate(phaseId, scopeUpdate.toJson()));
+                    for (String rejection : scopeUpdate.getRejections()) {
+                        ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
+                                .log("scopeupdate dropped: " + rejection));
+                    }
+                }
+            }
             String brief = com.aresstack.askai.research.runtime.team.ScopingBriefSource
                     .briefMarkdown(result.getOutput());
             if (brief != null) {

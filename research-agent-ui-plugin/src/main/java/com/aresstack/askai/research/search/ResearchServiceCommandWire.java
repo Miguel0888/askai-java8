@@ -44,6 +44,17 @@ public final class ResearchServiceCommandWire {
     }
 
     /**
+     * Encode the AUTHORITATIVE scope projection for the next turn. The host owns the scope draft; sending
+     * it as context is what keeps the model from rebuilding it out of the chat history (and losing
+     * decisions in the process). Like set_language this is not a chat turn and changes no state.
+     */
+    public static String setScope(String renderedScope) {
+        StringBuilder sb = new StringBuilder(MARKER).append("set_scope");
+        appendEncoded(sb, "scope", renderedScope);
+        return sb.toString();
+    }
+
+    /**
      * Encode the EXPLICIT post-search review action (issue #29): the user pressed "Neue Quellen auswerten".
      * The runtime brackets the review with {@code manual_search_review started/finished} events carrying
      * this request id — a search itself never triggers the review implicitly anymore.

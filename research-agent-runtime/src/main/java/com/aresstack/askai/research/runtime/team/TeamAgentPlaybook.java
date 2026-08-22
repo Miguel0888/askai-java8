@@ -39,6 +39,19 @@ public final class TeamAgentPlaybook {
     }
 
     /**
+     * Wraps the host's scope projection for the turn context. It states plainly that this - not the chat
+     * history - is the truth about the scope, and that changes are made by PROPOSING operations on it.
+     */
+    public static String scopeFenceContext(String renderedScope) {
+        return "This is the AUTHORITATIVE research scope, held by the application:\n\n"
+                + renderedScope
+                + "\nRead it as the current truth. Do NOT reconstruct the scope from the conversation and "
+                + "do NOT repeat it back as a whole. When something the user says changes it, propose the "
+                + "corresponding scopePatch operations and refer to the facet ids shown above. Anything you "
+                + "do not mention stays exactly as it is.";
+    }
+
+    /**
      * The SCOPING phase assistant prompt: an ASSISTANT that helps the user scope a research — it understands,
      * fills gaps and proposes, it does NOT drive a workflow or police a command set. The process itself is
      * owned by the application; this model only helps the user say what they want to find out. Language-neutral.
@@ -127,12 +140,60 @@ public final class TeamAgentPlaybook {
                 + "the question\n"
                 + "    { \"query\": string, \"purpose\": string, \"priority\": number }\n"
                 + "  ],\n"
-                + "  \"advice\": { \"recommendation\": \"STAY\"|\"CONTINUE\"|\"NEUTRAL\", \"reason\": string }"
+                + "  \"advice\": { \"recommendation\": \"STAY\"|\"CONTINUE\"|\"NEUTRAL\", \"reason\": string },"
                 + "  // ADVISORY ONLY, no workflow effect\n"
+                + "  \"scopePatch\": {                     // OPTIONAL: what this turn CHANGES about the "
+                + "scope\n"
+                + "    \"operations\": [ { \"kind\": string, ... } ]\n"
+                + "  },\n"
+                + "  \"unresolvedIssues\": [               // OPTIONAL: what you still do NOT know\n"
+                + "    { \"issueId\": string, \"description\": string, \"affectedFacetIds\": [string],\n"
+                + "      \"significance\": \"MINOR\"|\"SIGNIFICANT\"|\"CRITICAL\" }\n"
+                + "  ],\n"
+                + "  \"orientationSuggestions\": [         // OPTIONAL: short lookups you PROPOSE\n"
+                + "    { \"label\": string, \"query\": string, \"rationale\": string }\n"
+                + "  ]\n"
                 + "}\n\n"
+                + scopePatchContract()
                 + "You never advance, gate or approve anything: the application gives the user their own "
                 + "buttons for that. Do not ask whether the user wants to start or continue — just keep "
                 + "helping them sharpen the scope.";
+    }
+
+    /**
+     * The scope-change contract. The decisive rule is that the model proposes OPERATIONS on the scope the
+     * application holds — never a complete scope object, because everything it failed to repeat would be
+     * lost. It is also where "I don't know" becomes a legitimate, typed answer.
+     */
+    private static String scopePatchContract() {
+        return "THE SCOPE (scopePatch):\n"
+                + "- The application OWNS the research scope and shows it to you as \"CURRENT RESEARCH "
+                + "SCOPE\". You never restate it as a whole; you propose the CHANGES this turn makes. "
+                + "Anything you do not mention stays untouched — that is why you must not try to repeat "
+                + "everything.\n"
+                + "- The scope is an INVESTIGATION AREA, not one question. Keeping two directions open is a "
+                + "valid result; widening it is as normal as narrowing it.\n"
+                + "- Operations: setMission{mission}, addFacet{facetId,label,rationale}, "
+                + "confirmFacet{facetId,rationale}, excludeFacet{facetId,rationale}, "
+                + "setFacetEmphasis{facetId,importance:LOW|MEDIUM|HIGH,researchDepth:OVERVIEW|STANDARD|DEEP|"
+                + "EXHAUSTIVE,outputShareHint?}, setCrossCuttingEmphasis{dimension,importance}, "
+                + "setDeliverable{targetLengthMin,targetLengthMax,lengthUnit:PAGES|WORDS,categoryFirst,"
+                + "contrastRequired}, addDomain{value}, addContext{value}, addPerspective{value}, "
+                + "addConstraint{value}, addExclusion{value}, addTerminology{value}, "
+                + "setGeographicScope{value}, setTemporalScope{value}, addUnresolvedIssue{...}, "
+                + "resolveIssue{issueId}.\n"
+                + "- facetId is a STABLE, short, lowercase ascii id you invent once (e.g. \"worker-safety\") "
+                + "and then reuse; the label is the user-facing wording. To change an aspect, reuse its id — "
+                + "never create a second facet for the same thing.\n"
+                + "- \"Important\" and \"research it deeply\" are DIFFERENT: importance and researchDepth are "
+                + "set independently.\n"
+                + "- An aspect the user drops is excludeFacet (with the reason), never a deletion.\n\n"
+                + "WHEN YOU DO NOT KNOW (unresolvedIssues / orientationSuggestions):\n"
+                + "- If you lack the domain knowledge to draw a sensible boundary, SAY SO plainly and record "
+                + "an unresolvedIssue instead of guessing a narrow question or inventing facets.\n"
+                + "- You may then PROPOSE a short lookup as an orientationSuggestion. It does not run: the "
+                + "user decides. 'label' is what the user reads and MUST be in the conversation language; "
+                + "'query' is engine-facing and may be in another language if that finds better sources.\n\n";
     }
 
     /**
