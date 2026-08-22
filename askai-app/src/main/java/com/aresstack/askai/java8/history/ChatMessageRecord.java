@@ -11,6 +11,13 @@ public final class ChatMessageRecord {
     /** A muted italic info/system breadcrumb (e.g. "Websuche: …") — persisted, but not a model turn. */
     public static final String ROLE_INFO = "info";
 
+    /**
+     * OPTIONAL stable id of this message. Present for messages an agent produced (the id it already uses on
+     * the conversation sink), absent for plain chat turns and for every record written before ids existed —
+     * so old history files load unchanged, without migration. Consumers must treat an absent id as "nothing
+     * further known about this message" rather than matching on text or timestamp.
+     */
+    private String messageId;
     private String role;
     private String text;
     private long createdAt;
@@ -23,12 +30,21 @@ public final class ChatMessageRecord {
 
     public ChatMessageRecord(String role, String text, long createdAt, String model,
                              List<AttachmentRecord> attachments) {
+        this(null, role, text, createdAt, model, attachments);
+    }
+
+    public ChatMessageRecord(String messageId, String role, String text, long createdAt, String model,
+                             List<AttachmentRecord> attachments) {
+        this.messageId = messageId == null || messageId.trim().isEmpty() ? null : messageId.trim();
         this.role = role;
         this.text = text;
         this.createdAt = createdAt;
         this.model = model;
         this.attachments = attachments != null ? attachments : new ArrayList<AttachmentRecord>();
     }
+
+    /** The stable message id, or {@code null} for plain chat turns and legacy records. */
+    public String getMessageId() { return messageId; }
 
     public String getRole() { return role; }
     public String getText() { return text != null ? text : ""; }

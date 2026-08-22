@@ -1604,16 +1604,17 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
             }, new AskAiAgentConversationSink.MessagePersister() {
                 // Persist the agent CONVERSATION exactly like a normal chat, so it survives a restart. The
                 // research phase/state is persisted separately by the plugin; here we only save the bubbles.
-                public void persistUser(String text) {
-                    persistUserMessage(text, java.util.Collections.<ImageAttachment>emptyList());
+                public void persistUser(String messageId, String text) {
+                    persistUserMessage(messageId, text,
+                            java.util.Collections.<ImageAttachment>emptyList());
                 }
 
-                public void persistAssistant(String text) {
-                    persistAssistantMessage(text, "Agent");
+                public void persistAssistant(String messageId, String text) {
+                    persistAssistantMessage(messageId, text, "Agent");
                 }
 
-                public void persistInfo(String text) {
-                    persistInfoMessage(text);
+                public void persistInfo(String messageId, String text) {
+                    persistInfoMessage(messageId, text);
                 }
             });
         }
@@ -2241,8 +2242,12 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         return chatRecord;
     }
 
-    /** Persist a sent user message (with any image attachments) to the durable store. */
-    private void persistUserMessage(String text, java.util.List<ImageAttachment> attachments) {
+    /**
+     * Persist a sent user message (with any image attachments) to the durable store. {@code messageId} is
+     * the agent's stable id, or null for a plain chat turn (the normal chat needs no id).
+     */
+    private void persistUserMessage(String messageId, String text,
+                                    java.util.List<ImageAttachment> attachments) {
         if (historyStore == null) {
             return;
         }
@@ -2257,7 +2262,7 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         }
         com.aresstack.askai.java8.history.ChatRecord chat = chatRecord();
         chat.getMessages().add(new com.aresstack.askai.java8.history.ChatMessageRecord(
-                com.aresstack.askai.java8.history.ChatMessageRecord.ROLE_USER,
+                messageId, com.aresstack.askai.java8.history.ChatMessageRecord.ROLE_USER,
                 text, System.currentTimeMillis(), null, stored));
         if (chat.getTitle() == null || chat.getTitle().trim().isEmpty()) {
             chat.setTitle(deriveTitle(text, attachments));
@@ -2266,23 +2271,23 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
     }
 
     /** Persist a completed assistant answer to the durable store. */
-    private void persistAssistantMessage(String text, String modelName) {
+    private void persistAssistantMessage(String messageId, String text, String modelName) {
         if (historyStore == null) {
             return;
         }
         chatRecord().getMessages().add(new com.aresstack.askai.java8.history.ChatMessageRecord(
-                com.aresstack.askai.java8.history.ChatMessageRecord.ROLE_ASSISTANT,
+                messageId, com.aresstack.askai.java8.history.ChatMessageRecord.ROLE_ASSISTANT,
                 text, System.currentTimeMillis(), modelName, null));
         saveChatRecord();
     }
 
     /** Persist a muted italic info/system breadcrumb (e.g. "Websuche: …") so it survives a restart. */
-    private void persistInfoMessage(String text) {
+    private void persistInfoMessage(String messageId, String text) {
         if (historyStore == null || text == null || text.trim().isEmpty()) {
             return;
         }
         chatRecord().getMessages().add(new com.aresstack.askai.java8.history.ChatMessageRecord(
-                com.aresstack.askai.java8.history.ChatMessageRecord.ROLE_INFO,
+                messageId, com.aresstack.askai.java8.history.ChatMessageRecord.ROLE_INFO,
                 text, System.currentTimeMillis(), null, null));
         saveChatRecord();
     }
@@ -2505,7 +2510,7 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         history.add(images.isEmpty()
                 ? OllamaChatTurn.user(userPrompt)
                 : OllamaChatTurn.user(userPrompt, images));
-        persistUserMessage(userPrompt, attachments);
+        persistUserMessage(null, userPrompt, attachments);
 
         // Do not open an assistant bubble yet: thinking (if any) opens a green thinking bubble first, and
         // the answer bubble only appears when real content arrives.
@@ -2690,7 +2695,7 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         if (assistantBubbleStarted) {
             transcript.finishAssistant();
             history.add(OllamaChatTurn.assistant(assistantText));
-            persistAssistantMessage(assistantText, streamingModelName);
+            persistAssistantMessage(null, assistantText, streamingModelName);
             if (result.hasMetrics()) {
                 setStatus(String.format("Ready · %d tokens · %.1f tok/s",
                         result.getEvalCount(), result.tokensPerSecond()));

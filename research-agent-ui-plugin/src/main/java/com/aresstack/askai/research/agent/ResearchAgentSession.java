@@ -129,6 +129,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         this.request = new ResearchProjectRequest(sessionId, projectId, "Research project");
         if (resources != null) {
             this.state = resources.currentState(); // one truth from the start
+            restorePhaseJournal(); // the phase attribution of earlier messages, before anything is recorded
             wireBrowserActivity(resources);
             // C5: when the live outline projection was rebuilt (worker thread), let every state listener —
             // including an open Live Outline artifact view — re-read; marshalled like any other refresh.
@@ -147,8 +148,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                         }
 
                         public String describeHistory(boolean raw) {
-                            return transcript.describe(productiveResources.currentState().getPhaseId(),
-                                    raw);
+                            return describeChatHistory(raw);
                         }
                     };
             resources.setSessionGateway(botGateway);
@@ -411,6 +411,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         com.aresstack.askai.research.mcp.ResearchBotSessionDirectory.get().unregister(botRegistration);
         botRegistration = null;
         briefWriteExecutor.shutdown(); // stop accepting brief writes; in-flight writes are atomic
+        journalWriteExecutor.shutdown(); // queued journal writes still complete; new ones are rejected
         if (artifactVisualizer != null) {
             artifactVisualizer.shutdown(); // stop the lazy visualizer; a running visualize is discarded
         }
@@ -689,13 +690,15 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
      * echoes it back. Empty bootstrap turns carry no text and are ignored, so no blank user bubble appears.
      */
     private void echoUserMessage(final String text) {
-        transcript.record(transcriptPhase(), "user", text);
         if (sink == null || text == null || text.trim().isEmpty()) {
             return;
         }
+        // The id is minted HERE so the journal attributes exactly the message the host persists.
+        final String messageId = "user-" + playbookMessageIds.incrementAndGet();
+        attributeToCurrentPhase(messageId);
         uiExecutor.execute(new Runnable() {
             public void run() {
-                sink.appendUserMessage("user-" + playbookMessageIds.incrementAndGet(), text);
+                sink.appendUserMessage(messageId, text);
             }
         });
     }
@@ -703,13 +706,14 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
 
     /** An agent utterance from the playbook/dialog, routed through the shared sink on the UI thread. */
     private void sayAsAgent(final String text) {
-        transcript.record(transcriptPhase(), "assistant", text);
         if (sink == null) {
             return;
         }
+        final String messageId = "playbook-" + playbookMessageIds.incrementAndGet();
+        attributeToCurrentPhase(messageId);
         uiExecutor.execute(new Runnable() {
             public void run() {
-                sink.appendAssistantMessage("playbook-" + playbookMessageIds.incrementAndGet(), text);
+                sink.appendAssistantMessage(messageId, text);
             }
         });
     }
@@ -1099,7 +1103,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             // ONE unified, persisted breadcrumb for BOTH entry points (typed /search AND a yellow-suggestion
             // click both funnel through here): a muted italic "Websuche: <query>" line that survives a restart.
             // The transient amber progress card runs alongside it and is ephemeral.
-            transcript.record(transcriptPhase(), "info", message);
+            attributeToCurrentPhase("manual-search-line-" + requestId);
             sink.appendInfoMessage("manual-search-line-" + requestId, message);
             sink.startToolActivity(activityId, "Websuche", message);
         } else if ("progress".equals(subKind)) {
@@ -1406,7 +1410,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                             + activeManualSearchRequestId);
                 }
                 finishPostSearchThinking("");
-                transcript.record(transcriptPhase(), "assistant", event.getText());
+                attributeToCurrentPhase(event.getEventId());
                 sink.appendAssistantMessage(event.getEventId(), event.getText());
                 break;
             case RUN_LOG:
@@ -1454,7 +1458,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 agentTurnInFlight = false; // a failed turn must not wedge the composer
                 finishPostSearchThinking(""); // never leave the post-search bubble/red send button stuck
                 problemMessage = event.getPublicMessage();
-                transcript.record(transcriptPhase(), "problem", event.getPublicMessage());
+                attributeToCurrentPhase(event.getEventId());
                 // Show the WHY, not just the what: the technical detail (exception phase + reason,
                 // never secrets) is the only way anyone can act on a start failure.
                 String detail = event.getTechnicalDetail();
@@ -1704,8 +1708,95 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         }
     };
 
-    /** The phase-attributed chat record for the bot-control chat_history tool (in-memory, per session). */
-    private final ResearchTranscript transcript = new ResearchTranscript();
+    /**
+     * The research view ON the conversation: which phase a message belongs to, plus the phase outcomes. It
+     * holds NO message text — the host's chat record is the single truth for that (see
+     * {@link #describeChatHistory(boolean)}). Loaded from the project directory, so the attribution survives
+     * a restart.
+     */
+    private ResearchPhaseJournal journal = new ResearchPhaseJournal();
+    /** Serializes the small journal writes OFF the caller thread (attribution happens during UI work). */
+    private final java.util.concurrent.ExecutorService journalWriteExecutor =
+            java.util.concurrent.Executors.newSingleThreadExecutor(
+                    new java.util.concurrent.ThreadFactory() {
+                        public Thread newThread(Runnable r) {
+                            Thread thread = new Thread(r, "research-phase-journal");
+                            thread.setDaemon(true);
+                            return thread;
+                        }
+                    });
+
+    /** Attribute a message the host is about to persist under {@code messageId} to the live phase. */
+    private void attributeToCurrentPhase(String messageId) {
+        if (journal.attribute(messageId, transcriptPhase())) {
+            persistJournal();
+        }
+    }
+
+    /** The journal file of this research project, or null (fake mode / no project context). */
+    private java.io.File journalFile() {
+        return productiveResources == null ? null
+                : new java.io.File(productiveResources.getProjectContext().getProjectDirectory(),
+                        "phase-journal.json");
+    }
+
+    /** Write the journal off the caller thread; a failure costs attribution only, never conversation. */
+    private void persistJournal() {
+        final java.io.File target = journalFile();
+        if (target == null || journalWriteExecutor.isShutdown()) {
+            return;
+        }
+        final String json = journal.toJson();
+        try {
+            journalWriteExecutor.execute(new Runnable() {
+                public void run() {
+                    try {
+                        java.io.OutputStream out = new java.io.FileOutputStream(target);
+                        try {
+                            out.write(json.getBytes("UTF-8"));
+                        } finally {
+                            out.close();
+                        }
+                    } catch (java.io.IOException writeFailed) {
+                        System.err.println("[research-journal] could not persist the phase attribution ("
+                                + target + "): " + writeFailed.getMessage());
+                    }
+                }
+            });
+        } catch (java.util.concurrent.RejectedExecutionException closing) {
+            // the session is shutting down — the attribution of this last message is simply not persisted
+        }
+    }
+
+    /** Load the persisted phase attribution of this project (absent/corrupt → start empty). */
+    private void restorePhaseJournal() {
+        java.io.File source = journalFile();
+        if (source == null || !source.isFile()) {
+            return;
+        }
+        try {
+            journal = ResearchPhaseJournal.fromJson(
+                    new String(java.nio.file.Files.readAllBytes(source.toPath()), "UTF-8"));
+        } catch (java.io.IOException unreadable) {
+            System.err.println("[research-journal] could not read " + source + ": "
+                    + unreadable.getMessage() + " — phases of older messages stay unknown");
+        }
+    }
+
+    /**
+     * {@code chat_history}: the CANONICAL persisted conversation of this chat, annotated with the research
+     * phase where known. The messages come from the host (one truth, the same the user sees — including
+     * everything from before this process started); this session contributes only the attribution.
+     */
+    private String describeChatHistory(boolean raw) {
+        com.aresstack.askai.plugin.api.service.ChatSessionHistoryReader reader =
+                getHostService(com.aresstack.askai.plugin.api.service.ChatSessionHistoryReader.class);
+        if (reader == null || chatSessionId.isEmpty()) {
+            return "(this host does not expose the persisted chat history to plugins)";
+        }
+        return ResearchChatHistoryProjection.render(reader.readMessages(chatSessionId), journal,
+                transcriptPhase(), raw);
+    }
 
     private String transcriptPhase() {
         return productiveResources != null ? productiveResources.currentState().getPhaseId()
@@ -2180,7 +2271,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         agentTurnInFlight = false; // the run is over; the user decides the next step
         final com.aresstack.askai.research.backend.ResearchRunOutcomeInfo outcome = event.getRunOutcome();
         // The structured outcome narrative IS the phase summary for chat_history's default rendering.
-        transcript.recordOutcome(transcriptPhase(), narrator.outcomeNarrative(outcome));
+        if (journal.recordOutcome(transcriptPhase(), narrator.outcomeNarrative(outcome))) {
+            persistJournal();
+        }
         if (runCardStarted && currentRunActivityId != null) {
             sink.completeToolActivity(currentRunActivityId, playbook.runFinishedSummary(
                     outcome.getPagesVisited(), outcome.getAcceptedSources(), outcome.getDistinctHosts()));

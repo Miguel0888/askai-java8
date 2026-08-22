@@ -111,6 +111,8 @@ public final class AskAiFrame extends JFrame {
      * and "what is this chat called". Created with the chat history store, updated on every tab switch.
      */
     private com.aresstack.askai.java8.plugin.host.LocalChatSessionCatalog chatSessionCatalog;
+    /** Reads the PERSISTED messages of a chat for plugins — same store, no second message truth. */
+    private com.aresstack.askai.java8.plugin.host.LocalChatSessionHistoryReader chatSessionHistory;
     /** Builds the active agent's composer accessories above the active tab's composer (kept to avoid GC). */
     private com.aresstack.askai.plugin.host.AgentComposerAccessoryArea composerAccessoryArea;
     /** The tab currently showing a composer accessory, so it can be cleared when the active tab changes. */
@@ -560,6 +562,13 @@ public final class AskAiFrame extends JFrame {
                             services.put(com.aresstack.askai.plugin.api.service.ChatSessionCatalog.class,
                                     chatSessionCatalog);
                         }
+                        // The persisted messages of a chat: a SEPARATE port (ISP) over the same store, so a
+                        // plugin can project the canonical conversation instead of keeping its own copy.
+                        if (chatSessionHistory != null) {
+                            services.put(
+                                    com.aresstack.askai.plugin.api.service.ChatSessionHistoryReader.class,
+                                    chatSessionHistory);
+                        }
                         services.put(com.aresstack.askai.plugin.api.service.ArtifactViewOpener.class,
                                 new com.aresstack.askai.plugin.api.service.ArtifactViewOpener() {
                                     public void openArtifact(String artifactId) {
@@ -837,6 +846,8 @@ public final class AskAiFrame extends JFrame {
         // The SAME store backs the plugin-facing chat catalog — no second persistence, no copied titles.
         this.chatSessionCatalog =
                 new com.aresstack.askai.java8.plugin.host.LocalChatSessionCatalog(historyStore);
+        this.chatSessionHistory =
+                new com.aresstack.askai.java8.plugin.host.LocalChatSessionHistoryReader(historyStore);
         ChatWorkspacePanel.ChatSessionFactory chatFactory = new ChatWorkspacePanel.ChatSessionFactory() {
             public ChatSessionComponent create(ChatSessionId id) {
                 OllamaChatPanel chat = new OllamaChatPanel(id, model, ollamaService, speechToTextService,

@@ -25,12 +25,13 @@ final class AskAiAgentConversationSink implements AgentConversationSink {
      * ephemeral and is never persisted.
      */
     interface MessagePersister {
-        void persistUser(String text);
+        /** @param messageId the agent's stable id for this message; persisted so plugins can key metadata on it. */
+        void persistUser(String messageId, String text);
 
-        void persistAssistant(String text);
+        void persistAssistant(String messageId, String text);
 
         /** Persist a muted italic info/system breadcrumb (e.g. "Websuche: …") so it survives a restart. */
-        void persistInfo(String text);
+        void persistInfo(String messageId, String text);
     }
 
     private final ChatTranscript transcript;
@@ -65,7 +66,7 @@ final class AskAiAgentConversationSink implements AgentConversationSink {
     public void appendUserMessage(String messageId, String markdown) {
         transcript.appendUser(markdown);
         if (persister != null) {
-            persister.persistUser(markdown);
+            persister.persistUser(messageId, markdown);
         }
         refresh();
     }
@@ -76,7 +77,7 @@ final class AskAiAgentConversationSink implements AgentConversationSink {
         transcript.appendAssistantDelta(markdown);
         transcript.finishAssistant();
         if (persister != null) {
-            persister.persistAssistant(markdown);
+            persister.persistAssistant(messageId, markdown);
         }
         refresh();
     }
@@ -144,7 +145,7 @@ final class AskAiAgentConversationSink implements AgentConversationSink {
                 + "\n\n_Type_ `/approve` _or_ `/request-changes` _to respond._");
         transcript.finishAssistant();
         if (persister != null && prompt != null && !prompt.trim().isEmpty()) {
-            persister.persistAssistant(prompt);
+            persister.persistAssistant(approvalId, prompt);
         }
         refresh();
     }
@@ -153,7 +154,7 @@ final class AskAiAgentConversationSink implements AgentConversationSink {
     public void appendInfoMessage(String messageId, String markdown) {
         transcript.appendInfo(markdown);
         if (persister != null && markdown != null && !markdown.trim().isEmpty()) {
-            persister.persistInfo(markdown); // survives a restart as a muted italic line (not a bubble)
+            persister.persistInfo(messageId, markdown); // survives a restart as a muted italic line (not a bubble)
         }
         refresh();
     }
@@ -164,7 +165,7 @@ final class AskAiAgentConversationSink implements AgentConversationSink {
         if (persister != null && publicMessage != null && !publicMessage.trim().isEmpty()) {
             // Persist as INFO so the restored line looks exactly like the live one (muted italic),
             // not like an agent bubble per problem.
-            persister.persistInfo("⚠ " + publicMessage);
+            persister.persistInfo(problemId, "⚠ " + publicMessage);
         }
         refresh();
     }
@@ -176,7 +177,7 @@ final class AskAiAgentConversationSink implements AgentConversationSink {
         if (persister != null && markdown != null && !markdown.trim().isEmpty()) {
             // Persist the CARD TEXT (outline, run outcome/error, …) so it survives a restart. The buttons are
             // tied to the live state and are not persisted — the restored card is static content.
-            persister.persistAssistant(markdown);
+            persister.persistAssistant(cardId, markdown);
         }
     }
 
