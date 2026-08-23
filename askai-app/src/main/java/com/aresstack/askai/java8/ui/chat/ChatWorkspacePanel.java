@@ -137,18 +137,21 @@ public final class ChatWorkspacePanel extends JPanel {
             selectSession(id);
             return existing;
         }
-        ChatSessionComponent session = factory.create(id);
-        sessionsById.put(id, session);
-        cards.add(session.getComponent(), id.toString());
-        selectSession(id);
-        fireTabSetChanged();
-        return session;
+        return addChat(id, factory.create(id));
     }
 
     /** Create a brand-new chat and bring it to the foreground. */
     public ChatSessionComponent openNewChat() {
         ChatSessionId id = ChatSessionId.create();
-        ChatSessionComponent session = factory.create(id);
+        return addChat(id, factory.create(id));
+    }
+
+    /**
+     * THE one way a chat enters the workspace. Restored at startup or opened at runtime, the steps must be
+     * identical — the two used to be separate copies of the same four lines, which is exactly the kind of
+     * duplication where the two paths silently drift apart.
+     */
+    private ChatSessionComponent addChat(ChatSessionId id, ChatSessionComponent session) {
         sessionsById.put(id, session);
         cards.add(session.getComponent(), id.toString());
         selectSession(id);
