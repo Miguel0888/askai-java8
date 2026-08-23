@@ -75,6 +75,33 @@ public final class SearchResultReranker implements CandidateReranker {
                 scoreSemantics, diagnostics, response.totalDurationNanos, response.loadDurationNanos);
     }
 
+    @Override
+    public com.aresstack.askai.research.domain.search.RelevanceAssessment assess(
+            String query, java.util.LinkedHashMap<String, String> documentsById,
+            CancellationSignal cancellation) {
+        if (documentsById == null || documentsById.isEmpty()) {
+            return com.aresstack.askai.research.domain.search.RelevanceAssessment
+                    .unavailable("no documents to assess");
+        }
+        List<String> ids = new ArrayList<String>(documentsById.keySet());
+        List<String> documents = new ArrayList<String>(documentsById.values());
+        RerankResponse response;
+        try {
+            response = client.rerank(query, documents, cancellation);
+        } catch (RerankerClientException ex) {
+            return com.aresstack.askai.research.domain.search.RelevanceAssessment
+                    .unavailable(ex.getFailure() + ": " + ex.getMessage());
+        }
+        List<com.aresstack.askai.research.domain.search.RelevanceAssessment.Score> scores =
+                new ArrayList<com.aresstack.askai.research.domain.search.RelevanceAssessment.Score>();
+        for (RerankScore row : response.scores) {
+            scores.add(new com.aresstack.askai.research.domain.search.RelevanceAssessment.Score(
+                    ids.get(row.documentIndex), row.score));
+        }
+        return com.aresstack.askai.research.domain.search.RelevanceAssessment.of(
+                response.model.isEmpty() ? modelName : response.model, scores);
+    }
+
     private static SearchResultRerankingOutcome mapFailure(RerankerClientFailure failure) {
         switch (failure) {
             case TIMEOUT:

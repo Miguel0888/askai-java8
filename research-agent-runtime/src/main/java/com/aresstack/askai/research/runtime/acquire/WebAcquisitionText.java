@@ -68,6 +68,34 @@ public final class WebAcquisitionText {
         return urls.isEmpty() ? null : urls.get(urls.size() - 1);
     }
 
+    /**
+     * The words a page uses to point somewhere, from one {@code web_links} line
+     * ({@code <id>: <text> — <url>}). The URL is deliberately NOT part of it: a link is judged by
+     * what it says it leads to, and an address that happens to spell a query word says nothing.
+     *
+     * @return the anchor text, or {@code ""} when the line carries none
+     */
+    public static String anchorTextOf(String line) {
+        if (line == null) {
+            return "";
+        }
+        String rest = line;
+        String url = lastUrl(rest);
+        if (url != null) {
+            int at = rest.lastIndexOf(url);
+            if (at > 0) {
+                rest = rest.substring(0, at);
+            }
+        }
+        int colon = rest.indexOf(':');
+        if (colon >= 0 && colon + 1 < rest.length()) {
+            rest = rest.substring(colon + 1);
+        }
+        // Drop the separator the renderer puts between text and address, whichever dash it used.
+        rest = rest.replace('—', ' ').replace('–', ' ');
+        return rest.trim();
+    }
+
     public static String canonicalish(String url) {
         String u = url == null ? "" : url.trim().toLowerCase(Locale.ROOT);
         int frag = u.indexOf('#');

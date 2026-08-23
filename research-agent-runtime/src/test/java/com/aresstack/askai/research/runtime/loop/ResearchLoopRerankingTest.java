@@ -55,13 +55,29 @@ public class ResearchLoopRerankingTest {
         server.createContext("/api/rerank", new HttpHandler() {
             public void handle(HttpExchange exchange) throws java.io.IOException {
                 rerankCalls.incrementAndGet();
-                exchange.getRequestBody().close();
-                // Score index1 highest, then index2, then index0 — a deliberate reordering of the
-                // engine's original A,B,C order into B,C,A. Best hit is a small logit (no 0.5 gate).
-                String body = "{\"model\":\"" + MODEL + "\",\"results\":["
-                        + "{\"index\":0,\"score\":-2.0},"
-                        + "{\"index\":1,\"score\":0.4},"
-                        + "{\"index\":2,\"score\":-0.1}]}";
+                // The endpoint is asked twice for different things now: once to rank the SERP hits, and
+                // once per opened page to say how relevant that page is. It must answer whatever it was
+                // asked, so it counts the documents it was given (each begins with "Title: ").
+                String request = readAll(exchange.getRequestBody());
+                int documents = countOccurrences(request, "Title:");
+                String body;
+                if (documents == 3) {
+                    // Score index1 highest, then index2, then index0 — a deliberate reordering of the
+                    // engine's original A,B,C order into B,C,A. Best hit is a small logit (no 0.5 gate).
+                    body = "{\"model\":\"" + MODEL + "\",\"results\":["
+                            + "{\"index\":0,\"score\":-2.0},"
+                            + "{\"index\":1,\"score\":0.4},"
+                            + "{\"index\":2,\"score\":-0.1}]}";
+                } else {
+                    StringBuilder results = new StringBuilder();
+                    for (int i = 0; i < Math.max(1, documents); i++) {
+                        if (i > 0) {
+                            results.append(',');
+                        }
+                        results.append("{\"index\":").append(i).append(",\"score\":0.0}");
+                    }
+                    body = "{\"model\":\"" + MODEL + "\",\"results\":[" + results + "]}";
+                }
                 byte[] out = body.getBytes(UTF_8);
                 exchange.sendResponseHeaders(200, out.length);
                 OutputStream os = exchange.getResponseBody();
@@ -70,6 +86,25 @@ public class ResearchLoopRerankingTest {
             }
         });
         server.start();
+    }
+
+    private static String readAll(java.io.InputStream in) throws java.io.IOException {
+        java.io.ByteArrayOutputStream buffer = new java.io.ByteArrayOutputStream();
+        byte[] chunk = new byte[4096];
+        int read;
+        while ((read = in.read(chunk)) > 0) {
+            buffer.write(chunk, 0, read);
+        }
+        in.close();
+        return new String(buffer.toByteArray(), UTF_8);
+    }
+
+    private static int countOccurrences(String text, String needle) {
+        int count = 0;
+        for (int at = text.indexOf(needle); at >= 0; at = text.indexOf(needle, at + needle.length())) {
+            count++;
+        }
+        return count;
     }
 
     @After
@@ -162,7 +197,9 @@ public class ResearchLoopRerankingTest {
 
         loop.run("investigate pf4j plugin framework");
 
-        assertEquals("reranker called exactly once, before any navigation", 1, rerankCalls.get());
+        assertEquals("once to rank the SERP, then once per opened page — relevance does not stop "
+                + "being a question after the result page", 1 + browser.opened.size(),
+                rerankCalls.get());
         // Engine order was A,B,C; reranked B,C,A; Top-2 -> only B then C are opened, A never.
         assertEquals(Arrays.asList("https://b.example/y", "https://c.example/z"), browser.opened);
         assertFalse("the lowest-scored candidate is never opened",
@@ -194,7 +231,7 @@ public class ResearchLoopRerankingTest {
         loop.setReranker(fromSnapshot);
         loop.run("investigate pf4j plugin framework");
 
-        assertEquals(1, rerankCalls.get());
+        assertEquals(1 + browser.opened.size(), rerankCalls.get());
         // Same reranking outcome, now sourced entirely from the on-disk snapshot contract.
         assertEquals(Arrays.asList("https://b.example/y", "https://c.example/z"), browser.opened);
     }
@@ -209,6 +246,13 @@ public class ResearchLoopRerankingTest {
                     com.aresstack.askai.browser.search.inference.CancellationSignal cancellation) {
                 return com.aresstack.askai.research.runtime.rerank.SearchResultRerankingResult.failure(
                         outcome, "stub", RerankerScoreSemantics.RAW_LOGIT, "stubbed " + outcome);
+            }
+
+            public com.aresstack.askai.research.domain.search.RelevanceAssessment assess(
+                    String query, java.util.LinkedHashMap<String, String> documentsById,
+                    com.aresstack.askai.browser.search.inference.CancellationSignal cancellation) {
+                return com.aresstack.askai.research.domain.search.RelevanceAssessment
+                        .unavailable("stub reranker has no relevance model");
             }
         };
     }
@@ -247,7 +291,7 @@ public class ResearchLoopRerankingTest {
 
         loop.run("investigate pf4j plugin framework");
 
-        assertEquals(1, rerankCalls.get());
+        assertEquals(1 + browser.opened.size(), rerankCalls.get());
         assertEquals(Collections.singletonList("https://b.example/y"), browser.opened);
     }
 }

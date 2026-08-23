@@ -100,6 +100,37 @@ public final class WebSearchApplicationService {
     }
 
     private static final int INITIAL_SEARCH_RESULT_COUNT = 10;
+    /**
+     * How many links of one relevant page are worth judging, and how many of them may be opened.
+     * A page can carry hundreds of links; scoring all of them would cost more than reading the page,
+     * and opening all of them is how a search about rabbit steaks ends up in a noodle recipe.
+     */
+    private static final int MAXIMUM_ASSESSED_LINKS_PER_PAGE = 60;
+    private static final int MAXIMUM_EXPANDED_LINKS_PER_PAGE = 5;
+    /** How much of a page is shown to the relevance model — its beginning is what it is about. */
+    private static final int PAGE_RELEVANCE_EXCERPT_CHARACTERS = 1_200;
+
+    /**
+     * The relevance the run has already committed to: the LOWEST page score among the pages that were
+     * opened on the search engine's own selected hits.
+     * <p>
+     * A cross-encoder logit has no absolute meaning — the selection policy says so explicitly, and it is
+     * why there is no global threshold anywhere in this codebase. But a run does not need one: the hits
+     * the reranker chose from the SERP are, by that decision, relevant enough to read. Once their pages
+     * have been scored with the same model, the same query and the same kind of text, the weakest of
+     * them IS this query's answer to "relevant enough" — measured, not guessed. Links discovered later
+     * are held to that same bar. Null until the first search hit has been read.
+     */
+    private Double seedPageRelevanceFloor;
+    /**
+     * The same idea for the other kind of text: the LOWEST score among the SERP hits the reranker
+     * selected, measured on their title+snippet. A link is judged on its anchor text, which is the same
+     * shape of document — so this, and not the page floor, is the bar a link has to clear. Comparing a
+     * one-line anchor against a floor measured on full page text would compare two different things.
+     */
+    private Double seedSerpRelevanceFloor;
+    /** The query every relevance question in this run is asked against. */
+    private String relevanceQuery = "";
 
     private final ToolInvoker browser;
     private final ResearchRunBudget budget;
@@ -263,6 +294,7 @@ public final class WebSearchApplicationService {
                 com.aresstack.askai.research.runtime.search.InitialSearchStatus.NO_RESULTS;
         try {
             String query = WebAcquisitionText.join(terms);
+            relevanceQuery = query; // every relevance question in this run is asked against THIS query
             listener.progress(progress, apiProviderLabel == null
                     ? ResearchRunActivity.searching(query)
                     : ResearchRunActivity.searchingViaApi(query, apiProviderLabel));
@@ -407,7 +439,7 @@ public final class WebSearchApplicationService {
                 String captureId = WebAcquisitionText.field(page, "capture_id");
                 String pageText = page.toLowerCase(Locale.ROOT);
 
-                if (WebAcquisitionText.matches(pageText, terms)) {
+                if (isRelevantPage(entry, page, pageTitle, pageText, effectiveUrl, terms)) {
                     ResearchStopReason g3 = acceptSource(captureId, page, effectiveUrl, finalHost, pageTitle);
                     if (g3 != null) {
                         return g3;
@@ -415,24 +447,24 @@ public final class WebSearchApplicationService {
                 } else {
                     listener.status("skipped irrelevant page: " + url);
                     listener.progress(progress, ResearchRunActivity.pageSkipped(effectiveUrl, finalHost, pageTitle));
+                    // A page that is not about this query is not a bridge to pages that are. Harvesting
+                    // its links is how one off-topic hit turned into a whole site of off-topic hits.
+                    // Traversing deliberately chosen bridge pages would be its own policy, not a side
+                    // effect of failing the relevance gate.
+                    continue;
                 }
 
-                // Follow only links whose text hints at the task (content-driven, not order-driven).
+                // Which of this page's links are worth opening is a relevance question, and it is asked
+                // of the relevance model — not of String.contains, which admitted every link whose URL
+                // happened to spell a query word.
                 ResearchStopReason g4 = beforeToolCall();
                 if (g4 != null) {
                     return g4;
                 }
                 String links = callBrowser("web_links", args());
                 progress.success();
-                for (String line : links.split("\n")) {
-                    String lower = line.toLowerCase(Locale.ROOT);
-                    if (WebAcquisitionText.matches(lower, terms)) {
-                        String linkUrl = WebAcquisitionText.lastUrl(line);
-                        if (linkUrl != null && !isSearchProviderSite(WebAcquisitionText.hostOf(linkUrl))
-                                && !progress.alreadyVisited(WebAcquisitionText.canonicalish(linkUrl))) {
-                            frontier.add(FrontierEntry.fromDiscoveredLink(linkUrl, url));
-                        }
-                    }
+                for (String linkUrl : selectLinksToFollow(links, url, terms)) {
+                    frontier.add(FrontierEntry.fromDiscoveredLink(linkUrl, url));
                 }
             } catch (ToolInvoker.EndpointUnavailable ex) {
                 listener.status("[web-search] technical failure stage=PAGE_OPEN (endpoint unavailable — sidecar"
@@ -472,6 +504,9 @@ public final class WebSearchApplicationService {
                 progress.success();
                 for (com.aresstack.askai.research.runtime.rerank.RerankedSearchResultCandidate ranked
                         : result.selected) {
+                    if (seedSerpRelevanceFloor == null || ranked.score < seedSerpRelevanceFloor) {
+                        seedSerpRelevanceFloor = ranked.score;
+                    }
                     if (!ranked.candidate.resolvedTargetUrl.isEmpty()) {
                         // The selected hit keeps its identity: the entry names the candidate it came from
                         // and carries what the SERP promised (the Layer 2 semantic readiness net) instead
@@ -509,6 +544,133 @@ public final class WebSearchApplicationService {
                 progress.error();
                 return ResearchStopReason.RERANKER_UNAVAILABLE;
         }
+    }
+
+    // ------------------------------------------------------------------ relevance, all the way through
+
+    /** What the relevance model is shown of a page: what it calls itself, and how it begins. */
+    private static String pageRelevanceDocument(String pageTitle, String page) {
+        String excerpt = WebAcquisitionText.field(page, "excerpt");
+        String body = excerpt == null || excerpt.trim().isEmpty() ? page : excerpt;
+        String trimmed = body.trim();
+        if (trimmed.length() > PAGE_RELEVANCE_EXCERPT_CHARACTERS) {
+            trimmed = trimmed.substring(0, PAGE_RELEVANCE_EXCERPT_CHARACTERS);
+        }
+        return "Title: " + (pageTitle == null ? "" : pageTitle) + "\nSnippet: " + trimmed;
+    }
+
+    /**
+     * Is this loaded page an answer to the query?
+     * <p>
+     * A hit the SERP reranker selected was already judged relevant, on the strength of what the result
+     * page promised. That decision stands: it is evidence, and a page is not disqualified for failing to
+     * repeat the query's words — the live case rejected the Wikipedia article on rabbit meat for a
+     * search about rabbit steaks precisely that way. Its page score instead CALIBRATES the run: the
+     * weakest search hit read so far is the bar every link discovered later has to clear.
+     * <p>
+     * Without a relevance model there is no semantic answer, and the old lexical test is then all there
+     * is. It is named as the fallback it is, and it is said out loud.
+     */
+    private boolean isRelevantPage(FrontierEntry entry, String page, String pageTitle, String pageText,
+                                   String effectiveUrl, Set<String> terms) {
+        Double score = assessOne(pageRelevanceDocument(pageTitle, page));
+        if (score == null) {
+            boolean lexical = WebAcquisitionText.matches(pageText, terms);
+            listener.status("relevance unavailable — falling back to the lexical test ("
+                    + (lexical ? "kept" : "skipped") + "): " + effectiveUrl);
+            return lexical;
+        }
+        if (entry.getOrigin() != FrontierEntry.Origin.DISCOVERED_LINK) {
+            // A selected search hit, or a re-queued one: the reranker already decided. Record what its
+            // page actually scores, so the bar for discovered links comes from measured evidence.
+            if (seedPageRelevanceFloor == null || score < seedPageRelevanceFloor) {
+                seedPageRelevanceFloor = score;
+            }
+            listener.status("page relevance " + score + " (search hit; floor now "
+                    + seedPageRelevanceFloor + "): " + effectiveUrl);
+            return true;
+        }
+        if (seedPageRelevanceFloor == null) {
+            // Nothing read yet that the search engine vouched for: there is no measured bar, and
+            // inventing one would be the guess this codebase refuses everywhere else.
+            listener.status("page relevance " + score + " but no search hit has been read yet — "
+                    + "no bar to judge against: " + effectiveUrl);
+            return false;
+        }
+        boolean relevant = score >= seedPageRelevanceFloor;
+        listener.status("page relevance " + score + " vs floor " + seedPageRelevanceFloor
+                + " → " + (relevant ? "kept" : "skipped") + ": " + effectiveUrl);
+        return relevant;
+    }
+
+    /**
+     * The links of a relevant page, ranked by how well their ANCHOR TEXT answers the query — never their
+     * URL. A URL that spells "kulinarische" says nothing about what is behind it; the words a page uses
+     * to point somewhere do.
+     */
+    private List<String> selectLinksToFollow(String links, String parentUrl, Set<String> terms) {
+        java.util.LinkedHashMap<String, String> documentsByUrl =
+                new java.util.LinkedHashMap<String, String>();
+        java.util.List<String> lexicalHints = new ArrayList<String>();
+        for (String line : links.split("\n")) {
+            if (documentsByUrl.size() >= MAXIMUM_ASSESSED_LINKS_PER_PAGE) {
+                break;
+            }
+            String linkUrl = WebAcquisitionText.lastUrl(line);
+            if (linkUrl == null || isSearchProviderSite(WebAcquisitionText.hostOf(linkUrl))
+                    || progress.alreadyVisited(WebAcquisitionText.canonicalish(linkUrl))
+                    || documentsByUrl.containsKey(linkUrl)) {
+                continue;
+            }
+            String anchor = WebAcquisitionText.anchorTextOf(line);
+            if (anchor.isEmpty()) {
+                continue; // a link with nothing to say for itself cannot be judged, so it is not followed
+            }
+            documentsByUrl.put(linkUrl, "Title: " + anchor + "\nSnippet: ");
+            if (WebAcquisitionText.matches(line.toLowerCase(Locale.ROOT), terms)) {
+                lexicalHints.add(linkUrl);
+            }
+        }
+        if (documentsByUrl.isEmpty()) {
+            return java.util.Collections.emptyList();
+        }
+        com.aresstack.askai.research.domain.search.RelevanceAssessment assessment =
+                reranker.assess(relevanceQuery, documentsByUrl, cancellationSignal());
+        if (!assessment.isAvailable()) {
+            // No semantic answer: the cheap lexical signal is all that is left, and it is bounded like
+            // everything else here rather than let loose over every link on the page.
+            listener.status("link relevance unavailable (" + assessment.getUnavailableReason()
+                    + ") — following the lexical hints only, from " + parentUrl);
+            return lexicalHints.size() > MAXIMUM_EXPANDED_LINKS_PER_PAGE
+                    ? lexicalHints.subList(0, MAXIMUM_EXPANDED_LINKS_PER_PAGE) : lexicalHints;
+        }
+        List<String> selected = new ArrayList<String>();
+        for (String rankedUrl : assessment.rankedCandidateIds()) {
+            if (selected.size() >= MAXIMUM_EXPANDED_LINKS_PER_PAGE) {
+                break;
+            }
+            Double score = assessment.relevanceOf(rankedUrl);
+            if (score == null) {
+                continue;
+            }
+            if (seedSerpRelevanceFloor != null && score < seedSerpRelevanceFloor) {
+                break; // ranked best first: everything after this is further below the bar
+            }
+            selected.add(rankedUrl);
+        }
+        listener.status("link relevance: " + documentsByUrl.size() + " links assessed → "
+                + selected.size() + " followed (floor " + seedSerpRelevanceFloor + ") from "
+                + parentUrl);
+        return selected;
+    }
+
+    /** One document's relevance, or {@code null} when the model could not answer at all. */
+    private Double assessOne(String document) {
+        java.util.LinkedHashMap<String, String> one = new java.util.LinkedHashMap<String, String>();
+        one.put("page", document);
+        com.aresstack.askai.research.domain.search.RelevanceAssessment assessment =
+                reranker.assess(relevanceQuery, one, cancellationSignal());
+        return assessment.isAvailable() ? assessment.relevanceOf("page") : null;
     }
 
     /**

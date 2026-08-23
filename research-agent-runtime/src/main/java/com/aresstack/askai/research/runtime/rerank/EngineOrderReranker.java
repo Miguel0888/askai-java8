@@ -30,4 +30,16 @@ public final class EngineOrderReranker implements CandidateReranker {
                 "engine-order (test adapter)", RerankerScoreSemantics.RAW_LOGIT,
                 "engine order preserved; no reranking performed", 0L, 0L);
     }
+
+    /**
+     * No semantic capability, and it says so. A test adapter that invented scores here would let the
+     * acquisition believe it had judged relevance when it had only preserved an order.
+     */
+    @Override
+    public com.aresstack.askai.research.domain.search.RelevanceAssessment assess(
+            String query, java.util.LinkedHashMap<String, String> documentsById,
+            CancellationSignal cancellation) {
+        return com.aresstack.askai.research.domain.search.RelevanceAssessment
+                .unavailable("engine-order adapter has no relevance model");
+    }
 }
