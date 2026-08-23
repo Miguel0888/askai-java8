@@ -117,21 +117,36 @@ public class ScopingBriefApprovalTest {
         assertEquals(ResearchStateIds.RESEARCH, fx.resources.currentState().getPhaseId());
     }
 
+    /**
+     * The user owns the state machine. An empty or vague scope is NOT a reason to block submit-scope: when
+     * the machine allows the transition, the command must be available and must work — on the very first
+     * turn and with nothing written yet. This test previously pinned the opposite ("Es liegt noch keine
+     * Fragestellung vor"), which both gated a user command on an assistant's judgement and still treated
+     * the scope as one research question.
+     */
     @Test
-    public void aBlankOrMissingBriefIsRejectedWithMissingBrief() {
+    public void anEmptyOrBlankScopeNeverBlocksTheUsersSubmitScope() {
         Fx fx = new Fx();
         fx.session.dispatch(ResearchCommandType.START, null);
         completeTurn(fx, 1L);
 
-        // No brief at all: unavailable, and the action reports the concrete reason.
-        assertFalse(fx.session.canApproveScopingBriefAndContinue());
-        assertEquals(ScopingApprovalOutcome.MISSING_BRIEF, fx.session.approveScopingBriefAndContinue());
-        assertEquals(ResearchStateIds.SCOPING, fx.resources.currentState().getPhaseId());
+        assertTrue("submit-scope must not be gated by the content of the scope",
+                fx.session.canApproveScopingBriefAndContinue());
+        assertEquals(ScopingApprovalOutcome.SUCCESS, fx.session.approveScopingBriefAndContinue());
+        assertEquals("the user's command moved the phase", ResearchStateIds.RESEARCH,
+                fx.resources.currentState().getPhaseId());
+    }
 
-        // A whitespace-only brief is likewise not enough (it normalizes away, nothing is stored).
+    @Test
+    public void aWhitespaceOnlyBriefAlsoDoesNotBlockTheUsersCommand() {
+        Fx fx = new Fx();
+        fx.session.dispatch(ResearchCommandType.START, null);
+        completeTurn(fx, 1L);
         fx.session.researchBriefStore().updateWorkingCopy("   \n  \t", 1000L);
-        assertFalse(fx.session.canApproveScopingBriefAndContinue());
-        assertEquals(ResearchStateIds.SCOPING, fx.resources.currentState().getPhaseId());
+
+        assertTrue(fx.session.canApproveScopingBriefAndContinue());
+        assertEquals(ScopingApprovalOutcome.SUCCESS, fx.session.approveScopingBriefAndContinue());
+        assertEquals(ResearchStateIds.RESEARCH, fx.resources.currentState().getPhaseId());
     }
 
     @Test

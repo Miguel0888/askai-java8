@@ -967,18 +967,21 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             surfaceScopingApprovalProblem(blocker);
             return blocker;
         }
-        com.aresstack.askai.research.store.FileResearchBriefStore store = researchBriefStore();
-        // 1) Persist/approve the artifact FIRST. An identical, already-approved brief creates NO duplicate
-        // revision (ALREADY_CURRENT); an I/O failure aborts here, BEFORE any state transition.
-        com.aresstack.askai.research.store.ResearchBriefArtifact.Approval approval;
-        try {
-            approval = store.approveCurrent(System.currentTimeMillis());
-        } catch (RuntimeException approvalFailed) {
-            scopeApproveDiag("approveResult=FAILED " + approvalFailed.getClass().getSimpleName());
-            surfaceScopingApprovalProblem(ScopingApprovalOutcome.APPROVAL_FAILED);
-            return ScopingApprovalOutcome.APPROVAL_FAILED;
+        // 1) Persist/approve the brief artifact when there IS one. It is a by-product of the conversation,
+        // not a precondition: an empty brief must never stop the user from leaving scoping.
+        if (hasNonBlankBrief()) {
+            com.aresstack.askai.research.store.FileResearchBriefStore store = researchBriefStore();
+            try {
+                scopeApproveDiag("approveResult="
+                        + store.approveCurrent(System.currentTimeMillis()).getStatus());
+            } catch (RuntimeException approvalFailed) {
+                scopeApproveDiag("approveResult=FAILED " + approvalFailed.getClass().getSimpleName());
+                surfaceScopingApprovalProblem(ScopingApprovalOutcome.APPROVAL_FAILED);
+                return ScopingApprovalOutcome.APPROVAL_FAILED;
+            }
+        } else {
+            scopeApproveDiag("approveResult=SKIPPED (no brief yet — not a precondition)");
         }
-        scopeApproveDiag("approveResult=" + approval.getStatus());
         scopeApproveDiag("before=" + snapshot.getPhaseId() + "/" + snapshot.getStateId());
         // 2) Only now the single, explicit transition — never autoAdvanceTowardsResearch(): exactly one step.
         boolean accepted = dispatch(ResearchCommandType.SUBMIT_SCOPE, null).isAccepted();
@@ -1228,9 +1231,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
 
     /**
      * The single source of truth for the scoping-approval gate: returns the concrete blocking reason, or
-     * {@code null} when the action is legal. Pure gate — a productive session that is still open, NO foreground
-     * agent turn in flight, the active phase is SCOPING with {@code SUBMIT_SCOPE} allowed by the state machine,
-     * and a non-blank research brief. No model quality/gatekeeper check.
+     * {@code null} when the action is legal. STRUCTURAL reasons only — a productive session that is still
+     * open, no foreground agent turn in flight, and a state machine that allows SUBMIT_SCOPE right now.
+     * Nothing about the CONTENT of the scope may appear here.
      */
     private ScopingApprovalOutcome scopingApprovalBlocker() {
         if (disposed || productiveResources == null || productiveResources.isClosed() || handle == null) {
@@ -1245,9 +1248,11 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 || !currentAllowedCommands().contains(ResearchCommandType.SUBMIT_SCOPE)) {
             return ScopingApprovalOutcome.WRONG_PHASE;
         }
-        if (!hasNonBlankBrief()) {
-            return ScopingApprovalOutcome.MISSING_BRIEF;
-        }
+        // NO content gate. The user owns the state machine: when the state machine allows SUBMIT_SCOPE, the
+        // user may submit — on the very first turn and with a vague or half-finished scope. The old check
+        // required a non-blank research BRIEF ("Es liegt noch keine Fragestellung vor"), which is doubly
+        // wrong now: the scope is a ResearchScopeDraft, not a single question, and an assistant's opinion
+        // about completeness may advise but never block. Readiness, if it ever exists, stays advisory.
         return null; // ready
     }
 
