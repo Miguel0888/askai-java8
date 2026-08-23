@@ -105,6 +105,10 @@ public class ProductiveModeFactorySmokeTest {
         // carry ONLY the mode, the search provider and the explicit loopback override for the local
         // test servers.
         File dist = Files.createTempDirectory("askai-research-runtime").toFile();
+        // ~300 MB per run (sidecar lib/ incl. the GraalJS driver bundle): without cleanup these copies
+        // accumulate until the drive is FULL (51 of them ate 15 GB on the live machine). The children are
+        // gone once the suite's JVM exits, so an exit hook can delete what a mid-test crash would leak.
+        deleteRecursivelyOnExit(dist);
         Files.copy(new File(agentJar).toPath(),
                 new File(dist, "research-agent-runtime.jar").toPath());
         Files.copy(new File(sidecarJar).toPath(),
@@ -422,6 +426,27 @@ public class ProductiveModeFactorySmokeTest {
 
         public void putInt(String key, int value) {
             values.put(key, String.valueOf(value));
+        }
+    }
+
+    /** Best-effort exit-time cleanup of the staged runtime distribution (children are gone by then). */
+    private static void deleteRecursivelyOnExit(final File root) {
+        Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
+            public void run() {
+                deleteRecursively(root);
+            }
+        }, "smoke-dist-cleanup"));
+    }
+
+    private static void deleteRecursively(File file) {
+        File[] children = file.listFiles();
+        if (children != null) {
+            for (File child : children) {
+                deleteRecursively(child);
+            }
+        }
+        if (!file.delete()) {
+            file.deleteOnExit();
         }
     }
 }

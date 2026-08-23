@@ -56,6 +56,17 @@ final class Playwright4jDriver implements PlaywrightDriver {
     private final java.util.concurrent.atomic.AtomicInteger popupsClosed =
             new java.util.concurrent.atomic.AtomicInteger();
     private volatile boolean closed;
+    /** Set by Browser.onDisconnected (dispatched during the idle pump): the USER closed the window. */
+    private volatile boolean browserDisconnected;
+
+    /**
+     * The typed marker for "the user closed the browser window". It leads every resulting tool error, so
+     * the research runtime can recognize the USER's stop and end the run as their decision — instead of
+     * the historic behaviour, where 'Target closed' matched no classifier and the run kept polling a dead
+     * browser until some budget gave out.
+     */
+    static final String BROWSER_CLOSED_MESSAGE =
+            "BROWSER_CLOSED — the browser window was closed by the user.";
 
     /** The per-navigation deadline ({@code navigationCommitTimeoutMillis}) — explicit on every navigate. */
     private final int navigationTimeoutMillis;
@@ -107,9 +118,16 @@ final class Playwright4jDriver implements PlaywrightDriver {
                 });
             }
             Page page = context.newPage();
-            Playwright4jDriver driver = new Playwright4jDriver(playwright, browser, context, page,
+            final Playwright4jDriver driver = new Playwright4jDriver(playwright, browser, context, page,
                     consent, captcha, timeoutMillis);
             page.onPopup(driver.popupCloser());
+            // Dispatched during the idle pump: the user closing the window becomes a TYPED condition
+            // instead of an anonymous 'Target closed' that no classifier recognized.
+            browser.onDisconnected(new Consumer<Browser>() {
+                public void accept(Browser gone) {
+                    driver.browserDisconnected = true;
+                }
+            });
             return driver;
         } catch (RuntimeException ex) {
             closeQuietly(context, browser, playwright);
@@ -133,7 +151,7 @@ final class Playwright4jDriver implements PlaywrightDriver {
                     .setTimeout(navigationTimeoutMillis));
             return state();
         } catch (PlaywrightException ex) {
-            throw new BrowserException("Navigation failed: " + firstLine(ex));
+            throw asBrowserException("Navigation failed", ex);
         }
     }
 
@@ -144,7 +162,7 @@ final class Playwright4jDriver implements PlaywrightDriver {
         try {
             return state();
         } catch (PlaywrightException ex) {
-            throw new BrowserException("Reading the current page failed: " + firstLine(ex));
+            throw asBrowserException("Reading the current page failed", ex);
         }
     }
 
@@ -161,7 +179,7 @@ final class Playwright4jDriver implements PlaywrightDriver {
             }
             return state();
         } catch (PlaywrightException ex) {
-            throw new BrowserException("Going back failed: " + firstLine(ex));
+            throw asBrowserException("Going back failed", ex);
         }
     }
 
@@ -195,7 +213,7 @@ final class Playwright4jDriver implements PlaywrightDriver {
                 }
             }, domainKeys, snapshotGeneration);
         } catch (PlaywrightException ex) {
-            throw new BrowserException("Structured page capture failed: " + firstLine(ex));
+            throw asBrowserException("Structured page capture failed", ex);
         }
     }
 
@@ -446,6 +464,18 @@ final class Playwright4jDriver implements PlaywrightDriver {
         if (closed) {
             throw new BrowserException("Browser session is closed.");
         }
+        if (browserDisconnected) {
+            throw new BrowserException(BROWSER_CLOSED_MESSAGE);
+        }
+    }
+
+    /** Map a Playwright failure to a readable tool error; a dead/closed browser keeps its typed marker. */
+    private BrowserException asBrowserException(String action, PlaywrightException ex) {
+        String message = ex.getMessage() == null ? "" : ex.getMessage();
+        if (browserDisconnected || message.contains("has been closed") || message.contains("Target closed")) {
+            return new BrowserException(BROWSER_CLOSED_MESSAGE);
+        }
+        return new BrowserException(action + ": " + firstLine(ex));
     }
 
     private static void closeQuietly(BrowserContext context, Browser browser, Playwright playwright) {

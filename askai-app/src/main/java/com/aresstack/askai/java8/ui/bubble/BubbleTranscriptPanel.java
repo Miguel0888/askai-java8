@@ -296,7 +296,7 @@ public final class BubbleTranscriptPanel extends JPanel {
 
     public void appendInfo(String text) {
         requireEventDispatchThread();
-        JLabel label = new JLabel(text == null ? "" : text, SwingConstants.CENTER);
+        final JLabel label = new JLabel(text == null ? "" : text, SwingConstants.CENTER);
         Font font = UIManager.getFont("Label.font");
         if (font != null) {
             label.setFont(font.deriveFont(Font.ITALIC, Math.max(11f, font.getSize2D() - 1f)));
@@ -306,8 +306,45 @@ public final class BubbleTranscriptPanel extends JPanel {
         // The label centers its own TEXT (SwingConstants.CENTER) and fills the width like every other entry.
         // Its alignmentX must not differ from the rows' — see addToMessageList.
         label.setMaximumSize(new Dimension(Integer.MAX_VALUE, label.getPreferredSize().height));
+        // A "Websuche: <query>" line is a repeatable ACTION, not only a breadcrumb: clicking it offers
+        // the ready-made /search command for the composer (works for restored lines too — they render
+        // through this same method).
+        final String searchCommand = searchCommandOf(text);
+        if (searchCommand != null) {
+            label.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
+            label.setToolTipText("Klicken: Suchbefehl kopieren — " + searchCommand);
+            label.addMouseListener(new java.awt.event.MouseAdapter() {
+                @Override
+                public void mousePressed(java.awt.event.MouseEvent event) {
+                    javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
+                    javax.swing.JMenuItem copy = new javax.swing.JMenuItem(
+                            "Suchbefehl kopieren: " + searchCommand);
+                    copy.addActionListener(new java.awt.event.ActionListener() {
+                        public void actionPerformed(java.awt.event.ActionEvent action) {
+                            java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(
+                                    new java.awt.datatransfer.StringSelection(searchCommand), null);
+                        }
+                    });
+                    menu.add(copy);
+                    menu.show(label, event.getX(), event.getY());
+                }
+            });
+        }
         addToMessageList(label);
         refreshTranscript();
+    }
+
+    /**
+     * The composer command that repeats the search a "Websuche: <query>" info line reports, or null when
+     * the line is no search breadcrumb. Package-visible for tests.
+     */
+    static String searchCommandOf(String text) {
+        String line = text == null ? "" : text.trim();
+        if (!line.startsWith("Websuche: ")) {
+            return null;
+        }
+        String query = line.substring("Websuche: ".length()).trim();
+        return query.isEmpty() ? null : "/search " + query;
     }
 
     /** Opaque handle to one amber tool-/agent-activity bubble; the panel keeps the component internally. */

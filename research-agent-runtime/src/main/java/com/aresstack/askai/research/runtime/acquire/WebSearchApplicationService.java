@@ -202,6 +202,12 @@ public final class WebSearchApplicationService {
      * spinning forever on a dead browser (→ manualSearchFailed → the composer is freed + a red error shows).
      */
     private volatile boolean browserGone;
+    /**
+     * Set when a browser call fails with the sidecar's typed BROWSER_CLOSED marker: the USER closed the
+     * window. That is their stop signal — the run ends as USER_CANCELLED (their decision, sources kept),
+     * never as a technical failure and never by polling a dead browser until a budget gives out.
+     */
+    private volatile boolean browserClosedByUser;
     /** One-shot: a Skip/Next just fired, so the NEXT inter-page delay is bypassed (don't make the user wait again). */
     private volatile boolean skipNextInterPageDelay;
     /** Research HUD: the user marked the CURRENT page relevant (⭐ toggle). Reset per page; applied at acceptance. */
@@ -1032,7 +1038,8 @@ public final class WebSearchApplicationService {
      * overlay never claims more than the run reported.
      */
     private void renderTerminalHud(ResearchStopReason reason) {
-        if (!hudEnabled || browserGone || reason == ResearchStopReason.MCP_UNAVAILABLE) {
+        if (!hudEnabled || browserGone || browserClosedByUser
+                || reason == ResearchStopReason.MCP_UNAVAILABLE) {
             return; // no browser left to render on
         }
         String phase = reason == ResearchStopReason.USER_CANCELLED ? "CANCELLED" : "DONE";
@@ -1458,7 +1465,11 @@ public final class WebSearchApplicationService {
             return ResearchStopReason.USER_CANCELLED;
         }
         if (browserGone) {
-            return ResearchStopReason.MCP_UNAVAILABLE; // browser closed/dead → end technically, never hang
+            return ResearchStopReason.MCP_UNAVAILABLE; // sidecar dead → end technically, never hang
+        }
+        if (browserClosedByUser) {
+            // Closing the window IS the user's stop: their decision, not a failure — sources stay.
+            return ResearchStopReason.USER_CANCELLED;
         }
         // The NORMAL end, decided by the injected policy alone — checked before any safety limit so a
         // completed run never reads as an exhaustion that happened to coincide.
@@ -1488,7 +1499,14 @@ public final class WebSearchApplicationService {
 
     private String callBrowser(String tool, Map<String, Object> a)
             throws ToolInvoker.ToolFailure, ToolInvoker.EndpointUnavailable {
-        return browser.call(tool, a);
+        try {
+            return browser.call(tool, a);
+        } catch (ToolInvoker.ToolFailure failure) {
+            if (failure.getMessage() != null && failure.getMessage().contains("BROWSER_CLOSED")) {
+                browserClosedByUser = true; // the user's stop — the next gate ends the run as theirs
+            }
+            throw failure;
+        }
     }
 
     private static Map<String, Object> args(Object... kv) {
