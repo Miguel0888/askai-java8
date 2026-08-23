@@ -104,10 +104,12 @@ public class ProductiveModeFactorySmokeTest {
         // Java 8 comes from the running JVM, Java 21 via the documented override — the persisted settings
         // carry ONLY the mode, the search provider and the explicit loopback override for the local
         // test servers.
-        File dist = Files.createTempDirectory("askai-research-runtime").toFile();
         // ~300 MB per run (sidecar lib/ incl. the GraalJS driver bundle): without cleanup these copies
-        // accumulate until the drive is FULL (51 of them ate 15 GB on the live machine). The children are
-        // gone once the suite's JVM exits, so an exit hook can delete what a mid-test crash would leak.
+        // accumulate until the drive is FULL (51 of them ate 15 GB on the live machine). Belt AND
+        // braces: stale siblings from earlier (crashed) runs are swept first, this run's directory is
+        // deleted at JVM exit.
+        sweepStaleSiblings("askai-research-runtime");
+        File dist = Files.createTempDirectory("askai-research-runtime").toFile();
         deleteRecursivelyOnExit(dist);
         Files.copy(new File(agentJar).toPath(),
                 new File(dist, "research-agent-runtime.jar").toPath());
@@ -426,6 +428,21 @@ public class ProductiveModeFactorySmokeTest {
 
         public void putInt(String key, int value) {
             values.put(key, String.valueOf(value));
+        }
+    }
+
+    /** Remove leftover prefix-siblings older than six hours (a concurrent run's fresh dir survives). */
+    private static void sweepStaleSiblings(String prefix) {
+        File[] siblings = new File(System.getProperty("java.io.tmpdir")).listFiles();
+        if (siblings == null) {
+            return;
+        }
+        long cutoff = System.currentTimeMillis() - 6L * 60 * 60 * 1000;
+        for (File sibling : siblings) {
+            if (sibling.isDirectory() && sibling.getName().startsWith(prefix)
+                    && sibling.lastModified() < cutoff) {
+                deleteRecursively(sibling);
+            }
         }
     }
 

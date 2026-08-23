@@ -59,8 +59,9 @@ public class GuiChainReproductionTest {
                         .listInstalledRerankModels();
         assumeTrue("SKIPPED: no installed rerank-capable local model", !installedRerankers.isEmpty());
 
-        // Distribution layout like runWithDevPlugins assembles it.
-        File dist = Files.createTempDirectory("askai-guichain").toFile();
+        // Distribution layout like runWithDevPlugins assembles it. ~300 MB per run: swept + exit-cleaned,
+        // because leaked copies of this staging once filled the whole drive (25 of them = 7.5 GB).
+        File dist = stagedTempDist("askai-guichain");
         Files.copy(new File(agentJar).toPath(), new File(dist, "research-agent-runtime.jar").toPath());
         Files.copy(new File(sidecarJar).toPath(), new File(dist, "browser-mcp-sidecar.jar").toPath());
         File libTarget = new File(dist, "lib");
@@ -91,8 +92,9 @@ public class GuiChainReproductionTest {
 
         // EXACTLY like the GUI: the host services carry the local model runtime manager, so the
         // mandatory reranker snapshot provider is published to the plugin.
-        AgentRuntimeServices services = new AgentRuntimeServices(
-                new com.aresstack.askai.java8.localmodels.LocalModelRuntimeManager());
+        com.aresstack.askai.java8.localmodels.LocalModelRuntimeManager localRuntime =
+                new com.aresstack.askai.java8.localmodels.LocalModelRuntimeManager();
+        AgentRuntimeServices services = new AgentRuntimeServices(localRuntime);
         final List<String> problems = new CopyOnWriteArrayList<String>();
         final List<String> messages = new CopyOnWriteArrayList<String>();
         final CountDownLatch greeted = new CountDownLatch(1);
@@ -118,6 +120,10 @@ public class GuiChainReproductionTest {
                     greeted.await(30, TimeUnit.SECONDS));
         } finally {
             session.close();
+            // THE Zulu-JVM leak, live: without this stop, every run left its Java-21 local-model child
+            // running forever — 29 of them were found holding their staged temp jars open, which is also
+            // why the leaked ~300 MB stagings could never be deleted.
+            localRuntime.stop();
             restore("askai.research.runtime.dir", oldDist);
             restore("askai.research.java21", oldJava21);
             restore("askai.local.runtime.dir", oldLocalDir);
@@ -264,6 +270,53 @@ public class GuiChainReproductionTest {
 
         public void putInt(String key, int value) {
             values.put(key, String.valueOf(value));
+        }
+    }
+
+    /**
+     * A ~300 MB staged distribution directory that CANNOT accumulate: stale siblings from earlier
+     * (possibly crashed) runs are swept first, and this run's directory is deleted at JVM exit — leaked
+     * copies of these stagings once filled the machine's whole drive.
+     */
+    private static File stagedTempDist(String prefix) throws java.io.IOException {
+        sweepStaleSiblings(prefix);
+        File dist = Files.createTempDirectory(prefix).toFile();
+        deleteRecursivelyOnExit(dist);
+        return dist;
+    }
+
+    /** Remove leftover prefix-siblings older than six hours (a concurrent run's fresh dir survives). */
+    private static void sweepStaleSiblings(String prefix) {
+        File[] siblings = new File(System.getProperty("java.io.tmpdir")).listFiles();
+        if (siblings == null) {
+            return;
+        }
+        long cutoff = System.currentTimeMillis() - 6L * 60 * 60 * 1000;
+        for (File sibling : siblings) {
+            if (sibling.isDirectory() && sibling.getName().startsWith(prefix)
+                    && sibling.lastModified() < cutoff) {
+                deleteRecursively(sibling);
+            }
+        }
+    }
+
+    private static void deleteRecursivelyOnExit(final File root) {
+        Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
+            public void run() {
+                deleteRecursively(root);
+            }
+        }, "guichain-dist-cleanup"));
+    }
+
+    private static void deleteRecursively(File file) {
+        File[] children = file.listFiles();
+        if (children != null) {
+            for (File child : children) {
+                deleteRecursively(child);
+            }
+        }
+        if (!file.delete()) {
+            file.deleteOnExit();
         }
     }
 }
