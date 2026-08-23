@@ -33,7 +33,15 @@ public final class ResearchTeamAgent {
 
     /** A calm, deterministic temperature for a consultative planner (varied queries come from the prompt). */
     private static final double TEMPERATURE = 0.4;
-    private static final int MAX_OUTPUT_TOKENS = 1024;
+    /**
+     * The output budget must fit the LONGEST contracted answer, and that is the post-search review: ONE
+     * JSON with the visible summary of up to 12 sources PLUS the optional brief markdown, suggestions,
+     * scope patch and unresolved issues. At the former 1024 the review's JSON was routinely TRUNCATED
+     * mid-string — unparseable, the one repair truncated identically, and every "Neue Quellen auswerten"
+     * ended as UNUSABLE_ANSWER ("die Auswertung konnte diesmal nicht erstellt werden"). The cap only
+     * bounds the model's permission to write; short turns stay short.
+     */
+    private static final int MAX_OUTPUT_TOKENS = 4096;
 
     private final MainModelChat model;
     private final PhaseAssistantProfileRegistry profiles;
@@ -271,14 +279,20 @@ public final class ResearchTeamAgent {
     /** Enough of the answer to recognise its shape (fences, prose, truncation), never the whole turn. */
     private static final int PARSE_FAILURE_EXCERPT_CHARS = 600;
 
-    private static String excerptOf(String raw) {
+    static String excerptOf(String raw) {
         if (raw == null) {
             return "<none>";
         }
         String flat = raw.replace('\n', '⏎');
-        return flat.length() <= PARSE_FAILURE_EXCERPT_CHARS
-                ? flat
-                : flat.substring(0, PARSE_FAILURE_EXCERPT_CHARS) + "…[" + flat.length() + " chars]";
+        if (flat.length() <= PARSE_FAILURE_EXCERPT_CHARS) {
+            return flat;
+        }
+        // Head AND tail: an output-budget truncation is only visible at the END of the answer (the head
+        // of a cut-off JSON looks perfectly healthy) — a head-only excerpt made that failure mode
+        // undiagnosable from the trace.
+        int half = PARSE_FAILURE_EXCERPT_CHARS / 2;
+        return flat.substring(0, half) + " …[" + flat.length() + " chars]… "
+                + flat.substring(flat.length() - half);
     }
 
     /**
