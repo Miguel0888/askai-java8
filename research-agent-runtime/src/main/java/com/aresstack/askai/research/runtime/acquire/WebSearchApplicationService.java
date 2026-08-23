@@ -126,7 +126,11 @@ public final class WebSearchApplicationService {
     /** Layer 2: expected-content similarity (SERP anchor vs page text); default NONE → no override. */
     private PageContentSimilarity contentSimilarity = PageContentSimilarity.NONE;
     /** SERP anchor (result title + snippet) per seed candidate URL, for the semantic readiness override. */
-    private final java.util.Map<String, String> expectedContentByUrl = new java.util.HashMap<String, String>();
+    /**
+     * Ids for the search hits of THIS run, minted in discovery order. They are what makes a hit addressable
+     * later ("open #18 again") — a URL is not an identity: the same page can appear on several result pages.
+     */
+    private final java.util.Map<String, String> candidateIdByUrl = new java.util.LinkedHashMap<String, String>();
     /** Expected-content similarity at/above which an ambiguous verdict is rescued to READABLE. */
     private static final double EXPECTED_CONTENT_HIGH = 0.80;
     /** Authoritative language snapshot (ISO code) for the INITIAL SERP request; null keeps the provider default. */
@@ -139,7 +143,7 @@ public final class WebSearchApplicationService {
     /** Domain families that returned a TERMINAL access block this run: skipped for good (never retried). */
     private final Set<String> blockedFamilies = new HashSet<String>();
     /** Frontier URLs deferred because their family is challenge-locked (QUEUED_DOMAIN_BLOCKED). */
-    private final List<String> deferredUrls = new ArrayList<String>();
+    private final List<FrontierEntry> deferredUrls = new ArrayList<FrontierEntry>();
     /** Time spent waiting for the USER (manual challenge) — never counted against the time budget. */
     private long waitedForUserMillis;
     private long lastChallengeProbeAt;
@@ -251,7 +255,7 @@ public final class WebSearchApplicationService {
     /** Execute the deterministic acquisition for {@code terms}; returns the explicit acquisition stop reason. */
     public ResearchStopReason execute(Set<String> terms) {
         // Seed: search, else nothing to do.
-        List<String> frontier = new ArrayList<String>();
+        List<FrontierEntry> frontier = new ArrayList<FrontierEntry>();
         ResearchStopReason seedStop = null;
         // How the INITIAL search concluded — kept so an empty frontier caused by a technical search failure
         // is reported as a technical problem, never as an honest "no relevant results".
@@ -336,7 +340,8 @@ public final class WebSearchApplicationService {
             if (frontier.isEmpty()) {
                 return sufficientOr(ResearchStopReason.NO_RELEVANT_PATHS);
             }
-            String url = frontier.remove(0);
+            FrontierEntry entry = frontier.remove(0);
+            String url = entry.getUrl();
             hudRelevantCurrentPage = false; // ⭐ is per page: start clean for this url
             String canonical = WebAcquisitionText.canonicalish(url);
             if (progress.alreadyVisited(canonical)) {
@@ -350,7 +355,7 @@ public final class WebSearchApplicationService {
                 continue;
             }
             if (challengedFamilies.contains(familyOf(url))) {
-                deferredUrls.add(url); // QUEUED_DOMAIN_BLOCKED: starts only after the challenge resolves
+                deferredUrls.add(entry); // QUEUED_DOMAIN_BLOCKED: starts only after the challenge resolves
                 continue;
             }
             try {
@@ -363,7 +368,7 @@ public final class WebSearchApplicationService {
                 if (delayed != null) {
                     return delayed;
                 }
-                String page = openWithReadiness(url);
+                String page = openWithReadiness(url, entry.getExpectedContent());
                 if (page == null) {
                     // The page could not be made readable (CAPTCHA skipped / consent not clearable / too
                     // little text): mark it visited so it is never retried, and leave its parked source with
@@ -425,7 +430,7 @@ public final class WebSearchApplicationService {
                         String linkUrl = WebAcquisitionText.lastUrl(line);
                         if (linkUrl != null && !isSearchProviderSite(WebAcquisitionText.hostOf(linkUrl))
                                 && !progress.alreadyVisited(WebAcquisitionText.canonicalish(linkUrl))) {
-                            frontier.add(linkUrl);
+                            frontier.add(FrontierEntry.fromDiscoveredLink(linkUrl, url));
                         }
                     }
                 }
@@ -451,7 +456,7 @@ public final class WebSearchApplicationService {
      */
     private ResearchStopReason seedReranking(String query,
             List<com.aresstack.askai.browser.search.SearchResultCandidate> candidates,
-            List<String> frontier) {
+            List<FrontierEntry> frontier) {
         if (candidates.isEmpty()) {
             return null; // nothing to rerank or open → NO_RELEVANT_PATHS via the main loop
         }
@@ -468,11 +473,13 @@ public final class WebSearchApplicationService {
                 for (com.aresstack.askai.research.runtime.rerank.RerankedSearchResultCandidate ranked
                         : result.selected) {
                     if (!ranked.candidate.resolvedTargetUrl.isEmpty()) {
-                        frontier.add(ranked.candidate.resolvedTargetUrl);
-                        // Remember what the SERP promised for this URL, for the Layer 2 semantic readiness net.
-                        expectedContentByUrl.put(
-                                WebAcquisitionText.canonicalish(ranked.candidate.resolvedTargetUrl),
-                                (ranked.candidate.title + " " + ranked.candidate.snippet).trim());
+                        // The selected hit keeps its identity: the entry names the candidate it came from
+                        // and carries what the SERP promised (the Layer 2 semantic readiness net) instead
+                        // of parking that promise in a side map keyed by URL.
+                        String candidateId = candidateIdFor(ranked.candidate.resolvedTargetUrl);
+                        frontier.add(FrontierEntry.fromSearchResult(ranked.candidate.resolvedTargetUrl,
+                                candidateId,
+                                (ranked.candidate.title + " " + ranked.candidate.snippet).trim()));
                         // Park the candidate with its reranker score BEFORE it is visited, so every hit is
                         // in the store immediately (score visible) and its full text is filled only on a
                         // successful visit. Best-effort: a park failure never aborts the search.
@@ -508,6 +515,18 @@ public final class WebSearchApplicationService {
      * Park a single reranked candidate (best-effort). Parking is host-side bookkeeping, so it is deliberately
      * NOT gated by the tool budget and a failure is logged and swallowed — the search continues regardless.
      */
+    /** A stable id per URL within this run; the same URL always maps to the same candidate. */
+    private String candidateIdFor(String url) {
+        String key = WebAcquisitionText.canonicalish(url);
+        String existing = candidateIdByUrl.get(key);
+        if (existing != null) {
+            return existing;
+        }
+        String minted = "c" + (candidateIdByUrl.size() + 1);
+        candidateIdByUrl.put(key, minted);
+        return minted;
+    }
+
     private void parkCandidate(com.aresstack.askai.research.runtime.rerank.RerankedSearchResultCandidate ranked) {
         try {
             sourceAcceptancePort.park(ranked.candidate.resolvedTargetUrl, ranked.candidate.title,
@@ -530,7 +549,7 @@ public final class WebSearchApplicationService {
      * degrades to the original single-step {@code web_open}. {@link #isReadable} is the seam an LLM judge can
      * replace.
      */
-    private String openWithReadiness(String url)
+    private String openWithReadiness(String url, String expectedContent)
             throws ToolInvoker.ToolFailure, ToolInvoker.EndpointUnavailable {
         if (maxReadinessRetries <= 0) {
             return callBrowser("web_open", args("url", url)); // readiness loop disabled: original behaviour
@@ -560,7 +579,7 @@ public final class WebSearchApplicationService {
         // (INTERACTIVE_CHALLENGE / UNREADABLE) to READABLE when the page text closely matches what the search
         // result promised. No-op by default (no embedder → NaN → unchanged); never touches a block/consent verdict.
         PageReadinessJudge.Verdict semantic = withExpectedContent(verdict,
-                expectedContentByUrl.get(WebAcquisitionText.canonicalish(url)),
+                expectedContent,
                 pr.title + " " + pr.excerpt, contentSimilarity, EXPECTED_CONTENT_HIGH);
         if (semantic != verdict) {
             listener.status("readiness override " + verdict + "->" + semantic
@@ -990,7 +1009,7 @@ public final class WebSearchApplicationService {
     }
 
     /** Probe the parked challenge at most once per second; unlocked work returns to the frontier. */
-    private void probeChallengesIfDue(List<String> frontier) {
+    private void probeChallengesIfDue(List<FrontierEntry> frontier) {
         if (challengedFamilies.isEmpty()) {
             return;
         }
@@ -1008,10 +1027,10 @@ public final class WebSearchApplicationService {
         }
         if (!deferredUrls.isEmpty()) {
             // Re-queue everything whose family is unlocked again (still-locked URLs re-defer on pull).
-            List<String> requeue = new ArrayList<String>();
-            for (String url : deferredUrls) {
-                if (!challengedFamilies.contains(familyOf(url))) {
-                    requeue.add(url);
+            List<FrontierEntry> requeue = new ArrayList<FrontierEntry>();
+            for (FrontierEntry deferred : deferredUrls) {
+                if (!challengedFamilies.contains(familyOf(deferred.getUrl()))) {
+                    requeue.add(deferred.requeued());
                 }
             }
             deferredUrls.removeAll(requeue);
@@ -1025,7 +1044,7 @@ public final class WebSearchApplicationService {
      * about once per second, and the card shows WAITING_FOR_USER. Returns a stop reason or {@code null}
      * when the frontier has work again.
      */
-    private ResearchStopReason waitForManualChallenge(List<String> frontier) {
+    private ResearchStopReason waitForManualChallenge(List<FrontierEntry> frontier) {
         String family = challengedFamilies.isEmpty() ? "" : challengedFamilies.iterator().next();
         if (!challengeWaitForUser) {
             // Uniform "skip on challenge" choice: do NOT wait for the user. The challenge-blocked URLs stay
