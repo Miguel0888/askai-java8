@@ -194,6 +194,9 @@ public final class ResearchAcpEventMapper {
         } else if (ResearchRunWire.TYPE_MANUAL_SEARCH_REVIEW.equals(type)) {
             subKind = "review_" + (f.get("state") == null ? "" : f.get("state").trim());
             message = "";
+            // The typed outcome of a finished review (SUCCEEDED|FAILED|CANCELLED) — the session needs it to
+            // decide whether these sources now count as reviewed. Absent on the started line.
+            publicMessage = f.get("outcome") == null ? "" : f.get("outcome").trim();
         } else {
             subKind = "failed";
             message = manualSearchFailureText(f.get("reason"));

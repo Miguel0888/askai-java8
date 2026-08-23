@@ -390,13 +390,12 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             tags.add(new ResearchActionTag("limit".equals(id) ? "accept-limitation" : id,
                     playbook.actionLabel(id), "", true));
         }
-        if (postSearchReviewOffered) {
+        com.aresstack.askai.research.review.PostSearchReviewStatus reviewStatus = postSearchReviewStatus();
+        if (reviewStatus.isOffered()) {
+            boolean retry =
+                    reviewStatus == com.aresstack.askai.research.review.PostSearchReviewStatus.RETRYABLE;
             tags.add(new ResearchActionTag("review-sources",
-                    playbook.isGerman() ? "Neue Quellen auswerten" : "Review new sources",
-                    playbook.isGerman()
-                            ? "Die neuen Quellen kurz sichten und zusammenfassen lassen"
-                            : "Have the agent skim and summarize the new sources",
-                    true));
+                    reviewLabel(retry), reviewExplanation(retry), true));
         }
         return tags;
     }
@@ -1161,10 +1160,14 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 accepted = 0;
             }
             if (accepted > 0) {
-                offerPostSearchReview(requestId);
+                // Nothing to remember here: new sources ARE the offer. The action surface re-derives it.
+                fireStateChanged();
             }
         } else if ("review_started".equals(subKind)) {
-            postSearchReviewOffered = false; // the offer is consumed
+            if (reviewInProgressOn == null) {
+                // A review the host did not launch itself (service MCP): pin what it is reviewing now.
+                reviewInProgressOn = currentSourceCorpusRevision();
+            }
             // The bot is now at the wheel (skimming the new sources, refreshing suggestions): show a thinking
             // bubble AND make the composer BUSY (red, cancellable) exactly like a normal agent turn, so the
             // user both sees the work and can abort it. Cleared by review_finished (always emitted).
@@ -1178,6 +1181,8 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             finishPostSearchThinking("");
             setAgentTurnInFlight(false); // release the composer — the review is over (success, failure or cancel)
             activeManualSearchRequestId = null;
+            settleReview(com.aresstack.askai.research.domain.search.PostSearchReviewOutcome
+                    .fromToken(event.getPublicMessage()));
         } else if ("failed".equals(subKind)) {
             // Both surfaces: close the transient activity AND raise a PERSISTENT, readable problem so the
             // reason does not merely flash away.
@@ -1186,23 +1191,90 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             activeManualSearchRequestId = null;
             finishPostSearchThinking(""); // no summary is coming
             setAgentTurnInFlight(false);
+            settleReview(com.aresstack.askai.research.domain.search.PostSearchReviewOutcome.FAILED);
             stopManualSearchBrowser();
         }
     }
 
     /**
-     * Offer the DERIVED post-search AI step as an explicit action (issue #29): a compact card with
-     * "Neue Quellen auswerten". Nothing runs until the user presses it; dismissing it costs nothing —
-     * the sources are already persisted.
+     * What a running review is reviewing. The only volatile part of the review state, and rightly so: a
+     * review does not survive the process it runs in. After a restart the material is simply unreviewed
+     * again, which is the truth.
      */
-    /** True while the post-search "Neue Quellen auswerten" action is offered as a red tag. */
-    private volatile boolean postSearchReviewOffered;
+    private volatile com.aresstack.askai.research.review.SourceCorpusRevision reviewInProgressOn;
+    /** The persisted watermark, read once per session and kept in step with the store. */
+    private com.aresstack.askai.research.review.PostSearchReviewLedger reviewLedger;
 
-    private void offerPostSearchReview(final String searchRequestId) {
-        // Issue #34-style unification: no chat card — offer the derived AI step as a RED action tag in the
-        // uniform surface. Cleared when the review starts (or the session moves on).
-        postSearchReviewOffered = true;
-        fireStateChanged();
+    /** The project's review bookkeeping, or {@code null} in the in-memory clickdummy. */
+    private synchronized com.aresstack.askai.research.store.FilePostSearchReviewStore reviewStore() {
+        return productiveResources == null || productiveResources.isClosed()
+                ? null : productiveResources.getProjectContext().getPostSearchReviewStore();
+    }
+
+    private synchronized com.aresstack.askai.research.review.PostSearchReviewLedger reviewLedger() {
+        if (reviewLedger == null) {
+            com.aresstack.askai.research.store.FilePostSearchReviewStore store = reviewStore();
+            reviewLedger = store == null
+                    ? com.aresstack.askai.research.review.PostSearchReviewLedger.INITIAL : store.load();
+        }
+        return reviewLedger;
+    }
+
+    private synchronized void updateReviewLedger(
+            com.aresstack.askai.research.review.PostSearchReviewLedger updated) {
+        reviewLedger = updated;
+        com.aresstack.askai.research.store.FilePostSearchReviewStore store = reviewStore();
+        if (store == null) {
+            return;
+        }
+        try {
+            store.save(updated);
+        } catch (java.io.IOException writeFailed) {
+            // A watermark that could not be written means the review will be offered again — visible and
+            // harmless. Losing the session over it would not be.
+            System.err.println("[manual-search] review watermark not persisted: " + writeFailed.getMessage());
+        }
+    }
+
+    /** The material of this project as it stands on disk right now. */
+    private com.aresstack.askai.research.review.SourceCorpusRevision currentSourceCorpusRevision() {
+        if (productiveResources == null || productiveResources.isClosed()) {
+            return com.aresstack.askai.research.review.SourceCorpusRevision.EMPTY;
+        }
+        try {
+            return com.aresstack.askai.research.review.SourceCorpusRevision.of(
+                    productiveResources.getProjectContext().getSourceRepository()
+                            .find(com.aresstack.askai.research.sources.SourceQuery.all()));
+        } catch (RuntimeException unreadable) {
+            return com.aresstack.askai.research.review.SourceCorpusRevision.EMPTY;
+        }
+    }
+
+    /**
+     * Whether — and how — the post-search review is offered. Derived from the persisted sources and the
+     * persisted watermark, so it is the same answer after a restart, after a failure and after a cancel.
+     */
+    public com.aresstack.askai.research.review.PostSearchReviewStatus postSearchReviewStatus() {
+        return reviewLedger().statusFor(currentSourceCorpusRevision(), reviewInProgressOn);
+    }
+
+    /** A retry says so: offering "Neue Quellen auswerten" again would hide that the last attempt failed. */
+    private String reviewLabel(boolean retry) {
+        if (playbook.isGerman()) {
+            return retry ? "Auswertung erneut versuchen" : "Neue Quellen auswerten";
+        }
+        return retry ? "Try the evaluation again" : "Review new sources";
+    }
+
+    private String reviewExplanation(boolean retry) {
+        if (playbook.isGerman()) {
+            return retry
+                    ? "Die letzte Auswertung dieser Quellen ist fehlgeschlagen — noch einmal versuchen"
+                    : "Die neuen Quellen kurz sichten und zusammenfassen lassen";
+        }
+        return retry
+                ? "The last evaluation of these sources failed — try it again"
+                : "Have the agent skim and summarize the new sources";
     }
 
     /**
@@ -1210,11 +1282,32 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
      * refresh stays scoping-only in the runtime). Runs as a service command — asynchronous AFTER the explicit
      * request, bracketed by the same review_started/review_finished lifecycle as before.
      */
+    /**
+     * A review ended: record WHAT it means for the project. Only a successful review moves the watermark;
+     * a failed or cancelled one records the material it failed on, so the action comes back as a retry
+     * instead of disappearing with the sources still unread.
+     */
+    private void settleReview(com.aresstack.askai.research.domain.search.PostSearchReviewOutcome outcome) {
+        com.aresstack.askai.research.review.SourceCorpusRevision target = reviewInProgressOn;
+        reviewInProgressOn = null;
+        if (target == null) {
+            return; // no review of ours was running
+        }
+        System.err.println("[manual-search] review settled outcome=" + outcome + " target=" + target);
+        updateReviewLedger(outcome.isSuccess()
+                ? reviewLedger().reviewed(target)
+                : reviewLedger().failed(target));
+        fireStateChanged();
+    }
+
     public void requestPostSearchReview() {
         if (handle == null || disposed
                 || (productiveResources != null && productiveResources.isClosed())) {
             return;
         }
+        // Pin the material NOW: whatever the review reports later is a statement about exactly these
+        // sources, not about whatever has arrived by the time it answers.
+        reviewInProgressOn = currentSourceCorpusRevision();
         String reviewRequestId = "review-" + java.util.UUID.randomUUID();
         activeManualSearchRequestId = reviewRequestId; // the review_* events correlate against this id
         backend.submitServiceCommand(handle,
@@ -1729,7 +1822,6 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                     || (productiveResources != null && productiveResources.isClosed())) {
                 return ActionOutcome.rejected("the research session is not active");
             }
-            postSearchReviewOffered = false; // the offer is consumed by the explicit request
             requestPostSearchReview();
             return ActionOutcome.accepted("review requested (review_started/review_finished bracket follows)");
         }

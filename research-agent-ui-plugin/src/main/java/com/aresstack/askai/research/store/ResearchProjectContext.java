@@ -65,6 +65,11 @@ public final class ResearchProjectContext {
         return store.sessionState();
     }
 
+    /** The persisted review watermark of this project (which sources the agent has already reviewed). */
+    public FilePostSearchReviewStore getPostSearchReviewStore() {
+        return store.postSearchReview();
+    }
+
     public ResearchProjectMetadataStore getMetadataStore() {
         return metadataStore;
     }

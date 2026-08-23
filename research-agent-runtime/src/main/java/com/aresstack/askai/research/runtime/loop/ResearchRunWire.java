@@ -259,15 +259,30 @@ public final class ResearchRunWire {
     }
 
     /**
-     * The bot's post-search REVIEW phase (skim the new sources, refresh suggestions) lifecycle, correlated by
-     * requestId: {@code state=started} when it begins, {@code state=finished} when it ends (success, model
-     * failure OR cancel). The host shows a thinking bubble + a busy (cancellable) composer between the two, so
-     * the review can never leave the UI hung.
+     * The bot's post-search REVIEW phase (skim the new sources, refresh suggestions) begins. The host shows a
+     * thinking bubble + a busy (cancellable) composer until the matching finished line arrives, so the review
+     * can never leave the UI hung.
      */
-    public static String manualSearchReview(String requestId, String state) {
+    public static String manualSearchReviewStarted(String requestId) {
         return MARKER + "manual_search_review"
                 + " request_id=" + (requestId == null ? "" : requestId)
-                + " state=" + (state == null ? "" : state);
+                + " state=started";
+    }
+
+    /**
+     * The review ended — WITH its outcome. {@code state=finished} alone meant success and model failure
+     * looked identical to the host, so a failed review still counted as "these sources have been reviewed"
+     * and could never be offered again.
+     */
+    public static String manualSearchReviewFinished(
+            String requestId,
+            com.aresstack.askai.research.domain.search.PostSearchReviewOutcome outcome) {
+        return MARKER + "manual_search_review"
+                + " request_id=" + (requestId == null ? "" : requestId)
+                + " state=finished"
+                + " outcome=" + (outcome == null
+                        ? com.aresstack.askai.research.domain.search.PostSearchReviewOutcome.FAILED.token()
+                        : outcome.token());
     }
 
     /** A manual search failed (or was cancelled/unavailable): a token reason, never a fallback to a no-op. */

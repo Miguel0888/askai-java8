@@ -27,8 +27,8 @@ public final class PostSearchReview {
     private PostSearchReview() {
     }
 
-    public static void run(TeamAgentStateView view, Model model, Emitter emitter,
-                           String languageCode) {
+    public static com.aresstack.askai.research.domain.search.PostSearchReviewOutcome run(
+            TeamAgentStateView view, Model model, Emitter emitter, String languageCode) {
         boolean scoping = "scoping".equalsIgnoreCase(view.getPhaseId());
         System.err.println("[manual-search] review state phase=" + view.getPhaseId()
                 + " mode=" + (scoping ? "summary+suggestions" : "summary-only"));
@@ -38,13 +38,14 @@ public final class PostSearchReview {
         System.err.println("[manual-search] review result=" + result.getStatus());
         if (result.isOk()) {
             emitter.emitResult(result, view.getPhaseId());
-            return;
+            return com.aresstack.askai.research.domain.search.PostSearchReviewOutcome.SUCCEEDED;
         }
         // No silent disappearance: the sources are saved either way, say so visibly.
         emitter.emitVisible(fallbackMessage(languageCode));
         emitter.emitLog("source review turn not ok: " + result.getStatus()
                 + (result.getDetail() == null || result.getDetail().isEmpty()
                         ? "" : " (" + result.getDetail() + ")"));
+        return com.aresstack.askai.research.domain.search.PostSearchReviewOutcome.FAILED;
     }
 
     /**

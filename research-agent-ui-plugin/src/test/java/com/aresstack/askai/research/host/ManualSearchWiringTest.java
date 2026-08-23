@@ -270,6 +270,9 @@ public class ManualSearchWiringTest {
         fx.session.setManualWebSearchPort(new FixedRequestIdPort("R1"));
         fx.session.requestManualWebSearch("wearables");
 
+        // The search accepted sources: in the productive path they are on disk BEFORE the completion
+        // event, and that persisted material — not a flag — is what the offer is derived from.
+        acceptSources(fx, 8);
         // completed IS the search terminal now (issue #29): the correlation id is cleared, so a stray
         // review event for the finished search is dropped and NOTHING model-backed starts implicitly.
         manualSearchEvent(fx, 2L, "R1", "completed", "8 Treffer", "8");
@@ -314,7 +317,10 @@ public class ManualSearchWiringTest {
         assertEquals("the bubble collapses into the summary",
                 Collections.singletonList("post-search-summary-" + reviewId), fx.sink.thinkingFinished);
 
-        manualSearchEvent(fx, 6L, reviewId, "review_finished", "", "");
+        manualSearchEvent(fx, 6L, reviewId, "review_finished", "",
+                com.aresstack.askai.research.domain.search.PostSearchReviewOutcome.SUCCEEDED.token());
+        assertFalse("a succeeded review covers exactly these sources — nothing left to offer",
+                offersReview(fx));
         // review_finished is the terminal: the correlation id is cleared, so...
         manualSearchEvent(fx, 7L, reviewId, "review_started", "", "");
         assertEquals("no second thinking bubble after the terminal",
@@ -446,6 +452,91 @@ public class ManualSearchWiringTest {
                 }
             };
         }
+    }
+
+    /** Write N accepted sources into the project the session reads from, like the runtime does. */
+    private static void acceptSources(Fx fx, int count) {
+        com.aresstack.askai.research.store.FileResearchSourceRepository sources =
+                fx.resources.getProjectContext().getFileSourceRepository();
+        for (int i = 0; i < count; i++) {
+            try {
+                sources.put(com.aresstack.askai.research.sources.ResearchSourceRecord
+                        .builder("src-" + count + "-" + i)
+                        .title("source " + i)
+                        .url("https://example.test/" + count + "/" + i)
+                        .capturedAt(1_000L + count * 100L + i)
+                        .status(com.aresstack.askai.research.sources.SourceStatus.ACCEPTED)
+                        .build());
+            } catch (java.io.IOException notWritable) {
+                throw new IllegalStateException(notWritable);
+            }
+        }
+    }
+
+    private static boolean offersReview(Fx fx) {
+        for (com.aresstack.askai.research.agent.ResearchActionTag tag : fx.session.availableActionTags()) {
+            if ("review-sources".equals(tag.getCommand())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * A review that FAILED reviewed nothing: the sources stay unreviewed and the offer comes back — as a
+     * retry, not as a fresh "auswerten". Before, {@code finished} meant success either way and the user was
+     * left with sources nobody had read and no way to ask again.
+     */
+    @Test
+    public void aFailedReviewLeavesTheSourcesUnreviewedAndOffersARetry() {
+        Fx fx = new Fx();
+        fx.session.dispatch(ResearchCommandType.START, null);
+        completeTurn(fx, 1L);
+        acceptSources(fx, 3);
+        assertTrue("unreviewed sources are offered", offersReview(fx));
+
+        assertTrue(fx.session.derivedActions().reviewSources().isAccepted());
+        String reviewId = lastReviewRequestId(fx);
+        manualSearchEvent(fx, 2L, reviewId, "review_started", "", "");
+        manualSearchEvent(fx, 3L, reviewId, "review_finished", "",
+                com.aresstack.askai.research.domain.search.PostSearchReviewOutcome.FAILED.token());
+
+        assertEquals(com.aresstack.askai.research.review.PostSearchReviewStatus.RETRYABLE,
+                fx.session.postSearchReviewStatus());
+        assertTrue("the offer comes back after a failure", offersReview(fx));
+    }
+
+    /** The watermark is on disk: a session opened on the same project does not re-offer a done review. */
+    @Test
+    public void aSucceededReviewSurvivesTheSession() {
+        Fx fx = new Fx();
+        fx.session.dispatch(ResearchCommandType.START, null);
+        completeTurn(fx, 1L);
+        acceptSources(fx, 2);
+        assertTrue(fx.session.derivedActions().reviewSources().isAccepted());
+        String reviewId = lastReviewRequestId(fx);
+        manualSearchEvent(fx, 2L, reviewId, "review_started", "", "");
+        manualSearchEvent(fx, 3L, reviewId, "review_finished", "",
+                com.aresstack.askai.research.domain.search.PostSearchReviewOutcome.SUCCEEDED.token());
+
+        com.aresstack.askai.research.review.PostSearchReviewLedger persisted =
+                fx.resources.getProjectContext().getPostSearchReviewStore().load();
+        assertEquals(2, persisted.getReviewedThrough().getReviewableCount());
+        assertEquals(com.aresstack.askai.research.review.PostSearchReviewStatus.UP_TO_DATE,
+                persisted.statusFor(com.aresstack.askai.research.review.SourceCorpusRevision.of(
+                        fx.resources.getProjectContext().getSourceRepository().find(
+                                com.aresstack.askai.research.sources.SourceQuery.all())), null));
+    }
+
+    private static String lastReviewRequestId(Fx fx) {
+        String envelope = null;
+        for (String sent : fx.backend.serviceCommands) {
+            if (sent.startsWith("#RSC1# review_sources")) {
+                envelope = sent;
+            }
+        }
+        assertTrue("a review_sources envelope was sent", envelope != null);
+        return envelope.substring(envelope.indexOf("request_id=") + "request_id=".length());
     }
 
     private static final class Fx {

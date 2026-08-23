@@ -628,13 +628,21 @@ public final class ResearchAgentMain {
     private void handleReviewSources(final SyncPromptContext ctx, String requestId) {
         System.err.println("[manual-search] explicit review started requestId=" + requestId);
         ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
-                .manualSearchReview(requestId, "started"));
+                .manualSearchReviewStarted(requestId));
+        // A review that throws or is stopped did not review anything — only a turn that says SUCCEEDED lets
+        // the host record these sources as seen. The finally guarantees the host is always released.
+        com.aresstack.askai.research.domain.search.PostSearchReviewOutcome outcome =
+                com.aresstack.askai.research.domain.search.PostSearchReviewOutcome.FAILED;
         try {
-            reviewNewSourcesAndRefreshSuggestions(ctx);
+            outcome = reviewNewSourcesAndRefreshSuggestions(ctx);
         } finally {
-            System.err.println("[manual-search] explicit review finished requestId=" + requestId);
+            if (cancelled.get()) {
+                outcome = com.aresstack.askai.research.domain.search.PostSearchReviewOutcome.CANCELLED;
+            }
+            System.err.println("[manual-search] explicit review finished requestId=" + requestId
+                    + " outcome=" + outcome);
             ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
-                    .manualSearchReview(requestId, "finished"));
+                    .manualSearchReviewFinished(requestId, outcome));
         }
     }
 
@@ -859,12 +867,13 @@ public final class ResearchAgentMain {
      * outside scoping). A failed model turn surfaces a neutral visible acknowledgement instead of
      * disappearing silently.
      */
-    private void reviewNewSourcesAndRefreshSuggestions(final SyncPromptContext ctx) {
+    private com.aresstack.askai.research.domain.search.PostSearchReviewOutcome
+            reviewNewSourcesAndRefreshSuggestions(final SyncPromptContext ctx) {
         if (teamAgent == null) {
-            return;
+            return com.aresstack.askai.research.domain.search.PostSearchReviewOutcome.FAILED;
         }
         com.aresstack.askai.research.runtime.team.TeamAgentStateView view = readStateView(ctx);
-        com.aresstack.askai.research.runtime.team.PostSearchReview.run(view,
+        return com.aresstack.askai.research.runtime.team.PostSearchReview.run(view,
                 new com.aresstack.askai.research.runtime.team.PostSearchReview.Model() {
                     public com.aresstack.askai.research.runtime.team.TeamAgentResult respond(
                             String instruction,
