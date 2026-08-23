@@ -301,9 +301,6 @@ public final class WebSearchApplicationService {
     }
 
     private ResearchStopReason runAcquisition(Set<String> terms) {
-        // A REUSED browser generation may still buffer HUD clicks from after the previous run (the browser
-        // stays open on completion). They belong to no page of THIS run: drain and discard, never apply.
-        pollHudCommands();
         // Seed: search, else nothing to do.
         List<FrontierEntry> frontier = new ArrayList<FrontierEntry>();
         ResearchStopReason seedStop = null;
