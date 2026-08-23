@@ -69,6 +69,10 @@ public class SourceReviewContextToolTest {
     }
 
     private String invoke(String capturedThrough) {
+        return invoke(capturedThrough, null);
+    }
+
+    private String invoke(String capturedThrough, String capturedSince) {
         for (McpToolContribution tool : ResearchToolPolicy.toolsFor(ResearchStateIds.RESEARCH,
                 ResearchStateIds.RUNNING, ctx)) {
             if ("source_review_context".equals(tool.getName())) {
@@ -76,11 +80,31 @@ public class SourceReviewContextToolTest {
                 if (capturedThrough != null) {
                     args.put("captured_through", capturedThrough);
                 }
+                if (capturedSince != null) {
+                    args.put("captured_since", capturedSince);
+                }
                 McpToolResult result = tool.getHandler().invoke(new McpToolCall("source_review_context", args));
                 return String.valueOf(result.getText());
             }
         }
         throw new IllegalStateException("source_review_context is not offered");
+    }
+
+    /**
+     * "The NEW sources" is a WINDOW, not everything up to now: without the lower edge every review
+     * re-read the whole cumulative corpus and produced the same summary and clusters, search after search.
+     */
+    @Test
+    public void theSinceEdgeCutsOffEarlierSearchesSources() {
+        add("s-old", "Old search material", "text from an earlier search", 1_000L, SourceStatus.ACCEPTED);
+        add("s-new", "This search's find", "text this search just added", 5_000L, SourceStatus.ACCEPTED);
+
+        String window = invoke("9000", "4000");
+        assertTrue("the new source is in the window", window.contains("This search's find"));
+        assertFalse("the earlier corpus is NOT re-reviewed", window.contains("Old search material"));
+
+        String all = invoke("9000", "0");
+        assertTrue("0 keeps the old behaviour: everything up to the pin", all.contains("Old search material"));
     }
 
     @Test

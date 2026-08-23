@@ -44,6 +44,8 @@ public final class ResearchAgentMain {
      * the agent surfaces an honest, retryable {@code MODEL_UNAVAILABLE} rather than a static fake dialogue.
      */
     private com.aresstack.askai.research.runtime.team.ReloadableMainModelChat mainModelChat;
+    /** When the LAST user search started — the lower edge of "the new sources" its review reads. */
+    private volatile long lastManualSearchStartedAt;
     private com.aresstack.askai.research.runtime.team.ResearchTeamAgent teamAgent;
     /**
      * The session's live working language (runtime mirror). set_language updates it best-effort; the
@@ -729,6 +731,9 @@ public final class ResearchAgentMain {
             }
             System.err.println("[manual-search] execute started requestId=" + requestId + " strategy="
                     + (strategy == null ? "unavailable" : strategy.getClass().getSimpleName()));
+            // The lower edge of "the new sources": a later review reads what THIS search added, not the
+            // whole cumulative corpus again.
+            lastManualSearchStartedAt = System.currentTimeMillis();
             if (strategy == null) {
                 ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
                         .manualSearchFailed(requestId, "SEARCH_UNAVAILABLE"));
@@ -940,9 +945,13 @@ public final class ResearchAgentMain {
         try {
             java.util.Map<String, Object> args = new java.util.HashMap<String, Object>();
             args.put("captured_through", String.valueOf(Math.max(0L, capturedThrough)));
+            // "The NEW sources" means THIS search's window: without the lower edge every review re-read
+            // the whole cumulative corpus and produced the same summary and clusters, search after search.
+            args.put("captured_since", String.valueOf(Math.max(0L, lastManualSearchStartedAt)));
             String context = String.valueOf(researchMcp.callTool("source_review_context", args));
             System.err.println("[manual-search] review context chars="
-                    + (context == null ? 0 : context.length()) + " capturedThrough=" + capturedThrough);
+                    + (context == null ? 0 : context.length()) + " capturedThrough=" + capturedThrough
+                    + " capturedSince=" + lastManualSearchStartedAt);
             return context == null ? "" : context;
         } catch (RuntimeException unavailable) {
             ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire

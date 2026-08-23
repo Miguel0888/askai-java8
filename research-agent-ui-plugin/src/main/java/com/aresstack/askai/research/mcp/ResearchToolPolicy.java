@@ -153,11 +153,17 @@ public final class ResearchToolPolicy {
                 new McpToolHandler() {
                     public McpToolResult invoke(McpToolCall call) {
                         long capturedThrough = parseLong(call.getString("captured_through"));
+                        // The WINDOW decides what "the new sources" means: without a lower bound every
+                        // review re-read the whole cumulative corpus and produced the same summary and the
+                        // same clusters, search after search.
+                        long capturedSince = parseLong(call.getString("captured_since"));
                         List<ResearchSourceRecord> reviewable = new ArrayList<ResearchSourceRecord>();
                         for (ResearchSourceRecord record : ctx.sourceRepository().find(SourceQuery.all())) {
                             if (isReviewable(record)
                                     && (capturedThrough <= 0L
-                                            || record.getCapturedAt() <= capturedThrough)) {
+                                            || record.getCapturedAt() <= capturedThrough)
+                                    && (capturedSince <= 0L
+                                            || record.getCapturedAt() >= capturedSince)) {
                                 reviewable.add(record);
                             }
                         }
@@ -183,7 +189,10 @@ public final class ResearchToolPolicy {
                     }
                 },
                 McpToolParameter.string("captured_through", false,
-                        "Only sources captured at or before this epoch-millis timestamp (0 = all)"));
+                        "Only sources captured at or before this epoch-millis timestamp (0 = all)"),
+                McpToolParameter.string("captured_since", false,
+                        "Only sources captured at or after this epoch-millis timestamp (0 = all) — "
+                                + "the lower edge of \"the new sources\" of one search"));
     }
 
     private static void appendSource(StringBuilder sb, ResearchSourceRecord record,
