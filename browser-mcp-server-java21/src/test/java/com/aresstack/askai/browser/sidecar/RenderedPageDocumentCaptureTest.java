@@ -258,4 +258,21 @@ public class RenderedPageDocumentCaptureTest {
             return title;
         }
     }
+
+    /**
+     * The capture script never reads user-facing text via raw textContent: that includes the content of
+     * <style>/<script> elements, which turned Bing's inline CSS into stored search excerpts. Every
+     * excerpt, link text and heading goes through the SKIP-aware textOf helper.
+     */
+    @org.junit.Test
+    public void userFacingTextNeverComesFromRawTextContent() {
+        String script = capture.captureScript();
+        org.junit.Assert.assertTrue("the SKIP-aware text helper exists",
+                script.contains("const textOf ="));
+        org.junit.Assert.assertTrue("excerpts use it", script.contains("textExcerpt: textOf(el)"));
+        org.junit.Assert.assertTrue("link texts use it", script.contains("text: textOf(a)"));
+        org.junit.Assert.assertFalse("no user-facing raw textContent excerpt remains",
+                script.contains("clean(el.textContent)"));
+        org.junit.Assert.assertFalse(script.contains("clean(ctx.containerEl.textContent)"));
+    }
 }

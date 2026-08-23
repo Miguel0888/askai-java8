@@ -276,6 +276,11 @@ run {
     if (java21Launcher != null) {
         dependsOn localRuntimeDist
     }
+    // UTF-8 as the JVM default: on a German Windows the Java-8 default is Cp1252, and every library
+    // that decodes HTTP/JSON bytes with the platform default then reads UTF-8 as mojibake
+    // ('ä' -> 'ÃÂ¤' after two hops through the MCP chain). All three processes
+    // (app, agent, browser sidecar) run UTF-8 explicitly.
+    jvmArgs '-Dfile.encoding=UTF-8'
     doFirst {
         systemProperty 'askai.local.runtime.dir', localRuntimeDir.get().asFile.absolutePath
         if (java21Launcher != null) {
@@ -297,6 +302,7 @@ task runWithDevPlugins(type: JavaExec) {
     dependsOn localRuntimeDist
     classpath = sourceSets.main.runtimeClasspath
     mainClass = mainClassName
+    jvmArgs '-Dfile.encoding=UTF-8' // see `run`: UTF-8 default on every process of the chain
     doFirst {
         // The assembled, immutable plugin directory (…/plugin-dist/research-agent-ui-plugin).
         def pluginDistDir = project(':research-agent-ui-plugin')

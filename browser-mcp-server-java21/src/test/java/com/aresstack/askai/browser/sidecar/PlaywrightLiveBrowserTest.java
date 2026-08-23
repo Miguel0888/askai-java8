@@ -21,6 +21,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.junit.Assume.assumeTrue;
@@ -58,7 +59,10 @@ public class PlaywrightLiveBrowserTest {
     private static final String SEARCH_PAGE = "<!doctype html><html><head><title>Find</title></head>"
             + "<body><nav><a href='/videos?q=x'>Videos</a><a href='/settings'>Settings</a></nav>"
             + "<main><ul id='r'>"
-            + "<li><h2><a href='%TARGET%'>JS Start (result)</a></h2>"
+            // The inline <style> mirrors Bing's result markup: its CSS text must NEVER become part of a
+            // captured snippet (raw textContent would include it — the live mojibake-adjacent bug).
+            + "<li><style>.rs_lnkclmp{color:red;text-decoration:underline}</style>"
+            + "<h2><a href='%TARGET%'>JS Start (result)</a></h2>"
             + "<p>Explanatory snippet describing the start page target.</p></li>"
             + "<li><h2><a href='%TARGET2%'>Second page (result)</a></h2>"
             + "<p>Explanatory snippet describing the second page target.</p></li>"
@@ -144,6 +148,9 @@ public class PlaywrightLiveBrowserTest {
             assertTrue("snippet must come from the block's explanatory text: "
                             + found.getItems().get(0).getSnippet(),
                     found.getItems().get(0).getSnippet().contains("start page target"));
+            assertFalse("a result block's inline <style> must never leak into the snippet: "
+                            + found.getItems().get(0).getSnippet(),
+                    found.getItems().get(0).getSnippet().contains("rs_lnkclmp"));
             assertEquals("Third rendered (result)", found.getItems().get(2).getTitle());
 
             // 7) Scheme gate stays active on the live backend.

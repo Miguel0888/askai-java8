@@ -619,6 +619,10 @@ public final class ProductiveResearchBackendFactory {
             // default → no production effect. Set on the HOST JVM, e.g. to A/B the overlay:
             //   -Daskai.research.agent.jvmargs=-Daskai.research.hud.enabled=false
             java.util.List<String> agentArgs = new java.util.ArrayList<String>();
+            // UTF-8 default for the Java-8 agent child: on a German Windows its platform charset is
+            // Cp1252, and any library decoding MCP HTTP bytes with the default turns UTF-8 source
+            // titles/excerpts into mojibake ('ä' → 'ÃÂ¤' after two hops). Explicit, always.
+            agentArgs.add("-Dfile.encoding=UTF-8");
             String extraJvmArgs = System.getProperty("askai.research.agent.jvmargs", "").trim();
             if (!extraJvmArgs.isEmpty()) {
                 for (String extra : extraJvmArgs.split("\\s+")) {

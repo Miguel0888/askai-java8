@@ -62,6 +62,9 @@ public final class BrowserMcpSidecarProcess {
         String token = newToken();
         List<String> command = new ArrayList<String>();
         command.add(config.getSidecarJavaExecutable());
+        // UTF-8 default, explicitly: a sidecar on an older JVM must never decode/encode tool payloads
+        // with the Windows platform charset (Cp1252) — that is where SERP titles turn into mojibake.
+        command.add("-Dfile.encoding=UTF-8");
         command.add("-jar");
         command.add(config.getSidecarJar());
         command.add("--port=" + port);
