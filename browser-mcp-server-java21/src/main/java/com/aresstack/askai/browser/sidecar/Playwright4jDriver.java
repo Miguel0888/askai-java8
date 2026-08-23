@@ -56,15 +56,20 @@ final class Playwright4jDriver implements PlaywrightDriver {
             new java.util.concurrent.atomic.AtomicInteger();
     private volatile boolean closed;
 
+    /** The per-navigation deadline ({@code navigationCommitTimeoutMillis}) — explicit on every navigate. */
+    private final int navigationTimeoutMillis;
+
     private Playwright4jDriver(Playwright playwright, Browser browser, BrowserContext context, Page page,
                                com.aresstack.askai.browser.search.ConsentHandlingSettings consent,
-                               com.aresstack.askai.browser.search.CaptchaHandlingSettings captcha) {
+                               com.aresstack.askai.browser.search.CaptchaHandlingSettings captcha,
+                               int navigationTimeoutMillis) {
         this.playwright = playwright;
         this.browser = browser;
         this.context = context;
         this.page = page;
         this.consent = consent;
         this.captcha = captcha;
+        this.navigationTimeoutMillis = navigationTimeoutMillis;
     }
 
     /**
@@ -102,7 +107,7 @@ final class Playwright4jDriver implements PlaywrightDriver {
             }
             Page page = context.newPage();
             Playwright4jDriver driver = new Playwright4jDriver(playwright, browser, context, page,
-                    consent, captcha);
+                    consent, captcha, timeoutMillis);
             page.onPopup(driver.popupCloser());
             return driver;
         } catch (RuntimeException ex) {
@@ -116,7 +121,15 @@ final class Playwright4jDriver implements PlaywrightDriver {
         owner.check();
         requireOpen();
         try {
-            page.navigate(url);
+            // DOMCONTENTLOADED, not the default 'load': the navigation's job is to deliver the
+            // document — whether the page is actually usable is decided by the session's OWN readiness
+            // machinery (probe/consent/challenge/read) afterwards. Waiting for 'load' let one hanging
+            // ad/tracking subresource stall the whole visit for the full navigation timeout. Never
+            // NETWORKIDLE. With this, navigationCommitTimeoutMillis finally bounds roughly what its
+            // name promises.
+            page.navigate(url, new Page.NavigateOptions()
+                    .setWaitUntil(com.microsoft.playwright.options.WaitUntilState.DOMCONTENTLOADED)
+                    .setTimeout(navigationTimeoutMillis));
             return state();
         } catch (PlaywrightException ex) {
             throw new BrowserException("Navigation failed: " + firstLine(ex));
@@ -139,7 +152,10 @@ final class Playwright4jDriver implements PlaywrightDriver {
         owner.check();
         requireOpen();
         try {
-            if (page.goBack() == null) {
+            // Same navigation semantics as open(): the document suffices, readiness judges the rest.
+            if (page.goBack(new Page.GoBackOptions()
+                    .setWaitUntil(com.microsoft.playwright.options.WaitUntilState.DOMCONTENTLOADED)
+                    .setTimeout(navigationTimeoutMillis)) == null) {
                 throw new BrowserException("No previous page in history.");
             }
             return state();

@@ -189,6 +189,72 @@ public class PlaywrightActorLiveBrowserTest {
         }
     }
 
+    /**
+     * Commit-B regression: navigation waits for DOMCONTENTLOADED, not full 'load'. A page whose
+     * subresource hangs FOREVER must still open within the navigation timeout — the document is there,
+     * and the session's own readiness machinery judges the rest. With the previous default ('load'),
+     * this open() blocked for the whole navigationCommitTimeoutMillis and then failed.
+     */
+    @Test
+    public void openReturnsAfterDomContentLoadedDespiteAForeverHangingSubresource() throws Exception {
+        String channel = System.getenv().getOrDefault("ASKAI_TEST_BROWSER_CHANNEL", "chrome");
+        PlaywrightReadiness readiness = new PlaywrightCapabilityProbe().probe(channel);
+        assumeTrue("SKIPPED (environment-gated live test): " + readiness.render(), readiness.isReady());
+
+        final CountDownLatch releaseHangingResource = new CountDownLatch(1);
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        // The hanging handler must not block the server's dispatch of other requests.
+        server.setExecutor(java.util.concurrent.Executors.newCachedThreadPool());
+        server.createContext("/hang", page("<!doctype html><html><head><title>Hang</title></head>"
+                + "<body><p>document is here</p><img src='/never'></body></html>", null));
+        server.createContext("/never", new HttpHandler() {
+            public void handle(HttpExchange exchange) throws IOException {
+                try {
+                    releaseHangingResource.await(60, TimeUnit.SECONDS);
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                }
+                exchange.sendResponseHeaders(404, -1);
+                exchange.close();
+            }
+        });
+        server.start();
+        String base = "http://127.0.0.1:" + server.getAddress().getPort();
+
+        final com.aresstack.askai.browser.search.LegacyBrowserSearchSettings settings =
+                com.aresstack.askai.browser.search.LegacyBrowserSearchDefaults.create();
+        final String launchChannel = channel;
+        BrowserSessionActor actor = BrowserSessionActor.start(new Supplier<BrowserSession>() {
+            public BrowserSession get() {
+                try {
+                    Playwright4jDriver driver = Playwright4jDriver.launch(launchChannel, true,
+                            settings.navigation.navigationCommitTimeoutMillis, null,
+                            settings.consent, settings.captcha);
+                    return new PlaywrightBrowserSession(driver,
+                            UrlSafetyPolicy.allowingPrivateNetworks(), BrowserLimits.defaults(),
+                            null, null, settings);
+                } catch (BrowserException ex) {
+                    throw new IllegalStateException(ex.getMessage(), ex);
+                }
+            }
+        });
+        try {
+            long before = System.currentTimeMillis();
+            BrowserPageSnapshot snapshot = actor.open(base + "/hang");
+            long elapsed = System.currentTimeMillis() - before;
+            assertEquals("Hang", snapshot.getTitle());
+            assertTrue("the document text must be readable: " + snapshot.getText(),
+                    snapshot.getText().contains("document is here"));
+            assertTrue("open() must return on DOMContentLoaded, not wait out the navigation timeout "
+                    + "(took " + elapsed + "ms)",
+                    elapsed < settings.navigation.navigationCommitTimeoutMillis - 2000);
+        } finally {
+            releaseHangingResource.countDown();
+            actor.close();
+            server.stop(0);
+        }
+    }
+
     private static HttpHandler page(final String html, final CountDownLatch requested) {
         return new HttpHandler() {
             public void handle(HttpExchange exchange) throws IOException {
