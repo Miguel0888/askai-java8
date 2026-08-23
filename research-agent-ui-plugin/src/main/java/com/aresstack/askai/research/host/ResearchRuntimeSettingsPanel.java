@@ -46,6 +46,15 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
             "Immer Suchvorschläge anbieten (Orientierungs-Tags; applies to new sessions)", false);
     /** Answer budget per agent model turn (tokens) — the longest contracted answer is the source review. */
     private final JTextField agentMaxTokens = new JTextField(6);
+    // Search-run limits: the completion target + the safety limits. Every bound is a setting.
+    private final JTextField searchTargetSources = new JTextField(4);
+    private final JTextField searchMaxPages = new JTextField(4);
+    private final JTextField searchMaxToolCalls = new JTextField(4);
+    private final JTextField searchMaxMinutes = new JTextField(4);
+    private final JTextField searchMaxErrors = new JTextField(4);
+    // Review-context bounds: how many sources one review reads, and how much of each.
+    private final JTextField reviewMaxSources = new JTextField(4);
+    private final JTextField reviewMaxChars = new JTextField(6);
     /** Bot-control MCP (default ON): run_command/session_state/chat_history + service-endpoint.json. */
     private final JCheckBox botControlMcp = new JCheckBox(
             "Bot control via MCP (applies to new sessions)", true);
@@ -106,6 +115,24 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         form.add(row("", llmNarration));
         form.add(row("", alwaysSuggest));
         form.add(row("Agent-Antwortbudget (Tokens):", agentMaxTokens));
+        JPanel searchLimits = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0));
+        searchLimits.setOpaque(false);
+        searchLimits.add(labelled("Quellenziel", searchTargetSources));
+        searchLimits.add(javax.swing.Box.createHorizontalStrut(10));
+        searchLimits.add(labelled("Seiten", searchMaxPages));
+        searchLimits.add(javax.swing.Box.createHorizontalStrut(10));
+        searchLimits.add(labelled("Tool-Calls", searchMaxToolCalls));
+        searchLimits.add(javax.swing.Box.createHorizontalStrut(10));
+        searchLimits.add(labelled("Minuten", searchMaxMinutes));
+        searchLimits.add(javax.swing.Box.createHorizontalStrut(10));
+        searchLimits.add(labelled("Fehler", searchMaxErrors));
+        form.add(row("Such-Limits:", searchLimits));
+        JPanel reviewLimits = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0));
+        reviewLimits.setOpaque(false);
+        reviewLimits.add(labelled("Quellen", reviewMaxSources));
+        reviewLimits.add(javax.swing.Box.createHorizontalStrut(10));
+        reviewLimits.add(labelled("Zeichen/Quelle", reviewMaxChars));
+        form.add(row("Review-Kontext:", reviewLimits));
         botTools.setMargin(new java.awt.Insets(0, 0, 0, 0));
         botTools.setPreferredSize(new java.awt.Dimension(24, 24));
         botTools.setFont(botTools.getFont().deriveFont(java.awt.Font.PLAIN, 15f));
@@ -243,6 +270,28 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
                 persistAgentMaxTokens();
             }
         });
+        bindLimit(searchTargetSources, ResearchRuntimeSettings.KEY_SEARCH_TARGET_SOURCES,
+                ResearchRuntimeSettings.DEFAULT_SEARCH_TARGET_SOURCES,
+                "Die Suche endet regulär bei so vielen akzeptierten Quellen (gilt für neue Sessions).");
+        bindLimit(searchMaxPages, ResearchRuntimeSettings.KEY_SEARCH_MAX_PAGES,
+                ResearchRuntimeSettings.DEFAULT_SEARCH_MAX_PAGES,
+                "Sicherheitslimit: maximal besuchte Seiten pro Suchlauf.");
+        bindLimit(searchMaxToolCalls, ResearchRuntimeSettings.KEY_SEARCH_MAX_TOOL_CALLS,
+                ResearchRuntimeSettings.DEFAULT_SEARCH_MAX_TOOL_CALLS,
+                "Sicherheitslimit: maximale Tool-Aufrufe pro Suchlauf.");
+        bindLimit(searchMaxMinutes, ResearchRuntimeSettings.KEY_SEARCH_MAX_MINUTES,
+                ResearchRuntimeSettings.DEFAULT_SEARCH_MAX_MINUTES,
+                "Sicherheitslimit (Timeout): maximale Laufzeit in Minuten; Wartezeiten auf den "
+                        + "Nutzer zählen nicht.");
+        bindLimit(searchMaxErrors, ResearchRuntimeSettings.KEY_SEARCH_MAX_ERRORS,
+                ResearchRuntimeSettings.DEFAULT_SEARCH_MAX_ERRORS,
+                "Sicherheitslimit: maximale AUFEINANDERFOLGENDE technische Fehler, bevor der Lauf endet.");
+        bindLimit(reviewMaxSources, ResearchRuntimeSettings.KEY_REVIEW_MAX_SOURCES,
+                ResearchRuntimeSettings.DEFAULT_REVIEW_MAX_SOURCES,
+                "Wie viele Quellen eine Auswertung höchstens liest (neueste zuerst).");
+        bindLimit(reviewMaxChars, ResearchRuntimeSettings.KEY_REVIEW_MAX_CHARS,
+                ResearchRuntimeSettings.DEFAULT_REVIEW_MAX_CHARS,
+                "Wie viele Zeichen je Quelle in die Auswertung gelangen.");
         refreshBackendStatus();
 
         save.addActionListener(new ActionListener() {
@@ -331,6 +380,52 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
                 }
             }
         };
+    }
+
+    /** A tiny "Label: [field]" group for compact multi-field limit rows. */
+    private static JPanel labelled(String label, JTextField field) {
+        JPanel group = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0));
+        group.setOpaque(false);
+        group.add(new JLabel(label + ": "));
+        group.add(field);
+        return group;
+    }
+
+    /**
+     * Bind one positive-integer limit field to its persisted setting: initial value from the store,
+     * persisted on Enter and focus-lost, and a non-numeric/non-positive entry resets to the persisted
+     * value instead of silently storing something broken. Applies to NEW sessions like its neighbours.
+     */
+    private void bindLimit(final JTextField field, final String key, final int fallback, String tooltip) {
+        field.setText(String.valueOf(
+                ResearchRuntimeSettings.loadPositiveInt(store, key, fallback)));
+        field.setToolTipText(tooltip);
+        final Runnable persist = new Runnable() {
+            public void run() {
+                try {
+                    int value = Integer.parseInt(field.getText().trim());
+                    if (value > 0) {
+                        ResearchRuntimeSettings.savePositiveInt(store, key, value);
+                        return;
+                    }
+                } catch (NumberFormatException invalid) {
+                    // fall through to the reset below
+                }
+                field.setText(String.valueOf(
+                        ResearchRuntimeSettings.loadPositiveInt(store, key, fallback)));
+            }
+        };
+        field.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent event) {
+                persist.run();
+            }
+        });
+        field.addFocusListener(new java.awt.event.FocusAdapter() {
+            @Override
+            public void focusLost(java.awt.event.FocusEvent event) {
+                persist.run();
+            }
+        });
     }
 
     /** Persist the agent answer budget; a non-numeric/non-positive entry resets to the persisted value. */

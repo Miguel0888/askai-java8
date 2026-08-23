@@ -68,4 +68,18 @@ public interface ResearchControlContext {
                                  String searchQuery) {
         return null;
     }
+
+    /**
+     * How many sources one {@code source_review_context} answer may carry. The default is the documented
+     * settings fallback; the productive context serves the USER's configured value — a review bound is
+     * configuration, never only a code constant.
+     */
+    default int reviewContextMaximumSources() {
+        return com.aresstack.askai.research.host.ResearchRuntimeSettings.DEFAULT_REVIEW_MAX_SOURCES;
+    }
+
+    /** How much of each source's text the review context carries (characters). Same contract as above. */
+    default int reviewContextMaximumCharactersPerSource() {
+        return com.aresstack.askai.research.host.ResearchRuntimeSettings.DEFAULT_REVIEW_MAX_CHARS;
+    }
 }

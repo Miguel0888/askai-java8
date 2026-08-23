@@ -126,8 +126,8 @@ public final class ResearchToolPolicy {
      * finite context: handing over the whole corpus would push the material that matters out of the
      * window, and handing over nothing is what made the agent summarise titles.
      */
-    private static final int REVIEW_CONTEXT_MAXIMUM_SOURCES = 12;
-    private static final int REVIEW_CONTEXT_MAXIMUM_CHARACTERS_PER_SOURCE = 1_200;
+    // The bounds themselves are the user's settings, served by the context (never local constants):
+    // ResearchControlContext.reviewContextMaximumSources() / reviewContextMaximumCharactersPerSource().
 
     /** Statuses that carry real material; PARKED candidates have no text yet, excluded ones are out. */
     private static boolean isReviewable(ResearchSourceRecord record) {
@@ -170,12 +170,12 @@ public final class ResearchToolPolicy {
                         StringBuilder sb = new StringBuilder();
                         int rendered = 0;
                         for (ResearchSourceRecord record : reviewable) {
-                            if (rendered >= REVIEW_CONTEXT_MAXIMUM_SOURCES) {
+                            if (rendered >= ctx.reviewContextMaximumSources()) {
                                 sb.append("(").append(reviewable.size() - rendered)
                                   .append(" further sources not shown in this review context)\n");
                                 break;
                             }
-                            appendSource(sb, record);
+                            appendSource(sb, record, ctx.reviewContextMaximumCharactersPerSource());
                             rendered++;
                         }
                         return McpToolResult.ok(sb.length() == 0
@@ -186,7 +186,8 @@ public final class ResearchToolPolicy {
                         "Only sources captured at or before this epoch-millis timestamp (0 = all)"));
     }
 
-    private static void appendSource(StringBuilder sb, ResearchSourceRecord record) {
+    private static void appendSource(StringBuilder sb, ResearchSourceRecord record,
+                                     int maximumCharacters) {
         sb.append("--- ").append(record.getSourceId()).append('\n');
         appendIfPresent(sb, "title: ", record.getTitle());
         appendIfPresent(sb, "url: ", record.getUrl());
@@ -195,9 +196,9 @@ public final class ResearchToolPolicy {
                 ? record.getExcerpt() : record.getFullText();
         if (text != null && !text.trim().isEmpty()) {
             String trimmed = text.trim();
-            boolean cut = trimmed.length() > REVIEW_CONTEXT_MAXIMUM_CHARACTERS_PER_SOURCE;
+            boolean cut = trimmed.length() > maximumCharacters;
             sb.append("text: ")
-              .append(cut ? trimmed.substring(0, REVIEW_CONTEXT_MAXIMUM_CHARACTERS_PER_SOURCE) : trimmed)
+              .append(cut ? trimmed.substring(0, maximumCharacters) : trimmed)
               .append(cut ? " […]" : "").append('\n');
         } else {
             // Say it rather than let the agent assume the page said nothing worth reporting.

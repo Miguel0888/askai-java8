@@ -72,6 +72,45 @@ public final class ResearchRuntimeSettings {
         }
     }
 
+    // ---- configurable limits: every bound is a setting with a NAMED default — never only a code constant.
+    public static final String KEY_SEARCH_TARGET_SOURCES = "research.search.targetSources";
+    public static final String KEY_SEARCH_MAX_PAGES = "research.search.maxPages";
+    public static final String KEY_SEARCH_MAX_TOOL_CALLS = "research.search.maxToolCalls";
+    public static final String KEY_SEARCH_MAX_MINUTES = "research.search.maxMinutes";
+    public static final String KEY_SEARCH_MAX_ERRORS = "research.search.maxConsecutiveErrors";
+    public static final String KEY_REVIEW_MAX_SOURCES = "research.review.maxSources";
+    public static final String KEY_REVIEW_MAX_CHARS = "research.review.maxCharsPerSource";
+
+    /** The search ends normally at this many accepted sources (the completion target). */
+    public static final int DEFAULT_SEARCH_TARGET_SOURCES = 8;
+    public static final int DEFAULT_SEARCH_MAX_PAGES = 20;
+    public static final int DEFAULT_SEARCH_MAX_TOOL_CALLS = 30;
+    /** Safety time limit per search run (minutes) — user waits are never counted against it. */
+    public static final int DEFAULT_SEARCH_MAX_MINUTES = 10;
+    public static final int DEFAULT_SEARCH_MAX_ERRORS = 3;
+    /** How many sources one post-search review may read, and how much of each. */
+    public static final int DEFAULT_REVIEW_MAX_SOURCES = 12;
+    public static final int DEFAULT_REVIEW_MAX_CHARS = 1_200;
+
+    /** A persisted positive integer; unset, unparsable or non-positive values fall back to the default. */
+    public static int loadPositiveInt(WorkspaceStateStore store, String key, int fallback) {
+        if (store == null) {
+            return fallback;
+        }
+        try {
+            int value = Integer.parseInt(store.get(key, String.valueOf(fallback)).trim());
+            return value > 0 ? value : fallback;
+        } catch (NumberFormatException invalid) {
+            return fallback;
+        }
+    }
+
+    public static void savePositiveInt(WorkspaceStateStore store, String key, int value) {
+        if (store != null && value > 0) {
+            store.put(key, String.valueOf(value));
+        }
+    }
+
     static final String KEY_AGENT_MAX_OUTPUT_TOKENS = "research.runtime.agentMaxOutputTokens";
     /** The default answer budget per agent model turn — generous enough for the longest contract (review). */
     public static final int DEFAULT_AGENT_MAX_OUTPUT_TOKENS = 4096;

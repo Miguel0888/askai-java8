@@ -742,7 +742,7 @@ public final class ResearchAgentMain {
             com.aresstack.askai.research.runtime.rerank.CandidateReranker searchReranker =
                     rerankerFor(searchLanguage == null ? sessionLanguage.code() : searchLanguage);
             com.aresstack.askai.research.runtime.loop.ResearchRunBudget searchBudget =
-                    com.aresstack.askai.research.runtime.loop.ResearchRunBudget.defaults();
+                    com.aresstack.askai.research.runtime.loop.EnvironmentRunBudget.from(System.getenv());
             com.aresstack.askai.research.runtime.acquire.WebSearchApplicationService acquisition =
                     new com.aresstack.askai.research.runtime.acquire.WebSearchApplicationService(
                             browser,
@@ -1097,7 +1097,7 @@ public final class ResearchAgentMain {
                         environment.researchUrl, environment.researchTransport);
         try {
             final com.aresstack.askai.research.runtime.loop.ResearchRunBudget budget =
-                    com.aresstack.askai.research.runtime.loop.ResearchRunBudget.defaults();
+                    com.aresstack.askai.research.runtime.loop.EnvironmentRunBudget.from(System.getenv());
             com.aresstack.askai.research.runtime.loop.ResearchLoop loop =
                     new com.aresstack.askai.research.runtime.loop.ResearchLoop(browser, research, budget,
                             new com.aresstack.askai.research.runtime.loop.ResearchLoopClock() {

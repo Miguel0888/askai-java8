@@ -172,6 +172,29 @@ public final class ResearchAgentSessionFactory implements AgentSessionFactory {
                 ResearchRuntimeSettings.loadAlwaysOfferSearchSuggestions(hostContext.getStateStore()));
         factory.setAgentMaxOutputTokens(
                 ResearchRuntimeSettings.loadAgentMaxOutputTokens(hostContext.getStateStore()));
+        factory.setSearchRunLimits(
+                ResearchRuntimeSettings.loadPositiveInt(hostContext.getStateStore(),
+                        ResearchRuntimeSettings.KEY_SEARCH_TARGET_SOURCES,
+                        ResearchRuntimeSettings.DEFAULT_SEARCH_TARGET_SOURCES),
+                ResearchRuntimeSettings.loadPositiveInt(hostContext.getStateStore(),
+                        ResearchRuntimeSettings.KEY_SEARCH_MAX_PAGES,
+                        ResearchRuntimeSettings.DEFAULT_SEARCH_MAX_PAGES),
+                ResearchRuntimeSettings.loadPositiveInt(hostContext.getStateStore(),
+                        ResearchRuntimeSettings.KEY_SEARCH_MAX_TOOL_CALLS,
+                        ResearchRuntimeSettings.DEFAULT_SEARCH_MAX_TOOL_CALLS),
+                ResearchRuntimeSettings.loadPositiveInt(hostContext.getStateStore(),
+                        ResearchRuntimeSettings.KEY_SEARCH_MAX_MINUTES,
+                        ResearchRuntimeSettings.DEFAULT_SEARCH_MAX_MINUTES),
+                ResearchRuntimeSettings.loadPositiveInt(hostContext.getStateStore(),
+                        ResearchRuntimeSettings.KEY_SEARCH_MAX_ERRORS,
+                        ResearchRuntimeSettings.DEFAULT_SEARCH_MAX_ERRORS));
+        factory.setReviewContextLimits(
+                ResearchRuntimeSettings.loadPositiveInt(hostContext.getStateStore(),
+                        ResearchRuntimeSettings.KEY_REVIEW_MAX_SOURCES,
+                        ResearchRuntimeSettings.DEFAULT_REVIEW_MAX_SOURCES),
+                ResearchRuntimeSettings.loadPositiveInt(hostContext.getStateStore(),
+                        ResearchRuntimeSettings.KEY_REVIEW_MAX_CHARS,
+                        ResearchRuntimeSettings.DEFAULT_REVIEW_MAX_CHARS));
         // The APP-WIDE public connector is configured here, not inside the per-session backend factory:
         // one listener for the whole app, idempotent for an unchanged configuration. The sessions it serves
         // come from the session directory, so this call carries no session state at all. The host's chat

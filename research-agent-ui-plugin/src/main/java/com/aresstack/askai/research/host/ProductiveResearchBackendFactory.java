@@ -93,6 +93,46 @@ public final class ProductiveResearchBackendFactory {
         }
     }
 
+    // Search-run limits (the settings values, handed to the agent at launch; defaults are the fallbacks).
+    private volatile int searchTargetSources = ResearchRuntimeSettings.DEFAULT_SEARCH_TARGET_SOURCES;
+    private volatile int searchMaxPages = ResearchRuntimeSettings.DEFAULT_SEARCH_MAX_PAGES;
+    private volatile int searchMaxToolCalls = ResearchRuntimeSettings.DEFAULT_SEARCH_MAX_TOOL_CALLS;
+    private volatile int searchMaxMinutes = ResearchRuntimeSettings.DEFAULT_SEARCH_MAX_MINUTES;
+    private volatile int searchMaxErrors = ResearchRuntimeSettings.DEFAULT_SEARCH_MAX_ERRORS;
+
+    /** The user's search limits: completion target + the safety limits (pages/tools/minutes/errors). */
+    public void setSearchRunLimits(int targetSources, int maxPages, int maxToolCalls, int maxMinutes,
+                                   int maxConsecutiveErrors) {
+        if (targetSources > 0) {
+            this.searchTargetSources = targetSources;
+        }
+        if (maxPages > 0) {
+            this.searchMaxPages = maxPages;
+        }
+        if (maxToolCalls > 0) {
+            this.searchMaxToolCalls = maxToolCalls;
+        }
+        if (maxMinutes > 0) {
+            this.searchMaxMinutes = maxMinutes;
+        }
+        if (maxConsecutiveErrors > 0) {
+            this.searchMaxErrors = maxConsecutiveErrors;
+        }
+    }
+
+    // Review-context bounds (served to the runtime via source_review_context; settings, not constants).
+    private volatile int reviewMaxSources = ResearchRuntimeSettings.DEFAULT_REVIEW_MAX_SOURCES;
+    private volatile int reviewMaxCharsPerSource = ResearchRuntimeSettings.DEFAULT_REVIEW_MAX_CHARS;
+
+    public void setReviewContextLimits(int maxSources, int maxCharactersPerSource) {
+        if (maxSources > 0) {
+            this.reviewMaxSources = maxSources;
+        }
+        if (maxCharactersPerSource > 0) {
+            this.reviewMaxCharsPerSource = maxCharactersPerSource;
+        }
+    }
+
     /** OPTIONAL host NLP snapshot provider; resolves the session's selected sentence model (else regex). */
     private volatile com.aresstack.askai.agent.model.nlp.NlpConfigurationSnapshotProvider nlpSnapshots;
 
@@ -490,6 +530,18 @@ public final class ProductiveResearchBackendFactory {
                                     : holder[0].controlContext().statusLine();
                         }
 
+                        // The review bounds are the USER's settings (this factory carries them); the
+                        // delegate's defaults would silently ignore a configured value.
+                        @Override
+                        public int reviewContextMaximumSources() {
+                            return reviewMaxSources;
+                        }
+
+                        @Override
+                        public int reviewContextMaximumCharactersPerSource() {
+                            return reviewMaxCharsPerSource;
+                        }
+
                         public com.aresstack.askai.plugin.api.agent.artifact.AgentArtifactStore artifactStore() {
                             return holder[0].controlContext().artifactStore();
                         }
@@ -556,6 +608,12 @@ public final class ProductiveResearchBackendFactory {
             baseEnv.put("ASKAI_SCOPING_ALWAYS_SUGGEST", String.valueOf(alwaysOfferSearchSuggestions));
             // Settings "Agent-Antwortbudget (Tokens)" → the model-turn output budget (review = longest).
             baseEnv.put("ASKAI_AGENT_MAX_OUTPUT_TOKENS", String.valueOf(agentMaxOutputTokens));
+            // Settings "Such-Limits": the completion target + the safety limits of one search run.
+            baseEnv.put("ASKAI_SEARCH_TARGET_SOURCES", String.valueOf(searchTargetSources));
+            baseEnv.put("ASKAI_SEARCH_MAX_PAGES", String.valueOf(searchMaxPages));
+            baseEnv.put("ASKAI_SEARCH_MAX_TOOL_CALLS", String.valueOf(searchMaxToolCalls));
+            baseEnv.put("ASKAI_SEARCH_MAX_MINUTES", String.valueOf(searchMaxMinutes));
+            baseEnv.put("ASKAI_SEARCH_MAX_ERRORS", String.valueOf(searchMaxErrors));
             // DEV/TEST-only hand-off (mirrors askai.research.sidecar.args for the browser sidecar): extra JVM
             // args for the research-agent-runtime child, inserted BEFORE -jar so they are JVM flags. Empty by
             // default → no production effect. Set on the HOST JVM, e.g. to A/B the overlay:
