@@ -7,3 +7,4 @@ build/
 sources.txt
 *.class
 audio-dsp/speech-input.wav
+*.stackdump
