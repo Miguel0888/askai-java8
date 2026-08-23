@@ -351,9 +351,32 @@ public final class ResearchRuntimeSettings {
                 store.get(KEY_SIDECAR_JAR, ""),
                 store.get(KEY_BROWSER_CHANNEL, "chrome"),
                 store.getBoolean(KEY_HEADLESS, true),
-                store.get(KEY_SEARCH_URL, ""),
+                migrateLegacySearchUrl(store.get(KEY_SEARCH_URL, "")),
                 store.getBoolean(KEY_ALLOW_PRIVATE, false),
                 store.get(KEY_RERANKER_MODEL, ""));
+    }
+
+    /**
+     * MIGRATION: a persisted search-url override that merely mirrors a catalog engine's endpoint is
+     * DROPPED on load. Such a leftover (the pre-engine-list era pre-filled Bing template) silently
+     * defeated the whole engine list — order, fallback endpoints, per-engine result pages and delay —
+     * and delivered page 1 of one engine forever. An override that points somewhere the catalog does
+     * NOT know (a dev/test world) keeps working unchanged.
+     */
+    static String migrateLegacySearchUrl(String template) {
+        String trimmed = template == null ? "" : template.trim();
+        if (trimmed.isEmpty()) {
+            return "";
+        }
+        for (com.aresstack.askai.browser.search.engine.BrowserSearchEngine engine
+                : com.aresstack.askai.browser.search.engine.BrowserSearchEngineCatalog.engines()) {
+            for (String endpoint : engine.getEndpointTemplates()) {
+                if (endpoint.equals(trimmed)) {
+                    return "";
+                }
+            }
+        }
+        return trimmed;
     }
 
     public void save(WorkspaceStateStore store) {

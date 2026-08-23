@@ -251,6 +251,39 @@ public class PlaywrightBrowserSessionTest {
     }
 
     /**
+     * A page the mechanical analysis did not understand (Bing's collapsing layout) is UNUSABLE, not
+     * EMPTY: the user configured N result pages, and downstream rescue (AI repair, link harvest)
+     * works per captured page — so the deeper pages are still fetched. Only an explicitly empty page
+     * ends the pagination early.
+     */
+    @Test
+    public void anUnderstoodNothingOnPageOneDoesNotEndThePagination() throws Exception {
+        FakeDriver driver = new FakeDriver();
+        // Page 1: no repeated result blocks, no no-results markers → EXTRACTION_FAILED → UNUSABLE.
+        driver.byUrl.put("http://paged.test/s?q=pf4j", emptyPage("http://paged.test/s?q=pf4j"));
+        driver.byUrl.put("http://paged.test/s?q=pf4j&page=2",
+                resultsPage("http://paged.test/s?q=pf4j&page=2", "two"));
+        driver.byUrl.put("http://paged.test/s?q=pf4j&page=3",
+                emptyPage("http://paged.test/s?q=pf4j&page=3"));
+        PlaywrightBrowserSession s = session(driver,
+                com.aresstack.askai.browser.search.engine.EngineAcquisitionMode.FIRST_USABLE);
+        s.setSearchEngines(java.util.Collections.singletonList(
+                new com.aresstack.askai.browser.search.engine.BrowserSearchEngine("paged", "Paged",
+                        java.util.Collections.singletonList("http://paged.test/s?q={query}"),
+                        java.util.Collections.singletonList("http://paged.test/s?q={query}&page={page}"),
+                        10)));
+
+        WebSearchResult result = s.search("pf4j");
+
+        assertEquals("page 1 not understood — pages 2 and 3 are STILL fetched",
+                java.util.Arrays.asList(
+                        "http://paged.test/s?q=pf4j",
+                        "http://paged.test/s?q=pf4j&page=2",
+                        "http://paged.test/s?q=pf4j&page=3"), driver.opened);
+        assertEquals("page 2 delivered its hits despite page 1", 3, result.getItems().size());
+    }
+
+    /**
      * The per-engine request delay (a user SETTING, default 0 = off) paces every request to the same
      * engine after its first — and it waits by PUMPING the driver's event loop, never by a blind sleep
      * that would freeze the HUD and close detection. The first request of an engine is never delayed.

@@ -44,17 +44,23 @@ public final class SearchLayoutRepairTools {
         final List<PreparedWebSearchResult> perEngine = new ArrayList<PreparedWebSearchResult>();
         RenderedPageSource.EngineCapture capture = pageSource.capture(query,
                 new RenderedPageSource.PageEvaluator() {
-                    public boolean delivered(
+                    public RenderedPageSource.PageVerdict judge(
                             com.aresstack.askai.browser.render.RenderedPageDocument document,
                             String engineHost) {
                         PreparedWebSearchResult single =
                                 service.prepareSingle(document, query, engineHost, now);
                         perEngine.add(single);
-                        // A page that still needs a layout repair has NOT delivered yet: the repair
-                        // runs later, in the runtime, so the next engine is still worth visiting.
-                        return single.status
-                                == com.aresstack.askai.browser.search.repair
-                                        .WebSearchPreparationStatus.ORGANIC_RESULTS;
+                        // A page that still needs a layout repair has NOT delivered yet (the repair
+                        // runs later, in the runtime) — but it is not EMPTY either: the engine's
+                        // deeper pages stay worth fetching, and the next engine worth visiting.
+                        switch (single.status) {
+                            case ORGANIC_RESULTS:
+                                return RenderedPageSource.PageVerdict.DELIVERED;
+                            case NO_ORGANIC_RESULTS:
+                                return RenderedPageSource.PageVerdict.EMPTY;
+                            default:
+                                return RenderedPageSource.PageVerdict.UNUSABLE;
+                        }
                     }
                 });
         PreparedWebSearchResult merged = WebSearchLayoutRepairService.merge(perEngine, mode);
