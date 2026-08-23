@@ -7,6 +7,8 @@ import com.aresstack.askai.java8.ui.OllamaChatPanel;
 import com.aresstack.askai.java8.ui.PlusIcon;
 import com.aresstack.askai.java8.ui.sidebar.ChatSidebarPanel;
 import com.aresstack.askai.java8.ui.sidebar.ChatSidebarTab;
+import com.aresstack.comiccontrols.control.ComicButton;
+import com.aresstack.comiccontrols.control.ComicScrollPane;
 import com.aresstack.comiccontrols.control.ComicSplitPane;
 
 import javax.swing.BorderFactory;
@@ -410,7 +412,7 @@ public final class ChatWorkspacePanel extends JPanel {
                 ? java.util.Collections.<ChatSidebarTab>emptyList() : sidebarTabsSource.get());
         // No pane title in the header — the ribbon's colored entry already names the active pane.
         // The self-explanatory New-chat button takes that spot.
-        JButton newChat = new JButton("New chat", new PlusIcon(10));
+        JButton newChat = new ComicButton("New chat", new PlusIcon(10));
         newChat.setToolTipText("Open a new chat");
         newChat.setFocusable(false);
         newChat.addActionListener(event -> {
@@ -558,12 +560,12 @@ public final class ChatWorkspacePanel extends JPanel {
         chatListPanel = new JPanel();
         chatListPanel.setLayout(new javax.swing.BoxLayout(chatListPanel, javax.swing.BoxLayout.Y_AXIS));
         chatListPanel.setOpaque(false);
-        JScrollPane scroll = new JScrollPane(chatListPanel,
+        JScrollPane scroll = new ComicScrollPane(chatListPanel,
                 JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
         scroll.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
         scroll.getVerticalScrollBar().setUnitIncrement(16);
 
-        JButton deleteAll = new JButton("Delete all chats…");
+        JButton deleteAll = new ComicButton("Delete all chats…", ComicButton.Accent.CRITICAL);
         deleteAll.setToolTipText("Delete every saved chat (asks for confirmation)");
         deleteAll.addActionListener(event -> deleteAllChats());
         JPanel south = new JPanel(new BorderLayout());

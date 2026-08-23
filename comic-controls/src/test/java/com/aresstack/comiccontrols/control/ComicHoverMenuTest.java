@@ -71,6 +71,49 @@ public class ComicHoverMenuTest {
         });
     }
 
+    @Test
+    public void theImpactPlateStaysWhileTheMenuIsOpen() throws Exception {
+        onEdt(new Runnable() {
+            public void run() {
+                ComicHoverMenu menu = new ComicHoverMenu("Models");
+                menu.setSize(140, 28);
+
+                // Clicking opens the popup: the mouse leaves the title but the menu is SELECTED —
+                // the comic style must NOT vanish (the original complaint about the first cut).
+                menu.setSelected(true);
+                menu.dispatchEvent(mouseEvent(menu, MouseEvent.MOUSE_EXITED));
+                assertTrue(menu.isComicPaintActive());
+                assertTrue("an open menu keeps its comic plate",
+                        containsWarmImpactPixel(render(menu)));
+
+                menu.setSelected(false);
+                assertFalse(menu.isComicPaintActive());
+                assertFalse("closing returns to the plain look",
+                        containsWarmImpactPixel(render(menu)));
+            }
+        });
+    }
+
+    @Test
+    public void dropdownItemsGetTheComicSelectionButStayNormalItems() throws Exception {
+        onEdt(new Runnable() {
+            public void run() {
+                ComicHoverMenu menu = new ComicHoverMenu("Configuration");
+                javax.swing.JMenuItem item = new javax.swing.JMenuItem("Connections");
+                java.awt.Font before = item.getFont();
+                menu.add(item);
+
+                assertTrue("added items carry the comic selection UI",
+                        item.getUI() instanceof ComicMenuItemUI);
+                assertEquals("the item keeps its normal font — no burst control", before,
+                        item.getFont());
+                assertTrue("the popup carries the comic ink contour",
+                        menu.getPopupMenu().getBorder()
+                                instanceof com.aresstack.comiccontrols.border.ComicBorder);
+            }
+        });
+    }
+
     private static BufferedImage render(ComicHoverMenu menu) {
         BufferedImage image = new BufferedImage(menu.getWidth(), menu.getHeight(),
                 BufferedImage.TYPE_INT_ARGB);

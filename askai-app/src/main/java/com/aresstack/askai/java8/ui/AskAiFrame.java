@@ -33,6 +33,7 @@ import com.aresstack.askai.java8.ui.chat.ChatWorkspacePanel;
 import com.aresstack.audio.profile.AudioProcessingProfile;
 import com.aresstack.audio.application.DefaultAudioProcessingPreviewService;
 import com.aresstack.comiccontrols.control.ComicHoverMenu;
+import com.aresstack.comiccontrols.theme.ComicTheme;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -252,6 +253,9 @@ public final class AskAiFrame extends JFrame {
     }
 
     private void buildUserInterface() {
+        // The comic design language's global part: ink contour + yellow/ink selection for ALL
+        // dropdowns and context popups, ink baseline under the menu bar (issue #36).
+        ComicTheme.installMenuDefaults();
         setJMenuBar(createMenuBar());
         getContentPane().setLayout(new BorderLayout());
         getContentPane().add(createContentPanel(), BorderLayout.CENTER);

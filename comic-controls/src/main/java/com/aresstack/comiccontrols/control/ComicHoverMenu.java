@@ -1,26 +1,38 @@
 package com.aresstack.comiccontrols.control;
 
+import com.aresstack.comiccontrols.border.ComicBorder;
 import com.aresstack.comiccontrols.paint.ComicImpactPainter;
 import com.aresstack.comiccontrols.theme.ComicPalette;
 
 import javax.swing.JMenu;
-import java.awt.Color;
+import javax.swing.JMenuItem;
+import javax.swing.JPopupMenu;
+import java.awt.Component;
+import java.awt.Dimension;
+import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.event.ContainerAdapter;
+import java.awt.event.ContainerEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 
 /**
- * A top-level menu with a comic-impact HOVER accent. In its normal state it is a plain
- * look-and-feel {@link JMenu} (same font, same text color, no permanent burst); while the mouse
- * hovers it, a {@link ComicImpactPainter} plate appears behind the title and the text switches to
- * the palette's ink so it stays readable on the yellow/orange fill. Leaving the menu returns it to
- * the plain look immediately — there is no animation.
+ * A top-level menu with a comic-impact accent. In its normal state it is a plain look-and-feel
+ * {@link JMenu} (same font, no permanent burst). The {@link ComicImpactPainter} plate appears
+ * while the mouse hovers the title AND stays while the menu is open (selected) — clicking a menu
+ * must not make the comic style vanish. Leaving/closing returns to the plain look immediately.
  *
- * <p>While the menu is SELECTED (its popup is open) the look and feel's normal selection highlight
- * wins over the hover plate; dropdown {@code JMenuItem}s are untouched by design.</p>
+ * <p>The dropdown carries the design language WITHOUT turning its entries into burst controls:
+ * the popup gets a {@link ComicBorder} ink contour, and every added {@link JMenuItem} gets a
+ * {@link ComicMenuItemUI} — normal font and layout, but yellow/ink selection instead of the
+ * look and feel's default highlight.</p>
  */
 public class ComicHoverMenu extends JMenu {
+
+    /** Breathing room so the impact plate's points never crowd the title text. */
+    private static final int EXTRA_TITLE_PADDING = 8;
 
     private final ComicPalette palette;
     private final ComicImpactPainter painter;
@@ -37,8 +49,8 @@ public class ComicHoverMenu extends JMenu {
         }
         this.palette = palette;
         this.painter = new ComicImpactPainter(palette);
-        // Non-opaque: the menu bar shows through in the normal state, and the hover plate can be
-        // painted UNDER the look and feel's text without fighting an opaque background fill.
+        // Non-opaque: the menu bar shows through in the normal state, and the comic plate can be
+        // painted without fighting an opaque background fill.
         setOpaque(false);
         addMouseListener(new MouseAdapter() {
             @Override
@@ -51,35 +63,74 @@ public class ComicHoverMenu extends JMenu {
                 setComicHoverActive(false);
             }
         });
+        installComicPopupStyle();
     }
 
-    /** Whether the comic hover accent is currently shown (mouse inside the menu title). */
+    /** Whether the mouse currently hovers the menu title. */
     public boolean isComicHoverActive() {
         return hoverActive;
     }
 
+    /** Whether the comic plate is painted right now: hovered OR open — never plain in between. */
+    public boolean isComicPaintActive() {
+        return hoverActive || isSelected();
+    }
+
     @Override
-    public Color getForeground() {
-        // The UI delegate reads the foreground while painting the title; on hover the text must be
-        // ink-dark regardless of the look and feel so it stays readable on the yellow plate.
-        // (Guard: the superclass constructor paints/queries before our fields exist.)
-        if (hoverActive && palette != null && !isSelected()) {
-            return palette.getInk();
-        }
-        return super.getForeground();
+    public Dimension getPreferredSize() {
+        Dimension size = super.getPreferredSize();
+        size.width += EXTRA_TITLE_PADDING;
+        return size;
     }
 
     @Override
     protected void paintComponent(Graphics g) {
-        if (hoverActive && !isSelected()) {
-            Graphics2D g2 = (Graphics2D) g.create();
-            try {
-                painter.paint(g2, getWidth(), getHeight());
-            } finally {
-                g2.dispose();
-            }
+        if (!isComicPaintActive()) {
+            super.paintComponent(g); // plain look and feel, untouched
+            return;
         }
-        super.paintComponent(g);
+        // Comic state: paint plate + title ourselves. Delegating to super would let the look and
+        // feel's selection rectangle wipe the plate the moment the popup opens.
+        Graphics2D g2 = (Graphics2D) g.create();
+        try {
+            painter.paint(g2, getWidth(), getHeight());
+            String title = getText() == null ? "" : getText();
+            g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
+                    RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+            g2.setFont(getFont());
+            g2.setColor(palette.getInk());
+            FontMetrics metrics = g2.getFontMetrics();
+            int x = Math.max(0, (getWidth() - metrics.stringWidth(title)) / 2);
+            int y = (getHeight() - metrics.getHeight()) / 2 + metrics.getAscent();
+            g2.drawString(title, x, y);
+        } finally {
+            g2.dispose();
+        }
+    }
+
+    /**
+     * The dropdown keeps normal entries but continues the design language: ink contour around the
+     * popup, yellow/ink selection on every item. A container listener catches EVERY way an entry
+     * can arrive (add, insert, Action), so callers need no comic-specific wiring.
+     */
+    private void installComicPopupStyle() {
+        JPopupMenu popup = getPopupMenu();
+        popup.setBorder(ComicBorder.popupBorder(palette));
+        popup.setBackground(palette.getSurface());
+        popup.addContainerListener(new ContainerAdapter() {
+            @Override
+            public void componentAdded(ContainerEvent event) {
+                applyComicItemStyle(event.getChild());
+            }
+        });
+    }
+
+    private void applyComicItemStyle(Component child) {
+        if (child instanceof JMenu) { // submenu titles keep the language too (JMenu extends JMenuItem)
+            ((JMenu) child).setUI(new ComicMenuUI(palette));
+        } else if (child instanceof JMenuItem) {
+            ((JMenuItem) child).setUI(new ComicMenuItemUI(palette));
+        }
     }
 
     private void setComicHoverActive(boolean active) {
