@@ -52,16 +52,23 @@ public final class WebSearchLayoutRepairService {
     }
 
     /**
-     * Prepare one captured engine page: HIGH_CONFIDENCE yields organic candidates directly; an
-     * explicit no-results page yields NO_ORGANIC_RESULTS; a LOW_CONFIDENCE layout yields a single
-     * bounded repair request and caches the document for later application.
+     * Prepare one captured engine page. A layout that was READ yields its organic candidates
+     * directly; an explicit no-results page yields NO_ORGANIC_RESULTS; anything the mechanics could
+     * not read — an ununderstood layout OR an understood one that produced no result block — yields a
+     * single bounded repair request and caches the document for later application.
      */
     public PreparedWebSearchResult prepareSingle(RenderedPageDocument document, String query,
                                                  String engineHost, long nowEpochMillis) {
         SearchPageLayoutResolution resolution = analyzer.analyze(document);
         SearchResultExtractionResult extraction = extractor.extract(document, query);
 
-        if (!resolution.lowConfidence) {
+        // Confident about the layout AND able to read it: nothing to repair.
+        // Confident about the layout and STILL unable to read a single result block is not an answer,
+        // it is a contradiction — the mechanics believed a region and then found nothing in it. That is
+        // exactly what the repair is for: a second opinion on WHICH region holds the results. Treating
+        // it as terminal meant a page whose results a human could read ended the search technically.
+        if (!resolution.lowConfidence
+                && extraction.outcome != SearchPageAnalysisOutcome.EXTRACTION_FAILED) {
             return prepared(statusOf(extraction.outcome), attributed(extraction.candidates, engineHost),
                     Collections.<SearchLayoutRepairRequest>emptyList(), extraction.diagnostics);
         }

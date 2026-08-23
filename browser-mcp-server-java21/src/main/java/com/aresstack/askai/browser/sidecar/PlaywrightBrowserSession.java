@@ -208,6 +208,12 @@ final class PlaywrightBrowserSession implements BrowserSession {
         }
         String encoded = encode(query.trim());
         com.aresstack.askai.browser.search.engine.EngineAcquisitionMode mode = settings.navigation.engineSelection.getMode();
+        // WHICH engines this search is really using, and why. A configured order that silently loses to
+        // a leftover override is invisible in the result — the provider hosts only ever show what was
+        // actually opened, never what was supposed to be.
+        System.err.println("[engines] searchUrlOverride=" + (searchUrlTemplate == null ? "empty" : "set")
+                + " engineOverride=" + (engineOverride == null ? "empty" : "set")
+                + " acquisitionMode=" + mode + " resolvedEngines=" + describe(engines));
         List<String> providerHosts = new ArrayList<String>();
         List<com.aresstack.askai.browser.LegacySearchEngineAttemptResult> attempts =
                 new ArrayList<com.aresstack.askai.browser.LegacySearchEngineAttemptResult>();
@@ -314,6 +320,23 @@ final class PlaywrightBrowserSession implements BrowserSession {
             com.aresstack.askai.browser.search.SearchResultExtractionResult extraction) {
         return extraction.diagnostics.isEmpty() ? "" : extraction.diagnostics.get(
                 extraction.diagnostics.size() - 1);
+    }
+
+    /** {@code [duckduckgo: html.duckduckgo.com, lite.duckduckgo.com][bing: www.bing.com]} */
+    private static String describe(java.util.List<com.aresstack.askai.browser.search.engine.BrowserSearchEngine> engines) {
+        StringBuilder sb = new StringBuilder();
+        for (com.aresstack.askai.browser.search.engine.BrowserSearchEngine engine : engines) {
+            sb.append('[').append(engine.getId()).append(": ");
+            for (int i = 0; i < engine.getEndpointTemplates().size(); i++) {
+                if (i > 0) {
+                    sb.append(", ");
+                }
+                sb.append(com.aresstack.askai.browser.domain.PublicSuffixDomainKeyResolver
+                        .hostOf(engine.getEndpointTemplates().get(i)));
+            }
+            sb.append(']');
+        }
+        return sb.length() == 0 ? "[]" : sb.toString();
     }
 
     /** Attempt diagnostics are bounded by the diagnostics settings — never unbounded dumps. */
