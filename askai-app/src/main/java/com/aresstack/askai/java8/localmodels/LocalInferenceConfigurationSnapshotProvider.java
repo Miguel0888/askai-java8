@@ -26,8 +26,6 @@ public final class LocalInferenceConfigurationSnapshotProvider
 
     static final String SNAPSHOT_FILE_NAME = "inference-config.json";
     static final String CHAT_PATH = "/api/chat";
-    static final long DEFAULT_TIMEOUT_MILLIS = 120_000L;
-
     /** The three endpoint sources, seamed so the local/remote routing is testable without a sidecar. */
     interface EndpointSources {
         /** The central main model name ("" when none is selected). */
@@ -38,6 +36,17 @@ public final class LocalInferenceConfigurationSnapshotProvider
 
         /** The configured remote Ollama base URL; only called for a non-local model. */
         String remoteOllamaBaseUrl();
+
+        /**
+         * Per-call read timeout of the main model — the USER's setting
+         * ({@code ai.mainModelTimeoutSeconds}, edited in the configuration panel), never a code
+         * constant: with a configurable answer budget, long legitimate answers (a 4096-token review
+         * on a small local model) must not silently die on a hardcoded cap.
+         */
+        default long mainModelTimeoutMillis() {
+            return com.aresstack.askai.java8.config.AiModelSelections
+                    .DEFAULT_MAIN_MODEL_TIMEOUT_SECONDS * 1000L;
+        }
     }
 
     private final EndpointSources sources;
@@ -73,7 +82,8 @@ public final class LocalInferenceConfigurationSnapshotProvider
 
         InferenceConfigurationDocument document = InferenceConfigurationDocument.current(
                 revision.incrementAndGet(),
-                new InferenceEndpointDescriptor(model, baseUrl, CHAT_PATH, DEFAULT_TIMEOUT_MILLIS));
+                new InferenceEndpointDescriptor(model, baseUrl, CHAT_PATH,
+                        sources.mainModelTimeoutMillis()));
         File target = new File(sessionDirectory, SNAPSHOT_FILE_NAME);
         try {
             LocalInferenceConfigurationSnapshotWriter.write(document, target);
@@ -115,6 +125,12 @@ public final class LocalInferenceConfigurationSnapshotProvider
 
             public String remoteOllamaBaseUrl() {
                 return centralConfig.load().getOllamaBaseUrl();
+            }
+
+            @Override
+            public long mainModelTimeoutMillis() {
+                return centralConfig.load().getAiModelSelections()
+                        .getMainModelTimeoutSeconds() * 1000L;
             }
         };
     }

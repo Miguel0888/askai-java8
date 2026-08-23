@@ -76,4 +76,33 @@ public class AiModelSelectionsTest {
                 .withHuggingFaceSearchFilters("something");
         assertEquals(models, configuration.getAiModelSelections());
     }
+
+    /**
+     * The main-model read timeout is a SETTING (the user's rule: no magic numbers outside the
+     * settings): it defaults visibly, survives the property round-trip, withers preserve it, and a
+     * nonsense value falls back to the default instead of becoming a limit.
+     */
+    @Test
+    public void theMainModelTimeoutIsASettingWithAnHonestDefault() throws Exception {
+        assertEquals(AiModelSelections.DEFAULT_MAIN_MODEL_TIMEOUT_SECONDS,
+                AiModelSelections.defaults().getMainModelTimeoutSeconds());
+        AiModelSelections tuned = AiModelSelections.defaults().withMainModelTimeoutSeconds(600);
+        assertEquals(600, tuned.getMainModelTimeoutSeconds());
+        assertEquals("withers preserve the timeout", 600,
+                tuned.withMainModel("m").withRerankerModel("r").getMainModelTimeoutSeconds());
+        assertEquals("nonsense falls back to the default",
+                AiModelSelections.DEFAULT_MAIN_MODEL_TIMEOUT_SECONDS,
+                AiModelSelections.defaults().withMainModelTimeoutSeconds(0)
+                        .getMainModelTimeoutSeconds());
+
+        java.io.File file = java.io.File.createTempFile("askai-config", ".properties");
+        try {
+            AppConfigurationRepository repository = new AppConfigurationRepository(file);
+            repository.save(AppConfiguration.defaults().withAiModelSelections(tuned));
+            assertEquals("the timeout survives the persisted round-trip", 600,
+                    repository.load().getAiModelSelections().getMainModelTimeoutSeconds());
+        } finally {
+            file.delete();
+        }
+    }
 }

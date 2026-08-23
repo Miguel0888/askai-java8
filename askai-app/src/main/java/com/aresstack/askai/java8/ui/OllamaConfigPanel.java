@@ -42,6 +42,8 @@ public final class OllamaConfigPanel extends JPanel {
     private final JTextField sttPromptField;
     private final JTextField sttMaxFileSizeField;
     private final JTextField sttTimeoutField;
+    /** Per-call read timeout of the MAIN model (seconds) — a setting, never a code constant. */
+    private final JTextField mainModelTimeoutField;
     private final JTextArea logArea;
 
     public OllamaConfigPanel(AskAiModel model, OllamaService ollamaService) {
@@ -60,6 +62,8 @@ public final class OllamaConfigPanel extends JPanel {
         this.sttPromptField = new JTextField(stt.getPrompt(), 42);
         this.sttMaxFileSizeField = new JTextField(String.valueOf(stt.getMaxFileSizeMb()), 8);
         this.sttTimeoutField = new JTextField(String.valueOf(stt.getTimeoutSeconds()), 8);
+        this.mainModelTimeoutField = new JTextField(
+                String.valueOf(model.getAiModelSelections().getMainModelTimeoutSeconds()), 8);
         this.logArea = new JTextArea(16, 70);
         buildUserInterface();
         append("Config loaded.");
@@ -81,6 +85,10 @@ public final class OllamaConfigPanel extends JPanel {
         addRow(form, constraints, 1, "Local model root", modelRootField);
         addRow(form, constraints, 2, "Create quantization", quantizationField);
         addRow(form, constraints, 3, "Chat keep_alive", keepAliveField);
+        mainModelTimeoutField.setToolTipText("Lese-Timeout pro Modell-Aufruf des Hauptmodells. Lange "
+                + "Antworten (z. B. Quellen-Auswertungen mit großem Antwortbudget) brauchen auf kleinen "
+                + "lokalen Modellen mehrere Minuten.");
+        addRow(form, constraints, 4, "Main model timeout (seconds)", mainModelTimeoutField);
 
         JPanel sttForm = new JPanel(new GridBagLayout());
         sttForm.setBorder(BorderFactory.createTitledBorder("Speech-to-Text"));
@@ -151,6 +159,10 @@ public final class OllamaConfigPanel extends JPanel {
                 sttPromptField.getText(),
                 parsePositiveInt(sttMaxFileSizeField.getText(), SpeechToTextConfiguration.DEFAULT_MAX_FILE_SIZE_MB),
                 parsePositiveInt(sttTimeoutField.getText(), SpeechToTextConfiguration.DEFAULT_TIMEOUT_SECONDS)));
+        model.setAiModelSelections(model.getAiModelSelections().withMainModelTimeoutSeconds(
+                parsePositiveInt(mainModelTimeoutField.getText(),
+                        com.aresstack.askai.java8.config.AiModelSelections
+                                .DEFAULT_MAIN_MODEL_TIMEOUT_SECONDS)));
         model.saveSettings();
         append("Saved settings. Ollama: " + model.getOllamaBaseUrl());
         append("Speech-to-Text: " + (sttEnabledBox.isSelected() ? "enabled" : "disabled")

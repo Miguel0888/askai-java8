@@ -16,9 +16,17 @@ package com.aresstack.askai.java8.config;
  */
 public final class AiModelSelections {
 
+    /**
+     * Per-call read timeout of the MAIN model in seconds. A SETTING, not a code constant: with a
+     * user-configurable answer budget, long legitimate answers (a 4096-token review on a small local
+     * model) must not silently die on a hardcoded cap.
+     */
+    public static final int DEFAULT_MAIN_MODEL_TIMEOUT_SECONDS = 300;
+
     private final String mainModel;
     private final String rerankerModel;
     private final String embeddingsModel;
+    private final int mainModelTimeoutSeconds;
     /** Per-capability+language NLP model selections (sentence detection etc.); never null. */
     private final NlpModelSelections nlp;
 
@@ -28,9 +36,16 @@ public final class AiModelSelections {
 
     public AiModelSelections(String mainModel, String rerankerModel, String embeddingsModel,
                              NlpModelSelections nlp) {
+        this(mainModel, rerankerModel, embeddingsModel, DEFAULT_MAIN_MODEL_TIMEOUT_SECONDS, nlp);
+    }
+
+    public AiModelSelections(String mainModel, String rerankerModel, String embeddingsModel,
+                             int mainModelTimeoutSeconds, NlpModelSelections nlp) {
         this.mainModel = normalize(mainModel);
         this.rerankerModel = normalize(rerankerModel);
         this.embeddingsModel = normalize(embeddingsModel);
+        this.mainModelTimeoutSeconds = mainModelTimeoutSeconds > 0
+                ? mainModelTimeoutSeconds : DEFAULT_MAIN_MODEL_TIMEOUT_SECONDS;
         this.nlp = nlp == null ? NlpModelSelections.defaults() : nlp;
     }
 
@@ -51,25 +66,34 @@ public final class AiModelSelections {
         return embeddingsModel;
     }
 
+    /** Per-call read timeout of the main model in seconds (always positive). */
+    public int getMainModelTimeoutSeconds() {
+        return mainModelTimeoutSeconds;
+    }
+
     /** The per-capability+language NLP model selections (never null). */
     public NlpModelSelections getNlp() {
         return nlp;
     }
 
     public AiModelSelections withMainModel(String value) {
-        return new AiModelSelections(value, rerankerModel, embeddingsModel, nlp);
+        return new AiModelSelections(value, rerankerModel, embeddingsModel, mainModelTimeoutSeconds, nlp);
     }
 
     public AiModelSelections withRerankerModel(String value) {
-        return new AiModelSelections(mainModel, value, embeddingsModel, nlp);
+        return new AiModelSelections(mainModel, value, embeddingsModel, mainModelTimeoutSeconds, nlp);
     }
 
     public AiModelSelections withEmbeddingsModel(String value) {
-        return new AiModelSelections(mainModel, rerankerModel, value, nlp);
+        return new AiModelSelections(mainModel, rerankerModel, value, mainModelTimeoutSeconds, nlp);
+    }
+
+    public AiModelSelections withMainModelTimeoutSeconds(int value) {
+        return new AiModelSelections(mainModel, rerankerModel, embeddingsModel, value, nlp);
     }
 
     public AiModelSelections withNlp(NlpModelSelections value) {
-        return new AiModelSelections(mainModel, rerankerModel, embeddingsModel,
+        return new AiModelSelections(mainModel, rerankerModel, embeddingsModel, mainModelTimeoutSeconds,
                 value == null ? NlpModelSelections.defaults() : value);
     }
 
@@ -89,6 +113,7 @@ public final class AiModelSelections {
         return mainModel.equals(that.mainModel)
                 && rerankerModel.equals(that.rerankerModel)
                 && embeddingsModel.equals(that.embeddingsModel)
+                && mainModelTimeoutSeconds == that.mainModelTimeoutSeconds
                 && nlp.equals(that.nlp);
     }
 
@@ -97,6 +122,7 @@ public final class AiModelSelections {
         int result = mainModel.hashCode();
         result = 31 * result + rerankerModel.hashCode();
         result = 31 * result + embeddingsModel.hashCode();
+        result = 31 * result + mainModelTimeoutSeconds;
         result = 31 * result + nlp.hashCode();
         return result;
     }
@@ -104,6 +130,7 @@ public final class AiModelSelections {
     @Override
     public String toString() {
         return "AiModelSelections{main='" + mainModel + "', reranker='" + rerankerModel
-                + "', embeddings='" + embeddingsModel + "', nlp=" + nlp + "}";
+                + "', embeddings='" + embeddingsModel + "', mainTimeoutSeconds="
+                + mainModelTimeoutSeconds + ", nlp=" + nlp + "}";
     }
 }
