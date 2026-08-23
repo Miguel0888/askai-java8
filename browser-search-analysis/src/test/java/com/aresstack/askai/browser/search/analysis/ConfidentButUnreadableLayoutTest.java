@@ -28,7 +28,8 @@ import static org.junit.Assert.assertTrue;
  */
 public class ConfidentButUnreadableLayoutTest {
 
-    private static final LegacyBrowserSearchSettings SETTINGS = LegacyBrowserSearchDefaults.create();
+    private static final LegacyBrowserSearchSettings SETTINGS =
+            LayoutTestSupport.withoutLinkHarvest(LegacyBrowserSearchDefaults.create());
 
     /** A result region the mechanics accept, holding fewer repeated blocks than the detector demands. */
     private static RenderedPageDocument regionWithoutARepeatedCluster() {

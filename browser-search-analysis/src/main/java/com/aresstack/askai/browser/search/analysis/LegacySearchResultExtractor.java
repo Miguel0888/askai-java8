@@ -1,5 +1,6 @@
 package com.aresstack.askai.browser.search.analysis;
 
+import com.aresstack.askai.browser.domain.DomainClassification;
 import com.aresstack.askai.browser.render.RenderedContainerDescriptor;
 import com.aresstack.askai.browser.render.RenderedLinkDescriptor;
 import com.aresstack.askai.browser.render.RenderedPageDocument;
@@ -78,6 +79,11 @@ public final class LegacySearchResultExtractor {
     }
 
     public SearchResultExtractionResult extract(RenderedPageDocument document, String searchQuery) {
+        return withLinkHarvest(document, extractStructured(document, searchQuery));
+    }
+
+    private SearchResultExtractionResult extractStructured(RenderedPageDocument document,
+                                                           String searchQuery) {
         List<String> diagnostics = new ArrayList<String>(document.captureWarnings);
         SearchPageLayoutResolution resolution = analyzer.analyze(document);
         if (resolution.lowConfidence) {
@@ -117,7 +123,7 @@ public final class LegacySearchResultExtractor {
     public SearchResultExtractionResult extract(RenderedPageDocument document,
                                                 ValidatedSearchPageLayoutDecision decision) {
         List<String> diagnostics = new ArrayList<String>(document.captureWarnings);
-        return applyValidatedDecision(document, decision, diagnostics);
+        return withLinkHarvest(document, applyValidatedDecision(document, decision, diagnostics));
     }
 
     /** Diagnostics access for the technical-details rendering. */
@@ -210,6 +216,67 @@ public final class LegacySearchResultExtractor {
         }
         return new SearchResultExtractionResult(SearchPageAnalysisOutcome.ORGANIC_RESULTS,
                 document.snapshotId, confidence, candidates, diagnostics);
+    }
+
+    /**
+     * The SERP-as-JSON safety net: when the STRUCTURED extraction understood too little of the page
+     * (fewer candidates than the configured minimum — Bing routinely collapsed to ONE), the page's
+     * EXTERNAL links are harvested as additional candidates, each with its visible text and the
+     * surrounding excerpt — exactly the {title, url, snippet} shape a SERP API's JSON delivers. The
+     * MANDATORY reranker then judges every one of them by that excerpt, so junk links die there, not
+     * here. An explicit no-results page stays honestly empty, and a harvest that finds nothing leaves
+     * the structured verdict (including EXTRACTION_FAILED and its repair path) untouched.
+     */
+    private SearchResultExtractionResult withLinkHarvest(RenderedPageDocument document,
+                                                         SearchResultExtractionResult structured) {
+        int minimum = settings.analysis.linkHarvestMinimumStructuredCandidates;
+        if (minimum <= 0
+                || structured.outcome == SearchPageAnalysisOutcome.NO_ORGANIC_RESULTS
+                || structured.candidates.size() >= minimum) {
+            return structured;
+        }
+        List<SearchResultCandidate> combined =
+                new ArrayList<SearchResultCandidate>(structured.candidates);
+        Set<String> seenTargets = new HashSet<String>();
+        for (SearchResultCandidate candidate : structured.candidates) {
+            seenTargets.add(candidate.resolvedTargetUrl);
+        }
+        int externalSeen = 0;
+        for (RenderedLinkDescriptor link : document.links) {
+            if (combined.size() >= settings.analysis.linkHarvestMaximumCandidates) {
+                break;
+            }
+            if (!link.visible
+                    || link.domainClassification != DomainClassification.EXTERNAL_DOMAIN
+                    || !(link.resolvedTargetUrl.startsWith("http://")
+                            || link.resolvedTargetUrl.startsWith("https://"))) {
+                continue;
+            }
+            externalSeen++;
+            String title = !link.visibleText.trim().isEmpty()
+                    ? link.visibleText.trim() : link.nearestHeadingText.trim();
+            if (title.isEmpty() || !seenTargets.add(link.resolvedTargetUrl)) {
+                continue; // nothing to judge it by, or already carried by a structured candidate
+            }
+            combined.add(new SearchResultCandidate(
+                    "candidate-" + combined.size(), document.snapshotId,
+                    link.resolvedTargetUrl, link.rawHref, title,
+                    link.surroundingTextExcerpt, link.displayedDomainText, combined.size() + 1,
+                    "", link.containerId, 0.0, 0.0,
+                    java.util.Collections.<SearchResultSiteLink>emptyList()));
+        }
+        if (combined.size() <= structured.candidates.size()) {
+            List<String> diagnostics = new ArrayList<String>(structured.diagnostics);
+            diagnostics.add("link harvest found no additional external links");
+            return new SearchResultExtractionResult(structured.outcome, structured.snapshotId,
+                    structured.layoutConfidence, structured.candidates, diagnostics);
+        }
+        List<String> diagnostics = new ArrayList<String>(structured.diagnostics);
+        diagnostics.add("link harvest: structured=" + structured.candidates.size() + " → +"
+                + (combined.size() - structured.candidates.size()) + " external link candidates (of "
+                + externalSeen + " external links; the reranker judges them)");
+        return new SearchResultExtractionResult(SearchPageAnalysisOutcome.ORGANIC_RESULTS,
+                structured.snapshotId, structured.layoutConfidence, combined, diagnostics);
     }
 
     private SearchResultExtractionResult failed(RenderedPageDocument document, double confidence,

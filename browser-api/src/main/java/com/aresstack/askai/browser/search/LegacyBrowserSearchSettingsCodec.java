@@ -132,6 +132,10 @@ public final class LegacyBrowserSearchSettingsCodec {
                 String.valueOf(s.analysis.maximumLinksPerContainer));
         m.put("analysis.maximumStructureSignatureDepth",
                 String.valueOf(s.analysis.maximumStructureSignatureDepth));
+        m.put("analysis.linkHarvestMinimumStructuredCandidates",
+                String.valueOf(s.analysis.linkHarvestMinimumStructuredCandidates));
+        m.put("analysis.linkHarvestMaximumCandidates",
+                String.valueOf(s.analysis.linkHarvestMaximumCandidates));
 
         m.put("visual.enabled", String.valueOf(s.visualAnalysis.enabled));
         m.put("visual.backgroundSimilarityThreshold",
@@ -309,7 +313,9 @@ public final class LegacyBrowserSearchSettingsCodec {
                         r.intValue("analysis.maximumContainerDomDepth"),
                         r.intValue("analysis.maximumCapturedContainers"),
                         r.intValue("analysis.maximumLinksPerContainer"),
-                        r.intValue("analysis.maximumStructureSignatureDepth")),
+                        r.intValue("analysis.maximumStructureSignatureDepth"),
+                        r.intValue("analysis.linkHarvestMinimumStructuredCandidates"),
+                        r.intValue("analysis.linkHarvestMaximumCandidates")),
                 new SearchPageVisualAnalysisSettings(
                         r.boolValue("visual.enabled"),
                         r.doubleValue("visual.backgroundSimilarityThreshold"),

@@ -27,6 +27,29 @@ final class LayoutTestSupport {
     private LayoutTestSupport() {
     }
 
+    /**
+     * The structured/repair-path tests pin THAT pipeline: the link-harvest safety net (which would
+     * rescue their deliberately-failing fixtures to ORGANIC) is switched off here.
+     */
+    static LegacyBrowserSearchSettings withoutLinkHarvest(LegacyBrowserSearchSettings base) {
+        SearchPageAnalysisSettings a = base.analysis;
+        SearchPageAnalysisSettings off = new SearchPageAnalysisSettings(a.noResultsTexts,
+                a.maximumCandidateContainers, a.minimumContainerTextCharacters,
+                a.minimumNonLinkTextCharacters, a.minimumRepeatedSiblingCount,
+                a.minimumResultStructuralConfidence, a.maximumNavigationLinkDensity,
+                a.internalLinkWeight, a.externalLinkWeight, a.sameHostPenalty,
+                a.sameRegistrableDomainPenalty, a.subdomainPenalty, a.unknownDomainPenalty,
+                a.repeatedBlockWeight, a.nonLinkTextWeight, a.titleLinkWeight, a.snippetPresenceWeight,
+                a.headingLinkWeight, a.semanticMainWeight, a.navigationRolePenalty,
+                a.resultBlockSimilarityThreshold, a.minimumDiscriminatingSignalFamilies,
+                a.fullPageAreaRatio, a.textLengthSaturationCharacters, a.maximumContainerDomDepth,
+                a.maximumCapturedContainers, a.maximumLinksPerContainer,
+                a.maximumStructureSignatureDepth, 0, a.linkHarvestMaximumCandidates);
+        return new LegacyBrowserSearchSettings(base.navigation, base.consent, base.captcha,
+                base.readiness, off, base.visualAnalysis, base.extraction, base.aiLayoutResolver,
+                base.reranker, base.diagnostics, base.layoutRepair);
+    }
+
     static LegacyBrowserSearchSettings withDiagnostics(LegacyBrowserSearchSettings base,
                                                        SearchDiagnosticsSettings diagnostics) {
         return new LegacyBrowserSearchSettings(base.navigation, base.consent, base.captcha,
@@ -59,7 +82,8 @@ final class LayoutTestSupport {
                 a.resultBlockSimilarityThreshold, 99, a.fullPageAreaRatio,
                 a.textLengthSaturationCharacters, a.maximumContainerDomDepth,
                 a.maximumCapturedContainers, a.maximumLinksPerContainer,
-                a.maximumStructureSignatureDepth);
+                a.maximumStructureSignatureDepth, a.linkHarvestMinimumStructuredCandidates,
+                a.linkHarvestMaximumCandidates);
         return new LegacyBrowserSearchSettings(base.navigation, base.consent, base.captcha,
                 base.readiness, forced, base.visualAnalysis, base.extraction, base.aiLayoutResolver,
                 base.reranker, base.diagnostics, base.layoutRepair);

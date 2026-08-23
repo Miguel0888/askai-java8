@@ -72,6 +72,10 @@ public final class DefaultLegacyBrowserSearchSettingsValidator
         atLeast(v, "analysis.minimumNonLinkTextCharacters",
                 s.analysis.minimumNonLinkTextCharacters, 0);
         atLeast(v, "analysis.minimumRepeatedSiblingCount", s.analysis.minimumRepeatedSiblingCount, 1);
+        atLeast(v, "analysis.linkHarvestMinimumStructuredCandidates",
+                s.analysis.linkHarvestMinimumStructuredCandidates, 0); // 0 = harvest disabled
+        atLeast(v, "analysis.linkHarvestMaximumCandidates",
+                s.analysis.linkHarvestMaximumCandidates, 1);
         ratio(v, "analysis.minimumResultStructuralConfidence",
                 s.analysis.minimumResultStructuralConfidence);
         ratio(v, "analysis.maximumNavigationLinkDensity", s.analysis.maximumNavigationLinkDensity);

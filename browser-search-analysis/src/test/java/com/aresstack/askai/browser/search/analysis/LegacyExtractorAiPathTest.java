@@ -29,7 +29,8 @@ import static org.junit.Assert.assertTrue;
  */
 public class LegacyExtractorAiPathTest {
 
-    private final LegacyBrowserSearchSettings defaults = LegacyBrowserSearchDefaults.create();
+    private final LegacyBrowserSearchSettings defaults =
+            LayoutTestSupport.withoutLinkHarvest(LegacyBrowserSearchDefaults.create());
 
     private RenderedPageDocument resultColumnDocument(String[] outColumnId) {
         SerpDocuments serp = SerpDocuments.builder();

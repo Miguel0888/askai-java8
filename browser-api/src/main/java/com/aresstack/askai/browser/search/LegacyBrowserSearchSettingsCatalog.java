@@ -243,6 +243,14 @@ public final class LegacyBrowserSearchSettingsCatalog {
         integer(f, "analysis.maximumStructureSignatureDepth", SECTION_ANALYSIS,
                 "Maximum structure signature depth",
                 "Depth bound of the structural shape signature.", 1, 10);
+        integer(f, "analysis.linkHarvestMinimumStructuredCandidates", SECTION_ANALYSIS,
+                "Link harvest below N structured candidates",
+                "When the structured extraction yields fewer candidates, the page's external links "
+                        + "(title + surrounding excerpt) are harvested as candidates and the "
+                        + "reranker judges them. 0 disables the harvest.", 0, 100);
+        integer(f, "analysis.linkHarvestMaximumCandidates", SECTION_ANALYSIS,
+                "Link harvest maximum candidates",
+                "Upper bound of total candidates (structured + harvested).", 1, 200);
         // --- Visual analysis
         bool(f, "visual.enabled", SECTION_VISUAL, "Enabled",
                 "Screenshot-based container detection (takes effect once the visual stage ships).");

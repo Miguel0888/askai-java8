@@ -52,6 +52,17 @@ public final class SearchPageAnalysisSettings {
     public final int maximumLinksPerContainer;
     public final int maximumStructureSignatureDepth;
 
+    /**
+     * The SERP-as-JSON safety net: when the structured block extraction yields FEWER candidates than
+     * this, the page's EXTERNAL links are harvested as additional candidates — each with its visible
+     * text and surrounding excerpt, exactly the shape a SERP API's JSON delivers — and the mandatory
+     * reranker judges them. Engines whose block structure defeats the detector (Bing collapsing to one
+     * candidate) then still deliver the whole result page. 0 disables the harvest.
+     */
+    public final int linkHarvestMinimumStructuredCandidates;
+    /** Upper bound of TOTAL candidates (structured + harvested) after the harvest. */
+    public final int linkHarvestMaximumCandidates;
+
     public SearchPageAnalysisSettings(java.util.List<String> noResultsTexts,
                                       int maximumCandidateContainers, int minimumContainerTextCharacters,
                                       int minimumNonLinkTextCharacters, int minimumRepeatedSiblingCount,
@@ -68,7 +79,9 @@ public final class SearchPageAnalysisSettings {
                                       double fullPageAreaRatio,
                                       int textLengthSaturationCharacters, int maximumContainerDomDepth,
                                       int maximumCapturedContainers, int maximumLinksPerContainer,
-                                      int maximumStructureSignatureDepth) {
+                                      int maximumStructureSignatureDepth,
+                                      int linkHarvestMinimumStructuredCandidates,
+                                      int linkHarvestMaximumCandidates) {
         this.noResultsTexts = java.util.Collections.unmodifiableList(noResultsTexts);
         this.maximumCandidateContainers = maximumCandidateContainers;
         this.minimumContainerTextCharacters = minimumContainerTextCharacters;
@@ -97,5 +110,7 @@ public final class SearchPageAnalysisSettings {
         this.maximumCapturedContainers = maximumCapturedContainers;
         this.maximumLinksPerContainer = maximumLinksPerContainer;
         this.maximumStructureSignatureDepth = maximumStructureSignatureDepth;
+        this.linkHarvestMinimumStructuredCandidates = linkHarvestMinimumStructuredCandidates;
+        this.linkHarvestMaximumCandidates = linkHarvestMaximumCandidates;
     }
 }

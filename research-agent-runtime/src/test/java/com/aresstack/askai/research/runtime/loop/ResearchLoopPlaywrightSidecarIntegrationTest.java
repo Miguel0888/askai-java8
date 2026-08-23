@@ -768,7 +768,10 @@ public class ResearchLoopPlaywrightSidecarIntegrationTest {
                         a.minimumDiscriminatingSignalFamilies, a.fullPageAreaRatio,
                         a.textLengthSaturationCharacters, a.maximumContainerDomDepth,
                         a.maximumCapturedContainers, a.maximumLinksPerContainer,
-                        a.maximumStructureSignatureDepth);
+                        a.maximumStructureSignatureDepth,
+                        // This fixture exercises the AI REPAIR path: the link harvest (which would
+                        // rescue the forced-low-confidence page first) is off here.
+                        0, a.linkHarvestMaximumCandidates);
         com.aresstack.askai.browser.search.LegacyBrowserSearchSettings low =
                 new com.aresstack.askai.browser.search.LegacyBrowserSearchSettings(d.navigation,
                         d.consent, d.captcha, d.readiness, forced, d.visualAnalysis, d.extraction,

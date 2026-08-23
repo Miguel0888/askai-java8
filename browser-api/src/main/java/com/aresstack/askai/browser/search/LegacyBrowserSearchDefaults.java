@@ -145,7 +145,9 @@ public final class LegacyBrowserSearchDefaults {
                 40,     // maximumContainerDomDepth
                 600,    // maximumCapturedContainers
                 50,     // maximumLinksPerContainer
-                3);     // maximumStructureSignatureDepth
+                3,      // maximumStructureSignatureDepth
+                5,      // linkHarvestMinimumStructuredCandidates — below this, external links are harvested
+                20);    // linkHarvestMaximumCandidates
     }
 
     private static SearchPageVisualAnalysisSettings visualAnalysis() {

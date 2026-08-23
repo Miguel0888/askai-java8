@@ -140,7 +140,8 @@ final class RepairBridgeFixtures {
                 a.resultBlockSimilarityThreshold, 99, a.fullPageAreaRatio,
                 a.textLengthSaturationCharacters, a.maximumContainerDomDepth,
                 a.maximumCapturedContainers, a.maximumLinksPerContainer,
-                a.maximumStructureSignatureDepth);
+                a.maximumStructureSignatureDepth, a.linkHarvestMinimumStructuredCandidates,
+                a.linkHarvestMaximumCandidates);
         return new LegacyBrowserSearchSettings(base.navigation, base.consent, base.captcha,
                 base.readiness, forced, base.visualAnalysis, base.extraction, base.aiLayoutResolver,
                 base.reranker, base.diagnostics, base.layoutRepair);

@@ -35,7 +35,8 @@ import static org.junit.Assert.assertTrue;
  */
 public class ExplicitRepairBlocksTest {
 
-    private static final LegacyBrowserSearchSettings SETTINGS = LegacyBrowserSearchDefaults.create();
+    private static final LegacyBrowserSearchSettings SETTINGS =
+            LayoutTestSupport.withoutLinkHarvest(LegacyBrowserSearchDefaults.create());
 
     /** The live shape: a region holding fewer repeated cards than the discovery heuristic demands. */
     private static RenderedPageDocument tooFewRepeatedCards(String[] outRegionId) {
