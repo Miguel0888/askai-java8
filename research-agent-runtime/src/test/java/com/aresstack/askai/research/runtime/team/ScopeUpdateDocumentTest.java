@@ -66,6 +66,50 @@ public class ScopeUpdateDocumentTest {
                 document.isValid());
     }
 
+    /**
+     * The live nag "Der Rechercheumfang wurde NICHT aktualisiert (addFacet without 'facetId')" on every
+     * turn: the model gave labels but no ids. An id is a MACHINE concern — when a facet operation carries
+     * a label, the id is derived from it deterministically (same label, same id), so the update applies
+     * instead of being rejected over bookkeeping. Neither id nor label stays an honest violation.
+     */
+    @Test
+    public void aMissingFacetIdIsDerivedFromTheLabelInsteadOfRejectingTheUpdate() {
+        ScopingAssistantOutputParser.Result result = parse(
+                "\"scopePatch\":{\"operations\":["
+                        + "{\"kind\":\"addFacet\",\"label\":\"Neue Antriebstechnologien\"},"
+                        + "{\"kind\":\"confirmFacet\",\"label\":\"Neue Antriebstechnologien\"}]}");
+
+        assertTrue(result.getError(), result.isOk());
+        ScopeUpdateDocument document = result.getOutput().getScopeUpdate();
+        assertTrue("the update applies — ids are the machine's job: " + document.describeViolations(),
+                document.isValid());
+        String json = document.toJson();
+        assertTrue(json, json.contains("\"facetId\":\"neue-antriebstechnologien\""));
+        // Deterministic: BOTH operations reference the SAME derived id.
+        int first = json.indexOf("\"facetId\":\"neue-antriebstechnologien\"");
+        assertTrue("confirm references the same facet as add",
+                json.indexOf("\"facetId\":\"neue-antriebstechnologien\"", first + 1) > first);
+    }
+
+    @Test
+    public void aFacetOperationWithNeitherIdNorLabelStaysAViolation() {
+        ScopingAssistantOutputParser.Result result = parse(
+                "\"scopePatch\":{\"operations\":[{\"kind\":\"addFacet\",\"rationale\":\"?\"}]}");
+        assertTrue(result.isOk());
+        ScopeUpdateDocument document = result.getOutput().getScopeUpdate();
+        assertFalse("nothing to derive from — the whole update is honestly invalid", document.isValid());
+        assertTrue(document.describeViolations(), document.describeViolations().contains("facetId"));
+    }
+
+    @Test
+    public void theLabelSlugIsStableAsciiAndUmlautAware() {
+        assertEquals("neue-antriebstechnologien", ScopeUpdateDocument.slugOf("Neue Antriebstechnologien"));
+        assertEquals("kosten-nutzen", ScopeUpdateDocument.slugOf("  Kosten & Nutzen!  "));
+        assertEquals("strassenzulassung-fuer-e-motorraeder",
+                ScopeUpdateDocument.slugOf("Straßenzulassung für E-Motorräder"));
+        assertEquals("", ScopeUpdateDocument.slugOf("!!!"));
+    }
+
     @Test
     public void anUnknownOperationKindOrALabellessSuggestionAlsoInvalidatesTheUpdateOnly() {
         ScopingAssistantOutputParser.Result unknownKind = parse(

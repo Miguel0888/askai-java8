@@ -87,6 +87,7 @@ public final class ScopeUpdateDocument {
                 rejections.add("unknown operation kind '" + kind + "'");
                 continue;
             }
+            operation = withDerivedFacetId(kind, operation);
             String missing = firstMissingField(kind, operation);
             if (missing != null) {
                 rejections.add(kind + " without '" + missing + "'");
@@ -141,6 +142,50 @@ public final class ScopeUpdateDocument {
         required.put("addUnresolvedIssue", java.util.Arrays.asList("issueId", "description"));
         required.put("resolveIssue", java.util.Arrays.asList("issueId"));
         return required;
+    }
+
+    /** Operations that reference a facet — the ones whose missing id can be derived from a label. */
+    private static final List<String> FACET_OPERATIONS = java.util.Arrays.asList(
+            "addFacet", "confirmFacet", "excludeFacet", "setFacetEmphasis");
+
+    /**
+     * An id is a MACHINE concern: demanding that the model invent one made small models fail the whole
+     * scope update over a bookkeeping field ("addFacet without 'facetId'" on every turn). When a facet
+     * operation carries a label but no facetId, the id is DERIVED deterministically from the label — the
+     * same label always yields the same id, so a later confirm/exclude by label references the same facet.
+     * This is normalization BEFORE validation, never partial application: an operation with neither id nor
+     * label still fails the whole update.
+     */
+    private static Map<String, Object> withDerivedFacetId(String kind, Map<String, Object> operation) {
+        if (!FACET_OPERATIONS.contains(kind) || !text(operation.get("facetId")).isEmpty()) {
+            return operation;
+        }
+        String slug = slugOf(text(operation.get("label")));
+        if (slug.isEmpty()) {
+            return operation; // nothing to derive from — validation reports the missing facetId honestly
+        }
+        Map<String, Object> derived = new LinkedHashMap<String, Object>(operation);
+        derived.put("facetId", slug);
+        return derived;
+    }
+
+    /** A stable, short, lowercase-ascii id from a human label ("Neue Antriebe" → "neue-antriebe"). */
+    static String slugOf(String label) {
+        String lower = label.toLowerCase(java.util.Locale.ROOT)
+                .replace("ä", "ae").replace("ö", "oe").replace("ü", "ue").replace("ß", "ss");
+        StringBuilder sb = new StringBuilder();
+        for (int index = 0; index < lower.length() && sb.length() < 40; index++) {
+            char character = lower.charAt(index);
+            if ((character >= 'a' && character <= 'z') || (character >= '0' && character <= '9')) {
+                sb.append(character);
+            } else if (sb.length() > 0 && sb.charAt(sb.length() - 1) != '-') {
+                sb.append('-');
+            }
+        }
+        while (sb.length() > 0 && sb.charAt(sb.length() - 1) == '-') {
+            sb.setLength(sb.length() - 1);
+        }
+        return sb.toString();
     }
 
     private static String firstMissingField(String kind, Map<String, Object> operation) {
