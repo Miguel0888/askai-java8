@@ -560,8 +560,35 @@ public final class BubbleTranscriptPanel extends JPanel {
                 messageList.repaint();
                 int maximum = scrollPane.getVerticalScrollBar().getMaximum();
                 scrollPane.getVerticalScrollBar().setValue(maximum);
+                traceGeometry();
             }
         });
+    }
+
+    /**
+     * One line per appended message with the ACTUAL widths of the whole chain. A layout defect that only
+     * appears in a running window cannot be reasoned about from a screenshot: this says plainly which
+     * component is the narrow one.
+     */
+    private void traceGeometry() {
+        Component last = null;
+        for (Component child : messageList.getComponents()) {
+            if (child instanceof BubbleMessageRow) {
+                last = child;
+            }
+        }
+        if (last == null) {
+            return;
+        }
+        JComponent bubble = ((BubbleMessageRow) last).getBubble();
+        System.err.println("[bubble-geom] transcript=" + getWidth()
+                + " scroll=" + scrollPane.getWidth()
+                + " viewport=" + scrollPane.getViewport().getWidth()
+                + " list=" + messageList.getWidth()
+                + " row=" + last.getWidth() + "x" + last.getHeight()
+                + " rowX=" + last.getX()
+                + " bubble=" + bubble.getClass().getSimpleName()
+                + " x=" + bubble.getX() + " w=" + bubble.getWidth() + " h=" + bubble.getHeight());
     }
 
     private static void requireEventDispatchThread() {
