@@ -52,7 +52,10 @@ public final class ResearchSourcesView extends JPanel {
             return "<html><b>" + escape(displayTitle(record)) + "</b><br>" + escape(url) + "</html>";
         }
     };
-    private final JTextField filterField = new JTextField();
+    /** The navigation-blue comic search bar replaces the plain "Filter:" field (issue #36 line). */
+    private final com.aresstack.comiccontrols.control.ComicSearchBar filterField =
+            new com.aresstack.comiccontrols.control.ComicSearchBar(
+                    "Titel/URL filtern…", "Filtert nach Titel/URL — Enter wendet an");
 
     private final JTextField titleField = new JTextField();
     private final JTextField urlField = new JTextField();
@@ -81,10 +84,9 @@ public final class ResearchSourcesView extends JPanel {
         setBorder(BorderFactory.createEmptyBorder(6, 6, 6, 6));
 
         JPanel top = new JPanel(new BorderLayout(4, 0));
-        top.add(new JLabel("Filter:"), BorderLayout.WEST);
+        // No "Filter:" label — the bar's magnifier + placeholder say it; Enter AND ▶ apply.
         top.add(filterField, BorderLayout.CENTER);
-        filterField.setToolTipText("Filtert nach Titel/URL — Enter wendet an");
-        filterField.addActionListener(e -> reloadTable());
+        filterField.addSearchAction(e -> reloadTable());
 
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         table.setRowHeight(table.getRowHeight() + 4);
