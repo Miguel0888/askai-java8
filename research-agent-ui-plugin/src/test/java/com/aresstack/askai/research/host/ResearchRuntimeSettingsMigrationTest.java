@@ -1,34 +1,63 @@
 package com.aresstack.askai.research.host;
 
+import com.aresstack.askai.plugin.api.service.WorkspaceStateStore;
+
 import org.junit.Test;
+
+import java.util.HashMap;
+import java.util.Map;
 
 import static org.junit.Assert.assertEquals;
 
 /**
- * The legacy "Search URL" override predates the engine list. A persisted value that merely mirrors a
- * catalog engine's endpoint (the pre-filled Bing template of the early days) silently defeated the
- * whole engine list — order, fallback endpoints, per-engine result pages and delay — and delivered
- * page 1 of one engine forever. Loading drops exactly those; a genuine dev/test world keeps working.
+ * The legacy "Search URL" override is DEAD, not migrated: it silently replaced the whole engine list
+ * (order, fallback endpoints, per-engine result pages, delay) with a single page-1-only engine while
+ * everything LOOKED configured. There is no field, no getter, no {@code --search-url} pass-through in
+ * the productive spawn anymore — and a persisted leftover value is DESTROYED in the store the moment
+ * settings are loaded or saved, so the file cannot keep claiming an override that nothing reads.
  */
 public class ResearchRuntimeSettingsMigrationTest {
 
-    @Test
-    public void aLeftoverCatalogEngineOverrideIsDroppedOnLoad() {
-        assertEquals("the old pre-filled Bing template dies here",
-                "", ResearchRuntimeSettings.migrateLegacySearchUrl(
-                        "https://www.bing.com/search?q={query}"));
-        assertEquals("", ResearchRuntimeSettings.migrateLegacySearchUrl(
-                "https://html.duckduckgo.com/html/?q={query}"));
-        assertEquals("whitespace around the leftover changes nothing",
-                "", ResearchRuntimeSettings.migrateLegacySearchUrl(
-                        "  https://www.bing.com/search?q={query}  "));
+    private static final class MemoryStore implements WorkspaceStateStore {
+        final Map<String, String> values = new HashMap<String, String>();
+
+        public String get(String key, String defaultValue) {
+            return values.containsKey(key) ? values.get(key) : defaultValue;
+        }
+
+        public boolean getBoolean(String key, boolean defaultValue) {
+            return values.containsKey(key) ? Boolean.parseBoolean(values.get(key)) : defaultValue;
+        }
+
+        public int getInt(String key, int defaultValue) {
+            try {
+                return values.containsKey(key) ? Integer.parseInt(values.get(key)) : defaultValue;
+            } catch (NumberFormatException invalid) {
+                return defaultValue;
+            }
+        }
+
+        public void put(String key, String value) {
+            values.put(key, value);
+        }
+
+        public void putBoolean(String key, boolean value) {
+            values.put(key, String.valueOf(value));
+        }
+
+        public void putInt(String key, int value) {
+            values.put(key, String.valueOf(value));
+        }
     }
 
     @Test
-    public void aGenuineDevWorldOverrideSurvives() {
-        assertEquals("http://127.0.0.1:8099/s?q={query}",
-                ResearchRuntimeSettings.migrateLegacySearchUrl("http://127.0.0.1:8099/s?q={query}"));
-        assertEquals("", ResearchRuntimeSettings.migrateLegacySearchUrl(null));
-        assertEquals("", ResearchRuntimeSettings.migrateLegacySearchUrl("   "));
+    public void aPersistedLegacySearchUrlIsDestroyedOnSave() {
+        MemoryStore store = new MemoryStore();
+        store.put(ResearchRuntimeSettings.KEY_SEARCH_URL, "https://www.bing.com/search?q={query}");
+
+        ResearchRuntimeSettings.load(store).save(store);
+
+        assertEquals("the poisonous leftover is gone from the store, not merely ignored",
+                "", store.get(ResearchRuntimeSettings.KEY_SEARCH_URL, ""));
     }
 }

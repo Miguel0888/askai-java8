@@ -49,8 +49,7 @@ public final class ResearchRuntimeDefaults {
         }
         return new ResearchRuntimeSettings(settings.getMode(), agentJava, agentJar, sidecarJava,
                 sidecarJar, installedBrowserChannel(settings.getBrowserChannel()), settings.isHeadless(),
-                settings.getSearchUrlTemplate(), settings.isAllowPrivateNetworks(),
-                settings.getSelectedRerankerModel());
+                settings.isAllowPrivateNetworks(), settings.getSelectedRerankerModel());
     }
 
     /**

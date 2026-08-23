@@ -126,7 +126,7 @@ public class ResearchRuntimeModeTest {
     public void settingsRoundTripThroughTheStore() {
         MemoryStore store = new MemoryStore();
         new ResearchRuntimeSettings(ResearchBackendMode.ACP, "C:/j8/java.exe", "C:/agent.jar",
-                "C:/j21/java.exe", "C:/sidecar.jar", "msedge", false, "http://x/find?q={query}")
+                "C:/j21/java.exe", "C:/sidecar.jar", "msedge", false)
                 .save(store);
         ResearchRuntimeSettings loaded = ResearchRuntimeSettings.load(store);
         assertEquals(ResearchBackendMode.ACP, loaded.getMode());
@@ -136,7 +136,6 @@ public class ResearchRuntimeModeTest {
         assertEquals("C:/sidecar.jar", loaded.getSidecarJar());
         assertEquals("msedge", loaded.getBrowserChannel());
         assertEquals(false, loaded.isHeadless());
-        assertEquals("http://x/find?q={query}", loaded.getSearchUrlTemplate());
     }
 
     @Test
@@ -162,7 +161,7 @@ public class ResearchRuntimeModeTest {
         // DEMO backend with a visible startup notice (surfaced in the chat on activate) — and the
         // host runtime services are never touched.
         FakeHostContext host = new FakeHostContext();
-        new ResearchRuntimeSettings(ResearchBackendMode.ACP, "", "", "", "", "chrome", true, "")
+        new ResearchRuntimeSettings(ResearchBackendMode.ACP, "", "", "", "", "chrome", true)
                 .save(host.store);
         AgentSession session = new ResearchAgentSessionFactory().create(
                 new AgentSessionCreationRequest("s1", "p1", new HashMap<String, String>()), host);
@@ -184,7 +183,7 @@ public class ResearchRuntimeModeTest {
         host.workspaceDir = dir;
         new ResearchRuntimeSettings(ResearchBackendMode.ACP, java8.getAbsolutePath(),
                 agentJar.getAbsolutePath(), java21.getAbsolutePath(), sidecarJar.getAbsolutePath(),
-                "chrome", true, "http://search.example/find?q={query}").save(host.store);
+                "chrome", true).save(host.store);
         try {
             new ResearchAgentSessionFactory().create(
                     new AgentSessionCreationRequest("s1", "p1", new HashMap<String, String>()), host);
@@ -211,7 +210,7 @@ public class ResearchRuntimeModeTest {
         try {
             ResearchRuntimeSettings raw = new ResearchRuntimeSettings(ResearchBackendMode.ACP,
                     "", agentJar.getAbsolutePath(), "", sidecarJar.getAbsolutePath(),
-                    "chrome", true, "https://www.bing.com/search?q={query}");
+                    "chrome", true);
             java.util.List<String> problems =
                     ResearchRuntimeDefaults.complete(raw).validateProductive();
             assertTrue("completed settings must be fully usable: " + problems, problems.isEmpty());
@@ -245,8 +244,8 @@ public class ResearchRuntimeModeTest {
     @Test
     public void panelReadsAndWritesTheSameTypedMapper() {
         MemoryStore store = new MemoryStore();
-        new ResearchRuntimeSettings(ResearchBackendMode.ACP, "a", "b", "c", "d", "msedge", false,
-                "http://s/{query}").save(store);
+        new ResearchRuntimeSettings(ResearchBackendMode.ACP, "a", "b", "c", "d", "msedge", false)
+                .save(store);
         ResearchRuntimeSettingsPanel panel = new ResearchRuntimeSettingsPanel(store);
         ResearchRuntimeSettings fromPanel = panel.currentSettings();
         assertEquals(ResearchBackendMode.ACP, fromPanel.getMode());
@@ -254,14 +253,13 @@ public class ResearchRuntimeModeTest {
         assertEquals("d", fromPanel.getSidecarJar());
         assertEquals("msedge", fromPanel.getBrowserChannel());
         assertEquals(false, fromPanel.isHeadless());
-        assertEquals("http://s/{query}", fromPanel.getSearchUrlTemplate());
     }
 
     @Test
     public void rerankerSelectionIsPersistedThroughTheSameTypedMapper() {
         MemoryStore store = new MemoryStore();
         new ResearchRuntimeSettings(ResearchBackendMode.ACP, "a", "b", "c", "d", "chrome", true,
-                "http://s/{query}", false, "local/cross-encoder/ms-marco-MiniLM-L-6-v2:latest")
+                false, "local/cross-encoder/ms-marco-MiniLM-L-6-v2:latest")
                 .save(store);
         ResearchRuntimeSettings loaded = ResearchRuntimeSettings.load(store);
         assertEquals("local/cross-encoder/ms-marco-MiniLM-L-6-v2:latest",

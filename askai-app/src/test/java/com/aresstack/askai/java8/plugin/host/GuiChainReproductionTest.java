@@ -102,7 +102,7 @@ public class GuiChainReproductionTest {
         // The GUI settings: productive requirements met, Bing search, strict policy (like the screenshot),
         // with the explicit reranker selection carried through to the host snapshot provider.
         new ResearchRuntimeSettings(ResearchBackendMode.ACP, "", "", "", "", "chrome", true,
-                "https://www.bing.com/search?q={query}", false, installedRerankers.get(0)).save(host.store);
+                false, installedRerankers.get(0)).save(host.store);
 
         // REGRESSION: the REAL GUI session id contains '#' (pluginId + "#session") and an empty
         // project id. The raw '#' in the MCP endpoint URL truncated the client URL at the fragment

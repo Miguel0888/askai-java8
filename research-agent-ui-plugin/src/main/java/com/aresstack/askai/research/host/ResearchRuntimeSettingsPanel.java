@@ -89,7 +89,6 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
     // persisted plugin-side selection is carried through unchanged so it is never lost on save.
     private String carriedRerankerModel = "";
     private final JCheckBox headless = new JCheckBox("Run the browser headless", true);
-    private final JTextField searchUrl = new JTextField(38);
     private final JCheckBox allowPrivate = new JCheckBox(
             "Allow private/loopback targets (development only)", false);
     private final JButton save = new JButton("Save");
@@ -180,7 +179,6 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
                         ResearchRuntimeSettings.loadLanguage(store))).headlessHint());
         headlessHint.setEnabled(false);
         form.add(row("", headlessHint));
-        form.add(row("Search URL ({query}):", searchUrl));
         form.add(row("", allowPrivate));
         JPanel buttons = new JPanel();
         buttons.setLayout(new BoxLayout(buttons, BoxLayout.X_AXIS));
@@ -314,8 +312,7 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         return new ResearchRuntimeSettings(ResearchBackendMode.ACP,
                 agentJavaOverride, agentJar.getText(), sidecarJava.getText(), sidecarJar.getText(),
                 String.valueOf(browserChannel.getSelectedItem()), headless.isSelected(),
-                searchUrl.getText(), allowPrivate.isSelected(),
-                carriedRerankerModel);
+                allowPrivate.isSelected(), carriedRerankerModel);
     }
 
     /** The live projection of what NEW sessions will do — computed, never chosen. */
@@ -336,9 +333,6 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         // Carry any previously persisted reranker selection through invisibly (chosen centrally now).
         carriedRerankerModel = settings.getSelectedRerankerModel();
         headless.setSelected(settings.isHeadless());
-        // Empty is the normal state: the engines live in the search settings, ordered by the user.
-        // A value here OVERRIDES them with a single engine — a dev/test escape hatch, not a default.
-        searchUrl.setText(settings.getSearchUrlTemplate());
         allowPrivate.setSelected(settings.isAllowPrivateNetworks());
     }
 
