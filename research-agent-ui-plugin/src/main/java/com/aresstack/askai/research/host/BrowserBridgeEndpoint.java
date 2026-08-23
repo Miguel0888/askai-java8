@@ -93,7 +93,9 @@ public final class BrowserBridgeEndpoint {
         tools.add(passThrough("web_hud_render",
                 "Render the Research HUD overlay onto the current page (best-effort; ignored headless).",
                 McpToolParameter.string("state", true, "The serialized ResearchHudState line")));
-        tools.add(passThrough("web_hud_poll",
+        // CONTROL PLANE: the poll goes through the runtime's out-of-band control lane, so a Skip is
+        // deliverable even while a data command (probe/read/open) blocks the browser owner thread.
+        tools.add(controlPassThrough("web_hud_poll",
                 "Drain the HUD commands the user triggered in the overlay (PAUSE/RESUME/SKIP/…), or empty."));
         registry.updateTools(handle, tools);
     }
@@ -117,6 +119,23 @@ public final class BrowserBridgeEndpoint {
         return McpToolContribution.of(tool, description, new McpToolHandler() {
             public McpToolResult invoke(McpToolCall call) {
                 return delegate(tool, call.getArguments());
+            }
+        }, parameters);
+    }
+
+    /**
+     * A control-plane pass-through: out of band (never behind a blocked data call), never starts a
+     * browser, and never errors — control is best-effort, a dead browser is the DATA calls' verdict.
+     */
+    private McpToolContribution controlPassThrough(final String tool, String description,
+                                                   McpToolParameter... parameters) {
+        return McpToolContribution.of(tool, description, new McpToolHandler() {
+            public McpToolResult invoke(McpToolCall call) {
+                try {
+                    return McpToolResult.ok(browser.executeControl(tool, call.getArguments()));
+                } catch (BrowserRuntimePort.BrowserRuntimeException ex) {
+                    return McpToolResult.ok(""); // nothing to report — not an error
+                }
             }
         }, parameters);
     }

@@ -29,6 +29,15 @@ public final class LazyRestartableBrowserRuntime implements BrowserRuntimePort {
     interface Sidecar {
         String call(String tool, Map<String, Object> arguments) throws BrowserRuntimeException;
 
+        /**
+         * CONTROL-PLANE call (HUD poll): runs on the CALLER's thread over its own connection so it can
+         * answer while {@link #call} blocks the owner. The default shares the data path (test fakes).
+         */
+        default String controlCall(String tool, Map<String, Object> arguments)
+                throws BrowserRuntimeException {
+            return call(tool, arguments);
+        }
+
         boolean isAlive();
 
         void close();
@@ -43,11 +52,14 @@ public final class LazyRestartableBrowserRuntime implements BrowserRuntimePort {
     private final ExecutorService owner;
     private volatile Listener listener = Listener.NONE;
 
-    // Touched ONLY on the owner thread (state is volatile for the fast READY read in isReady/ensureStarted).
+    // Touched ONLY on the owner thread (state is volatile for the fast READY read in isReady/ensureStarted;
+    // current is volatile ONLY for the out-of-band control-plane snapshot in executeControl).
     private volatile State state = State.STOPPED;
     private long generation;
-    private Sidecar current;
+    private volatile Sidecar current;
     private volatile boolean closed;
+    /** Dedupe for control-plane failure logging (polled ~1/s — never flood stderr). */
+    private volatile String lastControlFailureLine;
 
     /** Production runtime over the real browser MCP sidecar process. */
     public LazyRestartableBrowserRuntime(ResearchRuntimeConfig config, long readyTimeoutSeconds,
@@ -89,6 +101,28 @@ public final class LazyRestartableBrowserRuntime implements BrowserRuntimePort {
                 return callOnOwner(tool, arguments);
             }
             throw firstFailure;
+        }
+    }
+
+    @Override
+    public String executeControl(String tool, Map<String, Object> arguments) {
+        // CONTROL PLANE: never submitted to the owner executor — a Skip poll must answer even while a
+        // data call blocks the owner thread — and never starts/restarts a browser just to poll it. A
+        // missing or broken generation reports nothing; a genuinely dead browser is detected (and
+        // restarted) by the DATA calls, which is where the run's fate is decided.
+        Sidecar sidecar = current;
+        if (closed || state != State.READY || sidecar == null) {
+            return "";
+        }
+        try {
+            return sidecar.controlCall(tool, arguments);
+        } catch (BrowserRuntimeException failure) {
+            String line = "[browser] control call failed tool=" + tool + ": " + failure.getMessage();
+            if (!line.equals(lastControlFailureLine)) {
+                lastControlFailureLine = line;
+                System.err.println(line);
+            }
+            return "";
         }
     }
 
@@ -261,6 +295,11 @@ public final class LazyRestartableBrowserRuntime implements BrowserRuntimePort {
                     final BrowserMcpSidecarProcess process = BrowserMcpSidecarProcess.start(config,
                             readyTimeoutSeconds, browserConfigPath);
                     final McpToolClient client = toolClients.connect(process.getMcpUrl(), "streamable");
+                    // Second connection to the SAME generation for the control plane: the data client is
+                    // busy for the whole of a blocking call, and its thread-safety under concurrent use is
+                    // not guaranteed — the control lane gets its own client instead of double-using it.
+                    final McpToolClient controlClient = toolClients.connect(process.getMcpUrl(),
+                            "streamable");
                     return new Sidecar() {
                         public String call(String tool, Map<String, Object> arguments)
                                 throws BrowserRuntimeException {
@@ -276,6 +315,18 @@ public final class LazyRestartableBrowserRuntime implements BrowserRuntimePort {
                             }
                         }
 
+                        public String controlCall(String tool, Map<String, Object> arguments)
+                                throws BrowserRuntimeException {
+                            try {
+                                // Serialized among control callers only — never queued behind data calls.
+                                synchronized (controlClient) {
+                                    return controlClient.callTool(tool, arguments);
+                                }
+                            } catch (McpToolClient.McpToolCallException ex) {
+                                throw new BrowserRuntimeException(ex.getMessage(), ex.isEndpointUnavailable());
+                            }
+                        }
+
                         public boolean isAlive() {
                             return process.isAlive();
                         }
@@ -284,6 +335,11 @@ public final class LazyRestartableBrowserRuntime implements BrowserRuntimePort {
                             // McpToolClient has its OWN close() and is NOT java.io.Closeable — an instanceof
                             // Closeable check silently skipped it, leaking the Solon client's non-daemon
                             // heartbeat scheduler ("pool-N-thread-1") and keeping the JVM alive after exit.
+                            try {
+                                controlClient.close();
+                            } catch (RuntimeException ignored) {
+                                // best-effort
+                            }
                             try {
                                 client.close();
                             } catch (RuntimeException ignored) {

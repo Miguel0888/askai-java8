@@ -187,6 +187,83 @@ public class LazyRestartableBrowserRuntimeTest {
     }
 
     @Test
+    public void controlCallsAnswerWhileADataCallBlocksTheOwner() throws Exception {
+        // The live-bug shape: a data call (hung probe/read) occupies the single owner thread; the user's
+        // Skip poll must still get through — out of band, on the caller's thread, via controlCall.
+        final CountDownLatch dataEntered = new CountDownLatch(1);
+        final CountDownLatch releaseData = new CountDownLatch(1);
+        final LazyRestartableBrowserRuntime.Sidecar sidecar =
+                new LazyRestartableBrowserRuntime.Sidecar() {
+                    public String call(String tool, Map<String, Object> arguments) {
+                        if ("web_read".equals(tool)) {
+                            dataEntered.countDown();
+                            try {
+                                releaseData.await(10, TimeUnit.SECONDS);
+                            } catch (InterruptedException ignored) {
+                                Thread.currentThread().interrupt();
+                            }
+                        }
+                        return "data:" + tool;
+                    }
+
+                    public String controlCall(String tool, Map<String, Object> arguments) {
+                        return "SKIP";
+                    }
+
+                    public boolean isAlive() {
+                        return true;
+                    }
+
+                    public void close() {
+                        releaseData.countDown();
+                    }
+                };
+        final LazyRestartableBrowserRuntime runtime = new LazyRestartableBrowserRuntime(
+                new LazyRestartableBrowserRuntime.SidecarStarter() {
+                    public LazyRestartableBrowserRuntime.Sidecar start() {
+                        return sidecar;
+                    }
+                });
+        try {
+            runtime.execute("web_open", NO_ARGS); // start the generation
+            Thread dataCall = new Thread(new Runnable() {
+                public void run() {
+                    try {
+                        runtime.execute("web_read", NO_ARGS);
+                    } catch (Exception ignored) {
+                    }
+                }
+            }, "blocked-data-call");
+            dataCall.start();
+            assertTrue(dataEntered.await(5, TimeUnit.SECONDS));
+
+            long before = System.currentTimeMillis();
+            String polled = runtime.executeControl("web_hud_poll", NO_ARGS);
+            long elapsed = System.currentTimeMillis() - before;
+            assertEquals("SKIP", polled);
+            assertTrue("control must not queue behind the blocked owner (took " + elapsed + "ms)",
+                    elapsed < 2000);
+
+            releaseData.countDown();
+            dataCall.join(5000);
+        } finally {
+            runtime.close();
+        }
+    }
+
+    @Test
+    public void controlOnAStoppedRuntimeStartsNothingAndReportsNothing() {
+        CountingStarter starter = new CountingStarter();
+        LazyRestartableBrowserRuntime runtime = new LazyRestartableBrowserRuntime(starter);
+        try {
+            assertEquals("no generation → nothing to poll", "", runtime.executeControl("web_hud_poll", NO_ARGS));
+            assertEquals("a control poll must NEVER start a browser", 0, starter.starts.get());
+        } finally {
+            runtime.close();
+        }
+    }
+
+    @Test
     public void afterCloseNoFurtherCommandRuns() {
         CountingStarter starter = new CountingStarter();
         LazyRestartableBrowserRuntime runtime = new LazyRestartableBrowserRuntime(starter);

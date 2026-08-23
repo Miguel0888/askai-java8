@@ -62,6 +62,7 @@ public class BrowserBridgeHudToolsTest {
         assertFalse("render must not error on a live sidecar", result.isError());
         assertEquals("web_hud_render", browser.lastTool);
         assertEquals("PHASE|status|0|-1|false", browser.lastArgs.get("state"));
+        assertFalse("render touches the page — it is a DATA call, not control", browser.controlUsed);
     }
 
     @Test
@@ -77,6 +78,8 @@ public class BrowserBridgeHudToolsTest {
 
         assertFalse(result.isError());
         assertEquals("web_hud_poll", browser.lastTool);
+        assertTrue("the poll must go through the out-of-band CONTROL lane, never the data owner",
+                browser.controlUsed);
     }
 
     // ------------------------------------------------------------------ fakes
@@ -123,15 +126,24 @@ public class BrowserBridgeHudToolsTest {
         }
     }
 
-    /** Records the last delegated browser command and returns a canned success. */
+    /** Records the last delegated browser command (and which lane carried it); canned success. */
     private static final class RecordingBrowser implements BrowserRuntimePort {
         String lastTool;
         Map<String, Object> lastArgs;
+        boolean controlUsed;
 
         public String execute(String tool, Map<String, Object> arguments) {
             this.lastTool = tool;
             this.lastArgs = arguments;
             return "ok";
+        }
+
+        @Override
+        public String executeControl(String tool, Map<String, Object> arguments) {
+            this.controlUsed = true;
+            this.lastTool = tool;
+            this.lastArgs = arguments;
+            return "";
         }
 
         public void setListener(Listener listener) {
