@@ -75,9 +75,6 @@ public final class BrowserMcpSidecarProcess {
         if (browserConfigPath != null && !browserConfigPath.isEmpty()) {
             command.add("--browser-config=" + browserConfigPath);
         }
-        if (config.getSearchUrlTemplate() != null && !config.getSearchUrlTemplate().isEmpty()) {
-            command.add("--search-url=" + config.getSearchUrlTemplate());
-        }
         // Documented DEV/TEST hand-off (like askai.research.runtime.dir): extra sidecar arguments,
         // e.g. "--domain-key-mode=host-port" so local multi-server worlds act as distinct domains.
         String extraArgs = System.getProperty("askai.research.sidecar.args", "").trim();

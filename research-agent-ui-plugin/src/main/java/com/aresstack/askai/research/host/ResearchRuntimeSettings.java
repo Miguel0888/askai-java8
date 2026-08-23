@@ -21,6 +21,7 @@ public final class ResearchRuntimeSettings {
     static final String KEY_SIDECAR_JAR = "research.runtime.sidecarJar";
     static final String KEY_BROWSER_CHANNEL = "research.runtime.browserChannel";
     static final String KEY_HEADLESS = "research.runtime.headless";
+    /** DEAD legacy override — kept ONLY so load() can destroy a persisted leftover value. */
     static final String KEY_SEARCH_URL = "research.runtime.searchUrl";
     static final String KEY_ALLOW_PRIVATE = "research.runtime.allowPrivateNetworks";
     static final String KEY_LANGUAGE = "research.runtime.language";
@@ -282,7 +283,6 @@ public final class ResearchRuntimeSettings {
     private final String sidecarJar;
     private final String browserChannel;
     private final boolean headless;
-    private final String searchUrlTemplate;
     private final boolean allowPrivateNetworks;
     /**
      * A LEGACY reranker selection carried transparently ("" = none). The reranker is now chosen centrally
@@ -294,25 +294,24 @@ public final class ResearchRuntimeSettings {
 
     public ResearchRuntimeSettings(ResearchBackendMode mode, String agentJavaExecutable, String agentJar,
                                    String sidecarJavaExecutable, String sidecarJar, String browserChannel,
-                                   boolean headless, String searchUrlTemplate) {
+                                   boolean headless) {
         this(mode, agentJavaExecutable, agentJar, sidecarJavaExecutable, sidecarJar, browserChannel,
-                headless, searchUrlTemplate, false);
+                headless, false);
     }
 
     /** @param allowPrivateNetworks development-only override of the strict URL policy (default false). */
     public ResearchRuntimeSettings(ResearchBackendMode mode, String agentJavaExecutable, String agentJar,
                                    String sidecarJavaExecutable, String sidecarJar, String browserChannel,
-                                   boolean headless, String searchUrlTemplate,
-                                   boolean allowPrivateNetworks) {
+                                   boolean headless, boolean allowPrivateNetworks) {
         this(mode, agentJavaExecutable, agentJar, sidecarJavaExecutable, sidecarJar, browserChannel,
-                headless, searchUrlTemplate, allowPrivateNetworks, "");
+                headless, allowPrivateNetworks, "");
     }
 
     /** @param selectedRerankerModel the explicitly selected virtual reranker model id ("" = none). */
     public ResearchRuntimeSettings(ResearchBackendMode mode, String agentJavaExecutable, String agentJar,
                                    String sidecarJavaExecutable, String sidecarJar, String browserChannel,
-                                   boolean headless, String searchUrlTemplate,
-                                   boolean allowPrivateNetworks, String selectedRerankerModel) {
+                                   boolean headless, boolean allowPrivateNetworks,
+                                   String selectedRerankerModel) {
         this.mode = mode == null ? ResearchBackendMode.FAKE : mode;
         this.agentJavaExecutable = nullToEmpty(agentJavaExecutable);
         this.agentJar = nullToEmpty(agentJar);
@@ -320,13 +319,12 @@ public final class ResearchRuntimeSettings {
         this.sidecarJar = nullToEmpty(sidecarJar);
         this.browserChannel = browserChannel == null || browserChannel.isEmpty() ? "chrome" : browserChannel;
         this.headless = headless;
-        this.searchUrlTemplate = nullToEmpty(searchUrlTemplate);
         this.allowPrivateNetworks = allowPrivateNetworks;
         this.selectedRerankerModel = nullToEmpty(selectedRerankerModel);
     }
 
     public static ResearchRuntimeSettings defaults() {
-        return new ResearchRuntimeSettings(ResearchBackendMode.FAKE, "", "", "", "", "chrome", true, "");
+        return new ResearchRuntimeSettings(ResearchBackendMode.FAKE, "", "", "", "", "chrome", true);
     }
 
     /** True when a mode value was ever persisted (the FAKE developer override requires an explicit one). */
@@ -351,32 +349,20 @@ public final class ResearchRuntimeSettings {
                 store.get(KEY_SIDECAR_JAR, ""),
                 store.get(KEY_BROWSER_CHANNEL, "chrome"),
                 store.getBoolean(KEY_HEADLESS, true),
-                migrateLegacySearchUrl(store.get(KEY_SEARCH_URL, "")),
                 store.getBoolean(KEY_ALLOW_PRIVATE, false),
                 store.get(KEY_RERANKER_MODEL, ""));
     }
 
     /**
-     * MIGRATION: a persisted search-url override that merely mirrors a catalog engine's endpoint is
-     * DROPPED on load. Such a leftover (the pre-engine-list era pre-filled Bing template) silently
-     * defeated the whole engine list — order, fallback endpoints, per-engine result pages and delay —
-     * and delivered page 1 of one engine forever. An override that points somewhere the catalog does
-     * NOT know (a dev/test world) keeps working unchanged.
+     * The legacy per-store "Search URL" override is DEAD: it silently replaced the whole engine list
+     * (order, fallback endpoints, per-engine result pages, delay) with one page-1-only engine. Any
+     * leftover value is DESTROYED in the store the moment it is seen — nothing reads it, nothing can
+     * resurrect it, and the file stops claiming otherwise.
      */
-    static String migrateLegacySearchUrl(String template) {
-        String trimmed = template == null ? "" : template.trim();
-        if (trimmed.isEmpty()) {
-            return "";
+    private static void destroyLegacySearchUrlLeftover(WorkspaceStateStore store) {
+        if (!store.get(KEY_SEARCH_URL, "").isEmpty()) {
+            store.put(KEY_SEARCH_URL, "");
         }
-        for (com.aresstack.askai.browser.search.engine.BrowserSearchEngine engine
-                : com.aresstack.askai.browser.search.engine.BrowserSearchEngineCatalog.engines()) {
-            for (String endpoint : engine.getEndpointTemplates()) {
-                if (endpoint.equals(trimmed)) {
-                    return "";
-                }
-            }
-        }
-        return trimmed;
     }
 
     public void save(WorkspaceStateStore store) {
@@ -387,7 +373,7 @@ public final class ResearchRuntimeSettings {
         store.put(KEY_SIDECAR_JAR, sidecarJar);
         store.put(KEY_BROWSER_CHANNEL, browserChannel);
         store.putBoolean(KEY_HEADLESS, headless);
-        store.put(KEY_SEARCH_URL, searchUrlTemplate);
+        destroyLegacySearchUrlLeftover(store);
         store.putBoolean(KEY_ALLOW_PRIVATE, allowPrivateNetworks);
         store.put(KEY_RERANKER_MODEL, selectedRerankerModel);
     }
@@ -399,7 +385,6 @@ public final class ResearchRuntimeSettings {
     public String getSidecarJar() { return sidecarJar; }
     public String getBrowserChannel() { return browserChannel; }
     public boolean isHeadless() { return headless; }
-    public String getSearchUrlTemplate() { return searchUrlTemplate; }
     public boolean isAllowPrivateNetworks() { return allowPrivateNetworks; }
     public String getSelectedRerankerModel() { return selectedRerankerModel; }
 
@@ -407,17 +392,16 @@ public final class ResearchRuntimeSettings {
      * development-only override is set — never an implicit relaxation. */
     public ResearchRuntimeConfig toRuntimeConfig() {
         return new ResearchRuntimeConfig(agentJavaExecutable, agentJar, sidecarJavaExecutable, sidecarJar,
-                browserChannel, headless, allowPrivateNetworks,
-                searchUrlTemplate.isEmpty() ? null : searchUrlTemplate, selectedRerankerModel);
+                browserChannel, headless, allowPrivateNetworks, selectedRerankerModel);
     }
 
     /**
      * The runtime rules ({@link ResearchRuntimeConfig#validate()}) PLUS the product-level requirement
      * that the thin sidecar jar needs its sibling {@code lib/} directory. Empty = usable.
      * <p>
-     * A search provider URL is NO LONGER required: the product ships with search engines and the user
-     * orders them in the search settings. The URL here is only the documented dev/test override, and
-     * demanding one meant every installation had to name an engine the product already knew.
+     * A search provider URL does not exist anymore: the product ships with search engines and the
+     * user orders them in the search settings. Dev/test worlds pass the sidecar an explicit
+     * {@code --search-url} per run (askai.research.sidecar.args) — never a persisted value.
      */
     public List<String> validateProductive() {
         List<String> problems = new java.util.ArrayList<String>(toRuntimeConfig().validate());

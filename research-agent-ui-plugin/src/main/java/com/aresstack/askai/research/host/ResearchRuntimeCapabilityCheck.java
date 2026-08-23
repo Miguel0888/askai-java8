@@ -41,13 +41,6 @@ public final class ResearchRuntimeCapabilityCheck {
         items.add(fileItem("Research agent jar", settings.getAgentJar()));
         items.add(fileItem("Java 21 runtime for the browser sidecar", settings.getSidecarJavaExecutable()));
         items.add(fileItem("Browser sidecar jar", settings.getSidecarJar()));
-        String search = settings.getSearchUrlTemplate();
-        if (search.isEmpty()) {
-            items.add(new Item("Search provider URL", true, "not configured — web_search will fail honestly"));
-        } else {
-            items.add(new Item("Search provider URL", search.contains("{query}"),
-                    search.contains("{query}") ? "" : "template must contain {query}"));
-        }
 
         boolean sidecarStartable = new File(settings.getSidecarJavaExecutable()).isFile()
                 && new File(settings.getSidecarJar()).isFile();

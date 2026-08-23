@@ -7,8 +7,8 @@ import java.util.List;
 /**
  * Explicit configuration of the productive research runtime — every external path/setting is passed here,
  * never through hidden system properties or globals: the Java-8 launcher + jar of the external ACP research
- * agent, the Java-21 launcher + thin jar of the Playwright browser sidecar, the browser channel and the
- * search provider URL template. {@link #validate()} reports every missing prerequisite readably; a
+ * agent, the Java-21 launcher + thin jar of the Playwright browser sidecar and the browser channel.
+ * {@link #validate()} reports every missing prerequisite readably; a
  * generation switch validates BEFORE publishing (a broken config never displaces a working generation).
  */
 public final class ResearchRuntimeConfig {
@@ -20,23 +20,22 @@ public final class ResearchRuntimeConfig {
     private final String browserChannel;
     private final boolean headless;
     private final boolean allowPrivateNetworks;
-    private final String searchUrlTemplate;
     /** The EXPLICITLY selected virtual reranker model id ("" = none — the session start fails). */
     private final String selectedRerankerModel;
 
     public ResearchRuntimeConfig(String agentJavaExecutable, String agentJar,
                                  String sidecarJavaExecutable, String sidecarJar,
                                  String browserChannel, boolean headless,
-                                 boolean allowPrivateNetworks, String searchUrlTemplate) {
+                                 boolean allowPrivateNetworks) {
         this(agentJavaExecutable, agentJar, sidecarJavaExecutable, sidecarJar, browserChannel,
-                headless, allowPrivateNetworks, searchUrlTemplate, "");
+                headless, allowPrivateNetworks, "");
     }
 
     /** @param selectedRerankerModel the explicitly selected virtual reranker model id ("" = none). */
     public ResearchRuntimeConfig(String agentJavaExecutable, String agentJar,
                                  String sidecarJavaExecutable, String sidecarJar,
                                  String browserChannel, boolean headless,
-                                 boolean allowPrivateNetworks, String searchUrlTemplate,
+                                 boolean allowPrivateNetworks,
                                  String selectedRerankerModel) {
         this.agentJavaExecutable = agentJavaExecutable;
         this.agentJar = agentJar;
@@ -45,7 +44,6 @@ public final class ResearchRuntimeConfig {
         this.browserChannel = browserChannel == null || browserChannel.isEmpty() ? "chrome" : browserChannel;
         this.headless = headless;
         this.allowPrivateNetworks = allowPrivateNetworks;
-        this.searchUrlTemplate = searchUrlTemplate;
         this.selectedRerankerModel = selectedRerankerModel == null ? "" : selectedRerankerModel.trim();
     }
 
@@ -56,7 +54,6 @@ public final class ResearchRuntimeConfig {
     public String getBrowserChannel() { return browserChannel; }
     public boolean isHeadless() { return headless; }
     public boolean isAllowPrivateNetworks() { return allowPrivateNetworks; }
-    public String getSearchUrlTemplate() { return searchUrlTemplate; }
     public String getSelectedRerankerModel() { return selectedRerankerModel; }
 
     /** @return all problems (empty = usable). Never throws; the CALLER decides (prepare vs. report). */
@@ -66,10 +63,6 @@ public final class ResearchRuntimeConfig {
         requireFile(problems, "agent jar", agentJar);
         requireFile(problems, "sidecar java executable (Java 21)", sidecarJavaExecutable);
         requireFile(problems, "sidecar jar", sidecarJar);
-        if (searchUrlTemplate != null && !searchUrlTemplate.isEmpty()
-                && !searchUrlTemplate.contains("{query}")) {
-            problems.add("search url template must contain {query}");
-        }
         return problems;
     }
 
