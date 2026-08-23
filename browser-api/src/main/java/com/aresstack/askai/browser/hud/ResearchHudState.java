@@ -18,6 +18,8 @@ public final class ResearchHudState {
     public final boolean paused;          // the user paused autonomous navigation
     public final int delaySeconds;        // the user-set inter-page delay (slider position), 0 = off
     public final boolean relevant;        // the user marked the CURRENT page relevant (⭐ toggle)
+    /** The run is OVER (completed/failed/cancelled): the overlay must stop offering controls. */
+    public final boolean terminal;
 
     /** Backward-compatible ctor (no delay). */
     public ResearchHudState(String phase, String statusText, boolean waitingForUser, int countdownSeconds,
@@ -32,6 +34,11 @@ public final class ResearchHudState {
 
     public ResearchHudState(String phase, String statusText, boolean waitingForUser, int countdownSeconds,
                             boolean paused, int delaySeconds, boolean relevant) {
+        this(phase, statusText, waitingForUser, countdownSeconds, paused, delaySeconds, relevant, false);
+    }
+
+    public ResearchHudState(String phase, String statusText, boolean waitingForUser, int countdownSeconds,
+                            boolean paused, int delaySeconds, boolean relevant, boolean terminal) {
         this.phase = phase == null ? "" : phase;
         this.statusText = statusText == null ? "" : statusText;
         this.waitingForUser = waitingForUser;
@@ -39,10 +46,20 @@ public final class ResearchHudState {
         this.paused = paused;
         this.delaySeconds = Math.max(0, delaySeconds);
         this.relevant = relevant;
+        this.terminal = terminal;
+    }
+
+    /**
+     * The state after a terminal run outcome (completed/failed/cancelled): the browser may stay open, but
+     * the HUD must stop pretending a page is being visited — no waiting, no countdown, no active controls.
+     */
+    public static ResearchHudState terminal(String phase, String statusText) {
+        return new ResearchHudState(phase, statusText, false, NO_COUNTDOWN, false, 0, false, true);
     }
 
     public ResearchHudState withCountdown(int seconds) {
-        return new ResearchHudState(phase, statusText, waitingForUser, seconds, paused, delaySeconds, relevant);
+        return new ResearchHudState(phase, statusText, waitingForUser, seconds, paused, delaySeconds,
+                relevant, terminal);
     }
 
     /** Serialize to one escaped line-block for the {@code web_hud_render} tool argument. */
@@ -53,7 +70,8 @@ public final class ResearchHudState {
                 + "countdown=" + countdownSeconds + "\n"
                 + "paused=" + paused + "\n"
                 + "delay=" + delaySeconds + "\n"
-                + "relevant=" + relevant;
+                + "relevant=" + relevant + "\n"
+                + "terminal=" + terminal;
     }
 
     public static ResearchHudState parse(String raw) {
@@ -64,6 +82,7 @@ public final class ResearchHudState {
         boolean paused = false;
         int delay = 0;
         boolean relevant = false;
+        boolean terminal = false;
         if (raw != null) {
             for (String line : raw.split("\n", -1)) {
                 int eq = line.indexOf('=');
@@ -86,10 +105,12 @@ public final class ResearchHudState {
                     delay = Math.max(0, parseInt(value));
                 } else if (key.equals("relevant")) {
                     relevant = Boolean.parseBoolean(value);
+                } else if (key.equals("terminal")) {
+                    terminal = Boolean.parseBoolean(value);
                 }
             }
         }
-        return new ResearchHudState(phase, status, waiting, countdown, paused, delay, relevant);
+        return new ResearchHudState(phase, status, waiting, countdown, paused, delay, relevant, terminal);
     }
 
     private static int parseInt(String v) {

@@ -54,6 +54,22 @@ public class ResearchHudTest {
     }
 
     @Test
+    public void terminalSurvivesTheWireAndDefaultsToFalse() {
+        ResearchHudState done = ResearchHudState.parse(
+                ResearchHudState.terminal("DONE", "Recherche beendet").render());
+        assertTrue(done.terminal);
+        assertEquals("DONE", done.phase);
+        assertFalse("a terminal state never waits", done.waitingForUser);
+        assertEquals(ResearchHudState.NO_COUNTDOWN, done.countdownSeconds);
+
+        ResearchHudState live = ResearchHudState.parse(new ResearchHudState(
+                "READABLE", "ok", false, ResearchHudState.NO_COUNTDOWN, false).render());
+        assertFalse("a live state is not terminal", live.terminal);
+        // Backward compatibility: a line-block WITHOUT the terminal key parses as live.
+        assertFalse(ResearchHudState.parse("phase=READABLE\nstatus=ok").terminal);
+    }
+
+    @Test
     public void relevanceSurvivesTheWire() {
         ResearchHudState back = ResearchHudState.parse(new ResearchHudState(
                 "READABLE", "ok", false, ResearchHudState.NO_COUNTDOWN, false, 0, true).render());

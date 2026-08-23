@@ -61,11 +61,14 @@ final class ResearchHudOverlay {
                 + "<span id='hud-status' class='status'></span></div>"
                 + "<div id='hud-wait' class='wait' hidden>Waiting for user — <b id='hud-count'></b>s"
                 + "<button id='hud-resolve' class='btn' style='margin-left:10px;'>✓ Gelöst</button></div>"
-                + "<div class='bar bottom'><button id='hud-pause' class='btn'>⏸ Pause</button>"
+                + "<div id='hud-bottom' class='bar bottom'><button id='hud-pause' class='btn'>⏸ Pause</button>"
                 + "<div class='spacer'></div>"
-                + "<label class='delaylbl'>Delay <b id='hud-delayval'>0</b>s</label>"
+                + "<label id='hud-delaylbl' class='delaylbl'>Delay <b id='hud-delayval'>0</b>s</label>"
                 + "<input id='hud-delay' class='slider' type='range' min='0' max='30' step='1' value='0'>"
-                + "<button id='hud-next' class='btn'>Next ⏭</button>"
+                // NEXT only skips the inter-page delay — it is rendered ONLY during that delay phase
+                // (renderScript), so it can never suggest a "next page" action it does not perform.
+                + "<button id='hud-next' class='btn' title='Wartezeit überspringen' hidden>"
+                + "⏭ Weiter</button>"
                 + "<button id='hud-skip' class='btn danger'>Skip ✕</button></div>`;\n"
                 + "  const cmd = (t) => { try { if (window.__askaiHudCommand) window.__askaiHudCommand(t); } "
                 + "catch(e){} };\n"
@@ -87,13 +90,20 @@ final class ResearchHudOverlay {
 
     /** Update the (already installed) overlay from a state. Returns 'rendered' or 'no-hud'. */
     static String renderScript(ResearchHudState state) {
-        boolean showCountdown = state.waitingForUser && state.countdownSeconds >= 0;
+        boolean showCountdown = !state.terminal && state.waitingForUser && state.countdownSeconds >= 0;
+        // NEXT only ever skips the inter-page delay, so it exists only while that delay is running.
+        boolean showNext = !state.terminal && "DELAY".equals(state.phase);
         return "() => {\n"
                 + "  const root = window.__askaiResearchHudRoot;\n"
                 + "  if (!root) return 'no-hud';\n"
                 + "  const $ = (id) => root.getElementById(id);\n"
                 + "  $('hud-phase').textContent = " + js(state.phase) + ";\n"
                 + "  $('hud-status').textContent = " + js(state.statusText) + ";\n"
+                // Terminal: the run is over. The browser may stay open, but the HUD must not keep
+                // offering controls for a page visit that no longer exists.
+                + "  $('hud-bottom').hidden = " + state.terminal + ";\n"
+                + "  $('hud-star').hidden = " + state.terminal + ";\n"
+                + "  $('hud-next').hidden = " + !showNext + ";\n"
                 + "  window.__askaiHudPaused = " + state.paused + ";\n"
                 + "  $('hud-pause').textContent = " + (state.paused ? "'▶ Resume'" : "'⏸ Pause'") + ";\n"
                 + "  window.__askaiHudRelevant = " + state.relevant + ";\n"

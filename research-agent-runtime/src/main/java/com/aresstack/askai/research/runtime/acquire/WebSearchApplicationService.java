@@ -292,6 +292,15 @@ public final class WebSearchApplicationService {
 
     /** Execute the deterministic acquisition for {@code terms}; returns the explicit acquisition stop reason. */
     public ResearchStopReason execute(Set<String> terms) {
+        ResearchStopReason reason = runAcquisition(terms);
+        // HUD lifecycle: after a terminal outcome the browser may stay open, but the overlay must stop
+        // pretending a page is being visited — controls off, state visibly final. Best-effort like every
+        // other HUD render; a dead browser is simply skipped.
+        renderTerminalHud(reason);
+        return reason;
+    }
+
+    private ResearchStopReason runAcquisition(Set<String> terms) {
         // Seed: search, else nothing to do.
         List<FrontierEntry> frontier = new ArrayList<FrontierEntry>();
         ResearchStopReason seedStop = null;
@@ -970,6 +979,25 @@ public final class WebSearchApplicationService {
             lastHudErrorLine = null; // a success clears the throttle so the next distinct failure is logged
         } catch (ToolInvoker.ToolFailure | ToolInvoker.EndpointUnavailable | RuntimeException ex) {
             logHudFailure("render", ex);
+        }
+    }
+
+    /**
+     * Render the terminal HUD state once the run is over: no waiting, no countdown, no controls. The phase
+     * distinguishes the user's cancel from a completed/failed run; the reason is shown verbatim so the
+     * overlay never claims more than the run reported.
+     */
+    private void renderTerminalHud(ResearchStopReason reason) {
+        if (!hudEnabled || browserGone || reason == ResearchStopReason.MCP_UNAVAILABLE) {
+            return; // no browser left to render on
+        }
+        String phase = reason == ResearchStopReason.USER_CANCELLED ? "CANCELLED" : "DONE";
+        try {
+            callBrowser("web_hud_render", args("state", ResearchHudState.terminal(phase,
+                    "Recherche beendet (" + reason + ") — dieser Browser gehört zu keiner aktiven Suche mehr")
+                    .render()));
+        } catch (ToolInvoker.ToolFailure | ToolInvoker.EndpointUnavailable | RuntimeException ex) {
+            logHudFailure("render-terminal", ex);
         }
     }
 

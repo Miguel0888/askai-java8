@@ -78,6 +78,36 @@ public class ResearchHudOverlayTest {
     }
 
     @Test
+    public void nextExistsOnlyDuringTheDelayPhaseAndSaysWhatItDoes() {
+        String install = ResearchHudOverlay.installScript();
+        assertTrue("next starts hidden", install.contains("id='hud-next' class='btn' "
+                + "title='Wartezeit überspringen' hidden"));
+
+        String delay = ResearchHudOverlay.renderScript(new ResearchHudState(
+                "DELAY", "waiting", false, ResearchHudState.NO_COUNTDOWN, false, 9));
+        assertTrue("visible while the inter-page delay runs", delay.contains("$('hud-next').hidden = false"));
+
+        String readable = ResearchHudOverlay.renderScript(new ResearchHudState(
+                "READABLE", "ok", false, ResearchHudState.NO_COUNTDOWN, false));
+        assertTrue("hidden outside the delay phase — it only skips that delay",
+                readable.contains("$('hud-next').hidden = true"));
+    }
+
+    @Test
+    public void aTerminalStateDisablesEveryControlAndTheCountdown() {
+        String js = ResearchHudOverlay.renderScript(
+                ResearchHudState.terminal("DONE", "Recherche beendet"));
+        assertTrue("bottom bar (pause/delay/next/skip) goes away", js.contains("$('hud-bottom').hidden = true"));
+        assertTrue("relevance star goes away", js.contains("$('hud-star').hidden = true"));
+        assertTrue("no user-wait box", js.contains("wait.hidden = true"));
+        assertTrue("the terminal phase is shown", js.contains("'DONE'"));
+
+        String live = ResearchHudOverlay.renderScript(new ResearchHudState(
+                "READABLE", "ok", false, ResearchHudState.NO_COUNTDOWN, false));
+        assertTrue("a live state keeps the controls", live.contains("$('hud-bottom').hidden = false"));
+    }
+
+    @Test
     public void statusTextCannotInjectMarkupOrBreakTheString() {
         String js = ResearchHudOverlay.renderScript(
                 new ResearchHudState("X", "</style><script>evil()</script>'; alert(1)//", false, -1, false));
