@@ -60,6 +60,8 @@ final class BrowserSessionActor implements BrowserSession {
     private final BrowserSession underlying;
     /** The Playwright-backed session when this actor fronts one, else null (e.g. UnavailableSession). */
     private final PlaywrightBrowserSession playwrightBacked;
+    /** Control plane: the HUD inbox is drained DIRECTLY, never through the command queue (see below). */
+    private final HudCommandInbox hudInbox;
     private final BlockingQueue<Command<?>> queue = new LinkedBlockingQueue<Command<?>>();
     private final AtomicBoolean running = new AtomicBoolean(true);
     private final BooleanSupplier wake = new BooleanSupplier() {
@@ -73,6 +75,7 @@ final class BrowserSessionActor implements BrowserSession {
         this.underlying = underlying;
         this.playwrightBacked = underlying instanceof PlaywrightBrowserSession
                 ? (PlaywrightBrowserSession) underlying : null;
+        this.hudInbox = playwrightBacked == null ? null : playwrightBacked.hudInbox();
     }
 
     /**
@@ -293,6 +296,12 @@ final class BrowserSessionActor implements BrowserSession {
 
     @Override
     public String pollHudCommands() throws BrowserException {
+        // CONTROL PLANE: drained directly on the calling (MCP HTTP) thread. Routing this through the
+        // command queue would park the user's Skip behind exactly the blocked data call it is meant to
+        // interrupt. The inbox is pure Java and thread-safe; no Playwright state is touched.
+        if (hudInbox != null) {
+            return hudInbox.drain();
+        }
         return call(new SessionTask<String>() {
             public String run(BrowserSession s) throws BrowserException {
                 return s.pollHudCommands();

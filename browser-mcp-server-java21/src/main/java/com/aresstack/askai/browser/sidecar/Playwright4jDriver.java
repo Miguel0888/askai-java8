@@ -50,7 +50,8 @@ final class Playwright4jDriver implements PlaywrightDriver {
     private Page challengePage;
     /** Research HUD: the command binding is registered ONCE on the context (survives navigation). */
     private boolean hudBindingRegistered;
-    private final java.util.Queue<String> hudCommands = new java.util.concurrent.ConcurrentLinkedQueue<String>();
+    /** Control plane: filled by the binding on the owner thread, drained on any thread (never via the actor). */
+    private final HudCommandInbox hudCommands = new HudCommandInbox();
     /** How many popups the close-immediately policy handled — observable proof the event dispatched. */
     private final java.util.concurrent.atomic.AtomicInteger popupsClosed =
             new java.util.concurrent.atomic.AtomicInteger();
@@ -253,16 +254,13 @@ final class Playwright4jDriver implements PlaywrightDriver {
 
     @Override
     public String pollHudCommands() {
-        // Deliberately NO owner check: this drains a thread-safe Java queue and never touches Playwright.
-        StringBuilder sb = new StringBuilder();
-        String command;
-        while ((command = hudCommands.poll()) != null) {
-            if (sb.length() > 0) {
-                sb.append('\n');
-            }
-            sb.append(command);
-        }
-        return sb.toString();
+        // Deliberately NO owner check: this drains a thread-safe Java inbox and never touches Playwright.
+        return hudCommands.drain();
+    }
+
+    @Override
+    public HudCommandInbox hudInbox() {
+        return hudCommands;
     }
 
     /** The one popup policy: close immediately, count it, and never let a dead popup break the session. */

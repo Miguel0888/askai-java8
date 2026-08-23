@@ -102,6 +102,15 @@ interface PlaywrightDriver extends AutoCloseable {
     }
 
     /**
+     * The control-plane inbox the HUD binding feeds, or null when this driver has none. Exposed so the
+     * actor can drain it WITHOUT queueing behind a blocked data command — a Skip must arrive even while
+     * probe/read is stuck.
+     */
+    default HudCommandInbox hudInbox() {
+        return null;
+    }
+
+    /**
      * Run the driver's event loop for at most {@code timeoutMillis} or until {@code wake} holds, so that
      * browser-initiated events (route interception, exposeBinding, popups) are dispatched while the sidecar
      * is otherwise idle. Playwright Java only delivers these while a Playwright call is active — without a

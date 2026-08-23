@@ -191,6 +191,78 @@ public class BrowserSessionActorTest {
     }
 
     @Test
+    public void hudPollIsControlPlaneAndAnswersWhileADataCallBlocksTheActor() throws Exception {
+        // A Playwright-backed session over a fake driver whose open() blocks until released — the shape of
+        // a hung probe/read. The Skip in the HUD inbox must still be drainable, WITHOUT the actor queue.
+        final CountDownLatch openEntered = new CountDownLatch(1);
+        final CountDownLatch releaseOpen = new CountDownLatch(1);
+        final HudCommandInbox inbox = new HudCommandInbox();
+        final PlaywrightDriver blockingDriver = new PlaywrightDriver() {
+            public PlaywrightPageState open(String url) {
+                openEntered.countDown();
+                try {
+                    releaseOpen.await(10, TimeUnit.SECONDS);
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                }
+                return new PlaywrightPageState("http://127.0.0.1:9/x", "t", "text",
+                        Collections.<PlaywrightPageState.Anchor>emptyList());
+            }
+
+            public PlaywrightPageState current() {
+                return new PlaywrightPageState("http://127.0.0.1:9/x", "t", "text",
+                        Collections.<PlaywrightPageState.Anchor>emptyList());
+            }
+
+            public PlaywrightPageState back() {
+                return current();
+            }
+
+            public HudCommandInbox hudInbox() {
+                return inbox;
+            }
+
+            public void close() {
+            }
+        };
+        final BrowserSessionActor actor = BrowserSessionActor.start(new Supplier<BrowserSession>() {
+            public BrowserSession get() {
+                return new PlaywrightBrowserSession(blockingDriver,
+                        com.aresstack.askai.browser.UrlSafetyPolicy.allowingPrivateNetworks(),
+                        com.aresstack.askai.browser.BrowserLimits.defaults(), null,
+                        new WebSearchProvider.OrganicResultSearchProvider(
+                                com.aresstack.askai.browser.search.LegacyBrowserSearchDefaults.create()));
+            }
+        });
+        try {
+            Thread dataCall = new Thread(new Runnable() {
+                public void run() {
+                    try {
+                        actor.open("http://127.0.0.1:9/x");
+                    } catch (BrowserException ignored) {
+                    }
+                }
+            }, "blocked-data-call");
+            dataCall.start();
+            assertTrue("the data call must be inside the driver", openEntered.await(5, TimeUnit.SECONDS));
+
+            inbox.add("SKIP"); // the HUD binding would do this during the event pump
+            long before = System.currentTimeMillis();
+            String drained = actor.pollHudCommands();
+            long elapsed = System.currentTimeMillis() - before;
+            assertEquals("SKIP", drained);
+            assertTrue("the control-plane drain must not queue behind the blocked data call (took "
+                    + elapsed + "ms)", elapsed < 2000);
+
+            releaseOpen.countDown();
+            dataCall.join(5000);
+        } finally {
+            releaseOpen.countDown();
+            actor.close();
+        }
+    }
+
+    @Test
     public void factoryFailurePropagatesFromStart() {
         try {
             BrowserSessionActor.start(new Supplier<BrowserSession>() {

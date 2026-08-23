@@ -458,6 +458,11 @@ final class PlaywrightBrowserSession implements BrowserSession {
         return driver.pumpEvents(wake, timeoutMillis);
     }
 
+    /** The driver's control-plane HUD inbox (or null) — drained OUTSIDE the actor's command queue. */
+    HudCommandInbox hudInbox() {
+        return driver.hudInbox();
+    }
+
     /** The post-redirect gate: the FINAL url must pass the policy or the page is abandoned. */
     private BrowserPageSnapshot checkedSnapshot(PlaywrightPageState state) throws BrowserException {
         try {
