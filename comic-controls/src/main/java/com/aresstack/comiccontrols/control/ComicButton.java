@@ -62,6 +62,11 @@ public class ComicButton extends JButton {
         setBorder(BorderFactory.createEmptyBorder(5, 14, 5, 14));
     }
 
+    /** The button's color role (e.g. for tests and role-dependent wiring). */
+    public Accent getAccent() {
+        return accent;
+    }
+
     @Override
     protected void paintComponent(Graphics g) {
         Graphics2D g2 = (Graphics2D) g.create();

@@ -34,6 +34,15 @@ public final class ResearchStateViewContribution implements ArtifactViewContribu
         }
         final ResearchAgentSession research = (ResearchAgentSession) session;
         final UiExecutor uiExecutor = context.getUiExecutor();
+        // The tab's buttons route through the session's command port — the SAME seam as chat action
+        // tags and slash commands. Never the state machine directly: the session owns the memento
+        // and the transition's side effects (turn cancel, MCP republish, notifications).
+        view.setCommandListener(new ResearchStateView.CommandListener() {
+            public com.aresstack.askai.research.backend.ResearchCommandDispatchResult commandClicked(
+                    com.aresstack.askai.research.state.ResearchCommandType command) {
+                return research.dispatch(command, null);
+            }
+        });
         final Runnable refresh = new Runnable() {
             public void run() {
                 // Snapshot is read on the caller thread but applied to Swing via the UiExecutor.

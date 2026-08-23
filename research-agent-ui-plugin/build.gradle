@@ -24,6 +24,10 @@ dependencies {
     // Netty) are NOT bundled into a fat jar — they ship in the plugin's lib/ directory (see pluginDistribution
     // below) and load via the plugin classloader. The runtime process keeps its own separate copy.
     implementation project(':web-search-providers')
+    // The comic visual foundation (issue #36 line) is HOST-provided like the shared APIs: askai-app
+    // has it on the application classpath, so the plugin compiles against it and PF4J delegates the
+    // classes to the host at runtime — ONE copy, one uniform look, no identity split.
+    compileOnly project(':comic-controls')
     compileOnly project(':agent-workspace-api')
     compileOnly project(':agent-plugin-pf4j-api')
     compileOnly project(':mcp-runtime-api')      // host-provided, like the other shared APIs
@@ -35,6 +39,7 @@ dependencies {
     // Generates META-INF/extensions.idx from @Extension so PF4J can discover the extension.
     annotationProcessor 'org.pf4j:pf4j:3.15.0'
 
+    testImplementation project(':comic-controls')
     testImplementation project(':agent-workspace-api')
     testImplementation project(':agent-plugin-pf4j-api')
     testImplementation project(':mcp-runtime-api')
@@ -113,12 +118,13 @@ task pluginDistribution(type: Sync) {
         exclude 'acp-client-api*.jar'
         exclude 'agent-workspace-api*.jar'
         exclude 'agent-plugin-pf4j-api*.jar'
+        exclude 'comic-controls*.jar' // host-provided visual foundation — same rule as the APIs
     }
     // Regression guard: fail the build if any host-provided shared API slipped into the plugin's lib/.
     doLast {
         def libDir = layout.buildDirectory.dir("plugin-dist/${researchPluginDirName}/lib").get().asFile
         def forbidden = ['agent-model-runtime-api', 'mcp-runtime-api', 'acp-client-api',
-                         'agent-workspace-api', 'agent-plugin-pf4j-api']
+                         'agent-workspace-api', 'agent-plugin-pf4j-api', 'comic-controls']
         def leaked = (libDir.listFiles() ?: []).findAll { file ->
             forbidden.any { file.name.startsWith(it) }
         }
