@@ -727,10 +727,12 @@ public final class ResearchAgentMain {
             // search keeps this instance (constructor injection below).
             com.aresstack.askai.research.runtime.rerank.CandidateReranker searchReranker =
                     rerankerFor(searchLanguage == null ? sessionLanguage.code() : searchLanguage);
+            com.aresstack.askai.research.runtime.loop.ResearchRunBudget searchBudget =
+                    com.aresstack.askai.research.runtime.loop.ResearchRunBudget.defaults();
             com.aresstack.askai.research.runtime.acquire.WebSearchApplicationService acquisition =
                     new com.aresstack.askai.research.runtime.acquire.WebSearchApplicationService(
                             browser,
-                            com.aresstack.askai.research.runtime.loop.ResearchRunBudget.defaults(),
+                            searchBudget,
                             progress,
                             new com.aresstack.askai.research.runtime.loop.ResearchLoopClock() {
                                 public long currentTimeMillis() {
@@ -797,6 +799,12 @@ public final class ResearchAgentMain {
                             loadBrowserSearchSettings().captcha.waitForUser,
                             loadBrowserSearchSettings().readiness.maximumPageReadinessRetries,
                             loadBrowserSearchSettings().readiness.minimumReadableCharacters);
+            // The user search completes DETERMINISTICALLY: the configured accepted-source target
+            // (the budget's maxAcceptedSources) and nothing else. No minimum-host heuristics, no
+            // relabeled budget stops — every other ending keeps its honest reason.
+            acquisition.setCompletionPolicy(
+                    new com.aresstack.askai.research.runtime.acquire.FixedAcceptedSourceCountPolicy(
+                            searchBudget.getMaxAcceptedSources()));
             // "LLM entscheidet": let the main model classify an ambiguous page (thin text, no DOM signal) so
             // a "verify you are human" wall the SERP selectors missed is treated as a CAPTCHA, not skipped.
             acquisition.setReadinessJudge(

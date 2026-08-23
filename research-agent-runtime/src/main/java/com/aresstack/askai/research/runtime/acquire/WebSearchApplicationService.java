@@ -160,6 +160,12 @@ public final class WebSearchApplicationService {
     private final int minReadableChars;
     /** The readiness verdict seam (default heuristic; a model-backed judge can be set for user searches). */
     private PageReadinessJudge readinessJudge;
+    /**
+     * The completion seam: "fachlich fertig?" is a policy, not service code. Default is the LEGACY
+     * autonomous semantics (behaviour-preserving); the manual search injects the deterministic
+     * {@link FixedAcceptedSourceCountPolicy}.
+     */
+    private SearchCompletionPolicy completionPolicy;
     /** Layer 2: expected-content similarity (SERP anchor vs page text); default NONE → no override. */
     private PageContentSimilarity contentSimilarity = PageContentSimilarity.NONE;
     /** SERP anchor (result title + snippet) per seed candidate URL, for the semantic readiness override. */
@@ -250,12 +256,20 @@ public final class WebSearchApplicationService {
         this.maxReadinessRetries = maxReadinessRetries;
         this.minReadableChars = minReadableChars;
         this.readinessJudge = new HeuristicPageReadinessJudge(minReadableChars);
+        this.completionPolicy = new MinimumEvidenceCompletionPolicy(budget);
     }
 
     /** Replace the default heuristic readiness judge (e.g. a model-backed one for a user search). No-op on null. */
     public void setReadinessJudge(PageReadinessJudge judge) {
         if (judge != null) {
             this.readinessJudge = judge;
+        }
+    }
+
+    /** Replace the completion policy (the manual search injects the deterministic fixed-count baseline). */
+    public void setCompletionPolicy(SearchCompletionPolicy policy) {
+        if (policy != null) {
+            this.completionPolicy = policy;
         }
     }
 
@@ -386,7 +400,7 @@ public final class WebSearchApplicationService {
                 continue;
             }
             if (frontier.isEmpty()) {
-                return sufficientOr(ResearchStopReason.NO_RELEVANT_PATHS);
+                return completionPolicy.labelExhaustion(ResearchStopReason.NO_RELEVANT_PATHS, progress);
             }
             FrontierEntry entry = frontier.remove(0);
             String url = entry.getUrl();
@@ -577,7 +591,7 @@ public final class WebSearchApplicationService {
             case CANCELLED:
                 return ResearchStopReason.USER_CANCELLED;
             case BUDGET_EXHAUSTED:
-                return sufficientOr(ResearchStopReason.TOOL_BUDGET_EXHAUSTED);
+                return completionPolicy.labelExhaustion(ResearchStopReason.TOOL_BUDGET_EXHAUSTED, progress);
             case RERANKER_UNAVAILABLE:
             default:
                 progress.error();
@@ -1401,7 +1415,7 @@ public final class WebSearchApplicationService {
             // Uniform "skip on challenge" choice: do NOT wait for the user. The challenge-blocked URLs stay
             // deferred and are simply left behind (their parked sources keep an empty full text).
             listener.status("skipping challenge-blocked pages (wait-for-user disabled): " + family);
-            return sufficientOr(ResearchStopReason.NO_RELEVANT_PATHS);
+            return completionPolicy.labelExhaustion(ResearchStopReason.NO_RELEVANT_PATHS, progress);
         }
         listener.progress(progress, ResearchRunActivity.waitingForUser(family, ""));
         while (frontier.isEmpty() && !deferredUrls.isEmpty() && !challengedFamilies.isEmpty()) {
@@ -1435,11 +1449,16 @@ public final class WebSearchApplicationService {
         if (browserGone) {
             return ResearchStopReason.MCP_UNAVAILABLE; // browser closed/dead → end technically, never hang
         }
+        // The NORMAL end, decided by the injected policy alone — checked before any safety limit so a
+        // completed run never reads as an exhaustion that happened to coincide.
+        if (completionPolicy.isComplete(progress)) {
+            return ResearchStopReason.SUFFICIENT_EVIDENCE;
+        }
         if (progress.getToolCalls() >= budget.getMaxToolCalls()) {
-            return sufficientOr(ResearchStopReason.TOOL_BUDGET_EXHAUSTED);
+            return completionPolicy.labelExhaustion(ResearchStopReason.TOOL_BUDGET_EXHAUSTED, progress);
         }
         if (progress.getPagesVisited() >= budget.getMaxPagesVisited()) {
-            return sufficientOr(ResearchStopReason.PAGE_BUDGET_EXHAUSTED);
+            return completionPolicy.labelExhaustion(ResearchStopReason.PAGE_BUDGET_EXHAUSTED, progress);
         }
         if (progress.getAcceptedSources() >= budget.getMaxAcceptedSources()) {
             return ResearchStopReason.SOURCE_BUDGET_EXHAUSTED;
@@ -1449,15 +1468,9 @@ public final class WebSearchApplicationService {
         }
         // Waiting for the USER (manual challenge) is never budgeted time.
         if (clock.currentTimeMillis() - startedAt - waitedForUserMillis >= budget.getMaxDurationMillis()) {
-            return sufficientOr(ResearchStopReason.TIME_BUDGET_EXHAUSTED);
+            return completionPolicy.labelExhaustion(ResearchStopReason.TIME_BUDGET_EXHAUSTED, progress);
         }
         return null;
-    }
-
-    private ResearchStopReason sufficientOr(ResearchStopReason fallback) {
-        boolean sufficient = progress.getAcceptedSources() >= budget.getMinimumAcceptedSources()
-                && progress.getDistinctHosts().size() >= budget.getMinimumDistinctHosts();
-        return sufficient ? ResearchStopReason.SUFFICIENT_EVIDENCE : fallback;
     }
 
     // ------------------------------------------------------------------ tool plumbing
