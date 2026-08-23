@@ -26,7 +26,14 @@ public final class LocalInferenceConfigurationSnapshotProvider
 
     static final String SNAPSHOT_FILE_NAME = "inference-config.json";
     static final String CHAT_PATH = "/api/chat";
-    static final long DEFAULT_TIMEOUT_MILLIS = 120_000L;
+    /**
+     * Per-call read timeout of the central main model. 300s, not the former 120s: since the agent's
+     * answer budget is user-configurable (4096-token reviews on a small local model generate for
+     * minutes), a two-minute cap silently turned long legitimate answers into MODEL_UNAVAILABLE —
+     * "die Auswertung konnte diesmal nicht erstellt werden" with a healthy model. The value travels in
+     * the inference descriptor (timeoutMillis), so a persisted configuration can still override it.
+     */
+    static final long DEFAULT_TIMEOUT_MILLIS = 300_000L;
 
     /** The three endpoint sources, seamed so the local/remote routing is testable without a sidecar. */
     interface EndpointSources {

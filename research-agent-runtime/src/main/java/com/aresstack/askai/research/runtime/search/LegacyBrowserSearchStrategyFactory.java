@@ -40,7 +40,54 @@ public final class LegacyBrowserSearchStrategyFactory {
                                                LongSupplier nowEpochMillis, StructuredInferencePort inferencePort) {
         McpLayoutRepairClient repairClient = new McpLayoutRepairClient(browser,
                 new SearchLayoutRepairCoordinator(settings, inferencePort,
-                        InferenceBudgetGate.ALLOW_ALL, new SleepingRetryDelay(), null));
+                        InferenceBudgetGate.ALLOW_ALL, new SleepingRetryDelay(), profileStore()));
         return new LegacyBrowserSearchStrategy(repairClient, nowEpochMillis);
+    }
+
+    /**
+     * The PERSISTENT layout-profile store (issue #35, first slice): the coordinator ran with
+     * {@code null} here, so every AI-repaired SERP layout was validated, used once and thrown away —
+     * the next search paid the same multi-second repair for the same page structure again. Profiles
+     * now live on disk ({@code ~/agents/research/layout-profiles.jsonl}, overridable via
+     * {@code -Daskai.research.layoutProfiles=<file>}) and are consulted BEFORE the AI resolver;
+     * reuse stays gated by the service's structural re-validation, never by trust in stale storage.
+     * One store per runtime process; an unusable path degrades to the old no-store behaviour, loudly.
+     */
+    private static volatile com.aresstack.askai.browser.search.layout.SearchPageLayoutProfileStore
+            sharedProfileStore;
+
+    static com.aresstack.askai.browser.search.layout.SearchPageLayoutProfileStore profileStore() {
+        com.aresstack.askai.browser.search.layout.SearchPageLayoutProfileStore store = sharedProfileStore;
+        if (store != null) {
+            return store;
+        }
+        synchronized (LegacyBrowserSearchStrategyFactory.class) {
+            if (sharedProfileStore == null) {
+                sharedProfileStore = openProfileStore();
+            }
+            return sharedProfileStore;
+        }
+    }
+
+    static com.aresstack.askai.browser.search.layout.SearchPageLayoutProfileStore
+            openProfileStore() {
+        try {
+            String configured = System.getProperty("askai.research.layoutProfiles", "").trim();
+            java.nio.file.Path path = configured.isEmpty()
+                    ? java.nio.file.Paths.get(System.getProperty("user.home"), "agents", "research",
+                            "layout-profiles.jsonl")
+                    : java.nio.file.Paths.get(configured);
+            if (path.getParent() != null) {
+                java.nio.file.Files.createDirectories(path.getParent());
+            }
+            com.aresstack.askai.browser.search.analysis.FileSearchPageLayoutProfileStore store =
+                    new com.aresstack.askai.browser.search.analysis.FileSearchPageLayoutProfileStore(path);
+            System.err.println("[layout-profiles] store=" + path + " profiles=" + store.size());
+            return store;
+        } catch (RuntimeException | java.io.IOException cannotOpen) {
+            System.err.println("[layout-profiles] store unavailable (" + cannotOpen.getMessage()
+                    + ") — repairs will not be remembered this session");
+            return null;
+        }
     }
 }

@@ -385,6 +385,9 @@ public final class WebSearchApplicationService {
                         == com.aresstack.askai.research.runtime.search.InitialSearchStatus.TECHNICAL_PROBLEM) {
             return ResearchStopReason.SEARCH_TECHNICAL_PROBLEM;
         }
+        // The card reflects the SERP as soon as the engine answered: what was found/assessed/selected is
+        // known HERE — before the first page opens, not only after it.
+        listener.progress(progress, ResearchRunActivity.searching(relevanceQuery));
 
         while (true) {
             ResearchStopReason gate = stopReasonNow();
