@@ -198,17 +198,17 @@ public class AiSearchPageLayoutResolverTest {
     }
 
     /**
-     * The retry loop stays real for violations that CANNOT be derived away: here the model excludes the
-     * very container its block sits in, so promoting it would overrule the model's own judgement.
+     * The retry loop stays real for a decision that is genuinely the model's fault: naming a card and
+     * excluding the same card in one breath. It is bounded, and it never ends in a silent guess.
      */
     @Test
-    public void aContradictionThatCannotBeDerivedAwayStillExhaustsTheAttempts() {
+    public void aSelfContradictingDecisionStillExhaustsTheAttempts() {
         SearchPageAnalysisArtifact artifact = hierarchyArtifact();
         String bad = "{\"analysisId\":\"" + artifact.analysisId + "\",\"snapshotId\":\""
                 + artifact.snapshotId + "\","
-                + "\"organicResultContainerIds\":[\"container-b1\"],"
+                + "\"organicResultContainerIds\":[\"container-col\"],"
                 + "\"resultBlockContainerIds\":[\"container-b2\"],"
-                + "\"excludedContainerIds\":[\"container-col\"],"
+                + "\"excludedContainerIds\":[\"container-b2\"],"
                 + "\"confidence\":0.8,\"explanation\":\"r\"}";
         ScriptedStructuredInferencePort port = new ScriptedStructuredInferencePort()
                 .thenSuccess(bad).thenSuccess(bad).thenSuccess(bad);
@@ -219,7 +219,7 @@ public class AiSearchPageLayoutResolverTest {
         assertEquals("bounded by the default maximumAttempts", 3, result.attempts.size());
         assertEquals(3, port.callCount());
         assertTrue("and the concrete violation is still recorded",
-                result.attempts.get(0).violations.toString().contains("BLOCK_OUTSIDE_REGION"));
+                result.attempts.get(0).violations.toString().contains("both a result block"));
         assertNull(result.acceptedDecision);
     }
 

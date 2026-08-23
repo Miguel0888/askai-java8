@@ -43,7 +43,8 @@ final class SearchPageLayoutDecisionValidator {
      * So the direct parent of every named result block is derived here and put FIRST among the organic
      * regions — but only when the DOM supports it: the parent must be a container the mechanics offered,
      * must not be the root, and must not be one the model itself excluded. Where that does not hold,
-     * nothing is promoted and the strict rules below reject the decision exactly as before.
+     * nothing is promoted and NOTHING is rejected for it: the region is provenance about where a card
+     * sits, never a condition for the card counting as a result.
      */
     SearchPageLayoutResolutionDecision normalize(SearchPageLayoutResolutionDecision decision,
                                                  SearchPageAnalysisArtifact artifact) {
@@ -109,17 +110,26 @@ final class SearchPageLayoutDecisionValidator {
         checkDuplicates(decision.excludedContainerIds, "excludedContainerIds", violations);
 
         Set<String> organic = new HashSet<String>(decision.organicResultContainerIds);
+        Set<String> blocks = new HashSet<String>(decision.resultBlockContainerIds);
         for (String id : decision.excludedContainerIds) {
             if (organic.contains(id)) {
                 violations.add(new SearchPageLayoutValidationViolation(
                         Kind.CONTRADICTORY_CLASSIFICATION,
                         "container '" + id + "' is both organic and excluded"));
             }
+            if (blocks.contains(id)) {
+                violations.add(new SearchPageLayoutValidationViolation(
+                        Kind.CONTRADICTORY_CLASSIFICATION,
+                        "container '" + id + "' is both a result block and excluded"));
+            }
         }
 
-        if (decision.organicResultContainerIds.isEmpty()) {
+        if (decision.organicResultContainerIds.isEmpty()
+                && decision.resultBlockContainerIds.isEmpty()) {
+            // Naming NOTHING is still no answer. But a decision that named the result cards has said
+            // where the results are; it does not owe a second, coarser way of saying the same thing.
             violations.add(new SearchPageLayoutValidationViolation(Kind.NO_ORGANIC_CONTAINER,
-                    "no organic result container was named"));
+                    "neither an organic result container nor a result block was named"));
         }
 
         if (decision.confidence < 0.0 || decision.confidence > 1.0
@@ -152,18 +162,15 @@ final class SearchPageLayoutDecisionValidator {
             }
         }
 
-        // Every provided result block must sit directly inside a chosen organic region.
-        for (String block : decision.resultBlockContainerIds) {
-            if (!parentById.containsKey(block)) {
-                continue; // unknown-id is already reported above; nothing more to prove here
-            }
-            String parent = parentById.get(block);
-            if (!organic.contains(parent)) {
-                violations.add(new SearchPageLayoutValidationViolation(Kind.BLOCK_OUTSIDE_REGION,
-                        "result block '" + block + "' is not inside a chosen organic region "
-                                + containmentFacts(block, parent, parentById, artifact)));
-            }
-        }
+        // A named result block is NOT required to sit directly inside a named region.
+        //
+        // That rule belonged to the world where a repair only pointed at a region and the mechanical
+        // detector then had to rediscover the cards inside it. Since the extractor follows the named
+        // blocks (detectExplicit), the region relation proves nothing the block itself does not: the
+        // block is bound to this snapshot by checkKnown, must not be excluded, and is then verified
+        // where it matters — visible, with a qualifying primary external link, or no candidate.
+        // Live, the model named the same correct card three times and was rejected three times for
+        // not also naming its parent, which the artifact already stated.
 
         return new SearchPageLayoutValidationResult(violations);
     }
@@ -174,8 +181,12 @@ final class SearchPageLayoutDecisionValidator {
      */
     ValidatedSearchPageLayoutDecision toValidatedDecision(SearchPageLayoutResolutionDecision decision,
                                                           SearchPageAnalysisArtifact artifact) {
-        String primary = decision.organicResultContainerIds.isEmpty()
-                ? "" : decision.organicResultContainerIds.get(0);
+        // The extraction context. A decision that named only blocks has no region to point at, so the
+        // first block stands for itself — it is provenance, and it never decides what is extracted.
+        String primary = !decision.organicResultContainerIds.isEmpty()
+                ? decision.organicResultContainerIds.get(0)
+                : (decision.resultBlockContainerIds.isEmpty()
+                        ? "" : decision.resultBlockContainerIds.get(0));
         // Bind the trusted values from the ARTIFACT, not from the model — the model only chose ids.
         return new ValidatedSearchPageLayoutDecision(artifact.analysisId, artifact.snapshotId,
                 artifact.snapshotGeneration, artifact.documentFingerprint, artifact.settingsDigest,
@@ -202,27 +213,6 @@ final class SearchPageLayoutDecisionValidator {
                         field + " lists '" + id + "' more than once"));
             }
         }
-    }
-
-    /**
-     * The facts behind a containment violation — WHY the block's parent was not a chosen region.
-     * <p>
-     * The rule demands that a result block sit directly inside a region the model NAMED, and a model may
-     * only name containers the mechanics OFFERED. If the parent was never offered, no answer can satisfy
-     * the rule and the rejection says nothing about the model. That difference is invisible in the bare
-     * violation text, so it is stated here: offered or not, and if not, whether the candidate cap dropped
-     * it or it never qualified as a candidate at all.
-     */
-    private String containmentFacts(String block, String parent, Map<String, String> parentById,
-                                    SearchPageAnalysisArtifact artifact) {
-        boolean parentOffered = parentById.containsKey(parent);
-        return "[block=" + block
-                + " blockOffered=" + parentById.containsKey(block)
-                + " parent=" + (parent == null || parent.isEmpty() ? "-" : parent)
-                + " parentOffered=" + parentOffered
-                + " parentRegion=" + regionOf(parent, artifact)
-                + " parentMechanicalRank=" + rankOf(parent, artifact)
-                + " parentDroppedByCap=" + droppedByCap(parent, artifact) + "]";
     }
 
     /** The parent's coarse region, read from the artifact's rejection vocabulary; UNKNOWN when unlisted. */

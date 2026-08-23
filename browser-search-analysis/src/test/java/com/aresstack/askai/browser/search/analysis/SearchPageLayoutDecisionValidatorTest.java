@@ -116,14 +116,40 @@ public class SearchPageLayoutDecisionValidatorTest {
                 .hasKind(Kind.INVALID_CONFIDENCE));
     }
 
+    /**
+     * A named result block no longer owes a region relation. Which container a card sits in is
+     * provenance the artifact already states; whether the card IS a result is decided where it can be
+     * decided — on the card, by its primary link, in the extraction.
+     */
     @Test
-    public void rejectsResultBlockOutsideTheChosenRegion() {
+    public void acceptsAResultBlockThatIsNotADirectChildOfTheChosenRegion() {
         SearchPageAnalysisArtifact artifact = artifact();
-        // col's parent is root, not the chosen organic region b1 — so col is outside the region.
         SearchPageLayoutValidationResult result = validator.validate(
                 decision("snap-1-test", Arrays.asList("container-b1"),
                         Arrays.asList("container-col"), Collections.<String>emptyList(), 0.9),
                 artifact);
-        assertTrue(result.hasKind(Kind.BLOCK_OUTSIDE_REGION));
+        assertTrue(result.messages().toString(), result.valid);
+    }
+
+    /** Naming a card AND excluding it is a contradiction the model has to answer for. */
+    @Test
+    public void rejectsAResultBlockTheDecisionAlsoExcludes() {
+        SearchPageAnalysisArtifact artifact = artifact();
+        SearchPageLayoutValidationResult result = validator.validate(
+                decision("snap-1-test", Arrays.asList("container-col"),
+                        Arrays.asList("container-b1"), Arrays.asList("container-b1"), 0.9),
+                artifact);
+        assertTrue(result.hasKind(Kind.CONTRADICTORY_CLASSIFICATION));
+    }
+
+    /** Naming nothing at all is still no answer. */
+    @Test
+    public void rejectsADecisionThatNamesNeitherARegionNorABlock() {
+        SearchPageAnalysisArtifact artifact = artifact();
+        SearchPageLayoutValidationResult result = validator.validate(
+                decision("snap-1-test", Collections.<String>emptyList(),
+                        Collections.<String>emptyList(), Collections.<String>emptyList(), 0.9),
+                artifact);
+        assertTrue(result.hasKind(Kind.NO_ORGANIC_CONTAINER));
     }
 }

@@ -147,9 +147,12 @@ public class ExplicitRepairBlocksTest {
                 region[0], normalized.organicResultContainerIds.get(0));
     }
 
-    /** No promotion of a region the model itself ruled out — that would overrule its judgement. */
+    /**
+     * A region the model itself ruled out is not promoted — that would overrule its judgement. But the
+     * named card survives: the region was never what made it a result.
+     */
     @Test
-    public void anExcludedParentIsNeverPromoted() {
+    public void anExcludedParentIsNeverPromotedAndTheBlockStillStands() {
         String[] region = new String[1];
         RenderedPageDocument document = tooFewRepeatedCards(region);
         String card = document.container(region[0]).childContainerIds.get(0);
@@ -162,7 +165,35 @@ public class ExplicitRepairBlocksTest {
                         Arrays.asList(region[0])), artifact);
 
         assertTrue("nothing was promoted", normalized.organicResultContainerIds.isEmpty());
-        assertFalse("so the decision stays invalid, exactly as before",
+        assertTrue("and the card is still a card — the extraction decides, not the region",
                 validator.validate(normalized, artifact).valid);
+    }
+
+    /**
+     * The whole live chain in one test: the mechanics fail on this page, the repair names the card
+     * WITHOUT naming a region, validation accepts it, and the extraction produces the candidate.
+     */
+    @Test
+    public void aNamedCardWithoutAnyRegionSurvivesValidationAndExtraction() {
+        String[] region = new String[1];
+        RenderedPageDocument document = tooFewRepeatedCards(region);
+        String card = document.container(region[0]).childContainerIds.get(0);
+        SearchPageAnalysisArtifact artifact = artifactOf(document);
+        SearchPageLayoutDecisionValidator validator =
+                new SearchPageLayoutDecisionValidator(SETTINGS.extraction);
+        SearchPageLayoutResolutionDecision named = raw(artifact, Collections.<String>emptyList(),
+                Arrays.asList(card), Collections.<String>emptyList());
+
+        assertTrue("naming the card is an answer on its own",
+                validator.validate(named, artifact).valid);
+
+        ValidatedSearchPageLayoutDecision validated = validator.toValidatedDecision(named, artifact);
+        assertEquals("with no region named, the card stands for itself as extraction context",
+                card, validated.primaryOrganicContainerId);
+
+        SearchResultExtractionResult result =
+                new LegacySearchResultExtractor(SETTINGS).extract(document, validated);
+        assertEquals(SearchPageAnalysisOutcome.ORGANIC_RESULTS, result.outcome);
+        assertEquals(1, result.candidates.size());
     }
 }
