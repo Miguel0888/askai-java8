@@ -41,18 +41,16 @@ public final class ScopingAssistantOutput implements PhaseAssistantOutput {
         if (assistantMessage == null || assistantMessage.trim().isEmpty()) {
             throw new IllegalArgumentException("assistantMessage must not be blank");
         }
-        if (researchBriefMarkdown == null || researchBriefMarkdown.trim().isEmpty()) {
-            throw new IllegalArgumentException("researchBriefMarkdown must not be blank");
-        }
-        // A substantive scoping turn still carries at least one search suggestion so the user can search
-        // immediately; the research brief is the phase's primary artifact.
-        if (searchSuggestions == null || searchSuggestions.isEmpty()) {
-            throw new IllegalArgumentException("searchSuggestions must not be empty");
-        }
+        // Only the visible answer is required. A brief and search suggestions are OPTIONAL per turn: the
+        // structured scope (ScopePatch -> ResearchScopeDraft) is the truth, a brief is a projection of it,
+        // and demanding a suggestion every turn would train the assistant to invent searches nobody asked
+        // for just to satisfy a parser. "Bibliotheken ist noch sehr breit — geht es dir um die Institution
+        // oder die Nutzung?" is a complete, valid scoping turn.
         this.assistantMessage = assistantMessage.trim();
-        this.researchBriefMarkdown = researchBriefMarkdown.trim();
-        this.searchSuggestions = Collections.unmodifiableList(
-                new ArrayList<SearchSuggestion>(searchSuggestions));
+        this.researchBriefMarkdown = researchBriefMarkdown == null ? "" : researchBriefMarkdown.trim();
+        this.searchSuggestions = searchSuggestions == null
+                ? Collections.<SearchSuggestion>emptyList()
+                : Collections.unmodifiableList(new ArrayList<SearchSuggestion>(searchSuggestions));
         this.advice = advice == null ? PhaseAdvice.neutral() : advice;
         this.scopeUpdate = scopeUpdate;
     }

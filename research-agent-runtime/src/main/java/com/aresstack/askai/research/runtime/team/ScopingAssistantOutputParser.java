@@ -9,10 +9,12 @@ import java.util.Map;
 /**
  * Parses the scoping model's raw text into a validated {@link ScopingAssistantOutput}. Like the generic
  * parser it tolerantly extracts the first balanced JSON object (prose/code-fence resilient), then enforces the
- * scoping contract: a non-blank {@code assistantMessage} AND a non-blank {@code researchBriefMarkdown} are
- * required; {@code explorationMapMermaid} and {@code searchSuggestions} may be empty; a suggestion with a blank
- * query is rejected; {@code advice} defaults to NEUTRAL. A malformed or contract-violating answer is a typed
- * failure the caller answers with ONE bounded repair, then an honest error — never a fabricated turn.
+ * scoping contract: ONLY a non-blank {@code assistantMessage} is required. {@code researchBriefMarkdown},
+ * {@code searchSuggestions} and the scope block are optional — a turn that just asks a good question is a
+ * complete turn, and requiring a brief or a suggestion would make the assistant produce them for the parser
+ * rather than for the user. A suggestion with a blank query is still rejected; {@code advice} defaults to
+ * NEUTRAL. A malformed answer is a typed failure the caller answers with ONE bounded repair, then an honest
+ * error — never a fabricated turn.
  */
 public final class ScopingAssistantOutputParser {
 
@@ -65,15 +67,12 @@ public final class ScopingAssistantOutputParser {
         if (isBlank(assistantMessage)) {
             return fail("scoping answer has no assistantMessage");
         }
+        // OPTIONAL: the structured scope is the truth; a brief is a projection and may be absent this turn.
         String brief = asString(object.get("researchBriefMarkdown"));
-        if (isBlank(brief)) {
-            return fail("scoping answer has no researchBriefMarkdown");
-        }
-        if (brief.length() > MAX_FIELD_CHARS) {
+        if (brief != null && brief.length() > MAX_FIELD_CHARS) {
             return fail("researchBriefMarkdown exceeds the size limit");
         }
-        // The scoping agent produces the research brief + search suggestions, NOT a visualization; a
-        // substantive turn still needs at least one suggestion so a brief-only interview reply is rejected.
+        // Suggestions are optional; a malformed one is still rejected (a blank query is not a suggestion).
         List<SearchSuggestion> suggestions = new ArrayList<SearchSuggestion>();
         Object rawSuggestions = object.get("searchSuggestions");
         if (rawSuggestions instanceof List) {
@@ -93,9 +92,8 @@ public final class ScopingAssistantOutputParser {
                 suggestions.add(new SearchSuggestion(query, asString(suggestion.get("purpose")), priority));
             }
         }
-        if (suggestions.isEmpty()) {
-            return fail("scoping answer needs at least one search suggestion");
-        }
+        // OPTIONAL: zero suggestions is a normal turn. Requiring one would make the assistant produce
+        // searches nobody needs, which is precisely the behaviour we are trying to get rid of.
 
         PhaseAdvice advice = PhaseAdvice.neutral();
         Object rawAdvice = object.get("advice");

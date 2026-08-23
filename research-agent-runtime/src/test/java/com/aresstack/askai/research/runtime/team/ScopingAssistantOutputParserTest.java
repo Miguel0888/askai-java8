@@ -48,22 +48,32 @@ public class ScopingAssistantOutputParserTest {
         assertEquals("an unknown token is neutral", PhaseAdviceRecommendation.NEUTRAL, adviceOf("go-for-it"));
     }
 
+    /**
+     * ONLY the visible answer is required. The structured scope is the truth of this phase; a brief is a
+     * projection of it and may well be absent in a turn that just asks a question.
+     */
     @Test
-    public void missingResearchBriefMarkdownIsInvalid() {
+    public void aTurnWithNothingButAVisibleAnswerIsValid() {
         ScopingAssistantOutputParser.Result r = ScopingAssistantOutputParser.parse(
-                "{\"assistantMessage\":\"Hi.\"}");
-        assertFalse(r.isOk());
-        assertTrue(r.getError().contains("researchBriefMarkdown"));
+                "{\"assistantMessage\":\"Bibliotheken ist noch sehr breit. Geht es dir eher um die "
+                        + "Institution, die Architektur oder die Nutzung?\"}");
+        assertTrue(r.getError(), r.isOk());
+        assertEquals("", r.getOutput().getResearchBriefMarkdown());
+        assertTrue(r.getOutput().getSearchSuggestions().isEmpty());
+        assertEquals(null, r.getOutput().getScopeUpdate());
     }
 
+    /**
+     * Zero search suggestions is a normal turn. Demanding one would train the assistant to invent searches
+     * nobody asked for just so the parser accepts the answer — the very behaviour we are removing.
+     */
     @Test
-    public void aBriefOnlyInterviewReplyWithoutSuggestionsIsRejected() {
-        // The screenshot signature: broad topic -> "which subtopic?" with no support work. A substantive
-        // scoping turn must carry at least one search suggestion.
+    public void anInterviewReplyWithoutSuggestionsIsValid() {
         ScopingAssistantOutputParser.Result r = ScopingAssistantOutputParser.parse(
-                "{\"assistantMessage\":\"Which subtopic?\",\"researchBriefMarkdown\":\"# Brief\\nX\"}");
-        assertFalse(r.isOk());
-        assertTrue(r.getError(), r.getError().contains("search suggestion"));
+                "{\"assistantMessage\":\"Welche Nutzergruppe meinst du?\","
+                        + "\"researchBriefMarkdown\":\"# Brief\\nX\"}");
+        assertTrue(r.getError(), r.isOk());
+        assertTrue(r.getOutput().getSearchSuggestions().isEmpty());
     }
 
     @Test

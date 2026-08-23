@@ -24,20 +24,31 @@ public class ScopingPhaseOutputContractTest {
         assertTrue(result.getOutput() instanceof ScopingAssistantOutput);
     }
 
+    /**
+     * Asking one good question IS scoping. This once had to be rejected because a turn had to carry a
+     * brief and a suggestion; that rule made the assistant produce output for the parser instead of for the
+     * user, and a plain "Thema: Bibliotheken." could not be answered at all.
+     */
     @Test
-    public void anInterviewOnlyReplyThatAsksToNarrowTheTopicIsRejected() {
-        // The exact screenshot signature: broad topic -> "which subtopic do you mean?" with no support work.
+    public void anInterviewOnlyReplyThatAsksAboutTheDirectionIsValid() {
         PhaseParseResult result = contract.parse(
                 "{\"assistantMessage\":\"Wearables is a very broad topic! Are you interested in health, "
                         + "audio, or video?\",\"researchBriefMarkdown\":\"# Research Brief\\n\\nWearables\"}");
-        assertFalse("brief-only interview reply is not a valid scoping turn", result.isOk());
+        assertTrue(result.getError(), result.isOk());
     }
 
     @Test
-    public void aTurnMissingSearchSuggestionsIsRejected() {
+    public void aTurnWithoutSearchSuggestionsIsValid() {
         PhaseParseResult result = contract.parse(
                 "{\"assistantMessage\":\"Ok.\",\"researchBriefMarkdown\":\"# Brief\\nX\"}");
-        assertFalse(result.isOk());
-        assertTrue(result.getError().contains("search suggestion"));
+        assertTrue(result.getError(), result.isOk());
+    }
+
+    /** Only the visible answer is required — everything else this phase may produce is optional. */
+    @Test
+    public void aBareVisibleAnswerIsAValidScopingTurn() {
+        PhaseParseResult result = contract.parse("{\"assistantMessage\":\"Thema verstanden. Geht es dir "
+                + "um die Institution oder um die Nutzung?\"}");
+        assertTrue(result.getError(), result.isOk());
     }
 }
