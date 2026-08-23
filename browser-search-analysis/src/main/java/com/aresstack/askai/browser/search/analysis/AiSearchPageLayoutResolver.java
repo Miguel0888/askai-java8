@@ -169,6 +169,9 @@ public final class AiSearchPageLayoutResolver implements SearchPageLayoutResolve
                         attempts, "parse failure: " + parseFailure.getMessage());
             }
 
+            // What the DOM already answers is not asked of the model twice: the direct parent of a
+            // named result block becomes its organic region before the decision is judged.
+            decision = validator.normalize(decision, artifact);
             SearchPageLayoutValidationResult validation = validator.validate(decision, artifact);
             if (!validation.valid) {
                 List<String> violations = validation.messages();

@@ -109,10 +109,10 @@ public final class LegacySearchResultExtractor {
     }
 
     /**
-     * Apply an already-VALIDATED AI layout decision to the existing extraction: seed a resolution
-     * from the chosen organic container and run the unchanged block detection. A stale decision (a
-     * different snapshot) is refused; a valid decision that yields no result block is
-     * EXTRACTION_FAILED — never NO_ORGANIC_RESULTS.
+     * Apply an already-VALIDATED AI layout decision to the existing extraction: the result blocks it
+     * named ARE the blocks; only a decision that named none falls back to mechanical detection inside
+     * the chosen region. A stale decision (a different snapshot) is refused; a valid decision that
+     * yields no result block is EXTRACTION_FAILED — never NO_ORGANIC_RESULTS.
      */
     public SearchResultExtractionResult extract(RenderedPageDocument document,
                                                 ValidatedSearchPageLayoutDecision decision) {
@@ -159,7 +159,13 @@ public final class LegacySearchResultExtractor {
                 decision.primaryOrganicContainerId, decision.confidence, false, regions,
                 Collections.<HeuristicScoreBreakdown>emptyList());
 
-        SearchResultBlockDetector.Detection detection = blockDetector.detect(document, resolution);
+        // A decision that NAMED its result blocks is followed. Re-deriving them from the region by
+        // repeated-sibling clustering discarded the very answer the repair was asked for — and then
+        // failed the page because the cards it had already identified did not repeat often enough.
+        SearchResultBlockDetector.Detection detection =
+                decision.resultBlockContainerIds.isEmpty()
+                        ? blockDetector.detect(document, resolution)
+                        : blockDetector.detectExplicit(document, decision.resultBlockContainerIds);
         diagnostics.addAll(detection.rejectionReasons);
         if (detection.blocks.isEmpty()) {
             diagnostics.add("AI-resolved layout produced no valid result block — EXTRACTION_FAILED, "

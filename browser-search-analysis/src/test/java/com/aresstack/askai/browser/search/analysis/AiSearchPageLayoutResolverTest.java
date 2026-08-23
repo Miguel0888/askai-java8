@@ -176,32 +176,40 @@ public class AiSearchPageLayoutResolverTest {
                 + "\"confidence\":0.8,\"explanation\":\"r\"}";
     }
 
+    /**
+     * The live case: the model names a card as the region and a block sitting one level below it. The
+     * block's parent is in the artifact, so it is DERIVED rather than demanded — no second attempt, no
+     * three identical rejections of an answer that was already right about the result.
+     */
     @Test
-    public void blockOutsideRegionIsRepairedOnTheSecondAttempt() {
-        // Attempt 1 makes the observed live mistake: a result CARD as the region and a block whose
-        // parent (the column) is not in the organic set → BLOCK_OUTSIDE_REGION. The default policy
-        // now retries semantic violations, the repair suffix carries the concrete violation, and
-        // attempt 2 answers with the correct region + direct children.
+    public void aBlockWhoseParentIsKnownIsAcceptedOnTheFirstAttempt() {
         SearchPageAnalysisArtifact artifact = hierarchyArtifact();
         ScriptedStructuredInferencePort port = new ScriptedStructuredInferencePort()
-                .thenSuccess(response(artifact, "\"container-b1\"", "\"container-b2\""))
-                .thenSuccess(response(artifact, "\"container-col\"",
-                        "\"container-b1\",\"container-b2\""));
+                .thenSuccess(response(artifact, "\"container-b1\"", "\"container-b2\""));
         SearchPageLayoutResolverResult result = new AiSearchPageLayoutResolver(port,
                 defaults.extraction).resolve(defaultPolicyRequest(artifact));
 
         assertEquals(SearchPageLayoutResolverOutcome.RESOLVED, result.outcome);
-        assertEquals("the semantic violation must be repaired, not terminal", 2, port.callCount());
-        assertTrue("attempt 1 records the concrete violation",
-                result.attempts.get(0).violations.toString().contains("BLOCK_OUTSIDE_REGION"));
+        assertEquals("asking the model again for something the DOM already says is not a repair",
+                1, port.callCount());
         assertNotNull(result.acceptedDecision);
-        assertTrue(result.acceptedDecision.organicResultContainerIds.contains("container-col"));
+        assertEquals("the derived parent leads the organic regions",
+                "container-col", result.acceptedDecision.organicResultContainerIds.get(0));
     }
 
+    /**
+     * The retry loop stays real for violations that CANNOT be derived away: here the model excludes the
+     * very container its block sits in, so promoting it would overrule the model's own judgement.
+     */
     @Test
-    public void persistentBlockOutsideRegionExhaustsAttemptsThenFailsTyped() {
+    public void aContradictionThatCannotBeDerivedAwayStillExhaustsTheAttempts() {
         SearchPageAnalysisArtifact artifact = hierarchyArtifact();
-        String bad = response(artifact, "\"container-b1\"", "\"container-b2\"");
+        String bad = "{\"analysisId\":\"" + artifact.analysisId + "\",\"snapshotId\":\""
+                + artifact.snapshotId + "\","
+                + "\"organicResultContainerIds\":[\"container-b1\"],"
+                + "\"resultBlockContainerIds\":[\"container-b2\"],"
+                + "\"excludedContainerIds\":[\"container-col\"],"
+                + "\"confidence\":0.8,\"explanation\":\"r\"}";
         ScriptedStructuredInferencePort port = new ScriptedStructuredInferencePort()
                 .thenSuccess(bad).thenSuccess(bad).thenSuccess(bad);
         SearchPageLayoutResolverResult result = new AiSearchPageLayoutResolver(port,
@@ -210,6 +218,8 @@ public class AiSearchPageLayoutResolverTest {
         assertEquals(SearchPageLayoutResolverOutcome.VALIDATION_FAILED, result.outcome);
         assertEquals("bounded by the default maximumAttempts", 3, result.attempts.size());
         assertEquals(3, port.callCount());
+        assertTrue("and the concrete violation is still recorded",
+                result.attempts.get(0).violations.toString().contains("BLOCK_OUTSIDE_REGION"));
         assertNull(result.acceptedDecision);
     }
 

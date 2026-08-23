@@ -101,11 +101,55 @@ public final class SearchResultBlockDetector {
             return new Detection(Collections.<DetectedResultBlock>emptyList(), reasons);
         }
 
+        return new Detection(buildBlocks(document, resultCluster, resultCluster.size(), reasons),
+                reasons);
+    }
+
+    /**
+     * The result blocks a VALIDATED layout decision named, taken at their word.
+     * <p>
+     * Everything that makes a block a result stays in force: the container must exist and be visible,
+     * it must yield a qualifying primary external link, the candidate limit and the URL deduplication
+     * downstream are unchanged. What does NOT apply is the repeated-sibling requirement — that is a
+     * DISCOVERY heuristic for working out which children of a region are result cards. Once a repair
+     * has already identified the cards, running the same discovery again as a second gate threw the
+     * answer away and failed the page for not looking like a list.
+     */
+    public Detection detectExplicit(RenderedPageDocument document, List<String> blockIds) {
+        List<String> reasons = new ArrayList<String>();
+        List<RenderedContainerDescriptor> named = new ArrayList<RenderedContainerDescriptor>();
+        for (String blockId : blockIds == null ? Collections.<String>emptyList() : blockIds) {
+            RenderedContainerDescriptor block = document.container(blockId);
+            if (block == null) {
+                reasons.add(blockId + ": no such container in this snapshot");
+                continue;
+            }
+            if (!block.visible) {
+                reasons.add(blockId + ": not visible");
+                continue;
+            }
+            named.add(block);
+        }
+        if (named.isEmpty()) {
+            reasons.add("no named result block survived the structural checks");
+            return new Detection(Collections.<DetectedResultBlock>emptyList(), reasons);
+        }
+        return new Detection(buildBlocks(document, named, named.size(), reasons), reasons);
+    }
+
+    /**
+     * Block containers → extracted result blocks. ONE implementation for both paths: the mechanically
+     * clustered blocks and the ones a repair named go through the same primary-link resolution,
+     * snippet extraction, sitelink collection and candidate limit.
+     */
+    private List<DetectedResultBlock> buildBlocks(RenderedPageDocument document,
+                                                  List<RenderedContainerDescriptor> blockContainers,
+                                                  int peerCount, List<String> reasons) {
         Map<String, List<RenderedLinkDescriptor>> linksByContainer = indexLinks(document);
         Map<String, List<String>> childrenByParent = indexChildren(document);
         List<DetectedResultBlock> blocks = new ArrayList<DetectedResultBlock>();
         int rank = 0;
-        for (RenderedContainerDescriptor block : resultCluster) {
+        for (RenderedContainerDescriptor block : blockContainers) {
             if (blocks.size() >= settings.extraction.maximumExtractedCandidates) {
                 reasons.add("candidate limit " + settings.extraction.maximumExtractedCandidates
                         + " reached — remaining blocks dropped");
@@ -124,9 +168,9 @@ public final class SearchResultBlockDetector {
             blocks.add(new DetectedResultBlock(block.containerId, rank, primary.link,
                     primary.confidence, primary.link.visibleText.trim(), snippet,
                     primary.link.displayedDomainText, siteLinks,
-                    structuralConfidence(resultCluster.size(), snippet)));
+                    structuralConfidence(peerCount, snippet)));
         }
-        return new Detection(blocks, reasons);
+        return blocks;
     }
 
     /**

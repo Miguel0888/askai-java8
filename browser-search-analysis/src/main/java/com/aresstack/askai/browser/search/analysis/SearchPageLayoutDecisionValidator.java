@@ -31,6 +31,56 @@ final class SearchPageLayoutDecisionValidator {
         this.extraction = extraction;
     }
 
+    /**
+     * Complete a decision with what the DOM already says, before judging it.
+     * <p>
+     * The contract asks for two things about one fact: name the result card, and separately name the
+     * region it sits in. But which container a card sits in is not a judgement — it is in the artifact,
+     * next to the card, as {@code parent=}. Demanding it from the model turned a structural lookup into
+     * a chance to fail, and the live case failed it three times in a row: the model kept naming the same
+     * correct block and was rejected for not repeating its parent.
+     * <p>
+     * So the direct parent of every named result block is derived here and put FIRST among the organic
+     * regions — but only when the DOM supports it: the parent must be a container the mechanics offered,
+     * must not be the root, and must not be one the model itself excluded. Where that does not hold,
+     * nothing is promoted and the strict rules below reject the decision exactly as before.
+     */
+    SearchPageLayoutResolutionDecision normalize(SearchPageLayoutResolutionDecision decision,
+                                                 SearchPageAnalysisArtifact artifact) {
+        if (decision == null || decision.resultBlockContainerIds.isEmpty()) {
+            return decision;
+        }
+        Map<String, String> parentById = parentIndex(artifact);
+        Set<String> excluded = new HashSet<String>(decision.excludedContainerIds);
+        List<String> derived = new ArrayList<String>();
+        for (String block : decision.resultBlockContainerIds) {
+            String parent = parentById.get(block);
+            if (parent == null || parent.isEmpty()
+                    || !parentById.containsKey(parent)      // never offered → not choosable
+                    || isRoot(parent, parentById)           // a full-page container is not a region
+                    || excluded.contains(parent)            // the model ruled it out itself
+                    || derived.contains(parent)
+                    || decision.organicResultContainerIds.contains(parent)) {
+                continue;
+            }
+            derived.add(parent);
+        }
+        if (derived.isEmpty()) {
+            return decision;
+        }
+        List<String> organic = new ArrayList<String>(derived);
+        organic.addAll(decision.organicResultContainerIds);
+        return new SearchPageLayoutResolutionDecision(decision.analysisId, decision.snapshotId,
+                organic, decision.resultBlockContainerIds, decision.excludedContainerIds,
+                decision.confidence, decision.explanation);
+    }
+
+    /** A container with no known parent is the page itself, never a result region. */
+    private static boolean isRoot(String containerId, Map<String, String> parentById) {
+        String parent = parentById.get(containerId);
+        return parent == null || parent.isEmpty();
+    }
+
     SearchPageLayoutValidationResult validate(SearchPageLayoutResolutionDecision decision,
                                               SearchPageAnalysisArtifact artifact) {
         List<SearchPageLayoutValidationViolation> violations =
