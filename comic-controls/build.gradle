@@ -1,0 +1,10 @@
+// Neutral Java-8 Swing library for AskAI's comic design language (issue #36): shared palettes,
+// Java2D painters and small controls (hover menus, split pane). Deliberately dependency-free —
+// no AskAI, Research, ACP or PF4J types may ever appear here.
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
+}
+
+test {
+    useJUnit()
+}

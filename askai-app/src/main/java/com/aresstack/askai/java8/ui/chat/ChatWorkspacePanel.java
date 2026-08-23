@@ -7,6 +7,7 @@ import com.aresstack.askai.java8.ui.OllamaChatPanel;
 import com.aresstack.askai.java8.ui.PlusIcon;
 import com.aresstack.askai.java8.ui.sidebar.ChatSidebarPanel;
 import com.aresstack.askai.java8.ui.sidebar.ChatSidebarTab;
+import com.aresstack.comiccontrols.control.ComicSplitPane;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
@@ -88,6 +89,17 @@ public final class ChatWorkspacePanel extends JPanel {
     private boolean menuLocked; // clicking the burger latches the menu until the next click
     private com.aresstack.askai.java8.state.ApplicationStateService applicationState;
     private static final String STATE_BURGER_PINNED = "chat.burgerPinned";
+    private static final String STATE_SIDEBAR_WIDTH = "chat.sidebar.width";
+    private static final int SIDEBAR_MIN_WIDTH = 280;
+    private static final int SIDEBAR_MAX_WIDTH = 700;
+    private static final int SIDEBAR_DEFAULT_WIDTH = 360;
+    private static final int SIDEBAR_WIDTH_SAVE_DELAY_MS = 300;
+
+    /** Sidebar and cards share this pane; the divider only exists while the drawer is open. */
+    private final ComicSplitPane sidebarSplit;
+    /** Debounces the per-drag divider events into ONE state write after the drag settles. */
+    private final javax.swing.Timer sidebarWidthSaveTimer;
+    private int pendingSidebarWidth = -1;
 
     public ChatWorkspacePanel(ChatSessionFactory factory) {
         this(factory, null, null);
@@ -113,6 +125,16 @@ public final class ChatWorkspacePanel extends JPanel {
 
         this.burger = ChatComposerPanel.createSidebarToggleButton();
         this.sidebar = new ChatSidebarPanel("Chats", buildChatsSidebarTab());
+        this.sidebarSplit = new ComicSplitPane(sidebar, cards, SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH);
+        sidebarSplit.setPreferredLeftWidth(SIDEBAR_DEFAULT_WIDTH);
+        sidebarSplit.collapseLeft(); // the drawer starts closed, exactly like before the split pane
+        this.sidebarWidthSaveTimer = new javax.swing.Timer(SIDEBAR_WIDTH_SAVE_DELAY_MS,
+                event -> saveSidebarWidthNow());
+        sidebarWidthSaveTimer.setRepeats(false);
+        sidebarSplit.setLeftWidthListener(width -> {
+            pendingSidebarWidth = width;
+            sidebarWidthSaveTimer.restart();
+        });
         this.sidebarCloseTimer = new javax.swing.Timer(SIDEBAR_CLOSE_DELAY_MS,
                 event -> onPointerLeftSidebarArea());
         sidebarCloseTimer.setRepeats(false);
@@ -242,6 +264,13 @@ public final class ChatWorkspacePanel extends JPanel {
      */
     public void setApplicationState(com.aresstack.askai.java8.state.ApplicationStateService applicationState) {
         this.applicationState = applicationState;
+        if (applicationState != null) {
+            // Restore the user's drawer width BEFORE a pinned drawer reopens below.
+            int width = parseWidth(applicationState.get(STATE_SIDEBAR_WIDTH, null));
+            if (width > 0) {
+                sidebarSplit.setPreferredLeftWidth(width);
+            }
+        }
         if (applicationState != null && applicationState.getBoolean(STATE_BURGER_PINNED, false)) {
             menuLocked = true;
             ChatComposerPanel.setToolbarButtonLatched(burger, true);
@@ -254,6 +283,25 @@ public final class ChatWorkspacePanel extends JPanel {
     private void persistBurgerPinned() {
         if (applicationState != null) {
             applicationState.putAndSave(STATE_BURGER_PINNED, Boolean.toString(menuLocked));
+        }
+    }
+
+    /** Write the debounced drawer width to the application state (no-op before the state is bound). */
+    private void saveSidebarWidthNow() {
+        sidebarWidthSaveTimer.stop();
+        if (applicationState != null && pendingSidebarWidth > 0) {
+            applicationState.putAndSave(STATE_SIDEBAR_WIDTH, Integer.toString(pendingSidebarWidth));
+        }
+    }
+
+    private static int parseWidth(String value) {
+        if (value == null) {
+            return -1;
+        }
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (NumberFormatException invalid) {
+            return -1; // a corrupt persisted width falls back to the default
         }
     }
 
@@ -376,8 +424,10 @@ public final class ChatWorkspacePanel extends JPanel {
         sidebar.setHeaderComponent(newChat);
 
         add(topBar, BorderLayout.NORTH);
-        add(sidebar, BorderLayout.WEST); // full height on the left, below the top bar
-        add(cards, BorderLayout.CENTER);
+        // Drawer and cards live in the comic split pane: while the drawer is collapsed there is no
+        // divider at all, so this looks exactly like the old WEST/CENTER layout — but an open
+        // drawer can be resized by mouse (issue #36).
+        add(sidebarSplit, BorderLayout.CENTER);
     }
 
     private void refreshRibbonTabs() {
@@ -403,6 +453,7 @@ public final class ChatWorkspacePanel extends JPanel {
         sidebar.rebuildTabs(); // picks up freshly contributed panes
         refreshRibbonTabs();
         sidebar.setVisible(true);
+        sidebarSplit.openLeft(); // brings back the divider at the remembered width
         updateMouseWatcher();
         revalidate();
         repaint();
@@ -410,6 +461,7 @@ public final class ChatWorkspacePanel extends JPanel {
 
     private void hideSidebar() {
         sidebar.setVisible(false);
+        sidebarSplit.collapseLeft(); // width 0, divider gone
         updateMouseWatcher();
         revalidate();
         repaint();
@@ -704,5 +756,22 @@ public final class ChatWorkspacePanel extends JPanel {
 
     List<ChatSessionId> openSessionIds() {
         return new ArrayList<ChatSessionId>(sessionsById.keySet());
+    }
+
+    ComicSplitPane sidebarSplitForTest() {
+        return sidebarSplit;
+    }
+
+    ChatSidebarPanel sidebarForTest() {
+        return sidebar;
+    }
+
+    JButton burgerForTest() {
+        return burger;
+    }
+
+    /** Runs the debounced width save immediately — tests must not wait on the timer. */
+    void flushSidebarWidthSaveForTest() {
+        saveSidebarWidthNow();
     }
 }

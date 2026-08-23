@@ -32,6 +32,7 @@ import com.aresstack.askai.java8.ui.chat.ChatSessionId;
 import com.aresstack.askai.java8.ui.chat.ChatWorkspacePanel;
 import com.aresstack.audio.profile.AudioProcessingProfile;
 import com.aresstack.audio.application.DefaultAudioProcessingPreviewService;
+import com.aresstack.comiccontrols.control.ComicHoverMenu;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -272,7 +273,7 @@ public final class AskAiFrame extends JFrame {
 
     /** Far-left "Datei" menu with an explicit "Beenden" that runs the same logged shutdown as the window X. */
     private JMenu createFileMenu() {
-        JMenu menu = new JMenu("Datei");
+        JMenu menu = new ComicHoverMenu("Datei");
         javax.swing.JMenuItem quit = new javax.swing.JMenuItem("Beenden");
         quit.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent event) {
@@ -386,7 +387,7 @@ public final class AskAiFrame extends JFrame {
     }
 
     private JMenu createTopLevelMenu(String title, String screenName) {
-        final JMenu menu = new JMenu(title);
+        final JMenu menu = new ComicHoverMenu(title);
         menu.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent event) {
@@ -398,7 +399,7 @@ public final class AskAiFrame extends JFrame {
     }
 
     private JMenu createModelsMenu() {
-        JMenu modelsMenu = new JMenu("Models");
+        JMenu modelsMenu = new ComicHoverMenu("Models");
         JMenuItem installedItem = new JMenuItem("Installed");
         installedItem.addActionListener(event -> showModels(true));
         JMenuItem runningItem = new JMenuItem("Running Models");
@@ -410,7 +411,7 @@ public final class AskAiFrame extends JFrame {
     }
 
     private JMenu createConfigurationMenu() {
-        JMenu configurationMenu = new JMenu("Configuration");
+        JMenu configurationMenu = new ComicHoverMenu("Configuration");
         configurationMenu.add(createScreenItem("Connections", CONNECTIONS_VIEW));
         configurationMenu.add(createScreenItem("AI models", AI_MODELS_VIEW));
         configurationMenu.add(createScreenItem("Network", NETWORK_VIEW));
@@ -420,7 +421,7 @@ public final class AskAiFrame extends JFrame {
     }
 
     private JMenu createHelpMenu() {
-        JMenu helpMenu = new JMenu("Help");
+        JMenu helpMenu = new ComicHoverMenu("Help");
         helpMenu.add(createScreenItem("Actions", ACTIONS_VIEW));
         JMenuItem recordVideo = new JMenuItem("Record Video...");
         recordVideo.addActionListener(new ActionListener() {
