@@ -8,29 +8,38 @@ import java.util.Collections;
 import java.util.List;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 /**
- * Discovery is a RESULT, not a step on the way to opening pages. The invariant this pins: a run that
- * collected result pages and read nothing is complete and successful — the case a scoping orientation
- * needs, and the case the old pipeline could not even express.
+ * Discovery is a RESULT, not a step towards opening pages, and a hit is an immutable fact rather than a
+ * state machine. Both are pinned here: a run that read nothing is successful, and what happened to a page
+ * lives in inspection attempts instead of rewriting the hit.
  */
 public class SearchRunTest {
 
-    private static SearchCandidate candidate(int index, String host) {
+    private static SearchCandidate candidate(int index, String host, int batch, int rank) {
         return new SearchCandidate("c" + index, "https://" + host + "/page" + index, "Titel " + index,
-                "Snippet " + index, host, 1 + (index / 10), index, "duckduckgo",
-                SearchCandidate.Status.DISCOVERED);
+                "Snippet " + index, host,
+                Arrays.asList(new SearchOccurrence("duckduckgo", batch, rank,
+                        "https://" + host + "/page" + index + "?utm=x")));
     }
 
-    private static SearchRun run(int candidateCount, int serpPages) {
+    private static SearchRun run(int candidateCount, int batchCount) {
         List<SearchCandidate> candidates = new ArrayList<SearchCandidate>();
         for (int index = 1; index <= candidateCount; index++) {
-            candidates.add(candidate(index, "example" + (index % 7) + ".org"));
+            candidates.add(candidate(index, "example" + (index % 7) + ".org",
+                    1 + (index % batchCount), index));
         }
-        return new SearchRun("run-1", "truthahnragout tradition", "duckduckgo", serpPages,
-                SearchRun.Status.RESULTS, candidates);
+        List<DiscoveryBatch> batches = new ArrayList<DiscoveryBatch>();
+        for (int ordinal = 1; ordinal <= batchCount; ordinal++) {
+            batches.add(new DiscoveryBatch(ordinal, "duckduckgo", 15,
+                    ordinal < batchCount ? "page=" + (ordinal + 1) : ""));
+        }
+        return SearchRun.discovered("run-1", "truthahnragout tradition", "ORIENTATION_SERP_SCAN",
+                SearchRun.Status.RESULTS, batches, candidates);
     }
 
     @Test
@@ -39,27 +48,68 @@ public class SearchRunTest {
 
         assertEquals(SearchRun.Status.RESULTS, discovery.getStatus());
         assertEquals(42, discovery.getCandidates().size());
-        assertEquals(3, discovery.getSerpPagesCollected());
-        assertEquals("reading nothing is a valid outcome, not a failure", 0, discovery.inspectedCount());
-        assertEquals("run=run-1 status=RESULTS serpPages=3 candidates=42 inspected=0",
-                discovery.describe());
+        assertEquals(3, discovery.getBatches().size());
+        assertEquals("reading nothing is a valid outcome, not a failure", 0, discovery.readCount());
+        assertEquals("run=run-1 status=RESULTS batches=3 candidates=42 read=0", discovery.describe());
+        assertEquals("a hit nobody looked at has no inspection at all",
+                null, discovery.latestInspection("c5"));
+    }
+
+    /** A hit that was never looked at is simply a hit — not a skipped one. */
+    @Test
+    public void aCandidateCarriesNoInspectionStateOfItsOwn() {
+        SearchRun discovery = run(3, 1);
+        for (SearchCandidate candidate : discovery.getCandidates()) {
+            for (java.lang.reflect.Method method : candidate.getClass().getMethods()) {
+                String name = method.getName().toLowerCase(java.util.Locale.ROOT);
+                assertFalse(name, name.contains("status") || name.contains("inspect")
+                        || name.contains("skip"));
+            }
+        }
     }
 
     @Test
-    public void candidatesSurviveWhateverHappensToTheirPages() {
-        // Reranking/selection/inspection may fail later; the hits the engine returned remain hits.
+    public void theSameHitCanBeSkippedTodayAndReadTomorrowWithBothAttemptsOnRecord() {
         SearchRun discovery = run(5, 1)
-                .withCandidateStatus("c2", SearchCandidate.Status.SKIPPED)
-                .withCandidateStatus("c3", SearchCandidate.Status.FAILED)
-                .withCandidateStatus("c4", SearchCandidate.Status.INSPECTED);
+                .withInspection(new InspectionAttempt("c2", 1000L, "ORIENTATION_SERP_SCAN",
+                        InspectionAttempt.Outcome.SKIPPED, "", "no visits in this profile"))
+                .withInspection(new InspectionAttempt("c2", 2000L, "STANDARD_RESEARCH",
+                        InspectionAttempt.Outcome.READ, "source-731", ""));
 
-        assertEquals(5, discovery.getCandidates().size());
-        assertEquals(SearchRun.Status.RESULTS, discovery.getStatus());
-        assertEquals(SearchCandidate.Status.SKIPPED, discovery.candidate("c2").getStatus());
-        assertEquals(SearchCandidate.Status.DISCOVERED, discovery.candidate("c1").getStatus());
-        assertEquals(1, discovery.inspectedCount());
-        assertEquals("a status change never touches the discovery data",
+        assertEquals("both attempts stay on record", 2, discovery.getInspections().size());
+        assertEquals(InspectionAttempt.Outcome.READ, discovery.latestInspection("c2").getOutcome());
+        assertEquals("the candidate -> source link is traceable",
+                "source-731", discovery.latestInspection("c2").getSourceId());
+        assertEquals("the discovery record itself is untouched",
                 "Titel 2", discovery.candidate("c2").getTitle());
+        assertEquals(1, discovery.readCount());
+    }
+
+    @Test
+    public void repeatedFailedAttemptsCountAsOneCandidateAndStayRetryable() {
+        SearchRun discovery = run(3, 1)
+                .withInspection(new InspectionAttempt("c1", 1L, "QUICK_ORIENTATION",
+                        InspectionAttempt.Outcome.BLOCKED, "", "consent wall"))
+                .withInspection(new InspectionAttempt("c1", 2L, "QUICK_ORIENTATION",
+                        InspectionAttempt.Outcome.FAILED, "", "timeout"));
+
+        assertEquals(0, discovery.readCount());
+        assertTrue(discovery.latestInspection("c1").isRetryable());
+        assertEquals("consent wall", discovery.getInspections().get(0).getDetail());
+    }
+
+    @Test
+    public void oneHitFoundSeveralTimesIsOneCandidateThatKeepsEveryProvenance() {
+        SearchCandidate found = candidate(18, "example.org", 1, 8)
+                .withOccurrence(new SearchOccurrence("duckduckgo", 3, 2, "https://example.org/page18#x"))
+                .withOccurrence(new SearchOccurrence("brave", 1, 5, "https://example.org/page18"));
+
+        assertEquals("deduplication must not multiply the hit", 3, found.getOccurrences().size());
+        assertEquals("https://example.org/page18", found.getNormalizedUrl());
+        assertEquals("the earliest appearance is its natural order", 1, found.firstBatchOrdinal());
+        assertEquals(2, found.bestRank());
+        assertTrue("two engines returned it — visible, but never a score",
+                found.foundBySeveralProviders());
     }
 
     @Test
@@ -67,43 +117,34 @@ public class SearchRunTest {
         SearchRun discovery = run(20, 2);
 
         assertNotNull(discovery.candidate("c18"));
-        assertEquals("https://example4.org/page18", discovery.candidate("c18").getUrl());
-        assertEquals(2, discovery.candidate("c18").getSerpPage());
+        assertEquals("https://example4.org/page18", discovery.candidate("c18").getNormalizedUrl());
         assertNull(discovery.candidate("nope"));
         assertNull(discovery.candidate(null));
     }
 
     @Test
+    public void batchesCarryTheProviderContinuationInsteadOfPretendingToBePages() {
+        SearchRun discovery = run(10, 3);
+
+        assertEquals(Arrays.asList("duckduckgo"), discovery.providers());
+        assertTrue(discovery.getBatches().get(0).hasContinuation());
+        assertEquals("page=2", discovery.getBatches().get(0).getContinuation());
+        assertFalse("the last batch offers no continuation",
+                discovery.getBatches().get(2).hasContinuation());
+    }
+
+    @Test
     public void anEmptySearchAndATechnicalFailureAreDifferentOutcomes() {
-        SearchRun empty = new SearchRun("run-2", "q", "duckduckgo", 1, SearchRun.Status.RESULTS,
+        SearchRun empty = SearchRun.discovered("run-2", "q", "ORIENTATION_SERP_SCAN",
+                SearchRun.Status.RESULTS, Collections.<DiscoveryBatch>emptyList(),
                 Collections.<SearchCandidate>emptyList());
         assertEquals("no candidates means the search honestly found nothing",
                 SearchRun.Status.NO_RESULTS, empty.getStatus());
 
-        SearchRun broken = new SearchRun("run-3", "q", "duckduckgo", 0,
-                SearchRun.Status.TECHNICAL_PROBLEM, Collections.<SearchCandidate>emptyList());
+        SearchRun broken = SearchRun.discovered("run-3", "q", "ORIENTATION_SERP_SCAN",
+                SearchRun.Status.TECHNICAL_PROBLEM, Collections.<DiscoveryBatch>emptyList(),
+                Collections.<SearchCandidate>emptyList());
         assertEquals("a search that could not run must stay distinguishable from an empty one",
                 SearchRun.Status.TECHNICAL_PROBLEM, broken.getStatus());
-    }
-
-    @Test
-    public void discoveryDataOfACandidateIsImmutable() {
-        SearchCandidate original = candidate(7, "example.org");
-        SearchCandidate inspected = original.withStatus(SearchCandidate.Status.INSPECTED);
-
-        assertEquals(SearchCandidate.Status.DISCOVERED, original.getStatus());
-        assertEquals(SearchCandidate.Status.INSPECTED, inspected.getStatus());
-        assertEquals(original.getCandidateId(), inspected.getCandidateId());
-        assertEquals(original.getUrl(), inspected.getUrl());
-        assertEquals(original.getRank(), inspected.getRank());
-    }
-
-    @Test
-    public void theSameRunKeepsItsCandidateOrder() {
-        SearchRun discovery = run(3, 1);
-        assertEquals(Arrays.asList("c1", "c2", "c3"),
-                Arrays.asList(discovery.getCandidates().get(0).getCandidateId(),
-                        discovery.getCandidates().get(1).getCandidateId(),
-                        discovery.getCandidates().get(2).getCandidateId()));
     }
 }

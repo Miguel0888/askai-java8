@@ -1,77 +1,70 @@
 package com.aresstack.askai.research.domain.search;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
 /**
- * ONE hit a search produced, addressable by its {@link #getCandidateId()} for the rest of the project's
- * life — "open hit #18 again, properly" must not require running the search a second time.
+ * ONE hit a search produced: an IMMUTABLE discovery record, addressable by its {@link #getCandidateId()} for
+ * the rest of the project's life — "open hit #18 again, properly" must not require running the search again.
  * <p>
- * Three things a candidate deliberately is NOT:
+ * It deliberately carries NO inspection state. A candidate can be looked at more than once: skipped under a
+ * scan profile, blocked by a consent dialog on the first attempt, read successfully on a later one. Letting
+ * the hit itself walk through DISCOVERED → FAILED → INSPECTED would rewrite the discovery fact every time
+ * something happened to the page, and "deepen this hit" (a NEW inspection) would look like a state change of
+ * an old one. What happened to a page lives in {@link InspectionAttempt}; a UI may project the latest
+ * attempt, but the canonical truth stays separate.
+ * <p>
+ * Two further things it is NOT:
  * <ul>
- * <li>NOT a navigation target. What the acquisition engine works through also contains links discovered on
- *     visited pages and redirect targets; those have no rank, no snippet and a different provenance. That is
- *     a runtime-internal frontier entry, which may POINT AT a candidate.</li>
- * <li>NOT a source. A run may find a hundred candidates of which five end up in the research corpus. The
- *     relation is candidate → (inspection/acceptance) → source, not equality.</li>
- * <li>NOT proof that anything was read. A candidate exists as soon as the search engine returned it.</li>
+ * <li>NOT a navigation target — the acquisition frontier also holds links found while reading, which have no
+ *     rank and no snippet.</li>
+ * <li>NOT a source. A run may find a hundred candidates of which five enter the research corpus; the
+ *     relation is candidate → inspection → source, not equality.</li>
  * </ul>
  */
 public final class SearchCandidate {
 
-    /** Where a candidate stands. It starts as DISCOVERED and never needs to progress at all. */
-    public enum Status {
-        /** Returned by the search — this alone is a complete, valid result. */
-        DISCOVERED,
-        /** Chosen for inspection by rank, diversity, the user or the agent. */
-        SELECTED,
-        /** Its page was successfully read. */
-        INSPECTED,
-        /** Deliberately not read (obstacle policy SKIP, budget spent, transit host, duplicate). */
-        SKIPPED,
-        /** Reading was attempted and failed. */
-        FAILED
-    }
-
     private final String candidateId;
-    private final String url;
+    private final String normalizedUrl;
     private final String title;
     private final String snippet;
     private final String domain;
-    private final int serpPage;
-    private final int rank;
-    private final String provider;
-    private final Status status;
+    private final List<SearchOccurrence> occurrences;
 
-    public SearchCandidate(String candidateId, String url, String title, String snippet, String domain,
-                           int serpPage, int rank, String provider, Status status) {
+    public SearchCandidate(String candidateId, String normalizedUrl, String title, String snippet,
+                           String domain, List<SearchOccurrence> occurrences) {
         if (candidateId == null || candidateId.trim().isEmpty()) {
             throw new IllegalArgumentException("candidateId must not be empty");
         }
-        if (url == null || url.trim().isEmpty()) {
-            throw new IllegalArgumentException("url must not be empty");
+        if (normalizedUrl == null || normalizedUrl.trim().isEmpty()) {
+            throw new IllegalArgumentException("normalizedUrl must not be empty");
         }
         this.candidateId = candidateId.trim();
-        this.url = url.trim();
+        this.normalizedUrl = normalizedUrl.trim();
         this.title = title == null ? "" : title.trim();
         this.snippet = snippet == null ? "" : snippet.trim();
         this.domain = domain == null ? "" : domain.trim();
-        this.serpPage = Math.max(1, serpPage);
-        this.rank = Math.max(0, rank);
-        this.provider = provider == null ? "" : provider.trim();
-        this.status = status == null ? Status.DISCOVERED : status;
+        this.occurrences = occurrences == null || occurrences.isEmpty()
+                ? Collections.<SearchOccurrence>emptyList()
+                : Collections.unmodifiableList(new ArrayList<SearchOccurrence>(occurrences));
     }
 
     public String getCandidateId() {
         return candidateId;
     }
 
-    public String getUrl() {
-        return url;
+    /** The identity-bearing URL: two occurrences that normalize to this are the same hit. */
+    public String getNormalizedUrl() {
+        return normalizedUrl;
     }
 
+    /** The best representation of the title across its occurrences. */
     public String getTitle() {
         return title;
     }
 
-    /** What the result page promised — later also the expectation a readiness judge can check against. */
+    /** What the result set promised — later also the expectation a readiness judge can check against. */
     public String getSnippet() {
         return snippet;
     }
@@ -80,28 +73,49 @@ public final class SearchCandidate {
         return domain;
     }
 
-    /** Which result page it came from (1-based) — the reason a run can traverse several. */
-    public int getSerpPage() {
-        return serpPage;
+    /** Every place this hit appeared; several mean it was found repeatedly, not that it is duplicated. */
+    public List<SearchOccurrence> getOccurrences() {
+        return occurrences;
     }
 
-    /** Position within its result page, as the engine ordered it (never an evaluation). */
-    public int getRank() {
-        return rank;
+    /** The earliest batch it appeared in — the natural sort key when order matters. */
+    public int firstBatchOrdinal() {
+        int earliest = Integer.MAX_VALUE;
+        for (SearchOccurrence occurrence : occurrences) {
+            earliest = Math.min(earliest, occurrence.getBatchOrdinal());
+        }
+        return earliest == Integer.MAX_VALUE ? 1 : earliest;
     }
 
-    /** The engine/provider that produced it. */
-    public String getProvider() {
-        return provider;
+    /** Its best (lowest) rank across all occurrences; {@link Integer#MAX_VALUE} when it has none. */
+    public int bestRank() {
+        int best = Integer.MAX_VALUE;
+        for (SearchOccurrence occurrence : occurrences) {
+            best = Math.min(best, occurrence.getRank());
+        }
+        return best;
     }
 
-    public Status getStatus() {
-        return status;
+    /** Whether more than one provider returned this hit — a mild signal of prominence, never a score. */
+    public boolean foundBySeveralProviders() {
+        String first = null;
+        for (SearchOccurrence occurrence : occurrences) {
+            if (first == null) {
+                first = occurrence.getProvider();
+            } else if (!first.equals(occurrence.getProvider())) {
+                return true;
+            }
+        }
+        return false;
     }
 
-    /** The same candidate in a new state; identity and discovery data never change. */
-    public SearchCandidate withStatus(Status newStatus) {
-        return new SearchCandidate(candidateId, url, title, snippet, domain, serpPage, rank, provider,
-                newStatus);
+    /** The same hit with one more occurrence recorded; discovery data itself never changes. */
+    public SearchCandidate withOccurrence(SearchOccurrence occurrence) {
+        if (occurrence == null) {
+            return this;
+        }
+        List<SearchOccurrence> extended = new ArrayList<SearchOccurrence>(occurrences);
+        extended.add(occurrence);
+        return new SearchCandidate(candidateId, normalizedUrl, title, snippet, domain, extended);
     }
 }
