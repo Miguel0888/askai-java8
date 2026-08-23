@@ -300,7 +300,9 @@ public class ManualSearchWiringTest {
         }
         assertTrue("the explicit action sends the review_sources control envelope", envelope != null);
         assertTrue(envelope.contains(" request_id=review-"));
-        String reviewId = envelope.substring(envelope.indexOf("request_id=") + "request_id=".length());
+        assertTrue("the review is pinned to the corpus the ledger will mark reviewed",
+                envelope.contains(" captured_through="));
+        String reviewId = lastReviewRequestId(fx);
 
         // The runtime's review bracket now correlates against the NEW review request id.
         manualSearchEvent(fx, 4L, reviewId, "review_started", "", "");
@@ -536,7 +538,9 @@ public class ManualSearchWiringTest {
             }
         }
         assertTrue("a review_sources envelope was sent", envelope != null);
-        return envelope.substring(envelope.indexOf("request_id=") + "request_id=".length());
+        String rest = envelope.substring(envelope.indexOf("request_id=") + "request_id=".length());
+        int space = rest.indexOf(' ');
+        return space < 0 ? rest : rest.substring(0, space); // the envelope also carries the corpus pin
     }
 
     private static final class Fx {

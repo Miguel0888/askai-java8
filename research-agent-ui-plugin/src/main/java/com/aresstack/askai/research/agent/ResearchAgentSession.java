@@ -1306,13 +1306,15 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             return;
         }
         // Pin the material NOW: whatever the review reports later is a statement about exactly these
-        // sources, not about whatever has arrived by the time it answers.
-        reviewInProgressOn = currentSourceCorpusRevision();
+        // sources, not about whatever has arrived by the time it answers. The pin travels WITH the
+        // request, so the agent reads the same set the ledger will mark reviewed.
+        com.aresstack.askai.research.review.SourceCorpusRevision target = currentSourceCorpusRevision();
+        reviewInProgressOn = target;
         String reviewRequestId = "review-" + java.util.UUID.randomUUID();
         activeManualSearchRequestId = reviewRequestId; // the review_* events correlate against this id
         backend.submitServiceCommand(handle,
                 com.aresstack.askai.research.search.ResearchServiceCommandWire
-                        .reviewSources(reviewRequestId));
+                        .reviewSources(reviewRequestId, target.getLatestCapturedAt()));
     }
 
     /** End the post-search thinking bubble + release the composer (red send button), if one is in flight. */

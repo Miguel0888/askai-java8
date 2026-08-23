@@ -103,6 +103,15 @@ public final class HttpMainModelChatClient implements MainModelChat {
         }
         Object content = ((Map<String, Object>) message).get("content");
         if (!(content instanceof String) || ((String) content).trim().isEmpty()) {
+            // A thinking model that spent the whole answer on reasoning is a different failure from a
+            // model that returned nothing. Both used to read as "no text content", which is exactly the
+            // ambiguity that made the review failure undiagnosable.
+            Object thinking = ((Map<String, Object>) message).get("thinking");
+            if (thinking instanceof String && !((String) thinking).trim().isEmpty()) {
+                return MainModelChatResult.failure(MainModelChatResult.Status.INVALID_RESPONSE,
+                        "main-model response carried only reasoning, no answer ("
+                                + ((String) thinking).trim().length() + " reasoning chars)");
+            }
             return MainModelChatResult.failure(MainModelChatResult.Status.INVALID_RESPONSE,
                     "main-model response message has no text content");
         }

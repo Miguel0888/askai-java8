@@ -24,8 +24,10 @@ public class TeamAgentSourcesContextTest {
 
         assertTrue("the source titles are in the context", context.contains("Wearables market 2024"));
         assertTrue("the source ids are in the context", context.contains("source-2"));
-        assertTrue("the model is told these are the accepted sources",
-                context.contains("Accepted research sources"));
+        assertTrue("the model is told what this material is",
+                context.contains("Research sources"));
+        assertTrue("and that it may only state what the material says",
+                context.contains("Only state what this material actually says"));
     }
 
     @Test
@@ -35,7 +37,7 @@ public class TeamAgentSourcesContextTest {
         String context = TeamAgentPlaybook.stateContext(view, "", Collections.<String>emptyList(),
                 "", Collections.<String>emptyList());
 
-        assertFalse(context.contains("Accepted research sources"));
+        assertFalse(context.contains("Research sources"));
         assertTrue("an empty sources summary stays empty", view.getSourcesSummary().isEmpty());
     }
 }

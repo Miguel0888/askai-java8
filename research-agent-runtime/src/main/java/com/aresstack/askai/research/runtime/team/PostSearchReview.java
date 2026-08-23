@@ -10,9 +10,12 @@ package com.aresstack.askai.research.runtime.team;
  */
 public final class PostSearchReview {
 
-    /** The model turn — productive: {@code ResearchTeamAgent.respond}. */
+    /**
+     * The model turn — productive: {@code ResearchTeamAgent.internalTurn}. NOT {@code respond}: a button
+     * press is not a sentence the user wrote, and it must not enter the conversation as one.
+     */
     public interface Model {
-        TeamAgentResult respond(String instruction, TeamAgentStateView view);
+        TeamAgentResult internalTurn(String instruction, TeamAgentStateView view);
     }
 
     /** The three ways a review surfaces — productive: emitTeamAgentResult / plain message / wire log. */
@@ -32,7 +35,7 @@ public final class PostSearchReview {
         boolean scoping = "scoping".equalsIgnoreCase(view.getPhaseId());
         System.err.println("[manual-search] review state phase=" + view.getPhaseId()
                 + " mode=" + (scoping ? "summary+suggestions" : "summary-only"));
-        TeamAgentResult result = model.respond(scoping
+        TeamAgentResult result = model.internalTurn(scoping
                 ? TeamAgentPlaybook.sourceReviewInstruction()
                 : TeamAgentPlaybook.sourceSummaryInstruction(), view);
         System.err.println("[manual-search] review result=" + result.getStatus());

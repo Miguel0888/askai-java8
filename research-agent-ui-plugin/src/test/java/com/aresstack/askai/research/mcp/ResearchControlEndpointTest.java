@@ -86,11 +86,12 @@ public class ResearchControlEndpointTest {
         // SCOPING/running: only the always-tools — issue #32: NO concept_save (the ResearchBrief is the
         // canonical scoping artifact) and no legacy per-stage tools anywhere.
         List<String> t = tools(reg, ep);
-        assertTrue(t.containsAll(java.util.Arrays.asList("research_status", "artifact_read", "source_list")));
+        assertTrue(t.containsAll(java.util.Arrays.asList("research_status", "artifact_read", "source_list",
+                "source_review_context")));
         assertFalse(t.contains("concept_save"));
         assertFalse(t.contains("outline_save"));
         assertFalse(t.contains("draft_save"));
-        assertEquals("scoping offers exactly the 3 read tools", 3, t.size());
+        assertEquals("scoping offers exactly the 4 read tools", 4, t.size());
 
         // OUTLINE/running → outline_save only (legacy operability for old persisted sessions).
         ctx.phaseId = ResearchStateIds.OUTLINE;
@@ -126,7 +127,7 @@ public class ResearchControlEndpointTest {
             ctx.stateId = s;
             ep.refreshTools();
             t = tools(reg, ep);
-            assertEquals("only the 3 read tools in " + s, 3, t.size());
+            assertEquals("only the 4 read tools in " + s, 4, t.size());
         }
         ep.close();
     }

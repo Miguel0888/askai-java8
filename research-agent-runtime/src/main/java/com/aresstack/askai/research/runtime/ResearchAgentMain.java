@@ -616,7 +616,7 @@ public final class ResearchAgentMain {
             scopeFence.update(command.getScope());
         } else if (com.aresstack.askai.research.runtime.service.ResearchServiceCommand.TYPE_REVIEW_SOURCES
                 .equals(command.getType())) {
-            handleReviewSources(ctx, command.getRequestId());
+            handleReviewSources(ctx, command.getRequestId(), command.getCapturedThrough());
         }
     }
 
@@ -625,7 +625,8 @@ public final class ResearchAgentMain {
      * never implicitly after a search. Bracketed by the same started/finished lifecycle as before, so the
      * host shows the cancellable thinking bubble and ALWAYS clears it — even on model failure/cancel.
      */
-    private void handleReviewSources(final SyncPromptContext ctx, String requestId) {
+    private void handleReviewSources(final SyncPromptContext ctx, String requestId,
+                                     long capturedThrough) {
         System.err.println("[manual-search] explicit review started requestId=" + requestId);
         ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
                 .manualSearchReviewStarted(requestId));
@@ -634,7 +635,7 @@ public final class ResearchAgentMain {
         com.aresstack.askai.research.domain.search.PostSearchReviewOutcome outcome =
                 com.aresstack.askai.research.domain.search.PostSearchReviewOutcome.FAILED;
         try {
-            outcome = reviewNewSourcesAndRefreshSuggestions(ctx);
+            outcome = reviewNewSourcesAndRefreshSuggestions(ctx, capturedThrough);
         } finally {
             if (cancelled.get()) {
                 outcome = com.aresstack.askai.research.domain.search.PostSearchReviewOutcome.CANCELLED;
@@ -859,26 +860,29 @@ public final class ResearchAgentMain {
     }
 
     /**
-     * The TeamAgent REVIEWS the accepted sources (it sees them via source_list, feature A). Issue #29: this
-     * runs ONLY from the explicit review_sources service command ("Neue Quellen auswerten"), never as an
-     * automatic continuation of a search. The review instruction is internal (never echoed as a user chat
-     * message). The SUMMARY is phase-independent; only the scoping projection (yellow suggestion chips)
-     * stays scoping-only, which {@code emitTeamAgentResult} already enforces (wireLineFor returns null
-     * outside scoping). A failed model turn surfaces a neutral visible acknowledgement instead of
-     * disappearing silently.
+     * The TeamAgent REVIEWS the sources it was pointed at. Issue #29: this runs ONLY from the explicit
+     * review_sources service command ("Neue Quellen auswerten"), never as an automatic continuation of a
+     * search. The instruction is internal — it goes through {@code internalTurn}, so a button press never
+     * enters the conversation as a user message.
+     * <p>
+     * The context is the sources' ACTUAL CONTENT ({@code source_review_context}), not the id/title listing
+     * of {@code source_list}: an agent asked to report what we learned, and given only titles, can do
+     * nothing but invent. {@code capturedThrough} pins it to the same material the host will record as
+     * reviewed.
      */
     private com.aresstack.askai.research.domain.search.PostSearchReviewOutcome
-            reviewNewSourcesAndRefreshSuggestions(final SyncPromptContext ctx) {
+            reviewNewSourcesAndRefreshSuggestions(final SyncPromptContext ctx, long capturedThrough) {
         if (teamAgent == null) {
             return com.aresstack.askai.research.domain.search.PostSearchReviewOutcome.FAILED;
         }
-        com.aresstack.askai.research.runtime.team.TeamAgentStateView view = readStateView(ctx);
+        com.aresstack.askai.research.runtime.team.TeamAgentStateView view =
+                readStateView(ctx).withSources(readReviewContext(ctx, capturedThrough));
         return com.aresstack.askai.research.runtime.team.PostSearchReview.run(view,
                 new com.aresstack.askai.research.runtime.team.PostSearchReview.Model() {
-                    public com.aresstack.askai.research.runtime.team.TeamAgentResult respond(
+                    public com.aresstack.askai.research.runtime.team.TeamAgentResult internalTurn(
                             String instruction,
                             com.aresstack.askai.research.runtime.team.TeamAgentStateView v) {
-                        return teamAgent.respond(instruction, v);
+                        return teamAgent.internalTurn(instruction, v);
                     }
                 },
                 new com.aresstack.askai.research.runtime.team.PostSearchReview.Emitter() {
@@ -898,6 +902,27 @@ public final class ResearchAgentMain {
                     }
                 },
                 sessionLanguage.code());
+    }
+
+    /**
+     * Read the bounded content of the sources this review is about. An empty answer is NOT silently
+     * turned into "review the titles instead": the review then honestly has nothing to work with, which
+     * the instruction and the material itself make visible to the model.
+     */
+    private String readReviewContext(SyncPromptContext ctx, long capturedThrough) {
+        try {
+            java.util.Map<String, Object> args = new java.util.HashMap<String, Object>();
+            args.put("captured_through", String.valueOf(Math.max(0L, capturedThrough)));
+            String context = String.valueOf(researchMcp.callTool("source_review_context", args));
+            System.err.println("[manual-search] review context chars="
+                    + (context == null ? 0 : context.length()) + " capturedThrough=" + capturedThrough);
+            return context == null ? "" : context;
+        } catch (RuntimeException unavailable) {
+            ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
+                    .log("source_review_context unavailable: " + unavailable.getMessage()));
+            System.err.println("[manual-search] review context unavailable: " + unavailable.getMessage());
+            return "";
+        }
     }
 
     /**

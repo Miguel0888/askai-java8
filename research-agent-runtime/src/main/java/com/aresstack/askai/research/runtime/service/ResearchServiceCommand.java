@@ -35,6 +35,11 @@ public final class ResearchServiceCommand {
     private final String query;
     private final String language;
     private final String scope;
+    /**
+     * For a review: the newest capture timestamp the review is about. It bounds WHICH sources this turn
+     * reads, so what the model saw and what the host marks reviewed are the same set.
+     */
+    private final long capturedThrough;
 
     public ResearchServiceCommand(String type, String requestId, String query) {
         this(type, requestId, query, null);
@@ -46,6 +51,12 @@ public final class ResearchServiceCommand {
 
     public ResearchServiceCommand(String type, String requestId, String query, String language,
                                   String scope) {
+        this(type, requestId, query, language, scope, 0L);
+    }
+
+    public ResearchServiceCommand(String type, String requestId, String query, String language,
+                                  String scope, long capturedThrough) {
+        this.capturedThrough = capturedThrough;
         this.type = type == null ? "" : type;
         this.requestId = requestId == null ? "" : requestId;
         this.query = query == null ? "" : query;
@@ -72,6 +83,10 @@ public final class ResearchServiceCommand {
     }
 
     /** The rendered scope projection of a {@code set_scope} command; empty when absent. */
+    public long getCapturedThrough() {
+        return capturedThrough;
+    }
+
     public String getScope() {
         return scope;
     }

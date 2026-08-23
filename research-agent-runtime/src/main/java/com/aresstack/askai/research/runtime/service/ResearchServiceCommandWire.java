@@ -14,7 +14,7 @@ import java.util.Map;
  * <pre>#RSC1# manual_search request_id=&lt;uuid&gt; query=&lt;urlenc&gt;
  * #RSC1# set_language language=de|en
  * #RSC1# set_scope scope=&lt;urlenc&gt;
- * #RSC1# review_sources request_id=&lt;uuid&gt;</pre>
+ * #RSC1# review_sources request_id=&lt;uuid&gt; captured_through=&lt;epoch-millis&gt;</pre>
  */
 public final class ResearchServiceCommandWire {
 
@@ -46,7 +46,17 @@ public final class ResearchServiceCommandWire {
             }
         }
         return new ResearchServiceCommand(type, fields.get("request_id"), decode(fields.get("query")),
-                fields.get("language"), decode(fields.get("scope")));
+                fields.get("language"), decode(fields.get("scope")),
+                parseLong(fields.get("captured_through")));
+    }
+
+    /** An absent or malformed pin means "no bound" — a review still reads, it just reads everything. */
+    private static long parseLong(String value) {
+        try {
+            return value == null || value.trim().isEmpty() ? 0L : Long.parseLong(value.trim());
+        } catch (NumberFormatException notANumber) {
+            return 0L;
+        }
     }
 
     private static String decode(String value) {

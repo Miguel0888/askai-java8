@@ -154,6 +154,29 @@ public final class ResearchTeamAgent {
     }
 
     /**
+     * A turn the user triggered by ACTING, not by writing — pressing "review the new sources". It runs the
+     * same model and the same output contract, and it reads the real conversation as its context, but the
+     * instruction behind it is machinery: it is not appended to the history as something the user said.
+     * <p>
+     * It used to go through {@link #respond}, which turns its argument into a user message. On success the
+     * internal wording ended up in the conversation as if the user had typed it, and every later turn was
+     * assembled on top of that fiction.
+     */
+    public TeamAgentResult internalTurn(String instruction, TeamAgentStateView state) {
+        PhaseAssistantProfile profile = profiles.forPhase(state.getPhaseId());
+        List<ChatMessage> messages = baseMessages(state);
+        messages.add(ChatMessage.user(instruction == null ? "" : instruction.trim()));
+        TeamAgentResult result = runTurn(messages, state, profile.getOutputContract());
+        if (result.isOk()) {
+            // The ANSWER is real conversation — the user sees it, and the next turn must know it exists.
+            // Only the instruction stays out.
+            recordAssistant(result.getOutput());
+            foldProposal(result.getOutput());
+        }
+        return result;
+    }
+
+    /**
      * Re-run the pending user turn after a failure (MODEL_UNAVAILABLE / UNUSABLE_ANSWER / COMMAND_REJECTED)
      * without re-appending the user's message. Requires a pending turn — an OK turn clears it.
      */

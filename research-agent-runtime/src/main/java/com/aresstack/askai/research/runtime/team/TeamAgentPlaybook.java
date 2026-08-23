@@ -272,9 +272,9 @@ public final class TeamAgentPlaybook {
         }
         String sources = state == null ? "" : state.getSourcesSummary();
         if (!sources.isEmpty()) {
-            sb.append("\nAccepted research sources found so far (web searches added these — you CAN see and "
-                    + "reference them by title/id; when the user mentions 'the new sources', use THESE instead "
-                    + "of asking the user to describe them):\n").append(sources).append('\n');
+            sb.append("\nResearch sources (web searches added these — you CAN see them; when the user "
+                    + "mentions 'the new sources', use THESE instead of asking the user to describe them. "
+                    + "Only state what this material actually says):\n").append(sources).append('\n');
         }
         return sb.toString();
     }
@@ -311,9 +311,13 @@ public final class TeamAgentPlaybook {
      * suggestions to explore the gaps/next angles they reveal. Never echoed to the user as a message.
      */
     public static String sourceReviewInstruction() {
-        return "A web search just finished and added new research sources (listed in the research context "
-                + "above). Take a moment to review them, then in assistantMessage report back what WE LEARNED, "
-                + "in a natural, human tone:\n"
+        return "A web search just finished and added new research sources (their content is in the "
+                + "research context above). Take a moment to review them, then in assistantMessage report "
+                + "back what WE LEARNED, in a natural, human tone:\n"
+                + "Every statement you make must come from the source material below. It carries each "
+                + "source's title, where it was found and a bounded piece of its actual text — work from "
+                + "THAT. Never infer content from a title, and when the material is thin or unreadable, "
+                + "say so plainly instead of filling the gap.\n"
                 + "- Start with a short overview at a HIGHER LEVEL OF ABSTRACTION — the big picture the sources "
                 + "collectively paint, not a per-source recap.\n"
                 + "- Then name the THEME CLUSTERS worth deepening: group the material into 2-4 clearly named "
@@ -334,9 +338,13 @@ public final class TeamAgentPlaybook {
      * suggestions (the yellow chips exist only in the scoping workspace). Never echoed as a user message.
      */
     public static String sourceSummaryInstruction() {
-        return "A web search just finished and added new research sources (listed in the research context "
-                + "above). Take a moment to review them, then in assistantMessage report back what the NEW "
-                + "material contributes, in a natural, human tone:\n"
+        return "A web search just finished and added new research sources (their content is in the "
+                + "research context above). Take a moment to review them, then in assistantMessage report "
+                + "back what the NEW material contributes, in a natural, human tone:\n"
+                + "Every statement you make must come from the source material below. It carries each "
+                + "source's title, where it was found and a bounded piece of its actual text — work from "
+                + "THAT. Never infer content from a title, and when the material is thin or unreadable, "
+                + "say so plainly instead of filling the gap.\n"
                 + "- Start with a short overview at a HIGHER LEVEL OF ABSTRACTION — the big picture the new "
                 + "sources collectively add, not a per-source recap.\n"
                 + "- Then name the THEME CLUSTERS the material covers: 2-4 clearly named areas and how they "

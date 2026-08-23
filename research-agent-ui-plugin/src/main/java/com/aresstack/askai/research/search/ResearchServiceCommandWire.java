@@ -59,8 +59,11 @@ public final class ResearchServiceCommandWire {
      * The runtime brackets the review with {@code manual_search_review started/finished} events carrying
      * this request id — a search itself never triggers the review implicitly anymore.
      */
-    public static String reviewSources(String requestId) {
-        return MARKER + "review_sources request_id=" + (requestId == null ? "" : requestId);
+    public static String reviewSources(String requestId, long capturedThrough) {
+        // The pin travels WITH the request: the review must read exactly the material the host will
+        // record as reviewed, not whatever has arrived by the time the model answers.
+        return MARKER + "review_sources request_id=" + (requestId == null ? "" : requestId)
+                + " captured_through=" + Math.max(0L, capturedThrough);
     }
 
     private static void appendEncoded(StringBuilder sb, String key, String value) {

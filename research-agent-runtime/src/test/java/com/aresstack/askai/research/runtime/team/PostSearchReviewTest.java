@@ -25,7 +25,7 @@ public class PostSearchReviewTest {
             this.result = result;
         }
 
-        public TeamAgentResult respond(String instruction, TeamAgentStateView view) {
+        public TeamAgentResult internalTurn(String instruction, TeamAgentStateView view) {
             this.instruction = instruction;
             return result;
         }
