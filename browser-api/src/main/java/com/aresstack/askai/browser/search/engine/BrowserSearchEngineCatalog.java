@@ -23,9 +23,17 @@ public final class BrowserSearchEngineCatalog {
                             // Server-rendered endpoints of the SAME provider: the plain HTML one first,
                             // the lite one as its own fallback. One provider to the user.
                             "https://html.duckduckgo.com/html/?q={query}",
-                            "https://lite.duckduckgo.com/lite/?q={query}")),
+                            "https://lite.duckduckgo.com/lite/?q={query}"),
+                            // Follow-up result pages address the provider's `s` offset (~30/page).
+                            Arrays.asList(
+                                    "https://html.duckduckgo.com/html/?q={query}&s={offset0}",
+                                    "https://lite.duckduckgo.com/lite/?q={query}&s={offset0}"),
+                            30),
                     new BrowserSearchEngine(BING, "Bing", Arrays.asList(
-                            "https://www.bing.com/search?q={query}")))));
+                            "https://www.bing.com/search?q={query}"),
+                            // Bing pages via `first` (1-based offset of the first result, 10/page).
+                            Arrays.asList("https://www.bing.com/search?q={query}&first={offset1}"),
+                            10))));
 
     private BrowserSearchEngineCatalog() {
     }

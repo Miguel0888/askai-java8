@@ -349,6 +349,9 @@ public final class WebSearchApplicationService {
             initialStatus = result.status;
             // SERP candidates enter the funnel as discovered links (the reranker then assesses them all).
             progress.linksDiscovered(result.candidates.size());
+            // Tick the card NOW: what the engines delivered is known here, well before reranking ends
+            // and long before the first page opens.
+            listener.progress(progress, ResearchRunActivity.searching(query));
             for (String providerHost : result.providerHosts) {
                 searchProviderSites.add(familyOf(providerHost));
             }

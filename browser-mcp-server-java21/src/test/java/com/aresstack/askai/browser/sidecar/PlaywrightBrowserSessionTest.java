@@ -113,6 +113,15 @@ public class PlaywrightBrowserSessionTest {
             return history.get(history.size() - 1);
         }
 
+        /** Pacing pump slices requested by the session's per-engine delay (no real waiting in tests). */
+        final List<Long> pacedSlices = new ArrayList<Long>();
+
+        @Override
+        public boolean pumpEvents(java.util.function.BooleanSupplier wake, long timeoutMillis) {
+            pacedSlices.add(timeoutMillis);
+            return true;
+        }
+
         @Override
         public com.aresstack.askai.browser.render.RenderedPageDocument captureRenderedPage(
                 com.aresstack.askai.browser.domain.DomainKeyResolver domainKeys,
@@ -156,14 +165,22 @@ public class PlaywrightBrowserSessionTest {
     /** A session whose engines are worked through in the given acquisition mode. */
     private static PlaywrightBrowserSession session(FakeDriver driver,
             com.aresstack.askai.browser.search.engine.EngineAcquisitionMode mode) {
+        return session(driver, mode,
+                com.aresstack.askai.browser.search.LegacyBrowserSearchDefaults.create()
+                        .navigation.engineSelection.getEntries());
+    }
+
+    /** A session with the given engine-selection ENTRIES (per-engine pages/delay under test). */
+    private static PlaywrightBrowserSession session(FakeDriver driver,
+            com.aresstack.askai.browser.search.engine.EngineAcquisitionMode mode,
+            java.util.List<com.aresstack.askai.browser.search.engine.BrowserSearchEngineSelection.Entry> entries) {
         com.aresstack.askai.browser.search.LegacyBrowserSearchSettings defaults =
                 com.aresstack.askai.browser.search.LegacyBrowserSearchDefaults.create();
         com.aresstack.askai.browser.search.LegacyBrowserSearchSettings settings =
                 new com.aresstack.askai.browser.search.LegacyBrowserSearchSettings(
                         new com.aresstack.askai.browser.search.LegacySearchNavigationSettings(
                                 new com.aresstack.askai.browser.search.engine
-                                        .BrowserSearchEngineSelection(
-                                        defaults.navigation.engineSelection.getEntries(), mode),
+                                        .BrowserSearchEngineSelection(entries, mode),
                                 defaults.navigation.maximumEngineAttempts,
                                 defaults.navigation.navigationCommitTimeoutMillis,
                                 defaults.navigation.redirectResolutionEnabled,
@@ -186,6 +203,90 @@ public class PlaywrightBrowserSessionTest {
 
     private static PlaywrightPageState emptyPage(String url) {
         return state(url, "Empty", "nothing here", "Settings", url + "/settings");
+    }
+
+    /**
+     * Per-engine result paging, STRICTLY SEQUENTIAL: page 1 is fetched and fully evaluated, only then
+     * page 2 — the evaluation time between fetches is the natural pacing that keeps engines from
+     * answering rapid-fire clicks with a CAPTCHA. A page with nothing usable ends the pagination, and
+     * hits repeated across pages are carried once.
+     */
+    @Test
+    public void aPagingEngineDeliversItsDeeperResultPagesSequentially() throws Exception {
+        FakeDriver driver = new FakeDriver();
+        driver.byUrl.put("http://paged.test/s?q=pf4j", resultsPage("http://paged.test/s?q=pf4j", "one"));
+        // Page 2 brings two NEW hits and repeats one of page 1's targets (carried once).
+        driver.byUrl.put("http://paged.test/s?q=pf4j&page=2", state("http://paged.test/s?q=pf4j&page=2",
+                "Results", "results page",
+                "one primer", "http://target-a.test/one",
+                "four guide", "http://target-a.test/four",
+                "five docs", "http://target-b.test/five"));
+        // Page 3 has nothing usable — the pagination ends there (default is 3 pages anyway).
+        driver.byUrl.put("http://paged.test/s?q=pf4j&page=3",
+                emptyPage("http://paged.test/s?q=pf4j&page=3"));
+        PlaywrightBrowserSession s = session(driver,
+                com.aresstack.askai.browser.search.engine.EngineAcquisitionMode.FIRST_USABLE);
+        s.setSearchEngines(java.util.Collections.singletonList(
+                new com.aresstack.askai.browser.search.engine.BrowserSearchEngine("paged", "Paged",
+                        java.util.Collections.singletonList("http://paged.test/s?q={query}"),
+                        java.util.Collections.singletonList("http://paged.test/s?q={query}&page={page}"),
+                        10)));
+
+        WebSearchResult result = s.search("pf4j");
+
+        assertEquals("pages are fetched in order, each evaluated before the next",
+                java.util.Arrays.asList(
+                        "http://paged.test/s?q=pf4j",
+                        "http://paged.test/s?q=pf4j&page=2",
+                        "http://paged.test/s?q=pf4j&page=3"), driver.opened);
+        java.util.List<String> urls = new ArrayList<String>();
+        for (com.aresstack.askai.browser.WebSearchItem item : result.getItems()) {
+            urls.add(item.getUrl());
+        }
+        assertEquals("3 + 2 new — the repeated target is carried once", 5, urls.size());
+        assertTrue(urls.contains("http://target-a.test/four"));
+        assertTrue(urls.contains("http://target-b.test/five"));
+        assertEquals("no duplicate targets across pages", urls.size(),
+                new java.util.HashSet<String>(urls).size());
+    }
+
+    /**
+     * The per-engine request delay (a user SETTING, default 0 = off) paces every request to the same
+     * engine after its first — and it waits by PUMPING the driver's event loop, never by a blind sleep
+     * that would freeze the HUD and close detection. The first request of an engine is never delayed.
+     */
+    @Test
+    public void thePerEngineDelayPacesRepeatRequestsThroughTheEventPump() throws Exception {
+        FakeDriver driver = new FakeDriver();
+        driver.byUrl.put("http://paged.test/s?q=pf4j", resultsPage("http://paged.test/s?q=pf4j", "one"));
+        driver.byUrl.put("http://paged.test/s?q=pf4j&page=2", resultsPage(
+                "http://paged.test/s?q=pf4j&page=2", "two"));
+        driver.byUrl.put("http://paged.test/s?q=pf4j&page=3",
+                emptyPage("http://paged.test/s?q=pf4j&page=3"));
+        PlaywrightBrowserSession s = session(driver,
+                com.aresstack.askai.browser.search.engine.EngineAcquisitionMode.FIRST_USABLE,
+                java.util.Collections.singletonList(
+                        new com.aresstack.askai.browser.search.engine.BrowserSearchEngineSelection
+                                .Entry("paged", true, 3, 600)));
+        s.setSearchEngines(java.util.Collections.singletonList(
+                new com.aresstack.askai.browser.search.engine.BrowserSearchEngine("paged", "Paged",
+                        java.util.Collections.singletonList("http://paged.test/s?q={query}"),
+                        java.util.Collections.singletonList("http://paged.test/s?q={query}&page={page}"),
+                        10)));
+
+        s.search("pf4j");
+
+        assertEquals("all three pages were fetched",
+                java.util.Arrays.asList(
+                        "http://paged.test/s?q=pf4j",
+                        "http://paged.test/s?q=pf4j&page=2",
+                        "http://paged.test/s?q=pf4j&page=3"), driver.opened);
+        long pumped = 0;
+        for (long slice : driver.pacedSlices) {
+            pumped += slice;
+        }
+        assertEquals("600 ms before page 2 and before page 3 — page 1 is never delayed",
+                1200L, pumped);
     }
 
     /**
