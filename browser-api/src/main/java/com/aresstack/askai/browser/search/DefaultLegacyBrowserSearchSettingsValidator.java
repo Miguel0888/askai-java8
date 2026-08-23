@@ -32,6 +32,11 @@ public final class DefaultLegacyBrowserSearchSettingsValidator
             require(v, "navigation.engineAcquisitionMode",
                     s.navigation.engineSelection.getMode() != null,
                     "engine acquisition mode must be set");
+            for (com.aresstack.askai.browser.search.engine.BrowserSearchEngineSelection.Entry entry
+                    : s.navigation.engineSelection.getEntries()) {
+                require(v, "navigation.engines", entry.getResultPages() >= 1,
+                        "result pages for engine '" + entry.getEngineId() + "' must be >= 1");
+            }
         }
 
         // --- consent

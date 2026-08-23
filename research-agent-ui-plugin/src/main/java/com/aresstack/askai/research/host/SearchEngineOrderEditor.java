@@ -40,11 +40,14 @@ final class SearchEngineOrderEditor extends JPanel {
         final String engineId;
         final String displayName;
         boolean enabled;
+        /** Result pages one search fetches from this engine (the user's per-engine setting). */
+        int resultPages;
 
-        Row(String engineId, String displayName, boolean enabled) {
+        Row(String engineId, String displayName, boolean enabled, int resultPages) {
             this.engineId = engineId;
             this.displayName = displayName;
             this.enabled = enabled;
+            this.resultPages = resultPages;
         }
     }
 
@@ -61,7 +64,8 @@ final class SearchEngineOrderEditor extends JPanel {
 
             public Component getListCellRendererComponent(JList<? extends Row> l, Row value, int index,
                                                           boolean selected, boolean focused) {
-                box.setText(value.displayName);
+                box.setText(value.displayName + "  — " + value.resultPages
+                        + (value.resultPages == 1 ? " Seite" : " Seiten"));
                 box.setSelected(value.enabled);
                 box.setOpaque(true);
                 box.setBackground(selected ? l.getSelectionBackground() : l.getBackground());
@@ -93,11 +97,38 @@ final class SearchEngineOrderEditor extends JPanel {
         buttons.add(moveButton("↑", -1));
         buttons.add(Box.createVerticalStrut(4));
         buttons.add(moveButton("↓", 1));
+        buttons.add(Box.createVerticalStrut(8));
+        pagesSpinner.setToolTipText("Wie viele Ergebnisseiten dieser Suchmaschine eine Suche abruft "
+                + "(sequenziell, mit Auswertung zwischen den Abrufen)");
+        pagesSpinner.setMaximumSize(new Dimension(64, 26));
+        pagesSpinner.addChangeListener(new javax.swing.event.ChangeListener() {
+            public void stateChanged(javax.swing.event.ChangeEvent event) {
+                int index = list.getSelectedIndex();
+                if (index >= 0) {
+                    model.get(index).resultPages = (Integer) pagesSpinner.getValue();
+                    list.repaint();
+                }
+            }
+        });
+        list.addListSelectionListener(new javax.swing.event.ListSelectionListener() {
+            public void valueChanged(javax.swing.event.ListSelectionEvent event) {
+                int index = list.getSelectedIndex();
+                if (index >= 0) {
+                    pagesSpinner.setValue(model.get(index).resultPages);
+                }
+            }
+        });
+        buttons.add(pagesSpinner);
         buttons.add(Box.createVerticalGlue());
         add(buttons, BorderLayout.EAST);
 
         set(encodedValue);
     }
+
+    /** Result pages of the SELECTED engine — shown/edited next to the ordering buttons. */
+    private final javax.swing.JSpinner pagesSpinner = new javax.swing.JSpinner(
+            new javax.swing.SpinnerNumberModel(
+                    BrowserSearchEngineSelection.Entry.DEFAULT_RESULT_PAGES, 1, 10, 1));
 
     private JButton moveButton(String label, final int delta) {
         JButton button = new JButton(label);
@@ -127,7 +158,8 @@ final class SearchEngineOrderEditor extends JPanel {
                 new ArrayList<BrowserSearchEngineSelection.Entry>();
         for (int i = 0; i < model.size(); i++) {
             Row row = model.get(i);
-            entries.add(new BrowserSearchEngineSelection.Entry(row.engineId, row.enabled));
+            entries.add(new BrowserSearchEngineSelection.Entry(row.engineId, row.enabled,
+                    row.resultPages));
         }
         return new BrowserSearchEngineSelection(entries, null).encodeEntries();
     }
@@ -141,12 +173,14 @@ final class SearchEngineOrderEditor extends JPanel {
             if (engine == null) {
                 continue; // an engine this build does not know: keep it out of the user's way
             }
-            model.addElement(new Row(engine.getId(), engine.getDisplayName(), entry.isEnabled()));
+            model.addElement(new Row(engine.getId(), engine.getDisplayName(), entry.isEnabled(),
+                    entry.getResultPages()));
             placed.add(engine.getId());
         }
         for (BrowserSearchEngine engine : BrowserSearchEngineCatalog.engines()) {
             if (!placed.contains(engine.getId())) {
-                model.addElement(new Row(engine.getId(), engine.getDisplayName(), false));
+                model.addElement(new Row(engine.getId(), engine.getDisplayName(), false,
+                        BrowserSearchEngineSelection.Entry.DEFAULT_RESULT_PAGES));
             }
         }
     }

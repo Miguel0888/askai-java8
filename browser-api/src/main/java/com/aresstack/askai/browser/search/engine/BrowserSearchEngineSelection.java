@@ -13,17 +13,27 @@ import java.util.List;
  */
 public final class BrowserSearchEngineSelection {
 
-    /** One line of the user's engine list: which engine, and whether it takes part at all. */
+    /** One line of the user's engine list: which engine, whether it takes part, how many result pages. */
     public static final class Entry {
+
+        /** Result pages fetched per engine when the configuration names none — a SETTING's fallback. */
+        public static final int DEFAULT_RESULT_PAGES = 3;
+
         private final String engineId;
         private final boolean enabled;
+        private final int resultPages;
 
         public Entry(String engineId, boolean enabled) {
+            this(engineId, enabled, DEFAULT_RESULT_PAGES);
+        }
+
+        public Entry(String engineId, boolean enabled, int resultPages) {
             if (engineId == null || engineId.trim().isEmpty()) {
                 throw new IllegalArgumentException("engine id must not be empty");
             }
             this.engineId = engineId.trim();
             this.enabled = enabled;
+            this.resultPages = resultPages > 0 ? resultPages : DEFAULT_RESULT_PAGES;
         }
 
         public String getEngineId() {
@@ -32,6 +42,11 @@ public final class BrowserSearchEngineSelection {
 
         public boolean isEnabled() {
             return enabled;
+        }
+
+        /** How many result pages of this engine one search fetches (always >= 1). */
+        public int getResultPages() {
+            return resultPages;
         }
     }
 
@@ -73,7 +88,8 @@ public final class BrowserSearchEngineSelection {
     // ------------------------------------------------------------------ flat-string form (settings codec)
 
     /**
-     * {@code "duckduckgo:on,bing:off"} — order carries the priority, so the encoding is a LIST, not a map.
+     * {@code "duckduckgo:on:3,bing:off:3"} — order carries the priority, so the encoding is a LIST,
+     * not a map; the third part is the engine's result-page count.
      */
     public String encodeEntries() {
         StringBuilder sb = new StringBuilder();
@@ -81,9 +97,20 @@ public final class BrowserSearchEngineSelection {
             if (sb.length() > 0) {
                 sb.append(',');
             }
-            sb.append(entry.getEngineId()).append(':').append(entry.isEnabled() ? "on" : "off");
+            sb.append(entry.getEngineId()).append(':').append(entry.isEnabled() ? "on" : "off")
+                    .append(':').append(entry.getResultPages());
         }
         return sb.toString();
+    }
+
+    /** The configured result-page count for this engine (the entry's value, else the default). */
+    public int resultPagesFor(String engineId) {
+        for (Entry entry : entries) {
+            if (entry.getEngineId().equals(engineId)) {
+                return entry.getResultPages();
+            }
+        }
+        return Entry.DEFAULT_RESULT_PAGES;
     }
 
     /** Parse the flat form; unreadable pieces are skipped rather than failing the whole configuration. */
@@ -97,11 +124,20 @@ public final class BrowserSearchEngineSelection {
             if (text.isEmpty()) {
                 continue;
             }
-            int colon = text.lastIndexOf(':');
-            String id = colon < 0 ? text : text.substring(0, colon).trim();
-            boolean enabled = colon < 0 || !"off".equalsIgnoreCase(text.substring(colon + 1).trim());
+            // "id" | "id:on" | "id:on:3" — older two-part configurations keep the default page count.
+            String[] parts = text.split(":");
+            String id = parts[0].trim();
+            boolean enabled = parts.length < 2 || !"off".equalsIgnoreCase(parts[1].trim());
+            int pages = Entry.DEFAULT_RESULT_PAGES;
+            if (parts.length >= 3) {
+                try {
+                    pages = Integer.parseInt(parts[2].trim());
+                } catch (NumberFormatException invalid) {
+                    pages = Entry.DEFAULT_RESULT_PAGES;
+                }
+            }
             if (!id.isEmpty()) {
-                entries.add(new Entry(id, enabled));
+                entries.add(new Entry(id, enabled, pages));
             }
         }
         return entries;
