@@ -191,52 +191,37 @@ public class ResearchStateViewTest {
         });
     }
 
-    // ------------------------------------------------------------------ run controls
+    // ------------------------------------------------------------------ no command furniture
 
     @Test
-    public void runControlsShowOnlyUserCommandsNeverFailOrBlock() throws Exception {
-        // RESEARCH/running allows REQUEST_EVIDENCE_REVIEW, PAUSE, BLOCK, FAIL, CANCEL — but the
-        // bar keeps only the USER run controls: Pause and Cancel.
+    public void thereIsNoExtraCommandButtonBarAnywhereInTheTab() throws Exception {
+        // The interruption machinery (pause/resume/retry/cancel, block/fail) is DOMAIN state, not
+        // user furniture: besides the clickable plates the tab renders labels only — no ComicButton.
         final ResearchStateSnapshot s =
                 snapshot(ResearchStateIds.RESEARCH, ResearchStateIds.RUNNING, null, null, 5L, "");
         javax.swing.SwingUtilities.invokeAndWait(new Runnable() {
             public void run() {
                 ResearchStateView view = acceptingView();
                 view.setSnapshot(s);
-                java.util.Set<String> labels = new java.util.HashSet<String>();
-                for (com.aresstack.comiccontrols.control.ComicButton b : view.commandButtonsForTest()) {
-                    labels.add(b.getText());
-                }
-                assertTrue(labels.contains(ResearchStateView.label(ResearchCommandType.PAUSE)));
-                assertTrue(labels.contains(ResearchStateView.label(ResearchCommandType.CANCEL)));
-                assertFalse("FAIL is an agent signal, never a user button",
-                        labels.contains(ResearchStateView.label(ResearchCommandType.FAIL)));
-                assertFalse("BLOCK is an agent signal, never a user button",
-                        labels.contains(ResearchStateView.label(ResearchCommandType.BLOCK)));
-                assertFalse("phase advances live on the plates, not in the bar",
-                        labels.contains(ResearchStateView.label(
-                                ResearchCommandType.REQUEST_EVIDENCE_REVIEW)));
+                assertFalse("no button controls in the state tab",
+                        containsButton(view));
             }
         });
     }
 
-    @Test
-    public void cancelIsRedTheOtherRunControlsYellow() throws Exception {
-        final ResearchStateSnapshot s =
-                snapshot(ResearchStateIds.RESEARCH, ResearchStateIds.RUNNING, null, null, 5L, "");
-        javax.swing.SwingUtilities.invokeAndWait(new Runnable() {
-            public void run() {
-                ResearchStateView view = acceptingView();
-                view.setSnapshot(s);
-                for (com.aresstack.comiccontrols.control.ComicButton b : view.commandButtonsForTest()) {
-                    boolean cancel = b.getText().equals(
-                            ResearchStateView.label(ResearchCommandType.CANCEL));
-                    assertTrue(b.getText(), b.getAccent()
-                            == (cancel ? com.aresstack.comiccontrols.control.ComicButton.Accent.CRITICAL
-                                       : com.aresstack.comiccontrols.control.ComicButton.Accent.ACTION));
-                }
+    private static boolean containsButton(java.awt.Container container) {
+        for (java.awt.Component child : container.getComponents()) {
+            if (child instanceof javax.swing.JScrollBar) {
+                continue; // the comic scrollbar's zero-size arrow stubs are plumbing, not controls
             }
-        });
+            if (child instanceof javax.swing.AbstractButton) {
+                return true;
+            }
+            if (child instanceof java.awt.Container && containsButton((java.awt.Container) child)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Test
@@ -247,7 +232,6 @@ public class ResearchStateViewTest {
             public void run() {
                 ResearchStateView view = new ResearchStateView();
                 view.setSnapshot(s);
-                assertTrue("no command port, no buttons", view.commandButtonsForTest().isEmpty());
                 assertTrue("no command port, no clickable plates",
                         view.clickablePhasesForTest().isEmpty());
             }

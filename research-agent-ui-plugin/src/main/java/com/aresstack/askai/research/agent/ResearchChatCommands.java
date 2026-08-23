@@ -28,13 +28,12 @@ public final class ResearchChatCommands {
 
     public static List<ChatCommandContribution> all() {
         // ONE synchronized command surface: the TEXT adapters — /search (user web search) and /open
-        // (artifact navigation) — plus one slash command per PROCESSOR command: the semantic state
-        // commands (submit-scope, approve, …) AND the derived-action service commands
-        // (review-sources, …). These names ARE user API (they are the red tags' ids and the MCP
-        // vocabulary); internal ResearchCommandType enum names still never are. Every slash command
-        // executes through the session's ONE structured command processor — exactly what a red-tag
-        // click runs, so /submit-scope and "Fragestellung freigeben & weiter" (or /review-sources
-        // and "Neue Quellen auswerten") are twins.
+        // (artifact navigation) — plus a slash TWIN for exactly the red DECISION tags the user sees
+        // ("Fragestellung freigeben & weiter" → /submit-scope, "Neue Quellen auswerten" →
+        // /review-sources, approve/changes/continue). NOTHING more: the domain's interruption
+        // machinery (pause/resume/retry/cancel, block/fail) stays out of the user surface — those
+        // states exist for the agent/runtime, not as user furniture. Every twin executes through
+        // the session's ONE structured command processor — exactly what a red-tag click runs.
         List<ChatCommandContribution> commands = new ArrayList<ChatCommandContribution>();
         commands.add(new OpenCommand());
         commands.add(new SearchCommand());
@@ -46,27 +45,15 @@ public final class ResearchChatCommands {
                 "Request changes at the pending review gate"));
         commands.add(new ProcessorCommand("continue",
                 "Continue with the next step (start research/drafting)"));
-        commands.add(new ProcessorCommand("pause", "Pause the running research"));
-        commands.add(new ProcessorCommand("resume", "Continue where the research paused"));
-        commands.add(new ProcessorCommand("retry", "Retry the step that failed"));
-        commands.add(new ProcessorCommand("cancel", "Cancel this research session"));
-        // The derived-action service commands (issue #33 vocabulary).
         commands.add(new ProcessorCommand("review-sources",
                 "Review the newly captured sources (Neue Quellen auswerten)"));
-        commands.add(new ProcessorCommand("generate-visualization",
-                "Generate/refresh the visualization from the current brief"));
-        commands.add(new ProcessorCommand("generate-outline",
-                "Rebuild topic discovery and outline from the corpus"));
         return commands;
     }
 
-    /** The processor-command names exposed as slash commands (the test guards the sync). */
+    /** The red-tag twins exposed as slash commands (the test guards the sync). */
     static List<String> processorCommandNames() {
-        List<String> names = new ArrayList<String>(ResearchSemanticCommands.names());
-        names.add("review-sources");
-        names.add("generate-visualization");
-        names.add("generate-outline");
-        return names;
+        return java.util.Arrays.asList(
+                "submit-scope", "approve", "request-changes", "continue", "review-sources");
     }
 
     private static ResearchAgentSession research(AgentSessionContext context) {

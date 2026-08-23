@@ -15,7 +15,7 @@ import static org.junit.Assert.assertTrue;
 public class ResearchChatCommandsTest {
 
     @Test
-    public void everyProcessorCommandHasASlashTwin() {
+    public void exactlyTheRedDecisionTagsHaveASlashTwin() {
         Set<String> names = new HashSet<String>();
         for (ChatCommandContribution contribution : ResearchChatCommands.all()) {
             names.add(contribution.getDescriptor().getName());
@@ -23,15 +23,17 @@ public class ResearchChatCommandsTest {
         // The text adapters…
         assertTrue(names.contains("search"));
         assertTrue(names.contains("open"));
-        // …the full semantic state vocabulary (the red tags' ids) AND the derived-action service
-        // commands — "Neue Quellen auswerten" (review-sources) was tag-only once, never again.
+        // …and the red DECISION tags' twins — "Fragestellung freigeben & weiter" (submit-scope)
+        // and "Neue Quellen auswerten" (review-sources) were tag-only once, never again.
         for (String command : ResearchChatCommands.processorCommandNames()) {
-            assertTrue("missing slash twin for processor command: " + command,
+            assertTrue("missing slash twin for red decision tag: " + command,
                     names.contains(command));
         }
-        assertTrue(names.contains("review-sources"));
-        assertTrue(names.contains("generate-visualization"));
-        assertTrue(names.contains("generate-outline"));
+        // The interruption machinery is DOMAIN state, not user furniture: no slash surface for it.
+        for (String machinery : new String[]{"pause", "resume", "retry", "cancel"}) {
+            assertTrue("interrupt machinery must not be a slash command: " + machinery,
+                    !names.contains(machinery));
+        }
     }
 
     @Test

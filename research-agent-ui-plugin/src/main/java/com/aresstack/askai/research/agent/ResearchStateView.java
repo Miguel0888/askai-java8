@@ -3,7 +3,6 @@ package com.aresstack.askai.research.agent;
 import com.aresstack.askai.research.backend.ResearchCommandDispatchResult;
 import com.aresstack.askai.research.state.ResearchCommandType;
 import com.aresstack.askai.research.state.oo.ResearchStateIds;
-import com.aresstack.comiccontrols.control.ComicButton;
 import com.aresstack.comiccontrols.control.ComicScrollPane;
 import com.aresstack.comiccontrols.control.ComicSectionPanel;
 import com.aresstack.comiccontrols.theme.ComicPalette;
@@ -19,17 +18,11 @@ import java.awt.Color;
 import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.Font;
-import java.awt.GridLayout;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.util.ArrayList;
-import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * The comic State tab: a phase TIMELINE of {@link ComicSectionPanel} plates (outer state object =
@@ -38,9 +31,9 @@ import java.util.Set;
  * state objects). The timeline IS the navigation: a phase an allowed USER command leads into is
  * CLICKABLE (hand cursor, ▶ marker, hover pop) and a click dispatches exactly that command —
  * forward (approve/submit/continue) and backward (request changes) alike, purely domain-driven
- * via {@link ResearchStateSnapshot#advanceCommandFor}. Below, a small bar keeps only the run
- * controls a user actually owns (pause/resume/retry/unblock/cancel); agent-internal commands
- * (fail/block, review requests) never become UI here.
+ * via {@link ResearchStateSnapshot#advanceCommandFor}. There is deliberately NO extra command
+ * button bar: the domain's interruption machinery (pause/block/fail/…) is not user furniture,
+ * and phase advancement already lives on the plates.
  *
  * <p>The view still holds NO transition table: clickability comes from the domain graph through
  * the snapshot, the user vocabulary from {@link ResearchSemanticCommands}, and a click only
@@ -55,16 +48,9 @@ public final class ResearchStateView extends JPanel {
         ResearchCommandDispatchResult commandClicked(ResearchCommandType command);
     }
 
-    /** The run controls a USER owns. FAIL/BLOCK are agent-side signals and never become buttons. */
-    private static final Set<ResearchCommandType> USER_RUN_CONTROLS = EnumSet.of(
-            ResearchCommandType.PAUSE, ResearchCommandType.RESUME, ResearchCommandType.RETRY,
-            ResearchCommandType.UNBLOCK, ResearchCommandType.CANCEL);
-
     private final ComicPalette palette = ComicPalette.defaultPalette();
     private final JPanel timeline = new JPanel();
-    private final JPanel commandBar = new JPanel(new GridLayout(0, 2, 6, 6));
     private final JLabel feedback = new JLabel(" ");
-    private final List<ComicButton> commandButtons = new ArrayList<ComicButton>();
     private final Map<String, ResearchCommandType> clickablePhases =
             new LinkedHashMap<String, ResearchCommandType>();
 
@@ -85,14 +71,9 @@ public final class ResearchStateView extends JPanel {
         scroll.getVerticalScrollBar().setUnitIncrement(16);
         add(scroll, BorderLayout.CENTER);
 
-        commandBar.setOpaque(false);
         feedback.setForeground(palette.getAccentRed());
         feedback.setFont(feedback.getFont().deriveFont(Font.PLAIN, 11f));
-        JPanel south = new JPanel(new BorderLayout(0, 4));
-        south.setOpaque(false);
-        south.add(commandBar, BorderLayout.CENTER);
-        south.add(feedback, BorderLayout.SOUTH);
-        add(south, BorderLayout.SOUTH);
+        add(feedback, BorderLayout.SOUTH);
 
         rebuild();
     }
@@ -131,7 +112,6 @@ public final class ResearchStateView extends JPanel {
             revision.setFont(revision.getFont().deriveFont(Font.PLAIN, 11f));
             timeline.add(revision);
         }
-        rebuildCommandBar();
         timeline.revalidate();
         timeline.repaint();
     }
@@ -259,47 +239,6 @@ public final class ResearchStateView extends JPanel {
         return trouble ? palette.getAccentRed() : null;
     }
 
-    // ------------------------------------------------------------------ run controls
-
-    private void rebuildCommandBar() {
-        commandBar.removeAll();
-        commandButtons.clear();
-        if (snapshot != null && commandListener != null) {
-            for (final ResearchCommandType type : ResearchCommandType.values()) {
-                if (!USER_RUN_CONTROLS.contains(type)
-                        || !snapshot.getAllowedCommands().contains(type)) {
-                    continue;
-                }
-                ComicButton button = new ComicButton(label(type),
-                        type == ResearchCommandType.CANCEL
-                                ? ComicButton.Accent.CRITICAL : ComicButton.Accent.ACTION);
-                button.setToolTipText(runControlTooltip(type));
-                button.setFocusable(false);
-                button.addActionListener(new ActionListener() {
-                    public void actionPerformed(ActionEvent event) {
-                        dispatch(type);
-                    }
-                });
-                commandButtons.add(button);
-                commandBar.add(button);
-            }
-        }
-        commandBar.setVisible(commandBar.getComponentCount() > 0);
-        commandBar.revalidate();
-        commandBar.repaint();
-    }
-
-    private static String runControlTooltip(ResearchCommandType type) {
-        switch (type) {
-            case PAUSE: return "Pause the running research (continue later with Resume)";
-            case RESUME: return "Continue exactly where the research paused";
-            case RETRY: return "Retry the step that failed";
-            case UNBLOCK: return "Continue after the blocker is resolved";
-            case CANCEL: return "Cancel this research session (cannot be undone)";
-            default: return label(type);
-        }
-    }
-
     private void dispatch(ResearchCommandType type) {
         ResearchCommandDispatchResult result = commandListener.commandClicked(type);
         if (result != null && !result.isAccepted()) {
@@ -401,10 +340,6 @@ public final class ResearchStateView extends JPanel {
     }
 
     // ------------------------------------------------------------------ test accessors
-
-    List<ComicButton> commandButtonsForTest() {
-        return new ArrayList<ComicButton>(commandButtons);
-    }
 
     Map<String, ResearchCommandType> clickablePhasesForTest() {
         return new LinkedHashMap<String, ResearchCommandType>(clickablePhases);
