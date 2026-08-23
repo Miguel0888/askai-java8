@@ -545,13 +545,30 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     private volatile boolean agentTurnInFlight;
 
     /**
+     * The ONLY way this flag changes. The composer reads its availability from here, but it only re-reads
+     * when something tells it to — so a plain assignment released the composer in the model and left the red
+     * Stop button on screen whenever no bubble happened to follow (the failed post-search review did exactly
+     * that). Announcing the change is part of making it.
+     */
+    private void setAgentTurnInFlight(boolean inFlight) {
+        if (agentTurnInFlight == inFlight) {
+            return;
+        }
+        agentTurnInFlight = inFlight;
+        if (sink != null) {
+            sink.turnActivityChanged();
+        }
+        fireStateChanged();
+    }
+
+    /**
      * A foreground agent turn is starting: mark the composer busy AND preempt the low-priority artifact
      * visualizer so it yields the shared, serial model immediately (its in-flight inference is aborted, its
      * dirty target kept, and it retries the latest artifact once the turn is done). The visualizer is only
      * touched when it already exists — we never create one here just to preempt it.
      */
     private void beginAgentTurn() {
-        agentTurnInFlight = true;
+        setAgentTurnInFlight(true);
         com.aresstack.askai.research.visualize.LazyArtifactVisualizer visualizer = artifactVisualizer;
         if (visualizer != null) {
             visualizer.preempt();
@@ -1153,13 +1170,13 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             // user both sees the work and can abort it. Cleared by review_finished (always emitted).
             postSearchThinkingId = "post-search-summary-" + requestId;
             postSearchSummaryInFlight = true;
-            agentTurnInFlight = true;
+            setAgentTurnInFlight(true);
             // Phase-neutral wording: outside scoping there are no suggestions to refresh, but the
             // summary review runs everywhere.
             sink.startThinking(postSearchThinkingId, "Ich sichte die neuen Quellen …");
         } else if ("review_finished".equals(subKind)) {
             finishPostSearchThinking("");
-            agentTurnInFlight = false; // release the composer — the review is over (success, failure or cancel)
+            setAgentTurnInFlight(false); // release the composer — the review is over (success, failure or cancel)
             activeManualSearchRequestId = null;
         } else if ("failed".equals(subKind)) {
             // Both surfaces: close the transient activity AND raise a PERSISTENT, readable problem so the
@@ -1168,7 +1185,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             sink.showProblem(publish("manual-search-failed-" + requestId), message);
             activeManualSearchRequestId = null;
             finishPostSearchThinking(""); // no summary is coming
-            agentTurnInFlight = false;
+            setAgentTurnInFlight(false);
             stopManualSearchBrowser();
         }
     }
@@ -1309,7 +1326,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
 
     public void pause() {
         if (productiveResources != null) {
-            agentTurnInFlight = false;
+            setAgentTurnInFlight(false);
             if (dispatch(ResearchCommandType.PAUSE, null).isAccepted()) {
                 // A visible confirmation — and the sink event makes the composer re-read availability.
                 narrateAsAgent("paused", narrator.pausedNotice());
@@ -1335,12 +1352,11 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             // Release the composer immediately; the runtime still emits review_finished to settle tracking.
             cancelManualWebSearch();
             finishPostSearchThinking("");
-            agentTurnInFlight = false;
-            fireStateChanged();
+            setAgentTurnInFlight(false);
             return;
         }
         if (productiveResources != null) {
-            agentTurnInFlight = false;
+            setAgentTurnInFlight(false);
             dispatch(ResearchCommandType.CANCEL, null);
         } else if (handle != null) {
             backend.cancel(handle);
@@ -1414,7 +1430,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             case COMPLETED:
                 // The technical turn terminal is INVISIBLE (point 9): it only frees the composer and
                 // closes a still-open progress card. The user-facing message is the RUN_OUTCOME card.
-                agentTurnInFlight = false;
+                setAgentTurnInFlight(false);
                 // Always route through the sink so the composer re-reads its availability, even when no
                 // progress card exists (the sink refresh runs also for unknown activity ids).
                 sink.completeToolActivity(currentRunActivityId != null
@@ -1482,7 +1498,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 break;
             case BLOCKED:
             case ERROR:
-                agentTurnInFlight = false; // a failed turn must not wedge the composer
+                setAgentTurnInFlight(false); // a failed turn must not wedge the composer
                 finishPostSearchThinking(""); // never leave the post-search bubble/red send button stuck
                 problemMessage = event.getPublicMessage();
                 // Show the WHY, not just the what: the technical detail (exception phase + reason,
@@ -2378,7 +2394,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     }
 
     private void applyRunOutcome(ResearchBackendEvent event) {
-        agentTurnInFlight = false; // the run is over; the user decides the next step
+        setAgentTurnInFlight(false); // the run is over; the user decides the next step
         final com.aresstack.askai.research.backend.ResearchRunOutcomeInfo outcome = event.getRunOutcome();
         // The structured outcome narrative IS the phase summary for chat_history's default rendering.
         if (journal.recordOutcome(transcriptPhase(), narrator.outcomeNarrative(outcome))) {
@@ -2580,7 +2596,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         if (!researchQuestion.isEmpty()
                 && com.aresstack.askai.research.state.oo.ResearchStateIds.RUNNING
                         .equals(productiveResources.currentState().getStateId())) {
-            agentTurnInFlight = true; // cleared by the next RUN_OUTCOME / terminal
+            setAgentTurnInFlight(true); // cleared by the next RUN_OUTCOME / terminal
             backend.submitPrompt(handle, new ResearchPrompt(researchQuestion, ""));
         } else {
             narrateAsAgent("refine", narrator.refinePrompt());

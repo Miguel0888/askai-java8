@@ -13,6 +13,19 @@ public final class LegacyBrowserSearchDefaults {
     private LegacyBrowserSearchDefaults() {
     }
 
+    /**
+     * The engine the browser search STARTS at when nothing else is configured.
+     * <p>
+     * It is the same scrape-friendly, server-rendered kind of endpoint as the fallbacks below, and for a
+     * good reason: the product used to suggest Bing here, so every browser search first spent an attempt on
+     * consent banners and "one last step" challenges before falling through to DuckDuckGo anyway. Starting
+     * where the results actually are is not a fallback — it is the primary.
+     */
+    public static final String DEFAULT_PRIMARY_ENGINE_TEMPLATE = "https://html.duckduckgo.com/html/?q={query}";
+
+    /** The engine template the product suggested before {@link #DEFAULT_PRIMARY_ENGINE_TEMPLATE}. */
+    public static final String SUPERSEDED_PRIMARY_ENGINE_TEMPLATE = "https://www.bing.com/search?q={query}";
+
     /** One complete settings object that validates cleanly against the default validator. */
     public static LegacyBrowserSearchSettings create() {
         return new LegacyBrowserSearchSettings(navigation(), consent(), captcha(), readiness(),

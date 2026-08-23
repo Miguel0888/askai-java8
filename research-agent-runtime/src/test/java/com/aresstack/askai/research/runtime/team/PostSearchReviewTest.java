@@ -98,7 +98,7 @@ public class PostSearchReviewTest {
 
         assertTrue(emitter.resultPhases.isEmpty());
         assertEquals("one neutral visible acknowledgement", 1, emitter.visible.size());
-        assertTrue(emitter.visible.get(0).contains("Zusammenfassung"));
+        assertTrue(emitter.visible.get(0).contains("Auswertung"));
         assertEquals(1, emitter.logs.size());
         assertTrue(emitter.logs.get(0).contains("MODEL_UNAVAILABLE"));
         assertTrue(emitter.logs.get(0).contains("timeout"));

@@ -226,6 +226,11 @@ final class AskAiAgentConversationSink implements AgentConversationSink {
         refresh();
     }
 
+    @Override
+    public void turnActivityChanged() {
+        refresh(); // no bubble, no persistence — only the composer re-reads Send/Stop
+    }
+
     private void refresh() {
         if (afterUpdate != null) {
             afterUpdate.run();

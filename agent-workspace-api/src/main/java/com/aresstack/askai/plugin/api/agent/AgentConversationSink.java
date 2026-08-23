@@ -54,6 +54,17 @@ public interface AgentConversationSink {
     }
 
     /**
+     * The session's turn activity started or ended WITHOUT producing conversation content — the host must
+     * re-read Send/Stop availability.
+     * <p>
+     * Every other method here happens to refresh the composer as a side effect of writing a bubble, which
+     * made "the agent is done" depend on "the agent also said something". A turn that ended right after its
+     * last message left the Stop button red forever. Releasing the composer is its own statement.
+     */
+    default void turnActivityChanged() {
+    }
+
+    /**
      * How an action relates to the card: a NAVIGATION action only shows something (open the sources tab,
      * open the configuration) and must never consume the card — its decision buttons stay usable. A
      * DECISION action consumes the card once it is ACCEPTED.

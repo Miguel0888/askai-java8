@@ -260,7 +260,9 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         // Visible, editable default so the productive mode is saveable without typing — the loop
         // always starts with web_search, so an empty provider would only produce a validation error.
         searchUrl.setText(settings.getSearchUrlTemplate().isEmpty()
-                ? "https://www.bing.com/search?q={query}" : settings.getSearchUrlTemplate());
+                ? com.aresstack.askai.browser.search.LegacyBrowserSearchDefaults
+                        .DEFAULT_PRIMARY_ENGINE_TEMPLATE
+                : settings.getSearchUrlTemplate());
         allowPrivate.setSelected(settings.isAllowPrivateNetworks());
     }
 

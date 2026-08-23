@@ -47,12 +47,16 @@ public final class PostSearchReview {
                         ? "" : " (" + result.getDetail() + ")"));
     }
 
-    /** The neutral visible acknowledgement when the summary model turn failed. */
+    /**
+     * The neutral visible acknowledgement when the review model turn failed. It does NOT call itself
+     * "automatic": the user pressed "Neue Quellen auswerten", so what failed is the evaluation THEY asked
+     * for — describing it as an automatism would deny their own action.
+     */
     static String fallbackMessage(String languageCode) {
         if ("de".equalsIgnoreCase(languageCode)) {
-            return "Die neuen Quellen wurden übernommen; die automatische Zusammenfassung "
-                    + "konnte diesmal nicht erstellt werden.";
+            return "Die neuen Quellen wurden übernommen; die Auswertung konnte diesmal nicht "
+                    + "erstellt werden.";
         }
-        return "The new sources were saved; the automatic summary could not be produced this time.";
+        return "The new sources were saved; the evaluation could not be produced this time.";
     }
 }
