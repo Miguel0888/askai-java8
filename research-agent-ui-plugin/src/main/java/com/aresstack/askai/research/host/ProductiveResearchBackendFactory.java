@@ -530,6 +530,10 @@ public final class ProductiveResearchBackendFactory {
             Map<String, String> baseEnv = agentLaunchEnvironment(fullConfigFile.getAbsolutePath(),
                     rerankerSnapshot.getAbsolutePath(), inferenceSnapshotPath, inferenceUnavailableReason,
                     searchStrategySnapshotPath);
+            // The session language belongs to the session's STARTUP, not to a control prompt racing the
+            // greeting: a set_language envelope travels over the same asynchronous prompt channel as the
+            // first turn, so whichever arrived first decided the greeting's language.
+            baseEnv.put("ASKAI_RESEARCH_LANGUAGE", researchLanguageCode);
             baseEnv.put("ASKAI_RERANKER_CONFIG_EN", rerankerEnPath);
             baseEnv.put("ASKAI_RERANKER_CONFIG_DE", rerankerDePath);
             // DEV/TEST-only hand-off (mirrors askai.research.sidecar.args for the browser sidecar): extra JVM

@@ -96,7 +96,7 @@ public final class AcpResearchSessionBackend implements ResearchSessionBackend {
         // submitPrompt so the transport limitation never leaks into the application semantics.
         AcpBackedSession session = resolve(handle);
         if (session != null) {
-            session.prompt(controlEnvelope);
+            session.controlPrompt(controlEnvelope);
         }
     }
 
@@ -158,7 +158,13 @@ public final class AcpResearchSessionBackend implements ResearchSessionBackend {
         private final AtomicLong sequence = new AtomicLong();
         private volatile AcpConnection connection;
         private volatile AcpSession acpSession;
-        private volatile PromptHandle activePrompt;
+        /**
+         * The FOREGROUND turn — the one the user is waiting for. Control prompts (typed #RSC1# envelopes)
+         * travel over the same ACP frame but are never this: a control prompt that overwrote the handle
+         * made its own terminal look like "the agent finished", which released the composer while the
+         * greeting was still being generated and let a second turn start on top of it.
+         */
+        private volatile PromptHandle foregroundPrompt;
         private volatile boolean closed;
 
         private AcpBackedSession(ResearchProjectRequest request, ResearchSessionListener listener) {
@@ -221,11 +227,25 @@ public final class AcpResearchSessionBackend implements ResearchSessionBackend {
             }
         }
 
+        /** A user-visible agent TURN: its terminal is what ends the busy state. */
         void prompt(String text) {
+            dispatch(text, true);
+        }
+
+        /**
+         * A typed control envelope. Its UPDATES still flow (a manual search reports progress that way), but
+         * its terminal is NOT a turn terminal: control traffic must never end the busy state of a turn it
+         * has nothing to do with.
+         */
+        void controlPrompt(String text) {
+            dispatch(text, false);
+        }
+
+        private void dispatch(String text, final boolean foreground) {
             if (closed || acpSession == null) {
                 return;
             }
-            activePrompt = acpSession.prompt(text, new AcpUpdateListener() {
+            PromptHandle handle = acpSession.prompt(text, new AcpUpdateListener() {
                 public void onUpdate(AcpUpdate update) {
                     ResearchBackendEvent.Builder builder = ResearchAcpEventMapper.mapUpdate(update);
                     if (builder != null) {
@@ -234,17 +254,23 @@ public final class AcpResearchSessionBackend implements ResearchSessionBackend {
                 }
 
                 public void onTerminal(String promptId, AcpPromptState state, String detail) {
+                    if (!foreground) {
+                        return; // control traffic never reports "the turn is done"
+                    }
                     ResearchBackendEvent.Builder builder = ResearchAcpEventMapper.mapTerminal(state, detail);
                     if (builder != null) {
                         emit(builder);
                     }
-                    activePrompt = null;
+                    foregroundPrompt = null;
                 }
             });
+            if (foreground) {
+                foregroundPrompt = handle;
+            }
         }
 
         void cancelActivePrompt() {
-            PromptHandle prompt = activePrompt;
+            PromptHandle prompt = foregroundPrompt; // Stop belongs to the turn, not to control traffic
             if (prompt != null) {
                 prompt.cancel(); // cancels the turn only; the process stays alive
             }

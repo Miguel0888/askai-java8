@@ -49,8 +49,15 @@ public final class ResearchAgentMain {
      * The session's live working language (runtime mirror). set_language updates it best-effort; the
      * language snapshot on operation requests (manual_search) is authoritative and re-synchronises it.
      */
+    /**
+     * Initialised from the LAUNCH environment, not from a control prompt: a set_language envelope travels
+     * over the same asynchronous prompt channel as the first turn, so whichever won the race decided the
+     * greeting's language — German, English, German, English across otherwise identical sessions. The host
+     * knows the language when it starts this process, so it is session context from the first turn on.
+     */
     private final com.aresstack.askai.research.runtime.service.SessionResearchLanguage sessionLanguage =
-            new com.aresstack.askai.research.runtime.service.SessionResearchLanguage();
+            com.aresstack.askai.research.runtime.service.SessionResearchLanguage.fromEnvironment(
+                    System.getenv("ASKAI_RESEARCH_LANGUAGE"));
     /** The host's AUTHORITATIVE scope projection for the next turn (set_scope); empty until one arrives. */
     private final com.aresstack.askai.research.runtime.service.SessionScopeFence scopeFence =
             new com.aresstack.askai.research.runtime.service.SessionScopeFence();

@@ -11,6 +11,16 @@ public final class SessionResearchLanguage {
 
     private volatile String code = "en";
 
+    /**
+     * The session's language as the host handed it over at LAUNCH. This is what makes the very first turn
+     * deterministic: an unset/unknown value keeps the English default, exactly as before.
+     */
+    public static SessionResearchLanguage fromEnvironment(String languageCode) {
+        SessionResearchLanguage language = new SessionResearchLanguage();
+        language.changeFromCode(languageCode);
+        return language;
+    }
+
     /** Normalizes to "en"/"de"; unknown or missing codes fall back to the English default. */
     public void changeFromCode(String value) {
         this.code = "de".equalsIgnoreCase(value) ? "de" : "en";
