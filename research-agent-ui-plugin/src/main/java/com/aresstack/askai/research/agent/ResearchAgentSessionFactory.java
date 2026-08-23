@@ -168,6 +168,8 @@ public final class ResearchAgentSessionFactory implements AgentSessionFactory {
         factory.setResearchLanguageCode(ResearchRuntimeSettings.loadLanguage(hostContext.getStateStore()));
         factory.setBotControlMcpEnabled(
                 ResearchRuntimeSettings.loadBotControlMcp(hostContext.getStateStore()));
+        factory.setAlwaysOfferSearchSuggestions(
+                ResearchRuntimeSettings.loadAlwaysOfferSearchSuggestions(hostContext.getStateStore()));
         // The APP-WIDE public connector is configured here, not inside the per-session backend factory:
         // one listener for the whole app, idempotent for an unchanged configuration. The sessions it serves
         // come from the session directory, so this call carries no session state at all. The host's chat

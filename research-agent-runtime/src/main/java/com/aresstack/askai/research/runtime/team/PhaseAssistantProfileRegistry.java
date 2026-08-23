@@ -42,9 +42,14 @@ public final class PhaseAssistantProfileRegistry {
      * only the research-brief artifact) plus a neutral fallback for every other phase.
      */
     public static PhaseAssistantProfileRegistry defaults() {
+        return defaults(false);
+    }
+
+    /** @param alwaysOfferSuggestions the "Immer Suchvorschläge anbieten" settings checkbox (default off). */
+    public static PhaseAssistantProfileRegistry defaults(boolean alwaysOfferSuggestions) {
         PhaseAssistantProfile scoping = new PhaseAssistantProfile(
                 SCOPING_PHASE_ID,
-                TeamAgentPlaybook.scopingSystemPrompt(),
+                TeamAgentPlaybook.scopingSystemPrompt(alwaysOfferSuggestions),
                 new ScopingPhaseOutputContract(),
                 "research-brief",
                 Collections.<String>emptyList(),

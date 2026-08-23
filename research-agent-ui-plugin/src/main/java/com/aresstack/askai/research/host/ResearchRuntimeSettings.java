@@ -54,6 +54,24 @@ public final class ResearchRuntimeSettings {
         }
     }
 
+    static final String KEY_ALWAYS_SUGGEST = "research.runtime.alwaysOfferSearchSuggestions";
+
+    /**
+     * "Immer Suchvorschläge anbieten" (DEFAULT OFF = the long-standing behaviour): when on, the scoping
+     * assistant treats search suggestions as the user's orientation map — a broad/unclear scope always
+     * comes with 3-5 direction-opening suggestions accompanying the clarifying question. Applies to NEW
+     * sessions (the flag travels to the agent process at launch).
+     */
+    public static boolean loadAlwaysOfferSearchSuggestions(WorkspaceStateStore store) {
+        return store != null && store.getBoolean(KEY_ALWAYS_SUGGEST, false);
+    }
+
+    public static void saveAlwaysOfferSearchSuggestions(WorkspaceStateStore store, boolean enabled) {
+        if (store != null) {
+            store.putBoolean(KEY_ALWAYS_SUGGEST, enabled);
+        }
+    }
+
     static final String KEY_BOT_CONTROL = "research.runtime.botControlMcp";
 
     /**

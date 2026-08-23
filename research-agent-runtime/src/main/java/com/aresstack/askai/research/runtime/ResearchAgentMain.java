@@ -146,7 +146,9 @@ public final class ResearchAgentMain {
         // The assembler reads the session's LIVE working language per turn: a set_language between turns
         // changes the next turn's context, never the history.
         this.teamAgent = new com.aresstack.askai.research.runtime.team.ResearchTeamAgent(mainModelChat,
-                com.aresstack.askai.research.runtime.team.PhaseAssistantProfileRegistry.defaults(),
+                com.aresstack.askai.research.runtime.team.PhaseAssistantProfileRegistry.defaults(
+                        // Settings checkbox "Immer Suchvorschläge anbieten" (host env hand-off, default off).
+                        "true".equalsIgnoreCase(System.getenv("ASKAI_SCOPING_ALWAYS_SUGGEST"))),
                 new com.aresstack.askai.research.runtime.team.PhaseContextAssembler(
                         new com.aresstack.askai.research.runtime.team.PhaseContextAssembler
                                 .CurrentLanguage() {

@@ -77,6 +77,13 @@ public final class ProductiveResearchBackendFactory {
         this.botControlMcpEnabled = enabled;
     }
 
+    /** "Immer Suchvorschläge anbieten" (default OFF): scoping orientation suggestions on every broad turn. */
+    private volatile boolean alwaysOfferSearchSuggestions;
+
+    public void setAlwaysOfferSearchSuggestions(boolean enabled) {
+        this.alwaysOfferSearchSuggestions = enabled;
+    }
+
     /** OPTIONAL host NLP snapshot provider; resolves the session's selected sentence model (else regex). */
     private volatile com.aresstack.askai.agent.model.nlp.NlpConfigurationSnapshotProvider nlpSnapshots;
 
@@ -536,6 +543,8 @@ public final class ProductiveResearchBackendFactory {
             baseEnv.put("ASKAI_RESEARCH_LANGUAGE", researchLanguageCode);
             baseEnv.put("ASKAI_RERANKER_CONFIG_EN", rerankerEnPath);
             baseEnv.put("ASKAI_RERANKER_CONFIG_DE", rerankerDePath);
+            // Settings checkbox "Immer Suchvorschläge anbieten" → the scoping prompt variant (default off).
+            baseEnv.put("ASKAI_SCOPING_ALWAYS_SUGGEST", String.valueOf(alwaysOfferSearchSuggestions));
             // DEV/TEST-only hand-off (mirrors askai.research.sidecar.args for the browser sidecar): extra JVM
             // args for the research-agent-runtime child, inserted BEFORE -jar so they are JVM flags. Empty by
             // default → no production effect. Set on the HOST JVM, e.g. to A/B the overlay:

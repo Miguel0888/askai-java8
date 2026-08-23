@@ -41,6 +41,9 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
     /** LLM narration (default off): milestone texts phrased by the main model, validated, with fallback. */
     private final JCheckBox llmNarration = new JCheckBox(
             "AI-phrased guidance (uses the main model; applies to new sessions)", false);
+    /** Scoping orientation tags (default off = long-standing behaviour): suggestions on every broad turn. */
+    private final JCheckBox alwaysSuggest = new JCheckBox(
+            "Immer Suchvorschläge anbieten (Orientierungs-Tags; applies to new sessions)", false);
     /** Bot-control MCP (default ON): run_command/session_state/chat_history + service-endpoint.json. */
     private final JCheckBox botControlMcp = new JCheckBox(
             "Bot control via MCP (applies to new sessions)", true);
@@ -99,6 +102,7 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         form.add(row("Backend:", backendStatus));
         form.add(row("Language / Sprache:", agentLanguage));
         form.add(row("", llmNarration));
+        form.add(row("", alwaysSuggest));
         botTools.setMargin(new java.awt.Insets(0, 0, 0, 0));
         botTools.setPreferredSize(new java.awt.Dimension(24, 24));
         botTools.setFont(botTools.getFont().deriveFont(java.awt.Font.PLAIN, 15f));
@@ -211,6 +215,14 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
                 // Like the language: persisted immediately; running sessions keep their narrator.
                 ResearchRuntimeSettings.saveLlmNarration(ResearchRuntimeSettingsPanel.this.store,
                         llmNarration.isSelected());
+            }
+        });
+        alwaysSuggest.setSelected(ResearchRuntimeSettings.loadAlwaysOfferSearchSuggestions(store));
+        alwaysSuggest.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent event) {
+                // Persisted immediately; the flag reaches the agent at the NEXT session launch.
+                ResearchRuntimeSettings.saveAlwaysOfferSearchSuggestions(
+                        ResearchRuntimeSettingsPanel.this.store, alwaysSuggest.isSelected());
             }
         });
         refreshBackendStatus();

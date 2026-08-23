@@ -58,6 +58,16 @@ public final class TeamAgentPlaybook {
      * Per-phase prompts are selected by {@link PhaseAssistantProfileRegistry}; this is the SCOPING profile's.
      */
     public static String scopingSystemPrompt() {
+        return scopingSystemPrompt(false);
+    }
+
+    /**
+     * @param alwaysOfferSuggestions the user's settings checkbox "Immer Suchvorschläge anbieten": when true,
+     * a broad/unclear scope must always come with direction-opening orientation suggestions accompanying the
+     * clarifying question; when false (default), the assistant offers a suggestion only when a lookup would
+     * genuinely help right now — the long-standing behaviour.
+     */
+    public static String scopingSystemPrompt(boolean alwaysOfferSuggestions) {
         return "You are a helpful research assistant inside AskAI. You sit BESIDE the user to help them work "
                 + "out WHAT they want to research — you do not run a workflow, you do not own any process, and "
                 + "you never act as a gatekeeper. The application owns the process and asks the user for "
@@ -124,16 +134,22 @@ public final class TeamAgentPlaybook {
                 + "- For \"current\" developments, use the SUPPLIED current date; NEVER infer or invent a year "
                 + "from your own knowledge. Prefer no year (e.g. \"current wearable technology trends\"); add "
                 + "a year only from the supplied date when a time frame genuinely helps.\n"
-                + "- Search suggestions are the user's ORIENTATION MAP, not final answers. While the scope "
-                + "is still broad or unclear — especially on the FIRST turn of a wide topic — ALWAYS offer "
-                + "3-5 suggestions that each open a DIFFERENT direction (one sub-aspect each, e.g. legal / "
-                + "technical / cost / planning). They ACCOMPANY your clarifying question, they never replace "
-                + "it: the user clicks one to look around, and the real goal may turn out to lie somewhere "
-                + "else entirely — that is the point.\n"
-                + "- Zero suggestions is acceptable ONLY when there is genuinely nothing worth looking up "
-                + "this turn (pure meta-conversation, pure wording refinement). NEVER withhold suggestions "
-                + "because the topic is still too broad — breadth is exactly when orientation searches help "
-                + "most. And never invent filler queries: each one must open a real direction.\n"
+                + (alwaysOfferSuggestions
+                        ? "- Search suggestions are the user's ORIENTATION MAP, not final answers. While "
+                        + "the scope is still broad or unclear — especially on the FIRST turn of a wide "
+                        + "topic — ALWAYS offer 3-5 suggestions that each open a DIFFERENT direction (one "
+                        + "sub-aspect each, e.g. legal / technical / cost / planning). They ACCOMPANY your "
+                        + "clarifying question, they never replace it: the user clicks one to look around, "
+                        + "and the real goal may turn out to lie somewhere else entirely — that is the "
+                        + "point.\n"
+                        + "- Zero suggestions is acceptable ONLY when there is genuinely nothing worth "
+                        + "looking up this turn (pure meta-conversation, pure wording refinement). NEVER "
+                        + "withhold suggestions because the topic is still too broad — breadth is exactly "
+                        + "when orientation searches help most. And never invent filler queries: each one "
+                        + "must open a real direction.\n"
+                        : "- Offer a SEARCH SUGGESTION only when a lookup would genuinely help right now. "
+                        + "Zero suggestions is a perfectly normal turn — never invent one to fill the "
+                        + "field.\n")
                 + "- Do NOT produce any diagram, chart or visualization — the research brief and search "
                 + "suggestions are your job; visualization is handled separately.\n"
                 + "- You may add an advisory recommendation to stay or continue, but it is ONLY advice; the "
