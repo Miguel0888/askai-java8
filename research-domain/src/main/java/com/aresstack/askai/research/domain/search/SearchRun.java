@@ -24,19 +24,39 @@ public final class SearchRun {
         RESULTS,
         /** The search ran and honestly found nothing. */
         NO_RESULTS,
-        /** The search could not be carried out (SERP unreadable, provider error) — retryable. */
+        /** Nothing could be searched at all (first batch failed) — retryable. */
         TECHNICAL_PROBLEM
+    }
+
+    /**
+     * WHY the traversal ended — a second, independent dimension. As soon as a run may collect several
+     * batches, "it produced results" and "it ran to completion" stop being the same statement: batch 3 can
+     * fail after batches 1 and 2 delivered 28 usable hits. Collapsing that into one status would either
+     * throw away the hits or hide the failure.
+     */
+    public enum StopReason {
+        /** The profile's batch limit was reached — more results may exist. */
+        BATCH_LIMIT_REACHED,
+        /** The provider offered no further batch — this is the end of the result set. */
+        NO_CONTINUATION,
+        /** A later batch failed technically; everything collected before it is still valid. */
+        TECHNICAL_PROBLEM,
+        /** The user cancelled (or a budget gate closed) mid-traversal. */
+        CANCELLED,
+        /** Enough was found for the purpose — only a PROGRESSIVE run can end this way. */
+        SUFFICIENT
     }
 
     private final String runId;
     private final String query;
     private final String profileName;
     private final Status status;
+    private final StopReason stopReason;
     private final List<DiscoveryBatch> batches;
     private final List<SearchCandidate> candidates;
     private final List<InspectionAttempt> inspections;
 
-    public SearchRun(String runId, String query, String profileName, Status status,
+    public SearchRun(String runId, String query, String profileName, Status status, StopReason stopReason,
                      List<DiscoveryBatch> batches, List<SearchCandidate> candidates,
                      List<InspectionAttempt> inspections) {
         if (runId == null || runId.trim().isEmpty()) {
@@ -48,16 +68,20 @@ public final class SearchRun {
         this.batches = copy(batches);
         this.candidates = copy(candidates);
         this.inspections = copy(inspections);
-        // An explicit technical problem stays what it is; otherwise the candidates decide. This keeps the
-        // honest distinction "found nothing" vs "could not search".
-        this.status = status == Status.TECHNICAL_PROBLEM ? status
-                : (this.candidates.isEmpty() ? Status.NO_RESULTS : Status.RESULTS);
+        // A technical problem is only the RUN's status when it produced nothing at all; with candidates in
+        // hand the run has results AND a documented reason why traversal stopped early.
+        this.stopReason = stopReason == null ? StopReason.NO_CONTINUATION : stopReason;
+        this.status = this.candidates.isEmpty()
+                ? (status == Status.TECHNICAL_PROBLEM || this.stopReason == StopReason.TECHNICAL_PROBLEM
+                        ? Status.TECHNICAL_PROBLEM : Status.NO_RESULTS)
+                : Status.RESULTS;
     }
 
     /** A discovery-only run: batches and candidates, nothing inspected. */
     public static SearchRun discovered(String runId, String query, String profileName, Status status,
-                                       List<DiscoveryBatch> batches, List<SearchCandidate> candidates) {
-        return new SearchRun(runId, query, profileName, status, batches, candidates,
+                                       StopReason stopReason, List<DiscoveryBatch> batches,
+                                       List<SearchCandidate> candidates) {
+        return new SearchRun(runId, query, profileName, status, stopReason, batches, candidates,
                 Collections.<InspectionAttempt>emptyList());
     }
 
@@ -76,6 +100,17 @@ public final class SearchRun {
 
     public Status getStatus() {
         return status;
+    }
+
+    /** Why traversal ended — independent of whether the run produced results. */
+    public StopReason getStopReason() {
+        return stopReason;
+    }
+
+    /** Results in hand, but the traversal did not finish cleanly — partial success, honestly labelled. */
+    public boolean isPartial() {
+        return status == Status.RESULTS
+                && (stopReason == StopReason.TECHNICAL_PROBLEM || stopReason == StopReason.CANCELLED);
     }
 
     /** The result portions that were collected; their count is the traversal depth of this run. */
@@ -148,13 +183,14 @@ public final class SearchRun {
         }
         List<InspectionAttempt> extended = new ArrayList<InspectionAttempt>(inspections);
         extended.add(attempt);
-        return new SearchRun(runId, query, profileName, status, batches, candidates, extended);
+        return new SearchRun(runId, query, profileName, status, stopReason, batches, candidates, extended);
     }
 
     /** A short line for logs and the run outcome: what discovery produced, independent of any visit. */
     public String describe() {
-        return "run=" + runId + " status=" + status + " batches=" + batches.size()
-                + " candidates=" + candidates.size() + " read=" + readCount();
+        return "run=" + runId + " status=" + status + " stop=" + stopReason
+                + " batches=" + batches.size() + " candidates=" + candidates.size()
+                + " read=" + readCount();
     }
 
     private static <T> List<T> copy(List<T> values) {

@@ -8,6 +8,10 @@ dependencies {
     implementation 'org.noear:solon-ai-mcp:3.10.1'
     // Public-suffix aware domain families (challenge locks, transit rules) — shared with the sidecar.
     implementation project(':browser-api')
+    // The research DOMAIN CORE (pure Java 8, no dependencies): the runtime EXECUTES searches and produces
+    // domain objects (SearchRun/SearchCandidate) that the host persists as project truth. Both sides must
+    // speak the same model, or the wire between them degenerates into untyped strings again.
+    implementation project(':research-domain')
     // A5: neutral reranker endpoint contract (descriptor + strict codec) published by the host.
     implementation project(':agent-model-runtime-api')
     // A4 transport: the layout-repair codec and the model-using repair coordinator (Java-8, model-free

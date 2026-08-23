@@ -39,7 +39,7 @@ public class SearchRunTest {
                     ordinal < batchCount ? "page=" + (ordinal + 1) : ""));
         }
         return SearchRun.discovered("run-1", "truthahnragout tradition", "ORIENTATION_SERP_SCAN",
-                SearchRun.Status.RESULTS, batches, candidates);
+                SearchRun.Status.RESULTS, SearchRun.StopReason.BATCH_LIMIT_REACHED, batches, candidates);
     }
 
     @Test
@@ -50,7 +50,9 @@ public class SearchRunTest {
         assertEquals(42, discovery.getCandidates().size());
         assertEquals(3, discovery.getBatches().size());
         assertEquals("reading nothing is a valid outcome, not a failure", 0, discovery.readCount());
-        assertEquals("run=run-1 status=RESULTS batches=3 candidates=42 read=0", discovery.describe());
+        assertEquals("run=run-1 status=RESULTS stop=BATCH_LIMIT_REACHED batches=3 candidates=42 read=0",
+                discovery.describe());
+        assertFalse("a clean traversal is not a partial run", discovery.isPartial());
         assertEquals("a hit nobody looked at has no inspection at all",
                 null, discovery.latestInspection("c5"));
     }
@@ -136,14 +138,14 @@ public class SearchRunTest {
     @Test
     public void anEmptySearchAndATechnicalFailureAreDifferentOutcomes() {
         SearchRun empty = SearchRun.discovered("run-2", "q", "ORIENTATION_SERP_SCAN",
-                SearchRun.Status.RESULTS, Collections.<DiscoveryBatch>emptyList(),
-                Collections.<SearchCandidate>emptyList());
+                SearchRun.Status.RESULTS, SearchRun.StopReason.NO_CONTINUATION,
+                Collections.<DiscoveryBatch>emptyList(), Collections.<SearchCandidate>emptyList());
         assertEquals("no candidates means the search honestly found nothing",
                 SearchRun.Status.NO_RESULTS, empty.getStatus());
 
         SearchRun broken = SearchRun.discovered("run-3", "q", "ORIENTATION_SERP_SCAN",
-                SearchRun.Status.TECHNICAL_PROBLEM, Collections.<DiscoveryBatch>emptyList(),
-                Collections.<SearchCandidate>emptyList());
+                SearchRun.Status.TECHNICAL_PROBLEM, SearchRun.StopReason.TECHNICAL_PROBLEM,
+                Collections.<DiscoveryBatch>emptyList(), Collections.<SearchCandidate>emptyList());
         assertEquals("a search that could not run must stay distinguishable from an empty one",
                 SearchRun.Status.TECHNICAL_PROBLEM, broken.getStatus());
     }
