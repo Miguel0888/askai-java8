@@ -56,13 +56,19 @@ public final class SearchPageMechanicalAnalyzer {
                 return Double.compare(b.totalScore, a.totalScore);
             }
         });
+        List<String> capped = new ArrayList<String>();
         if (scored.size() > settings.analysis.maximumCandidateContainers) {
+            for (HeuristicScoreBreakdown dropped
+                    : scored.subList(settings.analysis.maximumCandidateContainers, scored.size())) {
+                capped.add(dropped.containerId);
+            }
             scored = new ArrayList<HeuristicScoreBreakdown>(
                     scored.subList(0, settings.analysis.maximumCandidateContainers));
         }
 
         if (scored.isEmpty()) {
-            return new SearchPageLayoutResolution(document.snapshotId, "", 0, true, regions, scored);
+            return new SearchPageLayoutResolution(document.snapshotId, "", 0, true, regions, scored,
+                    capped);
         }
         HeuristicScoreBreakdown best = scored.get(0);
         double confidence = confidenceOf(best);
@@ -72,11 +78,11 @@ public final class SearchPageMechanicalAnalyzer {
                 || confidence < settings.analysis.minimumResultStructuralConfidence;
         if (lowConfidence) {
             return new SearchPageLayoutResolution(document.snapshotId, "", confidence, true,
-                    regions, scored);
+                    regions, scored, capped);
         }
         regions.put(best.containerId, SearchPageRegionClassification.ORGANIC_RESULTS);
         return new SearchPageLayoutResolution(document.snapshotId, best.containerId, confidence,
-                false, regions, scored);
+                false, regions, scored, capped);
     }
 
     /**

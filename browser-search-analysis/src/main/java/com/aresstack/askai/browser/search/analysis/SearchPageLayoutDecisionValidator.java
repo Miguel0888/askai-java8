@@ -110,7 +110,8 @@ final class SearchPageLayoutDecisionValidator {
             String parent = parentById.get(block);
             if (!organic.contains(parent)) {
                 violations.add(new SearchPageLayoutValidationViolation(Kind.BLOCK_OUTSIDE_REGION,
-                        "result block '" + block + "' is not inside a chosen organic region"));
+                        "result block '" + block + "' is not inside a chosen organic region "
+                                + containmentFacts(block, parent, parentById, artifact)));
             }
         }
 
@@ -151,6 +152,53 @@ final class SearchPageLayoutDecisionValidator {
                         field + " lists '" + id + "' more than once"));
             }
         }
+    }
+
+    /**
+     * The facts behind a containment violation — WHY the block's parent was not a chosen region.
+     * <p>
+     * The rule demands that a result block sit directly inside a region the model NAMED, and a model may
+     * only name containers the mechanics OFFERED. If the parent was never offered, no answer can satisfy
+     * the rule and the rejection says nothing about the model. That difference is invisible in the bare
+     * violation text, so it is stated here: offered or not, and if not, whether the candidate cap dropped
+     * it or it never qualified as a candidate at all.
+     */
+    private String containmentFacts(String block, String parent, Map<String, String> parentById,
+                                    SearchPageAnalysisArtifact artifact) {
+        boolean parentOffered = parentById.containsKey(parent);
+        return "[block=" + block
+                + " blockOffered=" + parentById.containsKey(block)
+                + " parent=" + (parent == null || parent.isEmpty() ? "-" : parent)
+                + " parentOffered=" + parentOffered
+                + " parentRegion=" + regionOf(parent, artifact)
+                + " parentMechanicalRank=" + rankOf(parent, artifact)
+                + " parentDroppedByCap=" + droppedByCap(parent, artifact) + "]";
+    }
+
+    /** The parent's coarse region, read from the artifact's rejection vocabulary; UNKNOWN when unlisted. */
+    private static String regionOf(String containerId, SearchPageAnalysisArtifact artifact) {
+        String marker = containerId + SearchPageAnalysisArtifactBuilder.CLASSIFIED_AS_INFIX;
+        for (String reason : artifact.mechanicalRejectionReasons) {
+            if (reason.startsWith(marker)) {
+                return reason.substring(marker.length());
+            }
+        }
+        return "UNKNOWN";
+    }
+
+    /** 1-based position in the score-ordered candidate list, or {@code not-ranked} when not offered. */
+    private static String rankOf(String containerId, SearchPageAnalysisArtifact artifact) {
+        for (int i = 0; i < artifact.containerCandidates.size(); i++) {
+            if (artifact.containerCandidates.get(i).containerId.equals(containerId)) {
+                return Integer.toString(i + 1);
+            }
+        }
+        return "not-ranked";
+    }
+
+    private static boolean droppedByCap(String containerId, SearchPageAnalysisArtifact artifact) {
+        return artifact.mechanicalRejectionReasons.contains(
+                containerId + SearchPageAnalysisArtifactBuilder.DROPPED_BY_CAP_SUFFIX);
     }
 
     private Map<String, String> parentIndex(SearchPageAnalysisArtifact artifact) {

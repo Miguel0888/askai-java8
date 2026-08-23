@@ -124,8 +124,24 @@ public final class SearchPageAnalysisArtifactBuilder {
      * Bounded, human-readable reasons a container was NOT offered as an organic candidate — only the
      * unambiguous mechanical region classifications, never raw content.
      */
+    /**
+     * Why a container is NOT an offered candidate — the artifact's diagnostic vocabulary, read back by
+     * {@link SearchPageLayoutDecisionValidator} when it has to explain a layout violation. Two prefixes,
+     * both stable: {@code "<id> dropped by candidate cap"} and {@code "<id> classified as <REGION>"}.
+     */
+    static final String DROPPED_BY_CAP_SUFFIX = " dropped by candidate cap";
+    static final String CLASSIFIED_AS_INFIX = " classified as ";
+
     private List<String> rejectionReasons(SearchPageLayoutResolution resolution) {
         List<String> reasons = new ArrayList<String>();
+        // Capped containers come FIRST: they are the ones a layout decision can trip over, and the
+        // bound below must never be the reason we cannot explain a violation.
+        for (String capped : resolution.cappedCandidateIds) {
+            if (reasons.size() >= MAX_REJECTION_REASONS) {
+                break;
+            }
+            reasons.add(capped + DROPPED_BY_CAP_SUFFIX);
+        }
         for (Map.Entry<String, SearchPageRegionClassification> entry
                 : resolution.regionByContainerId.entrySet()) {
             SearchPageRegionClassification region = entry.getValue();
@@ -138,7 +154,7 @@ public final class SearchPageAnalysisArtifactBuilder {
                         + MAX_REJECTION_REASONS + ")");
                 break;
             }
-            reasons.add(entry.getKey() + " classified as " + region.name());
+            reasons.add(entry.getKey() + CLASSIFIED_AS_INFIX + region.name());
         }
         return reasons;
     }

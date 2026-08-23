@@ -24,11 +24,27 @@ public final class SearchPageLayoutResolution {
     public final Map<String, SearchPageRegionClassification> regionByContainerId;
     /** Breakdowns of every scored candidate, best first (diagnostics). */
     public final List<HeuristicScoreBreakdown> scoredCandidates;
+    /**
+     * Containers that WERE scored candidates but fell off the end of the candidate cap. They are the only
+     * way to tell "this container was never offered because the cap cut it" apart from "it never qualified
+     * as a candidate at all" — a distinction that decides where a layout contract is actually broken.
+     */
+    public final List<String> cappedCandidateIds;
 
     public SearchPageLayoutResolution(String snapshotId, String organicResultsContainerId,
                                       double confidence, boolean lowConfidence,
                                       Map<String, SearchPageRegionClassification> regionByContainerId,
                                       List<HeuristicScoreBreakdown> scoredCandidates) {
+        this(snapshotId, organicResultsContainerId, confidence, lowConfidence, regionByContainerId,
+                scoredCandidates, java.util.Collections.<String>emptyList());
+    }
+
+    public SearchPageLayoutResolution(String snapshotId, String organicResultsContainerId,
+                                      double confidence, boolean lowConfidence,
+                                      Map<String, SearchPageRegionClassification> regionByContainerId,
+                                      List<HeuristicScoreBreakdown> scoredCandidates,
+                                      List<String> cappedCandidateIds) {
+        this.cappedCandidateIds = Collections.unmodifiableList(cappedCandidateIds);
         this.snapshotId = snapshotId;
         this.organicResultsContainerId =
                 organicResultsContainerId == null ? "" : organicResultsContainerId;
