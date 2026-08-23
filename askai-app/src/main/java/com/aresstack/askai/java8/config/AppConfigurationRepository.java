@@ -53,6 +53,7 @@ public final class AppConfigurationRepository {
     // Centrally-managed AI model selections (owned by AskAI, shared by all plugins). Model NAMES only —
     // never endpoints/secrets. The main model is also the chat-window selection.
     private static final String AI_MAIN_MODEL = "ai.mainModel";
+    private static final String AI_MAIN_MODEL_TIMEOUT_SECONDS = "ai.mainModelTimeoutSeconds";
     private static final String AI_RERANKER_MODEL = "ai.rerankerModel";
     private static final String AI_EMBEDDINGS_MODEL = "ai.embeddingsModel";
     // Per-capability+language NLP model selections, e.g. nlp.sentence-detection.de / nlp.sentence-detection.en.
@@ -88,6 +89,8 @@ public final class AppConfigurationRepository {
                     properties.getProperty(AI_MAIN_MODEL, defaultModels.getMainModel()),
                     properties.getProperty(AI_RERANKER_MODEL, defaultModels.getRerankerModel()),
                     properties.getProperty(AI_EMBEDDINGS_MODEL, defaultModels.getEmbeddingsModel()),
+                    parseInt(properties.getProperty(AI_MAIN_MODEL_TIMEOUT_SECONDS,
+                            String.valueOf(defaultModels.getMainModelTimeoutSeconds()))),
                     NlpModelSelections.fromEntries(nlpModelEntries(properties)));
             String mode = properties.getProperty(PROXY_MODE, defaultProxy.getModeName());
             SpeechToTextConfiguration stt = new SpeechToTextConfiguration(
@@ -206,6 +209,8 @@ public final class AppConfigurationRepository {
         properties.setProperty(CHAT_COLOR_ASSISTANT_FG, ChatColorSettings.toHex(colors.getAssistantForeground()));
         AiModelSelections aiModels = configuration.getAiModelSelections();
         properties.setProperty(AI_MAIN_MODEL, aiModels.getMainModel());
+        properties.setProperty(AI_MAIN_MODEL_TIMEOUT_SECONDS,
+                String.valueOf(aiModels.getMainModelTimeoutSeconds()));
         properties.setProperty(AI_RERANKER_MODEL, aiModels.getRerankerModel());
         properties.setProperty(AI_EMBEDDINGS_MODEL, aiModels.getEmbeddingsModel());
         for (java.util.Map.Entry<String, String> nlp : aiModels.getNlp().entries().entrySet()) {
