@@ -20,6 +20,9 @@ import java.util.function.LongSupplier;
  */
 public final class SearchLayoutRepairTools {
 
+    /** Diagnostics line naming how many SERP pages each engine host delivered ("... bing=2"). */
+    public static final String SERP_PAGES_DIAGNOSTIC_PREFIX = "serp-pages:";
+
     private final WebSearchLayoutRepairService service;
     private final RenderedPageSource pageSource;
     private final LongSupplier clock;
@@ -42,27 +45,50 @@ public final class SearchLayoutRepairTools {
         // engine delivered. Analysing afterwards meant every engine was always visited, whatever the
         // configuration said.
         final List<PreparedWebSearchResult> perEngine = new ArrayList<PreparedWebSearchResult>();
+        // How many SERP pages each engine REALLY delivered into this search — the observable truth
+        // the user asked for ("blättert er überhaupt?"), carried as a typed diagnostics line.
+        final java.util.LinkedHashMap<String, Integer> serpPagesPerHost =
+                new java.util.LinkedHashMap<String, Integer>();
         RenderedPageSource.EngineCapture capture = pageSource.capture(query,
                 new RenderedPageSource.PageEvaluator() {
-                    public boolean delivered(
+                    public RenderedPageSource.PageVerdict judge(
                             com.aresstack.askai.browser.render.RenderedPageDocument document,
                             String engineHost) {
+                        Integer pagesSoFar = serpPagesPerHost.get(engineHost);
+                        serpPagesPerHost.put(engineHost, pagesSoFar == null ? 1 : pagesSoFar + 1);
                         PreparedWebSearchResult single =
                                 service.prepareSingle(document, query, engineHost, now);
                         perEngine.add(single);
-                        // A page that still needs a layout repair has NOT delivered yet: the repair
-                        // runs later, in the runtime, so the next engine is still worth visiting.
-                        return single.status
-                                == com.aresstack.askai.browser.search.repair
-                                        .WebSearchPreparationStatus.ORGANIC_RESULTS;
+                        // A page that still needs a layout repair has NOT delivered yet (the repair
+                        // runs later, in the runtime) — but it is not EMPTY either: the engine's
+                        // deeper pages stay worth fetching, and the next engine worth visiting.
+                        switch (single.status) {
+                            case ORGANIC_RESULTS:
+                                return RenderedPageSource.PageVerdict.DELIVERED;
+                            case NO_ORGANIC_RESULTS:
+                                return RenderedPageSource.PageVerdict.EMPTY;
+                            default:
+                                return RenderedPageSource.PageVerdict.UNUSABLE;
+                        }
                     }
                 });
         PreparedWebSearchResult merged = WebSearchLayoutRepairService.merge(perEngine, mode);
+        List<String> diagnostics = new ArrayList<String>(merged.diagnostics);
+        if (!serpPagesPerHost.isEmpty()) {
+            StringBuilder serp = new StringBuilder(SERP_PAGES_DIAGNOSTIC_PREFIX);
+            boolean first = true;
+            for (java.util.Map.Entry<String, Integer> entry : serpPagesPerHost.entrySet()) {
+                serp.append(first ? " " : ", ").append(entry.getKey()).append('=')
+                        .append(entry.getValue());
+                first = false;
+            }
+            diagnostics.add(serp.toString());
+        }
         // Carry the navigation metadata (provider hosts, per-engine attempts, challenges) so the
         // research loop keeps the full legacy web_search behaviour.
         PreparedWebSearchResult withMetadata = new PreparedWebSearchResult(merged.status,
                 merged.candidates, merged.repairRequests, capture.providerHosts,
-                capture.engineAttempts, capture.challenges, merged.diagnostics);
+                capture.engineAttempts, capture.challenges, diagnostics);
         return SearchLayoutRepairJson.encodePrepared(withMetadata);
     }
 

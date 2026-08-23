@@ -29,12 +29,23 @@ public interface RenderedPageSource {
     }
 
     /**
-     * Asked about every captured page, in order: did THIS page deliver usable organic results? The
-     * answer decides whether the engine behind it has done its job — never whether the search stops,
-     * which is the acquisition mode's call.
+     * What one captured page turned out to be. DELIVERED and EMPTY are answers; UNUSABLE is the
+     * page's problem, not the engine's — a layout the mechanical analysis did not understand may
+     * still be rescued downstream (AI repair, link harvest) and must not end the user's pagination.
+     */
+    enum PageVerdict {
+        DELIVERED,
+        EMPTY,
+        UNUSABLE
+    }
+
+    /**
+     * Asked about every captured page, in order: what did THIS page deliver? The answer decides
+     * whether the engine behind it has done its job and whether its deeper result pages are still
+     * worth fetching — never whether the search stops, which is the acquisition mode's call.
      */
     interface PageEvaluator {
-        boolean delivered(RenderedPageDocument document, String engineHost);
+        PageVerdict judge(RenderedPageDocument document, String engineHost);
     }
 
     /** The result of navigating and capturing the configured engines for one query. */

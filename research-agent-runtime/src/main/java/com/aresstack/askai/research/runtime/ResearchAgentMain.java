@@ -781,7 +781,11 @@ public final class ResearchAgentMain {
                                                     + " Treffer · " + p.getPagesVisited() + " Seiten · Links: "
                                                     + p.getLinksDiscovered() + " gefunden, "
                                                     + p.getLinksAssessed() + " analysiert, "
-                                                    + p.getLinksSelected() + " relevant"));
+                                                    + p.getLinksSelected() + " relevant"
+                                                    // The SEARCH itself, not only its yield: which
+                                                    // engine delivered how many SERP result pages.
+                                                    + (p.getSerpSummary().isEmpty() ? ""
+                                                            : " · Suche: " + p.getSerpSummary())));
                                 }
 
                                 public void phaseReady(

@@ -35,12 +35,22 @@ final class PlaywrightRenderedPageSource implements RenderedPageSource {
                                 PlaywrightBrowserSession session) throws BrowserException {
                             return session.navigateAndCaptureSearchEngines(query,
                                     new PlaywrightBrowserSession.CapturedPageConsumer() {
-                                        public boolean accept(RenderedPageDocument document, String host,
+                                        public PlaywrightBrowserSession.CapturedPageVerdict accept(
+                                                RenderedPageDocument document, String host,
                                                 List<LegacySearchEngineAttemptResult> attempts) {
                                             pages.add(new Captured(document, host));
                                             // Judge the page HERE, while the navigation can still act on it.
-                                            return evaluator != null
-                                                    && evaluator.delivered(document, host);
+                                            if (evaluator == null) {
+                                                return PlaywrightBrowserSession.CapturedPageVerdict.UNUSABLE;
+                                            }
+                                            switch (evaluator.judge(document, host)) {
+                                                case DELIVERED:
+                                                    return PlaywrightBrowserSession.CapturedPageVerdict.DELIVERED;
+                                                case EMPTY:
+                                                    return PlaywrightBrowserSession.CapturedPageVerdict.EMPTY;
+                                                default:
+                                                    return PlaywrightBrowserSession.CapturedPageVerdict.UNUSABLE;
+                                            }
                                         }
                                     });
                         }

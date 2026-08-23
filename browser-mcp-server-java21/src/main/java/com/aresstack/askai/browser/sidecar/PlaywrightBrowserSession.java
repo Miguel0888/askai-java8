@@ -112,7 +112,8 @@ final class PlaywrightBrowserSession implements BrowserSession {
         final List<com.aresstack.askai.browser.WebSearchItem>[] organic = new List[]{null};
         final java.util.Set<String> seenTargets = new java.util.HashSet<String>();
         EngineNavigation nav = navigateAndCaptureSearchEngines(query, new CapturedPageConsumer() {
-            public boolean accept(com.aresstack.askai.browser.render.RenderedPageDocument document,
+            public CapturedPageVerdict accept(
+                    com.aresstack.askai.browser.render.RenderedPageDocument document,
                     String host,
                     List<com.aresstack.askai.browser.LegacySearchEngineAttemptResult> attempts) {
                 com.aresstack.askai.browser.search.SearchResultExtractionResult extraction =
@@ -139,18 +140,18 @@ final class PlaywrightBrowserSession implements BrowserSession {
                                 .LegacySearchAttemptOutcome.ORGANIC_RESULTS,
                                 (items.size() - before) + " candidates"));
                         organic[0] = items;
-                        return true;
+                        return CapturedPageVerdict.DELIVERED;
                     case NO_ORGANIC_RESULTS:
                         attempts.add(attempt(host, com.aresstack.askai.browser
                                 .LegacySearchAttemptOutcome.NO_ORGANIC_RESULTS,
                                 bounded(firstDiagnostic(extraction))));
-                        return false;
+                        return CapturedPageVerdict.EMPTY;
                     default:
                         // An ununderstood layout is an extraction FAILURE, never an empty engine.
                         attempts.add(attempt(host, com.aresstack.askai.browser
                                 .LegacySearchAttemptOutcome.EXTRACTION_FAILED,
                                 bounded(firstDiagnostic(extraction))));
-                        return false;
+                        return CapturedPageVerdict.UNUSABLE;
                 }
             }
         });
@@ -167,12 +168,27 @@ final class PlaywrightBrowserSession implements BrowserSession {
     }
 
     /**
-     * The captured-page hook for the shared engine navigation. It answers ONE question: did this page
-     * deliver usable organic results? Whether that ends the search is the acquisition mode's decision,
-     * not the consumer's.
+     * What one captured result page turned out to be. DELIVERED and EMPTY are answers; UNUSABLE is the
+     * page's problem, not the engine's — a layout the mechanical analysis did not understand may still
+     * be rescued downstream (AI layout repair, link harvest), so it must not end the pagination the
+     * user configured.
+     */
+    enum CapturedPageVerdict {
+        /** Usable organic results — the engine delivered; deeper pages widen the same answer. */
+        DELIVERED,
+        /** EXPLICITLY no results ("no results found" markers) — deeper pages cannot have more. */
+        EMPTY,
+        /** Not understood/not extracted here — keep fetching the configured pages regardless. */
+        UNUSABLE
+    }
+
+    /**
+     * The captured-page hook for the shared engine navigation. It answers ONE question: what did this
+     * page deliver? Whether that ends the search is the acquisition mode's decision, not the consumer's.
      */
     interface CapturedPageConsumer {
-        boolean accept(com.aresstack.askai.browser.render.RenderedPageDocument document, String host,
+        CapturedPageVerdict accept(com.aresstack.askai.browser.render.RenderedPageDocument document,
+                       String host,
                        List<com.aresstack.askai.browser.LegacySearchEngineAttemptResult> attempts);
     }
 
@@ -341,12 +357,15 @@ final class PlaywrightBrowserSession implements BrowserSession {
                                 "structured page capture unavailable"));
                         break;
                     }
-                    // The consumer states a FACT - did this page deliver usable organic results - and the
-                    // policy below decides what that means for the run. A delivering page widens the same
-                    // answer with the NEXT page; a page with nothing usable ends this engine's pagination.
-                    if (consumer.accept(document, host, attempts)) {
+                    // The consumer states a FACT — what did this page deliver — and the policy below
+                    // decides what that means for the run. A delivering page widens the same answer
+                    // with the NEXT page; only an EXPLICITLY empty page ends this engine's pagination.
+                    // An ununderstood layout does NOT: the user configured N pages, and downstream
+                    // rescue (AI layout repair, link harvest) works per captured page.
+                    CapturedPageVerdict verdict = consumer.accept(document, host, attempts);
+                    if (verdict == CapturedPageVerdict.DELIVERED) {
                         engineDelivered = true;
-                    } else {
+                    } else if (verdict == CapturedPageVerdict.EMPTY) {
                         break;
                     }
                 }

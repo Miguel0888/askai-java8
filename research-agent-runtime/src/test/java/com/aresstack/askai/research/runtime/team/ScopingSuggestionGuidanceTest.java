@@ -51,6 +51,27 @@ public class ScopingSuggestionGuidanceTest {
                         .contains("do not just copy the whole question"));
     }
 
+    /**
+     * The user owns breadth: a broad topic is decomposed into provisional facets (the future
+     * chapters), never rejected as "too broad", never bent into an angle (comparison etc.) the user
+     * did not ask for — and even an unusual scope is the user's to keep. Both variants carry this.
+     */
+    @Test
+    public void bothVariantsMandateDecompositionInsteadOfBreadthGatekeeping() {
+        for (boolean checkbox : new boolean[]{false, true}) {
+            String prompt = TeamAgentPlaybook.scopingSystemPrompt(checkbox);
+            assertTrue("breadth is never a defect", prompt.contains("BREADTH IS NEVER A DEFECT"));
+            assertTrue("the standard move is decomposition into facets",
+                    prompt.contains("DECOMPOSITION, not restriction"));
+            assertTrue("facets are the user's future chapters",
+                    prompt.contains("THE USER picks the chapters"));
+            assertTrue("no silent re-angling into a comparison",
+                    prompt.contains("angle the user did not ask for"));
+            assertTrue("every scope the user insists on is legitimate",
+                    prompt.contains("Every scope the user insists on is legitimate"));
+        }
+    }
+
     @Test
     public void theRegistryThreadsTheSettingIntoTheScopingProfile() {
         assertTrue(PhaseAssistantProfileRegistry.defaults(true)
