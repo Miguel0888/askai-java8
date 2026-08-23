@@ -543,11 +543,9 @@ public final class WebSearchApplicationService {
         switch (result.outcome) {
             case SUCCESS:
                 progress.success();
+                seedSerpRelevanceFloor = seedFloorOf(result.selected);
                 for (com.aresstack.askai.research.runtime.rerank.RerankedSearchResultCandidate ranked
                         : result.selected) {
-                    if (seedSerpRelevanceFloor == null || ranked.score < seedSerpRelevanceFloor) {
-                        seedSerpRelevanceFloor = ranked.score;
-                    }
                     if (!ranked.candidate.resolvedTargetUrl.isEmpty()) {
                         // The selected hit keeps its identity: the entry names the candidate it came from
                         // and carries what the SERP promised (the Layer 2 semantic readiness net) instead
@@ -585,6 +583,27 @@ public final class WebSearchApplicationService {
                 progress.error();
                 return ResearchStopReason.RERANKER_UNAVAILABLE;
         }
+    }
+
+    /**
+     * The link bar: the LOWEST score among the SERP hits the reranker selected — but ONLY when there are
+     * at least two of them. A floor is the lower end of a RANGE; a single selected hit has no range, and
+     * its score is simultaneously the run's BEST score. Using that as the bar starved every link of a
+     * single-candidate SERP (…links assessed → 0 followed) and ended the run right after its first page.
+     * One sample → no floor: the ranking and MAXIMUM_EXPANDED_LINKS_PER_PAGE still bound what is followed.
+     */
+    static Double seedFloorOf(
+            List<com.aresstack.askai.research.runtime.rerank.RerankedSearchResultCandidate> selected) {
+        if (selected == null || selected.size() < 2) {
+            return null;
+        }
+        double minimum = selected.get(0).score;
+        for (com.aresstack.askai.research.runtime.rerank.RerankedSearchResultCandidate ranked : selected) {
+            if (ranked.score < minimum) {
+                minimum = ranked.score;
+            }
+        }
+        return minimum;
     }
 
     /** ONE way to leave a page the user abandoned: visibly, with no source, no links, no evidence. */
