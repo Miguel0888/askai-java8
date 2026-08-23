@@ -36,6 +36,8 @@ public final class DefaultLegacyBrowserSearchSettingsValidator
                     : s.navigation.engineSelection.getEntries()) {
                 require(v, "navigation.engines", entry.getResultPages() >= 1,
                         "result pages for engine '" + entry.getEngineId() + "' must be >= 1");
+                require(v, "navigation.engines", entry.getDelayMillis() >= 0,
+                        "request delay for engine '" + entry.getEngineId() + "' must not be negative");
             }
         }
 

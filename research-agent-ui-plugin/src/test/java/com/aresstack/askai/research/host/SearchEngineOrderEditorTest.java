@@ -40,6 +40,18 @@ public class SearchEngineOrderEditorTest {
         });
     }
 
+    @Test
+    public void theStoredDelayRoundTripsAndAZeroDelayStaysInvisible() throws Exception {
+        onEdt(new Runnable() {
+            public void run() {
+                SearchEngineOrderEditor editor =
+                        new SearchEngineOrderEditor("duckduckgo:on:3:1.5,bing:on:3");
+                assertEquals("the delay survives the editor; 0 is simply not written",
+                        "duckduckgo:on:3:1.5,bing:on:3", editor.get());
+            }
+        });
+    }
+
     // ------------------------------------------------------------------ helpers
 
     private static void select(SearchEngineOrderEditor editor, int index) {

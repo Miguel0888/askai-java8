@@ -241,6 +241,14 @@ final class PlaywrightBrowserSession implements BrowserSession {
                     ? com.aresstack.askai.browser.search.engine.BrowserSearchEngineSelection
                             .Entry.DEFAULT_RESULT_PAGES
                     : settings.navigation.engineSelection.resultPagesFor(engine.getId());
+            // The per-engine request delay is the user's setting (seconds, default 0 = off): an extra
+            // pause before every request to this engine AFTER the first — on top of the natural
+            // evaluation time — so a touchy provider never sees rapid-fire clicks.
+            int engineDelayMillis = settings.navigation.engineSelection == null
+                    ? com.aresstack.askai.browser.search.engine.BrowserSearchEngineSelection
+                            .Entry.DEFAULT_DELAY_MILLIS
+                    : settings.navigation.engineSelection.delayMillisFor(engine.getId());
+            boolean engineRequestedBefore = false;
             for (int endpointIndex = 0; endpointIndex < endpointTemplates.size(); endpointIndex++) {
                 String template = endpointTemplates.get(endpointIndex);
                 if (endpointsOpened >= settings.navigation.maximumEngineAttempts) {
@@ -267,6 +275,10 @@ final class PlaywrightBrowserSession implements BrowserSession {
                     if (pageUrl == null) {
                         break; // this endpoint cannot address deeper result pages
                     }
+                    if (engineRequestedBefore && engineDelayMillis > 0) {
+                        paceBeforeRepeatRequest(engineDelayMillis);
+                    }
+                    engineRequestedBefore = true;
                     BrowserPageSnapshot page;
                     try {
                         page = open(pageUrl);
@@ -487,6 +499,30 @@ final class PlaywrightBrowserSession implements BrowserSession {
      */
     boolean pumpEvents(java.util.function.BooleanSupplier wake, long timeoutMillis) {
         return driver.pumpEvents(wake, timeoutMillis);
+    }
+
+    /** Slice length of one pacing pump round — granularity only; the DURATION is the user's setting. */
+    private static final long PACING_PUMP_SLICE_MILLIS = 250L;
+
+    /**
+     * The user's per-engine request delay: wait, but keep PUMPING — a plain sleep on the owner thread
+     * would freeze route interception, the HUD and close detection for the whole pause. A driver
+     * without an event loop (tests, teardown) falls back to a plain sleep slice.
+     */
+    private void paceBeforeRepeatRequest(long delayMillis) {
+        long remaining = delayMillis;
+        while (remaining > 0) {
+            long slice = Math.min(remaining, PACING_PUMP_SLICE_MILLIS);
+            if (!driver.pumpEvents(() -> false, slice)) {
+                try {
+                    Thread.sleep(slice);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+            remaining -= slice;
+        }
     }
 
     /** The driver's control-plane HUD inbox (or null) — drained OUTSIDE the actor's command queue. */

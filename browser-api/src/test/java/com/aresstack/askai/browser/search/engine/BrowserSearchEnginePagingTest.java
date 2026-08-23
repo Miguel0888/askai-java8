@@ -66,6 +66,43 @@ public class BrowserSearchEnginePagingTest {
     }
 
     @Test
+    public void theDelayTravelsAsSecondsWithOnlyRelevantDecimals() {
+        assertEquals("1.5", BrowserSearchEngineSelection.formatDelaySeconds(1500));
+        assertEquals("0.25", BrowserSearchEngineSelection.formatDelaySeconds(250));
+        assertEquals("trailing zeros and a bare point are removed",
+                "2", BrowserSearchEngineSelection.formatDelaySeconds(2000));
+        assertEquals("1.005", BrowserSearchEngineSelection.formatDelaySeconds(1005));
+        assertEquals("0", BrowserSearchEngineSelection.formatDelaySeconds(0));
+
+        assertEquals(1500, BrowserSearchEngineSelection.parseDelayMillis("1.5"));
+        assertEquals("a decimal comma is read like a point",
+                250, BrowserSearchEngineSelection.parseDelayMillis("0,25"));
+        assertEquals("nonsense means OFF", 0, BrowserSearchEngineSelection.parseDelayMillis("schnell"));
+        assertEquals("negative means OFF", 0, BrowserSearchEngineSelection.parseDelayMillis("-3"));
+    }
+
+    @Test
+    public void selectionEntriesCarryTheDelayAndOmitAnInactiveOne() {
+        List<BrowserSearchEngineSelection.Entry> entries = Arrays.asList(
+                new BrowserSearchEngineSelection.Entry("duckduckgo", true, 3, 1500),
+                new BrowserSearchEngineSelection.Entry("bing", true, 3, 0));
+        BrowserSearchEngineSelection selection = new BrowserSearchEngineSelection(entries, null);
+        assertEquals("a delay of 0 is simply not written",
+                "duckduckgo:on:3:1.5,bing:on:3", selection.encodeEntries());
+        assertEquals(1500, selection.delayMillisFor("duckduckgo"));
+        assertEquals(0, selection.delayMillisFor("bing"));
+        assertEquals("unknown engines run without an extra pause",
+                0, selection.delayMillisFor("unknown-engine"));
+
+        List<BrowserSearchEngineSelection.Entry> parsed =
+                BrowserSearchEngineSelection.parseEntries("duckduckgo:on:3:1.5,bing:on:3");
+        assertEquals(1500, parsed.get(0).getDelayMillis());
+        assertEquals(0, parsed.get(1).getDelayMillis());
+        assertEquals("an unreadable delay part falls back to OFF", 0,
+                BrowserSearchEngineSelection.parseEntries("bing:on:3:zackig").get(0).getDelayMillis());
+    }
+
+    @Test
     public void resultPagesForAnswersFromTheEntriesElseTheDefault() {
         BrowserSearchEngineSelection selection = new BrowserSearchEngineSelection(
                 Collections.singletonList(new BrowserSearchEngineSelection.Entry("bing", true, 7)),

@@ -76,8 +76,10 @@ public final class LegacyBrowserSearchSettingsCatalog {
         List<Field> f = new ArrayList<Field>();
         // --- Engines and Navigation
         engineList(f, "navigation.engines", SECTION_ENGINES, "Search engines",
-                "The enabled search engines in execution order (\"duckduckgo:on,bing:off\"). Edited "
-                        + "through the engine list, whose order IS the order they are tried in.");
+                "The enabled search engines in execution order (\"duckduckgo:on:3:1.5,bing:off:3\": "
+                        + "result pages per search, then an optional pause in seconds before every "
+                        + "further request to that engine). Edited through the engine list, whose "
+                        + "order IS the order they are tried in.");
         integer(f, "navigation.maximumEngineAttempts", SECTION_ENGINES, "Maximum engine attempts",
                 "Upper bound of engine endpoints opened per search (one engine may own several).", 1, 10);
         integer(f, "navigation.navigationCommitTimeoutMillis", SECTION_ENGINES,
