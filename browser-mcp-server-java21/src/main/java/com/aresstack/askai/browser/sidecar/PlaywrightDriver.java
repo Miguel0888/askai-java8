@@ -101,6 +101,18 @@ interface PlaywrightDriver extends AutoCloseable {
         return "";
     }
 
+    /**
+     * Run the driver's event loop for at most {@code timeoutMillis} or until {@code wake} holds, so that
+     * browser-initiated events (route interception, exposeBinding, popups) are dispatched while the sidecar
+     * is otherwise idle. Playwright Java only delivers these while a Playwright call is active — without a
+     * pump, the request interception freezes every user-driven navigation the moment no tool call runs.
+     * @return true when this driver pumped (or handled the wait itself), false when it has no event loop —
+     * the caller then waits on its own queue instead.
+     */
+    default boolean pumpEvents(java.util.function.BooleanSupplier wake, long timeoutMillis) {
+        return false;
+    }
+
     /** Idempotent: page → context → browser → Playwright (and with it the GraalJS driver child). */
     void close();
 }

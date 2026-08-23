@@ -45,25 +45,43 @@ public final class BrowserMcpSidecarMain {
                 "--server.port=" + port
         });
 
-        String channel = stringArg(args, "--browser-channel=");
+        final String channel = stringArg(args, "--browser-channel=");
         // PRECEDENCE (fixed contract): defaults < --browser-config document < explicit legacy CLI
         // overrides (dev/test escape hatches) — never any other mix.
-        com.aresstack.askai.browser.search.LegacyBrowserSearchSettings searchSettings =
+        final com.aresstack.askai.browser.search.LegacyBrowserSearchSettings searchSettings =
                 loadBrowserConfig(stringArg(args, "--browser-config="));
-        BrowserSession session = PlaywrightSessionFactory.create(
-                channel == null ? "chrome" : channel,
-                !"false".equalsIgnoreCase(stringArg(args, "--headless=")),
-                "true".equalsIgnoreCase(stringArg(args, "--allow-private=")),
-                stringArg(args, "--search-url="),
-                com.aresstack.askai.browser.BrowserLimits.defaults(),
-                searchSettings);
+        final boolean headless = !"false".equalsIgnoreCase(stringArg(args, "--headless="));
+        final boolean allowPrivate = "true".equalsIgnoreCase(stringArg(args, "--allow-private="));
+        final String searchUrl = stringArg(args, "--search-url=");
+        // The SESSION-ACTOR contract: Playwright and everything below it is created ON the dedicated
+        // owner thread and only ever touched there; the MCP handlers below talk to the actor façade,
+        // which also pumps the Playwright event loop while idle (route/binding/popup dispatch).
+        BrowserSessionActor session = BrowserSessionActor.start(
+                new java.util.function.Supplier<BrowserSession>() {
+                    public BrowserSession get() {
+                        return PlaywrightSessionFactory.create(
+                                channel == null ? "chrome" : channel, headless, allowPrivate,
+                                searchUrl, com.aresstack.askai.browser.BrowserLimits.defaults(),
+                                searchSettings);
+                    }
+                });
         // DEV/TEST ONLY: host:port domain families so local multi-server worlds act as distinct domains
         // (production keeps the public-suffix resolver; never the default).
         if ("host-port".equalsIgnoreCase(stringArg(args, "--domain-key-mode="))
-                && session instanceof PlaywrightBrowserSession) {
-            ((PlaywrightBrowserSession) session).setDomainKeyResolver(
-                    new com.aresstack.askai.browser.domain.HostPortDomainKeyResolver());
-            System.err.println("[browser-mcp] domain-key-mode=host-port (dev/test)");
+                && session.isPlaywrightBacked()) {
+            try {
+                session.onPlaywrightSession(
+                        new BrowserSessionActor.PlaywrightSessionTask<Void>() {
+                            public Void run(PlaywrightBrowserSession playwrightSession) {
+                                playwrightSession.setDomainKeyResolver(
+                                        new com.aresstack.askai.browser.domain.HostPortDomainKeyResolver());
+                                return null;
+                            }
+                        });
+                System.err.println("[browser-mcp] domain-key-mode=host-port (dev/test)");
+            } catch (BrowserException ex) {
+                System.err.println("[browser-mcp] domain-key-mode failed: " + ex.getMessage());
+            }
         }
         McpServerEndpointProvider endpoint = McpServerEndpointProvider.builder()
                 .name("browser")
@@ -76,10 +94,10 @@ public final class BrowserMcpSidecarMain {
         // sidecar stays MODEL-FREE — it only captures/extracts and applies a runtime-validated
         // decision to a cached snapshot. web_search remains the unchanged compatibility surface.
         final com.aresstack.askai.browser.search.analysis.SearchLayoutRepairTools repairTools =
-                session instanceof PlaywrightBrowserSession
+                session.isPlaywrightBacked()
                         ? new com.aresstack.askai.browser.search.analysis.SearchLayoutRepairTools(
                                 searchSettings,
-                                new PlaywrightRenderedPageSource((PlaywrightBrowserSession) session),
+                                new PlaywrightRenderedPageSource(session),
                                 new java.util.function.LongSupplier() {
                                     public long getAsLong() {
                                         return System.currentTimeMillis();

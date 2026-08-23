@@ -26,9 +26,17 @@ import java.util.function.Predicate;
  * request filter is given, browser-side requests to disallowed targets are aborted via route interception.
  * {@link #close()} tears down page → context → browser → Playwright (ending the driver child) and is
  * idempotent.</p>
+ *
+ * <p>THREADING CONTRACT: every instance is created and used on exactly ONE thread (the
+ * {@link BrowserSessionActor} owner). Playwright Java is not thread-safe, and its events (route
+ * interception, exposeBinding, popups) are only dispatched while that thread runs a Playwright call —
+ * which is why the actor keeps {@link #pumpEvents} running whenever no command is queued. Every
+ * Playwright-touching method asserts the owner via {@link ThreadOwnershipGuard}.</p>
  */
 final class Playwright4jDriver implements PlaywrightDriver {
 
+    /** Created in the constructor — the launching thread (the actor owner) is the only legal caller. */
+    private final ThreadOwnershipGuard owner = new ThreadOwnershipGuard();
     private final Playwright playwright;
     private final Browser browser;
     private final BrowserContext context;
@@ -43,6 +51,9 @@ final class Playwright4jDriver implements PlaywrightDriver {
     /** Research HUD: the command binding is registered ONCE on the context (survives navigation). */
     private boolean hudBindingRegistered;
     private final java.util.Queue<String> hudCommands = new java.util.concurrent.ConcurrentLinkedQueue<String>();
+    /** How many popups the close-immediately policy handled — observable proof the event dispatched. */
+    private final java.util.concurrent.atomic.AtomicInteger popupsClosed =
+            new java.util.concurrent.atomic.AtomicInteger();
     private volatile boolean closed;
 
     private Playwright4jDriver(Playwright playwright, Browser browser, BrowserContext context, Page page,
@@ -90,16 +101,10 @@ final class Playwright4jDriver implements PlaywrightDriver {
                 });
             }
             Page page = context.newPage();
-            page.onPopup(new Consumer<Page>() {
-                public void accept(Page popup) {
-                    try {
-                        popup.close();
-                    } catch (RuntimeException ignored) {
-                        // A popup that is already gone must not take the session down.
-                    }
-                }
-            });
-            return new Playwright4jDriver(playwright, browser, context, page, consent, captcha);
+            Playwright4jDriver driver = new Playwright4jDriver(playwright, browser, context, page,
+                    consent, captcha);
+            page.onPopup(driver.popupCloser());
+            return driver;
         } catch (RuntimeException ex) {
             closeQuietly(context, browser, playwright);
             throw new BrowserException("Browser start failed (channel=" + channel + "): " + firstLine(ex));
@@ -108,6 +113,7 @@ final class Playwright4jDriver implements PlaywrightDriver {
 
     @Override
     public PlaywrightPageState open(String url) throws BrowserException {
+        owner.check();
         requireOpen();
         try {
             page.navigate(url);
@@ -119,6 +125,7 @@ final class Playwright4jDriver implements PlaywrightDriver {
 
     @Override
     public PlaywrightPageState current() throws BrowserException {
+        owner.check();
         requireOpen();
         try {
             return state();
@@ -129,6 +136,7 @@ final class Playwright4jDriver implements PlaywrightDriver {
 
     @Override
     public PlaywrightPageState back() throws BrowserException {
+        owner.check();
         requireOpen();
         try {
             if (page.goBack() == null) {
@@ -149,6 +157,7 @@ final class Playwright4jDriver implements PlaywrightDriver {
     public com.aresstack.askai.browser.render.RenderedPageDocument captureRenderedPage(
             com.aresstack.askai.browser.domain.DomainKeyResolver domainKeys,
             long snapshotGeneration) throws BrowserException {
+        owner.check();
         requireOpen();
         if (renderedCapture == null) {
             return null;
@@ -177,6 +186,7 @@ final class Playwright4jDriver implements PlaywrightDriver {
 
     @Override
     public String tryDismissConsent() {
+        owner.check(); // BEFORE the guard-try: an ownership violation must never be swallowed as "none"
         if (closed || !consent.enabled) {
             return "none";
         }
@@ -201,6 +211,7 @@ final class Playwright4jDriver implements PlaywrightDriver {
 
     @Override
     public String renderHud(String stateLine) {
+        owner.check();
         if (closed) {
             return "closed";
         }
@@ -226,6 +237,7 @@ final class Playwright4jDriver implements PlaywrightDriver {
 
     @Override
     public String pollHudCommands() {
+        // Deliberately NO owner check: this drains a thread-safe Java queue and never touches Playwright.
         StringBuilder sb = new StringBuilder();
         String command;
         while ((command = hudCommands.poll()) != null) {
@@ -237,8 +249,58 @@ final class Playwright4jDriver implements PlaywrightDriver {
         return sb.toString();
     }
 
+    /** The one popup policy: close immediately, count it, and never let a dead popup break the session. */
+    private Consumer<Page> popupCloser() {
+        return new Consumer<Page>() {
+            public void accept(Page popup) {
+                popupsClosed.incrementAndGet();
+                try {
+                    popup.close();
+                } catch (RuntimeException ignored) {
+                    // A popup that is already gone must not take the session down.
+                }
+            }
+        };
+    }
+
+    /** How many popups were closed so far. Thread-safe counter read — touches no Playwright state. */
+    int closedPopupCount() {
+        return popupsClosed.get();
+    }
+
+    @Override
+    public boolean pumpEvents(java.util.function.BooleanSupplier wake, long timeoutMillis) {
+        owner.check();
+        if (closed) {
+            return false; // torn down — the actor falls back to a plain queue wait
+        }
+        Page target = page;
+        if (target == null) {
+            return false;
+        }
+        try {
+            // Runs the Playwright message loop until the wake condition holds or the slice ends: route
+            // interception gets its resume/abort, exposeBinding and popup events are delivered — even
+            // when no MCP command is in flight. This is what keeps the visible browser interactive.
+            target.waitForCondition(wake::getAsBoolean,
+                    new Page.WaitForConditionOptions().setTimeout(timeoutMillis));
+        } catch (com.microsoft.playwright.TimeoutError normalIdle) {
+            // The slice ended with nothing queued — the actor simply pumps again.
+        } catch (RuntimeException broken) {
+            // A page closing/navigating mid-pump must not kill the loop; yield briefly so a permanently
+            // broken page cannot hot-spin the owner thread.
+            try {
+                Thread.sleep(Math.min(50L, Math.max(1L, timeoutMillis)));
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        return true;
+    }
+
     @Override
     public boolean challengePresent() {
+        owner.check();
         if (closed || !captcha.enabled) {
             return false;
         }
@@ -254,6 +316,7 @@ final class Playwright4jDriver implements PlaywrightDriver {
 
     @Override
     public String challengeMarker() {
+        owner.check();
         if (closed || !captcha.enabled) {
             return "none";
         }
@@ -266,6 +329,7 @@ final class Playwright4jDriver implements PlaywrightDriver {
 
     @Override
     public String consentCandidate() {
+        owner.check();
         if (closed || !consent.enabled) {
             return "none";
         }
@@ -278,20 +342,14 @@ final class Playwright4jDriver implements PlaywrightDriver {
 
     @Override
     public boolean parkChallenge() {
+        owner.check();
         if (closed || challengePage != null) {
             return false;
         }
         try {
             challengePage = page;
             page = context.newPage();
-            page.onPopup(new Consumer<Page>() {
-                public void accept(Page popup) {
-                    try {
-                        popup.close();
-                    } catch (RuntimeException ignored) {
-                    }
-                }
-            });
+            page.onPopup(popupCloser());
             // Bring the challenge to the user's attention exactly ONCE — polls never steal focus again.
             if (captcha.focusTabOnFirstDetection) {
                 try {
@@ -309,6 +367,7 @@ final class Playwright4jDriver implements PlaywrightDriver {
 
     @Override
     public boolean parkedChallengeStillPresent() {
+        owner.check();
         if (closed || challengePage == null) {
             return false;
         }
@@ -323,6 +382,7 @@ final class Playwright4jDriver implements PlaywrightDriver {
 
     @Override
     public void closeParkedChallenge() {
+        owner.check();
         if (challengePage != null) {
             try {
                 challengePage.close();
@@ -334,6 +394,7 @@ final class Playwright4jDriver implements PlaywrightDriver {
 
     @Override
     public void close() {
+        owner.check();
         if (closed) {
             return;
         }

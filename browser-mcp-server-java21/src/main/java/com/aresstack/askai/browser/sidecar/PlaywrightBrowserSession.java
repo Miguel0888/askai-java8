@@ -450,6 +450,14 @@ final class PlaywrightBrowserSession implements BrowserSession {
         driver.close();
     }
 
+    /**
+     * Keep the driver's event loop alive while the owner thread has no command to run (route interception,
+     * HUD binding, popup close). @return false when the driver has no event loop to pump.
+     */
+    boolean pumpEvents(java.util.function.BooleanSupplier wake, long timeoutMillis) {
+        return driver.pumpEvents(wake, timeoutMillis);
+    }
+
     /** The post-redirect gate: the FINAL url must pass the policy or the page is abandoned. */
     private BrowserPageSnapshot checkedSnapshot(PlaywrightPageState state) throws BrowserException {
         try {

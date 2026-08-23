@@ -19,26 +19,32 @@ import java.util.List;
  */
 final class PlaywrightRenderedPageSource implements RenderedPageSource {
 
-    private final PlaywrightBrowserSession session;
+    /** All browser access goes through the actor — never directly at the Playwright-backed session. */
+    private final BrowserSessionActor actor;
 
-    PlaywrightRenderedPageSource(PlaywrightBrowserSession session) {
-        this.session = session;
+    PlaywrightRenderedPageSource(BrowserSessionActor actor) {
+        this.actor = actor;
     }
 
-    public EngineCapture capture(String query, final PageEvaluator evaluator) {
+    public EngineCapture capture(final String query, final PageEvaluator evaluator) {
         final List<Captured> pages = new ArrayList<Captured>();
         try {
-            PlaywrightBrowserSession.EngineNavigation nav =
-                    session.navigateAndCaptureSearchEngines(query,
-                            new PlaywrightBrowserSession.CapturedPageConsumer() {
-                                public boolean accept(RenderedPageDocument document, String host,
-                                        List<LegacySearchEngineAttemptResult> attempts) {
-                                    pages.add(new Captured(document, host));
-                                    // Judge the page HERE, while the navigation can still act on it.
-                                    return evaluator != null
-                                            && evaluator.delivered(document, host);
-                                }
-                            });
+            PlaywrightBrowserSession.EngineNavigation nav = actor.onPlaywrightSession(
+                    new BrowserSessionActor.PlaywrightSessionTask<PlaywrightBrowserSession.EngineNavigation>() {
+                        public PlaywrightBrowserSession.EngineNavigation run(
+                                PlaywrightBrowserSession session) throws BrowserException {
+                            return session.navigateAndCaptureSearchEngines(query,
+                                    new PlaywrightBrowserSession.CapturedPageConsumer() {
+                                        public boolean accept(RenderedPageDocument document, String host,
+                                                List<LegacySearchEngineAttemptResult> attempts) {
+                                            pages.add(new Captured(document, host));
+                                            // Judge the page HERE, while the navigation can still act on it.
+                                            return evaluator != null
+                                                    && evaluator.delivered(document, host);
+                                        }
+                                    });
+                        }
+                    });
             return new EngineCapture(pages, nav.providerHosts, nav.attempts, nav.challenges);
         } catch (BrowserException engineUnavailable) {
             // No engine reachable / no provider configured: an empty capture — prepare reports FAILED
