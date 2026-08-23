@@ -28,27 +28,45 @@ public final class ResearchChatCommands {
 
     public static List<ChatCommandContribution> all() {
         // ONE synchronized command surface: the TEXT adapters — /search (user web search) and /open
-        // (artifact navigation) — plus one slash command per SEMANTIC state command. The semantic
-        // names (submit-scope, approve, …) ARE user API (they are the red tags' ids and the MCP
-        // vocabulary); internal ResearchCommandType enum names still never are. Every semantic slash
-        // command executes through the session's ONE structured command processor — exactly what a
-        // red-tag click runs, so /submit-scope and "Fragestellung freigeben & weiter" are twins.
+        // (artifact navigation) — plus one slash command per PROCESSOR command: the semantic state
+        // commands (submit-scope, approve, …) AND the derived-action service commands
+        // (review-sources, …). These names ARE user API (they are the red tags' ids and the MCP
+        // vocabulary); internal ResearchCommandType enum names still never are. Every slash command
+        // executes through the session's ONE structured command processor — exactly what a red-tag
+        // click runs, so /submit-scope and "Fragestellung freigeben & weiter" (or /review-sources
+        // and "Neue Quellen auswerten") are twins.
         List<ChatCommandContribution> commands = new ArrayList<ChatCommandContribution>();
         commands.add(new OpenCommand());
         commands.add(new SearchCommand());
-        commands.add(new SemanticStateCommand("submit-scope",
+        commands.add(new ProcessorCommand("submit-scope",
                 "Approve the research brief and continue into the research phase"));
-        commands.add(new SemanticStateCommand("approve",
+        commands.add(new ProcessorCommand("approve",
                 "Approve the pending review gate (outline/evidence/draft/final)"));
-        commands.add(new SemanticStateCommand("request-changes",
+        commands.add(new ProcessorCommand("request-changes",
                 "Request changes at the pending review gate"));
-        commands.add(new SemanticStateCommand("continue",
+        commands.add(new ProcessorCommand("continue",
                 "Continue with the next step (start research/drafting)"));
-        commands.add(new SemanticStateCommand("pause", "Pause the running research"));
-        commands.add(new SemanticStateCommand("resume", "Continue where the research paused"));
-        commands.add(new SemanticStateCommand("retry", "Retry the step that failed"));
-        commands.add(new SemanticStateCommand("cancel", "Cancel this research session"));
+        commands.add(new ProcessorCommand("pause", "Pause the running research"));
+        commands.add(new ProcessorCommand("resume", "Continue where the research paused"));
+        commands.add(new ProcessorCommand("retry", "Retry the step that failed"));
+        commands.add(new ProcessorCommand("cancel", "Cancel this research session"));
+        // The derived-action service commands (issue #33 vocabulary).
+        commands.add(new ProcessorCommand("review-sources",
+                "Review the newly captured sources (Neue Quellen auswerten)"));
+        commands.add(new ProcessorCommand("generate-visualization",
+                "Generate/refresh the visualization from the current brief"));
+        commands.add(new ProcessorCommand("generate-outline",
+                "Rebuild topic discovery and outline from the corpus"));
         return commands;
+    }
+
+    /** The processor-command names exposed as slash commands (the test guards the sync). */
+    static List<String> processorCommandNames() {
+        List<String> names = new ArrayList<String>(ResearchSemanticCommands.names());
+        names.add("review-sources");
+        names.add("generate-visualization");
+        names.add("generate-outline");
+        return names;
     }
 
     private static ResearchAgentSession research(AgentSessionContext context) {
@@ -92,16 +110,17 @@ public final class ResearchChatCommands {
     }
 
     /**
-     * A slash twin of a red action tag: {@code /<semantic-name>} runs the SAME semantic command
-     * through {@link ResearchAgentSession#executeCommand} that a tag click runs — one processor,
-     * no side paths. The processor's honest "handled:/rejected:" answer becomes the chat feedback,
-     * so a command that is not allowed in the current phase says so instead of doing nothing.
+     * A slash twin of a red action tag: {@code /<name>} runs the SAME processor command (semantic
+     * state command or derived-action service command) through
+     * {@link ResearchAgentSession#executeCommand} that a tag click runs — one processor, no side
+     * paths. The processor's honest "handled:/rejected:" answer becomes the chat feedback, so a
+     * command that is not available right now says so instead of doing nothing.
      */
-    private static final class SemanticStateCommand extends Base {
+    private static final class ProcessorCommand extends Base {
         private final String name;
         private final String description;
 
-        SemanticStateCommand(String name, String description) {
+        ProcessorCommand(String name, String description) {
             this.name = name;
             this.description = description;
         }

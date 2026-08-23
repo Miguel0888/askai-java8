@@ -15,19 +15,23 @@ import static org.junit.Assert.assertTrue;
 public class ResearchChatCommandsTest {
 
     @Test
-    public void everySemanticStateCommandHasASlashTwin() {
+    public void everyProcessorCommandHasASlashTwin() {
         Set<String> names = new HashSet<String>();
         for (ChatCommandContribution contribution : ResearchChatCommands.all()) {
             names.add(contribution.getDescriptor().getName());
         }
-        // The service adapters…
+        // The text adapters…
         assertTrue(names.contains("search"));
         assertTrue(names.contains("open"));
-        // …and the full semantic vocabulary (the red tags' ids).
-        for (String semantic : ResearchSemanticCommands.names()) {
-            assertTrue("missing slash twin for semantic command: " + semantic,
-                    names.contains(semantic));
+        // …the full semantic state vocabulary (the red tags' ids) AND the derived-action service
+        // commands — "Neue Quellen auswerten" (review-sources) was tag-only once, never again.
+        for (String command : ResearchChatCommands.processorCommandNames()) {
+            assertTrue("missing slash twin for processor command: " + command,
+                    names.contains(command));
         }
+        assertTrue(names.contains("review-sources"));
+        assertTrue(names.contains("generate-visualization"));
+        assertTrue(names.contains("generate-outline"));
     }
 
     @Test
