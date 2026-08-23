@@ -36,7 +36,13 @@ public final class SpeechBubblePanel extends JPanel
     private static final int TAIL_WIDTH = 16;
     private static final int HORIZONTAL_PADDING = 15;
     private static final int VERTICAL_PADDING = 11;
-    private static final int DEFAULT_MAXIMUM_WIDTH = 580;
+    /**
+     * The bubble's OWN upper bound. The transcript row already caps a bubble to a share of the available
+     * width, so this is only the readability limit for a very wide window — it must not be the thing that
+     * decides how wide a bubble gets on a normal one. At 580 it was exactly that: every message stayed in a
+     * narrow column no matter how much space the chat had.
+     */
+    private static final int DEFAULT_MAXIMUM_WIDTH = 1200;
     private static final int MINIMUM_WIDTH = 104;
 
     private final BubbleSide side;

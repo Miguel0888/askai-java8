@@ -10,7 +10,12 @@ final class BubbleMessageRow extends JPanel {
 
     private static final int HORIZONTAL_MARGIN = 14;
     private static final int VERTICAL_GAP = 5;
-    private static final double MAXIMUM_WIDTH_RATIO = 0.76d;
+    /**
+     * How much of the row a bubble may fill. Only a MODERATE margin is left towards the opposite side:
+     * enough that left and right bubbles still read as a conversation, but not so much that long messages
+     * are squeezed into a narrow column while the window is wide.
+     */
+    private static final double MAXIMUM_WIDTH_RATIO = 0.92d;
 
     private final JComponent bubble;
     private final BubbleSide side;
@@ -79,7 +84,19 @@ final class BubbleMessageRow extends JPanel {
         return new Dimension(bubbleWidth, preferred.height);
     }
 
+    /**
+     * The width the row will ACTUALLY be laid out at — its own width whenever it has one.
+     * <p>
+     * Using the parent's width instead (as this did) reports a height measured at a DIFFERENT width than
+     * {@link #doLayout()} then uses. As soon as the two differ — a vertical scrollbar appearing is enough —
+     * the text wraps into more lines than the reported height allows, and the last lines of a long message
+     * are cut off at the bubble's bottom edge. Height and layout must be derived from one and the same
+     * width.
+     */
     private int resolveAvailableWidth() {
+        if (getWidth() > 0) {
+            return getWidth();
+        }
         if (getParent() != null && getParent().getWidth() > 0) {
             return getParent().getWidth();
         }
