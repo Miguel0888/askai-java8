@@ -320,7 +320,13 @@ final class Playwright4jDriver implements PlaywrightDriver {
             // The slice ended with nothing queued — the actor simply pumps again.
         } catch (RuntimeException broken) {
             // A page closing/navigating mid-pump must not kill the loop; yield briefly so a permanently
-            // broken page cannot hot-spin the owner thread.
+            // broken page cannot hot-spin the owner thread. But FIRST: when the pump broke because the
+            // USER closed the window, record it — with the page gone no message loop runs anymore, so
+            // Browser.onDisconnected would never dispatch and the close would stay invisible until some
+            // API call happened to fail.
+            if (!browser.isConnected() || page.isClosed()) {
+                browserDisconnected = true;
+            }
             try {
                 Thread.sleep(Math.min(50L, Math.max(1L, timeoutMillis)));
             } catch (InterruptedException interrupted) {
@@ -328,6 +334,12 @@ final class Playwright4jDriver implements PlaywrightDriver {
             }
         }
         return true;
+    }
+
+    @Override
+    public boolean browserClosedByUser() {
+        owner.check();
+        return !closed && (browserDisconnected || !browser.isConnected());
     }
 
     @Override

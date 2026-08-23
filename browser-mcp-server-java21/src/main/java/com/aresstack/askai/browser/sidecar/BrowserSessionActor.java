@@ -254,7 +254,9 @@ final class BrowserSessionActor implements BrowserSession {
                 }
             });
         } catch (BrowserException closed) {
-            return Collections.singletonList("NONE");
+            // A dead actor still tells the truth about WHY: the user's window close stays typed.
+            return Collections.singletonList(closed.getMessage() != null
+                    && closed.getMessage().contains("BROWSER_CLOSED") ? "BROWSER_CLOSED" : "NONE");
         }
     }
 

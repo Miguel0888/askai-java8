@@ -191,7 +191,6 @@ public final class ResearchLoop {
      * artifact anymore; the listener is a no-op like the manual search's.
      */
     public ResearchStopReason run(String task) {
-        final Set<String> terms = queryTerms(task);
         com.aresstack.askai.research.runtime.acquire.WebSearchApplicationService acquisition =
                 new com.aresstack.askai.research.runtime.acquire.WebSearchApplicationService(
                         browser, budget, progress, clock, listener, cancelled, searchStrategy, apiProviderLabel,
@@ -210,7 +209,7 @@ public final class ResearchLoop {
                         challengeWaitForUser,
                         searchSettings.readiness.maximumPageReadinessRetries,
                         searchSettings.readiness.minimumReadableCharacters);
-        ResearchStopReason reason = acquisition.execute(terms);
+        ResearchStopReason reason = acquisition.execute(task);
         listener.status("run stopped: " + reason
                 + " (pages=" + progress.getPagesVisited()
                 + " sources=" + progress.getAcceptedSources()

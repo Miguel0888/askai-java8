@@ -283,6 +283,12 @@ final class PlaywrightBrowserSession implements BrowserSession {
                     try {
                         page = open(pageUrl);
                     } catch (BrowserException engineUnreachable) {
+                        if (engineUnreachable.getMessage() != null
+                                && engineUnreachable.getMessage().contains("BROWSER_CLOSED")) {
+                            // The USER closed the window: no other engine can help, and degrading
+                            // their stop into an ATTEMPT line would launder it into a technical end.
+                            throw engineUnreachable;
+                        }
                         lastFailure = engineUnreachable;
                         attempts.add(attempt(engineHost,
                                 com.aresstack.askai.browser.LegacySearchAttemptOutcome.NAVIGATION_FAILED,
@@ -476,6 +482,11 @@ final class PlaywrightBrowserSession implements BrowserSession {
      * on first disappearance → RESOLVED line (challenge tab closed, family unlocked); otherwise NONE.
      */
     public List<String> challengeStatus() {
+        // The user closing the window must NEVER read as "challenge resolved" — a dead challenge tab
+        // and a dead browser look identical to the poll below, so the browser is checked first.
+        if (driver.browserClosedByUser()) {
+            return Collections.singletonList("BROWSER_CLOSED");
+        }
         if (challengeFamily == null) {
             return Collections.singletonList("NONE");
         }

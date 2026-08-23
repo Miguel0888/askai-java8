@@ -848,8 +848,9 @@ public final class ResearchAgentMain {
             // The authoritative language snapshot flows into the SERP request (dev's language feature),
             // preserved through arch's full browse→capture→accept pipeline.
             acquisition.setSearchLanguage(searchLanguage);
-            com.aresstack.askai.research.runtime.loop.ResearchStopReason reason = acquisition.execute(
-                    com.aresstack.askai.research.runtime.acquire.WebAcquisitionText.queryTerms(query));
+            // The user's text IS the search query — never a term-set reconstruction of it.
+            com.aresstack.askai.research.runtime.loop.ResearchStopReason reason =
+                    acquisition.execute(query);
             if (cancelled.get()) {
                 ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
                         .manualSearchFailed(requestId, "CANCELLED"));

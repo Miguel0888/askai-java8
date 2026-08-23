@@ -1122,6 +1122,15 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         }
         String requestId = event.getTechnicalDetail();
         if (requestId == null || !requestId.equals(activeManualSearchRequestId)) {
+            if ("review_finished".equals(event.getTitle()) && postSearchSummaryInFlight) {
+                // The single correlation slot was overwritten (a new search/review started) while a
+                // review was still in flight. Its end must STILL clear the bubble and release the
+                // composer — the alternative is a thinking bubble that never disappears.
+                finishPostSearchThinking("");
+                setAgentTurnInFlight(false);
+                settleReview(com.aresstack.askai.research.domain.search.PostSearchReviewOutcome
+                        .fromToken(event.getPublicMessage()));
+            }
             // Visible in the diagnostics when the review chain breaks: which event was dropped and why.
             System.err.println("[manual-search] host event " + event.getTitle()
                     + " DROPPED (stale) requestId=" + requestId
@@ -1139,6 +1148,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             // The transient amber progress card runs alongside it and is ephemeral.
             sink.appendInfoMessage(publish("manual-search-line-" + requestId), message);
             sink.startToolActivity(activityId, "Websuche", message);
+            // The composer is BUSY for the whole search: the red Stop button lights up and stops THIS
+            // search. Without this, the search ran on the control lane with no visible way to stop it.
+            setAgentTurnInFlight(true);
         } else if ("progress".equals(subKind)) {
             sink.updateToolActivity(activityId, "Websuche", message);
         } else if ("completed".equals(subKind)) {
@@ -1150,6 +1162,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 manualSearchedQueries.add(searched.trim().toLowerCase(java.util.Locale.ROOT));
             }
             stopManualSearchBrowser();
+            setAgentTurnInFlight(false); // the search is over — the composer is the user's again
             // Issue #29: the search is over here — the runtime no longer auto-reviews. When sources were
             // accepted, OFFER the derived AI step as an explicit action instead of running it implicitly.
             activeManualSearchRequestId = null;
@@ -1324,7 +1337,13 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         }
         postSearchSummaryInFlight = false;
         if (postSearchThinkingId != null && sink != null) {
-            sink.finishThinking(postSearchThinkingId, summary == null ? "" : summary);
+            try {
+                sink.finishThinking(postSearchThinkingId, summary == null ? "" : summary);
+            } catch (RuntimeException bubbleAlreadyGone) {
+                // The transcript row may already be gone (cleared transcript, superseded id). OUR
+                // state must clear regardless — a throw here once wedged the bubble and the red
+                // Stop button forever, because the callers' release lines never ran.
+            }
         }
         postSearchThinkingId = null;
     }
@@ -2780,6 +2799,17 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         }
 
         public void stop() {
+            if (postSearchSummaryInFlight) {
+                cancel(); // the review-abort path: cancels the model call, clears bubble + busy
+                return;
+            }
+            if (activeManualSearchRequestId != null) {
+                // Stop pressed DURING the user's web search: it stops THAT search — never the phase.
+                // The runtime answers with a terminal event; the composer is released immediately.
+                cancelManualWebSearch();
+                setAgentTurnInFlight(false);
+                return;
+            }
             pause();
         }
     }

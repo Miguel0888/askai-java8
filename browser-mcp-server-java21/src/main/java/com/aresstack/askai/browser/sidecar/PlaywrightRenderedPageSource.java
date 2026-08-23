@@ -47,6 +47,12 @@ final class PlaywrightRenderedPageSource implements RenderedPageSource {
                     });
             return new EngineCapture(pages, nav.providerHosts, nav.attempts, nav.challenges);
         } catch (BrowserException engineUnavailable) {
+            if (engineUnavailable.getMessage() != null
+                    && engineUnavailable.getMessage().contains("BROWSER_CLOSED")) {
+                // The user's window close must reach the runtime as the typed marker — swallowed into
+                // an empty capture it would surface as "Websuche technisch fehlgeschlagen".
+                throw new IllegalStateException(engineUnavailable.getMessage());
+            }
             // No engine reachable / no provider configured: an empty capture — prepare reports FAILED
             // and the runtime falls through its existing engine policy.
             return new EngineCapture(pages, Collections.<String>emptyList(),

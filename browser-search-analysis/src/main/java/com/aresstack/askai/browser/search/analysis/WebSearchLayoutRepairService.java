@@ -196,9 +196,11 @@ public final class WebSearchLayoutRepairService {
     }
 
     /**
-     * Fold the per-engine results into one, the way the user asked for.
+     * Fold the per-page results into one, the way the user asked for.
      * <p>
-     * FIRST_USABLE takes the first engine that delivered — the ones behind it were the safety net.
+     * FIRST_USABLE takes the first ENGINE that delivered — the ones behind it were the safety net.
+     * One engine may have delivered SEVERAL result pages (the per-engine page count is a user
+     * setting); they are all that engine's answer and are unioned, deduplicated by target URL.
      * ALL_ENABLED takes the UNION of everything that delivered, deduplicated by target URL, keeping
      * each hit's engine provenance: that is the whole point of asking several engines.
      */
@@ -211,6 +213,7 @@ public final class WebSearchLayoutRepairService {
         List<SearchResultCandidate> merged = new ArrayList<SearchResultCandidate>();
         java.util.Set<String> seenTargets = new java.util.LinkedHashSet<String>();
         boolean sawNoResults = false;
+        String firstDeliveringHost = null;
         for (PreparedWebSearchResult result : perEngine) {
             if (result == null) {
                 continue;
@@ -218,8 +221,14 @@ public final class WebSearchLayoutRepairService {
             diagnostics.addAll(result.diagnostics);
             if (result.status == WebSearchPreparationStatus.ORGANIC_RESULTS) {
                 if (!union) {
-                    return prepared(WebSearchPreparationStatus.ORGANIC_RESULTS, result.candidates,
-                            Collections.<SearchLayoutRepairRequest>emptyList(), diagnostics);
+                    // FIRST_USABLE: pages of the FIRST delivering engine are unioned; a page from a
+                    // different engine means the first one already won.
+                    String host = deliveringHostOf(result);
+                    if (firstDeliveringHost == null) {
+                        firstDeliveringHost = host;
+                    } else if (!firstDeliveringHost.equals(host)) {
+                        break;
+                    }
                 }
                 for (SearchResultCandidate candidate : result.candidates) {
                     if (seenTargets.add(candidate.resolvedTargetUrl)) {
@@ -232,6 +241,10 @@ public final class WebSearchLayoutRepairService {
             if (result.status == WebSearchPreparationStatus.NO_ORGANIC_RESULTS) {
                 sawNoResults = true;
             }
+        }
+        if (!union && firstDeliveringHost != null) {
+            return prepared(WebSearchPreparationStatus.ORGANIC_RESULTS, merged,
+                    Collections.<SearchLayoutRepairRequest>emptyList(), diagnostics);
         }
         if (union && !merged.isEmpty()) {
             // Engines that still need a repair do not hold the union back: their tickets travel along
@@ -246,6 +259,12 @@ public final class WebSearchLayoutRepairService {
                 ? WebSearchPreparationStatus.NO_ORGANIC_RESULTS : WebSearchPreparationStatus.FAILED;
         return prepared(status, Collections.<SearchResultCandidate>emptyList(),
                 Collections.<SearchLayoutRepairRequest>emptyList(), diagnostics);
+    }
+
+    /** The engine host a delivered page's candidates carry (pages of one engine share it). */
+    private static String deliveringHostOf(PreparedWebSearchResult result) {
+        String host = result.candidates.isEmpty() ? null : result.candidates.get(0).engineHost;
+        return host == null ? "" : host;
     }
 
     /**

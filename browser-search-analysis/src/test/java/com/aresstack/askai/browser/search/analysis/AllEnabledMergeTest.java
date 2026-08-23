@@ -81,4 +81,23 @@ public class AllEnabledMergeTest {
         assertEquals(1, merged.size());
         assertTrue(merged.get(0).engineHost.contains("duckduckgo"));
     }
+
+    /**
+     * One engine, several RESULT PAGES (the per-engine page count is a user setting): every page is
+     * that engine's answer. FIRST_USABLE once returned at the first delivered PAGE, silently throwing
+     * away the deeper pages it had just fetched.
+     */
+    @Test
+    public void firstUsableKeepsEveryResultPageOfTheDeliveringEngine() {
+        PreparedWebSearchResult page1 = organic(hit("https://a.test", "www.bing.com"),
+                hit("https://b.test", "www.bing.com"));
+        PreparedWebSearchResult page2 = organic(hit("https://b.test", "www.bing.com"),
+                hit("https://c.test", "www.bing.com"));
+
+        List<SearchResultCandidate> merged = WebSearchLayoutRepairService.merge(
+                Arrays.asList(page1, page2), EngineAcquisitionMode.FIRST_USABLE).candidates;
+
+        assertEquals("2 + 1 new — the repeated target is carried once", 3, merged.size());
+        assertEquals("https://c.test", merged.get(2).resolvedTargetUrl);
+    }
 }
