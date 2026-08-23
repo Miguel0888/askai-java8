@@ -78,6 +78,15 @@ public final class HttpStructuredInferenceClient implements StructuredInferenceP
         }
         Object content = ((Map<String, Object>) message).get("content");
         if (!(content instanceof String) || ((String) content).trim().isEmpty()) {
+            // Say WHICH kind of emptiness this is. A thinking model that spent the whole answer on
+            // reasoning is not the same failure as a model that returned nothing at all, and reporting
+            // both as "no text content" hid a transport problem behind an apparent model problem.
+            Object thinking = ((Map<String, Object>) message).get("thinking");
+            if (thinking instanceof String && !((String) thinking).trim().isEmpty()) {
+                return StructuredInferenceResult.of(StructuredInferenceStatus.INVALID_RESPONSE,
+                        "inference response carried only reasoning, no answer ("
+                                + ((String) thinking).trim().length() + " reasoning chars)");
+            }
             return StructuredInferenceResult.of(StructuredInferenceStatus.INVALID_RESPONSE,
                     "inference response message has no text content");
         }
@@ -89,6 +98,10 @@ public final class HttpStructuredInferenceClient implements StructuredInferenceP
         StringBuilder sb = new StringBuilder("{");
         sb.append("\"model\":\"").append(escape(descriptor.model)).append("\",");
         sb.append("\"stream\":false,");
+        // A structured inference is a form to fill in, not a conversation to reason about out loud.
+        // With thinking left on, a model can spend the whole num_predict budget on reasoning and answer
+        // with an empty content field — an answer we then cannot read at all.
+        sb.append("\"think\":false,");
         sb.append("\"options\":{\"temperature\":").append(request.temperature);
         if (request.maximumOutputTokens > 0) {
             sb.append(",\"num_predict\":").append(request.maximumOutputTokens);
