@@ -131,6 +131,12 @@ public final class WebSearchApplicationService {
     private Double seedSerpRelevanceFloor;
     /** The query every relevance question in this run is asked against. */
     private String relevanceQuery = "";
+    /** The user's escape from ONE page, effective in every stage of that page's visit. */
+    private final PageVisitSkip pageSkip;
+    /** The generation of the visit currently being worked on; 0 while none is. */
+    private long currentVisitGeneration;
+    /** How often the HUD is asked for commands while a non-browser inference is running. */
+    private static final long SKIP_WATCH_INTERVAL_MILLIS = 250L;
 
     private final ToolInvoker browser;
     private final ResearchRunBudget budget;
@@ -231,6 +237,7 @@ public final class WebSearchApplicationService {
         this.clock = clock;
         this.listener = listener;
         this.cancelled = cancelled;
+        this.pageSkip = new PageVisitSkip(cancelled);
         this.searchStrategy = searchStrategy;
         this.apiProviderLabel = apiProviderLabel;
         this.reranker = reranker;
@@ -374,6 +381,9 @@ public final class WebSearchApplicationService {
             }
             FrontierEntry entry = frontier.remove(0);
             String url = entry.getUrl();
+            // From here on this page has its own identity: a Skip pressed while it is being worked on
+            // belongs to THIS visit, and any of its work that finishes afterwards can tell that it does.
+            currentVisitGeneration = pageSkip.beginVisit();
             hudRelevantCurrentPage = false; // ⭐ is per page: start clean for this url
             String canonical = WebAcquisitionText.canonicalish(url);
             if (progress.alreadyVisited(canonical)) {
@@ -436,10 +446,21 @@ public final class WebSearchApplicationService {
                     progress.noteVisitedAlias(canonical);
                 }
                 listener.progress(progress, ResearchRunActivity.readingPage(effectiveUrl, finalHost, pageTitle));
+                if (visitSkipped()) {
+                    skipCurrentPage(effectiveUrl, finalHost, pageTitle, "after reading it");
+                    continue;
+                }
                 String captureId = WebAcquisitionText.field(page, "capture_id");
                 String pageText = page.toLowerCase(Locale.ROOT);
 
-                if (isRelevantPage(entry, page, pageTitle, pageText, effectiveUrl, terms)) {
+                boolean relevant = isRelevantPage(entry, page, pageTitle, pageText, effectiveUrl, terms);
+                if (pageSkip.isCurrentVisitSkipped()) {
+                    // The relevance answer belongs to a page the user has meanwhile abandoned. Whatever it
+                    // says, it may not make this page a source.
+                    skipCurrentPage(effectiveUrl, finalHost, pageTitle, "during the relevance check");
+                    continue;
+                }
+                if (relevant) {
                     ResearchStopReason g3 = acceptSource(captureId, page, effectiveUrl, finalHost, pageTitle);
                     if (g3 != null) {
                         return g3;
@@ -461,9 +482,20 @@ public final class WebSearchApplicationService {
                 if (g4 != null) {
                     return g4;
                 }
+                if (visitSkipped()) {
+                    skipCurrentPage(effectiveUrl, finalHost, pageTitle, "before its links were read");
+                    continue;
+                }
                 String links = callBrowser("web_links", args());
                 progress.success();
-                for (String linkUrl : selectLinksToFollow(links, url, terms)) {
+                List<String> follow = selectLinksToFollow(links, url, terms);
+                if (pageSkip.isCurrentVisitSkipped()) {
+                    // An abandoned page hands nothing on: its links would carry the run onwards from a
+                    // page the user has just said they do not want.
+                    skipCurrentPage(effectiveUrl, finalHost, pageTitle, "while its links were assessed");
+                    continue;
+                }
+                for (String linkUrl : follow) {
                     frontier.add(FrontierEntry.fromDiscoveredLink(linkUrl, url));
                 }
             } catch (ToolInvoker.EndpointUnavailable ex) {
@@ -544,6 +576,13 @@ public final class WebSearchApplicationService {
                 progress.error();
                 return ResearchStopReason.RERANKER_UNAVAILABLE;
         }
+    }
+
+    /** ONE way to leave a page the user abandoned: visibly, with no source, no links, no evidence. */
+    private void skipCurrentPage(String url, String host, String title, String when) {
+        listener.status("[browser] user skipped this page " + when + ": " + url);
+        listener.progress(progress, ResearchRunActivity.pageSkipped(url, host, title));
+        skipNextInterPageDelay = true;
     }
 
     // ------------------------------------------------------------------ relevance, all the way through
@@ -635,7 +674,7 @@ public final class WebSearchApplicationService {
             return java.util.Collections.emptyList();
         }
         com.aresstack.askai.research.domain.search.RelevanceAssessment assessment =
-                reranker.assess(relevanceQuery, documentsByUrl, cancellationSignal());
+                assessWatched(documentsByUrl);
         if (!assessment.isAvailable()) {
             // No semantic answer: the cheap lexical signal is all that is left, and it is bounded like
             // everything else here rather than let loose over every link on the page.
@@ -665,12 +704,32 @@ public final class WebSearchApplicationService {
     }
 
     /** One document's relevance, or {@code null} when the model could not answer at all. */
-    private Double assessOne(String document) {
-        java.util.LinkedHashMap<String, String> one = new java.util.LinkedHashMap<String, String>();
+    private Double assessOne(final String document) {
+        final java.util.LinkedHashMap<String, String> one =
+                new java.util.LinkedHashMap<String, String>();
         one.put("page", document);
-        com.aresstack.askai.research.domain.search.RelevanceAssessment assessment =
-                reranker.assess(relevanceQuery, one, cancellationSignal());
+        com.aresstack.askai.research.domain.search.RelevanceAssessment assessment = assessWatched(one);
         return assessment.isAvailable() ? assessment.relevanceOf("page") : null;
+    }
+
+    /**
+     * A relevance call the user can get out of. It runs under the PAGE's cancellation — the same signal
+     * the reranker already honours — while the overlay keeps being polled, so pressing Skip during the
+     * inference ends it instead of being noticed once it is over.
+     */
+    private com.aresstack.askai.research.domain.search.RelevanceAssessment assessWatched(
+            final java.util.LinkedHashMap<String, String> documentsById) {
+        final long generation = currentVisitGeneration;
+        return withSkipWatch(
+                new java.util.concurrent.Callable<
+                        com.aresstack.askai.research.domain.search.RelevanceAssessment>() {
+                    public com.aresstack.askai.research.domain.search.RelevanceAssessment call() {
+                        return reranker.assess(relevanceQuery, documentsById,
+                                pageSkip.cancellationFor(generation));
+                    }
+                },
+                com.aresstack.askai.research.domain.search.RelevanceAssessment
+                        .unavailable("relevance call did not complete"));
     }
 
     /**
@@ -724,6 +783,9 @@ public final class WebSearchApplicationService {
             // A sidecar without web_probe: fall back to the single-step open (never fail the visit here).
             return callBrowser("web_open", args("url", url));
         }
+        if (visitSkipped()) {
+            return null; // abandoned between opening the page and judging it: nothing more is read
+        }
         String family = familyOf(url);
         // "Erst auto": proactively clear a standard consent banner on EVERY page before judging — a common
         // cookie wall (OneTrust/Cookiebot/"accept all"/"alle akzeptieren") is dismissed here so its text
@@ -737,6 +799,9 @@ public final class WebSearchApplicationService {
         // ONE classification per page (the model, when set, may recognise an obstruction the DOM selectors
         // missed); the subsequent waiting uses the cheap heuristic so we do not re-invoke the model per tick.
         PageReadinessJudge.Verdict verdict = readinessJudge.judge(pr);
+        if (visitSkipped()) {
+            return null; // the judgement is about a page the user has meanwhile left behind
+        }
         // Layer 2 (additive): a SERP-anchored semantic safety net can rescue an AMBIGUOUS verdict
         // (INTERACTIVE_CHALLENGE / UNREADABLE) to READABLE when the page text closely matches what the search
         // result promised. No-op by default (no embedder → NaN → unchanged); never touches a block/consent verdict.
@@ -825,6 +890,9 @@ public final class WebSearchApplicationService {
             for (ResearchHudCommand command : pollHudCommands()) {
                 if (command.type == ResearchHudCommand.Type.SKIP) {
                     listener.status("[browser] user skipped page: " + url);
+                    // The same abandonment as anywhere else in the visit: a late result of this page
+                    // must not be able to act, however it arrives.
+                    pageSkip.requestSkip();
                     skipNextInterPageDelay = true; // don't stall on the delay before the next page
                     return null;
                 }
@@ -955,14 +1023,88 @@ public final class WebSearchApplicationService {
         return sb.toString();
     }
 
-    /** Apply PAUSE/RESUME/SET_DELAY from the overlay (SKIP/NEXT are handled contextually where a page/wait ends). */
-    private void applyHudPauseResume() {
+    /**
+     * Read the overlay's commands and act on them HERE, wherever "here" happens to be. PAUSE/RESUME/
+     * SET_DELAY are run-wide; SKIP abandons the page currently being worked on, whatever stage it is in.
+     * <p>
+     * Between pages there is no page to abandon, so a SKIP arriving at the top of the loop can only mean
+     * "get on with it" — it must NOT skip the page that has not started yet.
+     */
+    private void applyHudCommands(boolean aPageIsBeingVisited) {
         for (ResearchHudCommand command : pollHudCommands()) {
             if (command.type == ResearchHudCommand.Type.NEXT
                     || command.type == ResearchHudCommand.Type.SKIP) {
                 skipNextInterPageDelay = true; // "proceed now" → do not stall on the delay before the next page
             }
+            if (command.type == ResearchHudCommand.Type.SKIP && aPageIsBeingVisited) {
+                pageSkip.requestSkip();
+            }
             applyHudSideEffect(command);
+        }
+    }
+
+    /** Between pages: no page to abandon. */
+    private void applyHudPauseResume() {
+        applyHudCommands(false);
+    }
+
+    /**
+     * Has the user abandoned the page being worked on? Asks the overlay first, so a Skip pressed a moment
+     * ago counts — the command is buffered in the browser and only becomes real when someone reads it.
+     */
+    private boolean visitSkipped() {
+        if (pageSkip.isCurrentVisitSkipped()) {
+            return true;
+        }
+        applyHudCommands(true);
+        return pageSkip.isCurrentVisitSkipped();
+    }
+
+    /**
+     * Run non-browser work (a relevance inference) while the overlay stays answerable.
+     * <p>
+     * The browser MCP is idle for the whole of such a call, so a small watcher can keep asking it for
+     * commands and turn a Skip into a cancellation the inference itself understands. Without this, Skip
+     * would be sampled only between stages — and the stages that take the longest are exactly the ones a
+     * user wants out of. The watcher is stopped before the caller touches the browser again, so the two
+     * never use the invoker at the same time.
+     */
+    private <T> T withSkipWatch(java.util.concurrent.Callable<T> work, T onFailure) {
+        final java.util.concurrent.atomic.AtomicBoolean running =
+                new java.util.concurrent.atomic.AtomicBoolean(true);
+        Thread watcher = new Thread(new Runnable() {
+            public void run() {
+                while (running.get() && !pageSkip.isCurrentVisitSkipped()) {
+                    try {
+                        Thread.sleep(SKIP_WATCH_INTERVAL_MILLIS);
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
+                    if (!running.get()) {
+                        return;
+                    }
+                    try {
+                        applyHudCommands(true);
+                    } catch (RuntimeException pollFailed) {
+                        return; // a HUD that cannot be polled must never break the work it watches
+                    }
+                }
+            }
+        }, "hud-skip-watch");
+        watcher.setDaemon(true);
+        watcher.start();
+        try {
+            return work.call();
+        } catch (Exception failed) {
+            return onFailure;
+        } finally {
+            running.set(false);
+            try {
+                watcher.join(SKIP_WATCH_INTERVAL_MILLIS * 4);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            }
         }
     }
 
