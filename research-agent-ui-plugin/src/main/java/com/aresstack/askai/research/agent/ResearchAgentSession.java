@@ -1457,6 +1457,12 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             case SCOPE_UPDATE:
                 applyScopeUpdate(event.getText());
                 break;
+            case SCOPE_UPDATE_REJECTED:
+                // The answer is fine, the scope proposal was not: say so instead of leaving the user to
+                // believe a change was recorded.
+                reportScopeProblem("Der Rechercheumfang wurde NICHT aktualisiert (fehlerhafter Vorschlag: "
+                        + event.getText() + "). Die Antwort selbst bleibt gültig.");
+                break;
             case SCOPING_PROJECTION:
                 // Display-only support content for the scoping workspace: keep only the LATEST projection
                 // (a later turn replaces it — the chat keeps every turn, this panel shows the current state).

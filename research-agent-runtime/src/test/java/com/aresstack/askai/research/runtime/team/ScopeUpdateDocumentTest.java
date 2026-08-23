@@ -44,33 +44,41 @@ public class ScopeUpdateDocumentTest {
     }
 
     /**
-     * ONE malformed element invalidates the whole turn. Forwarding the valid rest would be the worst
-     * outcome: the assistant claims it noted the emphasis, the facet is stored, the emphasis is not — and
-     * nobody sees it. The turn takes the same repair-then-honest-error path as any contract violation.
+     * ONE malformed element invalidates the whole scope update — never a part of it. But the scope block is
+     * OPTIONAL, so it must not cost the user their answer: a failed turn is not committed to history, so
+     * killing the turn also erased the message the user had just written and the next turn started with
+     * "I need a topic first". The turn survives, the update is dropped whole, and the host reports it.
      */
     @Test
-    public void oneMalformedElementInvalidatesTheWholeTurnInsteadOfBeingSkipped() {
+    public void oneMalformedElementDropsTheWholeUpdateButKeepsTheConversation() {
         ScopingAssistantOutputParser.Result result = parse(
                 "\"scopePatch\":{\"operations\":["
                         + "{\"kind\":\"addFacet\",\"facetId\":\"health\",\"label\":\"Gesundheit\"},"
                         + "{\"kind\":\"setFacetEmphasis\"}]}");
 
-        assertFalse("a partially valid scope update is not a valid turn", result.isOk());
-        assertTrue(result.getError(), result.getError().contains("invalid scope update"));
-        assertTrue(result.getError(), result.getError().contains("setFacetEmphasis"));
+        assertTrue("the answer itself is usable", result.isOk());
+        assertEquals("ok", result.getOutput().getAssistantMessage());
+        ScopeUpdateDocument document = result.getOutput().getScopeUpdate();
+        assertFalse("the update as a whole is invalid", document.isValid());
+        assertTrue(document.describeViolations(),
+                document.describeViolations().contains("setFacetEmphasis"));
+        assertFalse("nothing of it may be applied — not even the valid operation",
+                document.isValid());
     }
 
     @Test
-    public void anUnknownOperationKindOrALabellessSuggestionAlsoFailsTheTurn() {
+    public void anUnknownOperationKindOrALabellessSuggestionAlsoInvalidatesTheUpdateOnly() {
         ScopingAssistantOutputParser.Result unknownKind = parse(
                 "\"scopePatch\":{\"operations\":[{\"kind\":\"invent\",\"facetId\":\"x\"}]}");
-        assertFalse(unknownKind.isOk());
-        assertTrue(unknownKind.getError(), unknownKind.getError().contains("invent"));
+        assertTrue(unknownKind.isOk());
+        assertFalse(unknownKind.getOutput().getScopeUpdate().isValid());
+        assertTrue(unknownKind.getOutput().getScopeUpdate().describeViolations().contains("invent"));
 
         ScopingAssistantOutputParser.Result labelless = parse(
                 "\"orientationSuggestions\":[{\"query\":\"only a query\"}]");
-        assertFalse(labelless.isOk());
-        assertTrue(labelless.getError(), labelless.getError().contains("label"));
+        assertTrue(labelless.isOk());
+        assertFalse(labelless.getOutput().getScopeUpdate().isValid());
+        assertTrue(labelless.getOutput().getScopeUpdate().describeViolations().contains("label"));
     }
 
     @Test

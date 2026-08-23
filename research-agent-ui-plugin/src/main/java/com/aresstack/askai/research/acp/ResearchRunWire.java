@@ -28,6 +28,8 @@ public final class ResearchRunWire {
     public static final String TYPE_SCOPEASSIST = "scopeassist";
     /** The proposed scope CHANGES as a neutral JSON document (applied to the persisted scope draft). */
     public static final String TYPE_SCOPEUPDATE = "scopeupdate";
+    /** The proposed scope changes were malformed and were dropped AS A WHOLE — shown to the user. */
+    public static final String TYPE_SCOPEUPDATE_REJECTED = "scopeupdate_rejected";
     /** The research brief markdown (the phase artifact) — persisted to its working copy on one path. */
     public static final String TYPE_BRIEF = "brief";
     /** A user-triggered (manual) web search lifecycle — correlated to its request by {@code request_id}. */

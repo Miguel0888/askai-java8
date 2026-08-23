@@ -108,6 +108,12 @@ public final class ResearchAcpEventMapper {
                     .title(ResearchRunWire.decodedField(f, "phase"))
                     .text(ResearchRunWire.decodedField(f, "content"));
         }
+        if (ResearchRunWire.TYPE_SCOPEUPDATE_REJECTED.equals(type)) {
+            java.util.Map<String, String> f = ResearchRunWire.fields(text);
+            return ResearchBackendEvent.builder(ResearchBackendEventType.SCOPE_UPDATE_REJECTED)
+                    .title(ResearchRunWire.decodedField(f, "phase"))
+                    .text(ResearchRunWire.decodedField(f, "reason"));
+        }
         if (ResearchRunWire.TYPE_SCOPEUPDATE.equals(type)) {
             java.util.Map<String, String> f = ResearchRunWire.fields(text);
             return ResearchBackendEvent.builder(ResearchBackendEventType.SCOPE_UPDATE)

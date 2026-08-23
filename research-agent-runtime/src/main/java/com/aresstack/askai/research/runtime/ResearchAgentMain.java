@@ -951,11 +951,14 @@ public final class ResearchAgentMain {
                 com.aresstack.askai.research.runtime.team.ScopeUpdateDocument scopeUpdate =
                         ((com.aresstack.askai.research.runtime.team.ScopingAssistantOutput)
                                 result.getOutput()).getScopeUpdate();
-                if (scopeUpdate != null) {
-                    // Only a VALID update can reach this point: an invalid one already failed the turn in
-                    // the parser, so a partially applied scope cannot come into existence.
+                if (scopeUpdate != null && scopeUpdate.isValid()) {
                     ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
                             .scopeUpdate(phaseId, scopeUpdate.toJson()));
+                } else if (scopeUpdate != null) {
+                    // The WHOLE update is dropped — never a part of it — and the host says so visibly. The
+                    // conversation itself survives: the answer is fine, only the scope proposal was not.
+                    ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
+                            .scopeUpdateRejected(phaseId, scopeUpdate.describeViolations()));
                 }
             }
             String brief = com.aresstack.askai.research.runtime.team.ScopingBriefSource

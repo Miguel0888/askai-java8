@@ -167,6 +167,18 @@ public final class ResearchRunWire {
         return sb.toString();
     }
 
+    /**
+     * The proposed scope changes were malformed and are dropped AS A WHOLE. Its own line so the host can
+     * tell the user that the scope was NOT updated — silence here would let the conversation and the stored
+     * scope drift apart, which is the one thing this design must prevent.
+     */
+    public static String scopeUpdateRejected(String phaseId, String reason) {
+        StringBuilder sb = new StringBuilder(MARKER).append("scopeupdate_rejected");
+        appendEncoded(sb, "phase", phaseId);
+        appendEncoded(sb, "reason", reason);
+        return sb.toString();
+    }
+
     private static String encodeSuggestions(java.util.List<ScopingProjectionSuggestion> suggestions) {
         if (suggestions == null || suggestions.isEmpty()) {
             return "";

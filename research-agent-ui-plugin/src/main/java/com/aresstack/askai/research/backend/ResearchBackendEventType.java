@@ -44,6 +44,11 @@ public enum ResearchBackendEventType {
      */
     SCOPE_UPDATE,
     /**
+     * The proposed scope changes were malformed and were dropped AS A WHOLE. The conversation itself is
+     * fine — only the scope was not updated, and the user must be told so.
+     */
+    SCOPE_UPDATE_REJECTED,
+    /**
      * The research brief markdown (the scoping phase's primary artifact), in {@code text}. The host persists it
      * to the brief working copy (one path) and shows it in the "Fragestellung" view. No approval, no transition.
      */

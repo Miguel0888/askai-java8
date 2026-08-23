@@ -106,16 +106,15 @@ public final class ScopingAssistantOutputParser {
                     asString(adviceMap.get("reason")));
         }
 
-        // The scope changes this turn proposes. A malformed element invalidates the WHOLE turn: forwarding
-        // the well-formed rest would let the visible answer claim a change that was never stored. This is a
-        // contract violation like any other, so it takes the existing repair-then-honest-error path.
+        // The scope changes this turn proposes. A malformed element invalidates the WHOLE scope update —
+        // never a part of it — but it does NOT kill the conversation: the scope block is optional, so
+        // failing the turn over it costs the user their answer AND (because a failed turn is not committed
+        // to history) the message they just wrote. The invalid document travels on, is never applied, and
+        // the host reports it as a visible problem.
         ScopeUpdateDocument scopeUpdate = ScopeUpdateDocument.from(object.get("scopePatch"),
                 object.get("unresolvedIssues"), object.get("orientationSuggestions"));
-        if (!scopeUpdate.isValid()) {
-            return fail("invalid scope update: " + scopeUpdate.describeViolations());
-        }
         return new Result(new ScopingAssistantOutput(assistantMessage, brief, suggestions, advice,
-                scopeUpdate.isEmpty() ? null : scopeUpdate), null);
+                scopeUpdate.isEmpty() && scopeUpdate.isValid() ? null : scopeUpdate), null);
     }
 
     private static Result fail(String error) {
