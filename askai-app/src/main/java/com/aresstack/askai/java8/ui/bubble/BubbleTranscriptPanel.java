@@ -497,75 +497,10 @@ public final class BubbleTranscriptPanel extends JPanel {
     private void addAssistantMarkdownRow(String header, MarkdownMessageView view) {
         AssistantMarkdownBubble bubble = new AssistantMarkdownBubble(
                 BubbleSide.LEFT, palette, header == null || header.length() == 0 ? "Assistant" : header, view);
-        MarkdownAnswerRow row = new MarkdownAnswerRow(bubble);
-        row.setAlignmentX(LEFT_ALIGNMENT);
-        messageList.add(row);
-        messageList.add(Box.createVerticalStrut(2));
-        refreshTranscript();
-    }
-
-    /**
-     * Hosts the assistant Markdown bubble at a generous, viewport-relative width (not the content's own
-     * preferred width, which for wrapped Markdown collapses to something narrow). The width follows the
-     * transcript width, so the bubble uses the available horizontal space and reflows on resize.
-     */
-    private static final class MarkdownAnswerRow extends JPanel {
-
-        private static final int LEFT_MARGIN = 14;
-        private static final int RIGHT_GAP = 64;
-        private static final double MAX_WIDTH_RATIO = 0.86d;
-
-        private final JComponent bubble;
-
-        private MarkdownAnswerRow(JComponent bubble) {
-            // Absolute positioning + a FULL-WIDTH row (getMaximumSize below), so the bubble is always
-            // LEFT-anchored by doLayout. A capped-width row would, in a BoxLayout.Y_AXIS mixed with the
-            // 0.5-aligned vertical struts between rows, be positioned by alignmentX RELATIVE to its
-            // neighbours — which right-shifted the assistant bubble when it was the first/dominant row (the
-            // reported "agent on the right" bug). Filling the width removes that interaction entirely.
-            super(null);
-            this.bubble = bubble;
-            setOpaque(false);
-            add(bubble);
-        }
-
-        private int available() {
-            if (getWidth() > 0) {
-                return getWidth();
-            }
-            return getParent() != null && getParent().getWidth() > 0 ? getParent().getWidth() : 720;
-        }
-
-        private int targetWidth() {
-            int available = available();
-            int byGap = available - LEFT_MARGIN - RIGHT_GAP;
-            int byRatio = (int) Math.round((available - LEFT_MARGIN) * MAX_WIDTH_RATIO);
-            return Math.max(160, Math.min(byGap, byRatio));
-        }
-
-        private int bubbleHeight(int width) {
-            return bubble instanceof com.aresstack.askai.java8.ui.markdown.WidthAwareHeight
-                    ? ((com.aresstack.askai.java8.ui.markdown.WidthAwareHeight) bubble)
-                            .preferredHeightForWidth(width)
-                    : bubble.getPreferredSize().height;
-        }
-
-        @Override
-        public Dimension getMaximumSize() {
-            // Fill the transcript width (like BubbleMessageRow); the bubble itself is capped in doLayout.
-            return new Dimension(Integer.MAX_VALUE, getPreferredSize().height);
-        }
-
-        @Override
-        public Dimension getPreferredSize() {
-            return new Dimension(Math.max(1, available()), bubbleHeight(targetWidth()));
-        }
-
-        @Override
-        public void doLayout() {
-            int width = targetWidth();
-            bubble.setBounds(LEFT_MARGIN, 0, width, bubbleHeight(width));
-        }
+        // The SAME row type as every other bubble: one geometry, one alignment behaviour. A second row
+        // implementation for this bubble is what let the streamed answer be laid out differently from a
+        // restored one.
+        addBubbleRow(bubble, BubbleSide.LEFT);
     }
 
     private Runnable createActivityRemoval(final AnimatedThoughtBubblePanel activity) {
