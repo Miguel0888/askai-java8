@@ -6,13 +6,16 @@ import javax.swing.JComboBox;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
+import javax.swing.JTabbedPane;
 import javax.swing.JTable;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.ListSelectionModel;
 import javax.swing.table.AbstractTableModel;
+import javax.swing.table.DefaultTableCellRenderer;
 import java.awt.BorderLayout;
-import java.awt.GridLayout;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -23,6 +26,12 @@ import java.util.Set;
  * {@link ResearchSourceRepository} with optimistic locking — never through the {@code TableModel} directly. A
  * conflict reloads the current record and keeps the user informed instead of silently overwriting. Section
  * links that are no longer in the outline are shown as orphans, never auto-removed.
+ *
+ * <p>UX contract: the TABLE answers "what did the search collect and what is it worth?" at a glance — few,
+ * readable columns (star, title, website, status, score, text state), sortable (score descending first),
+ * full title/URL as tooltip. Everything else (ratings, sections, texts, comment) lives in the DETAIL below,
+ * whose long texts sit in tabs instead of stacked postage-stamp areas. Raw enum names never reach the user;
+ * they are rendered as German labels.</p>
  */
 public final class ResearchSourcesView extends JPanel {
 
@@ -30,7 +39,19 @@ public final class ResearchSourcesView extends JPanel {
     private final Set<String> knownSectionIds;
 
     private final SourcesTableModel tableModel = new SourcesTableModel();
-    private final JTable table = new JTable(tableModel);
+    /** Cell tooltips carry what the columns cannot: the full title and URL of the row under the mouse. */
+    private final JTable table = new JTable(tableModel) {
+        @Override
+        public String getToolTipText(java.awt.event.MouseEvent event) {
+            int viewRow = rowAtPoint(event.getPoint());
+            if (viewRow < 0) {
+                return null;
+            }
+            ResearchSourceRecord record = tableModel.rowAt(convertRowIndexToModel(viewRow));
+            String url = record.getUrl().isEmpty() ? record.getOrigin() : record.getUrl();
+            return "<html><b>" + escape(displayTitle(record)) + "</b><br>" + escape(url) + "</html>";
+        }
+    };
     private final JTextField filterField = new JTextField();
 
     private final JTextField titleField = new JTextField();
@@ -62,9 +83,17 @@ public final class ResearchSourcesView extends JPanel {
         JPanel top = new JPanel(new BorderLayout(4, 0));
         top.add(new JLabel("Filter:"), BorderLayout.WEST);
         top.add(filterField, BorderLayout.CENTER);
+        filterField.setToolTipText("Filtert nach Titel/URL — Enter wendet an");
         filterField.addActionListener(e -> reloadTable());
 
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        table.setRowHeight(table.getRowHeight() + 4);
+        table.setAutoCreateRowSorter(true);
+        // Best first: the score column starts sorted descending, so promising parked hits surface.
+        table.getRowSorter().setSortKeys(java.util.Collections.singletonList(
+                new javax.swing.RowSorter.SortKey(SourcesTableModel.COLUMN_SCORE,
+                        javax.swing.SortOrder.DESCENDING)));
+        configureColumns();
         table.getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
                 onRowSelected();
@@ -81,59 +110,142 @@ public final class ResearchSourcesView extends JPanel {
         reloadTable();
     }
 
-    private JPanel buildDetail() {
-        JPanel form = new JPanel(new GridLayout(0, 2, 4, 2));
-        form.add(new JLabel("Title"));
-        form.add(titleField);
-        form.add(new JLabel("URL / origin"));
-        form.add(urlField);
-        form.add(new JLabel("Author"));
-        form.add(authorField);
-        form.add(new JLabel("Linked sections (comma-separated)"));
-        form.add(sectionsField);
-        form.add(new JLabel("Status"));
-        form.add(statusCombo);
-        form.add(new JLabel("Relevance"));
-        form.add(relevanceCombo);
-        form.add(new JLabel("Reliability"));
-        form.add(reliabilityCombo);
-        form.add(new JLabel("User-relevant (⭐)"));
-        form.add(relevantCheck);
-        form.add(new JLabel("Rerank score"));
-        form.add(scoreField);
-        form.add(new JLabel("Search excerpt"));
-        form.add(new JScrollPane(excerptArea));
-        form.add(new JLabel("Full text (empty = parked)"));
-        form.add(new JScrollPane(fullTextArea));
-        form.add(new JLabel("Comment"));
-        form.add(new JScrollPane(commentArea));
+    /** Few columns, each wide enough to READ: the star and score stay narrow, the title takes the rest. */
+    private void configureColumns() {
+        javax.swing.table.TableColumnModel columns = table.getColumnModel();
+        columns.getColumn(SourcesTableModel.COLUMN_STAR).setMaxWidth(28);
+        columns.getColumn(SourcesTableModel.COLUMN_TITLE).setPreferredWidth(240);
+        columns.getColumn(SourcesTableModel.COLUMN_SITE).setPreferredWidth(110);
+        columns.getColumn(SourcesTableModel.COLUMN_STATUS).setPreferredWidth(80);
+        columns.getColumn(SourcesTableModel.COLUMN_SCORE).setPreferredWidth(56);
+        columns.getColumn(SourcesTableModel.COLUMN_TEXT).setPreferredWidth(70);
 
-        JButton save = new JButton("Save");
-        JButton reload = new JButton("Reload");
-        JButton exclude = new JButton("Exclude");
+        DefaultTableCellRenderer centered = new DefaultTableCellRenderer();
+        centered.setHorizontalAlignment(javax.swing.SwingConstants.CENTER);
+        columns.getColumn(SourcesTableModel.COLUMN_STAR).setCellRenderer(centered);
+        columns.getColumn(SourcesTableModel.COLUMN_SCORE).setCellRenderer(new DefaultTableCellRenderer() {
+            {
+                setHorizontalAlignment(javax.swing.SwingConstants.RIGHT);
+            }
+
+            @Override
+            protected void setValue(Object value) {
+                setText(value instanceof Double
+                        ? String.format(java.util.Locale.ROOT, "%.2f", (Double) value) : "—");
+            }
+        });
+
+        statusCombo.setRenderer(germanEnumRenderer());
+        relevanceCombo.setRenderer(germanEnumRenderer());
+        reliabilityCombo.setRenderer(germanEnumRenderer());
+    }
+
+    private JPanel buildDetail() {
+        JPanel form = new JPanel(new GridBagLayout());
+        int row = 0;
+        addRow(form, row++, "Titel:", titleField);
+
+        JPanel urlRow = new JPanel(new BorderLayout(4, 0));
+        urlRow.add(urlField, BorderLayout.CENTER);
+        JButton open = new JButton("Öffnen");
+        open.setToolTipText("URL im Browser öffnen");
+        open.addActionListener(e -> openInBrowser());
+        urlRow.add(open, BorderLayout.EAST);
+        addRow(form, row++, "URL:", urlRow);
+
+        addRow(form, row++, "Autor:", authorField);
+
+        JPanel rating = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0));
+        rating.add(new JLabel("Status "));
+        rating.add(statusCombo);
+        rating.add(javax.swing.Box.createHorizontalStrut(8));
+        rating.add(new JLabel("Relevanz "));
+        rating.add(relevanceCombo);
+        rating.add(javax.swing.Box.createHorizontalStrut(8));
+        rating.add(new JLabel("Verlässlichkeit "));
+        rating.add(reliabilityCombo);
+        rating.add(javax.swing.Box.createHorizontalStrut(8));
+        rating.add(relevantCheck);
+        rating.add(javax.swing.Box.createHorizontalStrut(8));
+        rating.add(new JLabel("Score "));
+        scoreField.setColumns(6);
+        rating.add(scoreField);
+        addRow(form, row++, "Bewertung:", rating);
+
+        sectionsField.setToolTipText("Verknüpfte Gliederungs-Abschnitte, kommagetrennt; "
+                + "(orphan) = Abschnitt existiert nicht mehr");
+        addRow(form, row++, "Abschnitte:", sectionsField);
+
+        // The long texts share ONE area as tabs instead of three stacked postage stamps.
+        fullTextArea.setRows(8);
+        JTabbedPane texts = new JTabbedPane();
+        texts.addTab("Volltext", new JScrollPane(fullTextArea));
+        texts.addTab("Suchausschnitt", new JScrollPane(excerptArea));
+        texts.addTab("Kommentar", new JScrollPane(commentArea));
+        texts.setToolTipTextAt(0, "Der gelesene Seitentext (leer = geparkt, noch nicht gelesen)");
+        GridBagConstraints tabs = new GridBagConstraints();
+        tabs.gridx = 0;
+        tabs.gridy = row;
+        tabs.gridwidth = 2;
+        tabs.weightx = 1.0;
+        tabs.weighty = 1.0;
+        tabs.fill = GridBagConstraints.BOTH;
+        tabs.insets = new java.awt.Insets(4, 0, 0, 0);
+        form.add(texts, tabs);
+
+        JButton save = new JButton("Speichern");
+        JButton reload = new JButton("Neu laden");
+        JButton exclude = new JButton("Ausschließen");
+        exclude.setToolTipText("Setzt den Status auf Ausgeschlossen und speichert (kein Löschen)");
         save.addActionListener(e -> save());
         reload.addActionListener(e -> reloadSelected());
         exclude.addActionListener(e -> {
             statusCombo.setSelectedItem(SourceStatus.EXCLUDED);
             save();
         });
-        JPanel actions = new JPanel();
+        JPanel actions = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT));
         actions.add(save);
         actions.add(reload);
         actions.add(exclude);
         actions.add(status);
 
         JPanel detail = new JPanel(new BorderLayout());
-        detail.setBorder(BorderFactory.createTitledBorder("Source detail"));
-        // The detail grew (score, excerpt, full text): make it vertically scrollable so every field is
-        // reachable instead of being clipped at the bottom of the panel.
-        JScrollPane formScroll = new JScrollPane(form,
-                JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-        formScroll.getVerticalScrollBar().setUnitIncrement(16);
-        formScroll.setPreferredSize(new java.awt.Dimension(10, 260));
-        detail.add(formScroll, BorderLayout.CENTER);
+        detail.setBorder(BorderFactory.createTitledBorder("Quelle"));
+        detail.setPreferredSize(new java.awt.Dimension(10, 320));
+        detail.add(form, BorderLayout.CENTER);
         detail.add(actions, BorderLayout.SOUTH);
         return detail;
+    }
+
+    /** One labelled form row: narrow right-aligned label, field takes the width. */
+    private static void addRow(JPanel form, int row, String label, java.awt.Component field) {
+        GridBagConstraints l = new GridBagConstraints();
+        l.gridx = 0;
+        l.gridy = row;
+        l.anchor = GridBagConstraints.EAST;
+        l.insets = new java.awt.Insets(2, 0, 2, 6);
+        JLabel jLabel = new JLabel(label);
+        form.add(jLabel, l);
+        GridBagConstraints f = new GridBagConstraints();
+        f.gridx = 1;
+        f.gridy = row;
+        f.weightx = 1.0;
+        f.fill = GridBagConstraints.HORIZONTAL;
+        f.insets = new java.awt.Insets(2, 0, 2, 0);
+        form.add(field, f);
+    }
+
+    private void openInBrowser() {
+        String url = urlField.getText().trim();
+        if (url.isEmpty() || !(url.startsWith("http://") || url.startsWith("https://"))) {
+            status.setText("Keine öffenbare URL.");
+            return;
+        }
+        try {
+            java.awt.Desktop.getDesktop().browse(java.net.URI.create(url));
+        } catch (Exception cannotOpen) {
+            status.setText("Konnte die URL nicht öffnen: " + cannotOpen.getMessage());
+        }
     }
 
     /**
@@ -152,9 +264,9 @@ public final class ResearchSourcesView extends JPanel {
             }
         }
         if (keepRow >= 0) {
-            table.setRowSelectionInterval(keepRow, keepRow);
+            selectModelRow(keepRow);
         } else if (!rows.isEmpty()) {
-            table.setRowSelectionInterval(0, 0);
+            selectModelRow(0);
         } else {
             clearDetail();
         }
@@ -164,18 +276,26 @@ public final class ResearchSourcesView extends JPanel {
         List<ResearchSourceRecord> rows = repository.find(new SourceQuery(filterField.getText(), null));
         tableModel.setRows(rows);
         if (!rows.isEmpty()) {
-            table.setRowSelectionInterval(0, 0);
+            selectModelRow(0);
         } else {
             clearDetail();
         }
     }
 
+    /** Selection is a VIEW concern: with the sorter active, model row i is not view row i. */
+    private void selectModelRow(int modelRow) {
+        int viewRow = table.convertRowIndexToView(modelRow);
+        if (viewRow >= 0) {
+            table.setRowSelectionInterval(viewRow, viewRow);
+        }
+    }
+
     private void onRowSelected() {
-        int row = table.getSelectedRow();
-        if (row < 0 || row >= tableModel.getRowCount()) {
+        int viewRow = table.getSelectedRow();
+        if (viewRow < 0 || viewRow >= tableModel.getRowCount()) {
             return;
         }
-        loadDetail(tableModel.rowAt(row));
+        loadDetail(tableModel.rowAt(table.convertRowIndexToModel(viewRow)));
     }
 
     private void reloadSelected() {
@@ -199,13 +319,14 @@ public final class ResearchSourcesView extends JPanel {
                 ? String.format(java.util.Locale.ROOT, "%.4f", record.getRerankScore()) : "—");
         excerptArea.setText(record.getExcerpt());
         excerptArea.setCaretPosition(0);
-        fullTextArea.setText(record.getFullText());
+        fullTextArea.setText(record.isParked()
+                ? "(geparkt — die Seite wurde noch nicht gelesen)" : record.getFullText());
         fullTextArea.setCaretPosition(0);
         statusCombo.setSelectedItem(record.getStatus());
         relevanceCombo.setSelectedItem(record.getRelevance());
         reliabilityCombo.setSelectedItem(record.getReliability());
         relevantCheck.setSelected(record.isUserRelevant());
-        status.setText("Loaded " + record.getSourceId() + " (rev " + loadedRevision + ")."
+        status.setText("Geladen: " + record.getSourceId() + " (Rev " + loadedRevision + ")."
                 + orphanNote(record.getLinkedSectionIds()));
     }
 
@@ -230,7 +351,7 @@ public final class ResearchSourcesView extends JPanel {
         }
         ResearchSourceRecord current = repository.get(selectedId);
         if (current == null) {
-            status.setText("Source no longer exists.");
+            status.setText("Die Quelle existiert nicht mehr.");
             reloadTable();
             return;
         }
@@ -249,19 +370,19 @@ public final class ResearchSourcesView extends JPanel {
         switch (result.getStatus()) {
             case UPDATED:
                 loadedRevision = result.getRecord().getRevision();
-                status.setText("Saved (rev " + loadedRevision + ").");
+                status.setText("Gespeichert (Rev " + loadedRevision + ").");
                 reloadTable();
                 selectById(selectedId);
                 break;
             case CONFLICT:
-                status.setText("Not saved: " + result.getReason() + " Reloaded rev "
+                status.setText("Nicht gespeichert: " + result.getReason() + " Neu geladen: Rev "
                         + result.getRecord().getRevision() + ".");
                 loadDetail(result.getRecord());
                 reloadTable();
                 break;
             case NOT_FOUND:
             default:
-                status.setText("Not saved: " + result.getReason());
+                status.setText("Nicht gespeichert: " + result.getReason());
                 reloadTable();
                 break;
         }
@@ -270,7 +391,7 @@ public final class ResearchSourcesView extends JPanel {
     private void selectById(String sourceId) {
         for (int i = 0; i < tableModel.getRowCount(); i++) {
             if (tableModel.rowAt(i).getSourceId().equals(sourceId)) {
-                table.setRowSelectionInterval(i, i);
+                selectModelRow(i);
                 return;
             }
         }
@@ -296,7 +417,7 @@ public final class ResearchSourcesView extends JPanel {
         }
         for (String id : ids) {
             if (!knownSectionIds.contains(id)) {
-                return "  Some links are orphaned.";
+                return "  Einige Abschnitts-Verknüpfungen sind verwaist.";
             }
         }
         return "";
@@ -330,6 +451,77 @@ public final class ResearchSourcesView extends JPanel {
         return a;
     }
 
+    // ------------------------------------------------------------------ German labels (no raw enum names)
+
+    /** The user never reads raw enum names — every bounded value has a German label. */
+    static String germanLabel(Object value) {
+        if (value instanceof SourceStatus) {
+            switch ((SourceStatus) value) {
+                case PARKED: return "Geparkt";
+                case NEW: return "Neu";
+                case REVIEWED: return "Ausgewertet";
+                case ACCEPTED: return "Übernommen";
+                case EXCLUDED: return "Ausgeschlossen";
+                case DUPLICATE: return "Duplikat";
+                case SUPERSEDED: return "Ersetzt";
+                default: break;
+            }
+        }
+        if (value instanceof SourceRelevance) {
+            switch ((SourceRelevance) value) {
+                case UNKNOWN: return "Unbewertet";
+                case LOW: return "Niedrig";
+                case MEDIUM: return "Mittel";
+                case HIGH: return "Hoch";
+                default: break;
+            }
+        }
+        if (value instanceof SourceReliability) {
+            switch ((SourceReliability) value) {
+                case UNKNOWN: return "Unbewertet";
+                case LOW: return "Niedrig";
+                case MEDIUM: return "Mittel";
+                case HIGH: return "Hoch";
+                case PRIMARY_SOURCE: return "Primärquelle";
+                default: break;
+            }
+        }
+        return String.valueOf(value);
+    }
+
+    private static javax.swing.ListCellRenderer<Object> germanEnumRenderer() {
+        return new javax.swing.DefaultListCellRenderer() {
+            @Override
+            public java.awt.Component getListCellRendererComponent(javax.swing.JList<?> list, Object value,
+                    int index, boolean isSelected, boolean cellHasFocus) {
+                super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                setText(germanLabel(value));
+                return this;
+            }
+        };
+    }
+
+    /** A row's display title: the title, else the URL — never an empty main column. */
+    static String displayTitle(ResearchSourceRecord record) {
+        if (!record.getTitle().trim().isEmpty()) {
+            return record.getTitle();
+        }
+        return record.getUrl().isEmpty() ? record.getOrigin() : record.getUrl();
+    }
+
+    /** The bare website (host) of a record — "de.wikipedia.org", not a full URL. */
+    static String siteOf(ResearchSourceRecord record) {
+        String url = record.getUrl().isEmpty() ? record.getOrigin() : record.getUrl();
+        int schemeEnd = url.indexOf("://");
+        String rest = schemeEnd >= 0 ? url.substring(schemeEnd + 3) : url;
+        int slash = rest.indexOf('/');
+        return slash >= 0 ? rest.substring(0, slash) : rest;
+    }
+
+    private static String escape(String value) {
+        return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+    }
+
     // Visible for tests.
     int rowCount() {
         return tableModel.getRowCount();
@@ -341,8 +533,14 @@ public final class ResearchSourcesView extends JPanel {
     }
 
     private static final class SourcesTableModel extends AbstractTableModel {
-        private final String[] columns = {"⭐", "Title", "Origin", "Type", "Status", "Score", "Full text",
-                "Reliability", "Relevance", "Linked sections", "Revision"};
+        static final int COLUMN_STAR = 0;
+        static final int COLUMN_TITLE = 1;
+        static final int COLUMN_SITE = 2;
+        static final int COLUMN_STATUS = 3;
+        static final int COLUMN_SCORE = 4;
+        static final int COLUMN_TEXT = 5;
+
+        private final String[] columns = {"⭐", "Titel", "Website", "Status", "Score", "Text"};
         private List<ResearchSourceRecord> rows = new ArrayList<ResearchSourceRecord>();
 
         void setRows(List<ResearchSourceRecord> rows) {
@@ -366,23 +564,23 @@ public final class ResearchSourcesView extends JPanel {
             return columns[column];
         }
 
+        @Override
+        public Class<?> getColumnClass(int columnIndex) {
+            // A typed score column sorts numerically under the row sorter (a String "0.07" would not).
+            return columnIndex == COLUMN_SCORE ? Double.class : String.class;
+        }
+
         public Object getValueAt(int rowIndex, int columnIndex) {
             ResearchSourceRecord r = rows.get(rowIndex);
             switch (columnIndex) {
-                case 0: return r.isUserRelevant() ? "★" : "";
-                case 1: return r.getTitle();
-                case 2: return r.getOrigin();
-                case 3: return r.getSourceType();
-                case 4: return r.getStatus();
+                case COLUMN_STAR: return r.isUserRelevant() ? "★" : "";
+                case COLUMN_TITLE: return displayTitle(r);
+                case COLUMN_SITE: return siteOf(r);
+                case COLUMN_STATUS: return germanLabel(r.getStatus());
                 // Score makes gaps visible: a high-scored source with no full text is a promising hit still
-                // waiting to be read (parked). "—" when the source carries no reranker score.
-                case 5: return r.hasRerankScore() ? String.format(java.util.Locale.ROOT, "%.2f",
-                        r.getRerankScore()) : "—";
-                case 6: return r.isParked() ? "parked" : "✓";
-                case 7: return r.getReliability();
-                case 8: return r.getRelevance();
-                case 9: return r.getLinkedSectionIds();
-                case 10: return r.getRevision();
+                // waiting to be read (parked). null (rendered "—") when no reranker score exists.
+                case COLUMN_SCORE: return r.hasRerankScore() ? Double.valueOf(r.getRerankScore()) : null;
+                case COLUMN_TEXT: return r.isParked() ? "geparkt" : "✓ gelesen";
                 default: return "";
             }
         }

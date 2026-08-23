@@ -53,6 +53,38 @@ public final class ResearchRunProgress {
         acceptedSources++;
     }
 
+    // ------------------------------------------------------------------ link funnel
+    // The user-facing search funnel: how many links the run has SEEN at all (SERP candidates + links on
+    // visited pages), how many of them were ASSESSED for relevance, and how many were SELECTED to follow.
+    // Together with pagesVisited/acceptedSources this answers "what did the search actually do?" instead
+    // of showing only the accepted end of the funnel.
+
+    private int linksDiscovered;
+    private int linksAssessed;
+    private int linksSelected;
+
+    public void linksDiscovered(int count) {
+        if (count > 0) {
+            linksDiscovered += count;
+        }
+    }
+
+    public void linksAssessed(int count) {
+        if (count > 0) {
+            linksAssessed += count;
+        }
+    }
+
+    public void linksSelected(int count) {
+        if (count > 0) {
+            linksSelected += count;
+        }
+    }
+
+    public int getLinksDiscovered() { return linksDiscovered; }
+    public int getLinksAssessed() { return linksAssessed; }
+    public int getLinksSelected() { return linksSelected; }
+
     public void error() {
         consecutiveErrors++;
         totalErrors++;

@@ -769,9 +769,14 @@ public final class ResearchAgentMain {
                                 public void progress(
                                         com.aresstack.askai.research.runtime.loop.ResearchRunProgress p,
                                         com.aresstack.askai.research.runtime.loop.ResearchRunActivity activity) {
+                                    // The FUNNEL, not only its end: what the engines delivered, what was
+                                    // assessed, what passed relevance, what was visited, what became a hit.
                                     ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
                                             .manualSearchProgress(requestId, p.getAcceptedSources()
-                                                    + " Quellen / " + p.getPagesVisited() + " Seiten"));
+                                                    + " Treffer · " + p.getPagesVisited() + " Seiten · Links: "
+                                                    + p.getLinksDiscovered() + " gefunden, "
+                                                    + p.getLinksAssessed() + " analysiert, "
+                                                    + p.getLinksSelected() + " relevant"));
                                 }
 
                                 public void phaseReady(

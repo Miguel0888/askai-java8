@@ -341,6 +341,8 @@ public final class WebSearchApplicationService {
                         }
                     });
             initialStatus = result.status;
+            // SERP candidates enter the funnel as discovered links (the reranker then assesses them all).
+            progress.linksDiscovered(result.candidates.size());
             for (String providerHost : result.providerHosts) {
                 searchProviderSites.add(familyOf(providerHost));
             }
@@ -557,6 +559,8 @@ public final class WebSearchApplicationService {
         switch (result.outcome) {
             case SUCCESS:
                 progress.success();
+                progress.linksAssessed(candidates.size());
+                progress.linksSelected(result.selected.size());
                 seedSerpRelevanceFloor = seedFloorOf(result.selected);
                 for (com.aresstack.askai.research.runtime.rerank.RerankedSearchResultCandidate ranked
                         : result.selected) {
@@ -694,13 +698,16 @@ public final class WebSearchApplicationService {
                 new java.util.LinkedHashMap<String, String>();
         java.util.List<String> lexicalHints = new ArrayList<String>();
         for (String line : links.split("\n")) {
-            if (documentsByUrl.size() >= MAXIMUM_ASSESSED_LINKS_PER_PAGE) {
-                break;
-            }
             String linkUrl = WebAcquisitionText.lastUrl(line);
             if (linkUrl == null || isSearchProviderSite(WebAcquisitionText.hostOf(linkUrl))
                     || progress.alreadyVisited(WebAcquisitionText.canonicalish(linkUrl))
                     || documentsByUrl.containsKey(linkUrl)) {
+                continue;
+            }
+            // Every real, new link on the page counts as DISCOVERED — also the ones beyond the assessment
+            // cap. Only what fits the cap is actually assessed; the funnel display shows the difference.
+            progress.linksDiscovered(1);
+            if (documentsByUrl.size() >= MAXIMUM_ASSESSED_LINKS_PER_PAGE) {
                 continue;
             }
             String anchor = WebAcquisitionText.anchorTextOf(line);
@@ -715,6 +722,7 @@ public final class WebSearchApplicationService {
         if (documentsByUrl.isEmpty()) {
             return java.util.Collections.emptyList();
         }
+        progress.linksAssessed(documentsByUrl.size());
         com.aresstack.askai.research.domain.search.RelevanceAssessment assessment =
                 assessWatched(documentsByUrl);
         if (!assessment.isAvailable()) {
@@ -722,8 +730,10 @@ public final class WebSearchApplicationService {
             // everything else here rather than let loose over every link on the page.
             listener.status("link relevance unavailable (" + assessment.getUnavailableReason()
                     + ") — following the lexical hints only, from " + parentUrl);
-            return lexicalHints.size() > MAXIMUM_EXPANDED_LINKS_PER_PAGE
+            List<String> hints = lexicalHints.size() > MAXIMUM_EXPANDED_LINKS_PER_PAGE
                     ? lexicalHints.subList(0, MAXIMUM_EXPANDED_LINKS_PER_PAGE) : lexicalHints;
+            progress.linksSelected(hints.size());
+            return hints;
         }
         List<String> selected = new ArrayList<String>();
         for (String rankedUrl : assessment.rankedCandidateIds()) {
@@ -739,6 +749,7 @@ public final class WebSearchApplicationService {
             }
             selected.add(rankedUrl);
         }
+        progress.linksSelected(selected.size());
         listener.status("link relevance: " + documentsByUrl.size() + " links assessed → "
                 + selected.size() + " followed (floor " + seedSerpRelevanceFloor + ") from "
                 + parentUrl);
