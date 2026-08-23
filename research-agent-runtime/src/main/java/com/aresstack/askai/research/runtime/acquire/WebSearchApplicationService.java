@@ -310,9 +310,14 @@ public final class WebSearchApplicationService {
         return !Double.isNaN(s) && s >= threshold ? PageReadinessJudge.Verdict.READABLE : base;
     }
 
-    /** Execute the deterministic acquisition for {@code terms}; returns the explicit acquisition stop reason. */
-    public ResearchStopReason execute(Set<String> terms) {
-        ResearchStopReason reason = runAcquisition(terms);
+    /**
+     * Execute the deterministic acquisition for the user's search text; returns the explicit
+     * acquisition stop reason. The ORIGINAL text is what the search engines receive — the derived
+     * terms only ever answer relevance questions. Rebuilding the query from the term set once cut
+     * umlauts and short words out of the SERP query ("hühner" became "hner").
+     */
+    public ResearchStopReason execute(String task) {
+        ResearchStopReason reason = runAcquisition(task, WebAcquisitionText.queryTerms(task));
         // HUD lifecycle: after a terminal outcome the browser may stay open, but the overlay must stop
         // pretending a page is being visited — controls off, state visibly final. Best-effort like every
         // other HUD render; a dead browser is simply skipped.
@@ -320,7 +325,7 @@ public final class WebSearchApplicationService {
         return reason;
     }
 
-    private ResearchStopReason runAcquisition(Set<String> terms) {
+    private ResearchStopReason runAcquisition(String task, Set<String> terms) {
         // Seed: search, else nothing to do.
         List<FrontierEntry> frontier = new ArrayList<FrontierEntry>();
         ResearchStopReason seedStop = null;
@@ -329,7 +334,7 @@ public final class WebSearchApplicationService {
         com.aresstack.askai.research.runtime.search.InitialSearchStatus initialStatus =
                 com.aresstack.askai.research.runtime.search.InitialSearchStatus.NO_RESULTS;
         try {
-            String query = WebAcquisitionText.join(terms);
+            String query = task == null ? "" : task.trim();
             relevanceQuery = query; // every relevance question in this run is asked against THIS query
             listener.progress(progress, apiProviderLabel == null
                     ? ResearchRunActivity.searching(query)
@@ -367,9 +372,15 @@ public final class WebSearchApplicationService {
                     + " may be dead) cause=" + describe(ex));
             return ResearchStopReason.MCP_UNAVAILABLE;
         } catch (ToolInvoker.ToolFailure ex) {
+            if (noteIfBrowserClosed(ex)) {
+                return ResearchStopReason.USER_CANCELLED; // the user's window close, not a failure
+            }
             listener.status("[web-search] technical failure stage=SEED_SEARCH cause=" + describe(ex));
             progress.error();
         } catch (RuntimeException ex) {
+            if (noteIfBrowserClosed(ex)) {
+                return ResearchStopReason.USER_CANCELLED;
+            }
             // A malformed prepare/apply payload (codec DecodeException) must not crash the loop —
             // it is a tool-level failure; the run continues with an empty frontier (the error budget and
             // NO_RELEVANT_PATHS handle it as before).
@@ -378,6 +389,9 @@ public final class WebSearchApplicationService {
         }
         if (seedStop != null) {
             return seedStop;
+        }
+        if (browserClosedByUser) {
+            return ResearchStopReason.USER_CANCELLED; // never re-labelled as a technical problem below
         }
         // Honest reporting: an INITIAL search that failed technically (SERP layout could not be extracted —
         // e.g. the layout-repair model was unavailable — or every engine was blocked with nothing
@@ -1370,6 +1384,12 @@ public final class WebSearchApplicationService {
     /** Parse typed CHALLENGE/RESOLVED lines (from web_challenge_status) and apply them. */
     private void applyChallengeLines(String text) {
         for (String line : (text == null ? "" : text).split("\n")) {
+            if (line.startsWith("BROWSER_CLOSED")) {
+                // The user closed the window while a challenge was parked: their stop — never
+                // "challenge resolved", never a requeue of the deferred work.
+                browserClosedByUser = true;
+                return;
+            }
             if (line.startsWith("CHALLENGE: ")) {
                 String rest = line.substring("CHALLENGE: ".length()).trim();
                 int space = rest.indexOf(' ');
@@ -1410,9 +1430,10 @@ public final class WebSearchApplicationService {
         try {
             // Deliberately WITHOUT the budget gate: polling the user's pending challenge must never
             // exhaust a tool budget or count as research work.
-            applyChallengeLines(browser.call("web_challenge_status", args()));
+            applyChallengeLines(callBrowser("web_challenge_status", args()));
         } catch (ToolInvoker.EndpointUnavailable | ToolInvoker.ToolFailure ignored) {
-            // The probe is best-effort; the next tick retries.
+            // The probe is best-effort; the next tick retries. (A BROWSER_CLOSED failure has already
+            // flipped browserClosedByUser inside callBrowser — the gates end the run as the user's.)
         }
         if (!deferredUrls.isEmpty()) {
             // Re-queue everything whose family is unlocked again (still-locked URLs re-defer on pull).
@@ -1450,6 +1471,9 @@ public final class WebSearchApplicationService {
             clock.sleepMillis(challengeProbeIntervalMillis);
             waitedForUserMillis += Math.max(0, clock.currentTimeMillis() - tickStart);
             probeChallengesIfDue(frontier);
+            if (browserClosedByUser) {
+                return ResearchStopReason.USER_CANCELLED; // the window close IS the user's answer
+            }
         }
         return cancelled.get() ? ResearchStopReason.USER_CANCELLED : null;
     }
@@ -1508,11 +1532,23 @@ public final class WebSearchApplicationService {
         try {
             return browser.call(tool, a);
         } catch (ToolInvoker.ToolFailure failure) {
-            if (failure.getMessage() != null && failure.getMessage().contains("BROWSER_CLOSED")) {
-                browserClosedByUser = true; // the user's stop — the next gate ends the run as theirs
-            }
+            noteIfBrowserClosed(failure);
             throw failure;
         }
+    }
+
+    /**
+     * The ONE recognizer of the sidecar's typed "the user closed the window" marker. Every path a tool
+     * failure can take (page visit, SERP prepare, challenge poll) funnels through here, so the user's
+     * stop can never be laundered into a technical failure by the catch that happened to see it first.
+     */
+    private boolean noteIfBrowserClosed(Throwable failure) {
+        if (failure != null && failure.getMessage() != null
+                && failure.getMessage().contains("BROWSER_CLOSED")) {
+            browserClosedByUser = true; // the user's stop — the next gate ends the run as theirs
+            return true;
+        }
+        return false;
     }
 
     private static Map<String, Object> args(Object... kv) {

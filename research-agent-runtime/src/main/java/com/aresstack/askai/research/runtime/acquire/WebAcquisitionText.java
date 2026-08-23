@@ -19,7 +19,10 @@ public final class WebAcquisitionText {
 
     public static Set<String> queryTerms(String task) {
         Set<String> terms = new HashSet<String>();
-        for (String word : (task == null ? "" : task).toLowerCase(Locale.ROOT).split("[^a-z0-9]+")) {
+        // Unicode letters/digits: "hühner" is ONE term, never "h"+"hner". These terms are for
+        // RELEVANCE MATCHING only — the search engine always receives the user's original text.
+        for (String word : (task == null ? "" : task).toLowerCase(Locale.ROOT)
+                .split("[^\\p{L}\\p{Nd}]+")) {
             if (word.length() >= 3) {
                 terms.add(word);
             }

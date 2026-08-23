@@ -122,6 +122,15 @@ interface PlaywrightDriver extends AutoCloseable {
         return false;
     }
 
+    /**
+     * True when the USER closed the browser window (their stop signal) — as opposed to a session that
+     * was never opened or was torn down by the sidecar itself. Drivers without a real browser have
+     * nothing the user could close.
+     */
+    default boolean browserClosedByUser() {
+        return false;
+    }
+
     /** Idempotent: page → context → browser → Playwright (and with it the GraalJS driver child). */
     void close();
 }

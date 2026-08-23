@@ -97,8 +97,8 @@ public class SearchLanguageSnapshotTest {
                 false, 1, 48);
     }
 
-    private static java.util.Set<String> terms() {
-        return new java.util.LinkedHashSet<String>(Collections.singletonList("wearables"));
+    private static String terms() {
+        return "wearables";
     }
 
     @Test
@@ -124,6 +124,19 @@ public class SearchLanguageSnapshotTest {
         second.setSearchLanguage("de");
         second.execute(terms());
         assertEquals("de", strategy.lastRequest.getLanguage());
+    }
+
+    /**
+     * The engines receive the user's ORIGINAL text. The query was once rebuilt from the ASCII term
+     * set, which split every umlaut word apart and dropped short leftovers — "hühner unterschiede
+     * puten" reached Bing as "hner unterschiede puten".
+     */
+    @Test
+    public void theSearchEngineReceivesTheOriginalQueryTextUmlautsAndAll() {
+        CapturingStrategy strategy = new CapturingStrategy();
+        WebSearchApplicationService service = service(strategy);
+        service.execute("hühner unterschiede puten");
+        assertEquals("hühner unterschiede puten", strategy.lastRequest.getQuery());
     }
 
     @Test

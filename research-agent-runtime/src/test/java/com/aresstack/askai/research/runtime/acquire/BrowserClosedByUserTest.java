@@ -124,9 +124,72 @@ public class BrowserClosedByUserTest {
                     }
                 },
                 false, 1, 48);
-        ResearchStopReason reason = service.execute(
-                new java.util.LinkedHashSet<String>(Collections.singletonList("blashuener")));
+        ResearchStopReason reason = service.execute("blashuener");
         assertEquals("the user's window close is the user's cancel — never a budget or technical end",
                 ResearchStopReason.USER_CANCELLED, reason);
+    }
+
+    /**
+     * The window can also be closed DURING the SERP phase (web_search_prepare) — the marker then
+     * surfaces from the search strategy, not from a page-visit browser call. It once fell into the
+     * generic seed-failure catch and ended as "Websuche technisch fehlgeschlagen".
+     */
+    @Test
+    public void aWindowClosedDuringTheSerpPhaseIsStillTheUsersCancel() {
+        SearchStrategy closedDuringSerp = new SearchStrategy() {
+            public InitialSearchResult search(InitialSearchRequest request,
+                    CancellationSignal cancellation, SearchBudgetGate budget) {
+                throw new IllegalStateException(
+                        "BROWSER_CLOSED — the browser window was closed by the user.");
+            }
+        };
+        ToolInvoker neverReached = new ToolInvoker() {
+            public String call(String tool, Map<String, Object> args) {
+                return "";
+            }
+        };
+        WebSearchApplicationService service = new WebSearchApplicationService(neverReached,
+                ResearchRunBudget.defaults(), new ResearchRunProgress(),
+                new ResearchLoopClock() {
+                    public long currentTimeMillis() {
+                        return 0L;
+                    }
+
+                    public void sleepMillis(long millis) {
+                    }
+                },
+                new ResearchLoopListener() {
+                    public void status(String message) {
+                    }
+
+                    public void progress(ResearchRunProgress p, ResearchRunActivity activity) {
+                    }
+
+                    public void phaseReady(ResearchStopReason reason) {
+                    }
+
+                    public void attention(String reason, String family, String url, boolean resolved) {
+                    }
+                },
+                new AtomicBoolean(false), closedDuringSerp, null,
+                new SelectAllReranker(),
+                new com.aresstack.askai.browser.domain.PublicSuffixDomainKeyResolver(),
+                new SourceAcceptancePort() {
+                    public String accept(String captureId) {
+                        return "";
+                    }
+
+                    public void park(String url, String title, String excerpt, double score) {
+                    }
+                },
+                0L, 1L,
+                new WebSearchApplicationService.AcceptedSourceListener() {
+                    public ResearchStopReason onAccepted(WebSearchApplicationService.AcceptedSource source,
+                                                         WebSearchApplicationService.ToolBudget budget) {
+                        return null;
+                    }
+                },
+                false, 1, 48);
+        assertEquals(ResearchStopReason.USER_CANCELLED, service.execute("blashuener"));
     }
 }
