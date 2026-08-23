@@ -32,7 +32,7 @@ public class TeamAgentOutputBudgetTest {
     }
 
     @Test
-    public void theOutputBudgetFitsTheReviewContract() {
+    public void theDefaultOutputBudgetFitsTheReviewContract() {
         BudgetCapturingModel model = new BudgetCapturingModel();
         ResearchTeamAgent agent = new ResearchTeamAgent(model);
         TeamAgentResult result = agent.internalTurn(TeamAgentPlaybook.sourceReviewInstruction(),
@@ -42,6 +42,20 @@ public class TeamAgentOutputBudgetTest {
         assertTrue("the review's single JSON (12-source summary + brief + patch) does not fit 1024 "
                 + "tokens; granted: " + model.grantedBudgets.get(0),
                 model.grantedBudgets.get(0) >= 4096);
+        assertTrue("the default is the documented constant, not a scattered literal",
+                model.grantedBudgets.get(0) == ResearchTeamAgent.DEFAULT_MAX_OUTPUT_TOKENS);
+    }
+
+    @Test
+    public void theConfiguredBudgetIsGrantedVerbatimAndNonsenseIsIgnored() {
+        BudgetCapturingModel model = new BudgetCapturingModel();
+        ResearchTeamAgent agent = new ResearchTeamAgent(model);
+        agent.setMaxOutputTokens(8192); // the user's setting, handed to the process at launch
+        agent.setMaxOutputTokens(0);    // a non-positive value must never shrink the budget to nothing
+        agent.internalTurn(TeamAgentPlaybook.sourceReviewInstruction(), ResearchStatusView.empty());
+        assertTrue("the configured budget reaches the model verbatim: " + model.grantedBudgets.get(0),
+                model.grantedBudgets.get(0) == 8192);
+        assertTrue(agent.getMaxOutputTokens() == 8192);
     }
 
     @Test

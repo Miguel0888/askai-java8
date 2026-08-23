@@ -34,14 +34,29 @@ public final class ResearchTeamAgent {
     /** A calm, deterministic temperature for a consultative planner (varied queries come from the prompt). */
     private static final double TEMPERATURE = 0.4;
     /**
-     * The output budget must fit the LONGEST contracted answer, and that is the post-search review: ONE
-     * JSON with the visible summary of up to 12 sources PLUS the optional brief markdown, suggestions,
-     * scope patch and unresolved issues. At the former 1024 the review's JSON was routinely TRUNCATED
-     * mid-string — unparseable, the one repair truncated identically, and every "Neue Quellen auswerten"
-     * ended as UNUSABLE_ANSWER ("die Auswertung konnte diesmal nicht erstellt werden"). The cap only
-     * bounds the model's permission to write; short turns stay short.
+     * The DEFAULT output budget per model turn. It must fit the LONGEST contracted answer, and that is the
+     * post-search review: ONE JSON with the visible summary of up to 12 sources PLUS the optional brief
+     * markdown, suggestions, scope patch and unresolved issues. At the former 1024 the review's JSON was
+     * routinely TRUNCATED mid-string — unparseable, the one repair truncated identically, and every
+     * "Neue Quellen auswerten" ended as UNUSABLE_ANSWER. The budget only bounds the model's permission to
+     * write; short turns stay short. The EFFECTIVE value is the user's setting
+     * ("Agent-Antwortbudget (Tokens)", handed to the process at launch), never a hidden constant.
      */
-    private static final int MAX_OUTPUT_TOKENS = 4096;
+    public static final int DEFAULT_MAX_OUTPUT_TOKENS = 4096;
+
+    private int maxOutputTokens = DEFAULT_MAX_OUTPUT_TOKENS;
+
+    /** Apply the user's configured answer budget; a non-positive value keeps the current one. */
+    public void setMaxOutputTokens(int tokens) {
+        if (tokens > 0) {
+            this.maxOutputTokens = tokens;
+        }
+    }
+
+    /** The effective per-turn answer budget (the configured setting, or the documented default). */
+    public int getMaxOutputTokens() {
+        return maxOutputTokens;
+    }
 
     private final MainModelChat model;
     private final PhaseAssistantProfileRegistry profiles;
@@ -250,7 +265,7 @@ public final class ResearchTeamAgent {
 
     /** One model call + phase-contract parse, with EXACTLY ONE bounded parse-repair on failure. */
     private Parsed callParseWithRepair(List<ChatMessage> messages, PhaseOutputContract contract) {
-        MainModelChatResult call = model.complete(messages, TEMPERATURE, MAX_OUTPUT_TOKENS);
+        MainModelChatResult call = model.complete(messages, TEMPERATURE, maxOutputTokens);
         if (!call.isOk()) {
             return Parsed.fail(TeamAgentResult.modelUnavailable(call.getDetail()));
         }
@@ -303,7 +318,7 @@ public final class ResearchTeamAgent {
      * turn stays intact for a clean retry.
      */
     private Parsed callParseOnce(List<ChatMessage> messages, PhaseOutputContract contract) {
-        MainModelChatResult call = model.complete(messages, TEMPERATURE, MAX_OUTPUT_TOKENS);
+        MainModelChatResult call = model.complete(messages, TEMPERATURE, maxOutputTokens);
         if (!call.isOk()) {
             return Parsed.fail(TeamAgentResult.modelUnavailable(call.getDetail()));
         }

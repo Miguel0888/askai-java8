@@ -162,7 +162,19 @@ public final class ResearchAgentMain {
                                 return scopeFence.rendered();
                             }
                         }));
-        System.err.println("[research-agent] TeamAgent ready on main model: " + mainModelChat.modelName());
+        // The user's "Agent-Antwortbudget (Tokens)" setting (host env hand-off): the per-turn output
+        // budget is configuration, never a hidden constant. Unset/invalid → the documented default.
+        String outputBudget = System.getenv("ASKAI_AGENT_MAX_OUTPUT_TOKENS");
+        if (outputBudget != null && !outputBudget.trim().isEmpty()) {
+            try {
+                teamAgent.setMaxOutputTokens(Integer.parseInt(outputBudget.trim()));
+            } catch (NumberFormatException invalid) {
+                System.err.println("[research-agent] ignoring invalid ASKAI_AGENT_MAX_OUTPUT_TOKENS="
+                        + outputBudget.trim());
+            }
+        }
+        System.err.println("[research-agent] TeamAgent ready on main model: " + mainModelChat.modelName()
+                + " outputBudget=" + teamAgent.getMaxOutputTokens());
 
         // A browser research session REQUIRES the mandatory reranker. Build and readiness-check it here,
         // at session/new — a missing/invalid snapshot or an unreachable endpoint fails the session start

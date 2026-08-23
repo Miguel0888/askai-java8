@@ -44,6 +44,8 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
     /** Scoping orientation tags (default off = long-standing behaviour): suggestions on every broad turn. */
     private final JCheckBox alwaysSuggest = new JCheckBox(
             "Immer Suchvorschläge anbieten (Orientierungs-Tags; applies to new sessions)", false);
+    /** Answer budget per agent model turn (tokens) — the longest contracted answer is the source review. */
+    private final JTextField agentMaxTokens = new JTextField(6);
     /** Bot-control MCP (default ON): run_command/session_state/chat_history + service-endpoint.json. */
     private final JCheckBox botControlMcp = new JCheckBox(
             "Bot control via MCP (applies to new sessions)", true);
@@ -103,6 +105,7 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         form.add(row("Language / Sprache:", agentLanguage));
         form.add(row("", llmNarration));
         form.add(row("", alwaysSuggest));
+        form.add(row("Agent-Antwortbudget (Tokens):", agentMaxTokens));
         botTools.setMargin(new java.awt.Insets(0, 0, 0, 0));
         botTools.setPreferredSize(new java.awt.Dimension(24, 24));
         botTools.setFont(botTools.getFont().deriveFont(java.awt.Font.PLAIN, 15f));
@@ -225,6 +228,21 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
                         ResearchRuntimeSettingsPanel.this.store, alwaysSuggest.isSelected());
             }
         });
+        agentMaxTokens.setText(String.valueOf(ResearchRuntimeSettings.loadAgentMaxOutputTokens(store)));
+        agentMaxTokens.setToolTipText("Antwort-Budget des Agenten in Tokens pro Modell-Turn (die längste "
+                + "Antwort ist die Quellen-Auswertung). Ein zu kleiner Wert schneidet Antworten ab. "
+                + "Gilt für neue Sessions.");
+        agentMaxTokens.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent event) {
+                persistAgentMaxTokens();
+            }
+        });
+        agentMaxTokens.addFocusListener(new java.awt.event.FocusAdapter() {
+            @Override
+            public void focusLost(java.awt.event.FocusEvent event) {
+                persistAgentMaxTokens();
+            }
+        });
         refreshBackendStatus();
 
         save.addActionListener(new ActionListener() {
@@ -313,6 +331,20 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
                 }
             }
         };
+    }
+
+    /** Persist the agent answer budget; a non-numeric/non-positive entry resets to the persisted value. */
+    private void persistAgentMaxTokens() {
+        try {
+            int tokens = Integer.parseInt(agentMaxTokens.getText().trim());
+            if (tokens > 0) {
+                ResearchRuntimeSettings.saveAgentMaxOutputTokens(store, tokens);
+                return;
+            }
+        } catch (NumberFormatException invalid) {
+            // fall through to the reset below
+        }
+        agentMaxTokens.setText(String.valueOf(ResearchRuntimeSettings.loadAgentMaxOutputTokens(store)));
     }
 
     /** All five connector controls as ONE persisted unit (from the toggle and from Save). */
