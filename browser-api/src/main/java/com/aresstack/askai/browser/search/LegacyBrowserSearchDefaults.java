@@ -13,19 +13,6 @@ public final class LegacyBrowserSearchDefaults {
     private LegacyBrowserSearchDefaults() {
     }
 
-    /**
-     * The engine the browser search STARTS at when nothing else is configured.
-     * <p>
-     * It is the same scrape-friendly, server-rendered kind of endpoint as the fallbacks below, and for a
-     * good reason: the product used to suggest Bing here, so every browser search first spent an attempt on
-     * consent banners and "one last step" challenges before falling through to DuckDuckGo anyway. Starting
-     * where the results actually are is not a fallback — it is the primary.
-     */
-    public static final String DEFAULT_PRIMARY_ENGINE_TEMPLATE = "https://html.duckduckgo.com/html/?q={query}";
-
-    /** The engine template the product suggested before {@link #DEFAULT_PRIMARY_ENGINE_TEMPLATE}. */
-    public static final String SUPERSEDED_PRIMARY_ENGINE_TEMPLATE = "https://www.bing.com/search?q={query}";
-
     /** One complete settings object that validates cleanly against the default validator. */
     public static LegacyBrowserSearchSettings create() {
         return new LegacyBrowserSearchSettings(navigation(), consent(), captcha(), readiness(),
@@ -39,15 +26,27 @@ public final class LegacyBrowserSearchDefaults {
                 120_000L);   // ticketTtlMillis: a repair ticket is applicable for two minutes
     }
 
+    /**
+     * The engines a fresh installation searches with: DuckDuckGo first, Bing behind it, and only until
+     * one of them delivers. Bing is a safety net, not the obligatory first browser visit it used to be.
+     */
+    public static com.aresstack.askai.browser.search.engine.BrowserSearchEngineSelection engineSelection() {
+        return new com.aresstack.askai.browser.search.engine.BrowserSearchEngineSelection(
+                Arrays.asList(
+                        new com.aresstack.askai.browser.search.engine.BrowserSearchEngineSelection.Entry(
+                                com.aresstack.askai.browser.search.engine.BrowserSearchEngineCatalog
+                                        .DUCKDUCKGO, true),
+                        new com.aresstack.askai.browser.search.engine.BrowserSearchEngineSelection.Entry(
+                                com.aresstack.askai.browser.search.engine.BrowserSearchEngineCatalog
+                                        .BING, true)),
+                com.aresstack.askai.browser.search.engine.EngineAcquisitionMode.FIRST_USABLE);
+    }
+
     private static LegacySearchNavigationSettings navigation() {
         return new LegacySearchNavigationSettings(
-                Arrays.asList(
-                        // Scrape-friendly, server-rendered fallback engines behind a public primary.
-                        "https://html.duckduckgo.com/html/?q={query}",
-                        "https://lite.duckduckgo.com/lite/?q={query}"),
-                3,          // maximumEngineAttempts (primary + fallbacks)
+                engineSelection(),
+                3,          // maximumEngineAttempts: engine ENDPOINTS opened per search
                 20_000,     // navigationCommitTimeoutMillis (previously BrowserLimits.defaults())
-                EngineSwitchPolicy.SEQUENTIAL,
                 true,       // redirectResolutionEnabled
                 2_048,      // maximumRedirectUrlLength
                 20,         // searchResultLimit (previously OrganicResultSearchProvider.MAX_RESULTS)

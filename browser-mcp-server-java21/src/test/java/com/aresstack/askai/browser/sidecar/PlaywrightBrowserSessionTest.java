@@ -135,9 +135,125 @@ public class PlaywrightBrowserSessionTest {
         return new PlaywrightPageState(url, title, text, anchors);
     }
 
+    /** One logical engine per template, in this order — the execution order under test. */
+    private static java.util.List<com.aresstack.askai.browser.search.engine.BrowserSearchEngine> engines(
+            String... templates) {
+        java.util.List<com.aresstack.askai.browser.search.engine.BrowserSearchEngine> engines =
+                new java.util.ArrayList<com.aresstack.askai.browser.search.engine.BrowserSearchEngine>();
+        for (int i = 0; i < templates.length; i++) {
+            engines.add(new com.aresstack.askai.browser.search.engine.BrowserSearchEngine(
+                    "engine-" + (i + 1), "Engine " + (i + 1),
+                    java.util.Collections.singletonList(templates[i])));
+        }
+        return engines;
+    }
+
     private static PlaywrightBrowserSession session(FakeDriver driver, UrlSafetyPolicy policy,
                                                     BrowserLimits limits, String searchUrl) {
         return new PlaywrightBrowserSession(driver, policy, limits, searchUrl, null);
+    }
+
+    /** A session whose engines are worked through in the given acquisition mode. */
+    private static PlaywrightBrowserSession session(FakeDriver driver,
+            com.aresstack.askai.browser.search.engine.EngineAcquisitionMode mode) {
+        com.aresstack.askai.browser.search.LegacyBrowserSearchSettings defaults =
+                com.aresstack.askai.browser.search.LegacyBrowserSearchDefaults.create();
+        com.aresstack.askai.browser.search.LegacyBrowserSearchSettings settings =
+                new com.aresstack.askai.browser.search.LegacyBrowserSearchSettings(
+                        new com.aresstack.askai.browser.search.LegacySearchNavigationSettings(
+                                new com.aresstack.askai.browser.search.engine
+                                        .BrowserSearchEngineSelection(
+                                        defaults.navigation.engineSelection.getEntries(), mode),
+                                defaults.navigation.maximumEngineAttempts,
+                                defaults.navigation.navigationCommitTimeoutMillis,
+                                defaults.navigation.redirectResolutionEnabled,
+                                defaults.navigation.maximumRedirectUrlLength,
+                                defaults.navigation.searchResultLimit,
+                                defaults.navigation.language, defaults.navigation.country),
+                        defaults.consent, defaults.captcha, defaults.readiness, defaults.analysis,
+                        defaults.visualAnalysis, defaults.extraction, defaults.aiLayoutResolver,
+                        defaults.reranker, defaults.diagnostics, defaults.layoutRepair);
+        return new PlaywrightBrowserSession(driver, UrlSafetyPolicy.allowingPrivateNetworks(),
+                BrowserLimits.defaults(), null, null, settings);
+    }
+
+    private static PlaywrightPageState resultsPage(String url, String title) {
+        return state(url, "Results", "results page",
+                title + " primer", "http://target-a.test/" + title,
+                title + " guide", "http://target-b.test/" + title,
+                title + " docs", "http://target-c.test/" + title);
+    }
+
+    private static PlaywrightPageState emptyPage(String url) {
+        return state(url, "Empty", "nothing here", "Settings", url + "/settings");
+    }
+
+    /**
+     * FIRST_USABLE means what it says: the engine behind the one that delivered is never opened. The
+     * configuration used to claim this while web_search_prepare visited every engine regardless.
+     */
+    @Test
+    public void firstUsableStopsAtTheEngineThatDelivered() throws Exception {
+        FakeDriver driver = new FakeDriver();
+        driver.byUrl.put("http://first.test/s?q=pf4j", resultsPage("http://first.test/s?q=pf4j", "pf4j"));
+        driver.byUrl.put("http://second.test/s?q=pf4j", resultsPage("http://second.test/s?q=pf4j", "x"));
+        PlaywrightBrowserSession s = session(driver,
+                com.aresstack.askai.browser.search.engine.EngineAcquisitionMode.FIRST_USABLE);
+        s.setSearchEngines(engines("http://first.test/s?q={query}", "http://second.test/s?q={query}"));
+
+        WebSearchResult result = s.search("pf4j");
+
+        assertEquals("only the first engine was opened", 1, driver.opened.size());
+        assertEquals(3, result.getItems().size());
+    }
+
+    /** A technical failure is not an answer: the next engine gets its turn. */
+    @Test
+    public void firstUsableMovesOnWhenAnEngineDeliversNothing() throws Exception {
+        FakeDriver driver = new FakeDriver();
+        driver.byUrl.put("http://first.test/s?q=pf4j", emptyPage("http://first.test/s?q=pf4j"));
+        driver.byUrl.put("http://second.test/s?q=pf4j",
+                resultsPage("http://second.test/s?q=pf4j", "pf4j"));
+        PlaywrightBrowserSession s = session(driver,
+                com.aresstack.askai.browser.search.engine.EngineAcquisitionMode.FIRST_USABLE);
+        s.setSearchEngines(engines("http://first.test/s?q={query}", "http://second.test/s?q={query}"));
+
+        WebSearchResult result = s.search("pf4j");
+
+        assertEquals("both engines were opened", 2, driver.opened.size());
+        assertEquals(3, result.getItems().size());
+    }
+
+    /** The user's order IS the execution order — reversing it reverses who is asked first. */
+    @Test
+    public void theConfiguredOrderDecidesWhoIsAskedFirst() throws Exception {
+        FakeDriver driver = new FakeDriver();
+        driver.byUrl.put("http://first.test/s?q=pf4j", resultsPage("http://first.test/s?q=pf4j", "pf4j"));
+        driver.byUrl.put("http://second.test/s?q=pf4j", resultsPage("http://second.test/s?q=pf4j", "x"));
+        PlaywrightBrowserSession s = session(driver,
+                com.aresstack.askai.browser.search.engine.EngineAcquisitionMode.FIRST_USABLE);
+        s.setSearchEngines(engines("http://second.test/s?q={query}", "http://first.test/s?q={query}"));
+
+        s.search("pf4j");
+
+        assertEquals(java.util.Collections.singletonList("http://second.test/s?q=pf4j"),
+                driver.opened);
+    }
+
+    /** ALL_ENABLED is not a fallback chain: every enabled engine is asked, even after one delivered. */
+    @Test
+    public void allEnabledVisitsEveryEngineEvenAfterOneDelivered() throws Exception {
+        FakeDriver driver = new FakeDriver();
+        driver.byUrl.put("http://first.test/s?q=pf4j", resultsPage("http://first.test/s?q=pf4j", "pf4j"));
+        driver.byUrl.put("http://second.test/s?q=pf4j", resultsPage("http://second.test/s?q=pf4j", "x"));
+        PlaywrightBrowserSession s = session(driver,
+                com.aresstack.askai.browser.search.engine.EngineAcquisitionMode.ALL_ENABLED);
+        s.setSearchEngines(engines("http://first.test/s?q={query}", "http://second.test/s?q={query}"));
+
+        s.search("pf4j");
+
+        assertEquals(java.util.Arrays.asList("http://first.test/s?q=pf4j",
+                "http://second.test/s?q=pf4j"), driver.opened);
     }
 
     @Test
@@ -280,11 +396,16 @@ public class PlaywrightBrowserSessionTest {
         FakeDriver driver = new FakeDriver();
         PlaywrightBrowserSession unconfigured = session(driver, UrlSafetyPolicy.strict(),
                 BrowserLimits.defaults(), null);
+        // Nothing to search WITH: no override and every engine switched off. The product ships with
+        // engines, so this is a deliberate empty selection, not the normal state.
+        unconfigured.setSearchEngines(
+                java.util.Collections.<com.aresstack.askai.browser.search.engine.BrowserSearchEngine>
+                        emptyList());
         try {
             unconfigured.search("pf4j");
             fail("expected honest unavailable-search error");
         } catch (BrowserException expected) {
-            assertTrue(expected.getMessage().contains("No search provider"));
+            assertTrue(expected.getMessage().contains("No search engine is enabled"));
         }
 
         FakeDriver driver2 = new FakeDriver();
@@ -321,7 +442,8 @@ public class PlaywrightBrowserSessionTest {
                 "PF4J guide", "http://target-two.test/pf4j", "PF4J docs", "http://target-three.test/pf4j"));
         PlaywrightBrowserSession s = session(driver, UrlSafetyPolicy.allowingPrivateNetworks(),
                 BrowserLimits.defaults(), "http://engine-one.test/find?q={query}");
-        s.setFallbackSearchTemplates(new String[]{"http://engine-two.test/html?q={query}"});
+        s.setSearchEngines(engines("http://engine-one.test/find?q={query}",
+                "http://engine-two.test/html?q={query}"));
 
         WebSearchResult result = s.search("pf4j");
 
@@ -342,7 +464,8 @@ public class PlaywrightBrowserSessionTest {
                 "Empty", "nothing", "Settings", "http://engine-two.test/settings"));
         PlaywrightBrowserSession s = session(driver, UrlSafetyPolicy.allowingPrivateNetworks(),
                 BrowserLimits.defaults(), "http://engine-one.test/find?q={query}");
-        s.setFallbackSearchTemplates(new String[]{"http://engine-two.test/html?q={query}"});
+        s.setSearchEngines(engines("http://engine-one.test/find?q={query}",
+                "http://engine-two.test/html?q={query}"));
 
         WebSearchResult result = s.search("pf4j");
 
@@ -370,7 +493,6 @@ public class PlaywrightBrowserSessionTest {
                         "PF4J docs", "http://target-three.test/pf4j"));
         PlaywrightBrowserSession s = session(driver, UrlSafetyPolicy.allowingPrivateNetworks(),
                 BrowserLimits.defaults(), "http://engine-one.test/find?q={query}");
-        s.setFallbackSearchTemplates(new String[0]);
 
         WebSearchResult result = s.search("pf4j");
 
@@ -388,7 +510,6 @@ public class PlaywrightBrowserSessionTest {
                 "PF4J docs", "http://target-three.test/pf4j"));
         PlaywrightBrowserSession s = session(driver, UrlSafetyPolicy.allowingPrivateNetworks(),
                 BrowserLimits.defaults(), "http://engine-one.test/find?q={query}");
-        s.setFallbackSearchTemplates(new String[0]);
 
         assertEquals(3, s.search("pf4j").getItems().size());
         assertEquals("no banner → no click", 0, driver.consentClicks);
@@ -406,7 +527,8 @@ public class PlaywrightBrowserSessionTest {
                 "PF4J docs", "http://target-three.test/pf4j"));
         PlaywrightBrowserSession s = session(driver, UrlSafetyPolicy.allowingPrivateNetworks(),
                 BrowserLimits.defaults(), "http://engine-one.test/find?q={query}");
-        s.setFallbackSearchTemplates(new String[]{"http://engine-two.test/html?q={query}"});
+        s.setSearchEngines(engines("http://engine-one.test/find?q={query}",
+                "http://engine-two.test/html?q={query}"));
 
         WebSearchResult result = s.search("pf4j");
         assertEquals("the fallback engine still delivered routes", 3, result.getItems().size());
@@ -437,14 +559,14 @@ public class PlaywrightBrowserSessionTest {
 
     @Test
     public void literalIpProvidersNeverFallThroughToPublicEngines() throws Exception {
-        // A literal-IP provider is a self-contained dev/test world: no fallback engine is contacted,
-        // and a page without result structure is typed EXTRACTION_FAILED - never raw anchors.
+        // A literal-IP provider is a self-contained dev/test world: an explicit --search-url override
+        // stands ALONE, so no configured public engine is contacted, and a page without result
+        // structure is typed EXTRACTION_FAILED - never raw anchors.
         FakeDriver driver = new FakeDriver();
         driver.byUrl.put("http://8.8.8.8/find?q=pf4j", state("http://8.8.8.8/find?q=pf4j",
                 "Find", "results", "Local result", "http://8.8.8.8/a"));
         PlaywrightBrowserSession s = session(driver, UrlSafetyPolicy.strict(),
                 BrowserLimits.defaults(), "http://8.8.8.8/find?q={query}");
-        s.setFallbackSearchTemplates(new String[]{"http://engine-two.test/html?q={query}"});
 
         WebSearchResult result = s.search("pf4j");
 
@@ -468,7 +590,6 @@ public class PlaywrightBrowserSessionTest {
                 "Third result", "http://127.0.0.1:4444/c"));
         PlaywrightBrowserSession s = session(driver, UrlSafetyPolicy.allowingPrivateNetworks(),
                 BrowserLimits.defaults(), "http://127.0.0.1:1111/find?q={query}");
-        s.setFallbackSearchTemplates(new String[0]);
         s.setDomainKeyResolver(new com.aresstack.askai.browser.domain.HostPortDomainKeyResolver());
 
         WebSearchResult result = s.search("pf4j");

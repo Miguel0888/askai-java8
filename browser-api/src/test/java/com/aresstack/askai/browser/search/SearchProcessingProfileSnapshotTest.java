@@ -48,7 +48,7 @@ public class SearchProcessingProfileSnapshotTest {
     public void unknownOlderSchemaHasNoGuessedMigration() {
         String json = SearchProcessingProfileSnapshot.create(
                         "s", 1L, 1L, LegacyBrowserSearchDefaults.create()).toJson()
-                .replace("\"schemaVersion\": 4", "\"schemaVersion\": 0");
+                .replace("\"schemaVersion\": 5", "\"schemaVersion\": 0");
         try {
             SearchProcessingProfileSnapshot.parse(json);
             fail("expected missing migration path");
@@ -84,7 +84,7 @@ public class SearchProcessingProfileSnapshotTest {
                 migrated.settings.analysis.repeatedBlockWeight, 0.0001);
         assertEquals("new A4 layout-repair fields take their central defaults", 16,
                 migrated.settings.layoutRepair.maximumCachedTickets);
-        assertEquals(4, migrated.schemaVersion);
+        assertEquals(5, migrated.schemaVersion);
     }
 
     @Test
@@ -106,7 +106,7 @@ public class SearchProcessingProfileSnapshotTest {
                 migrated.settings.aiLayoutResolver.modelProfileId);
         assertEquals("frozen overrides stay exactly as stored", 3000,
                 migrated.settings.captcha.challengeProbeIntervalMillis);
-        assertEquals(4, migrated.schemaVersion);
+        assertEquals(5, migrated.schemaVersion);
     }
 
     @Test

@@ -265,25 +265,9 @@ public final class ResearchRuntimeSettings {
                 store.get(KEY_SIDECAR_JAR, ""),
                 store.get(KEY_BROWSER_CHANNEL, "chrome"),
                 store.getBoolean(KEY_HEADLESS, true),
-                startEngineOf(store.get(KEY_SEARCH_URL, "")),
+                store.get(KEY_SEARCH_URL, ""),
                 store.getBoolean(KEY_ALLOW_PRIVATE, false),
                 store.get(KEY_RERANKER_MODEL, ""));
-    }
-
-    /**
-     * The engine a browser search starts at. An EMPTY setting takes the product default instead of failing
-     * validation, and the engine the product itself used to pre-fill (Bing) is replaced by it: that value
-     * was our suggestion, not a considered choice, and it cost every search one consent/challenge attempt
-     * before the search fell through to the engine that answers. An engine the user actually typed stands.
-     */
-    private static String startEngineOf(String persisted) {
-        String configured = nullToEmpty(persisted);
-        return configured.isEmpty()
-                || com.aresstack.askai.browser.search.LegacyBrowserSearchDefaults
-                        .SUPERSEDED_PRIMARY_ENGINE_TEMPLATE.equals(configured)
-                ? com.aresstack.askai.browser.search.LegacyBrowserSearchDefaults
-                        .DEFAULT_PRIMARY_ENGINE_TEMPLATE
-                : configured;
     }
 
     public void save(WorkspaceStateStore store) {
@@ -319,18 +303,15 @@ public final class ResearchRuntimeSettings {
     }
 
     /**
-     * The runtime rules ({@link ResearchRuntimeConfig#validate()}) PLUS the product-level requirements:
-     * the autonomous loop always seeds with {@code web_search}, so a search provider URL is mandatory for
-     * the productive mode (it is not an optional nicety), and the thin sidecar jar needs its sibling
-     * {@code lib/} directory. Empty = usable.
+     * The runtime rules ({@link ResearchRuntimeConfig#validate()}) PLUS the product-level requirement
+     * that the thin sidecar jar needs its sibling {@code lib/} directory. Empty = usable.
+     * <p>
+     * A search provider URL is NO LONGER required: the product ships with search engines and the user
+     * orders them in the search settings. The URL here is only the documented dev/test override, and
+     * demanding one meant every installation had to name an engine the product already knew.
      */
     public List<String> validateProductive() {
         List<String> problems = new java.util.ArrayList<String>(toRuntimeConfig().validate());
-        if (searchUrlTemplate.isEmpty()) {
-            problems.add("search provider URL is required (autonomous research starts with web_search), "
-                    + "e.g. " + com.aresstack.askai.browser.search.LegacyBrowserSearchDefaults
-                            .DEFAULT_PRIMARY_ENGINE_TEMPLATE);
-        }
         if (!sidecarJar.isEmpty() && new java.io.File(sidecarJar).isFile()) {
             java.io.File lib = new java.io.File(new java.io.File(sidecarJar).getParentFile(), "lib");
             if (!lib.isDirectory()) {

@@ -25,7 +25,7 @@ final class PlaywrightRenderedPageSource implements RenderedPageSource {
         this.session = session;
     }
 
-    public EngineCapture capture(String query) {
+    public EngineCapture capture(String query, final PageEvaluator evaluator) {
         final List<Captured> pages = new ArrayList<Captured>();
         try {
             PlaywrightBrowserSession.EngineNavigation nav =
@@ -34,7 +34,9 @@ final class PlaywrightRenderedPageSource implements RenderedPageSource {
                                 public boolean accept(RenderedPageDocument document, String host,
                                         List<LegacySearchEngineAttemptResult> attempts) {
                                     pages.add(new Captured(document, host));
-                                    return false; // collect EVERY engine's page for repair, in order
+                                    // Judge the page HERE, while the navigation can still act on it.
+                                    return evaluator != null
+                                            && evaluator.delivered(document, host);
                                 }
                             });
             return new EngineCapture(pages, nav.providerHosts, nav.attempts, nav.challenges);

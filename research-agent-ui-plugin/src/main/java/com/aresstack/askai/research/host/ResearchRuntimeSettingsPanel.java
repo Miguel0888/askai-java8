@@ -257,12 +257,9 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         // Carry any previously persisted reranker selection through invisibly (chosen centrally now).
         carriedRerankerModel = settings.getSelectedRerankerModel();
         headless.setSelected(settings.isHeadless());
-        // Visible, editable default so the productive mode is saveable without typing — the loop
-        // always starts with web_search, so an empty provider would only produce a validation error.
-        searchUrl.setText(settings.getSearchUrlTemplate().isEmpty()
-                ? com.aresstack.askai.browser.search.LegacyBrowserSearchDefaults
-                        .DEFAULT_PRIMARY_ENGINE_TEMPLATE
-                : settings.getSearchUrlTemplate());
+        // Empty is the normal state: the engines live in the search settings, ordered by the user.
+        // A value here OVERRIDES them with a single engine — a dev/test escape hatch, not a default.
+        searchUrl.setText(settings.getSearchUrlTemplate());
         allowPrivate.setSelected(settings.isAllowPrivateNetworks());
     }
 

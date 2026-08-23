@@ -103,7 +103,6 @@ public class PlaywrightLiveBrowserTest {
         if (session instanceof PlaywrightBrowserSession) {
             // Hermetic: never fall through to a real public search engine, and key domain families by
             // host:port so the two local servers act as distinct domains (production semantics untouched).
-            ((PlaywrightBrowserSession) session).setFallbackSearchTemplates(new String[0]);
             ((PlaywrightBrowserSession) session).setDomainKeyResolver(
                     new com.aresstack.askai.browser.domain.HostPortDomainKeyResolver());
         }

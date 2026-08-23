@@ -23,6 +23,8 @@ public final class SearchLayoutRepairTools {
     private final WebSearchLayoutRepairService service;
     private final RenderedPageSource pageSource;
     private final LongSupplier clock;
+    /** How the enabled engines are worked through — the USER's decision, carried here unchanged. */
+    private final com.aresstack.askai.browser.search.engine.EngineAcquisitionMode mode;
 
     public SearchLayoutRepairTools(LegacyBrowserSearchSettings settings, RenderedPageSource pageSource,
                                    LongSupplier clock) {
@@ -30,17 +32,32 @@ public final class SearchLayoutRepairTools {
                 settings.layoutRepair.maximumCachedTickets, settings.layoutRepair.ticketTtlMillis);
         this.pageSource = pageSource;
         this.clock = clock;
+        this.mode = settings.navigation.engineSelection.getMode();
     }
 
     /** {@code web_search_prepare(query)} → encoded {@link PreparedWebSearchResult}. */
-    public String prepare(String query) {
-        long now = clock.getAsLong();
-        RenderedPageSource.EngineCapture capture = pageSource.capture(query);
-        List<PreparedWebSearchResult> perEngine = new ArrayList<PreparedWebSearchResult>();
-        for (RenderedPageSource.Captured captured : capture.pages) {
-            perEngine.add(service.prepareSingle(captured.document, query, captured.engineHost, now));
-        }
-        PreparedWebSearchResult merged = WebSearchLayoutRepairService.merge(perEngine);
+    public String prepare(final String query) {
+        final long now = clock.getAsLong();
+        // Each page is analysed AS IT IS CAPTURED, so the navigation learns immediately whether this
+        // engine delivered. Analysing afterwards meant every engine was always visited, whatever the
+        // configuration said.
+        final List<PreparedWebSearchResult> perEngine = new ArrayList<PreparedWebSearchResult>();
+        RenderedPageSource.EngineCapture capture = pageSource.capture(query,
+                new RenderedPageSource.PageEvaluator() {
+                    public boolean delivered(
+                            com.aresstack.askai.browser.render.RenderedPageDocument document,
+                            String engineHost) {
+                        PreparedWebSearchResult single =
+                                service.prepareSingle(document, query, engineHost, now);
+                        perEngine.add(single);
+                        // A page that still needs a layout repair has NOT delivered yet: the repair
+                        // runs later, in the runtime, so the next engine is still worth visiting.
+                        return single.status
+                                == com.aresstack.askai.browser.search.repair
+                                        .WebSearchPreparationStatus.ORGANIC_RESULTS;
+                    }
+                });
+        PreparedWebSearchResult merged = WebSearchLayoutRepairService.merge(perEngine, mode);
         // Carry the navigation metadata (provider hosts, per-engine attempts, challenges) so the
         // research loop keeps the full legacy web_search behaviour.
         PreparedWebSearchResult withMetadata = new PreparedWebSearchResult(merged.status,

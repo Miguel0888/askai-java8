@@ -61,8 +61,6 @@ final class PlaywrightBrowserSession implements BrowserSession {
         this.settings = settings;
         this.searchUrlTemplate = searchUrlTemplate == null || searchUrlTemplate.trim().isEmpty()
                 ? null : searchUrlTemplate.trim();
-        this.fallbackSearchTemplates = settings.navigation.fallbackEngineTemplates
-                .toArray(new String[0]);
         this.searchProvider = searchProvider == null
                 ? new WebSearchProvider.OrganicResultSearchProvider(settings) : searchProvider;
     }
@@ -82,18 +80,28 @@ final class PlaywrightBrowserSession implements BrowserSession {
         return BrowserBackendKind.PLAYWRIGHT_SIDECAR;
     }
 
-    /**
-     * Scrape-friendly, server-rendered fallback engines (from the navigation settings; defaults in
-     * LegacyBrowserSearchDefaults): when the CONFIGURED engine yields no organic routes (consent wall,
-     * JS-only result page, blocking), the search falls through to these. If NO engine has organic
-     * routes, the result is typed and EMPTY — never the SERP's raw anchors (hard invariant of the
-     * Legacy-Browser-Search requirements).
-     */
-    private String[] fallbackSearchTemplates;
+    /** Test seam: search with exactly these engines (tests use literal-IP URLs, no DNS). */
+    private java.util.List<com.aresstack.askai.browser.search.engine.BrowserSearchEngine> engineOverride;
 
-    /** Test seam: replace the built-in fallback engines (tests use literal-IP URLs, no DNS). */
-    void setFallbackSearchTemplates(String[] templates) {
-        this.fallbackSearchTemplates = templates == null ? new String[0] : templates;
+    void setSearchEngines(java.util.List<com.aresstack.askai.browser.search.engine.BrowserSearchEngine> engines) {
+        this.engineOverride = engines;
+    }
+
+    /**
+     * The engines this search visits, in order. Precedence is the documented one: an explicit
+     * {@code --search-url} is a dev/test escape hatch and stands ALONE — it never falls through to
+     * public engines, because a local world must stay local. Otherwise the user's enabled engines
+     * decide, and nothing here privileges one of them.
+     */
+    private java.util.List<com.aresstack.askai.browser.search.engine.BrowserSearchEngine> enginesToVisit() {
+        if (engineOverride != null) {
+            return engineOverride;
+        }
+        if (searchUrlTemplate != null) {
+            return java.util.Collections.singletonList(
+                    com.aresstack.askai.browser.search.engine.BrowserSearchEngineCatalog.custom(searchUrlTemplate));
+        }
+        return settings.navigation.engineSelection.resolvedEnabledEngines();
     }
 
     @SuppressWarnings({"unchecked", "rawtypes"})
@@ -151,7 +159,11 @@ final class PlaywrightBrowserSession implements BrowserSession {
                 nav.providerHosts, nav.attempts);
     }
 
-    /** The captured-page hook for the shared engine navigation — returns true to STOP the loop. */
+    /**
+     * The captured-page hook for the shared engine navigation. It answers ONE question: did this page
+     * deliver usable organic results? Whether that ends the search is the acquisition mode's decision,
+     * not the consumer's.
+     */
     interface CapturedPageConsumer {
         boolean accept(com.aresstack.askai.browser.render.RenderedPageDocument document, String host,
                        List<com.aresstack.askai.browser.LegacySearchEngineAttemptResult> attempts);
@@ -178,34 +190,24 @@ final class PlaywrightBrowserSession implements BrowserSession {
     }
 
     /**
-     * The SINGLE engine-navigation loop (templates, fallback engines, domain-family locks, consent,
-     * challenge detection, provider hosts, capture, per-engine attempts). web_search and
-     * web_search_prepare both drive it; the consumer decides what to do with each captured page and
-     * when to stop, so web_search behaviour is unchanged and no ticket is left behind.
+     * The SINGLE engine-navigation loop (engine order, endpoint alternatives, domain-family locks,
+     * consent, challenge detection, provider hosts, capture, per-engine attempts). web_search and
+     * web_search_prepare both drive it. The consumer says whether a captured page DELIVERED; the
+     * acquisition mode says whether that ends the run.
      */
     EngineNavigation navigateAndCaptureSearchEngines(String query, CapturedPageConsumer consumer)
             throws BrowserException {
-        if (searchUrlTemplate == null) {
-            throw new BrowserException("No search provider is configured for the Playwright backend "
-                    + "(start the sidecar with --search-url=<template containing {query}>).");
+        java.util.List<com.aresstack.askai.browser.search.engine.BrowserSearchEngine> engines = enginesToVisit();
+        if (engines.isEmpty()) {
+            throw new BrowserException("No search engine is enabled for the Playwright backend "
+                    + "(enable one in the search settings, or start the sidecar with "
+                    + "--search-url=<template containing {query}>).");
         }
         if (query == null || query.trim().isEmpty()) {
             throw new BrowserException("Empty search query.");
         }
         String encoded = encode(query.trim());
-        List<String> templates = new ArrayList<String>();
-        templates.add(searchUrlTemplate);
-        // Fallback engines only make sense behind a PUBLIC engine (Bing & co.). A literal-IP/localhost
-        // provider is a self-contained dev/test world — falling through to a public engine would leave it.
-        if (domainKeys.resolve(searchUrlTemplate).getHostKind()
-                == com.aresstack.askai.browser.domain.HostKind.REGISTERED_NAME) {
-            for (String fallback : fallbackSearchTemplates) {
-                if (!fallback.equals(searchUrlTemplate)
-                        && templates.size() < settings.navigation.maximumEngineAttempts) {
-                    templates.add(fallback);
-                }
-            }
-        }
+        com.aresstack.askai.browser.search.engine.EngineAcquisitionMode mode = settings.navigation.engineSelection.getMode();
         List<String> providerHosts = new ArrayList<String>();
         List<com.aresstack.askai.browser.LegacySearchEngineAttemptResult> attempts =
                 new ArrayList<com.aresstack.askai.browser.LegacySearchEngineAttemptResult>();
@@ -213,75 +215,94 @@ final class PlaywrightBrowserSession implements BrowserSession {
                 new ArrayList<com.aresstack.askai.browser.search.repair.SearchChallengeState>();
         boolean anyEngineReached = false;
         BrowserException lastFailure = null;
-        for (String template : templates) {
-            String engineHost = com.aresstack.askai.browser.domain.PublicSuffixDomainKeyResolver
-                    .hostOf(template);
-            String engineFamily = domainKeys.resolve(template).getRegistrableDomain();
-            if (engineFamily.equals(challengeFamily)) {
-                // MANUAL_CHALLENGE_PENDING: no new search, no reload, no retry on this family.
-                attempts.add(attempt(engineHost,
-                        com.aresstack.askai.browser.LegacySearchAttemptOutcome.CHALLENGE_PENDING,
-                        "family locked"));
-                continue;
-            }
-            BrowserPageSnapshot page;
-            try {
-                page = open(template.replace("{query}", encoded));
-            } catch (BrowserException engineUnreachable) {
-                lastFailure = engineUnreachable;
-                attempts.add(attempt(engineHost,
-                        com.aresstack.askai.browser.LegacySearchAttemptOutcome.NAVIGATION_FAILED,
-                        engineUnreachable.getMessage()));
-                continue; // this engine is down/blocked — the next one may still deliver routes
-            }
-            anyEngineReached = true;
-            // SERP guards, encapsulated here (never in the research loop): consent first, then the
-            // challenge check — a challenge page is never read as a result page.
-            if (driver.tryDismissConsent().startsWith("clicked")) {
-                page = checkedSnapshot(driver.current()); // re-read without the consent overlay
-            }
-            com.aresstack.askai.browser.domain.DomainIdentity pageIdentity =
-                    domainKeys.resolve(page.getUrl());
-            String host = pageIdentity.getHost();
-            if (driver.challengePresent()) {
-                if (challengeFamily == null && driver.parkChallenge()) {
-                    challengeFamily = pageIdentity.getRegistrableDomain();
-                    challengeUrl = page.getUrl();
+        int endpointsOpened = 0;
+        for (com.aresstack.askai.browser.search.engine.BrowserSearchEngine engine : engines) {
+            // An engine's endpoints are alternative ways to ask the SAME provider: the first one that
+            // answers ends this engine's turn, whatever the acquisition mode is. Only whether the NEXT
+            // engine is visited at all is a policy question.
+            boolean engineDelivered = false;
+            for (String template : engine.getEndpointTemplates()) {
+                if (endpointsOpened >= settings.navigation.maximumEngineAttempts) {
+                    break;
                 }
-                challenges.add(new com.aresstack.askai.browser.search.repair.SearchChallengeState(
-                        pageIdentity.getRegistrableDomain(), page.getUrl()));
-                attempts.add(attempt(host,
-                        com.aresstack.askai.browser.LegacySearchAttemptOutcome.CHALLENGE_PENDING,
-                        "manual challenge"));
-                continue; // the user solves it manually; try the next engine meanwhile
+                String engineHost = com.aresstack.askai.browser.domain.PublicSuffixDomainKeyResolver
+                        .hostOf(template);
+                String engineFamily = domainKeys.resolve(template).getRegistrableDomain();
+                if (engineFamily.equals(challengeFamily)) {
+                    // MANUAL_CHALLENGE_PENDING: no new search, no reload, no retry on this family.
+                    attempts.add(attempt(engineHost,
+                            com.aresstack.askai.browser.LegacySearchAttemptOutcome.CHALLENGE_PENDING,
+                            "family locked"));
+                    continue;
+                }
+                endpointsOpened++;
+                BrowserPageSnapshot page;
+                try {
+                    page = open(template.replace("{query}", encoded));
+                } catch (BrowserException engineUnreachable) {
+                    lastFailure = engineUnreachable;
+                    attempts.add(attempt(engineHost,
+                            com.aresstack.askai.browser.LegacySearchAttemptOutcome.NAVIGATION_FAILED,
+                            engineUnreachable.getMessage()));
+                    continue; // this endpoint is down/blocked — the next one may still deliver routes
+                }
+                anyEngineReached = true;
+                // SERP guards, encapsulated here (never in the research loop): consent first, then the
+                // challenge check — a challenge page is never read as a result page.
+                if (driver.tryDismissConsent().startsWith("clicked")) {
+                    page = checkedSnapshot(driver.current()); // re-read without the consent overlay
+                }
+                com.aresstack.askai.browser.domain.DomainIdentity pageIdentity =
+                        domainKeys.resolve(page.getUrl());
+                String host = pageIdentity.getHost();
+                if (driver.challengePresent()) {
+                    if (challengeFamily == null && driver.parkChallenge()) {
+                        challengeFamily = pageIdentity.getRegistrableDomain();
+                        challengeUrl = page.getUrl();
+                    }
+                    challenges.add(new com.aresstack.askai.browser.search.repair.SearchChallengeState(
+                            pageIdentity.getRegistrableDomain(), page.getUrl()));
+                    attempts.add(attempt(host,
+                            com.aresstack.askai.browser.LegacySearchAttemptOutcome.CHALLENGE_PENDING,
+                            "manual challenge"));
+                    continue; // the user solves it manually; try the next endpoint/engine meanwhile
+                }
+                // Transit semantics only exist for PUBLIC engines; an IP/localhost dev world has no
+                // engine navigation to hide, so it never marks itself as transit.
+                if (!host.isEmpty() && !providerHosts.contains(host)
+                        && pageIdentity.getHostKind()
+                                == com.aresstack.askai.browser.domain.HostKind.REGISTERED_NAME) {
+                    providerHosts.add(host);
+                }
+                // A3: judge the STRUCTURED rendered page — container hierarchy, repeated result
+                // blocks, primary links, snippets. Navigation targets are the RESOLVED direct URLs.
+                com.aresstack.askai.browser.render.RenderedPageDocument document;
+                try {
+                    document = driver.captureRenderedPage(domainKeys, ++snapshotGeneration);
+                } catch (BrowserException captureFailed) {
+                    attempts.add(attempt(host,
+                            com.aresstack.askai.browser.LegacySearchAttemptOutcome.EXTRACTION_FAILED,
+                            bounded(captureFailed.getMessage())));
+                    continue;
+                }
+                if (document == null) {
+                    attempts.add(attempt(host,
+                            com.aresstack.askai.browser.LegacySearchAttemptOutcome.EXTRACTION_FAILED,
+                            "structured page capture unavailable"));
+                    continue;
+                }
+                // The consumer states a FACT - did this page deliver usable organic results - and the
+                // policy below decides what that means for the run. It used to decide both, so what the
+                // configuration said and what the search did could drift apart unnoticed.
+                if (consumer.accept(document, host, attempts)) {
+                    engineDelivered = true;
+                    break;
+                }
             }
-            // Transit semantics only exist for PUBLIC engines; an IP/localhost dev world has no
-            // engine navigation to hide, so it never marks itself as transit.
-            if (!host.isEmpty() && !providerHosts.contains(host)
-                    && pageIdentity.getHostKind()
-                            == com.aresstack.askai.browser.domain.HostKind.REGISTERED_NAME) {
-                providerHosts.add(host);
+            if (engineDelivered && mode == com.aresstack.askai.browser.search.engine.EngineAcquisitionMode.FIRST_USABLE) {
+                break; // an engine answered; the ones behind it are the safety net, not extra work
             }
-            // A3: judge the STRUCTURED rendered page — container hierarchy, repeated result
-            // blocks, primary links, snippets. Navigation targets are the RESOLVED direct URLs.
-            com.aresstack.askai.browser.render.RenderedPageDocument document;
-            try {
-                document = driver.captureRenderedPage(domainKeys, ++snapshotGeneration);
-            } catch (BrowserException captureFailed) {
-                attempts.add(attempt(host,
-                        com.aresstack.askai.browser.LegacySearchAttemptOutcome.EXTRACTION_FAILED,
-                        bounded(captureFailed.getMessage())));
-                continue;
-            }
-            if (document == null) {
-                attempts.add(attempt(host,
-                        com.aresstack.askai.browser.LegacySearchAttemptOutcome.EXTRACTION_FAILED,
-                        "structured page capture unavailable"));
-                continue;
-            }
-            // The consumer decides what to do with this captured page and whether to stop the loop
-            // (web_search stops on the first organic hit; web_search_prepare keeps collecting).
-            if (consumer.accept(document, host, attempts)) {
+            if (endpointsOpened >= settings.navigation.maximumEngineAttempts) {
                 break;
             }
         }

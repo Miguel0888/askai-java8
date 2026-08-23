@@ -40,11 +40,11 @@ public final class LegacyBrowserSearchSettingsCodec {
 
     public static Map<String, String> toValues(LegacyBrowserSearchSettings s) {
         Map<String, String> m = new LinkedHashMap<String, String>();
-        m.put("navigation.fallbackEngineTemplates", joinList(s.navigation.fallbackEngineTemplates));
+        m.put("navigation.engines", s.navigation.engineSelection.encodeEntries());
         m.put("navigation.maximumEngineAttempts", String.valueOf(s.navigation.maximumEngineAttempts));
         m.put("navigation.navigationCommitTimeoutMillis",
                 String.valueOf(s.navigation.navigationCommitTimeoutMillis));
-        m.put("navigation.engineSwitchPolicy", s.navigation.engineSwitchPolicy.name());
+        m.put("navigation.engineAcquisitionMode", s.navigation.engineSelection.getMode().name());
         m.put("navigation.redirectResolutionEnabled",
                 String.valueOf(s.navigation.redirectResolutionEnabled));
         m.put("navigation.maximumRedirectUrlLength",
@@ -239,11 +239,14 @@ public final class LegacyBrowserSearchSettingsCodec {
         Reader r = new Reader(values, toValues(LegacyBrowserSearchDefaults.create()));
         LegacyBrowserSearchSettings settings = new LegacyBrowserSearchSettings(
                 new LegacySearchNavigationSettings(
-                        r.list("navigation.fallbackEngineTemplates"),
+                        new com.aresstack.askai.browser.search.engine.BrowserSearchEngineSelection(
+                                com.aresstack.askai.browser.search.engine.BrowserSearchEngineSelection.parseEntries(
+                                        r.string("navigation.engines")),
+                                (com.aresstack.askai.browser.search.engine.EngineAcquisitionMode) r.enumValue(
+                                        "navigation.engineAcquisitionMode",
+                                        com.aresstack.askai.browser.search.engine.EngineAcquisitionMode.class)),
                         r.intValue("navigation.maximumEngineAttempts"),
                         r.intValue("navigation.navigationCommitTimeoutMillis"),
-                        (EngineSwitchPolicy) r.enumValue("navigation.engineSwitchPolicy",
-                                EngineSwitchPolicy.class),
                         r.boolValue("navigation.redirectResolutionEnabled"),
                         r.intValue("navigation.maximumRedirectUrlLength"),
                         r.intValue("navigation.searchResultLimit"),

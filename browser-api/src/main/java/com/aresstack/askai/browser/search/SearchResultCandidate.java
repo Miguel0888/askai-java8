@@ -26,6 +26,12 @@ public final class SearchResultCandidate {
     public final double primaryLinkConfidence;
     /** Stored as metadata; in A3 sitelinks are never emitted as own initial candidates. */
     public final List<SearchResultSiteLink> siteLinks;
+    /**
+     * WHICH engine this hit came from. When several engines are asked, the union has to stay
+     * accountable: "who said this" is part of the finding, not a detail of how it was fetched. Empty
+     * when the source did not name an engine (API providers, synthetic candidates).
+     */
+    public final String engineHost;
 
     public SearchResultCandidate(String candidateId, String snapshotId, String resolvedTargetUrl,
                                  String rawSearchHref, String title, String snippet,
@@ -33,6 +39,18 @@ public final class SearchResultCandidate {
                                  String resultContainerId, String resultBlockContainerId,
                                  double structuralConfidence, double primaryLinkConfidence,
                                  List<SearchResultSiteLink> siteLinks) {
+        this(candidateId, snapshotId, resolvedTargetUrl, rawSearchHref, title, snippet,
+                displayedDomain, originalRank, resultContainerId, resultBlockContainerId,
+                structuralConfidence, primaryLinkConfidence, siteLinks, "");
+    }
+
+    public SearchResultCandidate(String candidateId, String snapshotId, String resolvedTargetUrl,
+                                 String rawSearchHref, String title, String snippet,
+                                 String displayedDomain, int originalRank,
+                                 String resultContainerId, String resultBlockContainerId,
+                                 double structuralConfidence, double primaryLinkConfidence,
+                                 List<SearchResultSiteLink> siteLinks, String engineHost) {
+        this.engineHost = engineHost == null ? "" : engineHost;
         this.candidateId = candidateId;
         this.snapshotId = snapshotId;
         this.resolvedTargetUrl = resolvedTargetUrl == null ? "" : resolvedTargetUrl;
@@ -46,5 +64,13 @@ public final class SearchResultCandidate {
         this.structuralConfidence = structuralConfidence;
         this.primaryLinkConfidence = primaryLinkConfidence;
         this.siteLinks = Collections.unmodifiableList(siteLinks);
+    }
+
+    /** The same hit, attributed to the engine that produced it. */
+    public SearchResultCandidate attributedTo(String engine) {
+        return new SearchResultCandidate(candidateId, snapshotId, resolvedTargetUrl, rawSearchHref,
+                title, snippet, displayedDomain, originalRank, resultContainerId,
+                resultBlockContainerId, structuralConfidence, primaryLinkConfidence, siteLinks,
+                engine);
     }
 }

@@ -42,7 +42,7 @@ public class LegacyBrowserSearchConfigDocumentTest {
         }
         assertTrue(subset.containsKey("consent.enabled"));
         assertTrue(subset.containsKey("captcha.challengeProbeIntervalMillis"));
-        assertTrue(subset.containsKey("navigation.fallbackEngineTemplates"));
+        assertTrue(subset.containsKey("navigation.engines"));
     }
 
     @Test

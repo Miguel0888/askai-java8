@@ -167,6 +167,12 @@ final class LegacyBrowserSearchSettingsPanel extends JPanel {
                     String get() { return String.valueOf(combo.getSelectedItem()); }
                     void set(String v) { combo.setSelectedItem(v); }
                 };
+            case ENGINE_LIST:
+                final SearchEngineOrderEditor engines = new SearchEngineOrderEditor(value);
+                return new FieldEditor(engines) {
+                    String get() { return engines.get(); }
+                    void set(String v) { engines.set(v); }
+                };
             case TEXT_LIST:
             case PROMPT:
                 final JTextArea area = new JTextArea(value,

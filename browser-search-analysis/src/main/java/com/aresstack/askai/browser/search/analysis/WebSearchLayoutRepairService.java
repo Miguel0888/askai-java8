@@ -62,7 +62,7 @@ public final class WebSearchLayoutRepairService {
         SearchResultExtractionResult extraction = extractor.extract(document, query);
 
         if (!resolution.lowConfidence) {
-            return prepared(statusOf(extraction.outcome), extraction.candidates,
+            return prepared(statusOf(extraction.outcome), attributed(extraction.candidates, engineHost),
                     Collections.<SearchLayoutRepairRequest>emptyList(), extraction.diagnostics);
         }
         if (extraction.outcome == SearchPageAnalysisOutcome.NO_ORGANIC_RESULTS) {
@@ -86,6 +86,19 @@ public final class WebSearchLayoutRepairService {
         List<SearchLayoutRepairRequest> requests = Collections.singletonList(request);
         return prepared(WebSearchPreparationStatus.REPAIR_REQUIRED,
                 Collections.<SearchResultCandidate>emptyList(), requests, extraction.diagnostics);
+    }
+
+    /** Attribute every hit of one page to the engine it came from — provenance, not decoration. */
+    private static List<SearchResultCandidate> attributed(List<SearchResultCandidate> candidates,
+                                                          String engineHost) {
+        if (engineHost == null || engineHost.isEmpty()) {
+            return candidates;
+        }
+        List<SearchResultCandidate> attributed = new ArrayList<SearchResultCandidate>();
+        for (SearchResultCandidate candidate : candidates) {
+            attributed.add(candidate.attributedTo(engineHost));
+        }
+        return attributed;
     }
 
     /** A per-page prepared result — navigation metadata (hosts/attempts/challenges) is added later. */
@@ -152,7 +165,9 @@ public final class WebSearchLayoutRepairService {
                 extraction.outcome == SearchPageAnalysisOutcome.ORGANIC_RESULTS
                         ? SearchLayoutRepairStatus.ORGANIC_RESULTS
                         : SearchLayoutRepairStatus.EXTRACTION_FAILED;
-        return new SearchLayoutRepairResult(status, extraction.candidates, extraction.diagnostics);
+        // A repaired hit is as much "from this engine" as a mechanically extracted one.
+        return new SearchLayoutRepairResult(status,
+                attributed(extraction.candidates, entry.engineHost), extraction.diagnostics);
     }
 
     public void discard(SearchLayoutRepairAttemptId attemptId) {
@@ -169,8 +184,25 @@ public final class WebSearchLayoutRepairService {
      * repair requests are offered in order; otherwise an explicit empty is reported; else FAILED.
      */
     public static PreparedWebSearchResult merge(List<PreparedWebSearchResult> perEngine) {
+        return merge(perEngine, com.aresstack.askai.browser.search.engine.EngineAcquisitionMode
+                .FIRST_USABLE);
+    }
+
+    /**
+     * Fold the per-engine results into one, the way the user asked for.
+     * <p>
+     * FIRST_USABLE takes the first engine that delivered — the ones behind it were the safety net.
+     * ALL_ENABLED takes the UNION of everything that delivered, deduplicated by target URL, keeping
+     * each hit's engine provenance: that is the whole point of asking several engines.
+     */
+    public static PreparedWebSearchResult merge(List<PreparedWebSearchResult> perEngine,
+            com.aresstack.askai.browser.search.engine.EngineAcquisitionMode mode) {
+        boolean union = mode == com.aresstack.askai.browser.search.engine.EngineAcquisitionMode
+                .ALL_ENABLED;
         List<SearchLayoutRepairRequest> repairs = new ArrayList<SearchLayoutRepairRequest>();
         List<String> diagnostics = new ArrayList<String>();
+        List<SearchResultCandidate> merged = new ArrayList<SearchResultCandidate>();
+        java.util.Set<String> seenTargets = new java.util.LinkedHashSet<String>();
         boolean sawNoResults = false;
         for (PreparedWebSearchResult result : perEngine) {
             if (result == null) {
@@ -178,13 +210,26 @@ public final class WebSearchLayoutRepairService {
             }
             diagnostics.addAll(result.diagnostics);
             if (result.status == WebSearchPreparationStatus.ORGANIC_RESULTS) {
-                return prepared(WebSearchPreparationStatus.ORGANIC_RESULTS, result.candidates,
-                        Collections.<SearchLayoutRepairRequest>emptyList(), diagnostics);
+                if (!union) {
+                    return prepared(WebSearchPreparationStatus.ORGANIC_RESULTS, result.candidates,
+                            Collections.<SearchLayoutRepairRequest>emptyList(), diagnostics);
+                }
+                for (SearchResultCandidate candidate : result.candidates) {
+                    if (seenTargets.add(candidate.resolvedTargetUrl)) {
+                        merged.add(candidate);
+                    }
+                }
+                continue;
             }
             repairs.addAll(result.repairRequests);
             if (result.status == WebSearchPreparationStatus.NO_ORGANIC_RESULTS) {
                 sawNoResults = true;
             }
+        }
+        if (union && !merged.isEmpty()) {
+            // Engines that still need a repair do not hold the union back: their tickets travel along
+            // and the runtime may add their hits later.
+            return prepared(WebSearchPreparationStatus.ORGANIC_RESULTS, merged, repairs, diagnostics);
         }
         if (!repairs.isEmpty()) {
             return prepared(WebSearchPreparationStatus.REPAIR_REQUIRED,

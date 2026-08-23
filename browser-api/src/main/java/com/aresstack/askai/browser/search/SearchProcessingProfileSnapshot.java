@@ -81,12 +81,16 @@ public final class SearchProcessingProfileSnapshot {
             case 1:
             case 2:
             case 3:
+            case 4:
                 // v1 → v2 (A3 analysis fields) and v2 → v3 (A4 layout-repair ticket-cache settings):
                 // every older value stays valid and the new keys take their central defaults during
                 // decoding. v3 → v4: the AI layout resolver ships productively enabled — a frozen
                 // profile still carrying the stale disabled SHIPPED default is lifted below. The
                 // stored digest covered the older key set, so it is recomputed (digest verification
-                // only applies to un-migrated current-version snapshots).
+                // only applies to un-migrated current-version snapshots). v4 → v5: the old
+                // primaryEngine/fallbackEngineTemplates keys simply stop being read, and the engine
+                // selection takes its central default — a frozen profile never carried an engine ORDER
+                // to preserve, only a fallback list the user could not order anyway.
                 return withProductiveAiLayoutResolver(document);
             default:
                 // parse() already rejects NEWER versions; an unknown older one has no migration path.

@@ -14,7 +14,11 @@ import java.util.List;
  */
 public final class LegacyBrowserSearchSettingsCatalog {
 
-    public enum Kind { BOOLEAN, INTEGER, DECIMAL, TEXT, TEXT_LIST, PROMPT, CHOICE }
+    public enum Kind {
+        BOOLEAN, INTEGER, DECIMAL, TEXT, TEXT_LIST, PROMPT, CHOICE,
+        /** An ORDERED list of switchable search engines — order carries meaning, so a text box will not do. */
+        ENGINE_LIST
+    }
 
     public static final class Field {
         public final String key;
@@ -71,17 +75,18 @@ public final class LegacyBrowserSearchSettingsCatalog {
     public static List<Field> fields() {
         List<Field> f = new ArrayList<Field>();
         // --- Engines and Navigation
-        list(f, "navigation.fallbackEngineTemplates", SECTION_ENGINES, "Fallback engine templates",
-                "Fallback search engines (one URL template with {query} per line), tried in order "
-                        + "after the configured primary engine yields no organic results.");
+        engineList(f, "navigation.engines", SECTION_ENGINES, "Search engines",
+                "The enabled search engines in execution order (\"duckduckgo:on,bing:off\"). Edited "
+                        + "through the engine list, whose order IS the order they are tried in.");
         integer(f, "navigation.maximumEngineAttempts", SECTION_ENGINES, "Maximum engine attempts",
-                "Upper bound of engines tried per search (primary + fallbacks).", 1, 10);
+                "Upper bound of engine endpoints opened per search (one engine may own several).", 1, 10);
         integer(f, "navigation.navigationCommitTimeoutMillis", SECTION_ENGINES,
                 "Navigation commit timeout (ms)",
                 "Timeout for a navigation to commit in the browser.", 1_000, 120_000);
-        choice(f, "navigation.engineSwitchPolicy", SECTION_ENGINES, "Engine switch policy",
-                "Ordering strategy for engine attempts; the switch semantics themselves are a fixed "
-                        + "invariant.", enumNames(EngineSwitchPolicy.values()));
+        choice(f, "navigation.engineAcquisitionMode", SECTION_ENGINES, "Search strategy",
+                "FIRST_USABLE stops at the first engine that delivers usable organic results; "
+                        + "ALL_ENABLED visits every enabled engine and merges what they found.",
+                enumNames(com.aresstack.askai.browser.search.engine.EngineAcquisitionMode.values()));
         bool(f, "navigation.redirectResolutionEnabled", SECTION_ENGINES, "Resolve redirect wrappers",
                 "Statically resolve engine redirect wrappers (Bing /ck/, Google /url, DuckDuckGo /l/) "
                         + "before any domain judgement.");
@@ -426,6 +431,12 @@ public final class LegacyBrowserSearchSettingsCatalog {
                                 double min, double max) {
         f.add(new Field(key, section, Kind.DECIMAL, label, desc, min, max,
                 Collections.<String>emptyList(), Collections.<String>emptyList()));
+    }
+
+    private static void engineList(List<Field> f, String key, String section, String label,
+                                   String description) {
+        f.add(new Field(key, section, Kind.ENGINE_LIST, label, description, Double.NaN, Double.NaN,
+                java.util.Collections.<String>emptyList(), java.util.Collections.<String>emptyList()));
     }
 
     private static void text(List<Field> f, String key, String section, String label, String desc) {

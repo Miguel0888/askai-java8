@@ -441,6 +441,7 @@ public final class SearchLayoutRepairJson {
             str(sb, "resultBlockContainerId", c.resultBlockContainerId).append(',');
             dbl(sb, "structuralConfidence", c.structuralConfidence).append(',');
             dbl(sb, "primaryLinkConfidence", c.primaryLinkConfidence).append(',');
+            str(sb, "engineHost", c.engineHost).append(',');
             sb.append("\"siteLinks\":[");
             for (int j = 0; j < c.siteLinks.size(); j++) {
                 if (j > 0) {
@@ -472,7 +473,7 @@ public final class SearchLayoutRepairJson {
                     reqStr(c, "displayedDomain"), reqInt(c, "originalRank"),
                     reqStr(c, "resultContainerId"), reqStr(c, "resultBlockContainerId"),
                     reqDouble(c, "structuralConfidence"), reqDouble(c, "primaryLinkConfidence"),
-                    siteLinks));
+                    siteLinks, optStr(c, "engineHost")));
         }
         return candidates;
     }
@@ -556,6 +557,12 @@ public final class SearchLayoutRepairJson {
             throw new DecodeException("missing required object field '" + key + "'");
         }
         return asObject(o.get(key), key);
+    }
+
+    /** An optional string field: absent means empty, never a decode failure (older payloads). */
+    private static String optStr(Map<String, Object> o, String key) {
+        Object value = o.get(key);
+        return value instanceof String ? (String) value : "";
     }
 
     private static String reqStr(Map<String, Object> o, String key) {

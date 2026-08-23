@@ -28,6 +28,15 @@ public interface RenderedPageSource {
         }
     }
 
+    /**
+     * Asked about every captured page, in order: did THIS page deliver usable organic results? The
+     * answer decides whether the engine behind it has done its job — never whether the search stops,
+     * which is the acquisition mode's call.
+     */
+    interface PageEvaluator {
+        boolean delivered(RenderedPageDocument document, String engineHost);
+    }
+
     /** The result of navigating and capturing the configured engines for one query. */
     final class EngineCapture {
         public final List<Captured> pages;
@@ -59,6 +68,11 @@ public interface RenderedPageSource {
         }
     }
 
-    /** Navigate and capture the engine result pages for the query, in engine order. Never null. */
-    EngineCapture capture(String query);
+    /**
+     * Navigate the enabled engines in order, capturing each result page and handing it to the
+     * evaluator as it arrives. Evaluating INSIDE the navigation is what makes "stop at the first
+     * engine that delivers" possible at all: a judgement made after every engine has been visited
+     * comes too late to save the visits. Never null.
+     */
+    EngineCapture capture(String query, PageEvaluator evaluator);
 }

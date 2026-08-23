@@ -21,14 +21,18 @@ public final class DefaultLegacyBrowserSearchSettingsValidator
                 s.navigation.navigationCommitTimeoutMillis);
         atLeast(v, "navigation.maximumRedirectUrlLength", s.navigation.maximumRedirectUrlLength, 256);
         atLeast(v, "navigation.searchResultLimit", s.navigation.searchResultLimit, 1);
-        for (String template : s.navigation.fallbackEngineTemplates) {
-            if (!template.contains("{query}")) {
-                v.add(new SettingsValidationResult.Violation("navigation.fallbackEngineTemplates",
-                        "engine template must contain {query}: " + template));
-            }
+        require(v, "navigation.engines", s.navigation.engineSelection != null,
+                "engine selection must be set");
+        if (s.navigation.engineSelection != null) {
+            // A search with no engine cannot search. An unknown id alone is not an error (a config from a
+            // newer build stays readable) — having NOTHING left to visit is.
+            require(v, "navigation.engines",
+                    !s.navigation.engineSelection.resolvedEnabledEngines().isEmpty(),
+                    "at least one known search engine must be enabled");
+            require(v, "navigation.engineAcquisitionMode",
+                    s.navigation.engineSelection.getMode() != null,
+                    "engine acquisition mode must be set");
         }
-        require(v, "navigation.engineSwitchPolicy", s.navigation.engineSwitchPolicy != null,
-                "engine switch policy must be set");
 
         // --- consent
         atLeast(v, "consent.maximumDismissAttempts", s.consent.maximumDismissAttempts, 1);
