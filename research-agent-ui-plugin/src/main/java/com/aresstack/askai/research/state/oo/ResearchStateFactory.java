@@ -88,6 +88,19 @@ public final class ResearchStateFactory {
         return phase(memento.getPhaseId(), state);
     }
 
+    /**
+     * The phase this FORWARD (phase-progressing) command would move into from this state, or {@code null}
+     * when the graph has no such edge (interruption commands always answer {@code null} — they never
+     * progress a phase). This is a read of the ONE transition graph, exposed so a UI can make phases
+     * clickable without ever holding a second transition table.
+     */
+    public String forwardTargetPhaseId(ResearchPhaseState phase,
+                                       com.aresstack.askai.research.state.ResearchCommandType command) {
+        ResearchStateGraph.Edge edge = ResearchStateGraph.forward(
+                phase.getPhaseId(), phase.getCurrentState().getStateId(), command);
+        return edge == null ? null : edge.targetPhaseId;
+    }
+
     /** Snapshot a phase state to a memento (ids only). */
     public ResearchStateMemento snapshot(ResearchPhaseState phase, long revision) {
         PhaseState state = phase.getCurrentState();

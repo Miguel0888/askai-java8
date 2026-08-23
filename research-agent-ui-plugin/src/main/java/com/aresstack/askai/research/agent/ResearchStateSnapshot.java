@@ -2,13 +2,16 @@ package com.aresstack.askai.research.agent;
 
 import com.aresstack.askai.research.state.ResearchCommandType;
 import com.aresstack.askai.research.state.oo.ResearchPhaseState;
+import com.aresstack.askai.research.state.oo.ResearchStateFactory;
 import com.aresstack.askai.research.state.oo.ResearchStateIds;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -32,6 +35,7 @@ public final class ResearchStateSnapshot {
     private final boolean terminal;
     private final String problem;
     private final Set<ResearchCommandType> allowedCommands;
+    private final Map<String, ResearchCommandType> advanceCommandByPhase;
 
     private ResearchStateSnapshot(ResearchPhaseState phase, long revision, String problem) {
         this.currentPhaseId = phase.getPhaseId();
@@ -43,6 +47,17 @@ public final class ResearchStateSnapshot {
         this.problem = problem == null ? "" : problem;
         this.allowedCommands = Collections.unmodifiableSet(
                 new LinkedHashSet<ResearchCommandType>(phase.getAllowedCommands()));
+        // Which allowed command moves INTO which phase — read from the ONE transition graph via the
+        // factory, so a click surface never needs its own table. Interruptions never appear here.
+        Map<String, ResearchCommandType> advance = new LinkedHashMap<String, ResearchCommandType>();
+        ResearchStateFactory factory = ResearchStateFactory.getInstance();
+        for (ResearchCommandType command : this.allowedCommands) {
+            String target = factory.forwardTargetPhaseId(phase, command);
+            if (target != null && !advance.containsKey(target)) {
+                advance.put(target, command);
+            }
+        }
+        this.advanceCommandByPhase = Collections.unmodifiableMap(advance);
     }
 
     public static ResearchStateSnapshot of(ResearchPhaseState phase, long revision, String problem) {
@@ -83,6 +98,14 @@ public final class ResearchStateSnapshot {
 
     public Set<ResearchCommandType> getAllowedCommands() {
         return allowedCommands;
+    }
+
+    /**
+     * The allowed FORWARD command that would move the session into this phase (also the current
+     * phase, e.g. a within-phase "continue"), or {@code null} when no allowed command leads there.
+     */
+    public ResearchCommandType advanceCommandFor(String phaseId) {
+        return advanceCommandByPhase.get(phaseId);
     }
 
     /** @return phases before the current one (treated as completed for the timeline). */

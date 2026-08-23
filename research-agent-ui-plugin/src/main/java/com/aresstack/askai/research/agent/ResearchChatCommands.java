@@ -27,12 +27,27 @@ public final class ResearchChatCommands {
     }
 
     public static List<ChatCommandContribution> all() {
-        // ONE synchronized command surface: actions live as RED tags (a projection of the semantic
-        // command resolver); the composer keeps only the TEXT adapters — /search (user web search) and
-        // /open (artifact navigation). /do is gone: internal ResearchCommandType names are not user API.
+        // ONE synchronized command surface: the TEXT adapters — /search (user web search) and /open
+        // (artifact navigation) — plus one slash command per SEMANTIC state command. The semantic
+        // names (submit-scope, approve, …) ARE user API (they are the red tags' ids and the MCP
+        // vocabulary); internal ResearchCommandType enum names still never are. Every semantic slash
+        // command executes through the session's ONE structured command processor — exactly what a
+        // red-tag click runs, so /submit-scope and "Fragestellung freigeben & weiter" are twins.
         List<ChatCommandContribution> commands = new ArrayList<ChatCommandContribution>();
         commands.add(new OpenCommand());
         commands.add(new SearchCommand());
+        commands.add(new SemanticStateCommand("submit-scope",
+                "Approve the research brief and continue into the research phase"));
+        commands.add(new SemanticStateCommand("approve",
+                "Approve the pending review gate (outline/evidence/draft/final)"));
+        commands.add(new SemanticStateCommand("request-changes",
+                "Request changes at the pending review gate"));
+        commands.add(new SemanticStateCommand("continue",
+                "Continue with the next step (start research/drafting)"));
+        commands.add(new SemanticStateCommand("pause", "Pause the running research"));
+        commands.add(new SemanticStateCommand("resume", "Continue where the research paused"));
+        commands.add(new SemanticStateCommand("retry", "Retry the step that failed"));
+        commands.add(new SemanticStateCommand("cancel", "Cancel this research session"));
         return commands;
     }
 
@@ -73,6 +88,46 @@ public final class ResearchChatCommands {
             // No command-result line: the visible "Websuche: <query>" breadcrumb is emitted (and persisted)
             // uniformly from the search's 'started' event, so the typed command and a suggestion click match.
             return CommandExecutionResult.handled("");
+        }
+    }
+
+    /**
+     * A slash twin of a red action tag: {@code /<semantic-name>} runs the SAME semantic command
+     * through {@link ResearchAgentSession#executeCommand} that a tag click runs — one processor,
+     * no side paths. The processor's honest "handled:/rejected:" answer becomes the chat feedback,
+     * so a command that is not allowed in the current phase says so instead of doing nothing.
+     */
+    private static final class SemanticStateCommand extends Base {
+        private final String name;
+        private final String description;
+
+        SemanticStateCommand(String name, String description) {
+            this.name = name;
+            this.description = description;
+        }
+
+        public ChatCommandDescriptor getDescriptor() {
+            return ChatCommandDescriptor.of(name, description);
+        }
+
+        public CommandExecutionResult execute(CommandInvocation invocation, AgentSessionContext context) {
+            ResearchAgentSession session = research(context);
+            if (session == null) {
+                return CommandExecutionResult.unknown();
+            }
+            String arguments = String.join(" ", invocation.getArguments()).trim();
+            String outcome = session.executeCommand(name, arguments);
+            if (outcome == null) {
+                return CommandExecutionResult.rejected("The command produced no result.");
+            }
+            if (outcome.startsWith("handled")) {
+                return CommandExecutionResult.handled(stripPrefix(outcome, "handled:"));
+            }
+            return CommandExecutionResult.rejected(stripPrefix(outcome, "rejected:"));
+        }
+
+        private static String stripPrefix(String outcome, String prefix) {
+            return outcome.startsWith(prefix) ? outcome.substring(prefix.length()).trim() : outcome;
         }
     }
 

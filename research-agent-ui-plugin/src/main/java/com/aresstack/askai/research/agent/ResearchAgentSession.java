@@ -2140,43 +2140,16 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     }
 
     /** The SEMANTIC state-command names — the whole user/bot vocabulary beside the service commands. */
-    private static final java.util.List<String> SEMANTIC_COMMANDS = java.util.Arrays.asList(
-            "submit-scope", "approve", "request-changes", "continue", "retry", "resume",
-            "pause", "cancel");
+    private static final java.util.List<String> SEMANTIC_COMMANDS = ResearchSemanticCommands.names();
 
     /**
      * Resolve a semantic command against the CURRENT state, or {@code null} when it is not available now.
-     * This is the ONE forward mapping (semantic name -> concrete ResearchCommandType); the buttons are a
-     * projection of exactly this resolution — no second action matrix anywhere.
+     * The name→candidates table lives in {@link ResearchSemanticCommands} — the ONE forward mapping the
+     * red tags, slash commands and the State tab's phase clicks all project from; no second action matrix.
      */
     private ResearchCommandType resolveSemanticCommand(String cmd) {
         java.util.Set<ResearchCommandType> allowed = currentAllowedCommands();
-        java.util.List<ResearchCommandType> candidates;
-        if ("submit-scope".equals(cmd)) {
-            candidates = java.util.Arrays.asList(ResearchCommandType.SUBMIT_SCOPE);
-        } else if ("approve".equals(cmd)) {
-            candidates = java.util.Arrays.asList(ResearchCommandType.APPROVE_OUTLINE,
-                    ResearchCommandType.APPROVE_EVIDENCE, ResearchCommandType.APPROVE_DRAFT,
-                    ResearchCommandType.APPROVE_FINAL);
-        } else if ("request-changes".equals(cmd)) {
-            candidates = java.util.Arrays.asList(ResearchCommandType.REQUEST_OUTLINE_CHANGES,
-                    ResearchCommandType.REQUEST_REVISION);
-        } else if ("continue".equals(cmd)) {
-            candidates = java.util.Arrays.asList(ResearchCommandType.START_RESEARCH,
-                    ResearchCommandType.START_DRAFTING);
-        } else if ("retry".equals(cmd)) {
-            candidates = java.util.Arrays.asList(ResearchCommandType.RETRY);
-        } else if ("resume".equals(cmd)) {
-            candidates = java.util.Arrays.asList(ResearchCommandType.RESUME,
-                    ResearchCommandType.UNBLOCK);
-        } else if ("pause".equals(cmd)) {
-            candidates = java.util.Arrays.asList(ResearchCommandType.PAUSE);
-        } else if ("cancel".equals(cmd)) {
-            candidates = java.util.Arrays.asList(ResearchCommandType.CANCEL);
-        } else {
-            return null;
-        }
-        for (ResearchCommandType candidate : candidates) {
+        for (ResearchCommandType candidate : ResearchSemanticCommands.candidates(cmd)) {
             if (allowed.contains(candidate)) {
                 return candidate;
             }

@@ -34,13 +34,27 @@ public final class ResearchStateViewContribution implements ArtifactViewContribu
         }
         final ResearchAgentSession research = (ResearchAgentSession) session;
         final UiExecutor uiExecutor = context.getUiExecutor();
-        // The tab's buttons route through the session's command port — the SAME seam as chat action
-        // tags and slash commands. Never the state machine directly: the session owns the memento
-        // and the transition's side effects (turn cancel, MCP republish, notifications).
+        // Phase clicks and run controls route through the session's SEMANTIC command processor —
+        // the exact same path as the red tags, the slash commands and the MCP run_command. That
+        // matters beyond symmetry: e.g. submit-scope runs the full brief-approval commit there,
+        // which a raw state-machine dispatch would silently skip. Never the machine directly.
         view.setCommandListener(new ResearchStateView.CommandListener() {
             public com.aresstack.askai.research.backend.ResearchCommandDispatchResult commandClicked(
                     com.aresstack.askai.research.state.ResearchCommandType command) {
-                return research.dispatch(command, null);
+                String semantic = ResearchSemanticCommands.semanticNameFor(command);
+                if (semantic == null) {
+                    return research.dispatch(command, null); // not user vocabulary — plain dispatch
+                }
+                String outcome = research.executeCommand(semantic, "");
+                if (outcome != null && outcome.startsWith("handled")) {
+                    return com.aresstack.askai.research.backend.ResearchCommandDispatchResult
+                            .accepted();
+                }
+                String detail = outcome == null ? "The command produced no result."
+                        : outcome.replaceFirst("^rejected:\\s*", "");
+                return com.aresstack.askai.research.backend.ResearchCommandDispatchResult.of(
+                        com.aresstack.askai.research.backend.ResearchCommandDispatchResult
+                                .Status.DISPATCH_FAILED, detail);
             }
         });
         final Runnable refresh = new Runnable() {

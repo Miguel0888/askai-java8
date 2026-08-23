@@ -108,57 +108,63 @@ public class ResearchStateViewTest {
         assertTrue(viewHolder[0].renderedText().contains("approval: a9"));
     }
 
-    // ------------------------------------------------------------------ interactive command bar
+    // ------------------------------------------------------------------ clickable phases
 
     @Test
-    public void commandButtonsMirrorTheDomainAllowedCommands() throws Exception {
+    public void theNextPhaseIsClickableWithTheDomainAdvanceCommand() throws Exception {
+        // SCOPING/running: SUBMIT_SCOPE leads into RESEARCH → the RESEARCH plate is the control.
         final ResearchStateSnapshot s =
-                snapshot(ResearchStateIds.RESEARCH, ResearchStateIds.RUNNING, null, null, 5L, "");
+                snapshot(ResearchStateIds.SCOPING, ResearchStateIds.RUNNING, null, null, 2L, "");
+        assertTrue(s.advanceCommandFor(ResearchStateIds.RESEARCH) == ResearchCommandType.SUBMIT_SCOPE);
         javax.swing.SwingUtilities.invokeAndWait(new Runnable() {
             public void run() {
-                ResearchStateView view = new ResearchStateView();
-                view.setCommandListener(new ResearchStateView.CommandListener() {
-                    public com.aresstack.askai.research.backend.ResearchCommandDispatchResult
-                            commandClicked(ResearchCommandType command) {
-                        return com.aresstack.askai.research.backend.ResearchCommandDispatchResult
-                                .accepted();
-                    }
-                });
+                ResearchStateView view = acceptingView();
                 view.setSnapshot(s);
-                java.util.List<com.aresstack.comiccontrols.control.ComicButton> buttons =
-                        view.commandButtonsForTest();
-                assertTrue("one button per allowed command",
-                        buttons.size() == s.getAllowedCommands().size());
-                java.util.Set<String> labels = new java.util.HashSet<String>();
-                for (com.aresstack.comiccontrols.control.ComicButton b : buttons) {
-                    labels.add(b.getText());
-                }
-                assertTrue(labels.contains(ResearchStateView.label(
-                        ResearchCommandType.REQUEST_EVIDENCE_REVIEW)));
-                assertTrue(labels.contains(ResearchStateView.label(ResearchCommandType.PAUSE)));
-                assertFalse("commands the state forbids get NO button", labels.contains(
-                        ResearchStateView.label(ResearchCommandType.APPROVE_OUTLINE)));
+                assertTrue("the research plate carries the submit-scope advance",
+                        view.clickablePhasesForTest().get(ResearchStateIds.RESEARCH)
+                                == ResearchCommandType.SUBMIT_SCOPE);
             }
         });
     }
 
     @Test
-    public void withoutAListenerTheTabStaysReadOnly() throws Exception {
-        final ResearchStateSnapshot s =
-                snapshot(ResearchStateIds.RESEARCH, ResearchStateIds.RUNNING, null, null, 5L, "");
+    public void approvalGatesOfferForwardAndBackwardPhaseClicks() throws Exception {
+        // EVIDENCE approval: DRAFT = approve (forward), RESEARCH = request revision (backward).
+        final ResearchStateSnapshot s = snapshot(ResearchStateIds.EVIDENCE,
+                ResearchStateIds.WAITING_APPROVAL, null, "a1", 9L, "");
         javax.swing.SwingUtilities.invokeAndWait(new Runnable() {
             public void run() {
-                ResearchStateView view = new ResearchStateView();
+                ResearchStateView view = acceptingView();
                 view.setSnapshot(s);
-                assertTrue("no command port, no buttons", view.commandButtonsForTest().isEmpty());
+                java.util.Map<String, ResearchCommandType> clickable = view.clickablePhasesForTest();
+                assertTrue(clickable.get(ResearchStateIds.DRAFT)
+                        == ResearchCommandType.APPROVE_EVIDENCE);
+                assertTrue("clicking back on research means request revision",
+                        clickable.get(ResearchStateIds.RESEARCH)
+                                == ResearchCommandType.REQUEST_REVISION);
             }
         });
     }
 
     @Test
-    public void clickDispatchesThroughTheListenerAndShowsRejectionFeedback() throws Exception {
+    public void agentInternalAdvancesAreNotClickable() throws Exception {
+        // RESEARCH/running advances via REQUEST_EVIDENCE_REVIEW — an AGENT decision, not user
+        // vocabulary → no plate becomes a control (the user pauses/cancels, the agent advances).
         final ResearchStateSnapshot s =
                 snapshot(ResearchStateIds.RESEARCH, ResearchStateIds.RUNNING, null, null, 5L, "");
+        javax.swing.SwingUtilities.invokeAndWait(new Runnable() {
+            public void run() {
+                ResearchStateView view = acceptingView();
+                view.setSnapshot(s);
+                assertTrue(view.clickablePhasesForTest().isEmpty());
+            }
+        });
+    }
+
+    @Test
+    public void phaseClickDispatchesAndRejectionFeedbackIsShown() throws Exception {
+        final ResearchStateSnapshot s =
+                snapshot(ResearchStateIds.SCOPING, ResearchStateIds.RUNNING, null, null, 2L, "");
         javax.swing.SwingUtilities.invokeAndWait(new Runnable() {
             public void run() {
                 final java.util.List<ResearchCommandType> clicked =
@@ -170,53 +176,92 @@ public class ResearchStateViewTest {
                         clicked.add(command);
                         return com.aresstack.askai.research.backend.ResearchCommandDispatchResult.of(
                                 com.aresstack.askai.research.backend.ResearchCommandDispatchResult
-                                        .Status.INVALID_PHASE, "Not allowed in research/running.");
+                                        .Status.DISPATCH_FAILED, "The brief still needs a question.");
                     }
                 });
                 view.setSnapshot(s);
-                com.aresstack.comiccontrols.control.ComicButton pause = null;
-                for (com.aresstack.comiccontrols.control.ComicButton b : view.commandButtonsForTest()) {
-                    if (b.getText().equals(ResearchStateView.label(ResearchCommandType.PAUSE))) {
-                        pause = b;
-                    }
-                }
-                pause.doClick();
-                assertTrue("the click reached the command port with the right type",
-                        clicked.contains(ResearchCommandType.PAUSE));
-                assertTrue("the rejection reason is shown to the user",
-                        view.feedbackTextForTest().contains("Not allowed in research/running."));
+                view.clickPhaseForTest(ResearchStateIds.RESEARCH);
+                assertTrue(clicked.contains(ResearchCommandType.SUBMIT_SCOPE));
+                assertTrue("the honest domain reason is shown",
+                        view.feedbackTextForTest().contains("The brief still needs a question."));
 
                 view.setSnapshot(s); // the next state change clears stale feedback
-                assertFalse(view.feedbackTextForTest().contains("Not allowed"));
+                assertFalse(view.feedbackTextForTest().contains("needs a question"));
+            }
+        });
+    }
+
+    // ------------------------------------------------------------------ run controls
+
+    @Test
+    public void runControlsShowOnlyUserCommandsNeverFailOrBlock() throws Exception {
+        // RESEARCH/running allows REQUEST_EVIDENCE_REVIEW, PAUSE, BLOCK, FAIL, CANCEL — but the
+        // bar keeps only the USER run controls: Pause and Cancel.
+        final ResearchStateSnapshot s =
+                snapshot(ResearchStateIds.RESEARCH, ResearchStateIds.RUNNING, null, null, 5L, "");
+        javax.swing.SwingUtilities.invokeAndWait(new Runnable() {
+            public void run() {
+                ResearchStateView view = acceptingView();
+                view.setSnapshot(s);
+                java.util.Set<String> labels = new java.util.HashSet<String>();
+                for (com.aresstack.comiccontrols.control.ComicButton b : view.commandButtonsForTest()) {
+                    labels.add(b.getText());
+                }
+                assertTrue(labels.contains(ResearchStateView.label(ResearchCommandType.PAUSE)));
+                assertTrue(labels.contains(ResearchStateView.label(ResearchCommandType.CANCEL)));
+                assertFalse("FAIL is an agent signal, never a user button",
+                        labels.contains(ResearchStateView.label(ResearchCommandType.FAIL)));
+                assertFalse("BLOCK is an agent signal, never a user button",
+                        labels.contains(ResearchStateView.label(ResearchCommandType.BLOCK)));
+                assertFalse("phase advances live on the plates, not in the bar",
+                        labels.contains(ResearchStateView.label(
+                                ResearchCommandType.REQUEST_EVIDENCE_REVIEW)));
             }
         });
     }
 
     @Test
-    public void destructiveCommandsAreRedEverythingElseYellow() throws Exception {
+    public void cancelIsRedTheOtherRunControlsYellow() throws Exception {
         final ResearchStateSnapshot s =
                 snapshot(ResearchStateIds.RESEARCH, ResearchStateIds.RUNNING, null, null, 5L, "");
         javax.swing.SwingUtilities.invokeAndWait(new Runnable() {
             public void run() {
-                ResearchStateView view = new ResearchStateView();
-                view.setCommandListener(new ResearchStateView.CommandListener() {
-                    public com.aresstack.askai.research.backend.ResearchCommandDispatchResult
-                            commandClicked(ResearchCommandType command) {
-                        return com.aresstack.askai.research.backend.ResearchCommandDispatchResult
-                                .accepted();
-                    }
-                });
+                ResearchStateView view = acceptingView();
                 view.setSnapshot(s);
                 for (com.aresstack.comiccontrols.control.ComicButton b : view.commandButtonsForTest()) {
-                    boolean critical = b.getText().equals(
-                            ResearchStateView.label(ResearchCommandType.CANCEL))
-                            || b.getText().equals(ResearchStateView.label(ResearchCommandType.FAIL))
-                            || b.getText().equals(ResearchStateView.label(ResearchCommandType.BLOCK));
+                    boolean cancel = b.getText().equals(
+                            ResearchStateView.label(ResearchCommandType.CANCEL));
                     assertTrue(b.getText(), b.getAccent()
-                            == (critical ? com.aresstack.comiccontrols.control.ComicButton.Accent.CRITICAL
-                                         : com.aresstack.comiccontrols.control.ComicButton.Accent.ACTION));
+                            == (cancel ? com.aresstack.comiccontrols.control.ComicButton.Accent.CRITICAL
+                                       : com.aresstack.comiccontrols.control.ComicButton.Accent.ACTION));
                 }
             }
         });
+    }
+
+    @Test
+    public void withoutAListenerTheTabStaysReadOnly() throws Exception {
+        final ResearchStateSnapshot s =
+                snapshot(ResearchStateIds.SCOPING, ResearchStateIds.RUNNING, null, null, 2L, "");
+        javax.swing.SwingUtilities.invokeAndWait(new Runnable() {
+            public void run() {
+                ResearchStateView view = new ResearchStateView();
+                view.setSnapshot(s);
+                assertTrue("no command port, no buttons", view.commandButtonsForTest().isEmpty());
+                assertTrue("no command port, no clickable plates",
+                        view.clickablePhasesForTest().isEmpty());
+            }
+        });
+    }
+
+    private static ResearchStateView acceptingView() {
+        ResearchStateView view = new ResearchStateView();
+        view.setCommandListener(new ResearchStateView.CommandListener() {
+            public com.aresstack.askai.research.backend.ResearchCommandDispatchResult
+                    commandClicked(ResearchCommandType command) {
+                return com.aresstack.askai.research.backend.ResearchCommandDispatchResult.accepted();
+            }
+        });
+        return view;
     }
 }
