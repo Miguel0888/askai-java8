@@ -40,6 +40,22 @@ public class ManualSearchMapperTest {
     }
 
     @Test
+    public void completedCarriesTheStopReasonWhenItWasNotEnoughEvidence() {
+        // "1 Treffer" alone read as success even when the search had in truth run out of budget/paths.
+        ResearchBackendEvent budget = ResearchAcpEventMapper.mapUpdate(message(
+                "#RSX1# manual_search_completed request_id=R1 results=1 status=TOOL_BUDGET_EXHAUSTED")).build();
+        assertEquals("1 Treffer — Suchbudget erschöpft", budget.getText());
+
+        ResearchBackendEvent noPaths = ResearchAcpEventMapper.mapUpdate(message(
+                "#RSX1# manual_search_completed request_id=R1 results=0 status=NO_RELEVANT_PATHS")).build();
+        assertEquals("0 Treffer — keine weiteren relevanten Pfade", noPaths.getText());
+
+        ResearchBackendEvent sufficient = ResearchAcpEventMapper.mapUpdate(message(
+                "#RSX1# manual_search_completed request_id=R1 results=4 status=SUFFICIENT_EVIDENCE")).build();
+        assertEquals("a clean ending needs no explanation", "4 Treffer", sufficient.getText());
+    }
+
+    @Test
     public void anUnavailableFailureIsUserReadable() {
         String line = "#RSX1# manual_search_failed request_id=R1 reason=SEARCH_UNAVAILABLE";
         ResearchBackendEvent e = ResearchAcpEventMapper.mapUpdate(message(line)).build();

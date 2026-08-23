@@ -1149,7 +1149,10 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             if (searched != null && !searched.trim().isEmpty()) {
                 manualSearchedQueries.add(searched.trim().toLowerCase(java.util.Locale.ROOT));
             }
-            stopManualSearchBrowser();
+            // The browser DELIBERATELY stays open on a completed search: the user may be reading the last
+            // page (or a parked challenge), and the runtime has just rendered the terminal HUD onto it.
+            // Snapping the window shut here made a Skip that happened to end the run feel like a crash.
+            // The next search reuses the running generation; failed/session-end still tear it down.
             // Issue #29: the search is over here — the runtime no longer auto-reviews. When sources were
             // accepted, OFFER the derived AI step as an explicit action instead of running it implicitly.
             activeManualSearchRequestId = null;
@@ -1330,10 +1333,10 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     }
 
     /**
-     * A user web search has TERMINATED (completed/failed): stop the host-owned Playwright browser sidecar so
-     * it never lingers open — the same lifecycle the autonomous run gets on RUN_OUTCOME. It is only called on
-     * terminal events (a CAPTCHA/challenge wait emits {@code progress}, never {@code completed}/{@code failed}),
-     * so an in-flight manual challenge is never cut off.
+     * A user web search FAILED terminally: stop the host-owned Playwright browser sidecar (it is likely
+     * broken or unwanted). A COMPLETED search deliberately does NOT stop it — the browser stays open with
+     * the terminal HUD, the user keeps the page they were reading (or a parked challenge), and the next
+     * search reuses the running generation. Session teardown still closes everything.
      */
     private void stopManualSearchBrowser() {
         if (productiveResources != null) {

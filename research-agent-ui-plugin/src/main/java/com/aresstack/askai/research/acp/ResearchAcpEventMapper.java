@@ -188,7 +188,9 @@ public final class ResearchAcpEventMapper {
         } else if (ResearchRunWire.TYPE_MANUAL_SEARCH_COMPLETED.equals(type)) {
             subKind = "completed";
             int results = ResearchRunWire.intField(f, "results");
-            message = results == 1 ? "1 Treffer" : results + " Treffer";
+            // HONEST completion: the stop reason travels with the count. "1 Treffer" alone read as
+            // success even when the search had in truth run out of budget or paths.
+            message = manualSearchCompletionText(results, f.get("status"));
             // The raw accepted-source count for the session's post-search decision (review button or not).
             publicMessage = Integer.toString(results);
         } else if (ResearchRunWire.TYPE_MANUAL_SEARCH_REVIEW.equals(type)) {
@@ -204,6 +206,32 @@ public final class ResearchAcpEventMapper {
         return ResearchBackendEvent.builder(ResearchBackendEventType.MANUAL_SEARCH)
                 .activity("manual-search-" + requestId, ResearchActivityKind.TOOL_UPDATE, subKind, message)
                 .messages(publicMessage, requestId);
+    }
+
+    /** "N Treffer" plus WHY the search stopped, whenever that why is not "enough evidence". */
+    static String manualSearchCompletionText(int results, String status) {
+        String count = results == 1 ? "1 Treffer" : results + " Treffer";
+        String s = status == null ? "" : status.trim();
+        // Clean endings: enough evidence, or the plain strategy statuses whose count says it all.
+        if ("SUFFICIENT_EVIDENCE".equals(s) || "RESULTS".equals(s) || "NO_RESULTS".equals(s)) {
+            return count;
+        }
+        if ("NO_RELEVANT_PATHS".equals(s)) {
+            return count + " — keine weiteren relevanten Pfade";
+        }
+        if ("TOOL_BUDGET_EXHAUSTED".equals(s)) {
+            return count + " — Suchbudget erschöpft";
+        }
+        if ("TIME_BUDGET_EXHAUSTED".equals(s)) {
+            return count + " — Zeitbudget erschöpft";
+        }
+        if ("NO_SEMANTIC_MATCHES".equals(s)) {
+            return count + " — keine semantischen Übereinstimmungen";
+        }
+        if (s.isEmpty() || "UNKNOWN".equals(s)) {
+            return count;
+        }
+        return count + " — beendet: " + s;
     }
 
     private static String manualSearchFailureText(String reason) {
