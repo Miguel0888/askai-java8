@@ -303,9 +303,10 @@ public final class BubbleTranscriptPanel extends JPanel {
         }
         label.setForeground(palette.getInfoForeground());
         label.setBorder(BorderFactory.createEmptyBorder(7, 12, 7, 12));
-        label.setAlignmentX(CENTER_ALIGNMENT);
-        messageList.add(label);
-        messageList.add(Box.createVerticalStrut(2));
+        // The label centers its own TEXT (SwingConstants.CENTER) and fills the width like every other entry.
+        // Its alignmentX must not differ from the rows' — see addToMessageList.
+        label.setMaximumSize(new Dimension(Integer.MAX_VALUE, label.getPreferredSize().height));
+        addToMessageList(label);
         refreshTranscript();
     }
 
@@ -486,11 +487,28 @@ public final class BubbleTranscriptPanel extends JPanel {
 
     private BubbleMessageRow addBubbleRow(JComponent bubble, BubbleSide side) {
         BubbleMessageRow row = new BubbleMessageRow(bubble, side);
-        row.setAlignmentX(LEFT_ALIGNMENT);
-        messageList.add(row);
-        messageList.add(Box.createVerticalStrut(2));
+        addToMessageList(row);
         refreshTranscript();
         return row;
+    }
+
+    /**
+     * THE one way anything enters the transcript list, and it exists for one reason: every entry must carry
+     * the SAME alignmentX.
+     * <p>
+     * A BoxLayout on the Y axis lines its children up on a shared alignment point. Mix the values and it
+     * splits the container at that point — entries aligned LEFT (0.0) then receive only the part right of
+     * it. That is what happened to every NEW chat: it opens with a CENTER-aligned "New conversation…" hint,
+     * so every following row was laid out at half the width in the right half, while a restored chat (which
+     * has no such hint) was fine. No width, ratio or resize could have fixed it, because the split is
+     * proportional.
+     */
+    private void addToMessageList(JComponent entry) {
+        entry.setAlignmentX(LEFT_ALIGNMENT);
+        messageList.add(entry);
+        Component spacer = Box.createVerticalStrut(2);
+        ((JComponent) spacer).setAlignmentX(LEFT_ALIGNMENT);
+        messageList.add(spacer);
     }
 
     /** Adds the assistant answer inside a left speech bubble, capped in width and reflowing on resize. */
