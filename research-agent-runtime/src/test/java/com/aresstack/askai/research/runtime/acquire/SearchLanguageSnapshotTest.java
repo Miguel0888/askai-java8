@@ -139,6 +139,18 @@ public class SearchLanguageSnapshotTest {
         assertEquals("hühner unterschiede puten", strategy.lastRequest.getQuery());
     }
 
+    /** The sidecar's serp-pages diagnostics render as the card's "Suche:" line — or stay silent. */
+    @Test
+    public void theSerpPageCountsRenderForTheFunnelCard() {
+        assertEquals("html.duckduckgo.com 3 Seiten, www.bing.com 1 Seite",
+                WebSearchApplicationService.serpSummaryOf(java.util.Arrays.asList(
+                        "prepare status=ORGANIC_RESULTS",
+                        "serp-pages: html.duckduckgo.com=3, www.bing.com=1")));
+        assertEquals("no serp diagnostics (API provider) — no line", "",
+                WebSearchApplicationService.serpSummaryOf(java.util.Arrays.asList("other")));
+        assertEquals("", WebSearchApplicationService.serpSummaryOf(null));
+    }
+
     @Test
     public void aMissingSnapshotKeepsTheProviderDefault() {
         CapturingStrategy strategy = new CapturingStrategy();

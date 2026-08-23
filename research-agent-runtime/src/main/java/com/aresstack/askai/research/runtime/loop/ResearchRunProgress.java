@@ -81,6 +81,15 @@ public final class ResearchRunProgress {
         }
     }
 
+    /** Which engine delivered how many SERP result pages this run ("duckduckgo.com 3 Seiten"). */
+    private String serpSummary = "";
+
+    public void setSerpSummary(String summary) {
+        this.serpSummary = summary == null ? "" : summary;
+    }
+
+    public String getSerpSummary() { return serpSummary; }
+
     public int getLinksDiscovered() { return linksDiscovered; }
     public int getLinksAssessed() { return linksAssessed; }
     public int getLinksSelected() { return linksSelected; }

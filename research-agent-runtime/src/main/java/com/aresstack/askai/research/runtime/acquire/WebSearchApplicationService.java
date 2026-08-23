@@ -354,6 +354,8 @@ public final class WebSearchApplicationService {
             initialStatus = result.status;
             // SERP candidates enter the funnel as discovered links (the reranker then assesses them all).
             progress.linksDiscovered(result.candidates.size());
+            // The search itself becomes visible: which engine delivered how many SERP result pages.
+            progress.setSerpSummary(serpSummaryOf(result.diagnostics));
             // Tick the card NOW: what the engines delivered is known here, well before reranking ends
             // and long before the first page opens.
             listener.progress(progress, ResearchRunActivity.searching(query));
@@ -1535,6 +1537,33 @@ public final class WebSearchApplicationService {
             noteIfBrowserClosed(failure);
             throw failure;
         }
+    }
+
+    /**
+     * The sidecar's {@code serp-pages: host=n, host=n} diagnostics line, rendered for the funnel card
+     * ({@code "html.duckduckgo.com 3 Seiten"}). Empty when the search carried none (API provider).
+     */
+    static String serpSummaryOf(List<String> diagnostics) {
+        for (String line : diagnostics == null ? java.util.Collections.<String>emptyList()
+                : diagnostics) {
+            if (line == null || !line.startsWith("serp-pages:")) {
+                continue;
+            }
+            StringBuilder sb = new StringBuilder();
+            for (String pair : line.substring("serp-pages:".length()).split(",")) {
+                String[] parts = pair.trim().split("=");
+                if (parts.length != 2 || parts[0].isEmpty()) {
+                    continue;
+                }
+                if (sb.length() > 0) {
+                    sb.append(", ");
+                }
+                sb.append(parts[0]).append(' ').append(parts[1])
+                        .append("1".equals(parts[1]) ? " Seite" : " Seiten");
+            }
+            return sb.toString();
+        }
+        return "";
     }
 
     /**
