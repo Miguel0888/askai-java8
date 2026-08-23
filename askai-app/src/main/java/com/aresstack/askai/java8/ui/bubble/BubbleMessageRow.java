@@ -65,10 +65,17 @@ final class BubbleMessageRow extends JPanel {
         bubble.setBounds(x, y, bubbleWidth, bubbleSize.height);
     }
 
+    /**
+     * The bubble width is derived from the width the chat HAS, not from a pixel constant inside the bubble:
+     * a fixed cap either does nothing on a narrow window or leaves large empty margins on a wide one. The
+     * row therefore hands its share down and lets the bubble ask for at most that.
+     */
     private int calculateBubbleWidth(int availableWidth) {
         int maximumAllowed = Math.max(120,
                 (int) Math.floor((availableWidth - (HORIZONTAL_MARGIN * 2)) * MAXIMUM_WIDTH_RATIO));
-        int preferredWidth = bubble.getPreferredSize().width;
+        int preferredWidth = bubble instanceof WidthBoundedBubble
+                ? ((WidthBoundedBubble) bubble).preferredWidthWithin(maximumAllowed)
+                : bubble.getPreferredSize().width;
         return Math.max(100, Math.min(maximumAllowed, preferredWidth));
     }
 

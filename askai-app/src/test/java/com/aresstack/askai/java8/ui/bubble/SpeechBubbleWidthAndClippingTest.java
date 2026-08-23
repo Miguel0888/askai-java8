@@ -82,11 +82,16 @@ public class SpeechBubbleWidthAndClippingTest {
         });
     }
 
+    /**
+     * The width is PROPORTIONAL to what the chat has. A fixed pixel cap would satisfy this at 900px and
+     * quietly turn a 2560px window back into a narrow column with huge empty margins — which is why the
+     * widest viewport here is deliberately far beyond any constant in the code.
+     */
     @Test
     public void bubblesUseTheAvailableWidthInsteadOfStayingInANarrowColumn() throws Exception {
         onEdt(new Runnable() {
             public void run() {
-                for (int width : new int[]{900, 1300}) {
+                for (int width : new int[]{900, 1300, 1920, 2560}) {
                     BubbleTranscriptPanel transcript = new BubbleTranscriptPanel();
                     transcript.appendUserMessage(LONG_MESSAGE);
                     transcript.setSize(width, 4000);

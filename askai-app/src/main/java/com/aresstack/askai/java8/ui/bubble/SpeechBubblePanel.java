@@ -30,17 +30,17 @@ import java.awt.geom.RoundRectangle2D;
  * unbroken texts were measured unwrapped once and rendered as a single clipped line.</p>
  */
 public final class SpeechBubblePanel extends JPanel
-        implements com.aresstack.askai.java8.ui.markdown.WidthAwareHeight {
+        implements com.aresstack.askai.java8.ui.markdown.WidthAwareHeight, WidthBoundedBubble {
 
     private static final int ARC = 22;
     private static final int TAIL_WIDTH = 16;
     private static final int HORIZONTAL_PADDING = 15;
     private static final int VERTICAL_PADDING = 11;
     /**
-     * The bubble's OWN upper bound. The transcript row already caps a bubble to a share of the available
-     * width, so this is only the readability limit for a very wide window — it must not be the thing that
-     * decides how wide a bubble gets on a normal one. At 580 it was exactly that: every message stayed in a
-     * narrow column no matter how much space the chat had.
+     * Only the fallback for a bubble used OUTSIDE a transcript row (showcases, standalone rendering). Inside
+     * a row the row supplies the limit through {@link WidthBoundedBubble}, because only it knows how much
+     * width the chat has. A fixed pixel cap must never be what decides the width: at 580 every message
+     * stayed in a narrow column, and any other constant would just move the same problem to a wider window.
      */
     private static final int DEFAULT_MAXIMUM_WIDTH = 1200;
     private static final int MINIMUM_WIDTH = 104;
@@ -174,6 +174,21 @@ public final class SpeechBubblePanel extends JPanel
         }
         this.maximumBubbleWidth = maximumBubbleWidth;
         refreshLayout();
+    }
+
+    /**
+     * The width this bubble wants within a limit the CALLER supplies — the transcript row's share of the
+     * chat width. A short message still asks for its natural width; only a long one grows into the limit.
+     */
+    @Override
+    public int preferredWidthWithin(int limit) {
+        int allowed = Math.max(MINIMUM_WIDTH, limit);
+        int contentMaximumWidth = allowed - TAIL_WIDTH - (HORIZONTAL_PADDING * 2);
+        int naturalWidth = calculateNaturalTextWidth();
+        int contentWidth = Math.max(72, Math.min(contentMaximumWidth, naturalWidth));
+        int headerWidth = headerLabel.isVisible() ? headerBlockSize().width : 0;
+        int width = Math.max(contentWidth, headerWidth) + (HORIZONTAL_PADDING * 2) + TAIL_WIDTH;
+        return Math.max(MINIMUM_WIDTH, Math.min(allowed, width));
     }
 
     @Override
