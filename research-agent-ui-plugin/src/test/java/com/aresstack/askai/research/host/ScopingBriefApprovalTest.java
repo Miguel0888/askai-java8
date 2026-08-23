@@ -226,7 +226,10 @@ public class ScopingBriefApprovalTest {
 
         assertEquals(ResearchStateIds.RESEARCH, fx.resources.currentState().getPhaseId());
         assertEquals(ResearchStateIds.RUNNING, fx.resources.currentState().getStateId());
-        assertFalse("the scoping-only accessory disappears once the phase leaves scoping", view.isVisible());
+        // Since the free-search tag became the surface's DEFAULT element, the accessory stays
+        // visible in every phase (/search is phase-independent); only the scoping suggestions go.
+        assertTrue("the tag surface stays visible after scoping — the search tag lives there",
+                view.isVisible());
     }
 
     @Test

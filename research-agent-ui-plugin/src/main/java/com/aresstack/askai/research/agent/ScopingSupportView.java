@@ -29,6 +29,13 @@ public final class ScopingSupportView extends JPanel {
     private static final String ACTION_COMMAND_PROPERTY = "research.action.command";
 
     private final JPanel tagsPanel;
+    /**
+     * The DEFAULT tag: a free search field in the suggestion-chip look (yellow, ink magnifier).
+     * ONE instance re-added on every render, so typed-but-not-yet-fired text survives re-renders.
+     * Firing runs the SAME search consumer a yellow suggestion click runs (= the /search path),
+     * so the captured results flow into the corpus and the bot can review them afterwards.
+     */
+    private final com.aresstack.comiccontrols.control.ComicSearchTag searchTag;
 
     private Consumer<String> searchAction;
     private Consumer<ResearchActionTag> actionHandler;
@@ -40,6 +47,19 @@ public final class ScopingSupportView extends JPanel {
 
     public ScopingSupportView() {
         super(new BorderLayout());
+
+        searchTag = new com.aresstack.comiccontrols.control.ComicSearchTag(
+                "Websuche…", "Direkt im Web suchen (wie /search)");
+        searchTag.addSearchAction(new ActionListener() {
+            public void actionPerformed(ActionEvent e) {
+                String query = searchTag.getText().trim();
+                if (query.isEmpty() || searchAction == null) {
+                    return;
+                }
+                searchTag.setText(""); // the query lives on as the visible "Websuche:" breadcrumb
+                searchAction.accept(query);
+            }
+        });
 
         JPanel content = new JPanel();
         content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
@@ -82,6 +102,11 @@ public final class ScopingSupportView extends JPanel {
             }
         }
         return null;
+    }
+
+    /** The default free-search tag (yellow chip look, ink magnifier) — for tests and focus control. */
+    public com.aresstack.comiccontrols.control.ComicSearchTag getSearchTag() {
+        return searchTag;
     }
 
     /** The rendered YELLOW suggestion tags only (red action tags are excluded). */
@@ -189,6 +214,7 @@ public final class ScopingSupportView extends JPanel {
 
     private void renderTags() {
         tagsPanel.removeAll(); // REPLACE, never accumulate old tags
+        tagsPanel.add(searchTag); // the free-search tag is the constant first element
         for (final ScopingAssistantUpdate.Suggestion suggestion : currentSuggestions) {
             ResearchTagButton tag = new ResearchTagButton(suggestion.getQuery());
             tag.setToolTipText(suggestion.getPurpose().isEmpty()
