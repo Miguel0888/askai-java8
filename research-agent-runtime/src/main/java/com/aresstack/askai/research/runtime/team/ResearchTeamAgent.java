@@ -227,10 +227,35 @@ public final class ResearchTeamAgent {
         if (parsed.isOk()) {
             return Parsed.ok(parsed.getOutput(), call.getText());
         }
+        traceParseFailure("first", parsed.getError(), call.getText());
         List<ChatMessage> repair = new ArrayList<ChatMessage>(messages);
         repair.add(ChatMessage.assistant(call.getText()));
         repair.add(ChatMessage.user(TeamAgentPlaybook.repairNudge()));
         return callParseOnce(repair, contract);
+    }
+
+    /**
+     * Make an UNUSABLE_ANSWER DIAGNOSABLE. The user only ever sees one honest line, which says nothing about
+     * WHY the turn failed — so a contract that keeps rejecting simple inputs can only be fixed by guessing,
+     * and guessing means weakening the contract until something passes. This records the concrete parse error
+     * together with the beginning of the model's actual answer, on STDERR like every other runtime log.
+     */
+    private static void traceParseFailure(String attempt, String error, String raw) {
+        System.err.println("[team-agent] parse failed (" + attempt + "): " + error
+                + " | answer=" + excerptOf(raw));
+    }
+
+    /** Enough of the answer to recognise its shape (fences, prose, truncation), never the whole turn. */
+    private static final int PARSE_FAILURE_EXCERPT_CHARS = 600;
+
+    private static String excerptOf(String raw) {
+        if (raw == null) {
+            return "<none>";
+        }
+        String flat = raw.replace('\n', '⏎');
+        return flat.length() <= PARSE_FAILURE_EXCERPT_CHARS
+                ? flat
+                : flat.substring(0, PARSE_FAILURE_EXCERPT_CHARS) + "…[" + flat.length() + " chars]";
     }
 
     /**
@@ -247,9 +272,12 @@ public final class ResearchTeamAgent {
         }
         PhaseParseResult parsed = contract.parse(call.getText());
         if (!parsed.isOk()) {
+            traceParseFailure("repair", parsed.getError(), call.getText());
             return Parsed.fail(TeamAgentResult.unusableAnswer(parsed.getError()));
         }
         if (!VisibleAssistantMessageValidator.isCleanBusinessMessage(parsed.getOutput().getAssistantMessage())) {
+            traceParseFailure("repair-meta-talk", "visible message is not a business message",
+                    parsed.getOutput().getAssistantMessage());
             return Parsed.fail(TeamAgentResult.unusableAnswer("repair produced a non-business message"));
         }
         return Parsed.ok(parsed.getOutput(), call.getText());

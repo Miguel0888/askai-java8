@@ -939,7 +939,9 @@ public final class ResearchAgentMain {
      */
     private void emitTeamAgentResult(SyncPromptContext ctx,
             com.aresstack.askai.research.runtime.team.TeamAgentResult result, String phaseId) {
-        ctx.sendMessage(com.aresstack.askai.research.runtime.team.TeamAgentReply.visible(result));
+        // A failure line is as visible as an answer: it follows the session language, not a hard-coded one.
+        ctx.sendMessage(com.aresstack.askai.research.runtime.team.TeamAgentReply.visible(
+                result, sessionLanguage.code()));
         // A scoping turn ALSO publishes a display-only projection (exploration map + search suggestions) for
         // the scoping workspace. It carries no research brief and moves nothing; a non-scoping turn projects
         // nothing (wireLineFor returns null).

@@ -165,6 +165,14 @@ public final class AcpResearchSessionBackend implements ResearchSessionBackend {
          * greeting was still being generated and let a second turn start on top of it.
          */
         private volatile PromptHandle foregroundPrompt;
+        /**
+         * Which foreground turn the handle above belongs to. A terminal always arrives for the prompt that
+         * produced it, possibly long after the user pressed Stop and started the next one — without this
+         * counter that late terminal would clear the NEW turn's handle (losing its Stop) and report "the
+         * turn is done" for a turn that is still running.
+         */
+        private final java.util.concurrent.atomic.AtomicLong foregroundGeneration =
+                new java.util.concurrent.atomic.AtomicLong();
         private volatile boolean closed;
 
         private AcpBackedSession(ResearchProjectRequest request, ResearchSessionListener listener) {
@@ -245,6 +253,8 @@ public final class AcpResearchSessionBackend implements ResearchSessionBackend {
             if (closed || acpSession == null) {
                 return;
             }
+            final long generation = foreground ? foregroundGeneration.incrementAndGet()
+                    : foregroundGeneration.get();
             PromptHandle handle = acpSession.prompt(text, new AcpUpdateListener() {
                 public void onUpdate(AcpUpdate update) {
                     ResearchBackendEvent.Builder builder = ResearchAcpEventMapper.mapUpdate(update);
@@ -257,6 +267,11 @@ public final class AcpResearchSessionBackend implements ResearchSessionBackend {
                     if (!foreground) {
                         return; // control traffic never reports "the turn is done"
                     }
+                    if (generation != foregroundGeneration.get()) {
+                        // A newer turn has started meanwhile (Stop + retype). This terminal belongs to the
+                        // abandoned one: it must neither end the new turn's busy state nor drop its handle.
+                        return;
+                    }
                     ResearchBackendEvent.Builder builder = ResearchAcpEventMapper.mapTerminal(state, detail);
                     if (builder != null) {
                         emit(builder);
@@ -264,7 +279,7 @@ public final class AcpResearchSessionBackend implements ResearchSessionBackend {
                     foregroundPrompt = null;
                 }
             });
-            if (foreground) {
+            if (foreground && generation == foregroundGeneration.get()) {
                 foregroundPrompt = handle;
             }
         }
