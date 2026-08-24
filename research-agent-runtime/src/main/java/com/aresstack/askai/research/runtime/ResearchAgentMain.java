@@ -709,9 +709,11 @@ public final class ResearchAgentMain {
         com.aresstack.askai.research.runtime.loop.SolonToolInvoker service = null;
         try {
             browser = new com.aresstack.askai.research.runtime.loop.SolonToolInvoker(
-                    environment.browserUrl, environment.browserTransport);
+                    environment.browserUrl, environment.browserTransport,
+                    browserToolTimeoutSeconds());
             service = new com.aresstack.askai.research.runtime.loop.SolonToolInvoker(
-                    environment.serviceUrl, environment.serviceTransport);
+                    environment.serviceUrl, environment.serviceTransport,
+                    browserToolTimeoutSeconds());
             // Resolve the SAME strategy the loop uses: the session API-provider strategy, else the legacy
             // browser default over this browser invoker.
             com.aresstack.askai.research.runtime.search.SearchStrategy strategy;
@@ -1104,16 +1106,37 @@ public final class ResearchAgentMain {
      * remains the only state authority — this process never switches phases). Stop reason and progress are
      * reported explicitly over ACP, never only to logs.
      */
+    /** Settings fallback when the host handed no value over (dev/tests) — never the ceiling itself. */
+    private static final int DEFAULT_BROWSER_TOOL_TIMEOUT_SECONDS = 300;
+
+    /**
+     * The MCP request timeout toward the browser sidecar — the host's SETTING, handed over per spawn.
+     * A multi-page SERP prepare (several engines x result pages, evaluation and pacing between
+     * fetches) legitimately runs for minutes; the old hard-coded 30s was misread as "sidecar dead"
+     * and ended every search as "Websuche technisch fehlgeschlagen" with empty sources.
+     */
+    private static int browserToolTimeoutSeconds() {
+        String raw = System.getenv("ASKAI_BROWSER_TOOL_TIMEOUT_SECONDS");
+        try {
+            int value = raw == null ? 0 : Integer.parseInt(raw.trim());
+            return value > 0 ? value : DEFAULT_BROWSER_TOOL_TIMEOUT_SECONDS;
+        } catch (NumberFormatException invalid) {
+            return DEFAULT_BROWSER_TOOL_TIMEOUT_SECONDS;
+        }
+    }
+
     private void runResearchLoop(final SyncPromptContext ctx, String task) {
         // Turn boundary (idle): apply any pending central-model descriptor reload BEFORE building the loop,
         // so this turn uses the freshly rebuilt inference port; a switch never happens mid-run.
         applyPendingModelReload(ctx);
         com.aresstack.askai.research.runtime.loop.SolonToolInvoker browser =
                 new com.aresstack.askai.research.runtime.loop.SolonToolInvoker(
-                        environment.browserUrl, environment.browserTransport);
+                        environment.browserUrl, environment.browserTransport,
+                        browserToolTimeoutSeconds());
         com.aresstack.askai.research.runtime.loop.SolonToolInvoker research =
                 new com.aresstack.askai.research.runtime.loop.SolonToolInvoker(
-                        environment.researchUrl, environment.researchTransport);
+                        environment.researchUrl, environment.researchTransport,
+                        browserToolTimeoutSeconds());
         try {
             final com.aresstack.askai.research.runtime.loop.ResearchRunBudget budget =
                     com.aresstack.askai.research.runtime.loop.EnvironmentRunBudget.from(System.getenv());

@@ -88,6 +88,11 @@ public final class ResearchRuntimeSettings {
     public static final int DEFAULT_SEARCH_MAX_TOOL_CALLS = 30;
     /** Safety time limit per search run (minutes) — user waits are never counted against it. */
     public static final int DEFAULT_SEARCH_MAX_MINUTES = 10;
+
+    /** Per-call MCP timeout toward the browser sidecar (seconds) — must cover a multi-page SERP prepare. */
+    public static final String KEY_BROWSER_TOOL_TIMEOUT_SECONDS =
+            "research.search.browserToolTimeoutSeconds";
+    public static final int DEFAULT_BROWSER_TOOL_TIMEOUT_SECONDS = 300;
     public static final int DEFAULT_SEARCH_MAX_ERRORS = 3;
     /** How many sources one post-search review may read, and how much of each. */
     public static final int DEFAULT_REVIEW_MAX_SOURCES = 12;

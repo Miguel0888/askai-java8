@@ -13,15 +13,29 @@ import java.util.Map;
  */
 public final class SolonToolInvoker implements ToolInvoker, AutoCloseable {
 
+    /** Fallback request timeout for quick control channels when the caller names none. */
+    public static final int DEFAULT_REQUEST_TIMEOUT_SECONDS = 30;
+
     private final McpClientProvider client;
 
     public SolonToolInvoker(String url, String transport) {
+        this(url, transport, DEFAULT_REQUEST_TIMEOUT_SECONDS);
+    }
+
+    /**
+     * @param requestTimeoutSeconds the per-call MCP timeout — the BROWSER channel must pass the
+     * configured value: a multi-page SERP prepare legitimately runs for minutes, and a too-small
+     * timeout here was misread as "sidecar dead" and ended every search as a technical failure.
+     */
+    public SolonToolInvoker(String url, String transport, int requestTimeoutSeconds) {
         this.client = McpClientProvider.builder()
                 .apiUrl(url)
                 .channel(transport == null || transport.isEmpty() ? "streamable" : transport)
                 .cacheSeconds(0)
                 .initializationTimeout(Duration.ofSeconds(15))
-                .requestTimeout(Duration.ofSeconds(30))
+                .requestTimeout(Duration.ofSeconds(
+                        requestTimeoutSeconds > 0 ? requestTimeoutSeconds
+                                : DEFAULT_REQUEST_TIMEOUT_SECONDS))
                 .build();
     }
 

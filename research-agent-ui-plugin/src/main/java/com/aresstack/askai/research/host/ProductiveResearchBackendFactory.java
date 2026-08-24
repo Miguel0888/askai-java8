@@ -98,6 +98,8 @@ public final class ProductiveResearchBackendFactory {
     private volatile int searchMaxPages = ResearchRuntimeSettings.DEFAULT_SEARCH_MAX_PAGES;
     private volatile int searchMaxToolCalls = ResearchRuntimeSettings.DEFAULT_SEARCH_MAX_TOOL_CALLS;
     private volatile int searchMaxMinutes = ResearchRuntimeSettings.DEFAULT_SEARCH_MAX_MINUTES;
+    private volatile int browserToolTimeoutSeconds =
+            ResearchRuntimeSettings.DEFAULT_BROWSER_TOOL_TIMEOUT_SECONDS;
     private volatile int searchMaxErrors = ResearchRuntimeSettings.DEFAULT_SEARCH_MAX_ERRORS;
 
     /** The user's search limits: completion target + the safety limits (pages/tools/minutes/errors). */
@@ -117,6 +119,13 @@ public final class ProductiveResearchBackendFactory {
         }
         if (maxConsecutiveErrors > 0) {
             this.searchMaxErrors = maxConsecutiveErrors;
+        }
+    }
+
+    /** Per-call MCP timeout toward the browser sidecar (seconds) — the settings value, never a constant. */
+    public void setBrowserToolTimeoutSeconds(int seconds) {
+        if (seconds > 0) {
+            this.browserToolTimeoutSeconds = seconds;
         }
     }
 
@@ -627,6 +636,8 @@ public final class ProductiveResearchBackendFactory {
             baseEnv.put("ASKAI_SEARCH_MAX_TOOL_CALLS", String.valueOf(searchMaxToolCalls));
             baseEnv.put("ASKAI_SEARCH_MAX_MINUTES", String.valueOf(searchMaxMinutes));
             baseEnv.put("ASKAI_SEARCH_MAX_ERRORS", String.valueOf(searchMaxErrors));
+            baseEnv.put("ASKAI_BROWSER_TOOL_TIMEOUT_SECONDS",
+                    String.valueOf(browserToolTimeoutSeconds));
             // DEV/TEST-only hand-off (mirrors askai.research.sidecar.args for the browser sidecar): extra JVM
             // args for the research-agent-runtime child, inserted BEFORE -jar so they are JVM flags. Empty by
             // default → no production effect. Set on the HOST JVM, e.g. to A/B the overlay:

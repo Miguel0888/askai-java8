@@ -51,6 +51,7 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
     private final JTextField searchMaxPages = new JTextField(4);
     private final JTextField searchMaxToolCalls = new JTextField(4);
     private final JTextField searchMaxMinutes = new JTextField(4);
+    private final JTextField browserToolTimeout = new JTextField(4);
     private final JTextField searchMaxErrors = new JTextField(4);
     // Review-context bounds: how many sources one review reads, and how much of each.
     private final JTextField reviewMaxSources = new JTextField(4);
@@ -123,6 +124,7 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         searchLimits.add(labelled("Tool-Calls", searchMaxToolCalls));
         searchLimits.add(javax.swing.Box.createHorizontalStrut(10));
         searchLimits.add(labelled("Minuten", searchMaxMinutes));
+        searchLimits.add(labelled("Tool-Timeout (s)", browserToolTimeout));
         searchLimits.add(javax.swing.Box.createHorizontalStrut(10));
         searchLimits.add(labelled("Fehler", searchMaxErrors));
         form.add(row("Such-Limits:", searchLimits));
@@ -284,6 +286,11 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         bindLimit(searchMaxErrors, ResearchRuntimeSettings.KEY_SEARCH_MAX_ERRORS,
                 ResearchRuntimeSettings.DEFAULT_SEARCH_MAX_ERRORS,
                 "Sicherheitslimit: maximale AUFEINANDERFOLGENDE technische Fehler, bevor der Lauf endet.");
+        bindLimit(browserToolTimeout, ResearchRuntimeSettings.KEY_BROWSER_TOOL_TIMEOUT_SECONDS,
+                ResearchRuntimeSettings.DEFAULT_BROWSER_TOOL_TIMEOUT_SECONDS,
+                "Timeout je Browser-Aufruf in Sekunden. Muss die komplette Suchmaschinen-Phase "
+                        + "abdecken (mehrere Engines und Ergebnisseiten, sequenziell mit Auswertung) — "
+                        + "zu klein wird als 'Sidecar tot' fehlgedeutet und bricht jede Suche ab.");
         bindLimit(reviewMaxSources, ResearchRuntimeSettings.KEY_REVIEW_MAX_SOURCES,
                 ResearchRuntimeSettings.DEFAULT_REVIEW_MAX_SOURCES,
                 "Wie viele Quellen eine Auswertung höchstens liest (neueste zuerst).");
