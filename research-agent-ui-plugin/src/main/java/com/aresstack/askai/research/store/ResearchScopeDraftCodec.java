@@ -26,8 +26,13 @@ import java.util.List;
  */
 public final class ResearchScopeDraftCodec {
 
-    /** The schema this build writes and can read. */
-    public static final int SCHEMA_VERSION = 1;
+    /**
+     * The schema this build writes and can read. v2 adds the semantic fence ANCHORS as canonical
+     * state; a v1 document is migrated deterministically on load (the draft derives each facet's
+     * anchor from its label and status — no AI, no data loss) and is rewritten as v2 on the next
+     * save.
+     */
+    public static final int SCHEMA_VERSION = 2;
 
     private ResearchScopeDraftCodec() {
     }
@@ -40,6 +45,7 @@ public final class ResearchScopeDraftCodec {
         document.add("domains", strings(draft.getDomains()));
         document.add("contexts", strings(draft.getContexts()));
         document.add("facets", facets(draft.getFacets()));
+        document.add("anchors", anchors(draft.getAnchors()));
         document.add("exclusions", strings(draft.getExclusions()));
         document.add("perspectives", strings(draft.getPerspectives()));
         document.add("constraints", strings(draft.getConstraints()));
@@ -106,6 +112,17 @@ public final class ResearchScopeDraftCodec {
                             ScopeFacet.Status.PROVISIONAL),
                     stringOf(facet, "rationale")));
         }
+        // v2 anchors (absent in v1: the draft derives them from the facets — the whole migration).
+        for (JsonElement element : array(document, "anchors")) {
+            JsonObject anchor = element.getAsJsonObject();
+            builder.putAnchor(new com.aresstack.askai.research.domain.scope.ScopeAnchor(
+                    stringOf(anchor, "anchorId"), stringOf(anchor, "facetId"),
+                    stringOf(anchor, "semanticText"),
+                    enumOf(com.aresstack.askai.research.domain.scope.ScopeAnchor.Membership.class,
+                            stringOf(anchor, "membership"),
+                            com.aresstack.askai.research.domain.scope.ScopeAnchor.Membership
+                                    .PROVISIONAL)));
+        }
         for (JsonElement element : array(document, "coverageEmphasis")) {
             JsonObject emphasis = element.getAsJsonObject();
             builder.putCoverageEmphasis(new CoverageEmphasis(stringOf(emphasis, "targetFacetId"),
@@ -168,6 +185,20 @@ public final class ResearchScopeDraftCodec {
             item.addProperty("label", facet.getLabel());
             item.addProperty("status", facet.getStatus().name());
             item.addProperty("rationale", facet.getRationale());
+            array.add(item);
+        }
+        return array;
+    }
+
+    private static JsonArray anchors(
+            List<com.aresstack.askai.research.domain.scope.ScopeAnchor> values) {
+        JsonArray array = new JsonArray();
+        for (com.aresstack.askai.research.domain.scope.ScopeAnchor anchor : values) {
+            JsonObject item = new JsonObject();
+            item.addProperty("anchorId", anchor.getAnchorId());
+            item.addProperty("facetId", anchor.getFacetId());
+            item.addProperty("semanticText", anchor.getSemanticText());
+            item.addProperty("membership", anchor.getMembership().name());
             array.add(item);
         }
         return array;

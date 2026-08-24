@@ -1,7 +1,6 @@
 package com.aresstack.askai.research.domain.scope;
 
 import com.aresstack.askai.research.domain.scope.ScopeFenceEvaluator.AnchorVector;
-import com.aresstack.askai.research.domain.scope.ScopeFenceEvaluator.FenceMembership;
 import com.aresstack.askai.research.domain.scope.ScopeFenceEvaluator.Hint;
 import com.aresstack.askai.research.domain.scope.ScopeFenceEvaluator.Reading;
 import com.aresstack.askai.research.domain.scope.ScopeFenceEvaluator.Thresholds;
@@ -32,13 +31,13 @@ public class ScopeFenceEvaluatorTest {
     private ScopeFenceEvaluator fence() {
         return new ScopeFenceEvaluator(Arrays.asList(
                 // Island A around axis 0 (e.g. "Schutzhelme mit Sensorik")
-                new AnchorVector("in-helme", FenceMembership.IN, v(1, 0, 0, 0)),
+                new AnchorVector("in-helme", ScopeAnchor.Membership.IN, v(1, 0, 0, 0)),
                 // Island B around axis 1 (e.g. "Gasdetektions-Wearables")
-                new AnchorVector("in-gas", FenceMembership.IN, v(0, 1, 0, 0)),
+                new AnchorVector("in-gas", ScopeAnchor.Membership.IN, v(0, 1, 0, 0)),
                 // OUT post CLOSE to island B (e.g. "Consumer-Fitnesstracker" neben Sensorik)
-                new AnchorVector("out-fitness", FenceMembership.OUT, v(0, 0.6f, 0.8f, 0)),
+                new AnchorVector("out-fitness", ScopeAnchor.Membership.OUT, v(0, 0.6f, 0.8f, 0)),
                 // A provisional post on its own axis — a hypothesis, not a boundary
-                new AnchorVector("prov-exo", FenceMembership.PROVISIONAL, v(0, 0, 0, 1))));
+                new AnchorVector("prov-exo", ScopeAnchor.Membership.PROVISIONAL, v(0, 0, 0, 1))));
     }
 
     @Test
@@ -53,8 +52,8 @@ public class ScopeFenceEvaluatorTest {
     public void bothIslandsCountAsInside_theFenceIsNotOneCircle() {
         // Near island B — far from island A, yet clearly IN: non-convex regions work.
         Reading reading = new ScopeFenceEvaluator(Arrays.asList(
-                new AnchorVector("in-helme", FenceMembership.IN, v(1, 0, 0, 0)),
-                new AnchorVector("in-gas", FenceMembership.IN, v(0, 1, 0, 0))))
+                new AnchorVector("in-helme", ScopeAnchor.Membership.IN, v(1, 0, 0, 0)),
+                new AnchorVector("in-gas", ScopeAnchor.Membership.IN, v(0, 1, 0, 0))))
                 .evaluate(v(0, 0.9f, 0.1f, 0), T);
         assertEquals(Hint.LIKELY_IN, reading.hint);
         assertEquals("in-gas", reading.nearestInAnchorId);
@@ -100,7 +99,7 @@ public class ScopeFenceEvaluatorTest {
         // Probe right at a PROVISIONAL post: without confirmed IN/OUT it stays NOVEL — an
         // unconfirmed hypothesis is not a fence side.
         Reading reading = new ScopeFenceEvaluator(Collections.singletonList(
-                new AnchorVector("prov", FenceMembership.PROVISIONAL, v(1, 0, 0, 0))))
+                new AnchorVector("prov", ScopeAnchor.Membership.PROVISIONAL, v(1, 0, 0, 0))))
                 .evaluate(v(1, 0, 0, 0), T);
         assertEquals(Hint.NOVEL, reading.hint);
         assertEquals(0.0d, reading.margin, 0.0001d);
@@ -110,7 +109,7 @@ public class ScopeFenceEvaluatorTest {
     public void mixedEmbeddingDimensionsFailLoudly() {
         try {
             new ScopeFenceEvaluator(Collections.singletonList(
-                    new AnchorVector("a", FenceMembership.IN, v(1, 0))))
+                    new AnchorVector("a", ScopeAnchor.Membership.IN, v(1, 0))))
                     .evaluate(v(1, 0, 0), T);
             throw new AssertionError("dimension mismatch must fail loudly, not score nonsense");
         } catch (IllegalArgumentException expected) {

@@ -1,7 +1,6 @@
 package com.aresstack.askai.research.domain.scope;
 
 import com.aresstack.askai.research.domain.scope.ScopeFenceEvaluator.AnchorVector;
-import com.aresstack.askai.research.domain.scope.ScopeFenceEvaluator.FenceMembership;
 import com.aresstack.askai.research.domain.scope.ScopeFenceEvaluator.Reading;
 import com.aresstack.askai.research.domain.scope.ScopeFenceEvaluator.Thresholds;
 
@@ -52,11 +51,11 @@ public class OllamaFenceConceptLiveTest {
         List<float[]> vectors = embedOrSkip(texts);
 
         ScopeFenceEvaluator fence = new ScopeFenceEvaluator(Arrays.asList(
-                new AnchorVector("in-helme", FenceMembership.IN, vectors.get(0)),
-                new AnchorVector("in-gas", FenceMembership.IN, vectors.get(1)),
-                new AnchorVector("in-ermuedung", FenceMembership.IN, vectors.get(2)),
-                new AnchorVector("out-fitness", FenceMembership.OUT, vectors.get(3)),
-                new AnchorVector("out-mode", FenceMembership.OUT, vectors.get(4))));
+                new AnchorVector("in-helme", ScopeAnchor.Membership.IN, vectors.get(0)),
+                new AnchorVector("in-gas", ScopeAnchor.Membership.IN, vectors.get(1)),
+                new AnchorVector("in-ermuedung", ScopeAnchor.Membership.IN, vectors.get(2)),
+                new AnchorVector("out-fitness", ScopeAnchor.Membership.OUT, vectors.get(3)),
+                new AnchorVector("out-mode", ScopeAnchor.Membership.OUT, vectors.get(4))));
         // Thresholds only shape the HINT; the assertions below are ordinal and independent of them.
         Thresholds thresholds = new Thresholds(0.6d, 0.05d);
 
