@@ -101,4 +101,22 @@ public final class ProbeReading {
     public ScopeFenceEvaluator.Hint getLocalFenceHint() {
         return fenceReading.hint;
     }
+
+    /**
+     * Which post TYPE explains this probe best — a RAW orthogonal observation ({@code null} when
+     * the fence has no posts at all). It says nothing about HOW WELL that side explains the probe;
+     * the categories are advisory derivations over these dimensions, never the primary data.
+     */
+    public ScopeAnchor.Membership getDominantMembership() {
+        double in = fenceReading.nearestInSimilarity;
+        double out = fenceReading.nearestOutSimilarity;
+        double provisional = fenceReading.nearestProvisionalSimilarity;
+        if (in <= 0.0d && out <= 0.0d && provisional <= 0.0d) {
+            return null;
+        }
+        if (provisional >= in && provisional >= out) {
+            return ScopeAnchor.Membership.PROVISIONAL;
+        }
+        return in >= out ? ScopeAnchor.Membership.IN : ScopeAnchor.Membership.OUT;
+    }
 }

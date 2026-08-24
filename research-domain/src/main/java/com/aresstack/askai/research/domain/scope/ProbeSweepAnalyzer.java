@@ -110,14 +110,22 @@ public final class ProbeSweepAnalyzer {
      * Measure every probe on both axes, then bucket it in Z3's OWN cascade — never by copying the
      * Z2 hint (which hangs on an absolute near-threshold; the hint stays available diagnostically):
      * <pre>
-     *   1. below the mission-relevance floor                       → IRRELEVANT
-     *   2. below the sweep-relative unexplored line (median-gap,
-     *      or the explicit calibration floor)                      → UNEXPLORED
-     *   3. best explained by a PROVISIONAL post                    → PENDING (raised, undecided —
-     *                                                                by definition NOT unexplored)
-     *   4. IN/OUT margin genuinely ambiguous                       → BOUNDARY
-     *   5. else the leaning side                                   → KNOWN / EXCLUDED
+     *   1. below the mission-relevance floor                        → IRRELEVANT
+     *   2. dominated by a PROVISIONAL post AND explained at least
+     *      as well as the calibrated known-region floor             → PENDING (raised, undecided —
+     *                                                                 a raised region must NEVER
+     *                                                                 read as "never mentioned",
+     *                                                                 however sweep-novel it is)
+     *   3. below the sweep-relative unexplored line (median-gap,
+     *      or the explicit calibration floor)                       → UNEXPLORED
+     *   4. IN/OUT margin genuinely ambiguous                        → BOUNDARY
+     *   5. else the leaning side                                    → KNOWN / EXCLUDED
      * </pre>
+     * Step 2 deliberately reuses {@code unexploredFloor} as the "known enough" reference instead of
+     * introducing a second cosine constant: it is the ONE calibrated boundary between "a known
+     * region" and "unexplained", and Z3b derives it from the negotiated anchors. A provisional post
+     * that only WINS a comparison of three tiny similarities does not make a probe PENDING — below
+     * the floor nothing explains it, and it honestly stays unexplored.
      */
     public static ProbeSweepResult analyze(List<ProbeVector> probes,
                                            List<float[]> missionReferenceVectors,
@@ -160,14 +168,18 @@ public final class ProbeSweepAnalyzer {
                 category = ProbeReading.Category.IRRELEVANT;
             } else {
                 rank = rankedKnown.indexOf(known) + 1; // 1 = least explained in THIS sweep
-                if (known < unexploredLine) {
-                    category = ProbeReading.Category.UNEXPLORED;
-                } else if (fenceReading.nearestProvisionalSimilarity
+                boolean provisionalDominates = fenceReading.nearestProvisionalSimilarity
                         >= fenceReading.nearestInSimilarity
                         && fenceReading.nearestProvisionalSimilarity
                         >= fenceReading.nearestOutSimilarity
-                        && fenceReading.nearestProvisionalSimilarity > 0.0d) {
+                        && fenceReading.nearestProvisionalSimilarity > 0.0d;
+                if (provisionalDominates && fenceReading.nearestProvisionalSimilarity
+                        >= parameters.unexploredFloor) {
                     category = ProbeReading.Category.PENDING;
+                } else if (known < unexploredLine) {
+                    // (a provisional-dominant probe ABOVE the line is impossible to reach here:
+                    // line >= floor, and above the floor it already became PENDING)
+                    category = ProbeReading.Category.UNEXPLORED;
                 } else if (Math.abs(fenceReading.margin) < parameters.boundaryMargin) {
                     category = ProbeReading.Category.BOUNDARY;
                 } else {

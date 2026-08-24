@@ -153,6 +153,46 @@ public class ProbeSweepAnalyzerTest {
                 result.interesting().contains(onProvisional));
     }
 
+    /**
+     * The cascade-order regression: a probe whose strongest relation is CLEARLY a provisional post
+     * must read PENDING even when its fence explanation sits BELOW the sweep-relative unexplored
+     * line — a raised region never claims "never mentioned", however sweep-novel it measures. The
+     * sweep-relative novelty stays visible on the ORTHOGONAL dimensions (rank, dominant
+     * membership); only the advisory category resolves the conflict. Conversely, a provisional
+     * post that merely WINS a comparison of three tiny similarities makes nothing PENDING.
+     */
+    @Test
+    public void aSweepNovelProbeDominatedByAProvisionalPostIsPendingNotUnexplored() {
+        ScopeFenceEvaluator fenceWithProvisional = new ScopeFenceEvaluator(Arrays.asList(
+                new AnchorVector("in-sensorik", ScopeAnchor.Membership.IN, v(0.3f, 1, 0, 0, 0, 0)),
+                new AnchorVector("prov-exo", ScopeAnchor.Membership.PROVISIONAL,
+                        v(0.3f, 0, 0, 1, 0, 0))));
+        List<ProbeVector> probes = new ArrayList<ProbeVector>();
+        // Four VERY well explained probes push the sweep median high...
+        for (int index = 0; index < 4; index++) {
+            probes.add(probe("known-" + index, 0.3f, 1, 0.01f * index, 0, 0, 0));
+        }
+        // ...one probe clearly dominated by the provisional post, yet BELOW the median-gap line...
+        probes.add(probe("exo-neu", 0.3f, 0.45f, 0, 0.85f, 0, 0));
+        // ...and one where a provisional similarity merely WINS among rubble (all posts far away).
+        probes.add(probe("treibgut", 0.4f, 0.1f, 0.08f, 0.12f, 0.9f, 0));
+
+        ProbeSweepResult result = ProbeSweepAnalyzer.analyze(probes, MISSION, fenceWithProvisional,
+                FENCE, new ProbeSweepAnalyzer.SweepParameters(0.3d, 0.1d, 0.05d, 0.3d));
+
+        ProbeReading dominated = readingOf(result, "exo-neu");
+        assertEquals("raised beats sweep-novel: the category is PENDING",
+                ProbeReading.Category.PENDING, dominated.getCategory());
+        assertEquals("the raw dimension still says: best explained by the provisional post",
+                ScopeAnchor.Membership.PROVISIONAL, dominated.getDominantMembership());
+        assertEquals("and the sweep still sees it as the least explained relevant probe but one",
+                true, dominated.getSweepNoveltyRank() <= 2);
+
+        ProbeReading rubble = readingOf(result, "treibgut");
+        assertEquals("a weak 'winner' among tiny similarities explains nothing — honestly unexplored",
+                ProbeReading.Category.UNEXPLORED, rubble.getCategory());
+    }
+
     @Test
     public void anIrrelevantProbeNeverEntersTheSelection() {
         List<ProbeVector> probes = Arrays.asList(
