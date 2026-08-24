@@ -30,6 +30,8 @@ public final class ChatSidebarPanel extends JPanel {
     private final CardLayout paneLayout = new CardLayout();
     private final JPanel panes = new JPanel(paneLayout);
     private final JPanel headerLeft = new JPanel(new BorderLayout());
+    /** The whole header strip — visible ONLY on the default pane (its content filters the chat list). */
+    private JComponent header;
     private final String defaultTabTitle;
     private final JComponent defaultTabComponent;
     private final List<String> titles = new ArrayList<String>();
@@ -74,6 +76,16 @@ public final class ChatSidebarPanel extends JPanel {
         }
         activeTitle = title;
         paneLayout.show(panes, title);
+        // The header carries the CHAT list's controls (the "Chats durchsuchen" filter): on every
+        // other pane (Fragestellung, Visualisierung, …) it is foreign chrome and disappears.
+        if (header != null) {
+            header.setVisible(defaultTabTitle.equals(title));
+        }
+    }
+
+    /** Whether the header strip (chat filter) is currently shown — pinned by the tab test. */
+    boolean isHeaderVisible() {
+        return header != null && header.isVisible();
     }
 
     /**
@@ -117,10 +129,11 @@ public final class ChatSidebarPanel extends JPanel {
     }
 
     private JComponent buildHeader() {
-        JPanel header = new JPanel(new BorderLayout());
-        header.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 4));
+        JPanel headerPanel = new JPanel(new BorderLayout());
+        headerPanel.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 4));
         headerLeft.setOpaque(false);
-        header.add(headerLeft, BorderLayout.CENTER); // the slot spans the drawer width
-        return header;
+        headerPanel.add(headerLeft, BorderLayout.CENTER); // the slot spans the drawer width
+        this.header = headerPanel;
+        return headerPanel;
     }
 }
