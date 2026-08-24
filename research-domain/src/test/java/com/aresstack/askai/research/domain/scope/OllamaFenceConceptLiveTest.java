@@ -90,10 +90,12 @@ public class OllamaFenceConceptLiveTest {
     /**
      * The Z3a concept on a FIXED Wearables sweep: mission relevance and fence novelty are really two
      * different axes on live embeddings — the fridge compressor is the most novel probe of all and
-     * still never becomes an interesting hole, five wordings of the exoskeleton hole collapse into
+     * still never becomes an interesting hole, the wordings of the exoskeleton hole collapse into
      * one region, and the ordinal separation (every wearable probe more mission-relevant than the
-     * fridge) holds. The relevance gate itself is derived from the measured separation — calibration
-     * stays data-driven, never a hard-coded truth.
+     * fridge) holds. IMPORTANT: the gates in here are GROUND-TRUTH concept-test calibration (the
+     * test knows which probes are on-/off-topic and which are holes). That proves the axes carry
+     * enough signal; it is NOT a productive calibration method — production cannot label its own
+     * probes. Deriving the floors from the negotiated anchors is the planned Z3b concept.
      */
     @Test
     public void aFixedSweepFindsTheHoleAndIgnoresTheFridge() {
@@ -144,10 +146,17 @@ public class OllamaFenceConceptLiveTest {
         assertTrue("mission relevance separates off-topic from on-topic",
                 fridgeRelevance < weakestWearableRelevance);
 
-        // Calibration derived from the MEASURED separation — never a hard-coded truth.
+        // CONCEPT-TEST calibration with GROUND TRUTH: the gates below are derived from probes this
+        // test KNOWS to be on-/off-topic and holes. That proves the axes carry enough signal — it is
+        // NOT a productive calibration method (production cannot label its own probes; deriving the
+        // floors from the negotiated anchors is the planned Z3b concept).
         double relevanceGate = (fridgeRelevance + weakestWearableRelevance) / 2.0d;
         ProbeSweepAnalyzer.ProbeSweepResult sweep = ProbeSweepAnalyzer.analyze(
-                probes, missionVectors, fence, new Thresholds(0.7d, 0.05d), relevanceGate);
+                probes, missionVectors, fence, new Thresholds(0.7d, 0.05d),
+                new ProbeSweepAnalyzer.SweepParameters(relevanceGate, 0.05d,
+                        // ground-truth floor: midway between the intended holes' fence similarity
+                        // and the intended known/excluded probes' — again concept-test only.
+                        0.0d, 0.69d));
         for (ProbeReading reading : sweep.getReadings()) {
             System.err.println(String.format(java.util.Locale.ROOT,
                     "[fence-sweep] %-34s relevance=%.3f known=%.3f novelty=%.3f %s",

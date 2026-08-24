@@ -19,6 +19,12 @@ public final class ProbeReading {
         KNOWN,
         /** Mission-relevant but clearly near a negotiated OUT post — drift detection material. */
         EXCLUDED,
+        /**
+         * Mission-relevant and best explained by a PROVISIONAL post: this region was already
+         * raised but the user has not decided it yet — the question is "klären?", never
+         * "unentdeckt". A probe on a provisional post is by definition NOT unexplored.
+         */
+        PENDING,
         /** Mission-relevant and similarly plausible on both sides — ideal for ONE user question. */
         BOUNDARY,
         /** Mission-relevant yet unusually far from EVERY post — the actual hole finder. */
@@ -32,9 +38,11 @@ public final class ProbeReading {
     private final ScopeFenceEvaluator.Reading fenceReading;
     private final double knownSimilarity;
     private final Category category;
+    private final int sweepNoveltyRank;
 
     public ProbeReading(ScopeProbe probe, double missionRelevance,
-                        ScopeFenceEvaluator.Reading fenceReading, Category category) {
+                        ScopeFenceEvaluator.Reading fenceReading, Category category,
+                        int sweepNoveltyRank) {
         if (probe == null) {
             throw new IllegalArgumentException("probe must not be null");
         }
@@ -48,6 +56,7 @@ public final class ProbeReading {
                 Math.max(fenceReading.nearestOutSimilarity,
                         fenceReading.nearestProvisionalSimilarity));
         this.category = category == null ? Category.IRRELEVANT : category;
+        this.sweepNoveltyRank = Math.max(0, sweepNoveltyRank);
     }
 
     public ScopeProbe getProbe() {
@@ -77,5 +86,19 @@ public final class ProbeReading {
 
     public Category getCategory() {
         return category;
+    }
+
+    /**
+     * The SWEEP-RELATIVE novelty position among the mission-relevant probes of this sweep:
+     * 1 = least explained by the fence, ascending; 0 = not ranked (irrelevant probes). Kept so a
+     * selection stays explainable after the fact — which probes were unusually unexplained HERE.
+     */
+    public int getSweepNoveltyRank() {
+        return sweepNoveltyRank;
+    }
+
+    /** The Z2 geometry hint — DIAGNOSTIC only; Z3's category never simply copies it. */
+    public ScopeFenceEvaluator.Hint getLocalFenceHint() {
+        return fenceReading.hint;
     }
 }
