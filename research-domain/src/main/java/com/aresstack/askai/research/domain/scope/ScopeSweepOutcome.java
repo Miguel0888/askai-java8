@@ -32,6 +32,8 @@ public final class ScopeSweepOutcome {
     private final ScopeFenceCalibrator.FenceCalibration calibration;
     private final ProbeSweepAnalyzer.ProbeSweepResult sweep;
     private final List<ProbeReading> diverseCandidates;
+    /** Z4a: the reason-aware advisory summary — present exactly on READY, bound to (R, E). */
+    private final ScopeAdviceSet adviceSet;
     private final ScopeProbeGenerator.ProbeGenerationResult.Status generatorStatus;
     private final int requestedBroadCount;
     private final int acceptedBroadCount;
@@ -45,10 +47,12 @@ public final class ScopeSweepOutcome {
                               ScopeFenceCalibrator.FenceCalibration calibration,
                               ProbeSweepAnalyzer.ProbeSweepResult sweep,
                               List<ProbeReading> diverseCandidates,
+                              ScopeAdviceSet adviceSet,
                               ScopeProbeGenerator.ProbeGenerationResult.Status generatorStatus,
                               int requestedBroadCount, int acceptedBroadCount,
                               long scopeRevision, String embeddingFingerprint,
                               long currentRevision, String diagnostics) {
+        this.adviceSet = adviceSet;
         this.status = status;
         this.calibration = calibration;
         this.sweep = sweep;
@@ -68,6 +72,7 @@ public final class ScopeSweepOutcome {
                                           ScopeFenceCalibrator.FenceCalibration calibration,
                                           ProbeSweepAnalyzer.ProbeSweepResult sweep,
                                           List<ProbeReading> diverseCandidates,
+                                          ScopeAdviceSet adviceSet,
                                           String diagnostics) {
         if (calibration == null || sweep == null) {
             throw new IllegalArgumentException("READY carries calibration and sweep");
@@ -75,25 +80,31 @@ public final class ScopeSweepOutcome {
         if (embeddingFingerprint == null || embeddingFingerprint.trim().isEmpty()) {
             throw new IllegalArgumentException("READY must stay bound to its embedding snapshot");
         }
+        if (adviceSet == null || adviceSet.getScopeRevision() != scopeRevision
+                || !adviceSet.getEmbeddingFingerprint().equals(embeddingFingerprint.trim())) {
+            throw new IllegalArgumentException(
+                    "READY carries advice bound to the SAME (revision, fingerprint) snapshot");
+        }
         return new ScopeSweepOutcome(Status.READY, calibration, sweep, diverseCandidates,
-                null, 0, 0, scopeRevision, embeddingFingerprint, scopeRevision, diagnostics);
+                adviceSet, null, 0, 0, scopeRevision, embeddingFingerprint, scopeRevision,
+                diagnostics);
     }
 
     public static ScopeSweepOutcome generationFailed(
             ScopeProbeGenerator.ProbeGenerationResult.Status generatorStatus, String diagnostics) {
-        return new ScopeSweepOutcome(Status.GENERATION_FAILED, null, null, null,
+        return new ScopeSweepOutcome(Status.GENERATION_FAILED, null, null, null, null,
                 generatorStatus, 0, 0, 0L, "", 0L, diagnostics);
     }
 
     public static ScopeSweepOutcome broadSampleIncomplete(int requested, int accepted,
                                                           String diagnostics) {
-        return new ScopeSweepOutcome(Status.BROAD_SAMPLE_INCOMPLETE, null, null, null,
+        return new ScopeSweepOutcome(Status.BROAD_SAMPLE_INCOMPLETE, null, null, null, null,
                 null, requested, accepted, 0L, "", 0L, diagnostics);
     }
 
     public static ScopeSweepOutcome calibrationWeak(
             ScopeFenceCalibrator.FenceCalibration calibration) {
-        return new ScopeSweepOutcome(Status.CALIBRATION_WEAK, calibration, null, null,
+        return new ScopeSweepOutcome(Status.CALIBRATION_WEAK, calibration, null, null, null,
                 null, 0, 0, 0L, "", 0L,
                 "coverage " + calibration.samples.distinctParentAnchorsCovered + "/"
                         + calibration.samples.eligibleAnchorCount + ", neighbor samples "
@@ -102,12 +113,12 @@ public final class ScopeSweepOutcome {
     }
 
     public static ScopeSweepOutcome embeddingFailed(String diagnostics) {
-        return new ScopeSweepOutcome(Status.EMBEDDING_FAILED, null, null, null,
+        return new ScopeSweepOutcome(Status.EMBEDDING_FAILED, null, null, null, null,
                 null, 0, 0, 0L, "", 0L, diagnostics);
     }
 
     public static ScopeSweepOutcome staleScope(long requestedRevision, long currentRevision) {
-        return new ScopeSweepOutcome(Status.STALE_SCOPE, null, null, null,
+        return new ScopeSweepOutcome(Status.STALE_SCOPE, null, null, null, null,
                 null, 0, 0, requestedRevision, "", currentRevision,
                 "scope moved from " + requestedRevision + " to " + currentRevision);
     }
@@ -130,6 +141,16 @@ public final class ScopeSweepOutcome {
 
     public List<ProbeReading> getDiverseCandidates() {
         return diverseCandidates;
+    }
+
+    /**
+     * Z4a: the reason-aware advisory summary (question candidates grouped by conversational
+     * reason + drift guards), present exactly on READY and bound to the same (revision,
+     * fingerprint) snapshot. Z4 consumers work from THIS, not from the raw diverse candidates —
+     * the reasons are different conversational situations, never one ranked pool.
+     */
+    public ScopeAdviceSet getAdviceSet() {
+        return adviceSet;
     }
 
     public ScopeProbeGenerator.ProbeGenerationResult.Status getGeneratorStatus() {

@@ -236,6 +236,12 @@ public final class ScopeSweepService {
                         plan.boundaryMargin, plan.sweepNoveltyGap, calibration.knownRegionFloor));
         List<ProbeReading> diverse = DiverseProbeSelector.select(sweep.interesting(),
                 ProbeSweepAnalyzer.vectorsById(probeVectors), plan.selectorParameters);
+        // Z4a: the reason-aware advisory layer — computed HERE because only this run holds the
+        // probe vectors the UNEXPLORED island diversity needs; bound to the same (R, E) snapshot.
+        com.aresstack.askai.research.domain.scope.ScopeAdviceSet advice =
+                com.aresstack.askai.research.domain.scope.ScopeAdvicePolicy.derive(sweep,
+                        ProbeSweepAnalyzer.vectorsById(probeVectors), plan.scopeRevision,
+                        plan.embeddingFingerprint, plan.selectorParameters);
 
         // Final staleness check narrows the publish race; READY still CARRIES (revision,
         // fingerprint) because a consumer must be able to re-check later — the check here can
@@ -245,6 +251,6 @@ public final class ScopeSweepService {
             return ScopeSweepOutcome.staleScope(plan.scopeRevision, finalRevision);
         }
         return ScopeSweepOutcome.ready(plan.scopeRevision, plan.embeddingFingerprint,
-                calibration, sweep, diverse, generated.getMessage());
+                calibration, sweep, diverse, advice, generated.getMessage());
     }
 }

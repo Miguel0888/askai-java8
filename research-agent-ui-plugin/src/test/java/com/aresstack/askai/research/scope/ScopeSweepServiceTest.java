@@ -161,6 +161,14 @@ public class ScopeSweepServiceTest {
                 outcome.getDiverseCandidates().get(0).getProbe().getSemanticText());
         assertEquals("the known probe stayed KNOWN, not a hole",
                 1, outcome.getSweep().countOf(ProbeReading.Category.KNOWN));
+        assertEquals("READY carries the reason-aware advice bound to the same snapshot",
+                REVISION, outcome.getAdviceSet().getScopeRevision());
+        assertEquals(FINGERPRINT, outcome.getAdviceSet().getEmbeddingFingerprint());
+        assertEquals("the unknown island is an UNEXPLORED question candidate",
+                1, outcome.getAdviceSet().getQuestionCandidates().size());
+        assertEquals(com.aresstack.askai.research.domain.scope.ScopeAdviceCandidate.Reason
+                        .CHECK_UNEXPLORED,
+                outcome.getAdviceSet().getQuestionCandidates().get(0).getReason());
     }
 
     /** Four independently gathered pieces are exactly the bug — the plan refuses mixed fences. */
