@@ -12,4 +12,11 @@ public interface AgentToolbarContext {
     UiExecutor getUiExecutor();
 
     ThemeService getThemeService();
+
+    /**
+     * Show content as a closable OVERLAY over the active chat's transcript (e.g. a generated
+     * diagram). The host owns backdrop, plate and close control. Default: no-op.
+     */
+    default void showTranscriptOverlay(javax.swing.JComponent content, String title) {
+    }
 }

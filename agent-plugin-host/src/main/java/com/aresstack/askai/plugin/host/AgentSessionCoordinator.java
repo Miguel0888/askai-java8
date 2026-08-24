@@ -68,6 +68,11 @@ public final class AgentSessionCoordinator
         void open(String artifactId);
     }
 
+    /** Host hook to show a closable overlay over the ACTIVE chat's transcript (no-op until wired). */
+    public interface TranscriptOverlayHost {
+        void show(javax.swing.JComponent content, String title);
+    }
+
     private final AgentExtensionResolver resolver;
     private final AgentHostContextProvider hostContextProvider;
     private final UiExecutor uiExecutor;
@@ -83,6 +88,7 @@ public final class AgentSessionCoordinator
     private AgentSession activeSession;
     private AgentPluginExtension activeExtension;
     private ArtifactOpener artifactOpener;
+    private TranscriptOverlayHost transcriptOverlayHost;
     /** Sessions whose close() threw during a generation swap; retried on the next detach and at shutdown so a
      *  live object is never dropped while its plugin classloader is still (correctly) kept loaded. */
     private final List<AgentSession> unclosed =
@@ -123,6 +129,11 @@ public final class AgentSessionCoordinator
     /** Set (or replace) the host hook invoked by {@code /open <artifact>}; may be null (no-op). */
     public void setArtifactOpener(ArtifactOpener opener) {
         this.artifactOpener = opener;
+    }
+
+    /** Set (or replace) the host hook a command's {@code showTranscriptOverlay} routes to. */
+    public void setTranscriptOverlayHost(TranscriptOverlayHost host) {
+        this.transcriptOverlayHost = host;
     }
 
     /** Reveal an artifact tab programmatically (typed card actions use this — same hook as /open). */
@@ -650,6 +661,13 @@ public final class AgentSessionCoordinator
 
         public UiExecutor getUiExecutor() {
             return uiExecutor;
+        }
+
+        @Override
+        public void showTranscriptOverlay(javax.swing.JComponent content, String title) {
+            if (transcriptOverlayHost != null) {
+                transcriptOverlayHost.show(content, title);
+            }
         }
     }
 

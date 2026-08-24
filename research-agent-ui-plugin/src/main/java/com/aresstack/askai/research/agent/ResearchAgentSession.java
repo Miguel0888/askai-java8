@@ -2396,6 +2396,37 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         return ResearchStateSnapshot.of(stateFactory.restore(state), revision, problemMessage);
     }
 
+    /**
+     * The sources MINDMAP, built completely mechanically (no model): root = the research question,
+     * branches = the user's search queries, leaves = each branch's best-rated sources. @return the
+     * Mermaid source, or {@code null} when no source qualifies yet.
+     */
+    public String buildSourceMindmapMermaid() {
+        java.util.List<com.aresstack.askai.research.sources.ResearchSourceRecord> sources =
+                getSourceRepository().find(com.aresstack.askai.research.sources.SourceQuery.all());
+        return com.aresstack.askai.research.visualize.SourceMindmap.mermaid(
+                mindmapRootTitle(), sources);
+    }
+
+    /** The brief's first content line (headings unwrapped) as the mindmap root, else "Recherche". */
+    private String mindmapRootTitle() {
+        try {
+            com.aresstack.askai.research.store.FileResearchBriefStore store = researchBriefStore();
+            String content = store == null ? null : store.effectiveContent();
+            if (content != null) {
+                for (String line : content.split("\n")) {
+                    String trimmed = line.replaceFirst("^#+\\s*", "").trim();
+                    if (!trimmed.isEmpty()) {
+                        return trimmed;
+                    }
+                }
+            }
+        } catch (RuntimeException ignored) {
+            // A broken brief store never blocks the mindmap — the generic root is fine.
+        }
+        return "Recherche";
+    }
+
     // ------------------------------------------------------------------ run progress / outcome cards
 
     /** The one in-place progress card of the active run (null when no run is being rendered). */

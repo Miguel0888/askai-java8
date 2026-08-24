@@ -16,4 +16,7 @@ public interface AgentToolbarHost {
     void setCenterToolbar(JComponent component);
 
     void clearCenterToolbar();
+
+    /** Show a closable overlay over the ACTIVE chat's transcript (e.g. a generated diagram). */
+    void showTranscriptOverlay(JComponent content, String title);
 }

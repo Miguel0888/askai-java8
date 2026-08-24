@@ -23,6 +23,7 @@ public class ResearchChatCommandsTest {
         // The text adapters…
         assertTrue(names.contains("search"));
         assertTrue(names.contains("open"));
+        assertTrue("the mindmap overlay's typed twin", names.contains("map"));
         // …and the red DECISION tags' twins — "Fragestellung freigeben & weiter" (submit-scope)
         // and "Neue Quellen auswerten" (review-sources) were tag-only once, never again.
         for (String command : ResearchChatCommands.processorCommandNames()) {

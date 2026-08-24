@@ -57,6 +57,11 @@ public final class AgentToolbarArea {
                 return uiExecutor;
             }
 
+            @Override
+            public void showTranscriptOverlay(javax.swing.JComponent content, String title) {
+                host.showTranscriptOverlay(content, title);
+            }
+
             public ThemeService getThemeService() {
                 return themeService;
             }

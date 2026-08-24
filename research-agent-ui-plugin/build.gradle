@@ -28,6 +28,9 @@ dependencies {
     // has it on the application classpath, so the plugin compiles against it and PF4J delegates the
     // classes to the host at runtime — ONE copy, one uniform look, no identity split.
     compileOnly project(':comic-controls')
+    // Mermaid rendering/validation (mindmap overlay + visualizer retry): HOST-provided the same way
+    // — askai-app ships mermaid-java; the plugin never bundles the GraalJS stack.
+    compileOnly 'com.aresstack:mermaid-java:0.2.0-beta.2'
     compileOnly project(':agent-workspace-api')
     compileOnly project(':agent-plugin-pf4j-api')
     compileOnly project(':mcp-runtime-api')      // host-provided, like the other shared APIs

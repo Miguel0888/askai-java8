@@ -382,6 +382,19 @@ public final class AskAiFrame extends JFrame {
         });
     }
 
+    /** Route a plugin's overlay request (toolbar button or /map) to the ACTIVE chat's transcript. */
+    private void showOverlayOnActiveChat(final javax.swing.JComponent content, final String title) {
+        onUi(new Runnable() {
+            public void run() {
+                ChatSessionComponent active = chatWorkspace == null ? null
+                        : chatWorkspace.activeSession();
+                if (active instanceof OllamaChatPanel) {
+                    ((OllamaChatPanel) active).showTranscriptOverlay(content, title);
+                }
+            }
+        });
+    }
+
     private static void onUi(Runnable runnable) {
         if (javax.swing.SwingUtilities.isEventDispatchThread()) {
             runnable.run();
@@ -683,6 +696,13 @@ public final class AskAiFrame extends JFrame {
                 }
             }
         });
+        // Overlays (e.g. /map's mindmap) land over the ACTIVE chat's transcript.
+        agentCoordinator.setTranscriptOverlayHost(
+                new com.aresstack.askai.plugin.host.AgentSessionCoordinator.TranscriptOverlayHost() {
+                    public void show(javax.swing.JComponent content, String title) {
+                        showOverlayOnActiveChat(content, title);
+                    }
+                });
         // Generic composer accessories: place the ACTIVE agent's accessory above the active tab's composer.
         // The area rebuilds on every coordinator change (tab/agent switch); the frame routes it to the active
         // tab and clears the previously-targeted one.
@@ -739,6 +759,10 @@ public final class AskAiFrame extends JFrame {
 
                     public void clearCenterToolbar() {
                         chatTabs.clearAgentCenterToolbar();
+                    }
+
+                    public void showTranscriptOverlay(javax.swing.JComponent content, String title) {
+                        showOverlayOnActiveChat(content, title);
                     }
                 });
         return host;

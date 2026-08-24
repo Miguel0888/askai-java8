@@ -17,4 +17,12 @@ public interface AgentSessionContext {
     void openArtifact(String artifactId);
 
     UiExecutor getUiExecutor();
+
+    /**
+     * Show content as a closable OVERLAY over the active chat's transcript (e.g. a generated
+     * diagram). The host owns backdrop, plate and close control. Default: no-op, so headless or
+     * test hosts need no overlay plumbing.
+     */
+    default void showTranscriptOverlay(javax.swing.JComponent content, String title) {
+    }
 }

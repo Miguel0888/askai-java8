@@ -37,4 +37,17 @@ final class VisualizationPrompt {
         return "Artifact id: " + snapshot.getArtifactId() + "\nPhase: " + snapshot.getPhaseId()
                 + "\n\nArtifact content:\n" + snapshot.getContent();
     }
+
+    /**
+     * The RETRY prompt after a failed render: the renderer's concrete error plus the broken source
+     * go back to the model, so it fixes the actual mistake instead of guessing again.
+     */
+    static String retryUser(ArtifactSnapshot snapshot, String failedMermaid, String rendererError) {
+        return user(snapshot)
+                + "\n\nYour previous answer's Mermaid FAILED to render. Renderer error:\n"
+                + rendererError
+                + "\n\nYour previous Mermaid source:\n" + failedMermaid
+                + "\n\nFix the syntax error (or answer NONE if you cannot) and reply with the "
+                + "SAME single JSON object contract as before.";
+    }
 }

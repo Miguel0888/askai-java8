@@ -53,9 +53,10 @@ public final class ResearchAgentPluginExtension implements AgentPluginExtension 
     public List<ArtifactViewContribution> getArtifactViews() {
         // Settings are NOT artifacts: runtime + search configuration moved to the gear-menu settings
         // contribution below; the artifact area holds work products only.
+        // The "Visualisierung" drawer tab is GONE: the sources mindmap lives behind the square
+        // toolbar button next to the Websuche (and /map) as a transcript overlay instead.
         return Arrays.<ArtifactViewContribution>asList(
                 new com.aresstack.askai.research.agent.ResearchBriefViewContribution(),
-                new com.aresstack.askai.research.agent.ResearchVisualizationViewContribution(),
                 new com.aresstack.askai.research.agent.ResearchOutlineViewContribution(),
                 new ResearchSourcesViewContribution(),
                 new ResearchStateViewContribution());

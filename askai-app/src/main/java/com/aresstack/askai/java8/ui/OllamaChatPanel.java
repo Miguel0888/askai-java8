@@ -581,8 +581,48 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         setLayout(new BorderLayout(8, 8));
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         // Sidebar + hamburger/gear live at the WORKSPACE level (ChatWorkspacePanel), full height.
-        add(transcript.getComponent(), BorderLayout.CENTER);
+        // The transcript sits inside a layered container so a diagram OVERLAY (comic plate with
+        // the ✕) can cover the answer window without touching the transcript itself.
+        transcriptLayers.add(transcript.getComponent(), javax.swing.JLayeredPane.DEFAULT_LAYER);
+        add(transcriptLayers, BorderLayout.CENTER);
         add(buildBottomArea(), BorderLayout.SOUTH);
+    }
+
+    /** Both layers (transcript, overlay) always fill the whole area. */
+    private final javax.swing.JLayeredPane transcriptLayers = new javax.swing.JLayeredPane() {
+        @Override
+        public void doLayout() {
+            for (java.awt.Component child : getComponents()) {
+                child.setBounds(0, 0, getWidth(), getHeight());
+            }
+        }
+    };
+    private com.aresstack.comiccontrols.control.ComicOverlayPanel transcriptOverlay;
+
+    /**
+     * Show content as a closable comic overlay over the transcript (the "Antwortfenster") —
+     * e.g. the research mindmap. Replaces a previous overlay; the ✕ (top right) closes it.
+     */
+    public void showTranscriptOverlay(javax.swing.JComponent content, String title) {
+        closeTranscriptOverlay();
+        transcriptOverlay = new com.aresstack.comiccontrols.control.ComicOverlayPanel(
+                title, content, new Runnable() {
+                    public void run() {
+                        closeTranscriptOverlay();
+                    }
+                });
+        transcriptLayers.add(transcriptOverlay, javax.swing.JLayeredPane.PALETTE_LAYER);
+        transcriptLayers.revalidate();
+        transcriptLayers.repaint();
+    }
+
+    public void closeTranscriptOverlay() {
+        if (transcriptOverlay != null) {
+            transcriptLayers.remove(transcriptOverlay);
+            transcriptOverlay = null;
+            transcriptLayers.revalidate();
+            transcriptLayers.repaint();
+        }
     }
 
     /**

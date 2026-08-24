@@ -37,6 +37,7 @@ public final class ResearchChatCommands {
         List<ChatCommandContribution> commands = new ArrayList<ChatCommandContribution>();
         commands.add(new OpenCommand());
         commands.add(new SearchCommand());
+        commands.add(new MapCommand());
         commands.add(new ProcessorCommand("submit-scope",
                 "Approve the research brief and continue into the research phase"));
         commands.add(new ProcessorCommand("approve",
@@ -134,6 +135,32 @@ public final class ResearchChatCommands {
 
         private static String stripPrefix(String outcome, String prefix) {
             return outcome.startsWith(prefix) ? outcome.substring(prefix.length()).trim() : outcome;
+        }
+    }
+
+    /**
+     * {@code /map} — the typed twin of the "Quellen visualisieren" toolbar button: build the
+     * mechanical sources mindmap and show it as a transcript overlay. Same action, same overlay.
+     */
+    private static final class MapCommand extends Base {
+        public ChatCommandDescriptor getDescriptor() {
+            return ChatCommandDescriptor.of("map",
+                    "Show the sources mindmap as an overlay (Quellen visualisieren)");
+        }
+
+        public CommandExecutionResult execute(CommandInvocation invocation,
+                                              final AgentSessionContext context) {
+            ResearchAgentSession session = research(context);
+            if (session == null) {
+                return CommandExecutionResult.unknown();
+            }
+            ResearchMindmapAction.open(session, context.getUiExecutor(),
+                    new java.util.function.BiConsumer<javax.swing.JComponent, String>() {
+                        public void accept(javax.swing.JComponent content, String title) {
+                            context.showTranscriptOverlay(content, title);
+                        }
+                    });
+            return CommandExecutionResult.handled("");
         }
     }
 
