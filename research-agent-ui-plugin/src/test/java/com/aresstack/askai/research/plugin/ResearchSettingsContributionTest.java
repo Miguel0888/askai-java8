@@ -59,8 +59,9 @@ public class ResearchSettingsContributionTest {
 
     @Test
     public void workProductsStayInTheArtifactArea() {
-        // The artifact area keeps exactly the work products + structured research views (issue #32:
-        // brief, visualization, outline, document, sources, state — no legacy per-stage tabs).
-        assertTrue(ResearchArtifacts.all().size() == 6);
+        // The artifact area keeps exactly the work products + structured research views (issue #32,
+        // minus the former visualization tab — the mindmap is a toolbar-button/'/map' overlay now:
+        // brief, outline, document, sources, state — no legacy per-stage tabs).
+        assertTrue(ResearchArtifacts.all().size() == 5);
     }
 }

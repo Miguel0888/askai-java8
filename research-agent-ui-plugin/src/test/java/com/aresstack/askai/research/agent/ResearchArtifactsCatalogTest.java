@@ -33,7 +33,7 @@ public class ResearchArtifactsCatalogTest {
 
     @Test
     public void theCatalogContainsExactlyTheMvpArtifacts() {
-        assertEquals(Arrays.asList("research-brief", "research-visualization", "outline",
+        assertEquals(Arrays.asList("research-brief", "outline",
                 "document", "sources", "state"), ids());
     }
 

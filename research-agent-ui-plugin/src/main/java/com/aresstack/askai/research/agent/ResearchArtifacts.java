@@ -22,7 +22,6 @@ public final class ResearchArtifacts {
     public static final String TYPE_SOURCES = "research.sources";
     public static final String TYPE_STATE = "research.state";
     public static final String TYPE_BRIEF = "research.brief";
-    public static final String TYPE_VISUALIZATION = "research.visualization";
     public static final String TYPE_OUTLINE = "research.outline";
     public static final String TYPE_RUNTIME = "research.runtime";
     public static final String TYPE_SEARCH_SETTINGS = "research.search.settings";
@@ -32,10 +31,10 @@ public final class ResearchArtifacts {
 
     public static List<AgentArtifact> all() {
         List<AgentArtifact> list = new ArrayList<AgentArtifact>();
-        // The research brief (Fragestellung) is the scoping phase's primary artifact — first tab. The
-        // visualization is a DERIVED, rebuildable view of it (no approval/revision), shown right next to it.
+        // The research brief (Fragestellung) is the scoping phase's primary artifact — first tab.
+        // The former "Visualisierung" tab is GONE: the sources mindmap lives behind the square
+        // toolbar button next to the Websuche (and /map) as a transcript overlay instead.
         list.add(new Artifact("research-brief", "Fragestellung", TYPE_BRIEF, ""));
-        list.add(new Artifact("research-visualization", "Visualisierung", TYPE_VISUALIZATION, ""));
         // Issue #29: the outline is a DERIVED projection with its own view (persisted result + stale marker
         // + explicit "Inhaltsverzeichnis erzeugen" action) — no longer a live-updating markdown tab.
         list.add(new Artifact("outline", "Inhaltsverzeichnis", TYPE_OUTLINE, "outline.md"));
