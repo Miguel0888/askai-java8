@@ -56,6 +56,31 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
     // Review-context bounds: how many sources one review reads, and how much of each.
     private final JTextField reviewMaxSources = new JTextField(4);
     private final JTextField reviewMaxChars = new JTextField(6);
+    // Z4c Scope-Pruefung: the normal knobs of the explicit "Themenraum pruefen" check…
+    private final JTextField scopeCheckTargetProbes = new JTextField(4);
+    private final JTextField scopeCheckControlsPerAnchor = new JTextField(3);
+    private final JTextField scopeCheckMaxTopics = new JTextField(3);
+    private final JTextField scopeCheckTimeout = new JTextField(4);
+    // …and the ADVANCED ones (hidden by default): model knobs plus the deliberately provisional
+    // calibration spike values — configurable so productive measurements never need a code
+    // change, but not presented as mature user options.
+    private final JTextField scopeCheckGenTemperature = new JTextField(4);
+    private final JTextField scopeCheckGenMaxTokens = new JTextField(5);
+    private final JTextField scopeCheckChooserTemperature = new JTextField(4);
+    private final JTextField scopeCheckChooserMaxTokens = new JTextField(5);
+    private final JTextField scopeCheckChoiceTimeout = new JTextField(4);
+    private final JTextField scopeCheckNearSimilarity = new JTextField(4);
+    private final JTextField scopeCheckHintBoundaryMargin = new JTextField(4);
+    private final JTextField scopeCheckMissionQuantile = new JTextField(4);
+    private final JTextField scopeCheckMissionMargin = new JTextField(4);
+    private final JTextField scopeCheckNeighborQuantile = new JTextField(4);
+    private final JTextField scopeCheckNeighborMargin = new JTextField(4);
+    private final JTextField scopeCheckMinNegotiated = new JTextField(3);
+    private final JTextField scopeCheckMinNeighbors = new JTextField(3);
+    private final JTextField scopeCheckBoundaryMargin = new JTextField(4);
+    private final JTextField scopeCheckNoveltyGap = new JTextField(4);
+    private final JTextField scopeCheckNoveltyWeight = new JTextField(4);
+    private final JTextField scopeCheckDuplicateCeiling = new JTextField(4);
     /** AI reranker opt-in (default OFF = lexical BM25 scoring, no model load). */
     private final JCheckBox useAiReranker = new JCheckBox(
             "KI-Reranker verwenden (semantisches Modell statt BM25; gilt für neue Sessions)", false);
@@ -137,6 +162,81 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         reviewLimits.add(javax.swing.Box.createHorizontalStrut(10));
         reviewLimits.add(labelled("Zeichen/Quelle", reviewMaxChars));
         form.add(row("Review-Kontext:", reviewLimits));
+        JPanel scopeCheckRow = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0));
+        scopeCheckRow.setOpaque(false);
+        scopeCheckRow.add(labelled("Breite (Konzepte)", scopeCheckTargetProbes));
+        scopeCheckRow.add(javax.swing.Box.createHorizontalStrut(10));
+        scopeCheckRow.add(labelled("Beispiele je Pfosten", scopeCheckControlsPerAnchor));
+        scopeCheckRow.add(javax.swing.Box.createHorizontalStrut(10));
+        scopeCheckRow.add(labelled("Max. Themen", scopeCheckMaxTopics));
+        scopeCheckRow.add(javax.swing.Box.createHorizontalStrut(10));
+        scopeCheckRow.add(labelled("Timeout (s)", scopeCheckTimeout));
+        scopeCheckRow.add(javax.swing.Box.createHorizontalStrut(10));
+        final javax.swing.JButton scopeCheckAdvancedToggle =
+                new javax.swing.JButton("Erweitert…");
+        scopeCheckRow.add(scopeCheckAdvancedToggle);
+        form.add(row("Scope-Prüfung:", scopeCheckRow));
+        JPanel scopeCheckModelRow = new JPanel(
+                new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0));
+        scopeCheckModelRow.setOpaque(false);
+        scopeCheckModelRow.add(labelled("Gen-Temp", scopeCheckGenTemperature));
+        scopeCheckModelRow.add(javax.swing.Box.createHorizontalStrut(10));
+        scopeCheckModelRow.add(labelled("Gen-Tokens", scopeCheckGenMaxTokens));
+        scopeCheckModelRow.add(javax.swing.Box.createHorizontalStrut(10));
+        scopeCheckModelRow.add(labelled("Wahl-Temp", scopeCheckChooserTemperature));
+        scopeCheckModelRow.add(javax.swing.Box.createHorizontalStrut(10));
+        scopeCheckModelRow.add(labelled("Wahl-Tokens", scopeCheckChooserMaxTokens));
+        scopeCheckModelRow.add(javax.swing.Box.createHorizontalStrut(10));
+        scopeCheckModelRow.add(labelled("Wahl-Timeout (s)", scopeCheckChoiceTimeout));
+        final JPanel scopeCheckModelSettings = row("  erweitert (Modell):", scopeCheckModelRow);
+        scopeCheckModelSettings.setVisible(false);
+        form.add(scopeCheckModelSettings);
+        JPanel scopeCheckCalibrationRow = new JPanel(
+                new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0));
+        scopeCheckCalibrationRow.setOpaque(false);
+        scopeCheckCalibrationRow.add(labelled("near", scopeCheckNearSimilarity));
+        scopeCheckCalibrationRow.add(javax.swing.Box.createHorizontalStrut(8));
+        scopeCheckCalibrationRow.add(labelled("Hint-Margin", scopeCheckHintBoundaryMargin));
+        scopeCheckCalibrationRow.add(javax.swing.Box.createHorizontalStrut(8));
+        scopeCheckCalibrationRow.add(labelled("Mission-Q", scopeCheckMissionQuantile));
+        scopeCheckCalibrationRow.add(javax.swing.Box.createHorizontalStrut(8));
+        scopeCheckCalibrationRow.add(labelled("Mission-Slack", scopeCheckMissionMargin));
+        scopeCheckCalibrationRow.add(javax.swing.Box.createHorizontalStrut(8));
+        scopeCheckCalibrationRow.add(labelled("Nachbar-Q", scopeCheckNeighborQuantile));
+        scopeCheckCalibrationRow.add(javax.swing.Box.createHorizontalStrut(8));
+        scopeCheckCalibrationRow.add(labelled("Nachbar-Slack", scopeCheckNeighborMargin));
+        final JPanel scopeCheckCalibrationSettings =
+                row("  erweitert (Kalibrierung):", scopeCheckCalibrationRow);
+        scopeCheckCalibrationSettings.setVisible(false);
+        form.add(scopeCheckCalibrationSettings);
+        JPanel scopeCheckSweepRow = new JPanel(
+                new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0));
+        scopeCheckSweepRow.setOpaque(false);
+        scopeCheckSweepRow.add(labelled("Min. Pfosten", scopeCheckMinNegotiated));
+        scopeCheckSweepRow.add(javax.swing.Box.createHorizontalStrut(8));
+        scopeCheckSweepRow.add(labelled("Min. Beispiele", scopeCheckMinNeighbors));
+        scopeCheckSweepRow.add(javax.swing.Box.createHorizontalStrut(8));
+        scopeCheckSweepRow.add(labelled("Boundary-Margin", scopeCheckBoundaryMargin));
+        scopeCheckSweepRow.add(javax.swing.Box.createHorizontalStrut(8));
+        scopeCheckSweepRow.add(labelled("Novelty-Gap", scopeCheckNoveltyGap));
+        scopeCheckSweepRow.add(javax.swing.Box.createHorizontalStrut(8));
+        scopeCheckSweepRow.add(labelled("Novelty-Gewicht", scopeCheckNoveltyWeight));
+        scopeCheckSweepRow.add(javax.swing.Box.createHorizontalStrut(8));
+        scopeCheckSweepRow.add(labelled("Dublette ≥", scopeCheckDuplicateCeiling));
+        final JPanel scopeCheckSweepSettings =
+                row("  erweitert (Sweep):", scopeCheckSweepRow);
+        scopeCheckSweepSettings.setVisible(false);
+        form.add(scopeCheckSweepSettings);
+        scopeCheckAdvancedToggle.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent event) {
+                boolean show = !scopeCheckModelSettings.isVisible();
+                scopeCheckModelSettings.setVisible(show);
+                scopeCheckCalibrationSettings.setVisible(show);
+                scopeCheckSweepSettings.setVisible(show);
+                revalidate();
+                repaint();
+            }
+        });
         botTools.setMargin(new java.awt.Insets(0, 0, 0, 0));
         botTools.setPreferredSize(new java.awt.Dimension(24, 24));
         botTools.setFont(botTools.getFont().deriveFont(java.awt.Font.PLAIN, 15f));
@@ -283,6 +383,7 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
                 persistAgentMaxTokens();
             }
         });
+        bindScopeCheckSettings();
         bindLimit(searchTargetSources, ResearchRuntimeSettings.KEY_SEARCH_TARGET_SOURCES,
                 ResearchRuntimeSettings.DEFAULT_SEARCH_TARGET_SOURCES,
                 "Die Suche endet regulär bei so vielen akzeptierten Quellen (gilt für neue Sessions).");
@@ -403,6 +504,114 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         group.add(new JLabel(label + ": "));
         group.add(field);
         return group;
+    }
+
+    /** Z4c: every scope-check knob binds to its persisted setting (loaded per CLICK, no restart). */
+    private void bindScopeCheckSettings() {
+        com.aresstack.askai.research.scope.ScopeSweepConfiguration d =
+                com.aresstack.askai.research.scope.ScopeSweepConfiguration.defaults();
+        bindLimit(scopeCheckTargetProbes, ResearchRuntimeSettings.KEY_SCOPE_CHECK_TARGET_PROBES,
+                d.targetBroadProbes, "Wie viele breite Konzepte eine Themenraum-Prüfung erzeugt");
+        bindLimit(scopeCheckControlsPerAnchor,
+                ResearchRuntimeSettings.KEY_SCOPE_CHECK_CONTROLS_PER_ANCHOR, d.controlsPerAnchor,
+                "Lokale Kalibrierungs-Beispiele je ausgehandeltem Zaunpfosten");
+        bindLimit(scopeCheckMaxTopics, ResearchRuntimeSettings.KEY_SCOPE_CHECK_MAX_TOPICS,
+                d.selectorParameters.maximumCandidates,
+                "Höchstens so viele unerforschte Themen je Prüfung vorschlagen");
+        bindLimit(scopeCheckTimeout, ResearchRuntimeSettings.KEY_SCOPE_CHECK_TIMEOUT_SECONDS,
+                d.generationTimeoutSeconds, "Timeout der Themen-Generierung in Sekunden");
+        bindDecimal(scopeCheckGenTemperature,
+                ResearchRuntimeSettings.KEY_SCOPE_CHECK_GEN_TEMPERATURE, d.generatorTemperature,
+                "Temperatur der Themen-Generierung (Breite braucht Vielfalt)");
+        bindLimit(scopeCheckGenMaxTokens, ResearchRuntimeSettings.KEY_SCOPE_CHECK_GEN_MAX_TOKENS,
+                d.generatorMaxOutputTokens, "Token-Budget der Themen-Generierung");
+        bindDecimal(scopeCheckChooserTemperature,
+                ResearchRuntimeSettings.KEY_SCOPE_CHECK_CHOOSER_TEMPERATURE, d.chooserTemperature,
+                "Temperatur der Fragen-Auswahl (fokussiert, nicht kreativ)");
+        bindLimit(scopeCheckChooserMaxTokens,
+                ResearchRuntimeSettings.KEY_SCOPE_CHECK_CHOOSER_MAX_TOKENS,
+                d.chooserMaxOutputTokens, "Token-Budget der Fragen-Auswahl");
+        bindLimit(scopeCheckChoiceTimeout,
+                ResearchRuntimeSettings.KEY_SCOPE_CHECK_CHOICE_TIMEOUT_SECONDS,
+                d.choiceTimeoutSeconds, "Timeout der Fragen-Auswahl in Sekunden");
+        String spike = " (Mess-Spike: Formel bewusst vorläufig, wird nach produktiven "
+                + "Messungen eingefroren)";
+        bindDecimal(scopeCheckNearSimilarity,
+                ResearchRuntimeSettings.KEY_SCOPE_CHECK_NEAR_SIMILARITY,
+                d.fenceThresholds.nearSimilarity, "Z2-Hint: ab dieser Cosine gilt "
+                        + "\u201enahe an einem Pfosten\u201c" + spike);
+        bindDecimal(scopeCheckHintBoundaryMargin,
+                ResearchRuntimeSettings.KEY_SCOPE_CHECK_HINT_BOUNDARY_MARGIN,
+                d.fenceThresholds.boundaryMargin, "Z2-Hint-Boundary-Margin" + spike);
+        bindDecimal(scopeCheckMissionQuantile,
+                ResearchRuntimeSettings.KEY_SCOPE_CHECK_MISSION_QUANTILE,
+                d.calibrationParameters.missionRelevanceQuantile,
+                "Quantil der Anker-Missionsrelevanz (0=Minimum)" + spike);
+        bindDecimal(scopeCheckMissionMargin,
+                ResearchRuntimeSettings.KEY_SCOPE_CHECK_MISSION_MARGIN,
+                d.calibrationParameters.missionRelevanceMargin,
+                "Slack unter dem Missions-Quantil" + spike);
+        bindDecimal(scopeCheckNeighborQuantile,
+                ResearchRuntimeSettings.KEY_SCOPE_CHECK_NEIGHBOR_QUANTILE,
+                d.calibrationParameters.neighborSimilarityQuantile,
+                "Quantil der Anker-Nachbar-Cosines (0=Minimum)" + spike);
+        bindDecimal(scopeCheckNeighborMargin,
+                ResearchRuntimeSettings.KEY_SCOPE_CHECK_NEIGHBOR_MARGIN,
+                d.calibrationParameters.neighborSimilarityMargin,
+                "Slack unter dem Nachbar-Quantil" + spike);
+        bindLimit(scopeCheckMinNegotiated,
+                ResearchRuntimeSettings.KEY_SCOPE_CHECK_MIN_NEGOTIATED,
+                d.calibrationParameters.minimumNegotiatedAnchors,
+                "Mindestzahl ausgehandelter IN/OUT-Pfosten für eine belastbare Kalibrierung");
+        bindLimit(scopeCheckMinNeighbors,
+                ResearchRuntimeSettings.KEY_SCOPE_CHECK_MIN_NEIGHBORS,
+                d.calibrationParameters.minimumNeighborSamples,
+                "Mindestzahl gültiger Nachbar-Beispiele");
+        bindDecimal(scopeCheckBoundaryMargin,
+                ResearchRuntimeSettings.KEY_SCOPE_CHECK_BOUNDARY_MARGIN, d.boundaryMargin,
+                "|margin| unter diesem Wert = echte IN/OUT-Grenzfrage" + spike);
+        bindDecimal(scopeCheckNoveltyGap,
+                ResearchRuntimeSettings.KEY_SCOPE_CHECK_NOVELTY_GAP, d.sweepNoveltyGap,
+                "Sweep-relative Novelty-Linie: Median minus dieser Wert" + spike);
+        bindDecimal(scopeCheckNoveltyWeight,
+                ResearchRuntimeSettings.KEY_SCOPE_CHECK_NOVELTY_WEIGHT,
+                d.selectorParameters.noveltyWeight,
+                "Gewicht der Neuheit in der Themen-Diversität");
+        bindDecimal(scopeCheckDuplicateCeiling,
+                ResearchRuntimeSettings.KEY_SCOPE_CHECK_DUPLICATE_CEILING,
+                d.selectorParameters.duplicateSimilarityCeiling,
+                "Ab dieser Ähnlichkeit gelten zwei Themen als Wortvarianten");
+    }
+
+    /** Like {@link #bindLimit} for decimal knobs (temperatures, cosines, margins). */
+    private void bindDecimal(final JTextField field, final String key, final double fallback,
+                             String tooltip) {
+        field.setText(String.valueOf(
+                ResearchRuntimeSettings.loadDouble(store, key, fallback)));
+        field.setToolTipText(tooltip);
+        final Runnable persist = new Runnable() {
+            public void run() {
+                try {
+                    ResearchRuntimeSettings.saveDouble(store, key, Double.parseDouble(
+                            field.getText().trim().replace(',', '.')));
+                    return;
+                } catch (NumberFormatException invalid) {
+                    field.setText(String.valueOf(
+                            ResearchRuntimeSettings.loadDouble(store, key, fallback)));
+                }
+            }
+        };
+        field.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent event) {
+                persist.run();
+            }
+        });
+        field.addFocusListener(new java.awt.event.FocusAdapter() {
+            @Override
+            public void focusLost(java.awt.event.FocusEvent event) {
+                persist.run();
+            }
+        });
     }
 
     /**

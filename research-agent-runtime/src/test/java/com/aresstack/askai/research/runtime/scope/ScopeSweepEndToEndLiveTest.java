@@ -54,7 +54,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 /**
- * The Z3b-3 END-TO-END LIVE GATE — the last acceptance condition: one REAL sweep round trip with
+ * The Z3b-3/Z4 END-TO-END LIVE GATE — one REAL full check round trip with
  * everything that the unit tests cannot see at once — a real spawned runtime process over ACP, the
  * real {@code #RSC1# generate_probes} / {@code #RSX1# probes} wire, a real main-model call in the
  * runtime, real host-side correlation on the backend callback thread, real Ollama anchor +
@@ -157,6 +157,8 @@ public class ScopeSweepEndToEndLiveTest {
                 null);
 
         final BackendScopeProbeGenerator[] activeGenerator = {null};
+        final com.aresstack.askai.research.scope.BackendScopeAdviceChooser[] activeChooser =
+                {null};
         ResearchSessionHandle handle = backend.createSession(
                 new ResearchProjectRequest("sweep-live", "p1", "Sweep live gate"),
                 new ResearchSessionListener() {
@@ -168,6 +170,13 @@ public class ScopeSweepEndToEndLiveTest {
                             BackendScopeProbeGenerator current = activeGenerator[0];
                             if (current != null) {
                                 current.deliver(event.getTitle(), event.getText());
+                            }
+                        }
+                        if (event.getType() == ResearchBackendEventType.ADVICE_DECISION) {
+                            com.aresstack.askai.research.scope.BackendScopeAdviceChooser chooser =
+                                    activeChooser[0];
+                            if (chooser != null) {
+                                chooser.deliver(event.getTitle(), event.getText());
                             }
                         }
                     }
@@ -228,8 +237,61 @@ public class ScopeSweepEndToEndLiveTest {
             assertTrue("a real 50-probe sweep classifies every probe",
                     outcome.getSweep().getReadings().size()
                             == configuration.targetBroadProbes);
+
+            // ---- Z4: the FULL check — reason-aware advice + the real chooser call -------------
+            com.aresstack.askai.research.domain.scope.ScopeAdviceSet advice =
+                    outcome.getAdviceSet();
+            System.err.println("[sweep-live] advice: candidates="
+                    + advice.getQuestionCandidates().size()
+                    + " driftGuards=" + advice.getDriftGuards().size());
+            for (com.aresstack.askai.research.domain.scope.ScopeAdviceCandidate candidate
+                    : advice.getQuestionCandidates()) {
+                System.err.println("[sweep-live]   offer " + candidate.getCandidateId()
+                        + " (" + candidate.getReason() + ", x" + candidate.getGroupSize()
+                        + "): " + candidate.getProbeText());
+            }
+            assertTrue("advice stays bound to the sweep snapshot",
+                    advice.appliesTo(draft.getRevision()));
+            com.aresstack.askai.research.domain.scope.ScopeAdviceChooser.ChoiceResult choice;
+            if (advice.getQuestionCandidates().isEmpty()) {
+                System.err.println("[sweep-live] no candidates — deterministic NONE, "
+                        + "no chooser call");
+                choice = com.aresstack.askai.research.domain.scope.ScopeAdviceChooser
+                        .ChoiceResult.ok(com.aresstack.askai.research.domain.scope
+                                .ScopeAdviceChooser.AdviceDecision.none("nichts offen"));
+            } else {
+                com.aresstack.askai.research.scope.BackendScopeAdviceChooser chooser =
+                        new com.aresstack.askai.research.scope.BackendScopeAdviceChooser(
+                                backend, handle,
+                                new com.aresstack.askai.research.scope.BackendScopeAdviceChooser
+                                        .WireSettings(configuration.chooserTemperature,
+                                        configuration.chooserMaxOutputTokens,
+                                        configuration.choiceTimeoutSeconds));
+                activeChooser[0] = chooser;
+                long chooseStart = System.nanoTime();
+                choice = chooser.choose(com.aresstack.askai.research.scope
+                        .ScopeAdviceOfferRenderer.render(advice, draft));
+                System.err.println("[sweep-live] chooser elapsedMs="
+                        + (System.nanoTime() - chooseStart) / 1_000_000L);
+            }
+            System.err.println("[sweep-live] choice status=" + choice.getStatus()
+                    + (choice.isOk() ? " decision=" + choice.getDecision().getDecision()
+                            + " candidate=" + choice.getDecision().getCandidateId()
+                            + " message=" + choice.getDecision().getAssistantMessage()
+                    : " message=" + choice.getMessage()));
+            assertTrue("the real chooser round trip must be typed OK (status="
+                    + choice.getStatus() + " message=" + choice.getMessage() + ")",
+                    choice.isOk());
+            if (choice.getDecision().getDecision() == com.aresstack.askai.research.domain.scope
+                    .ScopeAdviceChooser.AdviceDecision.Decision.ASK) {
+                assertTrue("the chosen id must be one of the OFFERED candidates",
+                        advice.candidateById(choice.getDecision().getCandidateId()) != null);
+                assertTrue("ASK carries a phrased question",
+                        !choice.getDecision().getAssistantMessage().trim().isEmpty());
+            }
         } finally {
             activeGenerator[0] = null;
+            activeChooser[0] = null;
             backend.close(handle);
             runtime.unregisterEndpoint(endpoint);
         }

@@ -51,4 +51,12 @@ public interface ResearchDerivedActions {
      * (asynchronous, debounced). #30 may later split this command into separate stages — not here.
      */
     ActionOutcome generateOutline();
+
+    /**
+     * Z4c: run ONE explicit scope check (probe sweep + reason-aware advice + chooser) in the
+     * background — the user-initiated trigger GPT mandated instead of any automatic sweep. Costs
+     * real model time (~1-2 minutes); the outcome arrives in the chat as at most one question (or
+     * an honest "nothing this round"), and it NEVER changes scope, phase or approval itself.
+     */
+    ActionOutcome checkScope();
 }

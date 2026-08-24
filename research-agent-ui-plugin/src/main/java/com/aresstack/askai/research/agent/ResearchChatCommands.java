@@ -48,13 +48,16 @@ public final class ResearchChatCommands {
                 "Continue with the next step (start research/drafting)"));
         commands.add(new ProcessorCommand("review-sources",
                 "Review the newly captured sources (Neue Quellen auswerten)"));
+        commands.add(new ProcessorCommand("check-scope",
+                "Check the negotiated topic space for gaps (Themenraum pr\u00fcfen)"));
         return commands;
     }
 
     /** The red-tag twins exposed as slash commands (the test guards the sync). */
     static List<String> processorCommandNames() {
         return java.util.Arrays.asList(
-                "submit-scope", "approve", "request-changes", "continue", "review-sources");
+                "submit-scope", "approve", "request-changes", "continue", "review-sources",
+                "check-scope");
     }
 
     private static ResearchAgentSession research(AgentSessionContext context) {

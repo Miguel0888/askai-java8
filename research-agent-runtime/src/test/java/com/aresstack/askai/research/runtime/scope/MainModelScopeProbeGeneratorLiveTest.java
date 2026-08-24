@@ -46,7 +46,8 @@ public class MainModelScopeProbeGeneratorLiveTest {
     private static final long TIMEOUT_MILLIS = 300_000L;
     private static final int TARGET_BROAD = 50;
     private static final int CONTROLS_PER_ANCHOR = 2;
-    private static final int MAX_OUTPUT_TOKENS = 4096;
+    /** Live finding: 4096 leaves reasoning models no room for the 50-entry German answer. */
+    private static final int MAX_OUTPUT_TOKENS = 8192;
 
     @Test
     public void aRealModelSurvivesTheStrictContractInOneCall() {

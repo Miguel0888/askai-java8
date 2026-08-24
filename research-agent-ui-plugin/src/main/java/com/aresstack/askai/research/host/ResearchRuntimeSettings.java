@@ -117,6 +117,126 @@ public final class ResearchRuntimeSettings {
         }
     }
 
+    /** A persisted double; unset or unparsable values fall back to the default. */
+    public static double loadDouble(WorkspaceStateStore store, String key, double fallback) {
+        if (store == null) {
+            return fallback;
+        }
+        try {
+            return Double.parseDouble(
+                    store.get(key, String.valueOf(fallback)).trim().replace(',', '.'));
+        } catch (NumberFormatException invalid) {
+            return fallback;
+        }
+    }
+
+    public static void saveDouble(WorkspaceStateStore store, String key, double value) {
+        if (store != null) {
+            store.put(key, String.valueOf(value));
+        }
+    }
+
+    // ------------------------------------------------------------------ Z4c: Scope-Pruefung
+    // Every behavior-limiting knob of the explicit scope check, settings-backed (session-scoped
+    // like the search limits; the values load PER CLICK, so changes apply without a restart).
+    // The quantile/margin values remain the documented measurement spike — configurable so the
+    // upcoming productive measurements never require a code change, but deliberately presented
+    // under "erweitert": they are empirically provisional, not mature user options.
+    public static final String KEY_SCOPE_CHECK_TARGET_PROBES =
+            "research.scopeCheck.targetBroadProbes";
+    public static final String KEY_SCOPE_CHECK_CONTROLS_PER_ANCHOR =
+            "research.scopeCheck.controlsPerAnchor";
+    public static final String KEY_SCOPE_CHECK_MAX_TOPICS =
+            "research.scopeCheck.maxSuggestedTopics";
+    public static final String KEY_SCOPE_CHECK_TIMEOUT_SECONDS =
+            "research.scopeCheck.generationTimeoutSeconds";
+    public static final String KEY_SCOPE_CHECK_GEN_TEMPERATURE =
+            "research.scopeCheck.generatorTemperature";
+    public static final String KEY_SCOPE_CHECK_GEN_MAX_TOKENS =
+            "research.scopeCheck.generatorMaxOutputTokens";
+    public static final String KEY_SCOPE_CHECK_NEAR_SIMILARITY =
+            "research.scopeCheck.nearSimilarity";
+    public static final String KEY_SCOPE_CHECK_HINT_BOUNDARY_MARGIN =
+            "research.scopeCheck.hintBoundaryMargin";
+    public static final String KEY_SCOPE_CHECK_MISSION_QUANTILE =
+            "research.scopeCheck.missionRelevanceQuantile";
+    public static final String KEY_SCOPE_CHECK_MISSION_MARGIN =
+            "research.scopeCheck.missionRelevanceMargin";
+    public static final String KEY_SCOPE_CHECK_NEIGHBOR_QUANTILE =
+            "research.scopeCheck.neighborSimilarityQuantile";
+    public static final String KEY_SCOPE_CHECK_NEIGHBOR_MARGIN =
+            "research.scopeCheck.neighborSimilarityMargin";
+    public static final String KEY_SCOPE_CHECK_MIN_NEGOTIATED =
+            "research.scopeCheck.minimumNegotiatedAnchors";
+    public static final String KEY_SCOPE_CHECK_MIN_NEIGHBORS =
+            "research.scopeCheck.minimumNeighborSamples";
+    public static final String KEY_SCOPE_CHECK_BOUNDARY_MARGIN =
+            "research.scopeCheck.boundaryMargin";
+    public static final String KEY_SCOPE_CHECK_NOVELTY_GAP =
+            "research.scopeCheck.sweepNoveltyGap";
+    public static final String KEY_SCOPE_CHECK_NOVELTY_WEIGHT =
+            "research.scopeCheck.noveltyWeight";
+    public static final String KEY_SCOPE_CHECK_DUPLICATE_CEILING =
+            "research.scopeCheck.duplicateSimilarityCeiling";
+    public static final String KEY_SCOPE_CHECK_CHOOSER_TEMPERATURE =
+            "research.scopeCheck.chooserTemperature";
+    public static final String KEY_SCOPE_CHECK_CHOOSER_MAX_TOKENS =
+            "research.scopeCheck.chooserMaxOutputTokens";
+    public static final String KEY_SCOPE_CHECK_CHOICE_TIMEOUT_SECONDS =
+            "research.scopeCheck.choiceTimeoutSeconds";
+
+    /**
+     * The full scope-check configuration from the store, every field falling back to the
+     * live-gate defaults of {@link
+     * com.aresstack.askai.research.scope.ScopeSweepConfiguration#defaults()}.
+     */
+    public static com.aresstack.askai.research.scope.ScopeSweepConfiguration
+            loadScopeSweepConfiguration(WorkspaceStateStore store) {
+        com.aresstack.askai.research.scope.ScopeSweepConfiguration d =
+                com.aresstack.askai.research.scope.ScopeSweepConfiguration.defaults();
+        return new com.aresstack.askai.research.scope.ScopeSweepConfiguration(
+                loadPositiveInt(store, KEY_SCOPE_CHECK_TARGET_PROBES, d.targetBroadProbes),
+                loadPositiveInt(store, KEY_SCOPE_CHECK_CONTROLS_PER_ANCHOR, d.controlsPerAnchor),
+                loadDouble(store, KEY_SCOPE_CHECK_GEN_TEMPERATURE, d.generatorTemperature),
+                loadPositiveInt(store, KEY_SCOPE_CHECK_GEN_MAX_TOKENS,
+                        d.generatorMaxOutputTokens),
+                loadPositiveInt(store, KEY_SCOPE_CHECK_TIMEOUT_SECONDS,
+                        d.generationTimeoutSeconds),
+                new com.aresstack.askai.research.domain.scope.ScopeFenceEvaluator.Thresholds(
+                        loadDouble(store, KEY_SCOPE_CHECK_NEAR_SIMILARITY,
+                                d.fenceThresholds.nearSimilarity),
+                        loadDouble(store, KEY_SCOPE_CHECK_HINT_BOUNDARY_MARGIN,
+                                d.fenceThresholds.boundaryMargin)),
+                new com.aresstack.askai.research.domain.scope.ScopeFenceCalibrator
+                        .CalibrationParameters(
+                        loadDouble(store, KEY_SCOPE_CHECK_MISSION_QUANTILE,
+                                d.calibrationParameters.missionRelevanceQuantile),
+                        loadDouble(store, KEY_SCOPE_CHECK_MISSION_MARGIN,
+                                d.calibrationParameters.missionRelevanceMargin),
+                        loadDouble(store, KEY_SCOPE_CHECK_NEIGHBOR_QUANTILE,
+                                d.calibrationParameters.neighborSimilarityQuantile),
+                        loadDouble(store, KEY_SCOPE_CHECK_NEIGHBOR_MARGIN,
+                                d.calibrationParameters.neighborSimilarityMargin),
+                        loadPositiveInt(store, KEY_SCOPE_CHECK_MIN_NEGOTIATED,
+                                d.calibrationParameters.minimumNegotiatedAnchors),
+                        loadPositiveInt(store, KEY_SCOPE_CHECK_MIN_NEIGHBORS,
+                                d.calibrationParameters.minimumNeighborSamples)),
+                loadDouble(store, KEY_SCOPE_CHECK_BOUNDARY_MARGIN, d.boundaryMargin),
+                loadDouble(store, KEY_SCOPE_CHECK_NOVELTY_GAP, d.sweepNoveltyGap),
+                new com.aresstack.askai.research.domain.scope.DiverseProbeSelector.Parameters(
+                        loadPositiveInt(store, KEY_SCOPE_CHECK_MAX_TOPICS,
+                                d.selectorParameters.maximumCandidates),
+                        loadDouble(store, KEY_SCOPE_CHECK_NOVELTY_WEIGHT,
+                                d.selectorParameters.noveltyWeight),
+                        loadDouble(store, KEY_SCOPE_CHECK_DUPLICATE_CEILING,
+                                d.selectorParameters.duplicateSimilarityCeiling)),
+                loadDouble(store, KEY_SCOPE_CHECK_CHOOSER_TEMPERATURE, d.chooserTemperature),
+                loadPositiveInt(store, KEY_SCOPE_CHECK_CHOOSER_MAX_TOKENS,
+                        d.chooserMaxOutputTokens),
+                loadPositiveInt(store, KEY_SCOPE_CHECK_CHOICE_TIMEOUT_SECONDS,
+                        d.choiceTimeoutSeconds));
+    }
+
     static final String KEY_AGENT_MAX_OUTPUT_TOKENS = "research.runtime.agentMaxOutputTokens";
     /** The default answer budget per agent model turn — generous enough for the longest contract (review). */
     public static final int DEFAULT_AGENT_MAX_OUTPUT_TOKENS = 4096;

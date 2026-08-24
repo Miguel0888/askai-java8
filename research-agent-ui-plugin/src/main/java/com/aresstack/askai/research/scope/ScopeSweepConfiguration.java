@@ -23,6 +23,10 @@ public final class ScopeSweepConfiguration {
     public final double boundaryMargin;
     public final double sweepNoveltyGap;
     public final DiverseProbeSelector.Parameters selectorParameters;
+    /** Z4b chooser knobs — the second, much smaller model call of one check. */
+    public final double chooserTemperature;
+    public final int chooserMaxOutputTokens;
+    public final int choiceTimeoutSeconds;
 
     public ScopeSweepConfiguration(int targetBroadProbes, int controlsPerAnchor,
                                    double generatorTemperature, int generatorMaxOutputTokens,
@@ -30,7 +34,12 @@ public final class ScopeSweepConfiguration {
                                    ScopeFenceEvaluator.Thresholds fenceThresholds,
                                    ScopeFenceCalibrator.CalibrationParameters calibrationParameters,
                                    double boundaryMargin, double sweepNoveltyGap,
-                                   DiverseProbeSelector.Parameters selectorParameters) {
+                                   DiverseProbeSelector.Parameters selectorParameters,
+                                   double chooserTemperature, int chooserMaxOutputTokens,
+                                   int choiceTimeoutSeconds) {
+        this.chooserTemperature = chooserTemperature;
+        this.chooserMaxOutputTokens = Math.max(1, chooserMaxOutputTokens);
+        this.choiceTimeoutSeconds = Math.max(1, choiceTimeoutSeconds);
         this.targetBroadProbes = Math.max(1, targetBroadProbes);
         this.controlsPerAnchor = Math.max(1, controlsPerAnchor);
         this.generatorTemperature = generatorTemperature;
@@ -60,6 +69,9 @@ public final class ScopeSweepConfiguration {
                         3, 4),        // minimum negotiated posts / neighbor samples
                 0.05d,   // boundaryMargin — live IN/OUT margins were ±0.1-0.2
                 0.0d,    // sweepNoveltyGap — relative novelty line at the sweep median
-                new DiverseProbeSelector.Parameters(3, 1.0d, 0.8d)); // ≤3 regions, dupes ≥0.8 collapse
+                new DiverseProbeSelector.Parameters(3, 1.0d, 0.8d), // ≤3 regions, dupes ≥0.8 collapse
+                0.4d,    // chooserTemperature — picking one offer wants focus, not variety
+                1024,    // chooserMaxOutputTokens — one decision + one question fit easily
+                120);    // choiceTimeoutSeconds — a single short model call
     }
 }

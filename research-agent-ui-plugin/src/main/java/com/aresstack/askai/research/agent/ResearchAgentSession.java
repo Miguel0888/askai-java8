@@ -397,7 +397,41 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             tags.add(new ResearchActionTag("review-sources",
                     reviewLabel(retry), reviewExplanation(retry), true));
         }
+        // Z4c: the explicit scope check — SCOPING only, user-initiated, flips to its own cancel
+        // while running (its request-scoped lifecycle, never the foreground chat stop).
+        if (scopeCheckOffered()) {
+            if (scopeCheckInFlight.get()) {
+                tags.add(new ResearchActionTag("cancel-scope-check",
+                        playbook.isGerman() ? "Prüfung abbrechen" : "Cancel scope check",
+                        playbook.isGerman()
+                                ? "Die laufende Themenraum-Prüfung abbrechen"
+                                : "Cancel the running topic-space check", true));
+            } else {
+                tags.add(new ResearchActionTag("check-scope",
+                        playbook.isGerman() ? "Themenraum prüfen" : "Check topic space",
+                        playbook.isGerman()
+                                ? "Den ausgehandelten Themenraum breit auf Lücken prüfen "
+                                        + "(dauert etwa 1–2 Minuten)"
+                                : "Check the negotiated topic space broadly for gaps "
+                                        + "(takes about 1-2 minutes)", true));
+            }
+        }
         return tags;
+    }
+
+    /** SCOPING + a usable productive scope draft — the check's visibility condition. */
+    private boolean scopeCheckOffered() {
+        if (handle == null || disposed || productiveResources == null
+                || productiveResources.isClosed()) {
+            return false;
+        }
+        if (!com.aresstack.askai.research.state.oo.ResearchStateIds.SCOPING
+                .equals(productiveResources.currentState().getPhaseId())) {
+            return false;
+        }
+        com.aresstack.askai.research.scope.ResearchScopeCoordinator coordinator =
+                scopeCoordinator();
+        return coordinator != null && coordinator.isUsable();
     }
 
     private void addTagIfAvailable(java.util.List<ResearchActionTag> tags, String command, String label) {
@@ -446,6 +480,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         if (ownedScheduler != null) {
             ownedScheduler.shutdown();
         }
+        scopeCheckExecutor.shutdownNow();
         com.aresstack.askai.research.scope.BackendScopeProbeGenerator waitingGenerator =
                 activeProbeGenerator;
         if (waitingGenerator != null) {
@@ -1908,6 +1943,14 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             return ActionOutcome.accepted("review requested (review_started/review_finished bracket follows)");
         }
 
+        public ActionOutcome checkScope() {
+            String result = requestScopeCheck();
+            return result.startsWith("handled: ")
+                    ? ActionOutcome.accepted(result.substring("handled: ".length()))
+                    : ActionOutcome.rejected(result.startsWith("rejected: ")
+                            ? result.substring("rejected: ".length()) : result);
+        }
+
         public ActionOutcome generateVisualization() {
             if (researchBriefStore() == null) {
                 return ActionOutcome.rejected("no productive research project (no brief store)");
@@ -1975,6 +2018,21 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     /** Z4b: the advice chooser of the scope check currently in flight — same lifecycle rules. */
     private volatile com.aresstack.askai.research.scope.BackendScopeAdviceChooser
             activeAdviceChooser;
+    /** Z4c: whether a FULL scope check (sweep + chooser) is running — drives the tag flip. */
+    private final java.util.concurrent.atomic.AtomicBoolean scopeCheckInFlight =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
+    /** Set by the user's cancel; presentation then says "abgebrochen" instead of a failure. */
+    private volatile boolean scopeCheckCancelRequested;
+    /** Runs the 1-2 minute scope check OFF the EDT (the transport delivery depends on it). */
+    private final java.util.concurrent.ExecutorService scopeCheckExecutor =
+            java.util.concurrent.Executors.newSingleThreadExecutor(
+                    new java.util.concurrent.ThreadFactory() {
+                        public Thread newThread(Runnable runnable) {
+                            Thread thread = new Thread(runnable, "research-scope-check");
+                            thread.setDaemon(true);
+                            return thread;
+                        }
+                    });
     private final java.util.concurrent.atomic.AtomicBoolean scopeSweepInFlight =
             new java.util.concurrent.atomic.AtomicBoolean(false);
 
@@ -2059,6 +2117,278 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         } finally {
             activeProbeGenerator = null;
             scopeSweepInFlight.set(false);
+        }
+    }
+
+    /**
+     * Z4: ONE full scope check — sweep, reason-aware advice, chooser — synchronous and long
+     * (live: 45-115s generation + a short chooser call); callers run it on a worker, never the
+     * EDT. Zero candidates short-circuit to a deterministic NONE (no model call); advice whose
+     * revision moved is DISCARDED (stale), and a chooser failure stays a chooser failure — none
+     * of these ever reads as "nothing found".
+     */
+    com.aresstack.askai.research.scope.ScopeCheckReport runScopeCheck(
+            com.aresstack.askai.research.scope.ScopeSweepConfiguration configuration) {
+        com.aresstack.askai.research.domain.scope.ScopeSweepOutcome outcome =
+                runScopeSweep(configuration);
+        if (!outcome.isReady()) {
+            return com.aresstack.askai.research.scope.ScopeCheckReport.sweepNotReady(outcome);
+        }
+        com.aresstack.askai.research.domain.scope.ScopeAdviceSet advice = outcome.getAdviceSet();
+        com.aresstack.askai.research.scope.ResearchScopeCoordinator coordinator =
+                scopeCoordinator();
+        com.aresstack.askai.research.domain.scope.ResearchScopeDraft draft = coordinator.current();
+        if (!advice.appliesTo(draft.getRevision())) {
+            return com.aresstack.askai.research.scope.ScopeCheckReport.staleBeforeAdvice(outcome);
+        }
+        if (advice.getQuestionCandidates().isEmpty()) {
+            // Nothing to offer: a model call over zero candidates would be theater. Deterministic
+            // honest NONE — and NONE never means "the scope is complete".
+            return com.aresstack.askai.research.scope.ScopeCheckReport.withChoice(outcome,
+                    com.aresstack.askai.research.domain.scope.ScopeAdviceChooser.ChoiceResult.ok(
+                            com.aresstack.askai.research.domain.scope.ScopeAdviceChooser
+                                    .AdviceDecision.none(playbook.isGerman()
+                                            ? "In diesem Prüfdurchlauf ist kein zusätzlicher "
+                                                    + "Klärungspunkt aufgefallen."
+                                            : "This check surfaced no additional point to "
+                                                    + "clarify.")));
+        }
+        com.aresstack.askai.research.scope.BackendScopeAdviceChooser chooser =
+                new com.aresstack.askai.research.scope.BackendScopeAdviceChooser(backend, handle,
+                        new com.aresstack.askai.research.scope.BackendScopeAdviceChooser
+                                .WireSettings(configuration.chooserTemperature,
+                                configuration.chooserMaxOutputTokens,
+                                configuration.choiceTimeoutSeconds));
+        activeAdviceChooser = chooser;
+        try {
+            return com.aresstack.askai.research.scope.ScopeCheckReport.withChoice(outcome,
+                    chooser.choose(com.aresstack.askai.research.scope.ScopeAdviceOfferRenderer
+                            .render(advice, draft)));
+        } finally {
+            activeAdviceChooser = null;
+        }
+    }
+
+    /**
+     * Z4c: the USER-INITIATED trigger — the only way a sweep starts (no automatic background
+     * sweeps, no per-turn sweeps; the check costs 1-2 minutes of real model time). Guards, then
+     * hands the whole check to the dedicated worker and returns immediately; the outcome arrives
+     * as at most ONE assistant question (or an honest info line). It never changes scope, phase
+     * or approval — submit-scope stays independently available while the check runs.
+     */
+    String requestScopeCheck() {
+        if (handle == null || disposed
+                || (productiveResources != null && productiveResources.isClosed())
+                || productiveResources == null) {
+            return rejectScopeCheck("the research session is not active");
+        }
+        com.aresstack.askai.research.scope.ResearchScopeCoordinator coordinator =
+                scopeCoordinator();
+        if (coordinator == null || !coordinator.isUsable()) {
+            return rejectScopeCheck("no usable scope draft"
+                    + (coordinator == null ? "" : " (" + coordinator.unusableReason() + ")"));
+        }
+        if (!com.aresstack.askai.research.state.oo.ResearchStateIds.SCOPING
+                .equals(productiveResources.currentState().getPhaseId())) {
+            return rejectScopeCheck("the scope check is a SCOPING-phase action");
+        }
+        if (!scopeCheckInFlight.compareAndSet(false, true)) {
+            return rejectScopeCheck("a scope check is already running");
+        }
+        scopeCheckCancelRequested = false;
+        final String checkId = publish("scope-check-" + messageIds.next("scope-check"));
+        uiExecutor.execute(new Runnable() {
+            public void run() {
+                sink.startThinking(checkId, playbook.isGerman()
+                        ? "Ich prüfe den Themenraum breit auf mögliche Lücken …"
+                        : "Checking the topic space broadly for possible gaps …");
+            }
+        });
+        fireStateChanged(); // the tag flips to "Prüfung abbrechen"
+        scopeCheckExecutor.execute(new Runnable() {
+            public void run() {
+                com.aresstack.askai.research.scope.ScopeCheckReport report = null;
+                String unexpected = null;
+                try {
+                    report = runScopeCheck(com.aresstack.askai.research.host
+                            .ResearchRuntimeSettings.loadScopeSweepConfiguration(
+                                    getHostStateStore()));
+                } catch (RuntimeException broke) {
+                    unexpected = String.valueOf(broke);
+                } finally {
+                    scopeCheckInFlight.set(false);
+                }
+                final com.aresstack.askai.research.scope.ScopeCheckReport finishedReport = report;
+                final String finishedUnexpected = unexpected;
+                uiExecutor.execute(new Runnable() {
+                    public void run() {
+                        presentScopeCheck(checkId, finishedReport, finishedUnexpected);
+                        fireStateChanged();
+                    }
+                });
+            }
+        });
+        return "handled: scope check started (runs in the background, ~1-2 minutes)";
+    }
+
+    private String rejectScopeCheck(String reason) {
+        return "rejected: " + reason;
+    }
+
+    /**
+     * Z4c: the user's request-scoped cancel — aborts the WAITING host side typed (the runtime's
+     * model call finishes unobserved; its late answer finds no waiting request and is dropped).
+     * Deliberately NOT the foreground chat stop: the check has its own lifecycle.
+     */
+    String cancelScopeCheck() {
+        if (!scopeCheckInFlight.get()) {
+            return "rejected: no scope check is running";
+        }
+        scopeCheckCancelRequested = true;
+        String reason = playbook.isGerman()
+                ? "Prüfung vom Benutzer abgebrochen" : "check cancelled by the user";
+        com.aresstack.askai.research.scope.BackendScopeProbeGenerator generator =
+                activeProbeGenerator;
+        if (generator != null) {
+            generator.abortAll(reason);
+        }
+        com.aresstack.askai.research.scope.BackendScopeAdviceChooser chooser =
+                activeAdviceChooser;
+        if (chooser != null) {
+            chooser.abortAll(reason);
+        }
+        return "handled: scope check cancel requested";
+    }
+
+    /** Presentation of one finished check — every gate keeps its own honest face (UI thread). */
+    private void presentScopeCheck(String checkId,
+                                   com.aresstack.askai.research.scope.ScopeCheckReport report,
+                                   String unexpected) {
+        try {
+            sink.finishThinking(checkId, "");
+        } catch (RuntimeException ignored) {
+            // presentation must continue even if the bubble is already gone
+        }
+        boolean german = playbook.isGerman();
+        final String lineId = publish(checkId + "-result");
+        if (unexpected != null) {
+            sink.appendInfoMessage(lineId, german
+                    ? "Themenraum-Prüfung unerwartet fehlgeschlagen." : "Scope check failed.");
+            sink.markInfoStatus(lineId, false, scopeCheckRetry());
+            sink.appendTechnicalLog("[scope-check] unexpected: " + unexpected);
+            return;
+        }
+        if (scopeCheckCancelRequested) {
+            sink.appendInfoMessage(lineId, german
+                    ? "Themenraum-Prüfung abgebrochen." : "Scope check cancelled.");
+            sink.appendTechnicalLog("[scope-check] cancelled by the user");
+            return;
+        }
+        appendScopeCheckTechnicalLog(report);
+        switch (report.getKind()) {
+            case ASKED:
+                // The deliverable: the agent asks its ONE question. The user's answer flows
+                // through the normal scoping turn — this message changes nothing by itself.
+                sayAsAgent(report.getChoice().getDecision().getAssistantMessage());
+                break;
+            case NOTHING_TO_ASK:
+                sink.appendInfoMessage(lineId, (german
+                        ? "Themenraum geprüft — " : "Topic space checked — ")
+                        + report.getChoice().getDecision().getAssistantMessage());
+                sink.markInfoStatus(lineId, true, null);
+                break;
+            case STALE_BEFORE_ADVICE:
+                sink.appendInfoMessage(lineId, german
+                        ? "Der Themenzuschnitt hat sich während der Prüfung geändert — das "
+                                + "Ergebnis wurde verworfen."
+                        : "The scope changed while the check ran — the result was discarded.");
+                sink.markInfoStatus(lineId, false, scopeCheckRetry());
+                break;
+            case CHOICE_FAILED:
+                sink.appendInfoMessage(lineId, german
+                        ? "Die Auswahl der Klärungsfrage ist fehlgeschlagen."
+                        : "Choosing the clarification question failed.");
+                sink.markInfoStatus(lineId, false, scopeCheckRetry());
+                break;
+            default:
+                sink.appendInfoMessage(lineId, sweepGateText(report.getOutcome(), german));
+                sink.markInfoStatus(lineId, false, scopeCheckRetry());
+        }
+    }
+
+    private Runnable scopeCheckRetry() {
+        return new Runnable() {
+            public void run() {
+                requestScopeCheck();
+            }
+        };
+    }
+
+    /** Honest German/English one-liners for the sweep's typed gates — never "keine Lücken". */
+    private static String sweepGateText(
+            com.aresstack.askai.research.domain.scope.ScopeSweepOutcome outcome, boolean german) {
+        switch (outcome.getStatus()) {
+            case GENERATION_FAILED:
+                return german
+                        ? "Die Themen-Generierung ist fehlgeschlagen — der Themenraum konnte "
+                                + "nicht geprüft werden."
+                        : "Probe generation failed — the topic space could not be checked.";
+            case BROAD_SAMPLE_INCOMPLETE:
+                return german
+                        ? "Das Modell lieferte nur " + outcome.getAcceptedBroadCount() + " von "
+                                + outcome.getRequestedBroadCount() + " Konzepten — zu wenig "
+                                + "Breite für eine verlässliche Prüfung."
+                        : "The model delivered only " + outcome.getAcceptedBroadCount() + " of "
+                                + outcome.getRequestedBroadCount() + " concepts — not broad "
+                                + "enough for a reliable check.";
+            case CALIBRATION_WEAK:
+                return german
+                        ? "Der Zaun hat noch zu wenige ausgehandelte Pfosten für eine "
+                                + "verlässliche Prüfung — einfach weiter eingrenzen."
+                        : "The fence has too few negotiated posts for a reliable check yet.";
+            case EMBEDDING_FAILED:
+                return german
+                        ? "Die semantische Vermessung ist fehlgeschlagen — der Themenraum "
+                                + "konnte nicht geprüft werden."
+                        : "Embedding failed — the topic space could not be checked.";
+            case STALE_SCOPE:
+                return german
+                        ? "Der Themenzuschnitt hat sich während der Prüfung geändert — das "
+                                + "Ergebnis wurde verworfen."
+                        : "The scope changed while the check ran — the result was discarded.";
+            default:
+                return german ? "Themenraum-Prüfung beendet." : "Scope check finished.";
+        }
+    }
+
+    /** The measured numbers into the collapsible technical details — never into the chat. */
+    private void appendScopeCheckTechnicalLog(
+            com.aresstack.askai.research.scope.ScopeCheckReport report) {
+        com.aresstack.askai.research.domain.scope.ScopeSweepOutcome outcome = report.getOutcome();
+        StringBuilder log = new StringBuilder("[scope-check] outcome=").append(
+                outcome.getStatus());
+        if (outcome.isReady()) {
+            log.append(" revision=").append(outcome.getScopeRevision())
+                    .append(" probes=").append(outcome.getSweep().getReadings().size())
+                    .append(" candidates=")
+                    .append(outcome.getAdviceSet().getQuestionCandidates().size())
+                    .append(" driftGuards=")
+                    .append(outcome.getAdviceSet().getDriftGuards().size());
+        }
+        if (!outcome.getDiagnostics().isEmpty()) {
+            log.append(" diagnostics=").append(outcome.getDiagnostics());
+        }
+        sink.appendTechnicalLog(log.toString());
+        if (outcome.isReady()) {
+            for (com.aresstack.askai.research.domain.scope.ScopeDriftGuard guard
+                    : outcome.getAdviceSet().getDriftGuards()) {
+                sink.appendTechnicalLog("[scope-check] drift guard: '" + guard.getProbeText()
+                        + "' bleibt ausgeschlossen (" + guard.getNearestOutAnchorId() + ")");
+            }
+        }
+        if (report.getChoice() != null && !report.getChoice().isOk()) {
+            sink.appendTechnicalLog("[scope-check] choice failed: "
+                    + report.getChoice().getStatus() + " " + report.getChoice().getMessage());
         }
     }
 
@@ -2275,6 +2605,12 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         if ("generate-outline".equals(cmd)) {
             return renderOutcome(derivedActions.generateOutline());
         }
+        if ("check-scope".equals(cmd)) {
+            return renderOutcome(derivedActions.checkScope());
+        }
+        if ("cancel-scope-check".equals(cmd)) {
+            return cancelScopeCheck();
+        }
         // Transient OUTCOME offers (the follow-up choices of a finished run) — same names as the tags.
         String offerId = "accept-limitation".equals(cmd) ? "limit" : cmd;
         if (outcomeOffers.contains(offerId)) {
@@ -2340,7 +2676,8 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     /** Every command valid RIGHT NOW: the always-on service commands + the resolvable semantic commands. */
     private String validCommandNames() {
         StringBuilder sb = new StringBuilder(
-                "search <query>, generate-visualization, generate-outline, review-sources");
+                "search <query>, generate-visualization, generate-outline, review-sources, "
+                        + "check-scope");
         for (String name : SEMANTIC_COMMANDS) {
             if (resolveSemanticCommand(name) != null) {
                 sb.append(", ").append(name);
