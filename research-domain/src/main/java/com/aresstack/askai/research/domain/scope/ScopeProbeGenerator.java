@@ -112,7 +112,10 @@ public interface ScopeProbeGenerator {
          * calibration's WEAK: a sweep over 3 accepted probes must never be treated like a sweep
          * over the 100 that were asked for — the generator's breadth IS Z3's biggest risk. MVP
          * rule, deterministic against the explicit request (no invented percentage): complete
-         * means the accepted count reached the requested target. Hole hunting downstream requires
+         * means the accepted count reached the requested target. Read it as
+         * requested-count-satisfied, NEVER as "the semantic space was fully sampled" — 50
+         * near-identical probes would also score 50/50; real diversity is measurable only after
+         * embedding, and no gate is built on it yet. Hole hunting downstream requires
          * BOTH {@code broadSampleComplete()} and the calibration's {@code permitsHoleHunting()};
          * otherwise the normal scoping dialog continues without UNEXPLORED/EXTENSION advisories.
          */
