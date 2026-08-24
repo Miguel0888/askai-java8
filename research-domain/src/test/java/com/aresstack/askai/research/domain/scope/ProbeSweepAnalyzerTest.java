@@ -223,6 +223,36 @@ public class ProbeSweepAnalyzerTest {
                 result.interesting().contains(fringe));
     }
 
+    /**
+     * The symmetric case is deliberately NOT symmetric for Z4: a fringe probe of the OUT region
+     * also reads EXTENSION (the advisory reason "a known region's edge" holds for both sides) —
+     * but FenceRelation.OUT must survive on the orthogonal dimension, because Z4 must phrase an
+     * OUT edge as drift PROTECTION ("still excluded, yes?") and never re-offer it as a positive
+     * facet. Losing the side here would silently turn exclusions back into suggestions.
+     */
+    @Test
+    public void anOutFringeStaysRecognizablyOutInsideItsExtensionReading() {
+        List<ProbeVector> probes = new ArrayList<ProbeVector>();
+        // Four probes right at the OUT post push the sweep median high...
+        for (int index = 0; index < 4; index++) {
+            probes.add(probe("fitness-" + index, 0.3f, 0.01f * index, 1, 0, 0, 0));
+        }
+        // ...one clearly OUT-related probe stretching the EXCLUDED region's edge.
+        probes.add(probe("wellness-rand", 0.3f, 0, 0.6f, 0, 0.6f, 0));
+
+        ProbeSweepResult result = ProbeSweepAnalyzer.analyze(probes, MISSION, fence(),
+                FENCE, new ProbeSweepAnalyzer.SweepParameters(0.3d, 0.1d, 0.05d, 0.3d));
+
+        ProbeReading fringe = readingOf(result, "wellness-rand");
+        assertEquals("the advisory reason is the shared one: a region's edge",
+                ProbeReading.Category.EXTENSION, fringe.getCategory());
+        assertEquals("but the SIDE survives orthogonally — Z4's drift protection depends on it",
+                ProbeReading.FenceRelation.OUT, fringe.getFenceRelation());
+        assertEquals(ProbeReading.NoveltyRelation.SWEEP_NOVEL, fringe.getNoveltyRelation());
+        assertEquals("the excluded core stays unremarkably EXCLUDED",
+                ProbeReading.Category.EXCLUDED, readingOf(result, "fitness-0").getCategory());
+    }
+
     @Test
     public void anIrrelevantProbeNeverEntersTheSelection() {
         List<ProbeVector> probes = Arrays.asList(

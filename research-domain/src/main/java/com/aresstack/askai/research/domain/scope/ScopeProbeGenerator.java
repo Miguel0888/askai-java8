@@ -20,15 +20,24 @@ public interface ScopeProbeGenerator {
         private final List<String> contexts;
         /** The labels already on the fence — so the generator can AVOID mere paraphrases. */
         private final List<String> knownFacetLabels;
+        /** The posts themselves — the neighborhood controls need their ids and semantic texts. */
+        private final List<ScopeAnchor> anchors;
         private final int targetCount;
 
         public ProbeGenerationRequest(String mission, List<String> domains, List<String> contexts,
-                                      List<String> knownFacetLabels, int targetCount) {
+                                      List<String> knownFacetLabels, List<ScopeAnchor> anchors,
+                                      int targetCount) {
             this.mission = mission == null ? "" : mission.trim();
             this.domains = copy(domains);
             this.contexts = copy(contexts);
             this.knownFacetLabels = copy(knownFacetLabels);
+            this.anchors = Collections.unmodifiableList(new ArrayList<ScopeAnchor>(
+                    anchors == null ? Collections.<ScopeAnchor>emptyList() : anchors));
             this.targetCount = Math.max(1, targetCount);
+        }
+
+        public List<ScopeAnchor> getAnchors() {
+            return anchors;
         }
 
         public String getMission() {
@@ -57,6 +66,34 @@ public interface ScopeProbeGenerator {
         }
     }
 
-    /** Many DIVERSE concrete topics/technologies/actors/use-cases plausibly relevant to the mission. */
-    List<ScopeProbe> generate(ProbeGenerationRequest request);
+    /**
+     * ONE model call, two kinds of output: the BROAD probes hunt holes; the ANCHOR_NEIGHBOR
+     * controls (2-3 per post: different concrete examples clearly INSIDE that post's region, never
+     * mere paraphrases) exist solely to calibrate the known-region floor. Keeping both in one batch
+     * keeps the orientation sweep fast.
+     */
+    final class ProbeGeneration {
+        private final List<ScopeProbe> broadProbes;
+        private final List<ScopeCalibrationProbe> calibrationProbes;
+
+        public ProbeGeneration(List<ScopeProbe> broadProbes,
+                               List<ScopeCalibrationProbe> calibrationProbes) {
+            this.broadProbes = Collections.unmodifiableList(new ArrayList<ScopeProbe>(
+                    broadProbes == null ? Collections.<ScopeProbe>emptyList() : broadProbes));
+            this.calibrationProbes = Collections.unmodifiableList(
+                    new ArrayList<ScopeCalibrationProbe>(calibrationProbes == null
+                            ? Collections.<ScopeCalibrationProbe>emptyList() : calibrationProbes));
+        }
+
+        public List<ScopeProbe> getBroadProbes() {
+            return broadProbes;
+        }
+
+        public List<ScopeCalibrationProbe> getCalibrationProbes() {
+            return calibrationProbes;
+        }
+    }
+
+    /** Many DIVERSE concrete concepts plus the per-anchor neighborhood controls — one model call. */
+    ProbeGeneration generate(ProbeGenerationRequest request);
 }
