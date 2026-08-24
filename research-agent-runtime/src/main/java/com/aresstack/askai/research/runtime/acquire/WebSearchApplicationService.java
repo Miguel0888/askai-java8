@@ -333,61 +333,85 @@ public final class WebSearchApplicationService {
         // is reported as a technical problem, never as an honest "no relevant results".
         com.aresstack.askai.research.runtime.search.InitialSearchStatus initialStatus =
                 com.aresstack.askai.research.runtime.search.InitialSearchStatus.NO_RESULTS;
-        try {
-            String query = task == null ? "" : task.trim();
-            relevanceQuery = query; // every relevance question in this run is asked against THIS query
-            listener.progress(progress, apiProviderLabel == null
-                    ? ResearchRunActivity.searching(query)
-                    : ResearchRunActivity.searchingViaApi(query, apiProviderLabel));
-            // Interchangeable INITIAL search: whether these candidates come from the browser SERP path or an
-            // API provider, the code below (reranking → frontier → Playwright) is identical. URLs come
-            // straight from typed SearchResultCandidates — no ATTEMPT:/CHALLENGE: text parsing.
-            com.aresstack.askai.research.runtime.search.InitialSearchResult result = searchStrategy.search(
-                    new com.aresstack.askai.research.runtime.search.InitialSearchRequest(
-                            query, INITIAL_SEARCH_RESULT_COUNT, searchLanguage, null),
-                    cancellationSignal(),
-                    new com.aresstack.askai.research.runtime.search.SearchBudgetGate() {
-                        public boolean beforeToolCall() {
-                            return WebSearchApplicationService.this.beforeToolCall() == null;
-                        }
-                    });
-            initialStatus = result.status;
-            // SERP candidates enter the funnel as discovered links (the reranker then assesses them all).
-            progress.linksDiscovered(result.candidates.size());
-            // The search itself becomes visible: which engine delivered how many SERP result pages.
-            progress.setSerpSummary(serpSummaryOf(result.diagnostics));
-            // Tick the card NOW: what the engines delivered is known here, well before reranking ends
-            // and long before the first page opens.
-            listener.progress(progress, ResearchRunActivity.searching(query));
-            for (String providerHost : result.providerHosts) {
-                searchProviderSites.add(familyOf(providerHost));
+        String query = task == null ? "" : task.trim();
+        relevanceQuery = query; // every relevance question in this run is asked against THIS query
+        // SERP attempt loop: a manual challenge ON THE ENGINE PAGES does not end the search. When the
+        // engines delivered nothing because a CAPTCHA blocked them, the run waits for the user and
+        // then asks the engines AGAIN. Every retry needs a freshly user-solved challenge, so the loop
+        // is bounded by the user's own actions — never a hot retry.
+        while (true) {
+            boolean seedFailed = false;
+            try {
+                listener.progress(progress, apiProviderLabel == null
+                        ? ResearchRunActivity.searching(query)
+                        : ResearchRunActivity.searchingViaApi(query, apiProviderLabel));
+                // Interchangeable INITIAL search: whether these candidates come from the browser SERP path
+                // or an API provider, the code below (reranking → frontier → Playwright) is identical. URLs
+                // come straight from typed SearchResultCandidates — no ATTEMPT:/CHALLENGE: text parsing.
+                com.aresstack.askai.research.runtime.search.InitialSearchResult result = searchStrategy.search(
+                        new com.aresstack.askai.research.runtime.search.InitialSearchRequest(
+                                query, INITIAL_SEARCH_RESULT_COUNT, searchLanguage, null),
+                        cancellationSignal(),
+                        new com.aresstack.askai.research.runtime.search.SearchBudgetGate() {
+                            public boolean beforeToolCall() {
+                                return WebSearchApplicationService.this.beforeToolCall() == null;
+                            }
+                        });
+                initialStatus = result.status;
+                // SERP candidates enter the funnel as discovered links (the reranker then assesses them all).
+                progress.linksDiscovered(result.candidates.size());
+                // The search itself becomes visible: which engine delivered how many SERP result pages.
+                progress.setSerpSummary(serpSummaryOf(result.diagnostics));
+                // Tick the card NOW: what the engines delivered is known here, well before reranking ends
+                // and long before the first page opens.
+                listener.progress(progress, ResearchRunActivity.searching(query));
+                for (String providerHost : result.providerHosts) {
+                    searchProviderSites.add(familyOf(providerHost));
+                }
+                applyChallenges(result.challenges);
+                // MANDATORY reranking BEFORE anything reaches the frontier: no page is ever opened in raw
+                // engine order. Only the selected survivors, in relevance order, become frontier URLs; a
+                // reranker failure ends the run with a typed reason and opens nothing.
+                seedStop = seedReranking(query, result.candidates, frontier);
+            } catch (ToolInvoker.EndpointUnavailable ex) {
+                // The browser MCP endpoint is gone (the sidecar likely died): this is the concrete,
+                // retryable technical cause behind a SEARCH_TECHNICAL_PROBLEM — log it, never swallow it.
+                listener.status("[web-search] technical failure stage=SEED_SEARCH (endpoint unavailable —"
+                        + " sidecar may be dead) cause=" + describe(ex));
+                return ResearchStopReason.MCP_UNAVAILABLE;
+            } catch (ToolInvoker.ToolFailure ex) {
+                if (noteIfBrowserClosed(ex)) {
+                    return ResearchStopReason.USER_CANCELLED; // the user's window close, not a failure
+                }
+                listener.status("[web-search] technical failure stage=SEED_SEARCH cause=" + describe(ex));
+                progress.error();
+                seedFailed = true;
+            } catch (RuntimeException ex) {
+                if (noteIfBrowserClosed(ex)) {
+                    return ResearchStopReason.USER_CANCELLED;
+                }
+                // A malformed prepare/apply payload (codec DecodeException) must not crash the loop —
+                // it is a tool-level failure; the run continues with an empty frontier (the error budget
+                // and NO_RELEVANT_PATHS handle it as before).
+                listener.status("[web-search] technical failure stage=SEED_SEARCH_PREPARE cause="
+                        + describe(ex));
+                progress.error();
+                seedFailed = true;
             }
-            applyChallenges(result.challenges);
-            // MANDATORY reranking BEFORE anything reaches the frontier: no page is ever opened in raw
-            // engine order. Only the selected survivors, in relevance order, become frontier URLs; a
-            // reranker failure ends the run with a typed reason and opens nothing.
-            seedStop = seedReranking(query, result.candidates, frontier);
-        } catch (ToolInvoker.EndpointUnavailable ex) {
-            // The browser MCP endpoint is gone (the sidecar likely died): this is the concrete, retryable
-            // technical cause behind a SEARCH_TECHNICAL_PROBLEM — log it, never swallow it.
-            listener.status("[web-search] technical failure stage=SEED_SEARCH (endpoint unavailable — sidecar"
-                    + " may be dead) cause=" + describe(ex));
-            return ResearchStopReason.MCP_UNAVAILABLE;
-        } catch (ToolInvoker.ToolFailure ex) {
-            if (noteIfBrowserClosed(ex)) {
-                return ResearchStopReason.USER_CANCELLED; // the user's window close, not a failure
+            if (seedFailed || seedStop != null || cancelled.get() || browserClosedByUser
+                    || !frontier.isEmpty() || challengedFamilies.isEmpty() || !challengeWaitForUser) {
+                break; // an answer, a decision, or nothing a solved challenge could change
             }
-            listener.status("[web-search] technical failure stage=SEED_SEARCH cause=" + describe(ex));
-            progress.error();
-        } catch (RuntimeException ex) {
-            if (noteIfBrowserClosed(ex)) {
-                return ResearchStopReason.USER_CANCELLED;
+            // The engines were CAPTCHA-blocked and delivered nothing usable: wait for the user to solve
+            // it, then return to the SEARCH — never leave someone who just solved a challenge stranded.
+            ResearchStopReason waited = waitForSerpChallengeResolution(frontier);
+            if (waited != null) {
+                return waited;
             }
-            // A malformed prepare/apply payload (codec DecodeException) must not crash the loop —
-            // it is a tool-level failure; the run continues with an empty frontier (the error budget and
-            // NO_RELEVANT_PATHS handle it as before).
-            listener.status("[web-search] technical failure stage=SEED_SEARCH_PREPARE cause=" + describe(ex));
-            progress.error();
+            if (!challengedFamilies.isEmpty()) {
+                break; // still blocked — the frontier logic below reports honestly
+            }
+            listener.status("manual challenge solved — asking the search engines again");
         }
         if (seedStop != null) {
             return seedStop;
@@ -1417,6 +1441,27 @@ public final class WebSearchApplicationService {
             listener.status("manual challenge resolved on " + family);
             listener.attention("CAPTCHA", family, "", true);
         }
+    }
+
+    /**
+     * The cooperative wait while the SERP itself is challenge-blocked (seed phase, nothing usable
+     * yet): cancel stays immediate, the waited time is compensated (never a budget failure), the
+     * challenge is probed about once per second, and the card shows WAITING_FOR_USER. Returns a stop
+     * reason, or {@code null} when the challenge resolved and the engines are worth asking again.
+     */
+    private ResearchStopReason waitForSerpChallengeResolution(List<FrontierEntry> frontier) {
+        String family = challengedFamilies.isEmpty() ? "" : challengedFamilies.iterator().next();
+        listener.progress(progress, ResearchRunActivity.waitingForUser(family, ""));
+        while (!challengedFamilies.isEmpty()) {
+            if (cancelled.get() || browserClosedByUser) {
+                return ResearchStopReason.USER_CANCELLED;
+            }
+            long tickStart = clock.currentTimeMillis();
+            clock.sleepMillis(challengeProbeIntervalMillis);
+            waitedForUserMillis += Math.max(0, clock.currentTimeMillis() - tickStart);
+            probeChallengesIfDue(frontier);
+        }
+        return browserClosedByUser ? ResearchStopReason.USER_CANCELLED : null;
     }
 
     /** Probe the parked challenge at most once per second; unlocked work returns to the frontier. */

@@ -15,7 +15,12 @@ import java.util.Map;
  */
 public final class LegacyBrowserSearchSettingsStore {
 
-    static final String PREFIX = "research.legacy.search.";
+    /**
+     * GLOBAL routing prefix: search settings are APP-WIDE. Without it the session-scoping store froze
+     * the defaults into every chat at first read — the user disabled an engine and every session kept
+     * searching with it, because each one had privately frozen "no override" long before.
+     */
+    static final String PREFIX = WorkspaceStateStore.GLOBAL_KEY_PREFIX + "research.legacy.search.";
     static final String KEY_REVISION = PREFIX + "revision";
 
     private LegacyBrowserSearchSettingsStore() {

@@ -243,7 +243,20 @@ public final class ProductiveResearchBackendFactory {
                 throw new IOException("Stored search profile of this session is unusable ("
                         + profileFile + "): " + ex.getMessage());
             }
+            // The USER's settings beat an old snapshot: when the saved search settings moved on
+            // (revision bumped), the stored profile is REBUILT from the current values — visibly,
+            // never silently. Same revision → exact reuse, as before. Without this, a session kept
+            // its creation-time engine list forever and every later change looked ignored.
+            if (profile.profileRevision != browserSearchRevision) {
+                System.err.println("[research-host] search settings revision moved ("
+                        + profile.profileRevision + " -> " + browserSearchRevision
+                        + "): rebuilding this session's search profile from the saved settings");
+                profile = null;
+            }
         } else {
+            profile = null;
+        }
+        if (profile == null) {
             com.aresstack.askai.browser.search.LegacyBrowserSearchSettingsCodec.Decoded decoded =
                     com.aresstack.askai.browser.search.LegacyBrowserSearchSettingsCodec
                             .fromValues(browserSearchValues);

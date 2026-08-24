@@ -149,9 +149,10 @@ public class ProductiveResearchMvpEndToEndTest {
         engineServer.start();
         serverOne.start();
         serverTwo.start();
-        // Documented dev/test hand-off: local multi-server worlds act as distinct domain families.
-        String oldSidecarArgs =
-                System.setProperty("askai.research.sidecar.args", "--domain-key-mode=host-port");
+        // Documented dev/test hand-off: local multi-server worlds act as distinct domain families,
+        // and the local test engine is an EXPLICIT per-run sidecar flag (the persisted override is dead).
+        String oldSidecarArgs = System.setProperty("askai.research.sidecar.args",
+                "--domain-key-mode=host-port --search-url=" + baseEngine + "/find?q={query}");
 
         SolonMcpServerRuntime registry = new SolonMcpServerRuntime();
         ResearchRuntimeGenerationSwitch switcher = new ResearchRuntimeGenerationSwitch(
@@ -160,7 +161,7 @@ public class ProductiveResearchMvpEndToEndTest {
                 reranker.asProvider(10));
         ResearchRuntimeConfig config = new ResearchRuntimeConfig(agentJava, agentJar,
                 sidecarJava, sidecarJar, System.getenv().getOrDefault("ASKAI_TEST_BROWSER_CHANNEL", "chrome"),
-                true, true, baseEngine + "/find?q={query}", reranker.modelName);
+                true, true, reranker.modelName);
 
         File projectDir = Files.createTempDirectory("askai-e2e").toFile();
         ProductiveResearchSessionResources resources = null;

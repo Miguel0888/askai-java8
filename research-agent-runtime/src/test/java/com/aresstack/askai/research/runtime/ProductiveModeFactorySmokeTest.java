@@ -123,6 +123,10 @@ public class ProductiveModeFactorySmokeTest {
         }
         String oldDist = System.setProperty("askai.research.runtime.dir", dist.getAbsolutePath());
         String oldJava21 = System.setProperty("askai.research.java21", sidecarJava);
+        // The local test engine travels as the EXPLICIT per-run sidecar flag — the persisted
+        // search-url override is dead, and dev worlds were always meant to be per-run.
+        String oldSidecarArgs = System.setProperty("askai.research.sidecar.args",
+                "--search-url=" + baseOne + "/find?q={query}");
         host.services.put(com.aresstack.askai.agent.model.reranker
                 .RerankerConfigurationSnapshotProvider.class, reranker.asProvider(10));
         // The model-backed TeamAgent now OWNS the productive conversation: publish an inference descriptor
@@ -156,7 +160,7 @@ public class ProductiveModeFactorySmokeTest {
         // The EXPLICIT reranker selection (A5): the persisted settings name the model to use.
         new ResearchRuntimeSettings(ResearchBackendMode.ACP, "", "", "", "",
                 System.getenv().getOrDefault("ASKAI_TEST_BROWSER_CHANNEL", "chrome"),
-                true, baseOne + "/find?q={query}", true, reranker.modelName).save(host.store);
+                true, true, reranker.modelName).save(host.store);
 
         AgentSession session;
         try {
@@ -217,6 +221,7 @@ public class ProductiveModeFactorySmokeTest {
             serverTwo.stop(0);
             restore("askai.research.runtime.dir", oldDist);
             restore("askai.research.java21", oldJava21);
+            restore("askai.research.sidecar.args", oldSidecarArgs);
         }
     }
 
