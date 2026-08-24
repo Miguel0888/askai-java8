@@ -253,6 +253,11 @@ public final class LegacyBrowserSearchSettingsCatalog {
         integer(f, "analysis.linkHarvestMaximumCandidates", SECTION_ANALYSIS,
                 "Link harvest maximum candidates",
                 "Upper bound of total candidates (structured + harvested).", 1, 200);
+        list(f, "analysis.linkHarvestExcludedDomains", SECTION_ANALYSIS,
+                "Link harvest excluded domains",
+                "Links whose host ends in one of these domains are never harvested: the engine "
+                        + "owner's legal/consent/footer pages (Bing links microsoft.com on every "
+                        + "result page) are page furniture, not results.");
         // --- Visual analysis
         bool(f, "visual.enabled", SECTION_VISUAL, "Enabled",
                 "Screenshot-based container detection (takes effect once the visual stage ships).");

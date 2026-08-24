@@ -252,6 +252,9 @@ public final class LegacySearchResultExtractor {
                             || link.resolvedTargetUrl.startsWith("https://"))) {
                 continue;
             }
+            if (isHarvestExcluded(link.resolvedTargetUrl)) {
+                continue; // SERP chrome: the engine owner's legal/consent pages are never results
+            }
             externalSeen++;
             String title = !link.visibleText.trim().isEmpty()
                     ? link.visibleText.trim() : link.nearestHeadingText.trim();
@@ -277,6 +280,28 @@ public final class LegacySearchResultExtractor {
                 + externalSeen + " external links; the reranker judges them)");
         return new SearchResultExtractionResult(SearchPageAnalysisOutcome.ORGANIC_RESULTS,
                 structured.snapshotId, structured.layoutConfidence, combined, diagnostics);
+    }
+
+    /** True when the link's host ends in one of the configured excluded (chrome) domains. */
+    private boolean isHarvestExcluded(String url) {
+        String host = harvestHostOf(url);
+        for (String domain : settings.analysis.linkHarvestExcludedDomains) {
+            String excluded = domain.trim().toLowerCase(Locale.ROOT);
+            if (!excluded.isEmpty()
+                    && (host.equals(excluded) || host.endsWith("." + excluded))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String harvestHostOf(String url) {
+        int scheme = url.indexOf("://");
+        String rest = scheme < 0 ? url : url.substring(scheme + 3);
+        int slash = rest.indexOf('/');
+        String hostPort = slash < 0 ? rest : rest.substring(0, slash);
+        int colon = hostPort.indexOf(':');
+        return (colon < 0 ? hostPort : hostPort.substring(0, colon)).toLowerCase(Locale.ROOT);
     }
 
     private SearchResultExtractionResult failed(RenderedPageDocument document, double confidence,

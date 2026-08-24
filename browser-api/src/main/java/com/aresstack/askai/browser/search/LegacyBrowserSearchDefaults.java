@@ -147,7 +147,10 @@ public final class LegacyBrowserSearchDefaults {
                 50,     // maximumLinksPerContainer
                 3,      // maximumStructureSignatureDepth
                 5,      // linkHarvestMinimumStructuredCandidates — below this, external links are harvested
-                20);    // linkHarvestMaximumCandidates
+                20,     // linkHarvestMaximumCandidates
+                // linkHarvestExcludedDomains: Bing's page furniture links microsoft.com legal/consent
+                // pages on every SERP — chrome, never results.
+                java.util.Arrays.asList("microsoft.com"));
     }
 
     private static SearchPageVisualAnalysisSettings visualAnalysis() {

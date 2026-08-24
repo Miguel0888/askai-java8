@@ -148,6 +148,10 @@ public class AnimatedThoughtBubblePanel extends JPanel {
     private static final java.util.regex.Pattern BAR_MARKER =
             java.util.regex.Pattern.compile("\\s*\\[\\[bar:(\\d+)/(\\d+)\\]\\]\\s*");
 
+    /** {@code [[url:https://…]]} — the page the remote browser shows right now (Durchsuche row). */
+    private static final java.util.regex.Pattern URL_MARKER =
+            java.util.regex.Pattern.compile("\\s*\\[\\[url:([^\\]\\s]+)\\]\\]\\s*");
+
     private void applyExplanation(String explanation) {
         String text = normalize(explanation);
         int current = -1;
@@ -163,8 +167,17 @@ public class AnimatedThoughtBubblePanel extends JPanel {
             }
             text = marker.replaceAll(" ").trim();
         }
+        java.util.regex.Matcher urlMarker = URL_MARKER.matcher(text);
+        String url = null;
+        if (urlMarker.find()) {
+            url = urlMarker.group(1);
+            text = urlMarker.replaceAll(" ").trim();
+        }
         explanationArea.setText(text);
         progressStrip.update(current, total);
+        if (url != null) {
+            updateBrowseUrl(url);
+        }
     }
 
     /** Appends a streamed delta to the bubble body (used to stream thinking text live). */
@@ -208,17 +221,24 @@ public class AnimatedThoughtBubblePanel extends JPanel {
     @Override
     public Dimension getPreferredSize() {
         int contentMaximumWidth = maximumBubbleWidth - CONNECTOR_SPACE - (CONTENT_PADDING * 2);
+        if (getWidth() > 0) {
+            // Measure the wrap at the width the transcript REALLY gave us — a preferred height
+            // computed for a wider bubble put the progress bar over the wrapped second line.
+            contentMaximumWidth = Math.min(contentMaximumWidth,
+                    getWidth() - CONNECTOR_SPACE - (CONTENT_PADDING * 2));
+        }
         int naturalWidth = calculateNaturalTextWidth();
         int contentWidth = Math.max(180, Math.min(contentMaximumWidth, naturalWidth));
         explanationArea.setSize(new Dimension(contentWidth, Short.MAX_VALUE));
         Dimension explanationSize = explanationArea.getPreferredSize();
-        Dimension titleSize = titleLabel.getPreferredSize();
+        Dimension titleSize = headerRow.getPreferredSize();
+        int south = southStack.isVisible() && southStack.getComponentCount() > 0
+                ? southStack.getPreferredSize().height : 0;
         int width = Math.max(explanationSize.width, titleSize.width)
                 + (CONTENT_PADDING * 2)
                 + CONNECTOR_SPACE;
         int height = CONTENT_PADDING * 2 + titleSize.height + 5 + explanationSize.height
-                // The comic progress bar (SOUTH) needs its strip, or BorderLayout squeezes the text.
-                + (progressStrip.isVisible() ? progressStrip.getPreferredSize().height + 5 : 0);
+                + (south > 0 ? south + 5 : 0);
         return new Dimension(Math.min(maximumBubbleWidth, width), Math.max(MINIMUM_HEIGHT, height));
     }
 
@@ -249,8 +269,129 @@ public class AnimatedThoughtBubblePanel extends JPanel {
         headerRow.add(titleLabel);
         add(headerRow, BorderLayout.NORTH);
         add(explanationArea, BorderLayout.CENTER);
-        add(progressStrip, BorderLayout.SOUTH);
+        southStack.setOpaque(false);
+        southStack.setLayout(new javax.swing.BoxLayout(southStack, javax.swing.BoxLayout.Y_AXIS));
+        southStack.add(progressStrip);
+        buildBrowseRow();
+        southStack.add(browseRow);
+        southStack.add(historyPanel);
+        add(southStack, BorderLayout.SOUTH);
+        // The transcript may lay this bubble out NARROWER than the width the preferred size was
+        // computed for; re-measuring on the real width is what keeps the bar/link rows BELOW the
+        // wrapped text instead of over it.
+        addComponentListener(new java.awt.event.ComponentAdapter() {
+            @Override
+            public void componentResized(java.awt.event.ComponentEvent event) {
+                revalidate();
+            }
+        });
         applyExplanation(explanationArea.getText());
+    }
+
+    /** Everything below the explanation: progress bar, the "Durchsuche:" link row, the history. */
+    private final JPanel southStack = new JPanel();
+    /** {@code Durchsuche: <link> ▼} — the page the remote browser is on right now. */
+    private final JPanel browseRow = new JPanel();
+    private final JLabel browseLink = new JLabel();
+    private final JLabel historyToggle = new JLabel("▼");
+    /** All pages this activity browsed so far, newest first — folded out by the comic arrow. */
+    private final JPanel historyPanel = new JPanel();
+    private final java.util.LinkedHashSet<String> browsedUrls = new java.util.LinkedHashSet<String>();
+    private String currentBrowseUrl = "";
+
+    private void buildBrowseRow() {
+        browseRow.setOpaque(false);
+        browseRow.setLayout(new javax.swing.BoxLayout(browseRow, javax.swing.BoxLayout.X_AXIS));
+        JLabel caption = new JLabel("Durchsuche: ");
+        caption.setFont(explanationArea.getFont().deriveFont(Font.BOLD));
+        caption.setForeground(theme.getForeground());
+        browseRow.add(caption);
+        browseLink.setFont(explanationArea.getFont());
+        browseLink.setForeground(theme.getAccent().darker());
+        browseLink.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
+        browseLink.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent event) {
+                openInDefaultBrowser(currentBrowseUrl);
+            }
+        });
+        browseRow.add(browseLink);
+        browseRow.add(javax.swing.Box.createHorizontalGlue());
+        historyToggle.setFont(explanationArea.getFont().deriveFont(Font.BOLD));
+        historyToggle.setForeground(theme.getForeground());
+        historyToggle.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
+        historyToggle.setToolTipText("Alle bisher durchsuchten Seiten anzeigen");
+        historyToggle.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent event) {
+                boolean show = !historyPanel.isVisible();
+                historyPanel.setVisible(show);
+                historyToggle.setText(show ? "▲" : "▼");
+                refreshLayout();
+            }
+        });
+        browseRow.add(historyToggle);
+        browseRow.setVisible(false);
+        historyPanel.setOpaque(false);
+        historyPanel.setLayout(new javax.swing.BoxLayout(historyPanel, javax.swing.BoxLayout.Y_AXIS));
+        historyPanel.setVisible(false);
+    }
+
+    /** A new "the browser is HERE now" update: refresh the link row and remember the page. */
+    private void updateBrowseUrl(String url) {
+        if (url == null || url.trim().isEmpty() || url.equals(currentBrowseUrl)) {
+            return;
+        }
+        currentBrowseUrl = url.trim();
+        browsedUrls.add(currentBrowseUrl);
+        browseLink.setText("<html><u>" + escapeHtml(shorten(currentBrowseUrl, 58)) + "</u></html>");
+        browseLink.setToolTipText(currentBrowseUrl + " — im Standardbrowser öffnen");
+        browseRow.setVisible(true);
+        rebuildHistory();
+        refreshLayout();
+    }
+
+    private void rebuildHistory() {
+        historyPanel.removeAll();
+        java.util.List<String> newestFirst = new ArrayList<String>(browsedUrls);
+        java.util.Collections.reverse(newestFirst);
+        for (final String url : newestFirst) {
+            JLabel entry = new JLabel("<html><u>" + escapeHtml(shorten(url, 64)) + "</u></html>");
+            entry.setFont(explanationArea.getFont().deriveFont(
+                    Math.max(10f, explanationArea.getFont().getSize2D() - 1f)));
+            entry.setForeground(theme.getAccent().darker());
+            entry.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
+            entry.setToolTipText(url + " — im Standardbrowser öffnen");
+            entry.setAlignmentX(LEFT_ALIGNMENT);
+            entry.addMouseListener(new java.awt.event.MouseAdapter() {
+                @Override
+                public void mouseClicked(java.awt.event.MouseEvent event) {
+                    openInDefaultBrowser(url);
+                }
+            });
+            historyPanel.add(entry);
+        }
+    }
+
+    /** The user's own browser, never the remote-controlled one. Best-effort; failures stay silent. */
+    private static void openInDefaultBrowser(String url) {
+        if (url == null || url.isEmpty()) {
+            return;
+        }
+        try {
+            java.awt.Desktop.getDesktop().browse(new java.net.URI(url));
+        } catch (Exception cannotOpen) {
+            java.awt.Toolkit.getDefaultToolkit().beep();
+        }
+    }
+
+    private static String shorten(String url, int maximumCharacters) {
+        return url.length() <= maximumCharacters ? url
+                : url.substring(0, maximumCharacters - 1) + "…";
+    }
+
+    private static String escapeHtml(String value) {
+        return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
     /** Title + (optional) the shared stacked time/date stamp, pushed to the bubble's right edge. */
@@ -407,7 +548,7 @@ public class AnimatedThoughtBubblePanel extends JPanel {
         phaseStartedAt = System.currentTimeMillis();
         headerRow.setVisible(false);
         explanationArea.setVisible(false);
-        progressStrip.setVisible(false);
+        southStack.setVisible(false);
         if (!animationTimer.isRunning()) {
             animationTimer.start();
         }

@@ -801,7 +801,14 @@ public final class ResearchAgentMain {
                                                             : " · Suche: " + p.getSerpSummary())
                                                     + (p.getLinksSelected() > 0
                                                             ? " [[bar:" + p.getPagesVisited() + "/"
-                                                            + p.getLinksSelected() + "]]" : "")));
+                                                            + p.getLinksSelected() + "]]" : "")
+                                                    // The page the remote browser is on RIGHT NOW —
+                                                    // the host renders it as the clickable
+                                                    // "Durchsuche:" line (opens the DEFAULT browser).
+                                                    + (activity != null && activity.getUrl() != null
+                                                            && !activity.getUrl().isEmpty()
+                                                            ? " [[url:" + activity.getUrl() + "]]"
+                                                            : "")));
                                 }
 
                                 public void phaseReady(

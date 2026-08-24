@@ -62,6 +62,12 @@ public final class SearchPageAnalysisSettings {
     public final int linkHarvestMinimumStructuredCandidates;
     /** Upper bound of TOTAL candidates (structured + harvested) after the harvest. */
     public final int linkHarvestMaximumCandidates;
+    /**
+     * SERP-chrome filter for the harvest: links whose host ends in one of these registrable domains
+     * are NEVER harvested — the engine owner's legal/consent/footer pages (Bing links microsoft.com
+     * everywhere) are page furniture, not results. Empty list = no exclusion.
+     */
+    public final java.util.List<String> linkHarvestExcludedDomains;
 
     public SearchPageAnalysisSettings(java.util.List<String> noResultsTexts,
                                       int maximumCandidateContainers, int minimumContainerTextCharacters,
@@ -81,7 +87,8 @@ public final class SearchPageAnalysisSettings {
                                       int maximumCapturedContainers, int maximumLinksPerContainer,
                                       int maximumStructureSignatureDepth,
                                       int linkHarvestMinimumStructuredCandidates,
-                                      int linkHarvestMaximumCandidates) {
+                                      int linkHarvestMaximumCandidates,
+                                      java.util.List<String> linkHarvestExcludedDomains) {
         this.noResultsTexts = java.util.Collections.unmodifiableList(noResultsTexts);
         this.maximumCandidateContainers = maximumCandidateContainers;
         this.minimumContainerTextCharacters = minimumContainerTextCharacters;
@@ -112,5 +119,8 @@ public final class SearchPageAnalysisSettings {
         this.maximumStructureSignatureDepth = maximumStructureSignatureDepth;
         this.linkHarvestMinimumStructuredCandidates = linkHarvestMinimumStructuredCandidates;
         this.linkHarvestMaximumCandidates = linkHarvestMaximumCandidates;
+        this.linkHarvestExcludedDomains = java.util.Collections.unmodifiableList(
+                linkHarvestExcludedDomains == null
+                        ? java.util.Collections.<String>emptyList() : linkHarvestExcludedDomains);
     }
 }

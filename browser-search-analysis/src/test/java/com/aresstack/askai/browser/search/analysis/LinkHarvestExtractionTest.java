@@ -46,6 +46,38 @@ public class LinkHarvestExtractionTest {
         return doc.build();
     }
 
+    /**
+     * SERP chrome never enters the harvest: Bing links microsoft.com legal/consent pages on EVERY
+     * result page (Servicevertrag, Datenschutz, Nutzungsbedingungen) — they landed in the sources as
+     * "results". The configured excluded domains (default: microsoft.com) cut them here, subdomains
+     * included.
+     */
+    @Test
+    public void engineChromeDomainsAreNeverHarvested() {
+        SerpDocuments doc = SerpDocuments.builder();
+        doc.addResultColumn(1, new RenderedBox(160, 80, 700, 200), SerpDocuments.LIGHT_GRAY);
+        String loose = doc.addPlainContainer("div", "loose", java.util.Collections.<String>emptyList(),
+                java.util.Collections.<String>emptyList(), new RenderedBox(160, 320, 700, 400),
+                600, 120, 4, 0, 4);
+        doc.addLink(loose, "https://hasen.example.org/pfote", "Hasenpfote als Glücksbringer",
+                DomainClassification.EXTERNAL_DOMAIN, false, "echtes Ergebnis");
+        doc.addLink(loose, "https://www.microsoft.com/de-de/servicesagreement/", "Servicevertrag",
+                DomainClassification.EXTERNAL_DOMAIN, false, "Bing-Fußzeile");
+        doc.addLink(loose, "https://go.microsoft.com/fwlink/?LinkId=521839", "Datenschutz",
+                DomainClassification.EXTERNAL_DOMAIN, false, "Bing-Fußzeile");
+
+        SearchResultExtractionResult result = new LegacySearchResultExtractor(
+                LegacyBrowserSearchDefaults.create()).extract(doc.build());
+
+        assertTrue("the real result survives",
+                byUrl(result, "https://hasen.example.org/pfote") != null);
+        for (SearchResultCandidate candidate : result.candidates) {
+            assertFalse("engine-owner chrome must never become a candidate: "
+                    + candidate.resolvedTargetUrl,
+                    candidate.resolvedTargetUrl.contains("microsoft.com"));
+        }
+    }
+
     @Test
     public void aCollapsedSerpStillDeliversItsExternalLinksAsCandidates() {
         LegacySearchResultExtractor extractor =
@@ -138,7 +170,8 @@ public class LinkHarvestExtractionTest {
                 a.resultBlockSimilarityThreshold, a.minimumDiscriminatingSignalFamilies,
                 a.fullPageAreaRatio, a.textLengthSaturationCharacters, a.maximumContainerDomDepth,
                 a.maximumCapturedContainers, a.maximumLinksPerContainer,
-                a.maximumStructureSignatureDepth, 0, a.linkHarvestMaximumCandidates);
+                a.maximumStructureSignatureDepth, 0, a.linkHarvestMaximumCandidates,
+                a.linkHarvestExcludedDomains);
         return new LegacyBrowserSearchSettings(base.navigation, base.consent, base.captcha,
                 base.readiness, disabled, base.visualAnalysis, base.extraction,
                 base.aiLayoutResolver, base.reranker, base.diagnostics, base.layoutRepair);

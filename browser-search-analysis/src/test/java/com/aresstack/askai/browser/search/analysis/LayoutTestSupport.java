@@ -44,7 +44,8 @@ final class LayoutTestSupport {
                 a.resultBlockSimilarityThreshold, a.minimumDiscriminatingSignalFamilies,
                 a.fullPageAreaRatio, a.textLengthSaturationCharacters, a.maximumContainerDomDepth,
                 a.maximumCapturedContainers, a.maximumLinksPerContainer,
-                a.maximumStructureSignatureDepth, 0, a.linkHarvestMaximumCandidates);
+                a.maximumStructureSignatureDepth, 0, a.linkHarvestMaximumCandidates,
+                a.linkHarvestExcludedDomains);
         return new LegacyBrowserSearchSettings(base.navigation, base.consent, base.captcha,
                 base.readiness, off, base.visualAnalysis, base.extraction, base.aiLayoutResolver,
                 base.reranker, base.diagnostics, base.layoutRepair);
@@ -83,7 +84,7 @@ final class LayoutTestSupport {
                 a.textLengthSaturationCharacters, a.maximumContainerDomDepth,
                 a.maximumCapturedContainers, a.maximumLinksPerContainer,
                 a.maximumStructureSignatureDepth, a.linkHarvestMinimumStructuredCandidates,
-                a.linkHarvestMaximumCandidates);
+                a.linkHarvestMaximumCandidates, a.linkHarvestExcludedDomains);
         return new LegacyBrowserSearchSettings(base.navigation, base.consent, base.captcha,
                 base.readiness, forced, base.visualAnalysis, base.extraction, base.aiLayoutResolver,
                 base.reranker, base.diagnostics, base.layoutRepair);
