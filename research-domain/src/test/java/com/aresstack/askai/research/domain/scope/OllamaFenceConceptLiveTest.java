@@ -252,10 +252,11 @@ public class OllamaFenceConceptLiveTest {
         // MEASUREMENT-SPIKE parameters, not the frozen formula: q=0 (minimum) + the measured
         // slack (probes are short raw concepts, anchors negotiated sentences — the mission floor
         // sits BELOW the weakest anchor). Which quantile/MAD/slack is stabler gets decided on
-        // productive measurements. Minimums: 3 negotiated posts, 4 controls over 2+ islands.
+        // productive measurements. Minimums: 3 negotiated posts, 4 controls; coverage must be
+        // COMPLETE (every negotiated post represented) — no separate parameter for that.
         ScopeFenceCalibrator.FenceCalibration calibration = ScopeFenceCalibrator.calibrate(
                 samples, new ScopeFenceCalibrator.CalibrationParameters(
-                        0.0d, 0.1d, 0.0d, 0.0d, 3, 4, 2));
+                        0.0d, 0.1d, 0.0d, 0.0d, 3, 4));
         System.err.println(String.format(java.util.Locale.ROOT,
                 "[fence-calib] missionFloor=%.3f knownRegionFloor=%.3f confidence=%s "
                         + "missionSamples=%s neighborSamples=%s",
@@ -266,7 +267,8 @@ public class OllamaFenceConceptLiveTest {
                 ScopeFenceCalibrator.Confidence.OK, calibration.confidence);
         assertTrue("OK is what unlocks the hole hunt at all", calibration.permitsHoleHunting());
         assertEquals(0, samples.orphanedControls);
-        assertEquals(3, samples.distinctParentAnchorsCovered);
+        assertEquals("all three negotiated posts are covered — complete, not merely 'enough'",
+                samples.eligibleAnchorCount, samples.distinctParentAnchorsCovered);
 
         ScopeFenceEvaluator fence = new ScopeFenceEvaluator(anchorVectors);
         List<ProbeSweepAnalyzer.ProbeVector> probes =

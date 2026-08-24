@@ -7,7 +7,10 @@ package com.aresstack.askai.research.domain.scope;
  * The distribution of {@code cos(anchor, itsNeighbor)} is what calibrates the known-region floor —
  * NOT the pairwise anchor distances, which only measure how far apart legitimate ISLANDS lie.
  * Controls exist solely for calibration; they never enter the sweep's hole search and never become
- * anchors.
+ * anchors. Only NEGOTIATED (IN/OUT) posts get controls: the floor is a global measuring stick, and
+ * a PROVISIONAL post — the agent's own unconfirmed hypothesis — must not shift it through its own
+ * synthetic neighborhood (the calibrator ignores such controls, counted, and the generator should
+ * not produce them in the first place).
  * <p>
  * Deliberately NOT mere paraphrases (those score ~.95 and would make the floor far too strict):
  * different concrete examples inside the same region measure its real local extent.

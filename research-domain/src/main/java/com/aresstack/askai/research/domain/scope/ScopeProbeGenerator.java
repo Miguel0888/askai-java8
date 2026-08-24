@@ -68,9 +68,11 @@ public interface ScopeProbeGenerator {
 
     /**
      * ONE model call, two kinds of output: the BROAD probes hunt holes; the ANCHOR_NEIGHBOR
-     * controls (2-3 per post: different concrete examples clearly INSIDE that post's region, never
-     * mere paraphrases) exist solely to calibrate the known-region floor. Keeping both in one batch
-     * keeps the orientation sweep fast.
+     * controls (2-3 per NEGOTIATED IN/OUT post: different concrete examples clearly INSIDE that
+     * post's region, never mere paraphrases) exist solely to calibrate the known-region floor.
+     * PROVISIONAL posts get NO controls — an unconfirmed agent hypothesis must not shift the
+     * global measuring stick, and skipping them saves tokens and embeddings. Keeping both kinds
+     * in one batch keeps the orientation sweep fast.
      */
     final class ProbeGeneration {
         private final List<ScopeProbe> broadProbes;

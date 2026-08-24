@@ -50,23 +50,30 @@ public final class ScopeFenceCalibrator {
 
     /** The RAW measured distributions — kept so every derived floor stays explainable. */
     public static final class Samples {
-        /** One entry per NEGOTIATED (IN/OUT) post — provisional posts never calibrate the mission. */
+        /** One entry per NEGOTIATED (IN/OUT) post — provisional posts never calibrate the mission;
+         *  EMPTY when no mission reference vectors exist (never a list of fake 0.0 scores). */
         public final List<Double> anchorMissionRelevances;
         public final List<Double> anchorNeighborSimilarities;
         /** Controls whose parent anchor had no vector — skipped, but never silently. */
         public final int orphanedControls;
-        /** How many DIFFERENT posts contributed neighbor samples — six controls around one post
-         *  measure ONE island's radius, not a global floor for a multi-island fence. */
+        /** Controls parented by a PROVISIONAL post — ignored for the floor, but never silently:
+         *  an agent hypothesis must not shift the global measuring stick via its own synthetic
+         *  neighbors (the generator should not even produce these). */
+        public final int provisionalControlsIgnored;
+        /** How many DIFFERENT calibration-eligible posts contributed neighbor samples — six
+         *  controls around one post measure ONE island's radius, never a global floor. */
         public final int distinctParentAnchorsCovered;
-        /** All posts on the fence (including provisional) — the coverage denominator. */
+        /** The calibration-eligible posts: embedded NEGOTIATED (IN/OUT) anchors only. */
         public final int eligibleAnchorCount;
 
         Samples(List<Double> anchorMissionRelevances, List<Double> anchorNeighborSimilarities,
-                int orphanedControls, int distinctParentAnchorsCovered, int eligibleAnchorCount) {
+                int orphanedControls, int provisionalControlsIgnored,
+                int distinctParentAnchorsCovered, int eligibleAnchorCount) {
             this.anchorMissionRelevances = Collections.unmodifiableList(anchorMissionRelevances);
             this.anchorNeighborSimilarities =
                     Collections.unmodifiableList(anchorNeighborSimilarities);
             this.orphanedControls = orphanedControls;
+            this.provisionalControlsIgnored = provisionalControlsIgnored;
             this.distinctParentAnchorsCovered = distinctParentAnchorsCovered;
             this.eligibleAnchorCount = eligibleAnchorCount;
         }
@@ -128,22 +135,18 @@ public final class ScopeFenceCalibrator {
         /** Minimum NEGOTIATED (IN/OUT) posts — one or two posts are no mission calibration. */
         public final int minimumNegotiatedAnchors;
         public final int minimumNeighborSamples;
-        /** Minimum DIFFERENT posts with neighbor controls — one island never calibrates them all. */
-        public final int minimumDistinctParentAnchors;
 
         public CalibrationParameters(double missionRelevanceQuantile,
                                      double missionRelevanceMargin,
                                      double neighborSimilarityQuantile,
                                      double neighborSimilarityMargin,
-                                     int minimumNegotiatedAnchors, int minimumNeighborSamples,
-                                     int minimumDistinctParentAnchors) {
+                                     int minimumNegotiatedAnchors, int minimumNeighborSamples) {
             this.missionRelevanceQuantile = missionRelevanceQuantile;
             this.missionRelevanceMargin = missionRelevanceMargin;
             this.neighborSimilarityQuantile = neighborSimilarityQuantile;
             this.neighborSimilarityMargin = neighborSimilarityMargin;
             this.minimumNegotiatedAnchors = Math.max(1, minimumNegotiatedAnchors);
             this.minimumNeighborSamples = Math.max(1, minimumNeighborSamples);
-            this.minimumDistinctParentAnchors = Math.max(1, minimumDistinctParentAnchors);
         }
     }
 
@@ -152,21 +155,29 @@ public final class ScopeFenceCalibrator {
 
     /**
      * Measure both raw distributions. Pairwise anchor cosines are deliberately NEVER computed —
-     * and neither do PROVISIONAL posts calibrate the mission: only IN and OUT are USER-negotiated
-     * "belongs to the mission's surroundings" examples. A provisional post is still the agent's
-     * own hypothesis; letting it calibrate relevance would make similar new probes look
-     * mission-relevant and the agent would read its own guess as confirmation. For the
-     * known-region floor a provisional post's neighborhood IS eligible — there the question is
-     * the LOCAL semantic extent of the post, not its negotiated approval.
+     * and PROVISIONAL posts calibrate NOTHING: not the mission (only IN and OUT are
+     * USER-negotiated "belongs to the mission's surroundings" examples; a provisional post is
+     * still the agent's own hypothesis, and letting it calibrate relevance would make similar new
+     * probes look confirmed) and not the known-region floor either — the floor is a GLOBAL
+     * measuring stick, and an unconfirmed hypothesis must not shift it through its own synthetic
+     * neighbors. The asymmetry is deliberate: calibration SOURCE is IN+OUT only; floor
+     * APPLICATION covers IN, OUT and PROVISIONAL alike (a probe near a provisional post above the
+     * floor still reads PENDING). Empty mission references yield EMPTY mission samples — never a
+     * list of fake 0.0 scores that could pass a count check.
      */
     public static Samples measure(List<ScopeFenceEvaluator.AnchorVector> anchors,
                                   List<float[]> missionReferenceVectors,
                                   List<CalibrationProbeVector> controls) {
         List<Double> missionRelevances = new ArrayList<Double>();
-        Map<String, float[]> vectorsById = new java.util.LinkedHashMap<String, float[]>();
+        Map<String, float[]> negotiatedVectorsById = new java.util.LinkedHashMap<String, float[]>();
+        java.util.Set<String> provisionalAnchorIds = new java.util.LinkedHashSet<String>();
         for (ScopeFenceEvaluator.AnchorVector anchor : anchors) {
-            vectorsById.put(anchor.anchorId, anchor.vector);
             if (anchor.membership == ScopeAnchor.Membership.PROVISIONAL) {
+                provisionalAnchorIds.add(anchor.anchorId);
+                continue;
+            }
+            negotiatedVectorsById.put(anchor.anchorId, anchor.vector);
+            if (missionReferenceVectors.isEmpty()) {
                 continue;
             }
             double relevance = 0.0d;
@@ -179,27 +190,38 @@ public final class ScopeFenceCalibrator {
         List<Double> neighborSimilarities = new ArrayList<Double>();
         java.util.Set<String> coveredParents = new java.util.LinkedHashSet<String>();
         int orphaned = 0;
+        int provisionalIgnored = 0;
         for (CalibrationProbeVector control : controls) {
-            float[] anchorVector = vectorsById.get(control.probe.getParentAnchorId());
+            String parentId = control.probe.getParentAnchorId();
+            float[] anchorVector = negotiatedVectorsById.get(parentId);
             if (anchorVector == null) {
-                orphaned++;
+                if (provisionalAnchorIds.contains(parentId)) {
+                    provisionalIgnored++;
+                } else {
+                    orphaned++;
+                }
                 continue;
             }
-            coveredParents.add(control.probe.getParentAnchorId());
+            coveredParents.add(parentId);
             neighborSimilarities.add(ScopeFenceEvaluator.cosine(anchorVector, control.vector));
         }
-        return new Samples(missionRelevances, neighborSimilarities, orphaned,
-                coveredParents.size(), anchors.size());
+        return new Samples(missionRelevances, neighborSimilarities, orphaned, provisionalIgnored,
+                coveredParents.size(), negotiatedVectorsById.size());
     }
 
-    /** Derive the floors from the measured distributions; thin data degrades to WEAK, loudly typed. */
+    /**
+     * Derive the floors from the measured distributions; thin data degrades to WEAK, loudly
+     * typed. Coverage is COMPLETE or nothing: the generator produces controls per eligible post
+     * anyway, so OK requires EVERY negotiated post to be represented by at least one valid
+     * control — a floor measured on two of twenty islands must never call itself OK, and no
+     * invented coverage percentage is needed for that.
+     */
     public static FenceCalibration calibrate(Samples samples, CalibrationParameters parameters) {
         Confidence confidence =
                 samples.anchorMissionRelevances.size() >= parameters.minimumNegotiatedAnchors
                         && samples.anchorNeighborSimilarities.size()
                                 >= parameters.minimumNeighborSamples
-                        && samples.distinctParentAnchorsCovered
-                                >= parameters.minimumDistinctParentAnchors
+                        && samples.distinctParentAnchorsCovered == samples.eligibleAnchorCount
                         ? Confidence.OK : Confidence.WEAK;
         double missionFloor = quantile(samples.anchorMissionRelevances,
                 parameters.missionRelevanceQuantile) - parameters.missionRelevanceMargin;
