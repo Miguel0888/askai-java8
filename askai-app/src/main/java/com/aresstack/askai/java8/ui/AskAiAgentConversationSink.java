@@ -152,10 +152,16 @@ final class AskAiAgentConversationSink implements AgentConversationSink {
 
     @Override
     public void appendInfoMessage(String messageId, String markdown) {
-        transcript.appendInfo(markdown);
+        transcript.appendInfo(messageId, markdown);
         if (persister != null && markdown != null && !markdown.trim().isEmpty()) {
             persister.persistInfo(messageId, markdown); // survives a restart as a muted italic line (not a bubble)
         }
+        refresh();
+    }
+
+    @Override
+    public void markInfoStatus(String messageId, boolean success, Runnable retry) {
+        transcript.markInfoStatus(messageId, success, retry);
         refresh();
     }
 

@@ -56,6 +56,9 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
     // Review-context bounds: how many sources one review reads, and how much of each.
     private final JTextField reviewMaxSources = new JTextField(4);
     private final JTextField reviewMaxChars = new JTextField(6);
+    /** AI reranker opt-in (default OFF = lexical BM25 scoring, no model load). */
+    private final JCheckBox useAiReranker = new JCheckBox(
+            "KI-Reranker verwenden (semantisches Modell statt BM25; gilt für neue Sessions)", false);
     /** Bot-control MCP (default ON): run_command/session_state/chat_history + service-endpoint.json. */
     private final JCheckBox botControlMcp = new JCheckBox(
             "Bot control via MCP (applies to new sessions)", true);
@@ -148,6 +151,7 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         botTools.setToolTipText(liveEndpoint != null
                 ? "Streamable HTTP (MCP JSON-RPC): " + liveEndpoint.connectionUrl()
                 : "Diese Session hat keinen Bot-Endpoint (deaktiviert oder keine produktive Session)");
+        form.add(row("", useAiReranker));
         JPanel botRow = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0));
         botRow.setOpaque(false);
         botRow.add(botControlMcp);
@@ -211,6 +215,15 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
             public void actionPerformed(ActionEvent event) {
                 String code = agentLanguage.getSelectedIndex() == 1 ? "de" : "en";
                 ResearchRuntimeSettings.saveLanguage(ResearchRuntimeSettingsPanel.this.store, code);
+            }
+        });
+        useAiReranker.setSelected(ResearchRuntimeSettings.loadUseAiReranker(store));
+        useAiReranker.setToolTipText("Aus: Suchtreffer werden lexikalisch per BM25 bewertet — schnell, "
+                + "ohne Modell. An: das konfigurierte Cross-Encoder-Modell bewertet semantisch.");
+        useAiReranker.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent event) {
+                ResearchRuntimeSettings.saveUseAiReranker(ResearchRuntimeSettingsPanel.this.store,
+                        useAiReranker.isSelected());
             }
         });
         botControlMcp.setSelected(ResearchRuntimeSettings.loadBotControlMcp(store));

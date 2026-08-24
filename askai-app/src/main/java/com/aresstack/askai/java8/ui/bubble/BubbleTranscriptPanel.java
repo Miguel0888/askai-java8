@@ -295,7 +295,58 @@ public final class BubbleTranscriptPanel extends JPanel {
         currentActionsRow = holder[0];
     }
 
+    /** Info lines addressable by id, so a terminal status (check/retry) can find its line later. */
+    private final java.util.Map<String, JLabel> infoLinesById =
+            new java.util.HashMap<String, JLabel>();
+
+    public void appendInfo(String infoId, String text) {
+        JLabel label = appendInfoInternal(text);
+        if (infoId != null && !infoId.trim().isEmpty()) {
+            infoLinesById.put(infoId, label);
+        }
+    }
+
+    /**
+     * Mark an info line (by id) with its terminal outcome: a green comic check for success, or a red
+     * circling-arrow RETRY control for failure — clicking the failed line runs the retry.
+     */
+    public void markInfoStatus(String infoId, boolean success, final Runnable retry) {
+        requireEventDispatchThread();
+        JLabel label = infoId == null ? null : infoLinesById.get(infoId);
+        if (label == null) {
+            return; // restored/unknown line: nothing to decorate
+        }
+        String base = escapeHtml(String.valueOf(label.getClientProperty("info.plainText")));
+        if (success) {
+            label.setText("<html><i>" + base
+                    + "</i>&nbsp;&nbsp;<b style='color:#2e8b57;'>✔</b></html>");
+        } else {
+            label.setText("<html><i>" + base
+                    + "</i>&nbsp;&nbsp;<b style='color:#b03030;'>⟳</b></html>");
+            if (retry != null) {
+                label.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
+                label.setToolTipText("Suche fehlgeschlagen — klicken: erneut versuchen");
+                label.addMouseListener(new java.awt.event.MouseAdapter() {
+                    @Override
+                    public void mouseClicked(java.awt.event.MouseEvent event) {
+                        retry.run();
+                    }
+                });
+            }
+        }
+        label.setMaximumSize(new Dimension(Integer.MAX_VALUE, label.getPreferredSize().height));
+        refreshTranscript();
+    }
+
+    private static String escapeHtml(String value) {
+        return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+    }
+
     public void appendInfo(String text) {
+        appendInfoInternal(text);
+    }
+
+    private JLabel appendInfoInternal(String text) {
         requireEventDispatchThread();
         final JLabel label = new JLabel(text == null ? "" : text, SwingConstants.CENTER);
         Font font = UIManager.getFont("Label.font");
@@ -331,8 +382,10 @@ public final class BubbleTranscriptPanel extends JPanel {
                 }
             });
         }
+        label.putClientProperty("info.plainText", text == null ? "" : text);
         addToMessageList(label);
         refreshTranscript();
+        return label;
     }
 
     /**

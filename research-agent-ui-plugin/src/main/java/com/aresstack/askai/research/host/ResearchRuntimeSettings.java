@@ -157,6 +157,22 @@ public final class ResearchRuntimeSettings {
         return store == null || store.getBoolean(KEY_BOT_CONTROL, true);
     }
 
+    /**
+     * "KI-Reranker verwenden" (default OFF): OFF scores search candidates lexically (BM25, no model,
+     * no GPU); ON uses the configured cross-encoder model. Applies to NEW sessions.
+     */
+    public static final String KEY_USE_AI_RERANKER = "research.runtime.useAiReranker";
+
+    public static boolean loadUseAiReranker(WorkspaceStateStore store) {
+        return store != null && store.getBoolean(KEY_USE_AI_RERANKER, false);
+    }
+
+    public static void saveUseAiReranker(WorkspaceStateStore store, boolean enabled) {
+        if (store != null) {
+            store.putBoolean(KEY_USE_AI_RERANKER, enabled);
+        }
+    }
+
     public static void saveBotControlMcp(WorkspaceStateStore store, boolean enabled) {
         if (store != null) {
             store.putBoolean(KEY_BOT_CONTROL, enabled);

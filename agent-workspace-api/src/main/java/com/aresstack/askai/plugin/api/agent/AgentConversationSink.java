@@ -47,6 +47,14 @@ public interface AgentConversationSink {
     }
 
     /**
+     * Mark a previously appended info line with its TERMINAL outcome: success renders a green check
+     * behind the line, failure a red circling-arrow retry control — clicking it runs {@code retry}.
+     * Hosts without decorated info lines may drop this.
+     */
+    default void markInfoStatus(String messageId, boolean success, Runnable retry) {
+    }
+
+    /**
      * One technical diagnostic line for the host's collapsible "Technical details" area — NEVER rendered
      * in the visible chat or inside a card. Hosts without such an area may drop the line.
      */

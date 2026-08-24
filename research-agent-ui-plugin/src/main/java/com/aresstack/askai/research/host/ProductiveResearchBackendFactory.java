@@ -122,6 +122,13 @@ public final class ProductiveResearchBackendFactory {
         }
     }
 
+    /** "KI-Reranker verwenden" (default OFF → lexical BM25 in the runtime, no model call). */
+    private volatile boolean useAiReranker;
+
+    public void setUseAiReranker(boolean enabled) {
+        this.useAiReranker = enabled;
+    }
+
     /** Per-call MCP timeout toward the browser sidecar (seconds) — the settings value, never a constant. */
     public void setBrowserToolTimeoutSeconds(int seconds) {
         if (seconds > 0) {
@@ -654,6 +661,8 @@ public final class ProductiveResearchBackendFactory {
             baseEnv.put("ASKAI_SEARCH_MAX_ERRORS", String.valueOf(searchMaxErrors));
             baseEnv.put("ASKAI_BROWSER_TOOL_TIMEOUT_SECONDS",
                     String.valueOf(browserToolTimeoutSeconds));
+            // "KI-Reranker verwenden": OFF = the runtime scores lexically (BM25, no model call).
+            baseEnv.put("ASKAI_USE_AI_RERANKER", String.valueOf(useAiReranker));
             // DEV/TEST-only hand-off (mirrors askai.research.sidecar.args for the browser sidecar): extra JVM
             // args for the research-agent-runtime child, inserted BEFORE -jar so they are JVM flags. Empty by
             // default → no production effect. Set on the HOST JVM, e.g. to A/B the overlay:

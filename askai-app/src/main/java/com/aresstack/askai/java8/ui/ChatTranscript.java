@@ -116,6 +116,16 @@ final class ChatTranscript {
         panel.appendInfo(text);
     }
 
+    /** Appends an info line addressable by id, so a terminal status can decorate it later. */
+    void appendInfo(String infoId, String text) {
+        panel.appendInfo(infoId, text);
+    }
+
+    /** Green check (success) or red circling-arrow retry (failure) behind the id's info line. */
+    void markInfoStatus(String infoId, boolean success, Runnable retry) {
+        panel.markInfoStatus(infoId, success, retry);
+    }
+
     /**
      * Starts a streaming assistant message with the given header (e.g. the model name).
      * Subsequent {@link #appendAssistantDelta(String)} calls append into this message.

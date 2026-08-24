@@ -61,8 +61,10 @@ final class AssistantMarkdownBubble extends JPanel
         this.headerForeground = palette.getAssistantForeground();
         if (headerShown) {
             headerRow.setOpaque(false);
-            headerRow.setLayout(new javax.swing.BoxLayout(headerRow, javax.swing.BoxLayout.X_AXIS));
-            headerRow.add(headerLabel);
+            // WEST/EAST instead of a box with glue: the stamp is right-aligned however wide the
+            // transcript really lays this bubble out.
+            headerRow.setLayout(new BorderLayout(6, 0));
+            headerRow.add(headerLabel, BorderLayout.WEST);
             add(headerRow, BorderLayout.NORTH);
         }
         add(body, BorderLayout.CENTER);
@@ -83,9 +85,7 @@ final class AssistantMarkdownBubble extends JPanel
             timestampLabel = new JLabel();
             Font base = headerLabel.getFont();
             timestampLabel.setFont(base.deriveFont(Font.PLAIN, Math.max(6f, base.getSize2D() * 0.5f)));
-            headerRow.add(javax.swing.Box.createHorizontalStrut(6));
-            headerRow.add(javax.swing.Box.createHorizontalGlue());
-            headerRow.add(timestampLabel);
+            headerRow.add(timestampLabel, BorderLayout.EAST);
         }
         timestampLabel.setForeground(withAlpha(headerForeground, 190));
         timestampLabel.setText(BubbleTimestamps.stackedHtml(epochMillis));

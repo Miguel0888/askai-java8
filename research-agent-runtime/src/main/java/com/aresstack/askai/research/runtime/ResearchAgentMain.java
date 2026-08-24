@@ -223,7 +223,19 @@ public final class ResearchAgentMain {
             rerankerByLanguage = new java.util.HashMap<String,
                     com.aresstack.askai.research.runtime.rerank.CandidateReranker>();
 
+    /** The lexical default scorer; ONE instance is enough (stateless per call). */
+    private final com.aresstack.askai.research.runtime.rerank.Bm25CandidateReranker bm25Reranker =
+            new com.aresstack.askai.research.runtime.rerank.Bm25CandidateReranker();
+
+    /** "KI-Reranker verwenden" (host setting, per spawn): default OFF → lexical BM25, no model. */
+    private static boolean useAiReranker() {
+        return "true".equalsIgnoreCase(System.getenv("ASKAI_USE_AI_RERANKER"));
+    }
+
     private com.aresstack.askai.research.runtime.rerank.CandidateReranker rerankerFor(String languageCode) {
+        if (!useAiReranker()) {
+            return bm25Reranker; // the user's default: cheap lexical scoring, model only on opt-in
+        }
         String lang = "de".equalsIgnoreCase(languageCode) ? "de" : "en";
         String path = "de".equals(lang) ? environment.rerankerConfigDePath
                 : environment.rerankerConfigEnPath;
@@ -799,9 +811,13 @@ public final class ResearchAgentMain {
                                                     // engine delivered how many SERP result pages.
                                                     + (p.getSerpSummary().isEmpty() ? ""
                                                             : " · Suche: " + p.getSerpSummary())
-                                                    + (p.getLinksSelected() > 0
-                                                            ? " [[bar:" + p.getPagesVisited() + "/"
-                                                            + p.getLinksSelected() + "]]" : "")
+                                                    // The bar tracks what actually ENDS the search:
+                                                    // accepted sources against the configured target.
+                                                    // Pages-vs-links looked "weird": the run rightly
+                                                    // stops at the target, long before every relevant
+                                                    // link is visited.
+                                                    + " [[bar:" + p.getAcceptedSources() + "/"
+                                                    + searchBudget.getMaxAcceptedSources() + "]]"
                                                     // The page the remote browser is on RIGHT NOW —
                                                     // the host renders it as the clickable
                                                     // "Durchsuche:" line (opens the DEFAULT browser).
