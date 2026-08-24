@@ -14,8 +14,25 @@ import javax.swing.JComponent;
  */
 public interface AgentToolbarContribution {
 
+    /** Where in the workspace top bar this control lives. */
+    enum Placement {
+        /**
+         * Centered between the hamburger/ribbon (left) and the trailing controls (right) — e.g. a
+         * session-wide search field. An unfolding ribbon pushes the centered control to the right
+         * and may squeeze it.
+         */
+        CENTER,
+        /** Left of the gear in the trailing group (the default) — e.g. a language switch. */
+        TRAILING
+    }
+
     /** A stable id for this control (diagnostics / de-duplication). */
     String getId();
+
+    /** The control's top-bar placement; defaults to {@link Placement#TRAILING}. */
+    default Placement getPlacement() {
+        return Placement.TRAILING;
+    }
 
     /** Whether this control applies to the given live session (e.g. the right agent type). */
     boolean supports(AgentSession session);

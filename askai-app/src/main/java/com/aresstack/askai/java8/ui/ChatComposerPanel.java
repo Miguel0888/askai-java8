@@ -519,6 +519,14 @@ public final class ChatComposerPanel extends JPanel {
         return button;
     }
 
+    /** The New-chat "+" in the same icon style — it sits next to the gear in the top bar. */
+    public static JButton createNewChatIconButton() {
+        ComposerButton button = new ComposerButton(new PlusIcon(12), null, false);
+        configureButton(button, "Open a new chat");
+        button.setPreferredSize(new Dimension(30, 28));
+        return button;
+    }
+
     /**
      * Override the editor's placeholder text (e.g. the research scoping query proposed by the agent);
      * null or blank restores the default prompt. The placeholder never touches typed text.

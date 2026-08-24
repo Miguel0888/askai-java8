@@ -57,9 +57,10 @@ final class ScopingComposerAccessory implements ComposerAccessory {
                 final java.util.List<ResearchActionTag> actions = research.availableActionTags();
                 uiExecutor.execute(new Runnable() {
                     public void run() {
-                        // Always visible: the free-search tag is the surface's DEFAULT element —
-                        // /search is phase-independent, so the typed entry point is too.
-                        view.setVisible(true);
+                        // Back to demand-driven visibility: the free-search field moved to the
+                        // workspace TOP BAR (ResearchWebSearchToolbarContribution), so this
+                        // surface only appears while it has tags to show.
+                        view.setVisible(scoping || !actions.isEmpty());
                         view.apply(projection, actions);
                         pushPlaceholder(scoping, projection);
                     }

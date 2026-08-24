@@ -147,7 +147,17 @@ public final class SidebarTabRibbon extends JPanel {
 
     @Override
     public Dimension getPreferredSize() {
-        return new Dimension(Integer.MAX_VALUE, RIBBON_HEIGHT); // takes what the top bar can give
+        // The ribbon asks for exactly its unfolded share (progress-scaled): folded away it takes
+        // NOTHING, so a centered top-bar control can use the space — and gets pushed right/squeezed
+        // while the ribbon unfolds. (It used to claim the whole top bar, which made a centered
+        // sibling impossible.)
+        int fullWidth = content.getPreferredSize().width + 2 * ARROW_WIDTH;
+        return new Dimension(Math.round(progress * fullWidth), RIBBON_HEIGHT);
+    }
+
+    @Override
+    public Dimension getMaximumSize() {
+        return getPreferredSize(); // never stretch beyond the unfolded share
     }
 
     @Override

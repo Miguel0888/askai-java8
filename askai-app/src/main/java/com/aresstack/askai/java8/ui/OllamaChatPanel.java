@@ -2305,6 +2305,16 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         saveChatRecord();
     }
 
+    /**
+     * Assign this OPEN chat to a project (null/blank removes it). Must go through the panel — it
+     * owns the live {@link com.aresstack.askai.java8.history.ChatRecord} instance, and a store-side
+     * mutation on a loaded copy would be overwritten by the panel's next save.
+     */
+    public void setChatProject(String project) {
+        chatRecord().setProject(project);
+        saveChatRecord();
+    }
+
     /** Notified after every persist so a visible chat list can pick up a new title/timestamp. */
     private Runnable historyChangedListener;
 

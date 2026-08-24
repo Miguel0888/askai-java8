@@ -12,6 +12,13 @@ public final class ChatRecord {
 
     private String id;
     private String title;
+    /**
+     * The PROJECT this chat belongs to, or {@code null} for none. Identified by NAME for now — the
+     * sidebar groups project chats at the top. Deliberately a plain field so a later slice can grow
+     * projects into real entities with shared data (sources, briefs) without a migration: the name
+     * stays the join key.
+     */
+    private String project;
     private long createdAt;
     private long modifiedAt;
     private String model;
@@ -33,6 +40,12 @@ public final class ChatRecord {
     public String getId() { return id; }
     public String getTitle() { return title; }
     public void setTitle(String title) { this.title = title; }
+    /** @return the project name, or {@code null} when the chat belongs to none. */
+    public String getProject() { return project; }
+    /** A null/blank project means "no project". */
+    public void setProject(String project) {
+        this.project = project == null || project.trim().isEmpty() ? null : project.trim();
+    }
     public long getCreatedAt() { return createdAt; }
     public long getModifiedAt() { return modifiedAt; }
     public void setModifiedAt(long modifiedAt) { this.modifiedAt = modifiedAt; }

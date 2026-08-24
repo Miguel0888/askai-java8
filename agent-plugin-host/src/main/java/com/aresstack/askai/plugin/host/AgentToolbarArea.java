@@ -45,6 +45,7 @@ public final class AgentToolbarArea {
         final AgentSession session = coordinator.getActiveSession();
         if (session == null) {
             host.clearToolbar();
+            host.clearCenterToolbar();
             return;
         }
         AgentToolbarContext context = new AgentToolbarContext() {
@@ -60,24 +61,42 @@ public final class AgentToolbarArea {
                 return themeService;
             }
         };
-        JPanel row = new JPanel();
-        row.setOpaque(false);
-        row.setLayout(new BoxLayout(row, BoxLayout.X_AXIS));
-        int built = 0;
+        JPanel trailingRow = newRow();
+        JPanel centerRow = newRow();
+        int trailingBuilt = 0;
+        int centerBuilt = 0;
         for (AgentToolbarContribution contribution : coordinator.getActiveToolbarContributions()) {
             if (contribution == null || !contribution.supports(session)) {
                 continue;
             }
             JComponent component = contribution.createComponent(context);
-            if (component != null) {
-                row.add(component);
-                built++;
+            if (component == null) {
+                continue;
+            }
+            if (contribution.getPlacement() == AgentToolbarContribution.Placement.CENTER) {
+                centerRow.add(component);
+                centerBuilt++;
+            } else {
+                trailingRow.add(component);
+                trailingBuilt++;
             }
         }
-        if (built == 0) {
+        if (trailingBuilt == 0) {
             host.clearToolbar();
         } else {
-            host.setToolbar(row);
+            host.setToolbar(trailingRow);
         }
+        if (centerBuilt == 0) {
+            host.clearCenterToolbar();
+        } else {
+            host.setCenterToolbar(centerRow);
+        }
+    }
+
+    private static JPanel newRow() {
+        JPanel row = new JPanel();
+        row.setOpaque(false);
+        row.setLayout(new BoxLayout(row, BoxLayout.X_AXIS));
+        return row;
     }
 }

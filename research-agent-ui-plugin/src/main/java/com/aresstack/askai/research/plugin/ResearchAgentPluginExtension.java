@@ -81,10 +81,11 @@ public final class ResearchAgentPluginExtension implements AgentPluginExtension 
     @Override
     public List<com.aresstack.askai.plugin.api.agent.toolbar.AgentToolbarContribution>
             getToolbarContributions() {
-        // The live SESSION language switch, left of the workspace gear (the gear setting stays the
-        // default for NEW sessions only).
-        return java.util.Collections
-                .<com.aresstack.askai.plugin.api.agent.toolbar.AgentToolbarContribution>singletonList(
-                        new com.aresstack.askai.research.agent.ResearchLanguageToolbarContribution());
+        // The live SESSION language switch (trailing, left of the workspace gear; the gear setting
+        // stays the default for NEW sessions only) and the CENTERED "Websuche" tag.
+        return java.util.Arrays
+                .<com.aresstack.askai.plugin.api.agent.toolbar.AgentToolbarContribution>asList(
+                        new com.aresstack.askai.research.agent.ResearchLanguageToolbarContribution(),
+                        new com.aresstack.askai.research.agent.ResearchWebSearchToolbarContribution());
     }
 }

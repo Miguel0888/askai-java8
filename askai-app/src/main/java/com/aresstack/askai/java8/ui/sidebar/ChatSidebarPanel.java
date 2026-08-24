@@ -78,12 +78,12 @@ public final class ChatSidebarPanel extends JPanel {
 
     /**
      * The header's slot — no pane title (the ribbon's colored entry already says which pane is
-     * active); the workspace puts its self-explanatory "New chat" button here instead.
+     * active); the workspace puts its full-width chat search bar here.
      */
     public void setHeaderComponent(JComponent component) {
         headerLeft.removeAll();
         if (component != null) {
-            headerLeft.add(component, BorderLayout.WEST);
+            headerLeft.add(component, BorderLayout.CENTER); // full width, e.g. for a search bar
         }
         headerLeft.revalidate();
         headerLeft.repaint();
@@ -120,7 +120,7 @@ public final class ChatSidebarPanel extends JPanel {
         JPanel header = new JPanel(new BorderLayout());
         header.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 4));
         headerLeft.setOpaque(false);
-        header.add(headerLeft, BorderLayout.WEST);
+        header.add(headerLeft, BorderLayout.CENTER); // the slot spans the drawer width
         return header;
     }
 }

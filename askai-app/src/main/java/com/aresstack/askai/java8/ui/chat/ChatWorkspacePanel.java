@@ -4,7 +4,6 @@ import com.aresstack.askai.java8.history.ChatHistoryStore;
 import com.aresstack.askai.java8.history.ChatRecord;
 import com.aresstack.askai.java8.ui.ChatComposerPanel;
 import com.aresstack.askai.java8.ui.OllamaChatPanel;
-import com.aresstack.askai.java8.ui.PlusIcon;
 import com.aresstack.askai.java8.ui.sidebar.ChatSidebarPanel;
 import com.aresstack.askai.java8.ui.sidebar.ChatSidebarTab;
 import com.aresstack.comiccontrols.control.ComicButton;
@@ -82,6 +81,15 @@ public final class ChatWorkspacePanel extends JPanel {
     private final JButton burger;
     /** Slot for the ACTIVE agent's generic toolbar contributions, left of the gear (may stay empty). */
     private final JPanel agentToolbarSlot = new JPanel(new BorderLayout());
+    /**
+     * The CENTERED top-bar slot (e.g. the research web-search tag): GridBagLayout centers its one
+     * child; the unfolding ribbon pushes it right and squeezes it when the width runs out.
+     */
+    private final JPanel agentCenterSlot = new JPanel(new java.awt.GridBagLayout());
+    /** The drawer's chat search bar — filters the chat list live by title/project. */
+    private final com.aresstack.comiccontrols.control.ComicSearchBar chatFilter =
+            new com.aresstack.comiccontrols.control.ComicSearchBar(
+                    "Chats durchsuchen…", "Filtert die Chatliste nach Titel und Projekt");
     private final com.aresstack.askai.java8.ui.sidebar.SidebarTabRibbon ribbon =
             new com.aresstack.askai.java8.ui.sidebar.SidebarTabRibbon();
     private JPanel chatListPanel;
@@ -353,6 +361,20 @@ public final class ChatWorkspacePanel extends JPanel {
         setAgentToolbar(null);
     }
 
+    /** Show the active agent's CENTERED top-bar control (e.g. the research web-search tag). */
+    public void setAgentCenterToolbar(javax.swing.JComponent component) {
+        agentCenterSlot.removeAll();
+        if (component != null) {
+            agentCenterSlot.add(component); // GridBag default constraints → centered
+        }
+        agentCenterSlot.revalidate();
+        agentCenterSlot.repaint();
+    }
+
+    public void clearAgentCenterToolbar() {
+        setAgentCenterToolbar(null);
+    }
+
     // ------------------------------------------------------------------ layout + sidebar behavior
 
     private void buildTopLevelLayout() {
@@ -392,29 +414,8 @@ public final class ChatWorkspacePanel extends JPanel {
                 ((OllamaChatPanel) active).openSettingsDialog();
             }
         });
-
-        JPanel topBar = new JPanel(new BorderLayout(4, 0));
-        topBar.setOpaque(false);
-        topBar.setBorder(BorderFactory.createEmptyBorder(2, 4, 0, 4));
-        topBar.add(burger, BorderLayout.WEST);
-        topBar.add(ribbon, BorderLayout.CENTER); // unfolds to the right of the burger
-        // Generic agent toolbar contributions (e.g. a session language switch) sit LEFT of the gear.
-        // The workspace only hosts the slot; the components come from the active agent's plugin.
-        JPanel topRight = new JPanel(new BorderLayout(4, 0));
-        topRight.setOpaque(false);
-        agentToolbarSlot.setOpaque(false);
-        topRight.add(agentToolbarSlot, BorderLayout.CENTER);
-        topRight.add(gear, BorderLayout.EAST);
-        topBar.add(topRight, BorderLayout.EAST);
-
-        sidebar.setVisible(false);
-        sidebar.setExtraTabsSupplier(() -> sidebarTabsSource == null
-                ? java.util.Collections.<ChatSidebarTab>emptyList() : sidebarTabsSource.get());
-        // No pane title in the header — the ribbon's colored entry already names the active pane.
-        // The self-explanatory New-chat button takes that spot.
-        JButton newChat = new ComicButton("New chat", new PlusIcon(10));
-        newChat.setToolTipText("Open a new chat");
-        newChat.setFocusable(false);
+        // New chat is a simple "+" icon next to the gear (it used to be a button in the drawer).
+        JButton newChat = ChatComposerPanel.createNewChatIconButton();
         newChat.addActionListener(event -> {
             openNewChat();
             if (menuLocked) {
@@ -423,7 +424,55 @@ public final class ChatWorkspacePanel extends JPanel {
                 collapseMenuAndSidebar();
             }
         });
-        sidebar.setHeaderComponent(newChat);
+
+        JPanel topBar = new JPanel(new BorderLayout(4, 0));
+        topBar.setOpaque(false);
+        topBar.setBorder(BorderFactory.createEmptyBorder(2, 4, 0, 4));
+        // LEFT: burger + the ribbon, which now asks only for its unfolded share — so the centered
+        // slot owns the middle and gets pushed right/squeezed while the ribbon unfolds.
+        JPanel topLeft = new JPanel();
+        topLeft.setLayout(new javax.swing.BoxLayout(topLeft, javax.swing.BoxLayout.X_AXIS));
+        topLeft.setOpaque(false);
+        topLeft.add(burger);
+        topLeft.add(ribbon);
+        topBar.add(topLeft, BorderLayout.WEST);
+        agentCenterSlot.setOpaque(false);
+        topBar.add(agentCenterSlot, BorderLayout.CENTER);
+        // Generic agent toolbar contributions (e.g. a session language switch) sit LEFT of the
+        // "+"/gear pair. The workspace only hosts the slots; components come from the plugin.
+        JPanel topRight = new JPanel(new BorderLayout(4, 0));
+        topRight.setOpaque(false);
+        agentToolbarSlot.setOpaque(false);
+        topRight.add(agentToolbarSlot, BorderLayout.CENTER);
+        JPanel rightButtons = new JPanel();
+        rightButtons.setLayout(new javax.swing.BoxLayout(rightButtons, javax.swing.BoxLayout.X_AXIS));
+        rightButtons.setOpaque(false);
+        rightButtons.add(newChat);
+        rightButtons.add(gear);
+        topRight.add(rightButtons, BorderLayout.EAST);
+        topBar.add(topRight, BorderLayout.EAST);
+
+        sidebar.setVisible(false);
+        sidebar.setExtraTabsSupplier(() -> sidebarTabsSource == null
+                ? java.util.Collections.<ChatSidebarTab>emptyList() : sidebarTabsSource.get());
+        // No pane title in the header — the ribbon's colored entry already names the active pane.
+        // The chat SEARCH BAR takes that spot (New chat moved to the "+" icon next to the gear);
+        // it filters live on every keystroke, no Enter needed.
+        chatFilter.getTextField().getDocument().addDocumentListener(
+                new javax.swing.event.DocumentListener() {
+                    public void insertUpdate(javax.swing.event.DocumentEvent e) {
+                        refreshChatList();
+                    }
+
+                    public void removeUpdate(javax.swing.event.DocumentEvent e) {
+                        refreshChatList();
+                    }
+
+                    public void changedUpdate(javax.swing.event.DocumentEvent e) {
+                        refreshChatList();
+                    }
+                });
+        sidebar.setHeaderComponent(chatFilter);
 
         add(topBar, BorderLayout.NORTH);
         // Drawer and cards live in the comic split pane: while the drawer is collapsed there is no
@@ -580,7 +629,22 @@ public final class ChatWorkspacePanel extends JPanel {
         return tab;
     }
 
-    /** Rebuild the list: open sessions first (workspace order), then the remaining saved chats. */
+    /** One chat-list entry: an open session ({@code openId != null}) and/or its persisted record. */
+    private static final class ChatListEntry {
+        final ChatSessionId openId;
+        final ChatRecord record;
+
+        ChatListEntry(ChatSessionId openId, ChatRecord record) {
+            this.openId = openId;
+            this.record = record;
+        }
+    }
+
+    /**
+     * Rebuild the list: PROJECT groups first (grouped by the records' project name, in recency
+     * order of first appearance), then ungrouped open sessions, then the remaining ungrouped
+     * history. The search bar filters every section live by title and project name.
+     */
     private void refreshChatList() {
         chatListPanel.removeAll();
         List<ChatRecord> saved = historyStore != null ? historyStore.list()
@@ -590,26 +654,88 @@ public final class ChatWorkspacePanel extends JPanel {
             savedById.put(record.getId(), record);
         }
         java.text.SimpleDateFormat when = new java.text.SimpleDateFormat("dd/MM/yy HH:mm");
+        String filter = chatFilter.getText().trim().toLowerCase(java.util.Locale.ROOT);
+
+        List<ChatListEntry> entries = new ArrayList<ChatListEntry>();
         for (ChatSessionId id : sessionsById.keySet()) {
-            chatListPanel.add(buildRow(id, savedById.remove(id.toString()), when));
+            entries.add(new ChatListEntry(id, savedById.remove(id.toString())));
         }
-        if (!savedById.isEmpty()) {
+        for (ChatRecord record : savedById.values()) {
+            entries.add(new ChatListEntry(null, record));
+        }
+
+        Map<String, List<ChatListEntry>> byProject = new LinkedHashMap<String, List<ChatListEntry>>();
+        List<ChatListEntry> looseOpen = new ArrayList<ChatListEntry>();
+        List<ChatListEntry> looseSaved = new ArrayList<ChatListEntry>();
+        for (ChatListEntry entry : entries) {
+            String project = entry.record == null ? null : entry.record.getProject();
+            if (!matchesFilter(entry, project, filter)) {
+                continue;
+            }
+            if (project != null) {
+                List<ChatListEntry> group = byProject.get(project);
+                if (group == null) {
+                    group = new ArrayList<ChatListEntry>();
+                    byProject.put(project, group);
+                }
+                group.add(entry);
+            } else if (entry.openId != null) {
+                looseOpen.add(entry);
+            } else {
+                looseSaved.add(entry);
+            }
+        }
+
+        for (Map.Entry<String, List<ChatListEntry>> group : byProject.entrySet()) {
+            chatListPanel.add(projectHeader(group.getKey()));
+            for (ChatListEntry entry : group.getValue()) {
+                chatListPanel.add(buildRow(entry.openId, entry.record, when));
+            }
+        }
+        for (ChatListEntry entry : looseOpen) {
+            chatListPanel.add(buildRow(entry.openId, entry.record, when));
+        }
+        if (!looseSaved.isEmpty()) {
             JLabel divider = new JLabel("History");
             divider.setEnabled(false);
             divider.setBorder(BorderFactory.createEmptyBorder(8, 8, 2, 8));
             chatListPanel.add(divider);
-            for (ChatRecord record : savedById.values()) {
-                chatListPanel.add(buildRow(null, record, when));
+            for (ChatListEntry entry : looseSaved) {
+                chatListPanel.add(buildRow(null, entry.record, when));
             }
         }
         if (chatListPanel.getComponentCount() == 0) {
-            JLabel none = new JLabel("No chats");
+            JLabel none = new JLabel(filter.isEmpty() ? "No chats" : "No matching chats");
             none.setEnabled(false);
             none.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
             chatListPanel.add(none);
         }
         chatListPanel.revalidate();
         chatListPanel.repaint();
+    }
+
+    private static boolean matchesFilter(ChatListEntry entry, String project, String filter) {
+        if (filter.isEmpty()) {
+            return true;
+        }
+        String title = rowTitle(entry.openId, entry.record).toLowerCase(java.util.Locale.ROOT);
+        return title.contains(filter)
+                || (project != null && project.toLowerCase(java.util.Locale.ROOT).contains(filter));
+    }
+
+    /** A project group's heading — bold with a small petrol marker, sitting above its chats. */
+    private JComponent projectHeader(String project) {
+        JLabel header = new JLabel("▪ " + project);
+        header.setFont(header.getFont().deriveFont(java.awt.Font.BOLD, 12f));
+        header.setForeground(new java.awt.Color(0x15827A)); // the design language's petrol role
+        header.setBorder(BorderFactory.createEmptyBorder(8, 8, 2, 8));
+        return header;
+    }
+
+    private static String rowTitle(ChatSessionId openId, ChatRecord record) {
+        return record != null && record.getTitle() != null && !record.getTitle().trim().isEmpty()
+                ? record.getTitle().trim()
+                : (openId != null ? "(new chat)" : "(untitled)");
     }
 
     /**
@@ -621,9 +747,7 @@ public final class ChatWorkspacePanel extends JPanel {
                                 java.text.SimpleDateFormat when) {
         final String chatId = openId != null ? openId.toString() : record.getId();
         boolean current = openId != null && openId.equals(activeId);
-        String title = record != null && record.getTitle() != null && !record.getTitle().trim().isEmpty()
-                ? record.getTitle().trim()
-                : (openId != null ? "(new chat)" : "(untitled)");
+        String title = rowTitle(openId, record);
         StringBuilder label = new StringBuilder("<html><b>").append(escapeHtml(title)).append("</b>");
         label.append(" &nbsp;<span style='color:gray'>");
         if (record != null) {
@@ -688,7 +812,64 @@ public final class ChatWorkspacePanel extends JPanel {
         row.add(open, BorderLayout.CENTER);
         row.add(trailing, BorderLayout.EAST);
         row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
+        if (record != null) {
+            installProjectMenu(row, open, openId, record);
+        }
         return row;
+    }
+
+    /** Right-click on a persisted row: assign the chat to a project (or take it out again). */
+    private void installProjectMenu(JPanel row, JButton open, final ChatSessionId openId,
+                                    final ChatRecord record) {
+        javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
+        javax.swing.JMenuItem assign = new javax.swing.JMenuItem(
+                record.getProject() == null ? "Assign to project…" : "Move to project…");
+        assign.addActionListener(event -> openAssignProjectDialog(openId, record));
+        menu.add(assign);
+        if (record.getProject() != null) {
+            javax.swing.JMenuItem remove = new javax.swing.JMenuItem(
+                    "Remove from \"" + record.getProject() + "\"");
+            remove.addActionListener(event -> applyProject(openId, record, null));
+            menu.add(remove);
+        }
+        row.setComponentPopupMenu(menu);
+        open.setComponentPopupMenu(menu);
+    }
+
+    private void openAssignProjectDialog(ChatSessionId openId, ChatRecord record) {
+        java.util.Set<String> known = new java.util.TreeSet<String>();
+        if (historyStore != null) {
+            for (ChatRecord other : historyStore.list()) {
+                if (other.getProject() != null) {
+                    known.add(other.getProject());
+                }
+            }
+        }
+        javax.swing.JComboBox<String> combo =
+                new javax.swing.JComboBox<String>(known.toArray(new String[0]));
+        combo.setEditable(true); // free naming creates a new project on the spot
+        combo.setSelectedItem(record.getProject() == null ? "" : record.getProject());
+        int choice = JOptionPane.showConfirmDialog(this, combo, "Assign chat to project",
+                JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        if (choice == JOptionPane.OK_OPTION) {
+            Object typed = combo.getEditor().getItem();
+            applyProject(openId, record, typed == null ? null : typed.toString());
+        }
+    }
+
+    /**
+     * Persist the assignment. An OPEN chat owns its live record (the panel autosaves it), so the
+     * change must go through the panel — a store-side write on a loaded copy would be overwritten.
+     */
+    private void applyProject(ChatSessionId openId, ChatRecord record, String project) {
+        ChatSessionComponent session = openId == null ? null : sessionsById.get(openId);
+        if (session instanceof OllamaChatPanel) {
+            ((OllamaChatPanel) session).setChatProject(project);
+        } else if (historyStore != null) {
+            record.setProject(project);
+            historyStore.save(record);
+        }
+        refreshChatList();
     }
 
     /** Delete EVERY saved chat — only after an explicit confirmation. Open chats stay open. */
@@ -775,5 +956,28 @@ public final class ChatWorkspacePanel extends JPanel {
     /** Runs the debounced width save immediately — tests must not wait on the timer. */
     void flushSidebarWidthSaveForTest() {
         saveSidebarWidthNow();
+    }
+
+    com.aresstack.comiccontrols.control.ComicSearchBar chatFilterForTest() {
+        return chatFilter;
+    }
+
+    /** The visible chat-list texts in order (project headers, row titles, dividers) — for tests. */
+    java.util.List<String> chatListEntriesForTest() {
+        refreshChatList();
+        java.util.List<String> texts = new ArrayList<String>();
+        for (java.awt.Component component : chatListPanel.getComponents()) {
+            if (component instanceof JLabel) {
+                texts.add(((JLabel) component).getText());
+            } else if (component instanceof JPanel) {
+                for (java.awt.Component child : ((JPanel) component).getComponents()) {
+                    if (child instanceof JButton) {
+                        texts.add(((JButton) child).getText());
+                        break;
+                    }
+                }
+            }
+        }
+        return texts;
     }
 }

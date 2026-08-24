@@ -732,6 +732,14 @@ public final class AskAiFrame extends JFrame {
                     public void clearToolbar() {
                         chatTabs.clearAgentToolbar();
                     }
+
+                    public void setCenterToolbar(javax.swing.JComponent component) {
+                        chatTabs.setAgentCenterToolbar(component);
+                    }
+
+                    public void clearCenterToolbar() {
+                        chatTabs.clearAgentCenterToolbar();
+                    }
                 });
         return host;
     }
