@@ -96,6 +96,67 @@ public interface ScopeProbeGenerator {
         }
     }
 
+    /**
+     * The typed outcome of one generation run — the model seam's error semantics
+     * (timeout/provider/invalid) must NOT die at this port: an empty generation and a failed model
+     * call are different facts, and a sweep must never mistake "the model broke" for "nothing
+     * found". Statuses mirror the productive chat seam 1:1; "model unavailable" arrives as a
+     * PROVIDER_FAILURE with its reason in the message (the chat seam reports it that way — no
+     * status is invented here that no producer can emit).
+     */
+    final class ProbeGenerationResult {
+        public enum Status {
+            OK,
+            TIMEOUT,
+            PROVIDER_FAILURE,
+            /** The model answered, but not with the contract (malformed/empty output). */
+            INVALID_RESPONSE
+        }
+
+        private final Status status;
+        /** Present exactly when status == OK. */
+        private final ProbeGeneration generation;
+        /** Diagnostics: failure reason, or dropped/deduplicated entries on success. */
+        private final String message;
+
+        private ProbeGenerationResult(Status status, ProbeGeneration generation, String message) {
+            this.status = status;
+            this.generation = generation;
+            this.message = message == null ? "" : message;
+        }
+
+        public static ProbeGenerationResult ok(ProbeGeneration generation, String message) {
+            if (generation == null) {
+                throw new IllegalArgumentException("an OK result carries a generation");
+            }
+            return new ProbeGenerationResult(Status.OK, generation, message);
+        }
+
+        public static ProbeGenerationResult failure(Status status, String message) {
+            if (status == Status.OK) {
+                throw new IllegalArgumentException("a failure result must carry a failure status");
+            }
+            return new ProbeGenerationResult(status, null, message);
+        }
+
+        public Status getStatus() {
+            return status;
+        }
+
+        public boolean isOk() {
+            return status == Status.OK;
+        }
+
+        /** The generation — null on any non-OK status. */
+        public ProbeGeneration getGeneration() {
+            return generation;
+        }
+
+        public String getMessage() {
+            return message;
+        }
+    }
+
     /** Many DIVERSE concrete concepts plus the per-anchor neighborhood controls — one model call. */
-    ProbeGeneration generate(ProbeGenerationRequest request);
+    ProbeGenerationResult generate(ProbeGenerationRequest request);
 }
