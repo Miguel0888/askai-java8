@@ -321,7 +321,11 @@ public final class WebSearchApplicationService {
         // HUD lifecycle: after a terminal outcome the browser may stay open, but the overlay must stop
         // pretending a page is being visited — controls off, state visibly final. Best-effort like every
         // other HUD render; a dead browser is simply skipped.
+        // Terminal breadcrumbs: when the completion message never reaches the host, these two lines
+        // pin whether the hang sits in the terminal HUD render or after this method returned.
+        listener.status("terminal reason=" + reason + " — rendering DONE hud");
         renderTerminalHud(reason);
+        listener.status("terminal hud done — reporting completion");
         return reason;
     }
 

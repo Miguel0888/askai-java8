@@ -777,17 +777,28 @@ public final class ResearchAgentMain {
                                         com.aresstack.askai.research.runtime.loop.ResearchRunProgress p,
                                         com.aresstack.askai.research.runtime.loop.ResearchRunActivity activity) {
                                     // The FUNNEL, not only its end: what the engines delivered, what was
-                                    // assessed, what passed relevance, what was visited, what became a hit.
+                                    // assessed, what passed relevance, what was visited, what became an
+                                    // accepted SOURCE ("Quellen x/Ziel" — the deterministic end). The
+                                    // trailing [[bar:visited/relevant]] marker is machine-readable: the
+                                    // host strips it and renders a progress bar in the activity bubble.
                                     ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
-                                            .manualSearchProgress(requestId, p.getAcceptedSources()
-                                                    + " Treffer · " + p.getPagesVisited() + " Seiten · Links: "
+                                            .manualSearchProgress(requestId, "Quellen: "
+                                                    + p.getAcceptedSources() + "/"
+                                                    + searchBudget.getMaxAcceptedSources()
+                                                    + " · Seiten: " + p.getPagesVisited()
+                                                    + (p.getLinksSelected() > 0
+                                                            ? "/" + p.getLinksSelected() : "")
+                                                    + " besucht · Links: "
                                                     + p.getLinksDiscovered() + " gefunden, "
                                                     + p.getLinksAssessed() + " analysiert, "
                                                     + p.getLinksSelected() + " relevant"
                                                     // The SEARCH itself, not only its yield: which
                                                     // engine delivered how many SERP result pages.
                                                     + (p.getSerpSummary().isEmpty() ? ""
-                                                            : " · Suche: " + p.getSerpSummary())));
+                                                            : " · Suche: " + p.getSerpSummary())
+                                                    + (p.getLinksSelected() > 0
+                                                            ? " [[bar:" + p.getPagesVisited() + "/"
+                                                            + p.getLinksSelected() + "]]" : "")));
                                 }
 
                                 public void phaseReady(

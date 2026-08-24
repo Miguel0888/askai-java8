@@ -1356,6 +1356,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
      */
     private void stopManualSearchBrowser() {
         if (productiveResources != null) {
+            // Breadcrumb: a browser that stays open after 'completed' means this line never printed
+            // (event lost) or stopBrowserPhase failed right after it (stack trace follows).
+            System.err.println("[manual-search] host stopping browser phase (terminal event)");
             productiveResources.stopBrowserPhase();
         }
     }

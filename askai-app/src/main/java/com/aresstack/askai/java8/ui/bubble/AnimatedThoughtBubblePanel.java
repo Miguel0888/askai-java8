@@ -136,8 +136,35 @@ public class AnimatedThoughtBubblePanel extends JPanel {
             return;
         }
         titleLabel.setText(normalize(title));
-        explanationArea.setText(normalize(explanation));
+        applyExplanation(explanation);
         refreshLayout();
+    }
+
+    /**
+     * The machine-readable progress marker an activity update may carry at its end:
+     * {@code [[bar:current/total]]} — stripped from the visible text and rendered as the comic
+     * progress bar below it (e.g. visited pages vs. relevant links of a web search).
+     */
+    private static final java.util.regex.Pattern BAR_MARKER =
+            java.util.regex.Pattern.compile("\\s*\\[\\[bar:(\\d+)/(\\d+)\\]\\]\\s*");
+
+    private void applyExplanation(String explanation) {
+        String text = normalize(explanation);
+        int current = -1;
+        int total = -1;
+        java.util.regex.Matcher marker = BAR_MARKER.matcher(text);
+        if (marker.find()) {
+            try {
+                current = Integer.parseInt(marker.group(1));
+                total = Integer.parseInt(marker.group(2));
+            } catch (NumberFormatException impossibleByPattern) {
+                current = -1;
+                total = -1;
+            }
+            text = marker.replaceAll(" ").trim();
+        }
+        explanationArea.setText(text);
+        progressStrip.update(current, total);
     }
 
     /** Appends a streamed delta to the bubble body (used to stream thinking text live). */
@@ -217,6 +244,81 @@ public class AnimatedThoughtBubblePanel extends JPanel {
         setBorder(createContentBorder());
         add(titleLabel, BorderLayout.NORTH);
         add(explanationArea, BorderLayout.CENTER);
+        add(progressStrip, BorderLayout.SOUTH);
+        applyExplanation(explanationArea.getText());
+    }
+
+    /** The comic progress bar under the explanation — visible only while an update names a ratio. */
+    private final ProgressBarStrip progressStrip = new ProgressBarStrip();
+
+    private final class ProgressBarStrip extends JPanel {
+        private int current = -1;
+        private int total = -1;
+
+        ProgressBarStrip() {
+            setOpaque(false);
+            setVisible(false);
+        }
+
+        void update(int current, int total) {
+            this.current = current;
+            this.total = total;
+            boolean show = total > 0;
+            if (show != isVisible()) {
+                setVisible(show);
+                revalidate();
+            }
+            repaint();
+        }
+
+        @Override
+        public Dimension getPreferredSize() {
+            return new Dimension(10, 18);
+        }
+
+        @Override
+        protected void paintComponent(Graphics graphics) {
+            super.paintComponent(graphics);
+            if (total <= 0) {
+                return;
+            }
+            Graphics2D copy = (Graphics2D) graphics.create();
+            try {
+                applyQualityHints(copy);
+                int barHeight = 11;
+                int y = (getHeight() - barHeight) / 2;
+                // Room for the "5/16" caption riding at the bar's right end.
+                copy.setFont(resolveResultFont().deriveFont(11f));
+                FontMetrics metrics = copy.getFontMetrics();
+                String caption = current + "/" + total;
+                int captionWidth = metrics.stringWidth(caption);
+                int trackWidth = Math.max(24, getWidth() - captionWidth - 12);
+                double ratio = Math.max(0.0d, Math.min(1.0d, current / (double) total));
+
+                RoundRectangle2D track = new RoundRectangle2D.Double(
+                        1, y, trackWidth, barHeight, barHeight, barHeight);
+                copy.setColor(withAlpha(theme.getAccent(), 55));
+                copy.fill(track);
+                int fillWidth = (int) Math.round(trackWidth * ratio);
+                if (fillWidth > 0) {
+                    java.awt.Shape oldClip = copy.getClip();
+                    copy.clip(track);
+                    copy.setColor(withAlpha(theme.getAccent(), 210));
+                    copy.fill(new RoundRectangle2D.Double(1, y, fillWidth, barHeight,
+                            barHeight, barHeight));
+                    copy.setClip(oldClip);
+                }
+                // The bold comic outline is what makes it a drawn bar, not a widget.
+                copy.setStroke(new BasicStroke(1.6f));
+                copy.setColor(withAlpha(theme.getForeground(), 180));
+                copy.draw(track);
+                copy.setColor(theme.getForeground());
+                copy.drawString(caption, trackWidth + 8,
+                        y + barHeight - (barHeight - metrics.getAscent() + 2) / 2);
+            } finally {
+                copy.dispose();
+            }
+        }
     }
 
     private JLabel createTitleLabel(String title) {
