@@ -10,7 +10,11 @@ import java.util.List;
  * calibration weak, embedding failed, scope moved) must stay distinguishable from "the fence has
  * no holes" — collapsing them is the epistemic error the whole gate chain exists to prevent.
  * READY exists ONLY when generation was OK and complete, the calibration permits hole hunting and
- * the scope revision is still current.
+ * the scope revision is still current — and it stays BOUND to its snapshot: READY carries the
+ * scope revision and embedding fingerprint it was computed on, because the final staleness check
+ * only narrows the race, it cannot close it. Optimistic concurrency works only when the result
+ * keeps its version — a later consumer (Z4) re-checks {@code getScopeRevision()} against the
+ * current draft before using the readings.
  */
 public final class ScopeSweepOutcome {
 
@@ -31,8 +35,10 @@ public final class ScopeSweepOutcome {
     private final ScopeProbeGenerator.ProbeGenerationResult.Status generatorStatus;
     private final int requestedBroadCount;
     private final int acceptedBroadCount;
-    private final String requestedRevision;
-    private final String currentRevision;
+    /** The snapshot this outcome was computed on (READY and STALE_SCOPE). */
+    private final long scopeRevision;
+    private final String embeddingFingerprint;
+    private final long currentRevision;
     private final String diagnostics;
 
     private ScopeSweepOutcome(Status status,
@@ -41,8 +47,8 @@ public final class ScopeSweepOutcome {
                               List<ProbeReading> diverseCandidates,
                               ScopeProbeGenerator.ProbeGenerationResult.Status generatorStatus,
                               int requestedBroadCount, int acceptedBroadCount,
-                              String requestedRevision, String currentRevision,
-                              String diagnostics) {
+                              long scopeRevision, String embeddingFingerprint,
+                              long currentRevision, String diagnostics) {
         this.status = status;
         this.calibration = calibration;
         this.sweep = sweep;
@@ -52,38 +58,43 @@ public final class ScopeSweepOutcome {
         this.generatorStatus = generatorStatus;
         this.requestedBroadCount = requestedBroadCount;
         this.acceptedBroadCount = acceptedBroadCount;
-        this.requestedRevision = requestedRevision == null ? "" : requestedRevision;
-        this.currentRevision = currentRevision == null ? "" : currentRevision;
+        this.scopeRevision = scopeRevision;
+        this.embeddingFingerprint = embeddingFingerprint == null ? "" : embeddingFingerprint;
+        this.currentRevision = currentRevision;
         this.diagnostics = diagnostics == null ? "" : diagnostics;
     }
 
-    public static ScopeSweepOutcome ready(ScopeFenceCalibrator.FenceCalibration calibration,
+    public static ScopeSweepOutcome ready(long scopeRevision, String embeddingFingerprint,
+                                          ScopeFenceCalibrator.FenceCalibration calibration,
                                           ProbeSweepAnalyzer.ProbeSweepResult sweep,
                                           List<ProbeReading> diverseCandidates,
                                           String diagnostics) {
         if (calibration == null || sweep == null) {
             throw new IllegalArgumentException("READY carries calibration and sweep");
         }
+        if (embeddingFingerprint == null || embeddingFingerprint.trim().isEmpty()) {
+            throw new IllegalArgumentException("READY must stay bound to its embedding snapshot");
+        }
         return new ScopeSweepOutcome(Status.READY, calibration, sweep, diverseCandidates,
-                null, 0, 0, "", "", diagnostics);
+                null, 0, 0, scopeRevision, embeddingFingerprint, scopeRevision, diagnostics);
     }
 
     public static ScopeSweepOutcome generationFailed(
             ScopeProbeGenerator.ProbeGenerationResult.Status generatorStatus, String diagnostics) {
         return new ScopeSweepOutcome(Status.GENERATION_FAILED, null, null, null,
-                generatorStatus, 0, 0, "", "", diagnostics);
+                generatorStatus, 0, 0, 0L, "", 0L, diagnostics);
     }
 
     public static ScopeSweepOutcome broadSampleIncomplete(int requested, int accepted,
                                                           String diagnostics) {
         return new ScopeSweepOutcome(Status.BROAD_SAMPLE_INCOMPLETE, null, null, null,
-                null, requested, accepted, "", "", diagnostics);
+                null, requested, accepted, 0L, "", 0L, diagnostics);
     }
 
     public static ScopeSweepOutcome calibrationWeak(
             ScopeFenceCalibrator.FenceCalibration calibration) {
         return new ScopeSweepOutcome(Status.CALIBRATION_WEAK, calibration, null, null,
-                null, 0, 0, "", "",
+                null, 0, 0, 0L, "", 0L,
                 "coverage " + calibration.samples.distinctParentAnchorsCovered + "/"
                         + calibration.samples.eligibleAnchorCount + ", neighbor samples "
                         + calibration.samples.anchorNeighborSimilarities.size()
@@ -92,12 +103,12 @@ public final class ScopeSweepOutcome {
 
     public static ScopeSweepOutcome embeddingFailed(String diagnostics) {
         return new ScopeSweepOutcome(Status.EMBEDDING_FAILED, null, null, null,
-                null, 0, 0, "", "", diagnostics);
+                null, 0, 0, 0L, "", 0L, diagnostics);
     }
 
-    public static ScopeSweepOutcome staleScope(String requestedRevision, String currentRevision) {
+    public static ScopeSweepOutcome staleScope(long requestedRevision, long currentRevision) {
         return new ScopeSweepOutcome(Status.STALE_SCOPE, null, null, null,
-                null, 0, 0, requestedRevision, currentRevision,
+                null, 0, 0, requestedRevision, "", currentRevision,
                 "scope moved from " + requestedRevision + " to " + currentRevision);
     }
 
@@ -133,11 +144,17 @@ public final class ScopeSweepOutcome {
         return acceptedBroadCount;
     }
 
-    public String getRequestedRevision() {
-        return requestedRevision;
+    /** The draft revision this outcome was computed on (READY; the requested one for STALE). */
+    public long getScopeRevision() {
+        return scopeRevision;
     }
 
-    public String getCurrentRevision() {
+    /** The embedding snapshot fingerprint a READY outcome is bound to; empty otherwise. */
+    public String getEmbeddingFingerprint() {
+        return embeddingFingerprint;
+    }
+
+    public long getCurrentRevision() {
         return currentRevision;
     }
 

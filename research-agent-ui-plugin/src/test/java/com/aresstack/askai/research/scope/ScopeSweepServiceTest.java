@@ -1,11 +1,19 @@
-package com.aresstack.askai.research.domain.scope;
+package com.aresstack.askai.research.scope;
 
+import com.aresstack.askai.research.domain.scope.DiverseProbeSelector;
+import com.aresstack.askai.research.domain.scope.ProbeReading;
+import com.aresstack.askai.research.domain.scope.ScopeAnchor;
+import com.aresstack.askai.research.domain.scope.ScopeCalibrationProbe;
+import com.aresstack.askai.research.domain.scope.ScopeFenceCalibrator;
 import com.aresstack.askai.research.domain.scope.ScopeFenceEvaluator.AnchorVector;
 import com.aresstack.askai.research.domain.scope.ScopeFenceEvaluator.Thresholds;
+import com.aresstack.askai.research.domain.scope.ScopeProbe;
+import com.aresstack.askai.research.domain.scope.ScopeProbeGenerator;
 import com.aresstack.askai.research.domain.scope.ScopeProbeGenerator.ProbeGeneration;
 import com.aresstack.askai.research.domain.scope.ScopeProbeGenerator.ProbeGenerationRequest;
 import com.aresstack.askai.research.domain.scope.ScopeProbeGenerator.ProbeGenerationResult;
-import com.aresstack.askai.research.domain.scope.ScopeSweepService.SweepPlan;
+import com.aresstack.askai.research.domain.scope.ScopeSweepOutcome;
+import com.aresstack.askai.research.scope.ScopeSweepService.SweepPlan;
 
 import org.junit.Test;
 
@@ -18,12 +26,13 @@ import java.util.Map;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 /**
  * The host-led orchestration: every gate produces its TYPED outcome — a failed or untrusted sweep
- * is never "0 unexplored regions". The revision is pinned at start and checked twice (after the
- * expensive generation, and before publishing); the embedding fingerprint is pinned once and a
- * mismatching embedder is refused before any cosine is computed. Nothing here mutates scope and
+ * is never "0 unexplored regions". The revision is pinned at start and checked twice; READY stays
+ * BOUND to its (revision, fingerprint) snapshot; a mixed-snapshot plan fails at construction; a
+ * throwing adapter lands in the typed contract instead of escaping it. Nothing mutates scope and
  * nothing triggers itself.
  */
 public class ScopeSweepServiceTest {
@@ -33,7 +42,7 @@ public class ScopeSweepServiceTest {
         return components;
     }
 
-    private static final String REVISION = "rev-7";
+    private static final long REVISION = 7L;
     private static final String FINGERPRINT = "nomic@1";
 
     /** Deterministic synthetic embedder: text→vector lookup, one batch, fixed fingerprint. */
@@ -83,10 +92,10 @@ public class ScopeSweepServiceTest {
     }
 
     private static final class MutableRevision implements ScopeSweepService.ScopeRevisionProbe {
-        volatile String revision = REVISION;
+        volatile long revision = REVISION;
 
         @Override
-        public String currentRevision() {
+        public long currentRevision() {
             return revision;
         }
     }
@@ -134,13 +143,17 @@ public class ScopeSweepServiceTest {
     }
 
     @Test
-    public void theHappyPathEndsReadyWithCandidatesAndCalibration() {
+    public void theHappyPathEndsReadyBoundToItsSnapshot() {
         ScopeSweepService service = new ScopeSweepService(
                 new FixedGenerator(completeGeneration()), fullEmbedder(), new MutableRevision());
 
         ScopeSweepOutcome outcome = service.run(plan());
 
         assertEquals(ScopeSweepOutcome.Status.READY, outcome.getStatus());
+        assertEquals("READY keeps its scope revision — Z4 re-checks it before use",
+                REVISION, outcome.getScopeRevision());
+        assertEquals("READY keeps its embedding snapshot",
+                FINGERPRINT, outcome.getEmbeddingFingerprint());
         assertTrue(outcome.getCalibration().permitsHoleHunting());
         assertEquals("the unknown island is the question-worthy candidate",
                 1, outcome.getDiverseCandidates().size());
@@ -148,6 +161,23 @@ public class ScopeSweepServiceTest {
                 outcome.getDiverseCandidates().get(0).getProbe().getSemanticText());
         assertEquals("the known probe stayed KNOWN, not a hole",
                 1, outcome.getSweep().countOf(ProbeReading.Category.KNOWN));
+    }
+
+    /** Four independently gathered pieces are exactly the bug — the plan refuses mixed fences. */
+    @Test
+    public void aPlanMixingTwoFenceSnapshotsFailsAtConstruction() {
+        List<AnchorVector> staleVectors = Arrays.asList(
+                new AnchorVector("anchor-in", ScopeAnchor.Membership.IN, v(0.5f, 1, 0, 0)),
+                new AnchorVector("anchor-removed", ScopeAnchor.Membership.OUT, v(0.5f, 0, 1, 0)));
+        try {
+            new SweepPlan(REVISION, FINGERPRINT, request(), staleVectors,
+                    Arrays.asList("Mission"), new Thresholds(0.5d, 0.1d),
+                    new ScopeFenceCalibrator.CalibrationParameters(0.0d, 0.1d, 0.0d, 0.1d, 2, 2),
+                    0.1d, 0.0d, new DiverseProbeSelector.Parameters(3, 1.0d, 0.8d));
+            fail("a plan whose request and vectors describe different fences must not build");
+        } catch (IllegalArgumentException expected) {
+            assertTrue(expected.getMessage().contains("DIFFERENT fences"));
+        }
     }
 
     @Test
@@ -163,6 +193,40 @@ public class ScopeSweepServiceTest {
         assertEquals(ProbeGenerationResult.Status.TIMEOUT, outcome.getGeneratorStatus());
         assertFalse(outcome.isReady());
         assertTrue(outcome.getDiverseCandidates().isEmpty());
+    }
+
+    /** A throwing adapter (wire transport) lands in the typed contract, never as a stack trace. */
+    @Test
+    public void throwingAdaptersStayInsideTheTypedContract() {
+        ScopeProbeGenerator throwingGenerator = new ScopeProbeGenerator() {
+            @Override
+            public ProbeGenerationResult generate(ProbeGenerationRequest request) {
+                throw new IllegalStateException("wire transport broke");
+            }
+        };
+        ScopeSweepOutcome generationOutcome = new ScopeSweepService(
+                throwingGenerator, fullEmbedder(), new MutableRevision()).run(plan());
+        assertEquals(ScopeSweepOutcome.Status.GENERATION_FAILED, generationOutcome.getStatus());
+        assertEquals(ProbeGenerationResult.Status.PROVIDER_FAILURE,
+                generationOutcome.getGeneratorStatus());
+        assertTrue(generationOutcome.getDiagnostics().contains("wire transport broke"));
+
+        ScopeSweepService.SweepEmbedder throwingEmbedder = new ScopeSweepService.SweepEmbedder() {
+            @Override
+            public String modelFingerprint() {
+                return FINGERPRINT;
+            }
+
+            @Override
+            public List<float[]> embed(List<String> texts) {
+                throw new IllegalStateException("embedding endpoint gone");
+            }
+        };
+        ScopeSweepOutcome embeddingOutcome = new ScopeSweepService(
+                new FixedGenerator(completeGeneration()), throwingEmbedder,
+                new MutableRevision()).run(plan());
+        assertEquals(ScopeSweepOutcome.Status.EMBEDDING_FAILED, embeddingOutcome.getStatus());
+        assertTrue(embeddingOutcome.getDiagnostics().contains("embedding endpoint gone"));
     }
 
     @Test
@@ -213,17 +277,16 @@ public class ScopeSweepServiceTest {
         generator.duringGeneration = new Runnable() {
             @Override
             public void run() {
-                revision.revision = "rev-8"; // the user negotiated on while the model was busy
+                revision.revision = REVISION + 1; // the user negotiated on while the model was busy
             }
         };
-        MapEmbedder embedder = fullEmbedder();
-        ScopeSweepService service = new ScopeSweepService(generator, embedder, revision);
+        ScopeSweepService service = new ScopeSweepService(generator, fullEmbedder(), revision);
 
         ScopeSweepOutcome outcome = service.run(plan());
 
         assertEquals(ScopeSweepOutcome.Status.STALE_SCOPE, outcome.getStatus());
-        assertEquals(REVISION, outcome.getRequestedRevision());
-        assertEquals("rev-8", outcome.getCurrentRevision());
+        assertEquals(REVISION, outcome.getScopeRevision());
+        assertEquals(REVISION + 1, outcome.getCurrentRevision());
     }
 
     @Test

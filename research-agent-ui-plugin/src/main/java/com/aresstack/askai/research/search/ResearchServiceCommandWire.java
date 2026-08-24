@@ -66,6 +66,18 @@ public final class ResearchServiceCommandWire {
                 + " captured_through=" + Math.max(0L, capturedThrough);
     }
 
+    /**
+     * Z3b-3: encode a probe-generation request (the JSON payload built by the scope-side codec).
+     * An INTERNAL host->runtime seam: one model call in the runtime, one typed {@code #RSX1#
+     * probes} answer back on this request id — no MCP tool, no chat turn, no state change.
+     */
+    public static String generateProbes(String requestId, String requestJson) {
+        StringBuilder sb = new StringBuilder(MARKER).append("generate_probes")
+                .append(" request_id=").append(requestId == null ? "" : requestId);
+        appendEncoded(sb, "req", requestJson);
+        return sb.toString();
+    }
+
     private static void appendEncoded(StringBuilder sb, String key, String value) {
         if (value == null || value.isEmpty()) {
             return;

@@ -154,6 +154,17 @@ public final class ResearchAcpEventMapper {
                     .messages(f.get("domain") == null ? "" : f.get("domain"),
                             f.get("url") == null ? "" : f.get("url"));
         }
+        if (ResearchRunWire.TYPE_PROBES.equals(type)) {
+            // Z3b-3: the typed probe-generation answer — an INTERNAL wire payload, never chat.
+            // title = request id (the session routes it to the waiting generator port),
+            // text = the result JSON.
+            java.util.Map<String, String> pf = ResearchRunWire.fields(text);
+            String probeRequestId = pf.get("request_id") == null ? "" : pf.get("request_id");
+            return ResearchBackendEvent.builder(ResearchBackendEventType.PROBE_GENERATION)
+                    .activity("probe-generation-" + probeRequestId,
+                            ResearchActivityKind.TOOL_UPDATE, probeRequestId,
+                            ResearchRunWire.decodedField(pf, "payload"));
+        }
         if (ResearchRunWire.TYPE_MANUAL_SEARCH_STARTED.equals(type)
                 || ResearchRunWire.TYPE_MANUAL_SEARCH_PROGRESS.equals(type)
                 || ResearchRunWire.TYPE_MANUAL_SEARCH_COMPLETED.equals(type)

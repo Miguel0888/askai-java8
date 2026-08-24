@@ -446,6 +446,10 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         if (ownedScheduler != null) {
             ownedScheduler.shutdown();
         }
+        if (probeGenerator != null) {
+            // A waiting sweep fails typed instead of running into its timeout on a dead session.
+            probeGenerator.abortAll("session closed");
+        }
         if (productiveResources != null) {
             productiveResources.close(); // endpoints → sidecar client → sidecar process (idempotent)
         }
@@ -1633,6 +1637,13 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 // A USER-triggered web search lifecycle: a transient activity only — no phase, no state change.
                 applyManualSearch(event);
                 break;
+            case PROBE_GENERATION:
+                // Z3b-3: the typed answer to a host-initiated probe generation — an INTERNAL wire
+                // payload routed to the waiting generator port. Never chat, never state.
+                if (probeGenerator != null) {
+                    probeGenerator.deliver(event.getTitle(), event.getText());
+                }
+                break;
             case BLOCKED:
             case ERROR:
                 setAgentTurnInFlight(false); // a failed turn must not wedge the composer
@@ -1922,6 +1933,32 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         if (journal.attribute(messageId, transcriptPhase())) {
             persistJournal();
         }
+    }
+
+    /**
+     * Z3b-3: the wire client behind the sweep's generator port. Created ON DEMAND by the sweep
+     * entry (nothing triggers a sweep automatically); kept as a field so the PROBE_GENERATION
+     * event route can find the waiting request. Torn down with the session.
+     */
+    private volatile com.aresstack.askai.research.scope.BackendScopeProbeGenerator probeGenerator;
+
+    /** The wire client, created on first use — requires the productive ACP backend + handle. */
+    com.aresstack.askai.research.scope.BackendScopeProbeGenerator probeGenerator(
+            com.aresstack.askai.research.scope.BackendScopeProbeGenerator.WireSettings settings) {
+        if (probeGenerator == null) {
+            probeGenerator = new com.aresstack.askai.research.scope.BackendScopeProbeGenerator(
+                    backend, handle, settings,
+                    new com.aresstack.askai.research.scope.BackendScopeProbeGenerator
+                            .RevisionSource() {
+                        public long currentRevision() {
+                            com.aresstack.askai.research.scope.ResearchScopeCoordinator
+                                    coordinator = scopeCoordinator();
+                            return coordinator == null ? 0L
+                                    : coordinator.current().getRevision();
+                        }
+                    });
+        }
+        return probeGenerator;
     }
 
     /** Owns the persisted scope draft of this session; null in fake mode (no project context). */

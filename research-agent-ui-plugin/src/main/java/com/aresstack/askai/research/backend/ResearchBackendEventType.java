@@ -58,5 +58,12 @@ public enum ResearchBackendEventType {
      * {@code text} = the user-facing line, {@code technicalDetail} = the correlating requestId). Rendered as a
      * transient search activity; it never changes the phase or the state machine.
      */
-    MANUAL_SEARCH
+    MANUAL_SEARCH,
+
+    /**
+     * Z3b-3: the typed answer to a host-initiated probe generation (internal wire, not a user
+     * surface): title = request id, text = the result payload JSON. Routed to the waiting
+     * generator port, never rendered as chat.
+     */
+    PROBE_GENERATION
 }

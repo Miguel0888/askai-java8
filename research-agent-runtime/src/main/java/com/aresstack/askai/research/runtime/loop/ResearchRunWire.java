@@ -286,6 +286,16 @@ public final class ResearchRunWire {
     }
 
     /** A manual search failed (or was cancelled/unavailable): a token reason, never a fallback to a no-op. */
+    /**
+     * Z3b-3: the typed answer to a {@code generate_probes} service command. The payload is the
+     * probe-generation result JSON (success AND failure — the host decodes the status from it);
+     * URL-encoded into one field like every rich payload on this wire.
+     */
+    public static String probeGeneration(String requestId, String payloadJson) {
+        return MARKER + "probes request_id=" + (requestId == null ? "" : requestId)
+                + " payload=" + encode(payloadJson);
+    }
+
     public static String manualSearchFailed(String requestId, String reason) {
         return MARKER + "manual_search_failed"
                 + " request_id=" + (requestId == null ? "" : requestId)

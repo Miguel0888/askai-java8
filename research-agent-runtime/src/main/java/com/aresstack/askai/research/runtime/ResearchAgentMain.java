@@ -647,7 +647,44 @@ public final class ResearchAgentMain {
         } else if (com.aresstack.askai.research.runtime.service.ResearchServiceCommand.TYPE_REVIEW_SOURCES
                 .equals(command.getType())) {
             handleReviewSources(ctx, command.getRequestId(), command.getCapturedThrough());
+        } else if (com.aresstack.askai.research.runtime.service.ResearchServiceCommand.TYPE_GENERATE_PROBES
+                .equals(command.getType())) {
+            handleGenerateProbes(ctx, command.getRequestId(), command.getRequest());
         }
+    }
+
+    /**
+     * Z3b-3: generate scope probes on the central main model — EXACTLY ONE model call via the
+     * productive {@link com.aresstack.askai.research.runtime.scope.MainModelScopeProbeGenerator},
+     * then the typed result (success OR failure) goes back as ONE {@code #RSX1# probes} line. The
+     * host owns the canonical scope, the vectors and every geometric verdict; this handler only
+     * produces material and NEVER mutates scope or state. A malformed request is answered typed
+     * (INVALID_RESPONSE with the parse reason) — the host must never wait into its timeout for a
+     * request it broke itself.
+     */
+    private void handleGenerateProbes(SyncPromptContext ctx, String requestId, String requestJson) {
+        System.err.println("[probe-gen] runtime received requestId=" + requestId
+                + " payloadLen=" + requestJson.length());
+        com.aresstack.askai.research.domain.scope.ScopeProbeGenerator.ProbeGenerationResult result;
+        try {
+            com.aresstack.askai.research.runtime.scope.ProbeGenerationWire.ParsedRequest parsed =
+                    com.aresstack.askai.research.runtime.scope.ProbeGenerationWire
+                            .parseRequest(requestJson);
+            result = new com.aresstack.askai.research.runtime.scope.MainModelScopeProbeGenerator(
+                    mainModelChat, parsed.settings).generate(parsed.request);
+        } catch (IllegalArgumentException malformedRequest) {
+            result = com.aresstack.askai.research.domain.scope.ScopeProbeGenerator
+                    .ProbeGenerationResult.failure(
+                            com.aresstack.askai.research.domain.scope.ScopeProbeGenerator
+                                    .ProbeGenerationResult.Status.INVALID_RESPONSE,
+                            "malformed generation request: " + malformedRequest.getMessage());
+        }
+        System.err.println("[probe-gen] runtime answering requestId=" + requestId
+                + " status=" + result.getStatus());
+        ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire.probeGeneration(
+                requestId,
+                com.aresstack.askai.research.runtime.scope.ProbeGenerationWire
+                        .renderResult(result)));
     }
 
     /**

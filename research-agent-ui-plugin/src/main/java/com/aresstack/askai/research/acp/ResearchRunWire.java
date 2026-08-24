@@ -39,6 +39,9 @@ public final class ResearchRunWire {
     public static final String TYPE_MANUAL_SEARCH_REVIEW = "manual_search_review";
     public static final String TYPE_MANUAL_SEARCH_FAILED = "manual_search_failed";
 
+    /** Z3b-3: the typed probe-generation answer; payload = result JSON, correlated by request_id. */
+    public static final String TYPE_PROBES = "probes";
+
     private ResearchRunWire() {
     }
 

@@ -1,9 +1,19 @@
-package com.aresstack.askai.research.domain.scope;
+package com.aresstack.askai.research.scope;
 
+import com.aresstack.askai.research.domain.scope.DiverseProbeSelector;
+import com.aresstack.askai.research.domain.scope.ProbeReading;
+import com.aresstack.askai.research.domain.scope.ProbeSweepAnalyzer;
+import com.aresstack.askai.research.domain.scope.ScopeAnchor;
+import com.aresstack.askai.research.domain.scope.ScopeCalibrationProbe;
+import com.aresstack.askai.research.domain.scope.ScopeFenceCalibrator;
+import com.aresstack.askai.research.domain.scope.ScopeFenceEvaluator;
 import com.aresstack.askai.research.domain.scope.ScopeFenceEvaluator.AnchorVector;
+import com.aresstack.askai.research.domain.scope.ScopeProbe;
+import com.aresstack.askai.research.domain.scope.ScopeProbeGenerator;
 import com.aresstack.askai.research.domain.scope.ScopeProbeGenerator.ProbeGeneration;
 import com.aresstack.askai.research.domain.scope.ScopeProbeGenerator.ProbeGenerationRequest;
 import com.aresstack.askai.research.domain.scope.ScopeProbeGenerator.ProbeGenerationResult;
+import com.aresstack.askai.research.domain.scope.ScopeSweepOutcome;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -12,26 +22,30 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Z3b-3: the HOST-LED sweep orchestration — one CALLABLE run over the whole chain
- * (generate → embed → calibrate → gate → sweep → diversify) that ends in a TYPED
- * {@link ScopeSweepOutcome}. Nothing here triggers automatically: WHEN a sweep runs is a Z4/policy
- * decision — this service only makes running one possible (the live generator costs 45-115s of
- * real model time; nobody fires that per draft-update behind the user's back).
+ * Z3b-3: the HOST-LED sweep orchestration — an APPLICATION service, deliberately NOT in
+ * research-domain: it sequences external I/O (one LLM generation, one embedding batch) and
+ * staleness policy around the pure domain mathematics (calibrator/analyzer/selector), which stay
+ * where they are. One CALLABLE run ends in a TYPED {@link ScopeSweepOutcome}; nothing here
+ * triggers automatically (WHEN a sweep runs is a Z4/policy decision — the live generator costs
+ * 45-115s of real model time), and nothing mutates scope.
  * <p>
- * The canonical scope draft and the anchor vector index stay with the HOST; the generator port may
- * be implemented by a same-process fake or by a thin wire client to the runtime process — this
- * orchestration cannot tell the difference and must not be able to. It never mutates scope.
- * <p>
- * Epistemic contract: a sweep that could not be trusted NEVER reads as "no holes found". Every
- * non-READY outcome names its reason (generation failed / broad sample incomplete / calibration
- * weak / embedding failed / stale scope) — turning "I could not check the fence reliably" into
- * "the fence has no holes" is exactly the error all the gates exist to prevent.
+ * Snapshot discipline: the plan is built ONCE from one immutable draft snapshot and one immutable
+ * embedding configuration snapshot. The {@link SweepEmbedder} MUST be constructed on that frozen
+ * snapshot (e.g. over the session's frozen {@code EmbeddingEndpointDescriptor}) — binding by
+ * construction is the guarantee; the fingerprint comparison in {@link #run} only catches
+ * mis-wiring, it cannot close a hot-reload race that a mutable embedder would open. No exception
+ * escapes the typed outcome: adapter/transport failures become GENERATION_FAILED /
+ * EMBEDDING_FAILED, never a stack trace where a verdict should be.
  */
 public final class ScopeSweepService {
 
-    /** Embeds the transient sweep texts — MUST serve exactly one embedding snapshot. */
+    /**
+     * Embeds the transient sweep texts. Implementations MUST be bound at construction to ONE
+     * immutable embedding snapshot — a hot-reloadable delegate here would silently mix embedding
+     * worlds mid-run.
+     */
     public interface SweepEmbedder {
-        /** The model fingerprint this embedder serves; compared against the plan's pinned one. */
+        /** The frozen snapshot fingerprint this embedder was constructed on. */
         String modelFingerprint();
 
         /** One batch; null or wrong-sized result reads as embedding failure, never as vectors. */
@@ -40,17 +54,18 @@ public final class ScopeSweepService {
 
     /** Supplies the CURRENT canonical scope revision — the staleness probe. */
     public interface ScopeRevisionProbe {
-        String currentRevision();
+        long currentRevision();
     }
 
     /**
-     * Everything a run needs, pinned ONCE at start: the scope revision, the embedding snapshot
-     * fingerprint, the anchor vectors (from the host's index, already at that fingerprint), the
-     * mission reference texts and every explicit parameter. Nothing is re-read mid-run — the run
-     * computes on (revision, fingerprint) or it does not publish.
+     * Everything a run needs, pinned ONCE at start from ONE draft snapshot + ONE embedding
+     * snapshot. The constructor VALIDATES that the generation request and the anchor vectors
+     * describe the same fence (same anchorId + membership sets) — four independently gathered
+     * pieces from different snapshots must fail loudly here, because the revision check alone
+     * cannot see a mixed-snapshot plan whose revision happens to still be current.
      */
     public static final class SweepPlan {
-        public final String scopeRevision;
+        public final long scopeRevision;
         public final String embeddingFingerprint;
         public final ProbeGenerationRequest generationRequest;
         public final List<AnchorVector> anchorVectors;
@@ -62,7 +77,7 @@ public final class ScopeSweepService {
         public final double sweepNoveltyGap;
         public final DiverseProbeSelector.Parameters selectorParameters;
 
-        public SweepPlan(String scopeRevision, String embeddingFingerprint,
+        public SweepPlan(long scopeRevision, String embeddingFingerprint,
                          ProbeGenerationRequest generationRequest,
                          List<AnchorVector> anchorVectors,
                          List<String> missionReferenceTexts,
@@ -70,13 +85,10 @@ public final class ScopeSweepService {
                          ScopeFenceCalibrator.CalibrationParameters calibrationParameters,
                          double boundaryMargin, double sweepNoveltyGap,
                          DiverseProbeSelector.Parameters selectorParameters) {
-            if (scopeRevision == null || scopeRevision.trim().isEmpty()) {
-                throw new IllegalArgumentException("scopeRevision must be pinned");
-            }
             if (embeddingFingerprint == null || embeddingFingerprint.trim().isEmpty()) {
                 throw new IllegalArgumentException("embeddingFingerprint must be pinned");
             }
-            this.scopeRevision = scopeRevision.trim();
+            this.scopeRevision = scopeRevision;
             this.embeddingFingerprint = embeddingFingerprint.trim();
             this.generationRequest = generationRequest;
             this.anchorVectors = Collections.unmodifiableList(
@@ -88,6 +100,28 @@ public final class ScopeSweepService {
             this.boundaryMargin = boundaryMargin;
             this.sweepNoveltyGap = sweepNoveltyGap;
             this.selectorParameters = selectorParameters;
+            requireSameFence(generationRequest, this.anchorVectors);
+        }
+
+        /** The request and the vectors must describe the SAME fence — mixed snapshots fail loudly. */
+        private static void requireSameFence(ProbeGenerationRequest request,
+                                             List<AnchorVector> vectors) {
+            Map<String, ScopeAnchor.Membership> requested =
+                    new LinkedHashMap<String, ScopeAnchor.Membership>();
+            for (ScopeAnchor anchor : request.getAnchors()) {
+                requested.put(anchor.getAnchorId(), anchor.getMembership());
+            }
+            Map<String, ScopeAnchor.Membership> vectorized =
+                    new LinkedHashMap<String, ScopeAnchor.Membership>();
+            for (AnchorVector anchor : vectors) {
+                vectorized.put(anchor.anchorId, anchor.membership);
+            }
+            if (!requested.equals(vectorized)) {
+                throw new IllegalArgumentException(
+                        "generation request and anchor vectors describe DIFFERENT fences: request="
+                                + requested + " vectors=" + vectorized
+                                + " — build the plan from ONE draft snapshot");
+            }
         }
     }
 
@@ -106,15 +140,23 @@ public final class ScopeSweepService {
     }
 
     public ScopeSweepOutcome run(SweepPlan plan) {
-        // Invariant 2 first: the anchors were vectorized at the pinned fingerprint — computing
-        // probe cosines against a DIFFERENT embedding snapshot is professionally worthless.
+        // Mis-wiring guard (the REAL invariant is construction-time binding of the embedder to the
+        // frozen snapshot): anchors vectorized at one snapshot + probes at another = worthless.
         if (!embedder.modelFingerprint().equals(plan.embeddingFingerprint)) {
             return ScopeSweepOutcome.embeddingFailed("embedder serves fingerprint '"
                     + embedder.modelFingerprint() + "' but the plan pinned '"
                     + plan.embeddingFingerprint + "'");
         }
 
-        ProbeGenerationResult generated = generator.generate(plan.generationRequest);
+        ProbeGenerationResult generated;
+        try {
+            generated = generator.generate(plan.generationRequest);
+        } catch (RuntimeException transport) {
+            // A throwing adapter (wire client, transport) must not escape the typed contract.
+            return ScopeSweepOutcome.generationFailed(
+                    ProbeGenerationResult.Status.PROVIDER_FAILURE,
+                    "generator threw: " + transport);
+        }
         if (!generated.isOk()) {
             return ScopeSweepOutcome.generationFailed(generated.getStatus(),
                     generated.getMessage());
@@ -123,8 +165,8 @@ public final class ScopeSweepService {
 
         // The generation took real model time (live: 45-115s) — check staleness BEFORE spending
         // embedding work on a fence that may already have moved.
-        String midRevision = revisionProbe.currentRevision();
-        if (!plan.scopeRevision.equals(midRevision)) {
+        long midRevision = revisionProbe.currentRevision();
+        if (plan.scopeRevision != midRevision) {
             return ScopeSweepOutcome.staleScope(plan.scopeRevision, midRevision);
         }
 
@@ -143,7 +185,12 @@ public final class ScopeSweepService {
         for (ScopeCalibrationProbe control : generation.getCalibrationProbes()) {
             texts.add(control.getSemanticText());
         }
-        List<float[]> vectors = embedder.embed(texts);
+        List<float[]> vectors;
+        try {
+            vectors = embedder.embed(texts);
+        } catch (RuntimeException transport) {
+            return ScopeSweepOutcome.embeddingFailed("embedder threw: " + transport);
+        }
         if (vectors == null || vectors.size() != texts.size()) {
             return ScopeSweepOutcome.embeddingFailed("embedder returned "
                     + (vectors == null ? "null" : vectors.size() + " vectors")
@@ -153,10 +200,6 @@ public final class ScopeSweepService {
         List<float[]> missionVectors = vectors.subList(0, missionCount);
         int broadCount = generation.getBroadProbes().size();
 
-        Map<String, float[]> anchorVectorsById = new LinkedHashMap<String, float[]>();
-        for (AnchorVector anchor : plan.anchorVectors) {
-            anchorVectorsById.put(anchor.anchorId, vectorOf(anchor));
-        }
         List<ScopeFenceCalibrator.CalibrationProbeVector> controls =
                 new ArrayList<ScopeFenceCalibrator.CalibrationProbeVector>();
         for (int index = 0; index < generation.getCalibrationProbes().size(); index++) {
@@ -186,16 +229,14 @@ public final class ScopeSweepService {
         List<ProbeReading> diverse = DiverseProbeSelector.select(sweep.interesting(),
                 ProbeSweepAnalyzer.vectorsById(probeVectors), plan.selectorParameters);
 
-        // Invariant 1, before publishing: the whole run computed on revision R — if the canonical
-        // draft moved meanwhile, these readings describe a fence that no longer exists.
-        String finalRevision = revisionProbe.currentRevision();
-        if (!plan.scopeRevision.equals(finalRevision)) {
+        // Final staleness check narrows the publish race; READY still CARRIES (revision,
+        // fingerprint) because a consumer must be able to re-check later — the check here can
+        // never fully close the window.
+        long finalRevision = revisionProbe.currentRevision();
+        if (plan.scopeRevision != finalRevision) {
             return ScopeSweepOutcome.staleScope(plan.scopeRevision, finalRevision);
         }
-        return ScopeSweepOutcome.ready(calibration, sweep, diverse, generated.getMessage());
-    }
-
-    private static float[] vectorOf(AnchorVector anchor) {
-        return anchor.vector;
+        return ScopeSweepOutcome.ready(plan.scopeRevision, plan.embeddingFingerprint,
+                calibration, sweep, diverse, generated.getMessage());
     }
 }

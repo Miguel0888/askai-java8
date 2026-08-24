@@ -30,6 +30,13 @@ public final class ResearchServiceCommand {
      */
     public static final String TYPE_SET_SCOPE = "set_scope";
 
+    /**
+     * Z3b-3: generate scope probes on the central main model — ONE model call, typed result back
+     * over the run wire. Carried like every service command (never a chat turn, no state change);
+     * the host owns the canonical scope and does ALL geometry — this command only produces material.
+     */
+    public static final String TYPE_GENERATE_PROBES = "generate_probes";
+
     private final String type;
     private final String requestId;
     private final String query;
@@ -40,6 +47,8 @@ public final class ResearchServiceCommand {
      * reads, so what the model saw and what the host marks reviewed are the same set.
      */
     private final long capturedThrough;
+    /** The JSON payload of a {@code generate_probes} command; empty otherwise. */
+    private final String request;
 
     public ResearchServiceCommand(String type, String requestId, String query) {
         this(type, requestId, query, null);
@@ -56,7 +65,13 @@ public final class ResearchServiceCommand {
 
     public ResearchServiceCommand(String type, String requestId, String query, String language,
                                   String scope, long capturedThrough) {
+        this(type, requestId, query, language, scope, capturedThrough, null);
+    }
+
+    public ResearchServiceCommand(String type, String requestId, String query, String language,
+                                  String scope, long capturedThrough, String request) {
         this.capturedThrough = capturedThrough;
+        this.request = request == null ? "" : request;
         this.type = type == null ? "" : type;
         this.requestId = requestId == null ? "" : requestId;
         this.query = query == null ? "" : query;
@@ -89,5 +104,10 @@ public final class ResearchServiceCommand {
 
     public String getScope() {
         return scope;
+    }
+
+    /** The JSON payload of a {@code generate_probes} command; empty when absent. */
+    public String getRequest() {
+        return request;
     }
 }
