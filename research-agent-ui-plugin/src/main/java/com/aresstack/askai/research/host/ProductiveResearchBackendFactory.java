@@ -770,6 +770,8 @@ public final class ProductiveResearchBackendFactory {
                     acceptance, projectContext, control, bridge,
                     browser, backend, service);
             resources.setSearchProfile(profile);
+            // Z3b-3: the sweep needs the SAME frozen embedding world the knowledge pipeline got.
+            resources.setEmbeddingDescriptor(embeddingDescriptor);
             if (botControl != null) {
                 resources.setBotControlEndpoint(botControl);
             }

@@ -1961,6 +1961,66 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         return probeGenerator;
     }
 
+    /**
+     * Z3b-3: run ONE scope sweep — callable, NEVER triggered automatically (the generation costs
+     * 45-115s of real model time; WHEN to sweep is a Z4/policy decision, and until that trigger
+     * exists nothing invokes this productively). The whole chain derives from ONE immutable draft
+     * snapshot and ONE frozen embedding snapshot:
+     * draft R + embedding E → reconcile anchor index(R,E) → runtime generation wire → one
+     * transient embedding batch on E → calibration → gates → sweep → diversity → outcome bound
+     * to (R,E). Every failure is a typed {@link
+     * com.aresstack.askai.research.domain.scope.ScopeSweepOutcome}, never an escaping exception —
+     * except calling it on a non-productive session, which is a caller bug and fails loudly.
+     */
+    public com.aresstack.askai.research.domain.scope.ScopeSweepOutcome runScopeSweep(
+            com.aresstack.askai.research.scope.ScopeSweepConfiguration configuration) {
+        final com.aresstack.askai.research.scope.ResearchScopeCoordinator coordinator =
+                scopeCoordinator();
+        if (coordinator == null || !coordinator.isUsable() || handle == null) {
+            throw new IllegalStateException("a scope sweep needs a productive session with a "
+                    + "usable scope draft" + (coordinator == null ? "" : " ("
+                    + coordinator.unusableReason() + ")"));
+        }
+        com.aresstack.askai.agent.model.embedding.EmbeddingEndpointDescriptor descriptor =
+                productiveResources.getEmbeddingDescriptor();
+        if (descriptor == null) {
+            return com.aresstack.askai.research.domain.scope.ScopeSweepOutcome.embeddingFailed(
+                    "no embedding model is configured — the sweep capability is unavailable");
+        }
+        // ONE immutable draft snapshot + ONE frozen embedding snapshot, pinned here and only here.
+        com.aresstack.askai.research.domain.scope.ResearchScopeDraft draft = coordinator.current();
+        com.aresstack.askai.research.scope.EmbeddingSnapshotSweepEmbedder embedder =
+                new com.aresstack.askai.research.scope.EmbeddingSnapshotSweepEmbedder(descriptor);
+        java.util.List<com.aresstack.askai.research.domain.scope.ScopeFenceEvaluator.AnchorVector>
+                anchorVectors;
+        try {
+            anchorVectors = new com.aresstack.askai.research.store.ScopeAnchorVectorIndex(
+                    new java.io.File(productiveResources.getProjectContext().getProjectDirectory(),
+                            "scope-anchor-vectors.json"))
+                    .vectorsFor(draft, embedder.modelFingerprint(), embedder);
+        } catch (java.io.IOException indexFailed) {
+            return com.aresstack.askai.research.domain.scope.ScopeSweepOutcome.embeddingFailed(
+                    "anchor vector index failed: " + indexFailed.getMessage());
+        }
+        com.aresstack.askai.research.scope.ScopeSweepService service =
+                new com.aresstack.askai.research.scope.ScopeSweepService(
+                        probeGenerator(new com.aresstack.askai.research.scope
+                                .BackendScopeProbeGenerator.WireSettings(
+                                configuration.generatorTemperature,
+                                configuration.generatorMaxOutputTokens,
+                                configuration.controlsPerAnchor,
+                                configuration.generationTimeoutSeconds)),
+                        embedder,
+                        new com.aresstack.askai.research.scope.ScopeSweepService
+                                .ScopeRevisionProbe() {
+                            public long currentRevision() {
+                                return coordinator.current().getRevision();
+                            }
+                        });
+        return service.run(com.aresstack.askai.research.scope.ScopeSweepPlanAssembler.planOf(
+                draft, embedder.modelFingerprint(), anchorVectors, configuration));
+    }
+
     /** Owns the persisted scope draft of this session; null in fake mode (no project context). */
     private com.aresstack.askai.research.scope.ResearchScopeCoordinator scopeCoordinator;
 

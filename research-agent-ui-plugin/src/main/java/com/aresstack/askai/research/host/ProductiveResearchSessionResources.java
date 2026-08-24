@@ -54,6 +54,13 @@ public final class ProductiveResearchSessionResources {
     /** The debounced live-projection worker (C5), or null when the knowledge capability is unavailable. */
     private volatile com.aresstack.askai.research.knowledge.processing.live.LiveKnowledgeProjectionRunner
             projectionRunner;
+    /**
+     * The session's ONE authoritative embedding world (frozen at session build, immutable), or
+     * null when the capability is honestly unavailable. Z3b-3 binds the scope-sweep embedder and
+     * the anchor vector index to exactly this snapshot — never to a re-looked-up configuration.
+     */
+    private volatile com.aresstack.askai.agent.model.embedding.EmbeddingEndpointDescriptor
+            embeddingDescriptor;
     private volatile boolean closed;
 
     ProductiveResearchSessionResources(String sessionKey, OoResearchStateMachine stateMachine,
@@ -106,6 +113,17 @@ public final class ProductiveResearchSessionResources {
         this.browserBridge = browserBridge;
         this.browser = browser;
         this.backend = backend;
+    }
+
+    void setEmbeddingDescriptor(
+            com.aresstack.askai.agent.model.embedding.EmbeddingEndpointDescriptor descriptor) {
+        this.embeddingDescriptor = descriptor;
+    }
+
+    /** The frozen embedding snapshot of this session; null = capability honestly unavailable. */
+    public com.aresstack.askai.agent.model.embedding.EmbeddingEndpointDescriptor
+            getEmbeddingDescriptor() {
+        return embeddingDescriptor;
     }
 
     /** The persistent project context this session works on (single source of truth). */

@@ -1,0 +1,63 @@
+package com.aresstack.askai.research.scope;
+
+import com.aresstack.askai.research.domain.scope.DiverseProbeSelector;
+import com.aresstack.askai.research.domain.scope.ScopeFenceCalibrator;
+import com.aresstack.askai.research.domain.scope.ScopeFenceEvaluator;
+
+/**
+ * EVERY behavior-limiting knob of one sweep run in ONE explicit place — no constant hides in any
+ * class along the chain. {@link #defaults()} carries the values measured in the Z1-Z3b live gates;
+ * they become user-visible settings together with the Z4 trigger UI (until then nothing invokes a
+ * sweep productively, so no behavior is silently limited). The quantile/margin formula is still
+ * the documented measurement spike — frozen only after productive measurements.
+ */
+public final class ScopeSweepConfiguration {
+
+    public final int targetBroadProbes;
+    public final int controlsPerAnchor;
+    public final double generatorTemperature;
+    public final int generatorMaxOutputTokens;
+    public final int generationTimeoutSeconds;
+    public final ScopeFenceEvaluator.Thresholds fenceThresholds;
+    public final ScopeFenceCalibrator.CalibrationParameters calibrationParameters;
+    public final double boundaryMargin;
+    public final double sweepNoveltyGap;
+    public final DiverseProbeSelector.Parameters selectorParameters;
+
+    public ScopeSweepConfiguration(int targetBroadProbes, int controlsPerAnchor,
+                                   double generatorTemperature, int generatorMaxOutputTokens,
+                                   int generationTimeoutSeconds,
+                                   ScopeFenceEvaluator.Thresholds fenceThresholds,
+                                   ScopeFenceCalibrator.CalibrationParameters calibrationParameters,
+                                   double boundaryMargin, double sweepNoveltyGap,
+                                   DiverseProbeSelector.Parameters selectorParameters) {
+        this.targetBroadProbes = Math.max(1, targetBroadProbes);
+        this.controlsPerAnchor = Math.max(1, controlsPerAnchor);
+        this.generatorTemperature = generatorTemperature;
+        this.generatorMaxOutputTokens = Math.max(1, generatorMaxOutputTokens);
+        this.generationTimeoutSeconds = Math.max(1, generationTimeoutSeconds);
+        this.fenceThresholds = fenceThresholds;
+        this.calibrationParameters = calibrationParameters;
+        this.boundaryMargin = boundaryMargin;
+        this.sweepNoveltyGap = sweepNoveltyGap;
+        this.selectorParameters = selectorParameters;
+    }
+
+    /** The live-gate values (nomic + gpt-oss measurements), named — the pre-settings baseline. */
+    public static ScopeSweepConfiguration defaults() {
+        return new ScopeSweepConfiguration(
+                50,      // targetBroadProbes — the live gate delivered 50/50 in one call
+                2,       // controlsPerAnchor — 2 local variations per negotiated post
+                0.7d,    // generatorTemperature — breadth needs variety
+                4096,    // generatorMaxOutputTokens — 50 probes + controls fit comfortably
+                360,     // generationTimeoutSeconds — live runs took 45-115s; generous headroom
+                new ScopeFenceEvaluator.Thresholds(0.7d, 0.05d),   // nomic live calibration
+                new ScopeFenceCalibrator.CalibrationParameters(
+                        0.0d, 0.1d,   // mission: min quantile − measured slack (spike formula)
+                        0.0d, 0.0d,   // neighbor floor: min quantile (spike formula)
+                        3, 4),        // minimum negotiated posts / neighbor samples
+                0.05d,   // boundaryMargin — live IN/OUT margins were ±0.1-0.2
+                0.0d,    // sweepNoveltyGap — relative novelty line at the sweep median
+                new DiverseProbeSelector.Parameters(3, 1.0d, 0.8d)); // ≤3 regions, dupes ≥0.8 collapse
+    }
+}
