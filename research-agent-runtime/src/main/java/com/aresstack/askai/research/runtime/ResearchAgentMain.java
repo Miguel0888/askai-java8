@@ -46,6 +46,8 @@ public final class ResearchAgentMain {
     private com.aresstack.askai.research.runtime.team.ReloadableMainModelChat mainModelChat;
     /** When the LAST user search started — the lower edge of "the new sources" its review reads. */
     private volatile long lastManualSearchStartedAt;
+    /** The request id of the LAST manual search — the default scope of /review-sources. */
+    private volatile String lastManualSearchRequestId = "";
     private com.aresstack.askai.research.runtime.team.ResearchTeamAgent teamAgent;
     /**
      * The session's live working language (runtime mirror). set_language updates it best-effort; the
@@ -736,6 +738,7 @@ public final class ResearchAgentMain {
             // The lower edge of "the new sources": a later review reads what THIS search added, not the
             // whole cumulative corpus again.
             lastManualSearchStartedAt = System.currentTimeMillis();
+            lastManualSearchRequestId = requestId == null ? "" : requestId;
             if (strategy == null) {
                 ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
                         .manualSearchFailed(requestId, "SEARCH_UNAVAILABLE"));
@@ -822,7 +825,7 @@ public final class ResearchAgentMain {
                             searchReranker,
                             new com.aresstack.askai.browser.domain.PublicSuffixDomainKeyResolver(),
                             new com.aresstack.askai.research.runtime.acquire.ManualSourceAcceptancePort(
-                                    service, query),
+                                    service, query, requestId),
                             System.currentTimeMillis(),
                             loadBrowserSearchSettings().captcha.challengeProbeIntervalMillis,
                             new com.aresstack.askai.research.runtime.acquire.WebSearchApplicationService
@@ -966,6 +969,11 @@ public final class ResearchAgentMain {
             // "The NEW sources" means THIS search's window: without the lower edge every review re-read
             // the whole cumulative corpus and produced the same summary and clusters, search after search.
             args.put("captured_since", String.valueOf(Math.max(0L, lastManualSearchStartedAt)));
+            // Request-id scoping: the review reads ONLY what THIS search found — a second search's
+            // review no longer mixes in the first search's material via a leaky time window.
+            if (!lastManualSearchRequestId.isEmpty()) {
+                args.put("search_request_id", lastManualSearchRequestId);
+            }
             String context = String.valueOf(researchMcp.callTool("source_review_context", args));
             System.err.println("[manual-search] review context chars="
                     + (context == null ? 0 : context.length()) + " capturedThrough=" + capturedThrough

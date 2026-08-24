@@ -129,10 +129,9 @@ public final class SpeechBubblePanel extends JPanel
      * half-size lines no taller than the name itself.
      */
     public void setHeaderTimestamp(long epochMillis) {
-        java.util.Date at = new java.util.Date(epochMillis);
-        String date = new java.text.SimpleDateFormat("dd/MM/yy").format(at);
-        String time = new java.text.SimpleDateFormat("HH:mm").format(at);
-        String full = new java.text.SimpleDateFormat("EEE dd/MM/yyyy HH:mm").format(at);
+        // ONE timestamp format for every mode (see BubbleTimestamps) — Partying introduced it,
+        // Questing reuses it verbatim.
+        String full = BubbleTimestamps.tooltip(epochMillis);
         if (timestampLabel == null) {
             timestampLabel = new JLabel();
             Font base = headerLabel.getFont();
@@ -144,8 +143,7 @@ public final class SpeechBubblePanel extends JPanel
             headerRow.add(timestampLabel);
         }
         timestampLabel.setForeground(timestampColor());
-        timestampLabel.setText("<html><div style='line-height:90%;text-align:right'><b>"
-                + time + "</b><br>" + date + "</div></html>");
+        timestampLabel.setText(BubbleTimestamps.stackedHtml(epochMillis));
         // A shared, readable tooltip on the whole header so hovering the name or the stamp shows it.
         headerLabel.setToolTipText(full);
         timestampLabel.setToolTipText(full);

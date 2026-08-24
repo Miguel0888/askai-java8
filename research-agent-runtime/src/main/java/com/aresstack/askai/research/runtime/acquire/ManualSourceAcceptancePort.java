@@ -17,10 +17,17 @@ public final class ManualSourceAcceptancePort implements SourceAcceptancePort {
 
     private final ToolInvoker service;
     private final String searchQuery;
+    /** The manual-search request id — persisted with every source so reviews can scope to ONE search. */
+    private final String searchRequestId;
 
     public ManualSourceAcceptancePort(ToolInvoker service, String searchQuery) {
+        this(service, searchQuery, "");
+    }
+
+    public ManualSourceAcceptancePort(ToolInvoker service, String searchQuery, String searchRequestId) {
         this.service = service;
         this.searchQuery = searchQuery == null ? "" : searchQuery;
+        this.searchRequestId = searchRequestId == null ? "" : searchRequestId;
     }
 
     @Override
@@ -46,6 +53,9 @@ public final class ManualSourceAcceptancePort implements SourceAcceptancePort {
         if (userRelevant) {
             args.put("user_relevant", "true"); // the HUD ⭐ toggle for this page
         }
+        if (!searchRequestId.isEmpty()) {
+            args.put("search_request_id", searchRequestId);
+        }
         if (languageCode != null && !languageCode.trim().isEmpty()) {
             // The language snapshot of the SEARCH that found this page - the knowledge job's world.
             args.put("language", languageCode.trim());
@@ -65,6 +75,9 @@ public final class ManualSourceAcceptancePort implements SourceAcceptancePort {
         }
         if (!searchQuery.isEmpty()) {
             args.put("search_query", searchQuery);
+        }
+        if (!searchRequestId.isEmpty()) {
+            args.put("search_request_id", searchRequestId);
         }
         service.call("manual_source_park", args);
     }

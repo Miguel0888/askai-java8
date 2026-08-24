@@ -157,9 +157,17 @@ public final class ResearchToolPolicy {
                         // review re-read the whole cumulative corpus and produced the same summary and the
                         // same clusters, search after search.
                         long capturedSince = parseLong(call.getString("captured_since"));
+                        // Request-id scoping beats the time window: sources tagged with a DIFFERENT
+                        // search are OUT even inside the window. Untagged (legacy/agent) records keep
+                        // falling back to the window alone.
+                        String requestId = call.getString("search_request_id");
+                        String wantedRequestId = requestId == null ? "" : requestId.trim();
                         List<ResearchSourceRecord> reviewable = new ArrayList<ResearchSourceRecord>();
                         for (ResearchSourceRecord record : ctx.sourceRepository().find(SourceQuery.all())) {
-                            if (isReviewable(record)
+                            boolean requestMatches = wantedRequestId.isEmpty()
+                                    || record.getSearchRequestId().isEmpty()
+                                    || wantedRequestId.equals(record.getSearchRequestId());
+                            if (isReviewable(record) && requestMatches
                                     && (capturedThrough <= 0L
                                             || record.getCapturedAt() <= capturedThrough)
                                     && (capturedSince <= 0L
@@ -192,7 +200,10 @@ public final class ResearchToolPolicy {
                         "Only sources captured at or before this epoch-millis timestamp (0 = all)"),
                 McpToolParameter.string("captured_since", false,
                         "Only sources captured at or after this epoch-millis timestamp (0 = all) — "
-                                + "the lower edge of \"the new sources\" of one search"));
+                                + "the lower edge of \"the new sources\" of one search"),
+                McpToolParameter.string("search_request_id", false,
+                        "Only sources found by THIS manual-search request (empty = no id scoping; "
+                                + "untagged legacy sources fall back to the time window)"));
     }
 
     private static void appendSource(StringBuilder sb, ResearchSourceRecord record,

@@ -58,10 +58,41 @@ final class AssistantMarkdownBubble extends JPanel
         setBorder(new EmptyBorder(VERTICAL_PADDING, left, VERTICAL_PADDING, right));
         this.headerLabel = createHeaderLabel(header, palette.getAssistantForeground());
         this.headerShown = headerLabel.getText().length() > 0;
+        this.headerForeground = palette.getAssistantForeground();
         if (headerShown) {
-            add(headerLabel, BorderLayout.NORTH);
+            headerRow.setOpaque(false);
+            headerRow.setLayout(new javax.swing.BoxLayout(headerRow, javax.swing.BoxLayout.X_AXIS));
+            headerRow.add(headerLabel);
+            add(headerRow, BorderLayout.NORTH);
         }
         add(body, BorderLayout.CENTER);
+    }
+
+    /** Header + (optional) the shared stacked time/date stamp — same format as every other bubble. */
+    private final JPanel headerRow = new JPanel();
+    private final Color headerForeground;
+    private JLabel timestampLabel;
+
+    /** Stamp this message with its creation time (shared format/tooltip; no-op without a header). */
+    void setHeaderTimestamp(long epochMillis) {
+        if (!headerShown) {
+            return;
+        }
+        String full = BubbleTimestamps.tooltip(epochMillis);
+        if (timestampLabel == null) {
+            timestampLabel = new JLabel();
+            Font base = headerLabel.getFont();
+            timestampLabel.setFont(base.deriveFont(Font.PLAIN, Math.max(6f, base.getSize2D() * 0.5f)));
+            headerRow.add(javax.swing.Box.createHorizontalStrut(6));
+            headerRow.add(javax.swing.Box.createHorizontalGlue());
+            headerRow.add(timestampLabel);
+        }
+        timestampLabel.setForeground(withAlpha(headerForeground, 190));
+        timestampLabel.setText(BubbleTimestamps.stackedHtml(epochMillis));
+        timestampLabel.setToolTipText(full);
+        headerLabel.setToolTipText(full);
+        revalidate();
+        repaint();
     }
 
     /** Correct height for a fixed bubble width: chrome + optional header + the Markdown body at that width. */
@@ -71,7 +102,8 @@ final class AssistantMarkdownBubble extends JPanel
         int innerWidth = Math.max(1, width - insets.left - insets.right);
         int height = insets.top + insets.bottom + body.preferredHeightForWidth(innerWidth);
         if (headerShown) {
-            height += headerLabel.getPreferredSize().height + BODY_GAP;
+            height += Math.max(headerLabel.getPreferredSize().height,
+                    headerRow.getPreferredSize().height) + BODY_GAP;
         }
         return height;
     }

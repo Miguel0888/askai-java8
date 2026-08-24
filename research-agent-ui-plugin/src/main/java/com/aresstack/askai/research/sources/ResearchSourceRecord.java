@@ -28,6 +28,8 @@ public final class ResearchSourceRecord {
     private final long revision;
     /** The user web-search query that found this source (empty for agent-accepted sources). */
     private final String searchQuery;
+    /** The manual-search REQUEST id that found this source ("" = agent path / legacy record). */
+    private final String searchRequestId;
     /** The short excerpt/snippet taken from the search results (before the page was visited). */
     private final String excerpt;
     /** The full readable page text, filled ONLY after the page was successfully visited; empty = parked. */
@@ -58,6 +60,7 @@ public final class ResearchSourceRecord {
         this.checksum = str(b.checksum);
         this.revision = b.revision;
         this.searchQuery = str(b.searchQuery);
+        this.searchRequestId = str(b.searchRequestId);
         this.excerpt = str(b.excerpt);
         this.fullText = str(b.fullText);
         this.rerankScore = b.rerankScore;
@@ -133,6 +136,11 @@ public final class ResearchSourceRecord {
         return searchQuery;
     }
 
+    /** The manual-search request id that found this source ("" = agent path / legacy record). */
+    public String getSearchRequestId() {
+        return searchRequestId;
+    }
+
     /** The search-result excerpt/snippet, or "" when none was captured. */
     public String getExcerpt() {
         return excerpt;
@@ -169,6 +177,7 @@ public final class ResearchSourceRecord {
                 .author(author).linkedSectionIds(linkedSectionIds).comment(comment).relevance(relevance)
                 .reliability(reliability).status(status).snapshotReference(snapshotReference)
                 .checksum(checksum).revision(revision).searchQuery(searchQuery)
+                .searchRequestId(searchRequestId)
                 .excerpt(excerpt).fullText(fullText).rerankScore(rerankScore).userRelevant(userRelevant);
     }
 
@@ -193,6 +202,7 @@ public final class ResearchSourceRecord {
         private String checksum;
         private long revision;
         private String searchQuery;
+        private String searchRequestId;
         private String excerpt;
         private String fullText;
         private double rerankScore = Double.NaN;
@@ -225,6 +235,7 @@ public final class ResearchSourceRecord {
         public Builder checksum(String v) { this.checksum = v; return this; }
         public Builder revision(long v) { this.revision = v; return this; }
         public Builder searchQuery(String v) { this.searchQuery = v; return this; }
+        public Builder searchRequestId(String v) { this.searchRequestId = v; return this; }
         public Builder excerpt(String v) { this.excerpt = v; return this; }
         public Builder fullText(String v) { this.fullText = v; return this; }
         public Builder rerankScore(double v) { this.rerankScore = v; return this; }

@@ -124,6 +124,7 @@ public final class FileResearchSourceRepository implements ResearchSourceReposit
         line(sb, "checksum", r.getChecksum());
         line(sb, "revision", Long.toString(r.getRevision()));
         line(sb, "searchQuery", r.getSearchQuery());
+        line(sb, "searchRequestId", r.getSearchRequestId());
         line(sb, "excerpt", r.getExcerpt());
         line(sb, "fullText", r.getFullText());
         // A NaN score is written as "" so an old file (no key) and an unscored source read back the same.
@@ -162,6 +163,7 @@ public final class FileResearchSourceRepository implements ResearchSourceReposit
                     .checksum(p.getProperty("checksum", ""))
                     .revision(parseLong(p.getProperty("revision")))
                     .searchQuery(p.getProperty("searchQuery", "")) // "" for old files / agent-accepted sources
+                    .searchRequestId(p.getProperty("searchRequestId", ""))
                     .excerpt(p.getProperty("excerpt", ""))
                     .fullText(p.getProperty("fullText", "")) // "" for old files / parked (unread) sources
                     .rerankScore(parseScore(p.getProperty("rerankScore")))

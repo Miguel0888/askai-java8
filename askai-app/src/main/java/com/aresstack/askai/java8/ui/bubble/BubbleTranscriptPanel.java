@@ -115,6 +115,7 @@ public final class BubbleTranscriptPanel extends JPanel {
                 palette.getUserForeground(),
                 "You",
                 text);
+        bubble.setHeaderTimestamp(System.currentTimeMillis());
         addBubbleRow(bubble, BubbleSide.RIGHT);
         return bubble;
     }
@@ -359,6 +360,7 @@ public final class BubbleTranscriptPanel extends JPanel {
     public AgentActivityHandle startAgentActivity(String title, String explanation) {
         requireEventDispatchThread();
         AgentActivityBubblePanel activity = new AgentActivityBubblePanel(BubbleSide.LEFT, palette, title, explanation);
+        activity.setHeaderTimestamp(System.currentTimeMillis());
         addThoughtBubble(activity);
         return new AgentActivityHandle(activity);
     }
@@ -552,6 +554,7 @@ public final class BubbleTranscriptPanel extends JPanel {
     private void addAssistantMarkdownRow(String header, MarkdownMessageView view) {
         AssistantMarkdownBubble bubble = new AssistantMarkdownBubble(
                 BubbleSide.LEFT, palette, header == null || header.length() == 0 ? "Assistant" : header, view);
+        bubble.setHeaderTimestamp(System.currentTimeMillis());
         // The SAME row type as every other bubble: one geometry, one alignment behaviour. A second row
         // implementation for this bubble is what let the streamed answer be laid out differently from a
         // restored one.

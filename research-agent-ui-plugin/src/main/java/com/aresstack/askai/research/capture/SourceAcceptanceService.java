@@ -121,6 +121,15 @@ public final class SourceAcceptanceService {
      */
     public synchronized Result accept(String captureId, String searchQuery, boolean userRelevant,
                                       String languageCode) {
+        return accept(captureId, searchQuery, userRelevant, languageCode, "");
+    }
+
+    /**
+     * As above but with the manual-search REQUEST id that found this capture — persisted on the
+     * source so a review can be scoped to exactly ONE search instead of a time window.
+     */
+    public synchronized Result accept(String captureId, String searchQuery, boolean userRelevant,
+                                      String languageCode, String searchRequestId) {
         // Idempotency first: a completed acceptance always returns the same source id.
         String existing = acceptedByCapture.get(captureId);
         if (existing != null) {
@@ -179,6 +188,9 @@ public final class SourceAcceptanceService {
                     .revision(parkedMatch.getRevision() + 1L)
                     .searchQuery(parkedMatch.getSearchQuery().isEmpty()
                             ? (searchQuery == null ? "" : searchQuery.trim()) : parkedMatch.getSearchQuery())
+                    .searchRequestId(parkedMatch.getSearchRequestId().isEmpty()
+                            ? (searchRequestId == null ? "" : searchRequestId.trim())
+                            : parkedMatch.getSearchRequestId())
                     .userRelevant(userRelevant || parkedMatch.isUserRelevant()) // never clobber a prior ⭐
                     .build();
         } else {
@@ -198,6 +210,7 @@ public final class SourceAcceptanceService {
                     .checksum(capture.getContentHash())
                     .revision(1L)
                     .searchQuery(searchQuery == null ? "" : searchQuery.trim())
+                    .searchRequestId(searchRequestId == null ? "" : searchRequestId.trim())
                     .userRelevant(userRelevant)
                     .build();
         }
@@ -253,6 +266,12 @@ public final class SourceAcceptanceService {
      */
     public synchronized ParkResult park(String url, String title, String excerpt, double rerankScore,
                                         String searchQuery) {
+        return park(url, title, excerpt, rerankScore, searchQuery, "");
+    }
+
+    /** As above but with the manual-search REQUEST id that produced this candidate. */
+    public synchronized ParkResult park(String url, String title, String excerpt, double rerankScore,
+                                        String searchQuery, String searchRequestId) {
         String canonical = CaptureStore.canonicalize(url);
         for (ResearchSourceRecord source : repository.find(SourceQuery.all())) {
             if (canonical.equals(CaptureStore.canonicalize(source.getUrl()))) {
@@ -274,6 +293,7 @@ public final class SourceAcceptanceService {
                 .checksum("")
                 .revision(1L)
                 .searchQuery(searchQuery == null ? "" : searchQuery.trim())
+                .searchRequestId(searchRequestId == null ? "" : searchRequestId.trim())
                 .build();
         creator.create(record);
         return new ParkResult(sourceId, true);

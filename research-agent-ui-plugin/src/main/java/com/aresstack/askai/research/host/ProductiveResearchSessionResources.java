@@ -400,8 +400,14 @@ public final class ProductiveResearchSessionResources {
             @Override
             public String acceptCapture(String captureId, String searchQuery, boolean userRelevant,
                                         String languageCode) {
-                SourceAcceptanceService.Result result =
-                        acceptance.accept(captureId, searchQuery, userRelevant, languageCode);
+                return acceptCapture(captureId, searchQuery, userRelevant, languageCode, "");
+            }
+
+            @Override
+            public String acceptCapture(String captureId, String searchQuery, boolean userRelevant,
+                                        String languageCode, String searchRequestId) {
+                SourceAcceptanceService.Result result = acceptance.accept(
+                        captureId, searchQuery, userRelevant, languageCode, searchRequestId);
                 return result.status == SourceAcceptanceService.Status.UNKNOWN_CAPTURE
                         ? null : result.render();
             }
@@ -409,7 +415,14 @@ public final class ProductiveResearchSessionResources {
             @Override
             public String parkCandidate(String url, String title, String excerpt, double rerankScore,
                                         String searchQuery) {
-                return acceptance.park(url, title, excerpt, rerankScore, searchQuery).render();
+                return parkCandidate(url, title, excerpt, rerankScore, searchQuery, "");
+            }
+
+            @Override
+            public String parkCandidate(String url, String title, String excerpt, double rerankScore,
+                                        String searchQuery, String searchRequestId) {
+                return acceptance.park(url, title, excerpt, rerankScore, searchQuery,
+                        searchRequestId).render();
             }
         };
     }

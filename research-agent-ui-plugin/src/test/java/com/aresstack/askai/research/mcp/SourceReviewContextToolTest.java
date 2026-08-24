@@ -91,6 +91,41 @@ public class SourceReviewContextToolTest {
     }
 
     /**
+     * Request-id scoping beats the time window: the review of search B must never mix in search A's
+     * material — even when the window leaks — while untagged legacy records keep falling back to the
+     * window alone.
+     */
+    @Test
+    public void theRequestIdScopesTheReviewToExactlyOneSearch() {
+        sources.put(ResearchSourceRecord.builder("s-a")
+                .title("Kackvogel etymology").fullText("from search A").capturedAt(1_000L)
+                .status(SourceStatus.ACCEPTED).searchRequestId("req-a").build());
+        sources.put(ResearchSourceRecord.builder("s-b")
+                .title("Schimpfwoerter history").fullText("from search B").capturedAt(5_000L)
+                .status(SourceStatus.ACCEPTED).searchRequestId("req-b").build());
+        sources.put(ResearchSourceRecord.builder("s-legacy")
+                .title("Untagged legacy source").fullText("no request id stored").capturedAt(4_500L)
+                .status(SourceStatus.ACCEPTED).build());
+
+        Map<String, Object> args = new HashMap<String, Object>();
+        args.put("search_request_id", "req-b");
+        args.put("captured_since", "4000");
+        String context = null;
+        for (McpToolContribution tool : ResearchToolPolicy.toolsFor(ResearchStateIds.RESEARCH,
+                ResearchStateIds.RUNNING, ctx)) {
+            if ("source_review_context".equals(tool.getName())) {
+                context = String.valueOf(tool.getHandler()
+                        .invoke(new McpToolCall("source_review_context", args)).getText());
+            }
+        }
+        assertTrue("search B's own source is in", context.contains("Schimpfwoerter history"));
+        assertFalse("search A's material never leaks into B's review",
+                context.contains("Kackvogel etymology"));
+        assertTrue("untagged legacy records fall back to the time window",
+                context.contains("Untagged legacy source"));
+    }
+
+    /**
      * "The NEW sources" is a WINDOW, not everything up to now: without the lower edge every review
      * re-read the whole cumulative corpus and produced the same summary and clusters, search after search.
      */

@@ -91,9 +91,11 @@ public final class ResearchServiceEndpoint {
                         String searchQuery = call.getString("search_query");
                         boolean userRelevant = call.getBoolean("user_relevant", false);
                         String language = call.getString("language");
+                        String searchRequestId = call.getString("search_request_id");
                         String result = ctx.acceptCapture(captureId.trim(),
                                 searchQuery == null ? "" : searchQuery, userRelevant,
-                                language == null ? "" : language);
+                                language == null ? "" : language,
+                                searchRequestId == null ? "" : searchRequestId);
                         return result == null
                                 ? McpToolResult.error("Unknown capture: " + captureId)
                                 : McpToolResult.ok(result);
@@ -105,7 +107,9 @@ public final class ResearchServiceEndpoint {
                 McpToolParameter.string("user_relevant", false,
                         "true when the user marked this page relevant in the HUD (⭐)"),
                 McpToolParameter.string("language", false,
-                        "the language snapshot of the search that found this capture (en/de)"));
+                        "the language snapshot of the search that found this capture (en/de)"),
+                McpToolParameter.string("search_request_id", false,
+                        "the manual-search request id that found this capture"));
     }
 
     private static McpToolContribution manualSourceParkTool(final ResearchControlContext ctx) {
@@ -123,7 +127,8 @@ public final class ResearchServiceEndpoint {
                                 nullToEmpty(call.getString("title")),
                                 nullToEmpty(call.getString("excerpt")),
                                 parseScore(call.getString("score")),
-                                searchQuery == null ? "" : searchQuery);
+                                searchQuery == null ? "" : searchQuery,
+                                nullToEmpty(call.getString("search_request_id")));
                         return result == null ? McpToolResult.error("Could not park: " + url)
                                 : McpToolResult.ok(result);
                     }
@@ -133,7 +138,9 @@ public final class ResearchServiceEndpoint {
                 McpToolParameter.string("excerpt", false, "The search-result snippet/excerpt"),
                 McpToolParameter.string("score", false, "The reranker relevance score (a double)"),
                 McpToolParameter.string("search_query", false,
-                        "The user web-search query that found this candidate"));
+                        "The user web-search query that found this candidate"),
+                McpToolParameter.string("search_request_id", false,
+                        "the manual-search request id that produced this candidate"));
     }
 
     private static String nullToEmpty(String v) {

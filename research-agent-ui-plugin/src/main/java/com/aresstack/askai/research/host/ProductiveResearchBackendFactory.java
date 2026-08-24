@@ -602,6 +602,22 @@ public final class ProductiveResearchBackendFactory {
                             return holder[0].controlContext().parkCandidate(url, title, excerpt, rerankScore,
                                     searchQuery);
                         }
+
+                        @Override
+                        public String acceptCapture(String captureId, String searchQuery,
+                                                    boolean userRelevant, String languageCode,
+                                                    String searchRequestId) {
+                            return holder[0].controlContext().acceptCapture(captureId, searchQuery,
+                                    userRelevant, languageCode, searchRequestId);
+                        }
+
+                        @Override
+                        public String parkCandidate(String url, String title, String excerpt,
+                                                    double rerankScore, String searchQuery,
+                                                    String searchRequestId) {
+                            return holder[0].controlContext().parkCandidate(url, title, excerpt,
+                                    rerankScore, searchQuery, searchRequestId);
+                        }
                     };
             control = new com.aresstack.askai.research.mcp.ResearchControlEndpoint(
                     registry, sessionKey, generationId, controlContext);

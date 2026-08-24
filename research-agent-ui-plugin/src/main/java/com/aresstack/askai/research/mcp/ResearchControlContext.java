@@ -59,6 +59,15 @@ public interface ResearchControlContext {
     }
 
     /**
+     * As above but with the manual-search REQUEST id that found the capture — persisted so a review
+     * can be scoped to exactly one search. The default ignores it (agent path / fakes).
+     */
+    default String acceptCapture(String captureId, String searchQuery, boolean userRelevant,
+                                 String languageCode, String searchRequestId) {
+        return acceptCapture(captureId, searchQuery, userRelevant, languageCode);
+    }
+
+    /**
      * Park a reranked search candidate as a scored source BEFORE the page is visited (empty full text, status
      * PARKED). Backed by the same {@code SourceAcceptanceService} as acceptance. The default is a no-op
      * (agent path / test fakes); the productive context overrides it.
@@ -67,6 +76,12 @@ public interface ResearchControlContext {
     default String parkCandidate(String url, String title, String excerpt, double rerankScore,
                                  String searchQuery) {
         return null;
+    }
+
+    /** As above but with the manual-search REQUEST id. The default delegates (agent path / fakes). */
+    default String parkCandidate(String url, String title, String excerpt, double rerankScore,
+                                 String searchQuery, String searchRequestId) {
+        return parkCandidate(url, title, excerpt, rerankScore, searchQuery);
     }
 
     /**

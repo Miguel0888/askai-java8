@@ -216,7 +216,9 @@ public class AnimatedThoughtBubblePanel extends JPanel {
         int width = Math.max(explanationSize.width, titleSize.width)
                 + (CONTENT_PADDING * 2)
                 + CONNECTOR_SPACE;
-        int height = CONTENT_PADDING * 2 + titleSize.height + 5 + explanationSize.height;
+        int height = CONTENT_PADDING * 2 + titleSize.height + 5 + explanationSize.height
+                // The comic progress bar (SOUTH) needs its strip, or BorderLayout squeezes the text.
+                + (progressStrip.isVisible() ? progressStrip.getPreferredSize().height + 5 : 0);
         return new Dimension(Math.min(maximumBubbleWidth, width), Math.max(MINIMUM_HEIGHT, height));
     }
 
@@ -242,10 +244,35 @@ public class AnimatedThoughtBubblePanel extends JPanel {
         setOpaque(false);
         setLayout(new BorderLayout(0, 5));
         setBorder(createContentBorder());
-        add(titleLabel, BorderLayout.NORTH);
+        headerRow.setOpaque(false);
+        headerRow.setLayout(new javax.swing.BoxLayout(headerRow, javax.swing.BoxLayout.X_AXIS));
+        headerRow.add(titleLabel);
+        add(headerRow, BorderLayout.NORTH);
         add(explanationArea, BorderLayout.CENTER);
         add(progressStrip, BorderLayout.SOUTH);
         applyExplanation(explanationArea.getText());
+    }
+
+    /** Title + (optional) the shared stacked time/date stamp, pushed to the bubble's right edge. */
+    private final JPanel headerRow = new JPanel();
+    private JLabel timestampLabel;
+
+    /** Stamp this activity with its creation time — same format and tooltip as every other bubble. */
+    public void setHeaderTimestamp(long epochMillis) {
+        String full = BubbleTimestamps.tooltip(epochMillis);
+        if (timestampLabel == null) {
+            timestampLabel = new JLabel();
+            Font base = titleLabel.getFont();
+            timestampLabel.setFont(base.deriveFont(Font.PLAIN, Math.max(6f, base.getSize2D() * 0.5f)));
+            headerRow.add(javax.swing.Box.createHorizontalStrut(6));
+            headerRow.add(javax.swing.Box.createHorizontalGlue());
+            headerRow.add(timestampLabel);
+        }
+        timestampLabel.setForeground(withAlpha(theme.getForeground(), 190));
+        timestampLabel.setText(BubbleTimestamps.stackedHtml(epochMillis));
+        timestampLabel.setToolTipText(full);
+        titleLabel.setToolTipText(full);
+        refreshLayout();
     }
 
     /** The comic progress bar under the explanation — visible only while an update names a ratio. */
@@ -378,8 +405,9 @@ public class AnimatedThoughtBubblePanel extends JPanel {
         completionListener = afterAnimation;
         visualState = VisualState.BURSTING;
         phaseStartedAt = System.currentTimeMillis();
-        titleLabel.setVisible(false);
+        headerRow.setVisible(false);
         explanationArea.setVisible(false);
+        progressStrip.setVisible(false);
         if (!animationTimer.isRunning()) {
             animationTimer.start();
         }
