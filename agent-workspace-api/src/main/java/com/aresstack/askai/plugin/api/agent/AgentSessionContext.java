@@ -25,4 +25,12 @@ public interface AgentSessionContext {
      */
     default void showTranscriptOverlay(javax.swing.JComponent content, String title) {
     }
+
+    /**
+     * Show a MERMAID diagram as a transcript overlay. Takes the SOURCE, not a component: the host
+     * owns the full viewer (render pipeline, zoom/pan, high-res re-render, copy/save), so plugins
+     * never re-implement diagram display. Default: no-op.
+     */
+    default void showDiagramOverlay(String mermaidSource, String title) {
+    }
 }

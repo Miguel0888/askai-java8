@@ -73,12 +73,15 @@ public final class ResearchWebSearchToolbarContribution implements AgentToolbarC
         visualize.setMaximumSize(new Dimension(26, 26));
         visualize.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent event) {
-                ResearchMindmapAction.open(session, context.getUiExecutor(),
-                        new java.util.function.BiConsumer<JComponent, String>() {
-                            public void accept(JComponent content, String title) {
-                                context.showTranscriptOverlay(content, title);
-                            }
-                        });
+                ResearchMindmapAction.open(session, new ResearchMindmapAction.OverlayHost() {
+                    public void showDiagram(String mermaidSource, String title) {
+                        context.showDiagramOverlay(mermaidSource, title);
+                    }
+
+                    public void showHint(JComponent content, String title) {
+                        context.showTranscriptOverlay(content, title);
+                    }
+                });
             }
         });
 

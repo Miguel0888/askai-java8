@@ -154,12 +154,15 @@ public final class ResearchChatCommands {
             if (session == null) {
                 return CommandExecutionResult.unknown();
             }
-            ResearchMindmapAction.open(session, context.getUiExecutor(),
-                    new java.util.function.BiConsumer<javax.swing.JComponent, String>() {
-                        public void accept(javax.swing.JComponent content, String title) {
-                            context.showTranscriptOverlay(content, title);
-                        }
-                    });
+            ResearchMindmapAction.open(session, new ResearchMindmapAction.OverlayHost() {
+                public void showDiagram(String mermaidSource, String title) {
+                    context.showDiagramOverlay(mermaidSource, title);
+                }
+
+                public void showHint(javax.swing.JComponent content, String title) {
+                    context.showTranscriptOverlay(content, title);
+                }
+            });
             return CommandExecutionResult.handled("");
         }
     }

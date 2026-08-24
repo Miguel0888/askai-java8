@@ -17,6 +17,9 @@ public interface AgentToolbarHost {
 
     void clearCenterToolbar();
 
-    /** Show a closable overlay over the ACTIVE chat's transcript (e.g. a generated diagram). */
+    /** Show a closable overlay over the ACTIVE chat's transcript (e.g. a hint panel). */
     void showTranscriptOverlay(JComponent content, String title);
+
+    /** Show a Mermaid SOURCE in the host's full diagram viewer as a transcript overlay. */
+    void showDiagramOverlay(String mermaidSource, String title);
 }

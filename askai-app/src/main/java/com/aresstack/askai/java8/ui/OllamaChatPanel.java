@@ -626,6 +626,15 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
     }
 
     /**
+     * Show a Mermaid SOURCE in the full embedded viewer (zoom/pan, high-res re-render, copy,
+     * save — the {@link com.aresstack.askai.java8.ui.markdown.MermaidViewerPanel}) as an overlay.
+     */
+    public void showDiagramOverlay(String mermaidSource, String title) {
+        showTranscriptOverlay(
+                new com.aresstack.askai.java8.ui.markdown.MermaidViewerPanel(mermaidSource), title);
+    }
+
+    /**
      * The bottom area of a chat: the composer, with the (collapsed) Technical details directly below it,
      * both full width. There is no top toolbar anymore — New chat is the workspace's "+" tab and model
      * refresh is the global button in the menu bar.

@@ -395,6 +395,19 @@ public final class AskAiFrame extends JFrame {
         });
     }
 
+    /** Same routing for a Mermaid SOURCE — the chat panel embeds the full diagram viewer. */
+    private void showDiagramOverlayOnActiveChat(final String mermaidSource, final String title) {
+        onUi(new Runnable() {
+            public void run() {
+                ChatSessionComponent active = chatWorkspace == null ? null
+                        : chatWorkspace.activeSession();
+                if (active instanceof OllamaChatPanel) {
+                    ((OllamaChatPanel) active).showDiagramOverlay(mermaidSource, title);
+                }
+            }
+        });
+    }
+
     private static void onUi(Runnable runnable) {
         if (javax.swing.SwingUtilities.isEventDispatchThread()) {
             runnable.run();
@@ -702,6 +715,10 @@ public final class AskAiFrame extends JFrame {
                     public void show(javax.swing.JComponent content, String title) {
                         showOverlayOnActiveChat(content, title);
                     }
+
+                    public void showDiagram(String mermaidSource, String title) {
+                        showDiagramOverlayOnActiveChat(mermaidSource, title);
+                    }
                 });
         // Generic composer accessories: place the ACTIVE agent's accessory above the active tab's composer.
         // The area rebuilds on every coordinator change (tab/agent switch); the frame routes it to the active
@@ -763,6 +780,10 @@ public final class AskAiFrame extends JFrame {
 
                     public void showTranscriptOverlay(javax.swing.JComponent content, String title) {
                         showOverlayOnActiveChat(content, title);
+                    }
+
+                    public void showDiagramOverlay(String mermaidSource, String title) {
+                        showDiagramOverlayOnActiveChat(mermaidSource, title);
                     }
                 });
         return host;

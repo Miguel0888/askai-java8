@@ -71,6 +71,9 @@ public final class AgentSessionCoordinator
     /** Host hook to show a closable overlay over the ACTIVE chat's transcript (no-op until wired). */
     public interface TranscriptOverlayHost {
         void show(javax.swing.JComponent content, String title);
+
+        /** Show a Mermaid SOURCE in the host's full diagram viewer. */
+        void showDiagram(String mermaidSource, String title);
     }
 
     private final AgentExtensionResolver resolver;
@@ -667,6 +670,13 @@ public final class AgentSessionCoordinator
         public void showTranscriptOverlay(javax.swing.JComponent content, String title) {
             if (transcriptOverlayHost != null) {
                 transcriptOverlayHost.show(content, title);
+            }
+        }
+
+        @Override
+        public void showDiagramOverlay(String mermaidSource, String title) {
+            if (transcriptOverlayHost != null) {
+                transcriptOverlayHost.showDiagram(mermaidSource, title);
             }
         }
     }

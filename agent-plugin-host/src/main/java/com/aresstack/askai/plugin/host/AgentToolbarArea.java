@@ -62,6 +62,11 @@ public final class AgentToolbarArea {
                 host.showTranscriptOverlay(content, title);
             }
 
+            @Override
+            public void showDiagramOverlay(String mermaidSource, String title) {
+                host.showDiagramOverlay(mermaidSource, title);
+            }
+
             public ThemeService getThemeService() {
                 return themeService;
             }

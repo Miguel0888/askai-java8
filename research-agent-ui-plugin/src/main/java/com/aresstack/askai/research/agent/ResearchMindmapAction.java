@@ -1,27 +1,38 @@
 package com.aresstack.askai.research.agent;
 
-import com.aresstack.askai.plugin.api.service.UiExecutor;
-
+import javax.swing.BorderFactory;
 import javax.swing.JComponent;
-import java.util.function.BiConsumer;
+import javax.swing.JLabel;
 
 /**
  * The ONE mindmap entry point shared by the toolbar button and {@code /map}: build the mechanical
- * sources mindmap from the session and hand the overlay content (diagram, or the honest
- * nothing-qualifies hint) to the host's transcript overlay.
+ * sources mindmap and hand its MERMAID SOURCE to the host's diagram overlay — the host embeds its
+ * full viewer (zoom/pan, high-res re-render, copy/save), so the plugin never renders Mermaid for
+ * display. When nothing qualifies yet, an honest hint overlay replaces the diagram.
  */
 final class ResearchMindmapAction {
 
     static final String OVERLAY_TITLE = "Quellen-Mindmap";
 
+    /** The two overlay routes a context offers (diagram source vs plain hint component). */
+    interface OverlayHost {
+        void showDiagram(String mermaidSource, String title);
+
+        void showHint(JComponent content, String title);
+    }
+
     private ResearchMindmapAction() {
     }
 
-    static void open(ResearchAgentSession session, UiExecutor uiExecutor,
-                     BiConsumer<JComponent, String> overlaySink) {
+    static void open(ResearchAgentSession session, OverlayHost host) {
         String mermaid = session.buildSourceMindmapMermaid();
-        JComponent content = mermaid == null
-                ? MindmapOverlayView.empty() : MindmapOverlayView.render(mermaid, uiExecutor);
-        overlaySink.accept(content, OVERLAY_TITLE);
+        if (mermaid == null) {
+            JLabel hint = new JLabel(
+                    "Noch keine bewerteten Quellen — erst suchen (Websuche), dann visualisieren.");
+            hint.setBorder(BorderFactory.createEmptyBorder(24, 24, 24, 24));
+            host.showHint(hint, OVERLAY_TITLE);
+            return;
+        }
+        host.showDiagram(mermaid, OVERLAY_TITLE);
     }
 }
