@@ -56,9 +56,9 @@ public class SearchEngineOrderEditorTest {
 
     private static void select(SearchEngineOrderEditor editor, int index) {
         try {
-            java.lang.reflect.Field field = SearchEngineOrderEditor.class.getDeclaredField("list");
-            field.setAccessible(true);
-            ((javax.swing.JList<?>) field.get(editor)).setSelectedIndex(index);
+            Method method = SearchEngineOrderEditor.class.getDeclaredMethod("select", int.class);
+            method.setAccessible(true);
+            method.invoke(editor, index);
         } catch (Exception noSuchSeam) {
             throw new IllegalStateException(noSuchSeam);
         }

@@ -7,15 +7,14 @@ import com.aresstack.askai.browser.search.engine.BrowserSearchEngineSelection;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
-import javax.swing.DefaultListModel;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
-import javax.swing.JList;
+import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
-import javax.swing.ListCellRenderer;
-import javax.swing.ListSelectionModel;
+import javax.swing.UIManager;
 import java.awt.BorderLayout;
+import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.event.ActionEvent;
@@ -29,6 +28,10 @@ import java.util.List;
  * The search-engine list: which engines take part, and in which order they are tried. The order in this
  * list IS the execution order — moving DuckDuckGo above Bing means DuckDuckGo is asked first, not that a
  * hint was recorded somewhere.
+ * <p>
+ * The per-engine settings live IN the row: an unselected row reads as plain text
+ * ("Bing — 3 Seiten, Pause 1,5 s"), the SELECTED row shows the two spinners (result pages, request
+ * delay in seconds) inline — no separate editor column beside the list.
  * <p>
  * Engines the catalog knows but the stored configuration does not mention (a newly shipped one) appear at
  * the end, switched OFF: gaining a search engine should be the user's decision, not a side effect of an
@@ -54,102 +57,11 @@ final class SearchEngineOrderEditor extends JPanel {
         }
     }
 
-    private final DefaultListModel<Row> model = new DefaultListModel<Row>();
-    private final JList<Row> list = new JList<Row>(model);
+    private final List<Row> rows = new ArrayList<Row>();
+    private int selectedIndex = -1;
+    private final JPanel rowsPanel = new JPanel();
 
-    SearchEngineOrderEditor(String encodedValue) {
-        super(new BorderLayout(6, 0));
-        setAlignmentX(Component.LEFT_ALIGNMENT);
-        list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        list.setVisibleRowCount(4);
-        list.setCellRenderer(new ListCellRenderer<Row>() {
-            private final JCheckBox box = new JCheckBox();
-
-            public Component getListCellRendererComponent(JList<? extends Row> l, Row value, int index,
-                                                          boolean selected, boolean focused) {
-                String delay = value.delayMillis > 0
-                        ? ", Pause " + BrowserSearchEngineSelection
-                                .formatDelaySeconds(value.delayMillis).replace('.', ',') + " s"
-                        : "";
-                box.setText(value.displayName + "  — " + value.resultPages
-                        + (value.resultPages == 1 ? " Seite" : " Seiten") + delay);
-                box.setSelected(value.enabled);
-                box.setOpaque(true);
-                box.setBackground(selected ? l.getSelectionBackground() : l.getBackground());
-                box.setForeground(selected ? l.getSelectionForeground() : l.getForeground());
-                return box;
-            }
-        });
-        list.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseClicked(MouseEvent event) {
-                int index = list.locationToIndex(event.getPoint());
-                if (index < 0 || !list.getCellBounds(index, index).contains(event.getPoint())) {
-                    return;
-                }
-                Row row = model.get(index);
-                row.enabled = !row.enabled;
-                list.repaint();
-            }
-        });
-
-        JScrollPane scroll = new JScrollPane(list);
-        scroll.setPreferredSize(new Dimension(320, 90));
-        scroll.setMaximumSize(new Dimension(420, 120));
-        add(scroll, BorderLayout.CENTER);
-
-        JPanel buttons = new JPanel();
-        buttons.setLayout(new BoxLayout(buttons, BoxLayout.Y_AXIS));
-        buttons.setBorder(BorderFactory.createEmptyBorder(0, 4, 0, 0));
-        buttons.add(moveButton("↑", -1));
-        buttons.add(Box.createVerticalStrut(4));
-        buttons.add(moveButton("↓", 1));
-        buttons.add(Box.createVerticalStrut(8));
-        pagesSpinner.setToolTipText("Wie viele Ergebnisseiten dieser Suchmaschine eine Suche abruft "
-                + "(sequenziell, mit Auswertung zwischen den Abrufen)");
-        pagesSpinner.setMaximumSize(new Dimension(64, 26));
-        pagesSpinner.addChangeListener(new javax.swing.event.ChangeListener() {
-            public void stateChanged(javax.swing.event.ChangeEvent event) {
-                int index = list.getSelectedIndex();
-                if (index >= 0) {
-                    model.get(index).resultPages = (Integer) pagesSpinner.getValue();
-                    list.repaint();
-                }
-            }
-        });
-        delaySpinner.setToolTipText("Pause in Sekunden vor jedem weiteren Abruf dieser Suchmaschine "
-                + "(0 = aus; bis zu drei Nachkommastellen)");
-        delaySpinner.setEditor(new javax.swing.JSpinner.NumberEditor(delaySpinner, "0.###"));
-        delaySpinner.setMaximumSize(new Dimension(64, 26));
-        delaySpinner.addChangeListener(new javax.swing.event.ChangeListener() {
-            public void stateChanged(javax.swing.event.ChangeEvent event) {
-                int index = list.getSelectedIndex();
-                if (index >= 0) {
-                    model.get(index).delayMillis = (int) Math.round(
-                            ((Number) delaySpinner.getValue()).doubleValue() * 1000.0);
-                    list.repaint();
-                }
-            }
-        });
-        list.addListSelectionListener(new javax.swing.event.ListSelectionListener() {
-            public void valueChanged(javax.swing.event.ListSelectionEvent event) {
-                int index = list.getSelectedIndex();
-                if (index >= 0) {
-                    pagesSpinner.setValue(model.get(index).resultPages);
-                    delaySpinner.setValue(model.get(index).delayMillis / 1000.0);
-                }
-            }
-        });
-        buttons.add(pagesSpinner);
-        buttons.add(Box.createVerticalStrut(4));
-        buttons.add(delaySpinner);
-        buttons.add(Box.createVerticalGlue());
-        add(buttons, BorderLayout.EAST);
-
-        set(encodedValue);
-    }
-
-    /** Result pages of the SELECTED engine — shown/edited next to the ordering buttons. */
+    /** Result pages of the SELECTED engine — shown inline in its row. */
     private final javax.swing.JSpinner pagesSpinner = new javax.swing.JSpinner(
             new javax.swing.SpinnerNumberModel(
                     BrowserSearchEngineSelection.Entry.DEFAULT_RESULT_PAGES, 1, 10, 1));
@@ -158,6 +70,57 @@ final class SearchEngineOrderEditor extends JPanel {
     private final javax.swing.JSpinner delaySpinner = new javax.swing.JSpinner(
             new javax.swing.SpinnerNumberModel(Double.valueOf(0), Double.valueOf(0), null,
                     Double.valueOf(0.1)));
+
+    /** True while the spinners are being synced FROM the model — their change events are then not edits. */
+    private boolean syncingSpinners;
+
+    SearchEngineOrderEditor(String encodedValue) {
+        super(new BorderLayout(6, 0));
+        setAlignmentX(Component.LEFT_ALIGNMENT);
+        rowsPanel.setLayout(new BoxLayout(rowsPanel, BoxLayout.Y_AXIS));
+        rowsPanel.setBackground(listBackground());
+        rowsPanel.setOpaque(true);
+
+        pagesSpinner.setToolTipText("Wie viele Ergebnisseiten dieser Suchmaschine eine Suche abruft "
+                + "(sequenziell, mit Auswertung zwischen den Abrufen)");
+        pagesSpinner.setMaximumSize(new Dimension(56, 24));
+        pagesSpinner.addChangeListener(new javax.swing.event.ChangeListener() {
+            public void stateChanged(javax.swing.event.ChangeEvent event) {
+                if (!syncingSpinners && selectedIndex >= 0) {
+                    rows.get(selectedIndex).resultPages = (Integer) pagesSpinner.getValue();
+                }
+            }
+        });
+        delaySpinner.setToolTipText("Pause in Sekunden vor jedem weiteren Abruf dieser Suchmaschine "
+                + "(0 = aus; bis zu drei Nachkommastellen)");
+        delaySpinner.setEditor(new javax.swing.JSpinner.NumberEditor(delaySpinner, "0.###"));
+        delaySpinner.setMaximumSize(new Dimension(64, 24));
+        delaySpinner.addChangeListener(new javax.swing.event.ChangeListener() {
+            public void stateChanged(javax.swing.event.ChangeEvent event) {
+                if (!syncingSpinners && selectedIndex >= 0) {
+                    rows.get(selectedIndex).delayMillis = (int) Math.round(
+                            ((Number) delaySpinner.getValue()).doubleValue() * 1000.0);
+                }
+            }
+        });
+
+        JScrollPane scroll = new JScrollPane(rowsPanel);
+        scroll.setPreferredSize(new Dimension(380, 96));
+        scroll.setMaximumSize(new Dimension(480, 128));
+        scroll.getViewport().setBackground(listBackground());
+        add(scroll, BorderLayout.CENTER);
+
+        JPanel buttons = new JPanel();
+        buttons.setLayout(new BoxLayout(buttons, BoxLayout.Y_AXIS));
+        buttons.setBorder(BorderFactory.createEmptyBorder(0, 4, 0, 0));
+        buttons.add(moveButton("↑", -1));
+        buttons.add(Box.createVerticalStrut(4));
+        buttons.add(moveButton("↓", 1));
+        buttons.add(Box.createVerticalGlue());
+        add(buttons, BorderLayout.EAST);
+
+        set(encodedValue);
+    }
 
     private JButton moveButton(String label, final int delta) {
         JButton button = new JButton(label);
@@ -171,22 +134,117 @@ final class SearchEngineOrderEditor extends JPanel {
     }
 
     private void move(int delta) {
-        int index = list.getSelectedIndex();
-        int target = index + delta;
-        if (index < 0 || target < 0 || target >= model.size()) {
+        int target = selectedIndex + delta;
+        if (selectedIndex < 0 || target < 0 || target >= rows.size()) {
             return;
         }
-        Row row = model.remove(index);
-        model.add(target, row);
-        list.setSelectedIndex(target);
+        rows.add(target, rows.remove(selectedIndex));
+        selectedIndex = target;
+        rebuildRows();
     }
 
-    /** The flat form the settings codec stores: {@code "duckduckgo:on,bing:off"}, order significant. */
+    /** Select a row: its text collapses to the name and the two inline spinners appear. */
+    private void select(int index) {
+        if (index == selectedIndex || index < 0 || index >= rows.size()) {
+            return;
+        }
+        selectedIndex = index;
+        rebuildRows();
+    }
+
+    private void rebuildRows() {
+        rowsPanel.removeAll();
+        for (int i = 0; i < rows.size(); i++) {
+            rowsPanel.add(rowPanel(i, rows.get(i)));
+        }
+        rowsPanel.add(Box.createVerticalGlue());
+        rowsPanel.revalidate();
+        rowsPanel.repaint();
+    }
+
+    private JPanel rowPanel(final int index, final Row row) {
+        boolean selected = index == selectedIndex;
+        JPanel panel = new JPanel();
+        panel.setLayout(new BoxLayout(panel, BoxLayout.X_AXIS));
+        panel.setOpaque(true);
+        panel.setBackground(selected ? selectionBackground() : listBackground());
+        panel.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
+        Color foreground = selected ? selectionForeground() : UIManager.getColor("List.foreground");
+
+        final JCheckBox box = new JCheckBox(selected ? row.displayName : summaryFor(row));
+        box.setSelected(row.enabled);
+        box.setOpaque(false);
+        box.setForeground(foreground);
+        box.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent event) {
+                row.enabled = box.isSelected();
+                select(index);
+            }
+        });
+        panel.add(box);
+
+        if (selected) {
+            // The spinners live IN the selected row — the shared instances are synced to it first.
+            syncingSpinners = true;
+            pagesSpinner.setValue(row.resultPages);
+            delaySpinner.setValue(row.delayMillis / 1000.0);
+            syncingSpinners = false;
+            panel.add(Box.createHorizontalStrut(10));
+            panel.add(inlineLabel("Seiten:", foreground));
+            panel.add(Box.createHorizontalStrut(3));
+            panel.add(pagesSpinner);
+            panel.add(Box.createHorizontalStrut(10));
+            panel.add(inlineLabel("Pause (s):", foreground));
+            panel.add(Box.createHorizontalStrut(3));
+            panel.add(delaySpinner);
+        }
+        panel.add(Box.createHorizontalGlue());
+        panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, panel.getPreferredSize().height));
+        panel.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent event) {
+                select(index);
+            }
+        });
+        return panel;
+    }
+
+    private static JLabel inlineLabel(String text, Color foreground) {
+        JLabel label = new JLabel(text);
+        label.setForeground(foreground);
+        return label;
+    }
+
+    /** {@code "Bing  — 3 Seiten, Pause 1,5 s"} — the unselected row is pure text, delay only when on. */
+    private static String summaryFor(Row row) {
+        String delay = row.delayMillis > 0
+                ? ", Pause " + BrowserSearchEngineSelection
+                        .formatDelaySeconds(row.delayMillis).replace('.', ',') + " s"
+                : "";
+        return row.displayName + "  — " + row.resultPages
+                + (row.resultPages == 1 ? " Seite" : " Seiten") + delay;
+    }
+
+    private static Color listBackground() {
+        Color color = UIManager.getColor("List.background");
+        return color == null ? Color.WHITE : color;
+    }
+
+    private static Color selectionBackground() {
+        Color color = UIManager.getColor("List.selectionBackground");
+        return color == null ? new Color(184, 207, 229) : color;
+    }
+
+    private static Color selectionForeground() {
+        Color color = UIManager.getColor("List.selectionForeground");
+        return color == null ? Color.BLACK : color;
+    }
+
+    /** The flat form the settings codec stores: {@code "duckduckgo:on:3,bing:off:3"}, order significant. */
     String get() {
         List<BrowserSearchEngineSelection.Entry> entries =
                 new ArrayList<BrowserSearchEngineSelection.Entry>();
-        for (int i = 0; i < model.size(); i++) {
-            Row row = model.get(i);
+        for (Row row : rows) {
             entries.add(new BrowserSearchEngineSelection.Entry(row.engineId, row.enabled,
                     row.resultPages, row.delayMillis));
         }
@@ -194,7 +252,8 @@ final class SearchEngineOrderEditor extends JPanel {
     }
 
     void set(String encodedValue) {
-        model.clear();
+        rows.clear();
+        selectedIndex = -1;
         List<String> placed = new ArrayList<String>();
         for (BrowserSearchEngineSelection.Entry entry
                 : BrowserSearchEngineSelection.parseEntries(encodedValue)) {
@@ -202,16 +261,17 @@ final class SearchEngineOrderEditor extends JPanel {
             if (engine == null) {
                 continue; // an engine this build does not know: keep it out of the user's way
             }
-            model.addElement(new Row(engine.getId(), engine.getDisplayName(), entry.isEnabled(),
+            rows.add(new Row(engine.getId(), engine.getDisplayName(), entry.isEnabled(),
                     entry.getResultPages(), entry.getDelayMillis()));
             placed.add(engine.getId());
         }
         for (BrowserSearchEngine engine : BrowserSearchEngineCatalog.engines()) {
             if (!placed.contains(engine.getId())) {
-                model.addElement(new Row(engine.getId(), engine.getDisplayName(), false,
+                rows.add(new Row(engine.getId(), engine.getDisplayName(), false,
                         BrowserSearchEngineSelection.Entry.DEFAULT_RESULT_PAGES,
                         BrowserSearchEngineSelection.Entry.DEFAULT_DELAY_MILLIS));
             }
         }
+        rebuildRows();
     }
 }
