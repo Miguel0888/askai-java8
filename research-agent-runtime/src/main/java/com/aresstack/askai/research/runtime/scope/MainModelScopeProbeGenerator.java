@@ -75,7 +75,12 @@ public final class MainModelScopeProbeGenerator implements ScopeProbeGenerator {
         return validate(call.getText(), request, negotiated);
     }
 
-    /** Only NEGOTIATED (IN/OUT) posts get controls — a hypothesis must not calibrate the stick. */
+    /**
+     * Only NEGOTIATED (IN/OUT) posts are offered as CALIBRATION anchors — a hypothesis must not
+     * calibrate the stick. This does NOT mean a provisional facet is invisible to the generator:
+     * it may (and should) appear among the request's knownFacetLabels so the broad probes do not
+     * re-paraphrase the open hypothesis seventeen times. The two roles are different.
+     */
     private static List<ScopeAnchor> negotiatedAnchorsOf(ProbeGenerationRequest request) {
         List<ScopeAnchor> negotiated = new ArrayList<ScopeAnchor>();
         for (ScopeAnchor anchor : request.getAnchors()) {
@@ -126,15 +131,17 @@ public final class MainModelScopeProbeGenerator implements ScopeProbeGenerator {
                 .append("Technologien/Akteure/Anwendungsfälle, die für den Auftrag plausibel ")
                 .append("relevant sein könnten. Keine bloßen Paraphrasen der bekannten Facetten; ")
                 .append("angrenzende und noch nicht genannte Aspekte sind ausdrücklich erwünscht.\n")
-                .append("2. calibrationProbes: je Anker GENAU ").append(settings.controlsPerAnchor)
+                .append("2. calibrationProbes: für JEDEN oben gelisteten Anker GENAU ")
+                .append(settings.controlsPerAnchor)
                 .append(" konkrete lokale Beispiele, die klar noch unter DENSELBEN Anker fallen ")
                 .append("(parentAnchorId = exakt die Anker-Id oben). Verschiedene konkrete ")
                 .append("Beispiele derselben Region — keine sprachlichen Paraphrasen des ")
-                .append("Ankertextes.\n")
+                .append("Ankertextes. WICHTIG: auch OUT-Anker brauchen ihre Beispiele — sie ")
+                .append("beschreiben bewusst AUSGESCHLOSSENE Regionen, und deren Vermessung ")
+                .append("braucht dieselben lokalen Beispiele wie die eingeschlossenen.\n")
                 .append("\nAntworte NUR mit diesem JSON-Format:\n")
-                .append("{\"broadProbes\":[{\"id\":\"p1\",\"text\":\"...\"}],")
-                .append("\"calibrationProbes\":[{\"id\":\"c1\",")
-                .append("\"parentAnchorId\":\"...\",\"text\":\"...\"}]}");
+                .append("{\"broadProbes\":[{\"text\":\"...\"}],")
+                .append("\"calibrationProbes\":[{\"parentAnchorId\":\"...\",\"text\":\"...\"}]}");
         return prompt.toString();
     }
 
@@ -151,9 +158,14 @@ public final class MainModelScopeProbeGenerator implements ScopeProbeGenerator {
 
     /**
      * Strict, deterministic, model-free validation. STRUCTURAL breaches (no JSON, wrong shape,
-     * entries missing id/text, zero usable broad probes) are INVALID_RESPONSE; SEMANTIC breaches
-     * (unknown or provisional parent, duplicate ids, duplicate normalized texts, over-cap entries)
-     * drop the entry and are DIAGNOSED in the message — never silently repaired, never re-asked.
+     * entries without text/parentAnchorId, zero usable broad probes) are INVALID_RESPONSE;
+     * SEMANTIC breaches (unknown or provisional parent, duplicate normalized texts within a role,
+     * over-cap entries) drop the entry and are DIAGNOSED in the message — never silently repaired,
+     * never re-asked. Identity is OURS, not the model's: probe ids are assigned locally in order
+     * (the model contributes semantic content only). The dedupe ROLES are separate — broad probes
+     * dedupe among themselves, controls per (parentAnchorId, text): the same wording as a broad
+     * probe and as a control (or for two different posts) carries DIFFERENT logical relations, and
+     * dropping the second would silently un-cover an anchor and fake a WEAK calibration.
      */
     private ProbeGenerationResult validate(String answer, ProbeGenerationRequest request,
                                            List<ScopeAnchor> negotiated) {
@@ -177,29 +189,24 @@ public final class MainModelScopeProbeGenerator implements ScopeProbeGenerator {
         }
 
         List<String> diagnostics = new ArrayList<String>();
-        Set<String> seenIds = new LinkedHashSet<String>();
-        Set<String> seenTexts = new LinkedHashSet<String>();
+        Set<String> seenBroadTexts = new LinkedHashSet<String>();
         List<ScopeProbe> broadProbes = new ArrayList<ScopeProbe>();
         for (Object entry : (List<?>) broadRaw) {
-            String id = fieldOf(entry, "id");
             String text = fieldOf(entry, "text");
-            if (id == null || text == null) {
+            if (text == null) {
                 return ProbeGenerationResult.failure(ProbeGenerationResult.Status.INVALID_RESPONSE,
-                        "broad probe without id/text");
+                        "broad probe without text");
             }
-            if (!seenIds.add(id)) {
-                diagnostics.add("duplicate probe id dropped: " + id);
-                continue;
-            }
-            if (!seenTexts.add(normalize(text))) {
-                diagnostics.add("duplicate probe text dropped: " + id);
+            if (!seenBroadTexts.add(normalize(text))) {
+                diagnostics.add("duplicate broad text dropped: " + snippet(text));
                 continue;
             }
             if (broadProbes.size() >= request.getTargetCount()) {
-                diagnostics.add("over target count, dropped: " + id);
+                diagnostics.add("over target count, dropped: " + snippet(text));
                 continue;
             }
-            broadProbes.add(new ScopeProbe(id, text));
+            broadProbes.add(new ScopeProbe(
+                    String.format(Locale.ROOT, "probe-%04d", broadProbes.size() + 1), text));
         }
         if (broadProbes.isEmpty()) {
             // Zero material is a FAILED generation — it must not masquerade as a clean sweep.
@@ -217,47 +224,50 @@ public final class MainModelScopeProbeGenerator implements ScopeProbeGenerator {
                 provisionalIds.add(anchor.getAnchorId());
             }
         }
+        Set<String> seenControlKeys = new LinkedHashSet<String>();
         Map<String, Integer> perParent = new LinkedHashMap<String, Integer>();
         List<ScopeCalibrationProbe> calibrationProbes = new ArrayList<ScopeCalibrationProbe>();
         for (Object entry : (List<?>) controlsRaw) {
-            String id = fieldOf(entry, "id");
             String parent = fieldOf(entry, "parentAnchorId");
             String text = fieldOf(entry, "text");
-            if (id == null || parent == null || text == null) {
+            if (parent == null || text == null) {
                 return ProbeGenerationResult.failure(ProbeGenerationResult.Status.INVALID_RESPONSE,
-                        "calibration probe without id/parentAnchorId/text");
+                        "calibration probe without parentAnchorId/text");
             }
             if (provisionalIds.contains(parent)) {
-                diagnostics.add("control for PROVISIONAL post dropped: " + id + " -> " + parent);
+                diagnostics.add("control for PROVISIONAL post dropped: " + parent);
                 continue;
             }
             if (!negotiatedIds.contains(parent)) {
                 // Never invent a new referent for a made-up anchor id.
-                diagnostics.add("control for unknown post dropped: " + id + " -> " + parent);
+                diagnostics.add("control for unknown post dropped: " + parent);
                 continue;
             }
-            if (!seenIds.add(id)) {
-                diagnostics.add("duplicate probe id dropped: " + id);
-                continue;
-            }
-            if (!seenTexts.add(normalize(text))) {
-                diagnostics.add("duplicate probe text dropped: " + id);
+            if (!seenControlKeys.add(parent + " " + normalize(text))) {
+                diagnostics.add("duplicate control dropped: " + parent + " " + snippet(text));
                 continue;
             }
             Integer sofar = perParent.get(parent);
             int count = sofar == null ? 0 : sofar;
             if (count >= settings.controlsPerAnchor) {
-                diagnostics.add("over per-anchor control cap, dropped: " + id);
+                diagnostics.add("over per-anchor control cap, dropped: " + parent);
                 continue;
             }
             perParent.put(parent, count + 1);
-            calibrationProbes.add(new ScopeCalibrationProbe(id, parent, text));
+            calibrationProbes.add(new ScopeCalibrationProbe(
+                    String.format(Locale.ROOT, "control-%04d", calibrationProbes.size() + 1),
+                    parent, text));
         }
         // Anchors WITHOUT any control are deliberately left alone: the calibration's
         // complete-coverage rule reads that as WEAK — the honest downstream answer.
         return ProbeGenerationResult.ok(
-                new ProbeGeneration(broadProbes, calibrationProbes),
+                new ProbeGeneration(broadProbes, calibrationProbes, request.getTargetCount()),
                 join(diagnostics));
+    }
+
+    private static String snippet(String text) {
+        String trimmed = text.trim();
+        return trimmed.length() <= 40 ? trimmed : trimmed.substring(0, 40) + "…";
     }
 
     /** Accept a bare JSON object or ONE markdown-fenced block — local unwrapping, never a re-ask. */

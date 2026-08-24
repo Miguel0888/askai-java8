@@ -77,14 +77,18 @@ public interface ScopeProbeGenerator {
     final class ProbeGeneration {
         private final List<ScopeProbe> broadProbes;
         private final List<ScopeCalibrationProbe> calibrationProbes;
+        /** What the request explicitly asked for — the denominator of sample sufficiency. */
+        private final int requestedBroadCount;
 
         public ProbeGeneration(List<ScopeProbe> broadProbes,
-                               List<ScopeCalibrationProbe> calibrationProbes) {
+                               List<ScopeCalibrationProbe> calibrationProbes,
+                               int requestedBroadCount) {
             this.broadProbes = Collections.unmodifiableList(new ArrayList<ScopeProbe>(
                     broadProbes == null ? Collections.<ScopeProbe>emptyList() : broadProbes));
             this.calibrationProbes = Collections.unmodifiableList(
                     new ArrayList<ScopeCalibrationProbe>(calibrationProbes == null
                             ? Collections.<ScopeCalibrationProbe>emptyList() : calibrationProbes));
+            this.requestedBroadCount = Math.max(1, requestedBroadCount);
         }
 
         public List<ScopeProbe> getBroadProbes() {
@@ -93,6 +97,27 @@ public interface ScopeProbeGenerator {
 
         public List<ScopeCalibrationProbe> getCalibrationProbes() {
             return calibrationProbes;
+        }
+
+        public int getRequestedBroadCount() {
+            return requestedBroadCount;
+        }
+
+        public int getAcceptedBroadCount() {
+            return broadProbes.size();
+        }
+
+        /**
+         * The generator's OWN sample-sufficiency verdict, same epistemic discipline as the
+         * calibration's WEAK: a sweep over 3 accepted probes must never be treated like a sweep
+         * over the 100 that were asked for — the generator's breadth IS Z3's biggest risk. MVP
+         * rule, deterministic against the explicit request (no invented percentage): complete
+         * means the accepted count reached the requested target. Hole hunting downstream requires
+         * BOTH {@code broadSampleComplete()} and the calibration's {@code permitsHoleHunting()};
+         * otherwise the normal scoping dialog continues without UNEXPLORED/EXTENSION advisories.
+         */
+        public boolean broadSampleComplete() {
+            return broadProbes.size() >= requestedBroadCount;
         }
     }
 

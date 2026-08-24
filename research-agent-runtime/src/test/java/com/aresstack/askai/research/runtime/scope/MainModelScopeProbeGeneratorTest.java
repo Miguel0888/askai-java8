@@ -22,9 +22,10 @@ import static org.junit.Assert.assertTrue;
 
 /**
  * The productive generator: exactly ONE main-model call, typed failures survive 1:1, malformed
- * output is INVALID_RESPONSE (no repair loop, no synthetic fallback), controls only ever attach to
- * negotiated IN/OUT posts the request actually contains, duplicates are handled deterministically,
- * and a missing control is left missing — the calibration's coverage rule owns that verdict.
+ * output is INVALID_RESPONSE (no repair loop, no synthetic fallback), identity is assigned
+ * locally (the model contributes semantic content only), the dedupe roles stay separate, and a
+ * missing control is left missing — the calibration's coverage rule owns that verdict, just as
+ * {@code broadSampleComplete()} owns the breadth verdict.
  */
 public class MainModelScopeProbeGeneratorTest {
 
@@ -54,7 +55,7 @@ public class MainModelScopeProbeGeneratorTest {
         return new ProbeGenerationRequest(
                 "Welche Wearables sind für den Arbeitsschutz auf Baustellen relevant?",
                 Arrays.asList("Arbeitsschutz"), Arrays.asList("Baustelle"),
-                Arrays.asList("Sensorhelme"),
+                Arrays.asList("Sensorhelme", "Hypothetische Drohnenwartung"),
                 Arrays.asList(
                         new ScopeAnchor("anchor-helme", "f1", "Schutzhelme mit Sensorik",
                                 ScopeAnchor.Membership.IN),
@@ -71,25 +72,48 @@ public class MainModelScopeProbeGeneratorTest {
 
     private static String okAnswer() {
         return "{\"broadProbes\":["
-                + "{\"id\":\"p1\",\"text\":\"Exoskelette für Lagerarbeiter\"},"
-                + "{\"id\":\"p2\",\"text\":\"Alleinarbeiterschutz\"}],"
+                + "{\"text\":\"Exoskelette für Lagerarbeiter\"},"
+                + "{\"text\":\"Alleinarbeiterschutz\"},"
+                + "{\"text\":\"Gaswarnwesten\"}],"
                 + "\"calibrationProbes\":["
-                + "{\"id\":\"c1\",\"parentAnchorId\":\"anchor-helme\",\"text\":\"Bauhelm mit Stoßsensor\"},"
-                + "{\"id\":\"c2\",\"parentAnchorId\":\"anchor-fitness\",\"text\":\"Pulsuhr fürs Joggen\"}]}";
+                + "{\"parentAnchorId\":\"anchor-helme\",\"text\":\"Bauhelm mit Stoßsensor\"},"
+                + "{\"parentAnchorId\":\"anchor-fitness\",\"text\":\"Pulsuhr fürs Joggen\"}]}";
     }
 
     @Test
-    public void exactlyOneModelCallAndTheProvisionalPostNeverReachesThePrompt() {
+    public void exactlyOneModelCallAndIdentityIsAssignedLocally() {
         ScriptedChat chat = new ScriptedChat(MainModelChatResult.ok(okAnswer()));
         ProbeGenerationResult result = generator(chat).generate(request());
 
         assertEquals("one generation = ONE model call", 1, chat.calls.size());
         assertTrue(result.isOk());
+        List<ScopeProbe> broad = result.getGeneration().getBroadProbes();
+        assertEquals("ids are OURS, deterministic by order — never the model's",
+                "probe-0001", broad.get(0).getProbeId());
+        assertEquals("probe-0003", broad.get(2).getProbeId());
+        assertEquals("control-0001",
+                result.getGeneration().getCalibrationProbes().get(0).getProbeId());
+        assertTrue("3 of 3 requested — the breadth verdict is complete",
+                result.getGeneration().broadSampleComplete());
+    }
+
+    /**
+     * PROVISIONAL is not offered as a CALIBRATION anchor — but it is not invisible: as a known
+     * facet label it reaches the broad-probe context precisely so the generator does not
+     * re-paraphrase the open hypothesis. Two different roles, both pinned here.
+     */
+    @Test
+    public void aProvisionalPostIsNoCalibrationAnchorYetStaysKnownToTheGenerator() {
+        ScriptedChat chat = new ScriptedChat(MainModelChatResult.ok(okAnswer()));
+        generator(chat).generate(request());
+
         String prompt = chat.calls.get(0).get(1).getContent();
         assertTrue(prompt.contains("anchor-helme"));
         assertTrue(prompt.contains("anchor-fitness"));
-        assertFalse("an unconfirmed hypothesis gets NO controls — it is not even offered",
+        assertFalse("the hypothesis is never offered as a calibration anchor",
                 prompt.contains("anchor-guess"));
+        assertTrue("but its facet label IS known context against re-paraphrasing",
+                prompt.contains("Hypothetische Drohnenwartung"));
     }
 
     @Test
@@ -134,11 +158,11 @@ public class MainModelScopeProbeGeneratorTest {
 
     @Test
     public void controlsForUnknownOrProvisionalPostsAreDroppedAndDiagnosed() {
-        String answer = "{\"broadProbes\":[{\"id\":\"p1\",\"text\":\"Exoskelette\"}],"
+        String answer = "{\"broadProbes\":[{\"text\":\"Exoskelette\"}],"
                 + "\"calibrationProbes\":["
-                + "{\"id\":\"c1\",\"parentAnchorId\":\"anchor-helme\",\"text\":\"Bauhelm mit Sensor\"},"
-                + "{\"id\":\"c2\",\"parentAnchorId\":\"anchor-erfunden\",\"text\":\"frei erfunden\"},"
-                + "{\"id\":\"c3\",\"parentAnchorId\":\"anchor-guess\",\"text\":\"Drohneninspektion\"}]}";
+                + "{\"parentAnchorId\":\"anchor-helme\",\"text\":\"Bauhelm mit Sensor\"},"
+                + "{\"parentAnchorId\":\"anchor-erfunden\",\"text\":\"frei erfunden\"},"
+                + "{\"parentAnchorId\":\"anchor-guess\",\"text\":\"Drohneninspektion\"}]}";
         ProbeGenerationResult result =
                 generator(new ScriptedChat(MainModelChatResult.ok(answer))).generate(request());
 
@@ -152,41 +176,89 @@ public class MainModelScopeProbeGeneratorTest {
                 result.getMessage().contains("anchor-guess"));
     }
 
+    /**
+     * The dedupe ROLES are separate: the same wording as a broad probe and as a control — or as
+     * controls of two DIFFERENT posts — carries different logical relations, and dropping the
+     * second would silently un-cover an anchor (faking a WEAK calibration). Only within a role is
+     * a normalized duplicate really a duplicate.
+     */
+    @Test
+    public void theSameTextKeepsItsDifferentLogicalRolesAcrossBroadAndControls() {
+        String answer = "{\"broadProbes\":["
+                + "{\"text\":\"Tragbarer Gefahrenwarner\"}],"
+                + "\"calibrationProbes\":["
+                + "{\"parentAnchorId\":\"anchor-helme\",\"text\":\"Tragbarer Gefahrenwarner\"},"
+                + "{\"parentAnchorId\":\"anchor-fitness\",\"text\":\"Tragbarer Gefahrenwarner\"},"
+                + "{\"parentAnchorId\":\"anchor-fitness\",\"text\":\"tragbarer   GEFAHRENWARNER\"}]}";
+        ProbeGenerationResult result =
+                generator(new ScriptedChat(MainModelChatResult.ok(answer))).generate(request());
+
+        assertTrue(result.isOk());
+        assertEquals(1, result.getGeneration().getBroadProbes().size());
+        List<ScopeCalibrationProbe> controls = result.getGeneration().getCalibrationProbes();
+        assertEquals("same text under TWO different posts = two relations, kept; the true "
+                + "(parent,text) duplicate drops", 2, controls.size());
+        assertEquals("anchor-helme", controls.get(0).getParentAnchorId());
+        assertEquals("anchor-fitness", controls.get(1).getParentAnchorId());
+        assertTrue("the real duplicate is diagnosed",
+                result.getMessage().contains("duplicate control"));
+    }
+
     @Test
     public void duplicatesAndOverflowAreHandledDeterministically() {
         String answer = "{\"broadProbes\":["
-                + "{\"id\":\"p1\",\"text\":\"Exoskelette für Lagerarbeiter\"},"
-                + "{\"id\":\"p1\",\"text\":\"etwas völlig anderes\"},"
-                + "{\"id\":\"p2\",\"text\":\"  EXOSKELETTE   für Lagerarbeiter \"},"
-                + "{\"id\":\"p3\",\"text\":\"Alleinarbeiterschutz\"},"
-                + "{\"id\":\"p4\",\"text\":\"Gaswarnwesten\"},"
-                + "{\"id\":\"p5\",\"text\":\"über dem Limit\"}],"
+                + "{\"text\":\"Exoskelette für Lagerarbeiter\"},"
+                + "{\"text\":\"  EXOSKELETTE   für Lagerarbeiter \"},"
+                + "{\"text\":\"Alleinarbeiterschutz\"},"
+                + "{\"text\":\"Gaswarnwesten\"},"
+                + "{\"text\":\"über dem Limit\"}],"
                 + "\"calibrationProbes\":["
-                + "{\"id\":\"c1\",\"parentAnchorId\":\"anchor-helme\",\"text\":\"Bauhelm eins\"},"
-                + "{\"id\":\"c2\",\"parentAnchorId\":\"anchor-helme\",\"text\":\"Bauhelm zwei\"},"
-                + "{\"id\":\"c3\",\"parentAnchorId\":\"anchor-helme\",\"text\":\"Bauhelm drei\"}]}";
+                + "{\"parentAnchorId\":\"anchor-helme\",\"text\":\"Bauhelm eins\"},"
+                + "{\"parentAnchorId\":\"anchor-helme\",\"text\":\"Bauhelm zwei\"},"
+                + "{\"parentAnchorId\":\"anchor-helme\",\"text\":\"Bauhelm drei\"}]}";
         ProbeGenerationResult result =
                 generator(new ScriptedChat(MainModelChatResult.ok(answer))).generate(request());
 
         assertTrue(result.isOk());
         List<ScopeProbe> broad = result.getGeneration().getBroadProbes();
-        assertEquals("first wins; id-dupe, text-dupe and over-target drop", 3, broad.size());
-        assertEquals("p1", broad.get(0).getProbeId());
-        assertEquals("p3", broad.get(1).getProbeId());
-        assertEquals("p4", broad.get(2).getProbeId());
+        assertEquals("first wins; normalized text dupe and over-target drop", 3, broad.size());
+        assertEquals("Exoskelette für Lagerarbeiter", broad.get(0).getSemanticText());
+        assertEquals("Alleinarbeiterschutz", broad.get(1).getSemanticText());
+        assertEquals("Gaswarnwesten", broad.get(2).getSemanticText());
         assertEquals("per-anchor control cap respected",
                 2, result.getGeneration().getCalibrationProbes().size());
-        assertTrue(result.getMessage().contains("p2"));
-        assertTrue(result.getMessage().contains("p5"));
-        assertTrue(result.getMessage().contains("c3"));
+        assertTrue(result.getMessage().contains("duplicate broad text"));
+        assertTrue(result.getMessage().contains("über dem Limit"));
+        assertTrue(result.getMessage().contains("over per-anchor control cap"));
+    }
+
+    /**
+     * The breadth verdict: 1 accepted probe against targetCount=3 is a structurally valid answer —
+     * the generation stands, typed OK — but broadSampleComplete() says incomplete, and Z3b-3 must
+     * then skip the hole hunt exactly like on a WEAK calibration. Never INVALID_RESPONSE (the
+     * model did not break the contract) and never silently "complete".
+     */
+    @Test
+    public void aThinBroadSampleIsHonestlyIncompleteNotInvalidAndNotComplete() {
+        String answer = "{\"broadProbes\":[{\"text\":\"Exoskelette\"}],"
+                + "\"calibrationProbes\":["
+                + "{\"parentAnchorId\":\"anchor-helme\",\"text\":\"Bauhelm mit Sensor\"}]}";
+        ProbeGenerationResult result =
+                generator(new ScriptedChat(MainModelChatResult.ok(answer))).generate(request());
+
+        assertTrue("structurally valid — the generation stands", result.isOk());
+        assertEquals(3, result.getGeneration().getRequestedBroadCount());
+        assertEquals(1, result.getGeneration().getAcceptedBroadCount());
+        assertFalse("1 of 3 requested: the sweep over this sample must not claim breadth",
+                result.getGeneration().broadSampleComplete());
     }
 
     /** A missing control stays missing — WEAK coverage is the calibrator's honest verdict. */
     @Test
     public void aMissingControlIsNeverFabricated() {
-        String answer = "{\"broadProbes\":[{\"id\":\"p1\",\"text\":\"Exoskelette\"}],"
+        String answer = "{\"broadProbes\":[{\"text\":\"Exoskelette\"}],"
                 + "\"calibrationProbes\":["
-                + "{\"id\":\"c1\",\"parentAnchorId\":\"anchor-helme\",\"text\":\"Bauhelm mit Sensor\"}]}";
+                + "{\"parentAnchorId\":\"anchor-helme\",\"text\":\"Bauhelm mit Sensor\"}]}";
         ProbeGenerationResult result =
                 generator(new ScriptedChat(MainModelChatResult.ok(answer))).generate(request());
 
