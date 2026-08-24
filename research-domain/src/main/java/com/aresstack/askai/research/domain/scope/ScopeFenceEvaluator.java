@@ -20,20 +20,13 @@ import java.util.List;
  */
 public final class ScopeFenceEvaluator {
 
-    /** Where an embedded post stands on the fence. Maps from {@link ScopeFacet.Status} later (Z1). */
-    public enum FenceMembership {
-        IN,
-        PROVISIONAL,
-        OUT
-    }
-
     /** One embedded fence post: stable id + membership + its vector (a DERIVED projection). */
     public static final class AnchorVector {
         public final String anchorId;
-        public final FenceMembership membership;
+        public final ScopeAnchor.Membership membership;
         private final float[] vector;
 
-        public AnchorVector(String anchorId, FenceMembership membership, float[] vector) {
+        public AnchorVector(String anchorId, ScopeAnchor.Membership membership, float[] vector) {
             if (anchorId == null || anchorId.trim().isEmpty()) {
                 throw new IllegalArgumentException("anchorId must not be empty");
             }

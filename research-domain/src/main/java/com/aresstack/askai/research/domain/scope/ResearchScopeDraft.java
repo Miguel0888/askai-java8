@@ -22,6 +22,14 @@ public final class ResearchScopeDraft {
     private final List<String> domains;
     private final List<String> contexts;
     private final List<ScopeFacet> facets;
+    /**
+     * The semantic fence posts — canonical state, RECONCILED against the facets on every build():
+     * each facet owns exactly one anchor (v1). A missing anchor is derived deterministically from
+     * the facet (id {@code anchor-<facetId>}, text = label, membership from status) — which is also
+     * the complete, AI-free v1→v2 migration. A declared anchor keeps its (possibly richer) semantic
+     * text; only its membership follows the facet. Anchors without a facet are dropped.
+     */
+    private final List<ScopeAnchor> anchors;
     private final List<String> exclusions;
     private final List<String> perspectives;
     private final List<String> constraints;
@@ -39,6 +47,7 @@ public final class ResearchScopeDraft {
         this.domains = copy(builder.domains);
         this.contexts = copy(builder.contexts);
         this.facets = copy(builder.facets);
+        this.anchors = reconcileAnchors(builder.facets, builder.anchors);
         this.exclusions = copy(builder.exclusions);
         this.perspectives = copy(builder.perspectives);
         this.constraints = copy(builder.constraints);
@@ -69,6 +78,7 @@ public final class ResearchScopeDraft {
         builder.domains = new ArrayList<String>(domains);
         builder.contexts = new ArrayList<String>(contexts);
         builder.facets = new ArrayList<ScopeFacet>(facets);
+        builder.anchors = new ArrayList<ScopeAnchor>(anchors);
         builder.exclusions = new ArrayList<String>(exclusions);
         builder.perspectives = new ArrayList<String>(perspectives);
         builder.constraints = new ArrayList<String>(constraints);
@@ -155,6 +165,45 @@ public final class ResearchScopeDraft {
     }
 
     /** The facet with this id, or {@code null}. */
+    /** The reconciled fence posts, one per facet, in facet order. */
+    public List<ScopeAnchor> getAnchors() {
+        return anchors;
+    }
+
+    /** The facet's single (v1) fence post, or {@code null} for an unknown facet id. */
+    public ScopeAnchor anchorOf(String facetId) {
+        for (ScopeAnchor anchor : anchors) {
+            if (anchor.getFacetId().equals(facetId)) {
+                return anchor;
+            }
+        }
+        return null;
+    }
+
+    /** See {@link #anchors}: facet-driven, deterministic, keeps declared richer texts, drops orphans. */
+    private static List<ScopeAnchor> reconcileAnchors(List<ScopeFacet> facets,
+                                                      List<ScopeAnchor> declared) {
+        List<ScopeAnchor> reconciled = new ArrayList<ScopeAnchor>();
+        for (ScopeFacet facet : facets) {
+            ScopeAnchor existing = null;
+            for (ScopeAnchor anchor : declared) {
+                if (anchor.getFacetId().equals(facet.getFacetId())) {
+                    existing = anchor;
+                    break;
+                }
+            }
+            ScopeAnchor.Membership membership = ScopeAnchor.membershipOf(facet.getStatus());
+            if (existing == null) {
+                reconciled.add(new ScopeAnchor(ScopeAnchor.anchorIdFor(facet.getFacetId()),
+                        facet.getFacetId(), facet.getLabel(), membership));
+            } else {
+                reconciled.add(existing.getMembership() == membership
+                        ? existing : existing.withMembership(membership));
+            }
+        }
+        return java.util.Collections.unmodifiableList(reconciled);
+    }
+
     public ScopeFacet facet(String facetId) {
         if (facetId == null) {
             return null;
@@ -218,6 +267,7 @@ public final class ResearchScopeDraft {
         private List<String> domains = new ArrayList<String>();
         private List<String> contexts = new ArrayList<String>();
         private List<ScopeFacet> facets = new ArrayList<ScopeFacet>();
+        private List<ScopeAnchor> anchors = new ArrayList<ScopeAnchor>();
         private List<String> exclusions = new ArrayList<String>();
         private List<String> perspectives = new ArrayList<String>();
         private List<String> constraints = new ArrayList<String>();
@@ -257,6 +307,25 @@ public final class ResearchScopeDraft {
 
         public Builder facets(List<ScopeFacet> values) {
             this.facets = values == null ? new ArrayList<ScopeFacet>() : new ArrayList<ScopeFacet>(values);
+            return this;
+        }
+
+        /**
+         * Declare a persisted anchor (codec path / a future richer semantic text). Reconciliation in
+         * build() aligns its membership with the facet and derives anything missing — the builder
+         * never has to keep the two lists consistent by hand.
+         */
+        public Builder putAnchor(ScopeAnchor anchor) {
+            if (anchor == null) {
+                return this;
+            }
+            for (int index = 0; index < anchors.size(); index++) {
+                if (anchors.get(index).getFacetId().equals(anchor.getFacetId())) {
+                    anchors.set(index, anchor);
+                    return this;
+                }
+            }
+            anchors.add(anchor);
             return this;
         }
 
