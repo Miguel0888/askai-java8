@@ -64,15 +64,17 @@ public final class ProbeSweepAnalyzer {
         }
 
         /**
-         * The question-worthy pool: UNEXPLORED (never raised), BOUNDARY (sides conflict) and
-         * PENDING (raised but undecided) — three DIFFERENT kinds of question, in reading order.
+         * The question-worthy pool: UNEXPLORED (missing island), EXTENSION (a known region's
+         * edge), BOUNDARY (sides conflict) and PENDING (raised but undecided) — four DIFFERENT
+         * kinds of question, in reading order.
          */
         public List<ProbeReading> interesting() {
             List<ProbeReading> pool = new ArrayList<ProbeReading>();
             for (ProbeReading reading : readings) {
                 if (reading.getCategory() == ProbeReading.Category.UNEXPLORED
                         || reading.getCategory() == ProbeReading.Category.BOUNDARY
-                        || reading.getCategory() == ProbeReading.Category.PENDING) {
+                        || reading.getCategory() == ProbeReading.Category.PENDING
+                        || reading.getCategory() == ProbeReading.Category.EXTENSION) {
                     pool.add(reading);
                 }
             }
@@ -85,47 +87,44 @@ public final class ProbeSweepAnalyzer {
 
     /**
      * The sweep's classification inputs — ALL explicit calibration parameters of the caller, never
-     * hidden constants. {@code unexploredFloor} is the absolute calibration reference this axis
-     * cannot avoid needing (a sweep alone cannot see that EVERYTHING is a hole); deriving it from
-     * the already negotiated anchors is the planned Z3b concept — it must never become a hard-coded
-     * fachlich number. {@code unexploredGap} adds sweep-relative sensitivity on top: probes
-     * unusually less explained than this sweep's median are unexplored even above the floor.
+     * hidden constants. {@code knownRegionFloor} is the calibrated boundary "sufficiently explained
+     * by SOME existing post" — the absolute reference this axis cannot avoid needing (a sweep alone
+     * cannot see that EVERYTHING is a hole); Z3b derives it from the negotiated anchors, and it
+     * must never become a hard-coded fachlich number. {@code sweepNoveltyGap} is the RELATIVE part:
+     * a sufficiently known probe explained unusually worse than this sweep's median reads as
+     * SWEEP_NOVEL (an EXTENSION candidate), never as unexplored.
      */
     public static final class SweepParameters {
         public final double minimumMissionRelevance;
         public final double boundaryMargin;
-        public final double unexploredGap;
-        public final double unexploredFloor;
+        public final double sweepNoveltyGap;
+        public final double knownRegionFloor;
 
         public SweepParameters(double minimumMissionRelevance, double boundaryMargin,
-                               double unexploredGap, double unexploredFloor) {
+                               double sweepNoveltyGap, double knownRegionFloor) {
             this.minimumMissionRelevance = minimumMissionRelevance;
             this.boundaryMargin = boundaryMargin;
-            this.unexploredGap = unexploredGap;
-            this.unexploredFloor = unexploredFloor;
+            this.sweepNoveltyGap = sweepNoveltyGap;
+            this.knownRegionFloor = knownRegionFloor;
         }
     }
 
     /**
-     * Measure every probe on both axes, then bucket it in Z3's OWN cascade — never by copying the
-     * Z2 hint (which hangs on an absolute near-threshold; the hint stays available diagnostically):
+     * Measure every probe on THREE orthogonal dimensions — mission relevance, fence relation,
+     * novelty relation — and derive the advisory category from them. Relevanz ≠ Zaunbeziehung ≠
+     * relative Neuheit: pressing them into one number is exactly what this modelling avoids.
      * <pre>
-     *   1. below the mission-relevance floor                        → IRRELEVANT
-     *   2. dominated by a PROVISIONAL post AND explained at least
-     *      as well as the calibrated known-region floor             → PENDING (raised, undecided —
-     *                                                                 a raised region must NEVER
-     *                                                                 read as "never mentioned",
-     *                                                                 however sweep-novel it is)
-     *   3. below the sweep-relative unexplored line (median-gap,
-     *      or the explicit calibration floor)                       → UNEXPLORED
-     *   4. IN/OUT margin genuinely ambiguous                        → BOUNDARY
-     *   5. else the leaning side                                    → KNOWN / EXCLUDED
+     *   IRRELEVANT = not mission-relevant
+     *   UNEXPLORED = relevant, UNEXPLAINED (below the known-region floor for EVERY post)
+     *   PENDING    = relevant, sufficiently known, provisional-dominant
+     *   BOUNDARY   = relevant, sufficiently known, genuine IN/OUT ambiguity
+     *   EXTENSION  = relevant, sufficiently known, but SWEEP_NOVEL — a known region's edge
+     *   KNOWN      = relevant, sufficiently known, IN-dominant, unremarkable
+     *   EXCLUDED   = relevant, sufficiently known, OUT-dominant
      * </pre>
-     * Step 2 deliberately reuses {@code unexploredFloor} as the "known enough" reference instead of
-     * introducing a second cosine constant: it is the ONE calibrated boundary between "a known
-     * region" and "unexplained", and Z3b derives it from the negotiated anchors. A provisional post
-     * that only WINS a comparison of three tiny similarities does not make a probe PENDING — below
-     * the floor nothing explains it, and it honestly stays unexplored.
+     * A probe with a sufficient relation to ANY existing post can never read "never mentioned",
+     * however sweep-novel it measures — that difference is EXTENSION, a different question for the
+     * user than a genuinely missing island.
      */
     public static ProbeSweepResult analyze(List<ProbeVector> probes,
                                            List<float[]> missionReferenceVectors,
@@ -149,11 +148,9 @@ public final class ProbeSweepAnalyzer {
                 relevantKnownSimilarities.add(knownSimilarityOf(fenceReading));
             }
         }
-        // Pass 2: the sweep-relative unexplored line — this SWEEP's distribution, not a constant.
+        // Pass 2: the sweep-relative novelty line — this SWEEP's distribution, not a constant.
         double median = median(relevantKnownSimilarities);
-        double unexploredLine = Math.max(parameters.unexploredFloor,
-                relevantKnownSimilarities.isEmpty() ? parameters.unexploredFloor
-                        : median - parameters.unexploredGap);
+        double sweepNoveltyLine = median - parameters.sweepNoveltyGap;
         // Pass 3: buckets + sweep-relative novelty ranks.
         List<Double> rankedKnown = new ArrayList<Double>(relevantKnownSimilarities);
         Collections.sort(rankedKnown);
@@ -162,35 +159,57 @@ public final class ProbeSweepAnalyzer {
             double relevance = axes.get(index)[0];
             ScopeFenceEvaluator.Reading fenceReading = fenceReadings.get(index);
             double known = knownSimilarityOf(fenceReading);
+            // The orthogonal dimensions FIRST — they hold for every probe, relevant or not.
+            ProbeReading.FenceRelation fenceRelation =
+                    fenceRelationOf(fenceReading, parameters.boundaryMargin);
+            boolean sufficientlyKnown = known >= parameters.knownRegionFloor
+                    && fenceRelation != ProbeReading.FenceRelation.NONE;
+            ProbeReading.NoveltyRelation noveltyRelation = !sufficientlyKnown
+                    ? ProbeReading.NoveltyRelation.UNEXPLAINED
+                    : (known < sweepNoveltyLine
+                            ? ProbeReading.NoveltyRelation.SWEEP_NOVEL
+                            : ProbeReading.NoveltyRelation.WELL_EXPLAINED);
             ProbeReading.Category category;
             int rank = 0;
             if (relevance < parameters.minimumMissionRelevance) {
                 category = ProbeReading.Category.IRRELEVANT;
             } else {
                 rank = rankedKnown.indexOf(known) + 1; // 1 = least explained in THIS sweep
-                boolean provisionalDominates = fenceReading.nearestProvisionalSimilarity
-                        >= fenceReading.nearestInSimilarity
-                        && fenceReading.nearestProvisionalSimilarity
-                        >= fenceReading.nearestOutSimilarity
-                        && fenceReading.nearestProvisionalSimilarity > 0.0d;
-                if (provisionalDominates && fenceReading.nearestProvisionalSimilarity
-                        >= parameters.unexploredFloor) {
-                    category = ProbeReading.Category.PENDING;
-                } else if (known < unexploredLine) {
-                    // (a provisional-dominant probe ABOVE the line is impossible to reach here:
-                    // line >= floor, and above the floor it already became PENDING)
+                if (noveltyRelation == ProbeReading.NoveltyRelation.UNEXPLAINED) {
                     category = ProbeReading.Category.UNEXPLORED;
-                } else if (Math.abs(fenceReading.margin) < parameters.boundaryMargin) {
+                } else if (fenceRelation == ProbeReading.FenceRelation.PROVISIONAL) {
+                    category = ProbeReading.Category.PENDING;
+                } else if (fenceRelation == ProbeReading.FenceRelation.AMBIGUOUS) {
                     category = ProbeReading.Category.BOUNDARY;
+                } else if (noveltyRelation == ProbeReading.NoveltyRelation.SWEEP_NOVEL) {
+                    category = ProbeReading.Category.EXTENSION;
                 } else {
-                    category = fenceReading.margin > 0
+                    category = fenceRelation == ProbeReading.FenceRelation.IN
                             ? ProbeReading.Category.KNOWN : ProbeReading.Category.EXCLUDED;
                 }
             }
             readings.add(new ProbeReading(probes.get(index).probe, relevance, fenceReading,
-                    category, rank));
+                    category, rank, fenceRelation, noveltyRelation));
         }
         return new ProbeSweepResult(readings);
+    }
+
+    /** Which post type relates to this probe; AMBIGUOUS = genuine IN/OUT conflict. */
+    private static ProbeReading.FenceRelation fenceRelationOf(
+            ScopeFenceEvaluator.Reading reading, double boundaryMargin) {
+        double in = reading.nearestInSimilarity;
+        double out = reading.nearestOutSimilarity;
+        double provisional = reading.nearestProvisionalSimilarity;
+        if (in <= 0.0d && out <= 0.0d && provisional <= 0.0d) {
+            return ProbeReading.FenceRelation.NONE;
+        }
+        if (provisional >= in && provisional >= out) {
+            return ProbeReading.FenceRelation.PROVISIONAL;
+        }
+        if (Math.abs(reading.margin) < boundaryMargin) {
+            return ProbeReading.FenceRelation.AMBIGUOUS;
+        }
+        return in >= out ? ProbeReading.FenceRelation.IN : ProbeReading.FenceRelation.OUT;
     }
 
     private static double knownSimilarityOf(ScopeFenceEvaluator.Reading reading) {

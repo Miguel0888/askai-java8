@@ -13,7 +13,33 @@ package com.aresstack.askai.research.domain.scope;
  */
 public final class ProbeReading {
 
-    /** Advisory buckets. IRRELEVANT is kept for transparency; it never reaches the agent. */
+    /**
+     * Which post TYPE relates to this probe — one of the two orthogonal fence dimensions.
+     * AMBIGUOUS = a genuine IN/OUT conflict (margin within the caller's boundary margin);
+     * NONE = the fence has no posts at all.
+     */
+    public enum FenceRelation {
+        IN,
+        OUT,
+        PROVISIONAL,
+        AMBIGUOUS,
+        NONE
+    }
+
+    /**
+     * How well the fence explains this probe — the second orthogonal dimension.
+     * UNEXPLAINED = below the calibrated known-region floor (no sufficient relation to ANY post);
+     * SWEEP_NOVEL = sufficiently known, but unusually weakly explained relative to THIS sweep;
+     * WELL_EXPLAINED = the normal case. {@code FenceRelation=IN + NoveltyRelation=SWEEP_NOVEL} is
+     * NOT a contradiction: it reads "belongs to a known region, but stretches its edge".
+     */
+    public enum NoveltyRelation {
+        WELL_EXPLAINED,
+        SWEEP_NOVEL,
+        UNEXPLAINED
+    }
+
+    /** Advisory buckets DERIVED from the orthogonal dimensions. IRRELEVANT never reaches the agent. */
     public enum Category {
         /** Mission-relevant and clearly near an existing IN post — usually uninteresting. */
         KNOWN,
@@ -27,7 +53,18 @@ public final class ProbeReading {
         PENDING,
         /** Mission-relevant and similarly plausible on both sides — ideal for ONE user question. */
         BOUNDARY,
-        /** Mission-relevant yet unusually far from EVERY post — the actual hole finder. */
+        /**
+         * Mission-relevant, SUFFICIENTLY known (a real relation to an existing post exists), yet
+         * sweep-relatively unusually weakly explained: a possible EXTENSION of a known region's
+         * edge — "das Thema hatten wir, aber der Zaun ist dort womöglich zu grob". A different
+         * question than UNEXPLORED.
+         */
+        EXTENSION,
+        /**
+         * Mission-relevant and NOT sufficiently explained by ANY post (below the calibrated
+         * known-region floor) — a plausible, genuinely missing island. This is the ONLY meaning of
+         * "unexplored": a probe with a sufficient relation to a known post never carries it.
+         */
         UNEXPLORED,
         /** Not plausibly part of the mission — however novel, never an interesting hole. */
         IRRELEVANT
@@ -39,10 +76,13 @@ public final class ProbeReading {
     private final double knownSimilarity;
     private final Category category;
     private final int sweepNoveltyRank;
+    private final FenceRelation fenceRelation;
+    private final NoveltyRelation noveltyRelation;
 
     public ProbeReading(ScopeProbe probe, double missionRelevance,
                         ScopeFenceEvaluator.Reading fenceReading, Category category,
-                        int sweepNoveltyRank) {
+                        int sweepNoveltyRank, FenceRelation fenceRelation,
+                        NoveltyRelation noveltyRelation) {
         if (probe == null) {
             throw new IllegalArgumentException("probe must not be null");
         }
@@ -57,6 +97,9 @@ public final class ProbeReading {
                         fenceReading.nearestProvisionalSimilarity));
         this.category = category == null ? Category.IRRELEVANT : category;
         this.sweepNoveltyRank = Math.max(0, sweepNoveltyRank);
+        this.fenceRelation = fenceRelation == null ? FenceRelation.NONE : fenceRelation;
+        this.noveltyRelation = noveltyRelation == null
+                ? NoveltyRelation.UNEXPLAINED : noveltyRelation;
     }
 
     public ScopeProbe getProbe() {
@@ -95,6 +138,16 @@ public final class ProbeReading {
      */
     public int getSweepNoveltyRank() {
         return sweepNoveltyRank;
+    }
+
+    /** Which post type relates to this probe (orthogonal dimension one). */
+    public FenceRelation getFenceRelation() {
+        return fenceRelation;
+    }
+
+    /** How well the fence explains this probe (orthogonal dimension two). */
+    public NoveltyRelation getNoveltyRelation() {
+        return noveltyRelation;
     }
 
     /** The Z2 geometry hint — DIAGNOSTIC only; Z3's category never simply copies it. */

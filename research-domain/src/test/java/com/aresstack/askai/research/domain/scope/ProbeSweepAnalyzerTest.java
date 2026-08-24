@@ -29,7 +29,7 @@ public class ProbeSweepAnalyzerTest {
     }
 
     private static final Thresholds FENCE = new Thresholds(0.5d, 0.1d);
-    /** Explicit sweep calibration: relevance floor, boundary margin, relative gap, absolute floor. */
+    /** Explicit sweep calibration: relevance floor, boundary margin, sweep-novelty gap, known-region floor. */
     private static final ProbeSweepAnalyzer.SweepParameters SWEEP =
             new ProbeSweepAnalyzer.SweepParameters(0.3d, 0.1d, 0.2d, 0.3d);
 
@@ -191,6 +191,36 @@ public class ProbeSweepAnalyzerTest {
         ProbeReading rubble = readingOf(result, "treibgut");
         assertEquals("a weak 'winner' among tiny similarities explains nothing — honestly unexplored",
                 ProbeReading.Category.UNEXPLORED, rubble.getCategory());
+    }
+
+    /**
+     * The two kinds of hole are different questions: a probe SUFFICIENTLY tied to a known IN post
+     * but unusually weakly explained relative to the sweep is an EXTENSION of that region's edge —
+     * never UNEXPLORED ("nie erwähnt"). The orthogonal dimensions say it without contradiction:
+     * FenceRelation=IN, NoveltyRelation=SWEEP_NOVEL.
+     */
+    @Test
+    public void aFringeProbeOfAKnownRegionIsExtensionNotUnexplored() {
+        List<ProbeVector> probes = new ArrayList<ProbeVector>();
+        // Four probes right at the IN post push the sweep median high...
+        for (int index = 0; index < 4; index++) {
+            probes.add(probe("kern-" + index, 0.3f, 1, 0.01f * index, 0, 0, 0));
+        }
+        // ...one clearly IN-related probe stretching the region's edge (well above the floor,
+        // well below the sweep median).
+        probes.add(probe("randfall", 0.3f, 0.6f, 0, 0.6f, 0, 0));
+
+        ProbeSweepResult result = ProbeSweepAnalyzer.analyze(probes, MISSION, fence(),
+                FENCE, new ProbeSweepAnalyzer.SweepParameters(0.3d, 0.1d, 0.05d, 0.3d));
+
+        ProbeReading fringe = readingOf(result, "randfall");
+        assertEquals(ProbeReading.Category.EXTENSION, fringe.getCategory());
+        assertEquals(ProbeReading.FenceRelation.IN, fringe.getFenceRelation());
+        assertEquals(ProbeReading.NoveltyRelation.SWEEP_NOVEL, fringe.getNoveltyRelation());
+        assertEquals("the region's core stays unremarkably KNOWN",
+                ProbeReading.Category.KNOWN, readingOf(result, "kern-0").getCategory());
+        assertTrue("an extension is question-worthy material",
+                result.interesting().contains(fringe));
     }
 
     @Test
