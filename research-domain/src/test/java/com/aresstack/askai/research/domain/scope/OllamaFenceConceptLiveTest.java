@@ -233,11 +233,10 @@ public class OllamaFenceConceptLiveTest {
         int controlBase = 7;
         int probeBase = controlBase + controlTexts.size();
 
-        java.util.Map<String, float[]> anchorVectors =
-                new java.util.LinkedHashMap<String, float[]>();
-        anchorVectors.put("in-helme", vectors.get(0));
-        anchorVectors.put("in-gas", vectors.get(1));
-        anchorVectors.put("out-fitness", vectors.get(2));
+        List<AnchorVector> anchorVectors = Arrays.asList(
+                new AnchorVector("in-helme", ScopeAnchor.Membership.IN, vectors.get(0)),
+                new AnchorVector("in-gas", ScopeAnchor.Membership.IN, vectors.get(1)),
+                new AnchorVector("out-fitness", ScopeAnchor.Membership.OUT, vectors.get(2)));
         List<ScopeFenceCalibrator.CalibrationProbeVector> controls =
                 new ArrayList<ScopeFenceCalibrator.CalibrationProbeVector>();
         for (int index = 0; index < controlTexts.size(); index++) {
@@ -250,25 +249,26 @@ public class OllamaFenceConceptLiveTest {
         // Derive the floors from anchors + neighborhoods ONLY — no probe is labeled here.
         ScopeFenceCalibrator.Samples samples =
                 ScopeFenceCalibrator.measure(anchorVectors, missionVectors, controls);
-        // Min quantiles + the measured slack: probes are short raw concepts, anchors negotiated
-        // sentences — the mission floor sits BELOW the weakest anchor by an explicit margin.
+        // MEASUREMENT-SPIKE parameters, not the frozen formula: q=0 (minimum) + the measured
+        // slack (probes are short raw concepts, anchors negotiated sentences — the mission floor
+        // sits BELOW the weakest anchor). Which quantile/MAD/slack is stabler gets decided on
+        // productive measurements. Minimums: 3 negotiated posts, 4 controls over 2+ islands.
         ScopeFenceCalibrator.FenceCalibration calibration = ScopeFenceCalibrator.calibrate(
                 samples, new ScopeFenceCalibrator.CalibrationParameters(
-                        0.0d, 0.1d, 0.0d, 0.0d, 2, 4));
+                        0.0d, 0.1d, 0.0d, 0.0d, 3, 4, 2));
         System.err.println(String.format(java.util.Locale.ROOT,
                 "[fence-calib] missionFloor=%.3f knownRegionFloor=%.3f confidence=%s "
                         + "missionSamples=%s neighborSamples=%s",
                 calibration.minimumMissionRelevance, calibration.knownRegionFloor,
                 calibration.confidence, format(samples.anchorMissionRelevances),
                 format(samples.anchorNeighborSimilarities)));
-        assertEquals("three posts + six controls are enough for an OK calibration",
+        assertEquals("three negotiated posts + six controls over three islands: OK",
                 ScopeFenceCalibrator.Confidence.OK, calibration.confidence);
+        assertTrue("OK is what unlocks the hole hunt at all", calibration.permitsHoleHunting());
         assertEquals(0, samples.orphanedControls);
+        assertEquals(3, samples.distinctParentAnchorsCovered);
 
-        ScopeFenceEvaluator fence = new ScopeFenceEvaluator(Arrays.asList(
-                new AnchorVector("in-helme", ScopeAnchor.Membership.IN, vectors.get(0)),
-                new AnchorVector("in-gas", ScopeAnchor.Membership.IN, vectors.get(1)),
-                new AnchorVector("out-fitness", ScopeAnchor.Membership.OUT, vectors.get(2))));
+        ScopeFenceEvaluator fence = new ScopeFenceEvaluator(anchorVectors);
         List<ProbeSweepAnalyzer.ProbeVector> probes =
                 new ArrayList<ProbeSweepAnalyzer.ProbeVector>();
         for (int index = 0; index < probeTexts.size(); index++) {

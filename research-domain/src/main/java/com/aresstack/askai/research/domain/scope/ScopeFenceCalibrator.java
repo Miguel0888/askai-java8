@@ -19,10 +19,15 @@ import java.util.Map;
  *       legitimate islands may lie far apart — inter-anchor distance measures the spacing
  *       BETWEEN regions, not the radius WITHIN which a post still explains a probe.
  * </pre>
- * The reduction (which quantile) is an EXPLICIT parameter and deliberately provisional — measured
- * first, frozen later. Too little data yields {@link Confidence#WEAK}: the caller must then soften
- * its classification instead of pretending it can separate UNEXPLORED from EXTENSION reliably —
- * uncertainty is information. One GLOBAL floor for now; per-anchor floors only on empirical need.
+ * The reduction (which quantile/margin) is an EXPLICIT parameter and deliberately provisional —
+ * the current live values (q=0 i.e. minimum, plus slack) are a MEASUREMENT SPIKE, not a frozen
+ * robust formula; whether a low quantile, median−MAD or something else is stabler gets decided on
+ * productive measurements, and only then do the values become settings. Epistemics: the controls
+ * are MODEL-GENERATED assumptions about each post's neighborhood, so every derived floor rests on
+ * "user-negotiated post + synthetic local examples" — never on user-confirmed ground truth. Too
+ * little data yields {@link Confidence#WEAK}, and WEAK has ONE explicit consequence
+ * ({@link FenceCalibration#permitsHoleHunting()}): no hole-hunt advisory, the normal scoping
+ * dialog continues. One GLOBAL floor for now; per-anchor floors only on empirical need.
  */
 public final class ScopeFenceCalibrator {
 
@@ -45,23 +50,37 @@ public final class ScopeFenceCalibrator {
 
     /** The RAW measured distributions — kept so every derived floor stays explainable. */
     public static final class Samples {
+        /** One entry per NEGOTIATED (IN/OUT) post — provisional posts never calibrate the mission. */
         public final List<Double> anchorMissionRelevances;
         public final List<Double> anchorNeighborSimilarities;
         /** Controls whose parent anchor had no vector — skipped, but never silently. */
         public final int orphanedControls;
+        /** How many DIFFERENT posts contributed neighbor samples — six controls around one post
+         *  measure ONE island's radius, not a global floor for a multi-island fence. */
+        public final int distinctParentAnchorsCovered;
+        /** All posts on the fence (including provisional) — the coverage denominator. */
+        public final int eligibleAnchorCount;
 
         Samples(List<Double> anchorMissionRelevances, List<Double> anchorNeighborSimilarities,
-                int orphanedControls) {
+                int orphanedControls, int distinctParentAnchorsCovered, int eligibleAnchorCount) {
             this.anchorMissionRelevances = Collections.unmodifiableList(anchorMissionRelevances);
             this.anchorNeighborSimilarities =
                     Collections.unmodifiableList(anchorNeighborSimilarities);
             this.orphanedControls = orphanedControls;
+            this.distinctParentAnchorsCovered = distinctParentAnchorsCovered;
+            this.eligibleAnchorCount = eligibleAnchorCount;
         }
     }
 
+    /**
+     * Sample SUFFICIENCY of the synthetic neighborhoods — never empirical user confirmation: the
+     * controls are model-generated assumptions about each post's local region, so OK means "enough
+     * synthetic local examples across enough different posts for a usable heuristic calibration",
+     * NOT "this boundary is user-approved ground truth".
+     */
     public enum Confidence {
         OK,
-        /** Too few posts or controls: soften classification, ask rather than assert. */
+        /** Too few negotiated posts, controls, or covered posts: no hole-hunt verdicts from this. */
         WEAK
     }
 
@@ -78,6 +97,16 @@ public final class ScopeFenceCalibrator {
             this.knownRegionFloor = knownRegionFloor;
             this.confidence = confidence;
             this.samples = samples;
+        }
+
+        /**
+         * The MVP rule for WEAK, made explicit instead of "the caller softens somehow": a weak
+         * calibration issues NO hole-hunt verdicts (no UNEXPLORED/EXTENSION advisory) — the normal
+         * scoping dialog simply continues. Early in phase 1 the fence naturally has few posts; the
+         * sweep matters when the scope FEELS staked out, and by then enough posts exist.
+         */
+        public boolean permitsHoleHunting() {
+            return confidence == Confidence.OK;
         }
     }
 
@@ -96,58 +125,81 @@ public final class ScopeFenceCalibrator {
         public final double missionRelevanceMargin;
         public final double neighborSimilarityQuantile;
         public final double neighborSimilarityMargin;
-        public final int minimumAnchorSamples;
+        /** Minimum NEGOTIATED (IN/OUT) posts — one or two posts are no mission calibration. */
+        public final int minimumNegotiatedAnchors;
         public final int minimumNeighborSamples;
+        /** Minimum DIFFERENT posts with neighbor controls — one island never calibrates them all. */
+        public final int minimumDistinctParentAnchors;
 
         public CalibrationParameters(double missionRelevanceQuantile,
                                      double missionRelevanceMargin,
                                      double neighborSimilarityQuantile,
                                      double neighborSimilarityMargin,
-                                     int minimumAnchorSamples, int minimumNeighborSamples) {
+                                     int minimumNegotiatedAnchors, int minimumNeighborSamples,
+                                     int minimumDistinctParentAnchors) {
             this.missionRelevanceQuantile = missionRelevanceQuantile;
             this.missionRelevanceMargin = missionRelevanceMargin;
             this.neighborSimilarityQuantile = neighborSimilarityQuantile;
             this.neighborSimilarityMargin = neighborSimilarityMargin;
-            this.minimumAnchorSamples = Math.max(1, minimumAnchorSamples);
+            this.minimumNegotiatedAnchors = Math.max(1, minimumNegotiatedAnchors);
             this.minimumNeighborSamples = Math.max(1, minimumNeighborSamples);
+            this.minimumDistinctParentAnchors = Math.max(1, minimumDistinctParentAnchors);
         }
     }
 
     private ScopeFenceCalibrator() {
     }
 
-    /** Measure both raw distributions. Pairwise anchor cosines are deliberately NEVER computed. */
-    public static Samples measure(Map<String, float[]> anchorVectorsById,
+    /**
+     * Measure both raw distributions. Pairwise anchor cosines are deliberately NEVER computed —
+     * and neither do PROVISIONAL posts calibrate the mission: only IN and OUT are USER-negotiated
+     * "belongs to the mission's surroundings" examples. A provisional post is still the agent's
+     * own hypothesis; letting it calibrate relevance would make similar new probes look
+     * mission-relevant and the agent would read its own guess as confirmation. For the
+     * known-region floor a provisional post's neighborhood IS eligible — there the question is
+     * the LOCAL semantic extent of the post, not its negotiated approval.
+     */
+    public static Samples measure(List<ScopeFenceEvaluator.AnchorVector> anchors,
                                   List<float[]> missionReferenceVectors,
                                   List<CalibrationProbeVector> controls) {
         List<Double> missionRelevances = new ArrayList<Double>();
-        for (float[] anchorVector : anchorVectorsById.values()) {
+        Map<String, float[]> vectorsById = new java.util.LinkedHashMap<String, float[]>();
+        for (ScopeFenceEvaluator.AnchorVector anchor : anchors) {
+            vectorsById.put(anchor.anchorId, anchor.vector);
+            if (anchor.membership == ScopeAnchor.Membership.PROVISIONAL) {
+                continue;
+            }
             double relevance = 0.0d;
             for (float[] reference : missionReferenceVectors) {
                 relevance = Math.max(relevance,
-                        ScopeFenceEvaluator.cosine(anchorVector, reference));
+                        ScopeFenceEvaluator.cosine(anchor.vector, reference));
             }
             missionRelevances.add(relevance);
         }
         List<Double> neighborSimilarities = new ArrayList<Double>();
+        java.util.Set<String> coveredParents = new java.util.LinkedHashSet<String>();
         int orphaned = 0;
         for (CalibrationProbeVector control : controls) {
-            float[] anchorVector = anchorVectorsById.get(control.probe.getParentAnchorId());
+            float[] anchorVector = vectorsById.get(control.probe.getParentAnchorId());
             if (anchorVector == null) {
                 orphaned++;
                 continue;
             }
+            coveredParents.add(control.probe.getParentAnchorId());
             neighborSimilarities.add(ScopeFenceEvaluator.cosine(anchorVector, control.vector));
         }
-        return new Samples(missionRelevances, neighborSimilarities, orphaned);
+        return new Samples(missionRelevances, neighborSimilarities, orphaned,
+                coveredParents.size(), anchors.size());
     }
 
     /** Derive the floors from the measured distributions; thin data degrades to WEAK, loudly typed. */
     public static FenceCalibration calibrate(Samples samples, CalibrationParameters parameters) {
         Confidence confidence =
-                samples.anchorMissionRelevances.size() >= parameters.minimumAnchorSamples
+                samples.anchorMissionRelevances.size() >= parameters.minimumNegotiatedAnchors
                         && samples.anchorNeighborSimilarities.size()
                                 >= parameters.minimumNeighborSamples
+                        && samples.distinctParentAnchorsCovered
+                                >= parameters.minimumDistinctParentAnchors
                         ? Confidence.OK : Confidence.WEAK;
         double missionFloor = quantile(samples.anchorMissionRelevances,
                 parameters.missionRelevanceQuantile) - parameters.missionRelevanceMargin;

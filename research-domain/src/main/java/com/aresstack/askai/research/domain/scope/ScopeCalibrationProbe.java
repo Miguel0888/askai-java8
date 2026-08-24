@@ -11,6 +11,10 @@ package com.aresstack.askai.research.domain.scope;
  * <p>
  * Deliberately NOT mere paraphrases (those score ~.95 and would make the floor far too strict):
  * different concrete examples inside the same region measure its real local extent.
+ * <p>
+ * Epistemic status: these controls are MODEL-GENERATED — the model asserts they are local
+ * neighbors of the post. They are never user-confirmed ground truth, and no calibration built on
+ * them may claim to be "empirically approved by the user".
  */
 public final class ScopeCalibrationProbe {
 

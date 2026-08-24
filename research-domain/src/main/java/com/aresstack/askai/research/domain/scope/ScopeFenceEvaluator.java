@@ -24,7 +24,7 @@ public final class ScopeFenceEvaluator {
     public static final class AnchorVector {
         public final String anchorId;
         public final ScopeAnchor.Membership membership;
-        private final float[] vector;
+        final float[] vector;
 
         public AnchorVector(String anchorId, ScopeAnchor.Membership membership, float[] vector) {
             if (anchorId == null || anchorId.trim().isEmpty()) {
