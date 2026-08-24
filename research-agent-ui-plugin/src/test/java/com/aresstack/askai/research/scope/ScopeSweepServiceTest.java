@@ -270,6 +270,34 @@ public class ScopeSweepServiceTest {
         assertTrue(outcome.getDiagnostics().contains("coverage 1/2"));
     }
 
+    /**
+     * PRE staleness: the plan assembly (anchor reconciliation) takes real time too — a plan that
+     * is ALREADY stale at entry must not burn 45-115s of model time first. The generator is
+     * provably never called.
+     */
+    @Test
+    public void anAlreadyStalePlanNeverReachesTheModel() {
+        final boolean[] generatorCalled = {false};
+        ScopeProbeGenerator recordingGenerator = new ScopeProbeGenerator() {
+            @Override
+            public ProbeGenerationResult generate(ProbeGenerationRequest request) {
+                generatorCalled[0] = true;
+                return completeGeneration();
+            }
+        };
+        MutableRevision revision = new MutableRevision();
+        revision.revision = REVISION + 3; // the draft moved while the plan was being assembled
+        ScopeSweepService service =
+                new ScopeSweepService(recordingGenerator, fullEmbedder(), revision);
+
+        ScopeSweepOutcome outcome = service.run(plan());
+
+        assertEquals(ScopeSweepOutcome.Status.STALE_SCOPE, outcome.getStatus());
+        assertEquals(REVISION, outcome.getScopeRevision());
+        assertEquals(REVISION + 3, outcome.getCurrentRevision());
+        assertFalse("no model time is spent on a plan known to be stale", generatorCalled[0]);
+    }
+
     @Test
     public void aScopeThatMovedDuringTheExpensiveGenerationIsStaleBeforeEmbedding() {
         FixedGenerator generator = new FixedGenerator(completeGeneration());

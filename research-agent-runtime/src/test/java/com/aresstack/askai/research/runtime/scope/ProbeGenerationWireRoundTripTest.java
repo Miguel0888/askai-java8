@@ -39,7 +39,7 @@ public class ProbeGenerationWireRoundTripTest {
                                 ScopeAnchor.Membership.PROVISIONAL)),
                 50);
         String requestJson = com.aresstack.askai.research.scope.ProbeGenerationWireCodec
-                .encodeRequest(17L, request, 0.7d, 4096, 2);
+                .encodeRequest(request, 0.7d, 4096, 2);
         String envelope = com.aresstack.askai.research.search.ResearchServiceCommandWire
                 .generateProbes("req-1", requestJson);
 
@@ -51,7 +51,6 @@ public class ProbeGenerationWireRoundTripTest {
 
         ProbeGenerationWire.ParsedRequest parsed =
                 ProbeGenerationWire.parseRequest(command.getRequest());
-        assertEquals("17", parsed.scopeRevision);
         assertEquals(request.getMission(), parsed.request.getMission());
         assertEquals(request.getDomains(), parsed.request.getDomains());
         assertEquals(request.getKnownFacetLabels(), parsed.request.getKnownFacetLabels());

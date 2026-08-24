@@ -446,9 +446,11 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         if (ownedScheduler != null) {
             ownedScheduler.shutdown();
         }
-        if (probeGenerator != null) {
+        com.aresstack.askai.research.scope.BackendScopeProbeGenerator waitingGenerator =
+                activeProbeGenerator;
+        if (waitingGenerator != null) {
             // A waiting sweep fails typed instead of running into its timeout on a dead session.
-            probeGenerator.abortAll("session closed");
+            waitingGenerator.abortAll("session closed");
         }
         if (productiveResources != null) {
             productiveResources.close(); // endpoints → sidecar client → sidecar process (idempotent)
@@ -1531,6 +1533,19 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         if (disposed || !started || !request.getSessionId().equals(event.getSessionId())) {
             return;
         }
+        if (event.getType() == com.aresstack.askai.research.backend.ResearchBackendEventType
+                .PROBE_GENERATION) {
+            // Z3b-3: an INTERNAL transport response — deliver it RIGHT HERE on the backend
+            // callback thread. The waiting generator blocks synchronously on its queue; routing
+            // this through the uiExecutor would deadlock a sweep that (wrongly) runs on the EDT
+            // into its full timeout. Nothing about this payload is UI.
+            com.aresstack.askai.research.scope.BackendScopeProbeGenerator current =
+                    activeProbeGenerator;
+            if (current != null) {
+                current.deliver(event.getTitle(), event.getText());
+            }
+            return; // no UI bookkeeping — the payload never renders anywhere
+        }
         uiExecutor.execute(new Runnable() {
             public void run() {
                 applyEvent(event);
@@ -1638,11 +1653,8 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 applyManualSearch(event);
                 break;
             case PROBE_GENERATION:
-                // Z3b-3: the typed answer to a host-initiated probe generation — an INTERNAL wire
-                // payload routed to the waiting generator port. Never chat, never state.
-                if (probeGenerator != null) {
-                    probeGenerator.deliver(event.getTitle(), event.getText());
-                }
+                // Handled directly on the backend callback thread in onEvent (a blocked sweep
+                // waits on it) — nothing to do on the UI side.
                 break;
             case BLOCKED:
             case ERROR:
@@ -1936,30 +1948,17 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     }
 
     /**
-     * Z3b-3: the wire client behind the sweep's generator port. Created ON DEMAND by the sweep
-     * entry (nothing triggers a sweep automatically); kept as a field so the PROBE_GENERATION
-     * event route can find the waiting request. Torn down with the session.
+     * Z3b-3: the wire client of the sweep CURRENTLY in flight (created per run with exactly that
+     * run's settings, cleared in finally) — the PROBE_GENERATION event route delivers to it on
+     * the backend callback thread. The WHOLE sweep is session-locally single-flight: a lazy
+     * cached generator would freeze the first run's settings forever, and two racing first calls
+     * would create two instances while events only ever reach the last one written — the answer
+     * for run A would then feed run B's generator and A would die in its timeout.
      */
-    private volatile com.aresstack.askai.research.scope.BackendScopeProbeGenerator probeGenerator;
-
-    /** The wire client, created on first use — requires the productive ACP backend + handle. */
-    com.aresstack.askai.research.scope.BackendScopeProbeGenerator probeGenerator(
-            com.aresstack.askai.research.scope.BackendScopeProbeGenerator.WireSettings settings) {
-        if (probeGenerator == null) {
-            probeGenerator = new com.aresstack.askai.research.scope.BackendScopeProbeGenerator(
-                    backend, handle, settings,
-                    new com.aresstack.askai.research.scope.BackendScopeProbeGenerator
-                            .RevisionSource() {
-                        public long currentRevision() {
-                            com.aresstack.askai.research.scope.ResearchScopeCoordinator
-                                    coordinator = scopeCoordinator();
-                            return coordinator == null ? 0L
-                                    : coordinator.current().getRevision();
-                        }
-                    });
-        }
-        return probeGenerator;
-    }
+    private volatile com.aresstack.askai.research.scope.BackendScopeProbeGenerator
+            activeProbeGenerator;
+    private final java.util.concurrent.atomic.AtomicBoolean scopeSweepInFlight =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
 
     /**
      * Z3b-3: run ONE scope sweep — callable, NEVER triggered automatically (the generation costs
@@ -1981,44 +1980,68 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                     + "usable scope draft" + (coordinator == null ? "" : " ("
                     + coordinator.unusableReason() + ")"));
         }
-        com.aresstack.askai.agent.model.embedding.EmbeddingEndpointDescriptor descriptor =
-                productiveResources.getEmbeddingDescriptor();
-        if (descriptor == null) {
-            return com.aresstack.askai.research.domain.scope.ScopeSweepOutcome.embeddingFailed(
-                    "no embedding model is configured — the sweep capability is unavailable");
+        // The WHOLE sweep is single-flight — not just the model call: two concurrent sweeps would
+        // race the generator routing AND reconcile the anchor vector cache file in parallel.
+        if (!scopeSweepInFlight.compareAndSet(false, true)) {
+            return com.aresstack.askai.research.domain.scope.ScopeSweepOutcome.generationFailed(
+                    com.aresstack.askai.research.domain.scope.ScopeProbeGenerator
+                            .ProbeGenerationResult.Status.PROVIDER_FAILURE,
+                    "a scope sweep is already in flight — no overlapping sweeps");
         }
-        // ONE immutable draft snapshot + ONE frozen embedding snapshot, pinned here and only here.
-        com.aresstack.askai.research.domain.scope.ResearchScopeDraft draft = coordinator.current();
-        com.aresstack.askai.research.scope.EmbeddingSnapshotSweepEmbedder embedder =
-                new com.aresstack.askai.research.scope.EmbeddingSnapshotSweepEmbedder(descriptor);
-        java.util.List<com.aresstack.askai.research.domain.scope.ScopeFenceEvaluator.AnchorVector>
-                anchorVectors;
         try {
-            anchorVectors = new com.aresstack.askai.research.store.ScopeAnchorVectorIndex(
-                    new java.io.File(productiveResources.getProjectContext().getProjectDirectory(),
-                            "scope-anchor-vectors.json"))
-                    .vectorsFor(draft, embedder.modelFingerprint(), embedder);
-        } catch (java.io.IOException indexFailed) {
-            return com.aresstack.askai.research.domain.scope.ScopeSweepOutcome.embeddingFailed(
-                    "anchor vector index failed: " + indexFailed.getMessage());
+            com.aresstack.askai.agent.model.embedding.EmbeddingEndpointDescriptor descriptor =
+                    productiveResources.getEmbeddingDescriptor();
+            if (descriptor == null) {
+                return com.aresstack.askai.research.domain.scope.ScopeSweepOutcome.embeddingFailed(
+                        "no embedding model is configured — the sweep capability is unavailable");
+            }
+            // ONE immutable draft snapshot + ONE frozen embedding snapshot, pinned here only.
+            com.aresstack.askai.research.domain.scope.ResearchScopeDraft draft =
+                    coordinator.current();
+            com.aresstack.askai.research.scope.EmbeddingSnapshotSweepEmbedder embedder =
+                    new com.aresstack.askai.research.scope.EmbeddingSnapshotSweepEmbedder(
+                            descriptor);
+            java.util.List<com.aresstack.askai.research.domain.scope
+                    .ScopeFenceEvaluator.AnchorVector> anchorVectors;
+            try {
+                anchorVectors = new com.aresstack.askai.research.store.ScopeAnchorVectorIndex(
+                        new java.io.File(productiveResources.getProjectContext()
+                                .getProjectDirectory(), "scope-anchor-vectors.json"))
+                        .vectorsFor(draft, embedder.modelFingerprint(), embedder);
+            } catch (java.io.IOException indexFailed) {
+                return com.aresstack.askai.research.domain.scope.ScopeSweepOutcome
+                        .embeddingFailed("anchor vector index failed: "
+                                + indexFailed.getMessage());
+            } catch (RuntimeException embeddingBroke) {
+                // The index does not wrap its embedder's HTTP failures — this path must land in
+                // the typed contract exactly like the transient batch does.
+                return com.aresstack.askai.research.domain.scope.ScopeSweepOutcome
+                        .embeddingFailed("anchor vector index failed: " + embeddingBroke);
+            }
+            // Per-run generator with exactly THIS run's settings — never a cached one.
+            com.aresstack.askai.research.scope.BackendScopeProbeGenerator generator =
+                    new com.aresstack.askai.research.scope.BackendScopeProbeGenerator(
+                            backend, handle,
+                            new com.aresstack.askai.research.scope.BackendScopeProbeGenerator
+                                    .WireSettings(configuration.generatorTemperature,
+                                    configuration.generatorMaxOutputTokens,
+                                    configuration.controlsPerAnchor,
+                                    configuration.generationTimeoutSeconds));
+            activeProbeGenerator = generator;
+            com.aresstack.askai.research.scope.ScopeSweepService service =
+                    new com.aresstack.askai.research.scope.ScopeSweepService(generator, embedder,
+                            new com.aresstack.askai.research.scope.ScopeSweepService
+                                    .ScopeRevisionProbe() {
+                                public long currentRevision() {
+                                    return coordinator.current().getRevision();
+                                }
+                            });
+            return service.run(com.aresstack.askai.research.scope.ScopeSweepPlanAssembler.planOf(
+                    draft, embedder.modelFingerprint(), anchorVectors, configuration));
+        } finally {
+            activeProbeGenerator = null;
+            scopeSweepInFlight.set(false);
         }
-        com.aresstack.askai.research.scope.ScopeSweepService service =
-                new com.aresstack.askai.research.scope.ScopeSweepService(
-                        probeGenerator(new com.aresstack.askai.research.scope
-                                .BackendScopeProbeGenerator.WireSettings(
-                                configuration.generatorTemperature,
-                                configuration.generatorMaxOutputTokens,
-                                configuration.controlsPerAnchor,
-                                configuration.generationTimeoutSeconds)),
-                        embedder,
-                        new com.aresstack.askai.research.scope.ScopeSweepService
-                                .ScopeRevisionProbe() {
-                            public long currentRevision() {
-                                return coordinator.current().getRevision();
-                            }
-                        });
-        return service.run(com.aresstack.askai.research.scope.ScopeSweepPlanAssembler.planOf(
-                draft, embedder.modelFingerprint(), anchorVectors, configuration));
     }
 
     /** Owns the persisted scope draft of this session; null in fake mode (no project context). */

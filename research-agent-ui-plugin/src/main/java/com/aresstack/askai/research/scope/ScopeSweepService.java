@@ -148,6 +148,14 @@ public final class ScopeSweepService {
                     + plan.embeddingFingerprint + "'");
         }
 
+        // PRE staleness: the plan assembly itself (anchor reconciliation = I/O + embedding) takes
+        // time — a plan that is ALREADY stale must not burn 45-115s of model time before MID
+        // notices. PRE + MID + FINAL cover assembly, generation and analysis respectively.
+        long initialRevision = revisionProbe.currentRevision();
+        if (plan.scopeRevision != initialRevision) {
+            return ScopeSweepOutcome.staleScope(plan.scopeRevision, initialRevision);
+        }
+
         ProbeGenerationResult generated;
         try {
             generated = generator.generate(plan.generationRequest);

@@ -19,7 +19,7 @@ import java.util.Map;
  * the ONLY peer; a cross-process round-trip test pins the format. This wire is an INTERNAL
  * host↔runtime seam — no MCP tool, no user surface, and the runtime never mutates scope through it.
  * <pre>
- * request:  {"scopeRevision":"7","mission":"…","domains":[…],"contexts":[…],
+ * request:  {"mission":"…","domains":[…],"contexts":[…],
  *            "knownFacetLabels":[…],"anchors":[{"anchorId":"…","membership":"IN",
  *            "semanticText":"…"}],"targetCount":50,
  *            "temperature":0.7,"maxOutputTokens":4096,"controlsPerAnchor":2}
@@ -34,13 +34,11 @@ public final class ProbeGenerationWire {
 
     /** The decoded request: what to generate plus the host-owned generator knobs. */
     public static final class ParsedRequest {
-        public final String scopeRevision;
         public final ProbeGenerationRequest request;
         public final MainModelScopeProbeGenerator.GeneratorSettings settings;
 
-        ParsedRequest(String scopeRevision, ProbeGenerationRequest request,
+        ParsedRequest(ProbeGenerationRequest request,
                       MainModelScopeProbeGenerator.GeneratorSettings settings) {
-            this.scopeRevision = scopeRevision;
             this.request = request;
             this.settings = settings;
         }
@@ -87,9 +85,7 @@ public final class ProbeGenerationWire {
                 new MainModelScopeProbeGenerator.GeneratorSettings(
                         doubleOf(root, "temperature"), intOf(root, "maxOutputTokens"),
                         intOf(root, "controlsPerAnchor"));
-        String revision = root.get("scopeRevision") instanceof String
-                ? (String) root.get("scopeRevision") : "";
-        return new ParsedRequest(revision, request, settings);
+        return new ParsedRequest(request, settings);
     }
 
     /** Render the typed result — success carries the material, failure carries status + message. */

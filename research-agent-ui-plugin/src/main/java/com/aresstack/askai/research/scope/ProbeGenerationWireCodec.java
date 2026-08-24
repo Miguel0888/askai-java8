@@ -26,11 +26,12 @@ public final class ProbeGenerationWireCodec {
     private ProbeGenerationWireCodec() {
     }
 
-    public static String encodeRequest(long scopeRevision, ProbeGenerationRequest request,
+    public static String encodeRequest(ProbeGenerationRequest request,
                                        double temperature, int maxOutputTokens,
                                        int controlsPerAnchor) {
+        // Deliberately NO scopeRevision on this wire: the runtime never uses it, and a send-time
+        // revision could contradict the payload snapshot — the host orchestration owns R.
         JsonObject root = new JsonObject();
-        root.addProperty("scopeRevision", Long.toString(scopeRevision));
         root.addProperty("mission", request.getMission());
         root.add("domains", texts(request.getDomains()));
         root.add("contexts", texts(request.getContexts()));
