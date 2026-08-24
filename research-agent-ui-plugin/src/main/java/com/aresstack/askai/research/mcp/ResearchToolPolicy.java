@@ -175,9 +175,22 @@ public final class ResearchToolPolicy {
                                 reviewable.add(record);
                             }
                         }
+                        // RELEVANCE order, not arrival order: the review's bounded context takes the
+                        // BEST-ranked material first, so a poorly-ranked source can never crowd out a
+                        // good one — treating them all alike made junk exactly as loud as the hits.
                         java.util.Collections.sort(reviewable,
                                 new java.util.Comparator<ResearchSourceRecord>() {
                                     public int compare(ResearchSourceRecord a, ResearchSourceRecord b) {
+                                        boolean aScored = !Double.isNaN(a.getRerankScore());
+                                        boolean bScored = !Double.isNaN(b.getRerankScore());
+                                        if (aScored && bScored
+                                                && a.getRerankScore() != b.getRerankScore()) {
+                                            return Double.compare(b.getRerankScore(),
+                                                    a.getRerankScore());
+                                        }
+                                        if (aScored != bScored) {
+                                            return aScored ? -1 : 1; // scored material first
+                                        }
                                         return Long.compare(b.getCapturedAt(), a.getCapturedAt());
                                     }
                                 });
@@ -212,6 +225,11 @@ public final class ResearchToolPolicy {
         appendIfPresent(sb, "title: ", record.getTitle());
         appendIfPresent(sb, "url: ", record.getUrl());
         appendIfPresent(sb, "found via: ", record.getSearchQuery());
+        if (!Double.isNaN(record.getRerankScore())) {
+            // The ranking travels WITH the material: the reviewer weighs a weak hit as a weak hit.
+            appendIfPresent(sb, "relevance score (higher = more relevant to the query): ",
+                    String.valueOf(record.getRerankScore()));
+        }
         String text = record.getFullText() == null || record.getFullText().trim().isEmpty()
                 ? record.getExcerpt() : record.getFullText();
         if (text != null && !text.trim().isEmpty()) {

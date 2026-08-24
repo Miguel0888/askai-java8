@@ -1163,7 +1163,13 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             }
             stopManualSearchBrowser();
             // The persisted "Websuche: <query>" line gets its comic outcome: a green check.
-            sink.markInfoStatus(publish("manual-search-line-" + requestId), true, null);
+            // DECORATION ONLY: it must never break the terminal path (mixed dev builds once threw
+            // a LinkageError here and swallowed the action offer + composer release below).
+            try {
+                sink.markInfoStatus(publish("manual-search-line-" + requestId), true, null);
+            } catch (RuntimeException | LinkageError decorationOnly) {
+                System.err.println("[manual-search] info-status decoration failed: " + decorationOnly);
+            }
             setAgentTurnInFlight(false); // the search is over — the composer is the user's again
             // Issue #29: the search is over here — the runtime no longer auto-reviews. When sources were
             // accepted, OFFER the derived AI step as an explicit action instead of running it implicitly.
@@ -1205,12 +1211,16 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             sink.showProblem(publish("manual-search-failed-" + requestId), message);
             // The line's red circling arrow IS the retry: one click repeats exactly this search.
             final String retryQuery = activeManualSearchQuery;
-            sink.markInfoStatus(publish("manual-search-line-" + requestId), false,
-                    retryQuery == null || retryQuery.trim().isEmpty() ? null : new Runnable() {
-                        public void run() {
-                            requestManualWebSearch(retryQuery);
-                        }
-                    });
+            try {
+                sink.markInfoStatus(publish("manual-search-line-" + requestId), false,
+                        retryQuery == null || retryQuery.trim().isEmpty() ? null : new Runnable() {
+                            public void run() {
+                                requestManualWebSearch(retryQuery);
+                            }
+                        });
+            } catch (RuntimeException | LinkageError decorationOnly) {
+                System.err.println("[manual-search] info-status decoration failed: " + decorationOnly);
+            }
             activeManualSearchRequestId = null;
             finishPostSearchThinking(""); // no summary is coming
             setAgentTurnInFlight(false);

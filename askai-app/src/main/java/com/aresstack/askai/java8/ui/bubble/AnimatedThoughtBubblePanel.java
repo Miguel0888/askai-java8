@@ -220,21 +220,25 @@ public class AnimatedThoughtBubblePanel extends JPanel {
 
     @Override
     public Dimension getPreferredSize() {
+        // The REPORTED width comes from the natural text width against the configured maximum —
+        // NEVER from the current layout width: feeding getWidth() into the reported width once made
+        // an initially narrow layout measure narrow, report narrow, and stay narrow forever.
         int contentMaximumWidth = maximumBubbleWidth - CONNECTOR_SPACE - (CONTENT_PADDING * 2);
-        if (getWidth() > 0) {
-            // Measure the wrap at the width the transcript REALLY gave us — a preferred height
-            // computed for a wider bubble put the progress bar over the wrapped second line.
-            contentMaximumWidth = Math.min(contentMaximumWidth,
-                    getWidth() - CONNECTOR_SPACE - (CONTENT_PADDING * 2));
-        }
         int naturalWidth = calculateNaturalTextWidth();
-        int contentWidth = Math.max(180, Math.min(contentMaximumWidth, naturalWidth));
-        explanationArea.setSize(new Dimension(contentWidth, Short.MAX_VALUE));
+        int reportedContentWidth = Math.max(180, Math.min(contentMaximumWidth, naturalWidth));
+        // The HEIGHT is measured at the width the transcript really laid us out at (when known):
+        // that is what keeps the bar/link rows BELOW a wrapped second line instead of on top of it.
+        int measureWidth = reportedContentWidth;
+        if (getWidth() > 0) {
+            measureWidth = Math.max(180,
+                    Math.min(reportedContentWidth, getWidth() - CONNECTOR_SPACE - (CONTENT_PADDING * 2)));
+        }
+        explanationArea.setSize(new Dimension(measureWidth, Short.MAX_VALUE));
         Dimension explanationSize = explanationArea.getPreferredSize();
         Dimension titleSize = headerRow.getPreferredSize();
         int south = southStack.isVisible() && southStack.getComponentCount() > 0
                 ? southStack.getPreferredSize().height : 0;
-        int width = Math.max(explanationSize.width, titleSize.width)
+        int width = Math.max(reportedContentWidth, titleSize.width)
                 + (CONTENT_PADDING * 2)
                 + CONNECTOR_SPACE;
         int height = CONTENT_PADDING * 2 + titleSize.height + 5 + explanationSize.height

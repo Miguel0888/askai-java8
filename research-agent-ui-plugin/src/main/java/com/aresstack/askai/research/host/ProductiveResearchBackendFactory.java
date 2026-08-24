@@ -256,14 +256,21 @@ public final class ProductiveResearchBackendFactory {
                 profile = com.aresstack.askai.browser.search.SearchProcessingProfileSnapshot
                         .parse(readUtf8(profileFile));
             } catch (IllegalArgumentException ex) {
-                throw new IOException("Stored search profile of this session is unusable ("
-                        + profileFile + "): " + ex.getMessage());
+                // NOT a session-killer: a digest/schema mismatch here is almost always a snapshot
+                // written by an OLDER build (the settings codec gained keys — e.g. per-engine delay,
+                // harvest domains), not corruption. The source of truth (the settings store) is
+                // intact, so the profile is REBUILT from it — loudly, never silently. Failing hard
+                // here bricked every existing chat after each dev build.
+                System.err.println("[research-host] stored search profile is from another build ("
+                        + profileFile + "): " + ex.getMessage()
+                        + " — REBUILDING it from the saved settings");
+                profile = null;
             }
             // The USER's settings beat an old snapshot: when the saved search settings moved on
             // (revision bumped), the stored profile is REBUILT from the current values — visibly,
             // never silently. Same revision → exact reuse, as before. Without this, a session kept
             // its creation-time engine list forever and every later change looked ignored.
-            if (profile.profileRevision != browserSearchRevision) {
+            if (profile != null && profile.profileRevision != browserSearchRevision) {
                 System.err.println("[research-host] search settings revision moved ("
                         + profile.profileRevision + " -> " + browserSearchRevision
                         + "): rebuilding this session's search profile from the saved settings");
