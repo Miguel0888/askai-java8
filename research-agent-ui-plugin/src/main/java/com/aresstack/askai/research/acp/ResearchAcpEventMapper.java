@@ -165,6 +165,15 @@ public final class ResearchAcpEventMapper {
                             ResearchActivityKind.TOOL_UPDATE, probeRequestId,
                             ResearchRunWire.decodedField(pf, "payload"));
         }
+        if (ResearchRunWire.TYPE_ADVICE.equals(type)) {
+            // Z4b: the typed advice decision — internal wire payload, same shape as probes.
+            java.util.Map<String, String> af = ResearchRunWire.fields(text);
+            String adviceRequestId = af.get("request_id") == null ? "" : af.get("request_id");
+            return ResearchBackendEvent.builder(ResearchBackendEventType.ADVICE_DECISION)
+                    .activity("advice-decision-" + adviceRequestId,
+                            ResearchActivityKind.TOOL_UPDATE, adviceRequestId,
+                            ResearchRunWire.decodedField(af, "payload"));
+        }
         if (ResearchRunWire.TYPE_MANUAL_SEARCH_STARTED.equals(type)
                 || ResearchRunWire.TYPE_MANUAL_SEARCH_PROGRESS.equals(type)
                 || ResearchRunWire.TYPE_MANUAL_SEARCH_COMPLETED.equals(type)

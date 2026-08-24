@@ -296,6 +296,15 @@ public final class ResearchRunWire {
                 + " payload=" + encode(payloadJson);
     }
 
+    /**
+     * Z4b: the typed answer to a {@code choose_advice} service command — the decision JSON
+     * (success AND failure), URL-encoded into one field, correlated by request id.
+     */
+    public static String adviceDecision(String requestId, String payloadJson) {
+        return MARKER + "advice request_id=" + (requestId == null ? "" : requestId)
+                + " payload=" + encode(payloadJson);
+    }
+
     public static String manualSearchFailed(String requestId, String reason) {
         return MARKER + "manual_search_failed"
                 + " request_id=" + (requestId == null ? "" : requestId)

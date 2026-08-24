@@ -37,6 +37,13 @@ public final class ResearchServiceCommand {
      */
     public static final String TYPE_GENERATE_PROBES = "generate_probes";
 
+    /**
+     * Z4b: choose at most ONE of the host-prepared advice candidates on the central main model —
+     * one model call, typed decision back over the run wire. Like generate_probes this produces
+     * MATERIAL only: no scope patch, no workflow action, no state change.
+     */
+    public static final String TYPE_CHOOSE_ADVICE = "choose_advice";
+
     private final String type;
     private final String requestId;
     private final String query;

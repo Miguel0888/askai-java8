@@ -65,5 +65,12 @@ public enum ResearchBackendEventType {
      * surface): title = request id, text = the result payload JSON. Routed to the waiting
      * generator port, never rendered as chat.
      */
-    PROBE_GENERATION
+    PROBE_GENERATION,
+
+    /**
+     * Z4b: the typed answer to a host-initiated advice choice (internal wire, not a user
+     * surface): title = request id, text = the decision payload JSON. Routed to the waiting
+     * chooser port on the backend callback thread, never rendered as chat by the mapper.
+     */
+    ADVICE_DECISION
 }

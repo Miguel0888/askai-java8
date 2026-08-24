@@ -78,6 +78,18 @@ public final class ResearchServiceCommandWire {
         return sb.toString();
     }
 
+    /**
+     * Z4b: encode an advice-chooser request (the finished offers as JSON). Internal seam like
+     * generate_probes: one model call in the runtime, one typed {@code #RSX1# advice} answer back
+     * on this request id — no chat turn, no state change.
+     */
+    public static String chooseAdvice(String requestId, String requestJson) {
+        StringBuilder sb = new StringBuilder(MARKER).append("choose_advice")
+                .append(" request_id=").append(requestId == null ? "" : requestId);
+        appendEncoded(sb, "req", requestJson);
+        return sb.toString();
+    }
+
     private static void appendEncoded(StringBuilder sb, String key, String value) {
         if (value == null || value.isEmpty()) {
             return;

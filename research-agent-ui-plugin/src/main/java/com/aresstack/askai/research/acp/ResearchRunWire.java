@@ -42,6 +42,9 @@ public final class ResearchRunWire {
     /** Z3b-3: the typed probe-generation answer; payload = result JSON, correlated by request_id. */
     public static final String TYPE_PROBES = "probes";
 
+    /** Z4b: the typed advice-chooser answer; payload = decision JSON, correlated by request_id. */
+    public static final String TYPE_ADVICE = "advice";
+
     private ResearchRunWire() {
     }
 

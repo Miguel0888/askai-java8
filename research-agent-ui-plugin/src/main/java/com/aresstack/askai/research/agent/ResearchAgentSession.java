@@ -452,6 +452,11 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             // A waiting sweep fails typed instead of running into its timeout on a dead session.
             waitingGenerator.abortAll("session closed");
         }
+        com.aresstack.askai.research.scope.BackendScopeAdviceChooser waitingChooser =
+                activeAdviceChooser;
+        if (waitingChooser != null) {
+            waitingChooser.abortAll("session closed");
+        }
         if (productiveResources != null) {
             productiveResources.close(); // endpoints → sidecar client → sidecar process (idempotent)
         }
@@ -1546,6 +1551,16 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             }
             return; // no UI bookkeeping — the payload never renders anywhere
         }
+        if (event.getType() == com.aresstack.askai.research.backend.ResearchBackendEventType
+                .ADVICE_DECISION) {
+            // Z4b: same internal transport rule as PROBE_GENERATION — backend thread, never EDT.
+            com.aresstack.askai.research.scope.BackendScopeAdviceChooser chooser =
+                    activeAdviceChooser;
+            if (chooser != null) {
+                chooser.deliver(event.getTitle(), event.getText());
+            }
+            return;
+        }
         uiExecutor.execute(new Runnable() {
             public void run() {
                 applyEvent(event);
@@ -1957,6 +1972,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
      */
     private volatile com.aresstack.askai.research.scope.BackendScopeProbeGenerator
             activeProbeGenerator;
+    /** Z4b: the advice chooser of the scope check currently in flight — same lifecycle rules. */
+    private volatile com.aresstack.askai.research.scope.BackendScopeAdviceChooser
+            activeAdviceChooser;
     private final java.util.concurrent.atomic.AtomicBoolean scopeSweepInFlight =
             new java.util.concurrent.atomic.AtomicBoolean(false);
 

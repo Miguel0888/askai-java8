@@ -650,7 +650,41 @@ public final class ResearchAgentMain {
         } else if (com.aresstack.askai.research.runtime.service.ResearchServiceCommand.TYPE_GENERATE_PROBES
                 .equals(command.getType())) {
             handleGenerateProbes(ctx, command.getRequestId(), command.getRequest());
+        } else if (com.aresstack.askai.research.runtime.service.ResearchServiceCommand.TYPE_CHOOSE_ADVICE
+                .equals(command.getType())) {
+            handleChooseAdvice(ctx, command.getRequestId(), command.getRequest());
         }
+    }
+
+    /**
+     * Z4b: choose at most ONE of the host-prepared advice candidates — EXACTLY ONE model call via
+     * {@link com.aresstack.askai.research.runtime.scope.MainModelScopeAdviceChooser}, the typed
+     * decision back as ONE {@code #RSX1# advice} line. The chooser NEVER sees the raw sweep, never
+     * invents candidates, never turns a drift guard into a positive question, and this handler
+     * touches no TeamAgent, no history, no state — the user's ANSWER later changes the draft
+     * through the normal scoping turn.
+     */
+    private void handleChooseAdvice(SyncPromptContext ctx, String requestId, String requestJson) {
+        System.err.println("[advice] runtime received requestId=" + requestId
+                + " payloadLen=" + requestJson.length());
+        com.aresstack.askai.research.domain.scope.ScopeAdviceChooser.ChoiceResult result;
+        try {
+            com.aresstack.askai.research.runtime.scope.ScopeAdviceWire.ParsedRequest parsed =
+                    com.aresstack.askai.research.runtime.scope.ScopeAdviceWire
+                            .parseRequest(requestJson);
+            result = new com.aresstack.askai.research.runtime.scope.MainModelScopeAdviceChooser(
+                    mainModelChat, parsed.settings).choose(parsed.request);
+        } catch (IllegalArgumentException malformedRequest) {
+            result = com.aresstack.askai.research.domain.scope.ScopeAdviceChooser.ChoiceResult
+                    .failure(com.aresstack.askai.research.domain.scope.ScopeAdviceChooser
+                                    .ChoiceResult.Status.INVALID_RESPONSE,
+                            "malformed advice request: " + malformedRequest.getMessage());
+        }
+        System.err.println("[advice] runtime answering requestId=" + requestId
+                + " status=" + result.getStatus());
+        ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire.adviceDecision(
+                requestId,
+                com.aresstack.askai.research.runtime.scope.ScopeAdviceWire.renderResult(result)));
     }
 
     /**
