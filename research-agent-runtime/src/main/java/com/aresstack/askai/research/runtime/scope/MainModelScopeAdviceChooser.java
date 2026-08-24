@@ -89,6 +89,12 @@ public final class MainModelScopeAdviceChooser implements ScopeAdviceChooser {
         }
         prompt.append("\nFormuliere für den gewählten Kandidaten GENAU EINE natürliche, ")
                 .append("konkrete Frage an den Nutzer, in derselben Sprache wie der Auftrag. ")
+                // Live finding: without this, the model asks "Möchten Sie mehr erfahren?" —
+                // an information offer instead of the scope decision the fence needs.
+                .append("Die Frage muss eine SCOPE-Entscheidung herbeiführen — soll das Thema ")
+                .append("in den Themenzuschnitt aufgenommen, ausgeschlossen oder präzisiert ")
+                .append("werden? Niemals Informationsangebote wie „Möchten Sie mehr ")
+                .append("erfahren“. ")
                 .append("Wenn kein Kandidat eine sinnvolle nächste Frage ergibt, antworte mit ")
                 .append("decision NONE und einem kurzen ehrlichen Satz (das bedeutet NICHT, dass ")
                 .append("der Themenzuschnitt vollständig ist).\n")
