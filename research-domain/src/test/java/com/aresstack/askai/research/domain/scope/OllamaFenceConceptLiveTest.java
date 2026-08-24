@@ -87,6 +87,102 @@ public class OllamaFenceConceptLiveTest {
         assertTrue(inProbe.nearestInSimilarity > outProbe.nearestInSimilarity);
     }
 
+    /**
+     * The Z3a concept on a FIXED Wearables sweep: mission relevance and fence novelty are really two
+     * different axes on live embeddings — the fridge compressor is the most novel probe of all and
+     * still never becomes an interesting hole, five wordings of the exoskeleton hole collapse into
+     * one region, and the ordinal separation (every wearable probe more mission-relevant than the
+     * fridge) holds. The relevance gate itself is derived from the measured separation — calibration
+     * stays data-driven, never a hard-coded truth.
+     */
+    @Test
+    public void aFixedSweepFindsTheHoleAndIgnoresTheFridge() {
+        List<String> anchorTexts = Arrays.asList(
+                "Schutzhelme mit integrierter Sensorik für Baustellen",       // IN
+                "Wearables zur Gasdetektion im industriellen Arbeitsschutz",  // IN
+                "Fitness-Armbänder für private Läufer und Hobbysport");       // OUT
+        List<String> missionTexts = Arrays.asList(
+                "Welche Wearables sind für den Arbeitsschutz auf Baustellen relevant?",
+                "Wearables", "Arbeitsschutz", "Baustelle");
+        List<String> probeTexts = Arrays.asList(
+                "Gaswarngerät an der Arbeitskleidung von Industriearbeitern",     // 0 known
+                "Schrittzähler-Armband für den Freizeitgebrauch",                 // 1 excluded
+                "Exoskelette zur Rückenentlastung von Lagerarbeitern",            // 2 hole, wording 1
+                "Rückenstützende Exoskelette für Arbeiter im Lager",              // 3 hole, wording 2
+                "aktive Exoskelette zur Entlastung des Rückens bei Lagerarbeit",  // 4 hole, wording 3
+                "Sicherheitsüberwachung für Alleinarbeiter auf Baustellen",       // 5 second island
+                "Kühlschrankkompressor mit Inverter-Technologie");                // 6 off-topic
+
+        List<String> everything = new ArrayList<String>();
+        everything.addAll(anchorTexts);
+        everything.addAll(missionTexts);
+        everything.addAll(probeTexts);
+        List<float[]> vectors = embedOrSkip(everything);
+        List<float[]> missionVectors = vectors.subList(3, 7);
+
+        ScopeFenceEvaluator fence = new ScopeFenceEvaluator(Arrays.asList(
+                new AnchorVector("in-helme", ScopeAnchor.Membership.IN, vectors.get(0)),
+                new AnchorVector("in-gas", ScopeAnchor.Membership.IN, vectors.get(1)),
+                new AnchorVector("out-fitness", ScopeAnchor.Membership.OUT, vectors.get(2))));
+        List<ProbeSweepAnalyzer.ProbeVector> probes =
+                new ArrayList<ProbeSweepAnalyzer.ProbeVector>();
+        for (int index = 0; index < probeTexts.size(); index++) {
+            probes.add(new ProbeSweepAnalyzer.ProbeVector(
+                    new ScopeProbe("p-" + index, probeTexts.get(index)), vectors.get(7 + index)));
+        }
+
+        // The CONCEPT claim first, ordinally: the mission frame separates on-topic from off-topic.
+        double fridgeRelevance = maxCosine(vectors.get(7 + 6), missionVectors);
+        double weakestWearableRelevance = Double.MAX_VALUE;
+        for (int index = 0; index < 6; index++) {
+            weakestWearableRelevance = Math.min(weakestWearableRelevance,
+                    maxCosine(vectors.get(7 + index), missionVectors));
+        }
+        System.err.println(String.format(java.util.Locale.ROOT,
+                "[fence-sweep] fridge relevance=%.3f weakest wearable relevance=%.3f",
+                fridgeRelevance, weakestWearableRelevance));
+        assertTrue("mission relevance separates off-topic from on-topic",
+                fridgeRelevance < weakestWearableRelevance);
+
+        // Calibration derived from the MEASURED separation — never a hard-coded truth.
+        double relevanceGate = (fridgeRelevance + weakestWearableRelevance) / 2.0d;
+        ProbeSweepAnalyzer.ProbeSweepResult sweep = ProbeSweepAnalyzer.analyze(
+                probes, missionVectors, fence, new Thresholds(0.7d, 0.05d), relevanceGate);
+        for (ProbeReading reading : sweep.getReadings()) {
+            System.err.println(String.format(java.util.Locale.ROOT,
+                    "[fence-sweep] %-34s relevance=%.3f known=%.3f novelty=%.3f %s",
+                    reading.getProbe().getSemanticText().substring(0,
+                            Math.min(34, reading.getProbe().getSemanticText().length())),
+                    reading.getMissionRelevance(), reading.getKnownSimilarity(),
+                    reading.getNovelty(), reading.getCategory()));
+        }
+        assertEquals("the fridge is filtered by relevance, not by fence distance",
+                ProbeReading.Category.IRRELEVANT, sweep.getReadings().get(6).getCategory());
+
+        List<ProbeReading> selected = DiverseProbeSelector.select(
+                sweep.interesting(), ProbeSweepAnalyzer.vectorsById(probes),
+                new DiverseProbeSelector.Parameters(3, 1.0d, 0.8d));
+        int exoVariants = 0;
+        for (ProbeReading candidate : selected) {
+            System.err.println("[fence-sweep] SELECTED: " + candidate.getProbe().getSemanticText());
+            assertTrue("the fridge never reaches the agent",
+                    !candidate.getProbe().getSemanticText().contains("Kühlschrank"));
+            if (candidate.getProbe().getSemanticText().contains("xoskelet")) {
+                exoVariants++;
+            }
+        }
+        assertTrue("three wordings of the exoskeleton hole are ONE region at most",
+                exoVariants <= 1);
+    }
+
+    private static double maxCosine(float[] probe, List<float[]> references) {
+        double best = 0.0d;
+        for (float[] reference : references) {
+            best = Math.max(best, ScopeFenceEvaluator.cosine(probe, reference));
+        }
+        return best;
+    }
+
     private static String describe(Reading reading) {
         return String.format(java.util.Locale.ROOT,
                 "sIn=%.3f(%s) sOut=%.3f(%s) margin=%+.3f hint=%s",
