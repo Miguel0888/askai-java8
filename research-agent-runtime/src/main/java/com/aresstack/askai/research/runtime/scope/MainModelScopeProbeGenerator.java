@@ -125,6 +125,12 @@ public final class MainModelScopeProbeGenerator implements ScopeProbeGenerator {
                     .append(anchor.getMembership().name()).append(" | ")
                     .append(anchor.getSemanticText()).append('\n');
         }
+        // Live-gate finding: a model answering in ENGLISH to a German mission wrecks the whole
+        // geometry — cross-lingual cosines sink mission relevance AND anchor similarity, so known
+        // regions read as unexplained. The texts must live in the mission's language.
+        prompt.append("\nWICHTIG: Schreibe ALLE Texte in derselben Sprache wie der Auftrag oben ")
+                .append("(niemals übersetzen) — die Texte werden mit den Ankertexten geometrisch ")
+                .append("verglichen.\n");
         prompt.append("\nErzeuge zwei Listen:\n")
                 .append("1. broadProbes: ").append(request.getTargetCount())
                 .append(" möglichst BREITE, untereinander VERSCHIEDENE konkrete Themen/")

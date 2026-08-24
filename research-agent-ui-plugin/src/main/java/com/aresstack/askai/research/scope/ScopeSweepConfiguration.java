@@ -49,7 +49,9 @@ public final class ScopeSweepConfiguration {
                 50,      // targetBroadProbes — the live gate delivered 50/50 in one call
                 2,       // controlsPerAnchor — 2 local variations per negotiated post
                 0.7d,    // generatorTemperature — breadth needs variety
-                4096,    // generatorMaxOutputTokens — 50 probes + controls fit comfortably
+                8192,    // generatorMaxOutputTokens — live finding: German answers (longer words,
+                         // plus reasoning-model thinking overhead) undershot the 50-probe target
+                         // at 4096; 8192 gives the list room
                 360,     // generationTimeoutSeconds — live runs took 45-115s; generous headroom
                 new ScopeFenceEvaluator.Thresholds(0.7d, 0.05d),   // nomic live calibration
                 new ScopeFenceCalibrator.CalibrationParameters(

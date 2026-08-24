@@ -1,0 +1,320 @@
+package com.aresstack.askai.research.runtime.scope;
+
+import com.aresstack.askai.acp.AcpEndpointDescriptor;
+import com.aresstack.askai.acp.AgentLaunchSpec;
+import com.aresstack.askai.acp.solon.SolonAcpAgentConnector;
+import com.aresstack.askai.agent.model.embedding.EmbeddingEndpointDescriptor;
+import com.aresstack.askai.mcp.api.McpEndpointDefinition;
+import com.aresstack.askai.mcp.api.McpEndpointHandle;
+import com.aresstack.askai.mcp.api.McpToolCall;
+import com.aresstack.askai.mcp.api.McpToolContribution;
+import com.aresstack.askai.mcp.api.McpToolHandler;
+import com.aresstack.askai.mcp.api.McpToolResult;
+import com.aresstack.askai.mcp.solon.SolonMcpServerRuntime;
+import com.aresstack.askai.research.acp.AcpResearchSessionBackend;
+import com.aresstack.askai.research.backend.ResearchBackendEvent;
+import com.aresstack.askai.research.backend.ResearchBackendEventType;
+import com.aresstack.askai.research.backend.ResearchProjectRequest;
+import com.aresstack.askai.research.backend.ResearchSessionHandle;
+import com.aresstack.askai.research.backend.ResearchSessionListener;
+import com.aresstack.askai.research.domain.scope.ProbeReading;
+import com.aresstack.askai.research.domain.scope.ResearchScopeDraft;
+import com.aresstack.askai.research.domain.scope.ScopeFacet;
+import com.aresstack.askai.research.domain.scope.ScopeFenceEvaluator;
+import com.aresstack.askai.research.domain.scope.ScopeSweepOutcome;
+import com.aresstack.askai.research.scope.BackendScopeProbeGenerator;
+import com.aresstack.askai.research.scope.EmbeddingSnapshotSweepEmbedder;
+import com.aresstack.askai.research.scope.ScopeSweepConfiguration;
+import com.aresstack.askai.research.scope.ScopeSweepPlanAssembler;
+import com.aresstack.askai.research.scope.ScopeSweepService;
+import com.aresstack.askai.research.store.FileResearchScopeDraftStore;
+import com.aresstack.askai.research.store.ScopeAnchorVectorIndex;
+
+import org.junit.AfterClass;
+import org.junit.Assume;
+import org.junit.Before;
+import org.junit.Test;
+
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.Charset;
+import java.nio.file.Files;
+import java.time.Duration;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.Locale;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+
+/**
+ * The Z3b-3 END-TO-END LIVE GATE — the last acceptance condition: one REAL sweep round trip with
+ * everything that the unit tests cannot see at once — a real spawned runtime process over ACP, the
+ * real {@code #RSC1# generate_probes} / {@code #RSX1# probes} wire, a real main-model call in the
+ * runtime, real host-side correlation on the backend callback thread, real Ollama anchor +
+ * transient embeddings on ONE frozen descriptor, the calibration, all gates, and a READY outcome
+ * bound to (revision, fingerprint). This is the ResearchAgentSession.runScopeSweep() chain minus
+ * only the Swing session shell (same backend, same wire client, same service, same assembler).
+ * <p>
+ * Skips itself without the staged agent jar, a local Ollama, a chat model, or nomic-embed-text.
+ */
+public class ScopeSweepEndToEndLiveTest {
+
+    private static final String OLLAMA = "http://127.0.0.1:11434";
+    private static final String EMBED_MODEL = "nomic-embed-text:latest";
+
+    private static SolonMcpServerRuntime runtime; // Solon is a process-global singleton → one per JVM
+
+    private String javaBin;
+    private String agentJar;
+
+    @Before
+    public void resolve() {
+        agentJar = System.getProperty("research.agent.jar");
+        Assume.assumeTrue("agent jar missing", agentJar != null && new File(agentJar).isFile());
+        String home = System.getProperty("acp.java.home", System.getProperty("java.home"));
+        javaBin = home + File.separator + "bin" + File.separator
+                + (System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win")
+                        ? "java.exe" : "java");
+        Assume.assumeTrue("java missing", new File(javaBin).isFile());
+        if (runtime == null) {
+            runtime = new SolonMcpServerRuntime();
+        }
+    }
+
+    @AfterClass
+    public static void shutdownRuntime() {
+        if (runtime != null) {
+            runtime.shutdown();
+        }
+    }
+
+    @Test
+    public void oneRealSweepRoundTripEndsReadyBoundToItsSnapshot() throws Exception {
+        String tags = getOrSkip(OLLAMA + "/api/tags");
+        Assume.assumeTrue("nomic-embed-text not installed", tags.contains("nomic-embed-text"));
+        String chatModel = chatModelOrSkip(tags);
+        System.err.println("[sweep-live] chat model=" + chatModel);
+
+        // --- the REAL canonical draft: negotiated wearables fence in a real store ---------------
+        File projectDir = Files.createTempDirectory("askai-sweep-live").toFile();
+        FileResearchScopeDraftStore store = new FileResearchScopeDraftStore(projectDir);
+        ResearchScopeDraft draft = store.save(ResearchScopeDraft.builder()
+                .mission("Welche Wearables sind für den Arbeitsschutz auf Baustellen relevant?")
+                .domains(Arrays.asList("Arbeitsschutz", "Bauwesen"))
+                .contexts(Arrays.asList("Baustellen in Deutschland"))
+                .facets(Arrays.asList(
+                        new ScopeFacet("f1", "Schutzhelme mit integrierter Sensorik für Baustellen",
+                                ScopeFacet.Status.CONFIRMED, ""),
+                        new ScopeFacet("f2", "Wearables zur Gasdetektion im industriellen "
+                                + "Arbeitsschutz", ScopeFacet.Status.CONFIRMED, ""),
+                        new ScopeFacet("f3", "Fitness-Armbänder für private Läufer und Hobbysport",
+                                ScopeFacet.Status.EXCLUDED, "")))
+                .build());
+        System.err.println("[sweep-live] draft revision=" + draft.getRevision()
+                + " anchors=" + draft.getAnchors().size());
+
+        // --- the frozen embedding snapshot: probe the real dimension once, then bind ------------
+        int dimension = embedDimensionOrSkip();
+        EmbeddingEndpointDescriptor embeddingDescriptor = new EmbeddingEndpointDescriptor(
+                EMBED_MODEL, OLLAMA, "/api/embed", dimension, "none", "live-gate", 60_000L);
+        EmbeddingSnapshotSweepEmbedder embedder =
+                new EmbeddingSnapshotSweepEmbedder(embeddingDescriptor);
+        List<ScopeFenceEvaluator.AnchorVector> anchorVectors =
+                new ScopeAnchorVectorIndex(new File(projectDir, "scope-anchor-vectors.json"))
+                        .vectorsFor(draft, embedder.modelFingerprint(), embedder);
+        System.err.println("[sweep-live] anchor vectors reconciled: " + anchorVectors.size()
+                + " @ " + embedder.modelFingerprint());
+
+        // --- the real runtime process over ACP, main model via the real inference descriptor ----
+        McpEndpointHandle endpoint = runtime.registerEndpoint(
+                new McpEndpointDefinition("research.sweeplive", "Research Control"));
+        runtime.updateTools(endpoint, Collections.singletonList(
+                McpToolContribution.of("research_status", "Current research state.",
+                        new McpToolHandler() {
+                            public McpToolResult invoke(McpToolCall call) {
+                                return McpToolResult.ok("SCOPING/exploring rev=1");
+                            }
+                        })));
+        File inferenceConfig = new File(projectDir, "inference-config.json");
+        Files.write(inferenceConfig.toPath(), ("{\"formatVersion\":1,"
+                + "\"configurationRevision\":1,\"model\":\"" + chatModel
+                + "\",\"baseUrl\":\"" + OLLAMA + "\",\"chatPath\":\"/api/chat\","
+                + "\"timeoutMillis\":300000}").getBytes(Charset.forName("UTF-8")));
+        java.util.Map<String, String> env = new java.util.LinkedHashMap<String, String>();
+        env.put("ASKAI_INFERENCE_CONFIG", inferenceConfig.getAbsolutePath());
+        AcpResearchSessionBackend backend = new AcpResearchSessionBackend(
+                new SolonAcpAgentConnector(Duration.ofSeconds(120), null),
+                new AgentLaunchSpec(javaBin, Arrays.asList("-jar", agentJar), env),
+                new AcpEndpointDescriptor("research.sweeplive", runtime.endpointUrl(endpoint),
+                        "streamable", endpoint.getToken()),
+                null);
+
+        final BackendScopeProbeGenerator[] activeGenerator = {null};
+        ResearchSessionHandle handle = backend.createSession(
+                new ResearchProjectRequest("sweep-live", "p1", "Sweep live gate"),
+                new ResearchSessionListener() {
+                    public void onEvent(ResearchBackendEvent event) {
+                        // The EXACT productive routing (ResearchAgentSession.onEvent): the
+                        // correlated transport answer is delivered on THIS backend callback
+                        // thread, never via a UI executor.
+                        if (event.getType() == ResearchBackendEventType.PROBE_GENERATION) {
+                            BackendScopeProbeGenerator current = activeGenerator[0];
+                            if (current != null) {
+                                current.deliver(event.getTitle(), event.getText());
+                            }
+                        }
+                    }
+                });
+        try {
+            // --- the sweep, exactly as runScopeSweep wires it ------------------------------------
+            ScopeSweepConfiguration configuration = ScopeSweepConfiguration.defaults();
+            BackendScopeProbeGenerator generator = new BackendScopeProbeGenerator(backend, handle,
+                    new BackendScopeProbeGenerator.WireSettings(
+                            configuration.generatorTemperature,
+                            configuration.generatorMaxOutputTokens,
+                            configuration.controlsPerAnchor,
+                            configuration.generationTimeoutSeconds));
+            activeGenerator[0] = generator;
+            final FileResearchScopeDraftStore revisionStore = store;
+            ScopeSweepService service = new ScopeSweepService(generator, embedder,
+                    new ScopeSweepService.ScopeRevisionProbe() {
+                        public long currentRevision() {
+                            return revisionStore.load().getDraft().getRevision();
+                        }
+                    });
+
+            long startedAt = System.nanoTime();
+            ScopeSweepOutcome outcome = service.run(ScopeSweepPlanAssembler.planOf(
+                    draft, embedder.modelFingerprint(), anchorVectors, configuration));
+            long elapsedMillis = (System.nanoTime() - startedAt) / 1_000_000L;
+
+            System.err.println("[sweep-live] outcome=" + outcome.getStatus()
+                    + " elapsedMs=" + elapsedMillis
+                    + " broad=" + outcome.getAcceptedBroadCount() + "/"
+                    + outcome.getRequestedBroadCount()
+                    + " diagnostics=" + outcome.getDiagnostics());
+            if (outcome.isReady()) {
+                System.err.println(String.format(Locale.ROOT,
+                        "[sweep-live] calibration missionFloor=%.3f knownRegionFloor=%.3f (%s)",
+                        outcome.getCalibration().minimumMissionRelevance,
+                        outcome.getCalibration().knownRegionFloor,
+                        outcome.getCalibration().confidence));
+                for (ProbeReading reading : outcome.getSweep().getReadings()) {
+                    System.err.println(String.format(Locale.ROOT,
+                            "[sweep-live]   %-40s %s/%s -> %s",
+                            snippet(reading.getProbe().getSemanticText()),
+                            reading.getFenceRelation(), reading.getNoveltyRelation(),
+                            reading.getCategory()));
+                }
+                for (ProbeReading candidate : outcome.getDiverseCandidates()) {
+                    System.err.println("[sweep-live] CANDIDATE: "
+                            + candidate.getProbe().getSemanticText());
+                }
+            }
+            assertEquals("the full real round trip must end READY (status="
+                    + outcome.getStatus() + " diagnostics=" + outcome.getDiagnostics() + ")",
+                    ScopeSweepOutcome.Status.READY, outcome.getStatus());
+            assertEquals("READY is bound to the draft revision it was computed on",
+                    draft.getRevision(), outcome.getScopeRevision());
+            assertEquals("READY is bound to the frozen embedding snapshot",
+                    embedder.modelFingerprint(), outcome.getEmbeddingFingerprint());
+            assertTrue("a real 50-probe sweep classifies every probe",
+                    outcome.getSweep().getReadings().size()
+                            == configuration.targetBroadProbes);
+        } finally {
+            activeGenerator[0] = null;
+            backend.close(handle);
+            runtime.unregisterEndpoint(endpoint);
+        }
+    }
+
+    private static String snippet(String text) {
+        return text.length() <= 40 ? text : text.substring(0, 40);
+    }
+
+    // ---------------------------------------------------------------- Ollama probing / skipping
+
+    private static String chatModelOrSkip(String tags) {
+        String configured = System.getProperty("askai.live.main.model",
+                System.getenv("ASKAI_LIVE_MAIN_MODEL"));
+        if (configured != null && !configured.trim().isEmpty()) {
+            return configured.trim();
+        }
+        int position = 0;
+        while (true) {
+            int key = tags.indexOf("\"name\":\"", position);
+            if (key < 0) {
+                break;
+            }
+            int start = key + "\"name\":\"".length();
+            int end = tags.indexOf('"', start);
+            String name = tags.substring(start, end);
+            position = end;
+            String lower = name.toLowerCase(Locale.ROOT);
+            if (!lower.contains("embed") && !lower.contains("rerank") && !lower.contains("bge")) {
+                return name;
+            }
+        }
+        Assume.assumeTrue("no chat-capable model installed on local Ollama", false);
+        throw new IllegalStateException("unreachable");
+    }
+
+    /** Probe the embedding dimension with one real call — the descriptor must carry the truth. */
+    private static int embedDimensionOrSkip() {
+        try {
+            HttpURLConnection connection =
+                    (HttpURLConnection) new URL(OLLAMA + "/api/embed").openConnection();
+            connection.setConnectTimeout(2_000);
+            connection.setReadTimeout(30_000);
+            connection.setRequestMethod("POST");
+            connection.setRequestProperty("Content-Type", "application/json");
+            connection.setDoOutput(true);
+            OutputStream out = connection.getOutputStream();
+            out.write(("{\"model\":\"" + EMBED_MODEL + "\",\"input\":[\"dimension probe\"]}")
+                    .getBytes(Charset.forName("UTF-8")));
+            out.close();
+            Assume.assumeTrue("embed model answered " + connection.getResponseCode(),
+                    connection.getResponseCode() == 200);
+            String body = readAll(connection.getInputStream());
+            int open = body.indexOf("[[");
+            int close = body.indexOf("]]", open);
+            Assume.assumeTrue("embedding matrix present", open > 0 && close > open);
+            return body.substring(open + 2, close).split(",").length;
+        } catch (IOException noOllama) {
+            Assume.assumeNoException("no local Ollama — live gate skipped", noOllama);
+            throw new IllegalStateException("unreachable");
+        }
+    }
+
+    private static String getOrSkip(String url) {
+        try {
+            HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
+            connection.setConnectTimeout(2_000);
+            connection.setReadTimeout(10_000);
+            Assume.assumeTrue("Ollama answered " + connection.getResponseCode(),
+                    connection.getResponseCode() == 200);
+            return readAll(connection.getInputStream());
+        } catch (IOException noOllama) {
+            Assume.assumeNoException("no local Ollama — live gate skipped", noOllama);
+            throw new IllegalStateException("unreachable");
+        }
+    }
+
+    private static String readAll(InputStream in) throws IOException {
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        byte[] chunk = new byte[8192];
+        int read;
+        while ((read = in.read(chunk)) > 0) {
+            buffer.write(chunk, 0, read);
+        }
+        in.close();
+        return new String(buffer.toByteArray(), Charset.forName("UTF-8"));
+    }
+}
