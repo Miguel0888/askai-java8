@@ -53,6 +53,12 @@ public final class ReloadableMainModelChat implements MainModelChat {
     }
 
     @Override
+    public MainModelChatResult completeJson(List<ChatMessage> messages, double temperature,
+                                            int maxOutputTokens, String schemaJson) {
+        return delegate.get().completeJson(messages, temperature, maxOutputTokens, schemaJson);
+    }
+
+    @Override
     public String modelName() {
         return delegate.get().modelName();
     }

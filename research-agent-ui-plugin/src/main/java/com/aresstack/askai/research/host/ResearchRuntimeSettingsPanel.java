@@ -511,7 +511,9 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         com.aresstack.askai.research.scope.ScopeSweepConfiguration d =
                 com.aresstack.askai.research.scope.ScopeSweepConfiguration.defaults();
         bindLimit(scopeCheckTargetProbes, ResearchRuntimeSettings.KEY_SCOPE_CHECK_TARGET_PROBES,
-                d.targetBroadProbes, "Wie viele breite Konzepte eine Themenraum-Prüfung erzeugt");
+                d.targetBroadProbes, "Wie viele breite Konzepte eine Themenraum-Prüfung erzeugt. "
+                        + "Kleine Hauptmodelle (2B-Klasse) halten 50 oft nicht durch — dann 20 "
+                        + "einstellen.");
         bindLimit(scopeCheckControlsPerAnchor,
                 ResearchRuntimeSettings.KEY_SCOPE_CHECK_CONTROLS_PER_ANCHOR, d.controlsPerAnchor,
                 "Lokale Kalibrierungs-Beispiele je ausgehandeltem Zaunpfosten");

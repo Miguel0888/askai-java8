@@ -64,10 +64,11 @@ public final class MainModelScopeProbeGenerator implements ScopeProbeGenerator {
     @Override
     public ProbeGenerationResult generate(ProbeGenerationRequest request) {
         List<ScopeAnchor> negotiated = negotiatedAnchorsOf(request);
-        MainModelChatResult call = model.complete(
+        MainModelChatResult call = model.completeJson(
                 Arrays.asList(ChatMessage.system(systemPrompt()),
                         ChatMessage.user(userPrompt(request, negotiated))),
-                settings.temperature, settings.maxOutputTokens);
+                settings.temperature, settings.maxOutputTokens,
+                responseSchema(request, negotiated));
         if (!call.isOk()) {
             // The chat seam's typed failure survives 1:1 — never flattened into an empty sweep.
             return ProbeGenerationResult.failure(statusOf(call.getStatus()), call.getDetail());
@@ -132,11 +133,15 @@ public final class MainModelScopeProbeGenerator implements ScopeProbeGenerator {
                 .append("(niemals übersetzen) — die Texte werden mit den Ankertexten geometrisch ")
                 .append("verglichen.\n");
         prompt.append("\nErzeuge zwei Listen:\n")
-                .append("1. broadProbes: ").append(request.getTargetCount())
+                .append("1. broadProbes: GENAU ").append(request.getTargetCount())
                 .append(" möglichst BREITE, untereinander VERSCHIEDENE konkrete Themen/")
                 .append("Technologien/Akteure/Anwendungsfälle, die für den Auftrag plausibel ")
                 .append("relevant sein könnten. Keine bloßen Paraphrasen der bekannten Facetten; ")
-                .append("angrenzende und noch nicht genannte Aspekte sind ausdrücklich erwünscht.\n")
+                .append("angrenzende und noch nicht genannte Aspekte sind ausdrücklich erwünscht. ")
+                // Live finding (gemma4:e2b): without the explicit stop rule a small model loses
+                // count, repeats itself and runs straight into the token limit (truncated JSON).
+                .append("Nicht mehr als ").append(request.getTargetCount())
+                .append(" — zähle mit und höre dann auf.\n")
                 .append("2. calibrationProbes: für JEDEN oben gelisteten Anker GENAU ")
                 .append(settings.controlsPerAnchor)
                 .append(" konkrete lokale Beispiele, die klar noch unter DENSELBEN Anker fallen ")
@@ -180,7 +185,7 @@ public final class MainModelScopeProbeGenerator implements ScopeProbeGenerator {
             parsed = MiniJson.parse(unfence(answer));
         } catch (MiniJson.JsonParseException malformed) {
             return ProbeGenerationResult.failure(ProbeGenerationResult.Status.INVALID_RESPONSE,
-                    "not JSON: " + malformed.getMessage());
+                    "not JSON: " + malformed.getMessage() + answerSnippet(answer));
         }
         if (!(parsed instanceof Map)) {
             return ProbeGenerationResult.failure(ProbeGenerationResult.Status.INVALID_RESPONSE,
@@ -198,7 +203,11 @@ public final class MainModelScopeProbeGenerator implements ScopeProbeGenerator {
         Set<String> seenBroadTexts = new LinkedHashSet<String>();
         List<ScopeProbe> broadProbes = new ArrayList<ScopeProbe>();
         for (Object entry : (List<?>) broadRaw) {
-            String text = fieldOf(entry, "text");
+            // Deterministic tolerance for small models (live: gemma4:e2b): a broad probe may be a
+            // bare string OR the contracted {"text": …} object — both are unambiguous. Controls
+            // stay object-only (they NEED parentAnchorId).
+            String text = entry instanceof String && !((String) entry).trim().isEmpty()
+                    ? ((String) entry).trim() : fieldOf(entry, "text");
             if (text == null) {
                 return ProbeGenerationResult.failure(ProbeGenerationResult.Status.INVALID_RESPONSE,
                         "broad probe without text");
@@ -271,19 +280,93 @@ public final class MainModelScopeProbeGenerator implements ScopeProbeGenerator {
                 join(diagnostics));
     }
 
+    /**
+     * The Ollama structured-output schema for THIS request — the deterministic cure for the two
+     * measured small-model failure modes: {@code maxItems} stops a model that loses count (live:
+     * gemma4:e2b spiralled past 50 into the token limit even when told to stop), and the
+     * {@code parentAnchorId} enum makes an invented anchor id UNREPRESENTABLE at generation time.
+     * The strict validator downstream stays — the schema narrows what can arrive, it does not
+     * replace checking it.
+     */
+    private static String responseSchema(ProbeGenerationRequest request,
+                                         List<ScopeAnchor> negotiated) {
+        StringBuilder schema = new StringBuilder("{\"type\":\"object\",\"properties\":{");
+        // minItems == maxItems: the grammar itself enforces the requested count — a small model
+        // that would stop early (live: gemma at 17/20) must keep producing topics instead.
+        schema.append("\"broadProbes\":{\"type\":\"array\",\"minItems\":")
+                .append(request.getTargetCount()).append(",\"maxItems\":")
+                .append(request.getTargetCount())
+                .append(",\"items\":{\"type\":\"object\",\"properties\":{")
+                .append("\"text\":{\"type\":\"string\"}},\"required\":[\"text\"]}},");
+        schema.append("\"calibrationProbes\":{\"type\":\"array\",\"maxItems\":");
+        // The cap the validator enforces anyway — the grammar just stops the list early.
+        schema.append(Math.max(1, negotiated.size()) * 8); // headroom; per-anchor cap trims later
+        schema.append(",\"items\":{\"type\":\"object\",\"properties\":{")
+                .append("\"parentAnchorId\":{\"type\":\"string\"");
+        if (!negotiated.isEmpty()) {
+            schema.append(",\"enum\":[");
+            for (int index = 0; index < negotiated.size(); index++) {
+                if (index > 0) {
+                    schema.append(',');
+                }
+                schema.append(jsonString(negotiated.get(index).getAnchorId()));
+            }
+            schema.append(']');
+        }
+        schema.append("},\"text\":{\"type\":\"string\"}},")
+                .append("\"required\":[\"parentAnchorId\",\"text\"]}}},")
+                .append("\"required\":[\"broadProbes\",\"calibrationProbes\"]}");
+        return schema.toString();
+    }
+
+    private static String jsonString(String value) {
+        StringBuilder quoted = new StringBuilder("\"");
+        for (int index = 0; index < value.length(); index++) {
+            char c = value.charAt(index);
+            if (c == '"' || c == '\\') {
+                quoted.append('\\');
+            }
+            quoted.append(c);
+        }
+        return quoted.append('\"').toString();
+    }
+
+    /** The field diagnosis that saves a debug session: WHAT did the model actually start with? */
+    private static String answerSnippet(String answer) {
+        String trimmed = answer == null ? "" : answer.trim().replaceAll("\\s+", " ");
+        if (trimmed.isEmpty()) {
+            return " (empty answer)";
+        }
+        return " (answer starts: '"
+                + (trimmed.length() <= 80 ? trimmed : trimmed.substring(0, 80) + "…") + "')";
+    }
+
     private static String snippet(String text) {
         String trimmed = text.trim();
         return trimmed.length() <= 40 ? trimmed : trimmed.substring(0, 40) + "…";
     }
 
-    /** Accept a bare JSON object or ONE markdown-fenced block — local unwrapping, never a re-ask. */
+    /**
+     * Deterministic LOCAL extraction, never a re-ask: accept a bare JSON object, ONE
+     * markdown-fenced block, or an object embedded in prose — live finding: gemma4:e2b prefixes
+     * the JSON with explanatory text despite the instruction, so after unfencing we cut from the
+     * first '{' to the last '}'. Anything that still fails the strict parse stays a typed
+     * INVALID_RESPONSE.
+     */
     private static String unfence(String answer) {
         String trimmed = answer == null ? "" : answer.trim();
         if (trimmed.startsWith("```")) {
             int firstBreak = trimmed.indexOf('\n');
             int lastFence = trimmed.lastIndexOf("```");
             if (firstBreak > 0 && lastFence > firstBreak) {
-                return trimmed.substring(firstBreak + 1, lastFence).trim();
+                trimmed = trimmed.substring(firstBreak + 1, lastFence).trim();
+            }
+        }
+        if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) {
+            int open = trimmed.indexOf('{');
+            int close = trimmed.lastIndexOf('}');
+            if (open >= 0 && close > open) {
+                trimmed = trimmed.substring(open, close + 1).trim();
             }
         }
         return trimmed;

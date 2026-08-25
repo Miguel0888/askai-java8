@@ -65,6 +65,14 @@ test {
     // toolchain, the staged jar, or an installed reranker model; the build stays green either way.
     dependsOn ':local-model-runtime-sidecar-java21:sidecarJar'
     doFirst {
+        // Scope live-gate model override: -Daskai.live.main.model=gemma4:e2b runs the generator/
+        // sweep gates against a SPECIFIC installed model instead of the first chat model found.
+        if (System.getProperty('askai.live.main.model') != null) {
+            systemProperty 'askai.live.main.model', System.getProperty('askai.live.main.model')
+        }
+        if (System.getProperty('askai.live.probe.target') != null) {
+            systemProperty 'askai.live.probe.target', System.getProperty('askai.live.probe.target')
+        }
         systemProperty 'research.agent.jar', researchAgentJar.archiveFile.get().asFile.absolutePath
         systemProperty 'acp.java.home', System.getProperty('java.home')
         def sidecarTask = project(':browser-mcp-server-java21').tasks.getByName('sidecarJar')

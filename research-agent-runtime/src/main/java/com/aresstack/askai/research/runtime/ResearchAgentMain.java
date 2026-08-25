@@ -681,7 +681,8 @@ public final class ResearchAgentMain {
                             "malformed advice request: " + malformedRequest.getMessage());
         }
         System.err.println("[advice] runtime answering requestId=" + requestId
-                + " status=" + result.getStatus());
+                + " status=" + result.getStatus()
+                + (result.isOk() ? "" : " message=" + result.getMessage()));
         ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire.adviceDecision(
                 requestId,
                 com.aresstack.askai.research.runtime.scope.ScopeAdviceWire.renderResult(result)));
@@ -714,7 +715,8 @@ public final class ResearchAgentMain {
                             "malformed generation request: " + malformedRequest.getMessage());
         }
         System.err.println("[probe-gen] runtime answering requestId=" + requestId
-                + " status=" + result.getStatus());
+                + " status=" + result.getStatus()
+                + (result.isOk() ? "" : " message=" + result.getMessage()));
         ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire.probeGeneration(
                 requestId,
                 com.aresstack.askai.research.runtime.scope.ProbeGenerationWire

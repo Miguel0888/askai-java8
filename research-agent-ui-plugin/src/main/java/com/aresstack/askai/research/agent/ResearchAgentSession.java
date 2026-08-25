@@ -2329,18 +2329,25 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             com.aresstack.askai.research.domain.scope.ScopeSweepOutcome outcome, boolean german) {
         switch (outcome.getStatus()) {
             case GENERATION_FAILED:
+                // Live finding: a small central model (gemma4:e2b) loses count at width 50 and
+                // truncates — the honest failure must point at the knob that fixes it.
                 return german
                         ? "Die Themen-Generierung ist fehlgeschlagen — der Themenraum konnte "
-                                + "nicht geprüft werden."
-                        : "Probe generation failed — the topic space could not be checked.";
+                                + "nicht geprüft werden. Tipp: Bei kleinen Modellen die Breite "
+                                + "in den Einstellungen (Scope-Prüfung) reduzieren, z. B. auf 20."
+                        : "Probe generation failed — the topic space could not be checked. Tip: "
+                                + "for small models reduce the width in the settings "
+                                + "(Scope-Prüfung), e.g. to 20.";
             case BROAD_SAMPLE_INCOMPLETE:
                 return german
                         ? "Das Modell lieferte nur " + outcome.getAcceptedBroadCount() + " von "
                                 + outcome.getRequestedBroadCount() + " Konzepten — zu wenig "
-                                + "Breite für eine verlässliche Prüfung."
+                                + "Breite für eine verlässliche Prüfung. Tipp: die Breite in den "
+                                + "Einstellungen (Scope-Prüfung) an das Modell anpassen."
                         : "The model delivered only " + outcome.getAcceptedBroadCount() + " of "
                                 + outcome.getRequestedBroadCount() + " concepts — not broad "
-                                + "enough for a reliable check.";
+                                + "enough for a reliable check. Tip: match the width in the "
+                                + "settings (Scope-Prüfung) to the model.";
             case CALIBRATION_WEAK:
                 return german
                         ? "Der Zaun hat noch zu wenige ausgehandelte Pfosten für eine "

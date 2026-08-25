@@ -47,10 +47,10 @@ public final class MainModelScopeAdviceChooser implements ScopeAdviceChooser {
 
     @Override
     public ChoiceResult choose(ChoiceRequest request) {
-        MainModelChatResult call = model.complete(
+        MainModelChatResult call = model.completeJson(
                 Arrays.asList(ChatMessage.system(systemPrompt()),
                         ChatMessage.user(userPrompt(request))),
-                settings.temperature, settings.maxOutputTokens);
+                settings.temperature, settings.maxOutputTokens, responseSchema(request));
         if (!call.isOk()) {
             return ChoiceResult.failure(statusOf(call.getStatus()), call.getDetail());
         }
@@ -102,8 +102,42 @@ public final class MainModelScopeAdviceChooser implements ScopeAdviceChooser {
                 .append("{\"decision\":\"ASK\",\"candidateId\":\"...\",")
                 .append("\"assistantMessage\":\"...\"}\n")
                 .append("oder\n")
-                .append("{\"decision\":\"NONE\",\"assistantMessage\":\"...\"}");
+                .append("{\"decision\":\"NONE\",\"candidateId\":\"\",")
+                .append("\"assistantMessage\":\"...\"}");
         return prompt.toString();
+    }
+
+    /**
+     * The structured-output schema for THIS offer set: decision is a two-value enum, and the
+     * candidateId enum makes an INVENTED id unrepresentable at generation time (the drift guards
+     * have no id, so they cannot be chosen by construction). Validation downstream stays.
+     */
+    private static String responseSchema(ChoiceRequest request) {
+        // candidateId is REQUIRED (live: gemma answered ASK and simply omitted the optional
+        // field) — the empty string in the enum is the grammar's NONE case; the validator still
+        // rejects ASK with an empty id, typed.
+        StringBuilder schema = new StringBuilder("{\"type\":\"object\",\"properties\":{")
+                .append("\"decision\":{\"type\":\"string\",\"enum\":[\"ASK\",\"NONE\"]},")
+                .append("\"candidateId\":{\"type\":\"string\",\"enum\":[\"\"");
+        for (CandidateOffer offer : request.getCandidates()) {
+            schema.append(',').append(jsonString(offer.getCandidateId()));
+        }
+        schema.append("]},\"assistantMessage\":{\"type\":\"string\"}},")
+                .append("\"required\":[\"decision\",\"candidateId\",")
+                .append("\"assistantMessage\"]}");
+        return schema.toString();
+    }
+
+    private static String jsonString(String value) {
+        StringBuilder quoted = new StringBuilder("\"");
+        for (int index = 0; index < value.length(); index++) {
+            char c = value.charAt(index);
+            if (c == '"' || c == '\\') {
+                quoted.append('\\');
+            }
+            quoted.append(c);
+        }
+        return quoted.append('\"').toString();
     }
 
     /** German labels for the four conversational situations — the model needs the meaning. */
@@ -141,8 +175,11 @@ public final class MainModelScopeAdviceChooser implements ScopeAdviceChooser {
         try {
             parsed = MiniJson.parse(unfence(answer));
         } catch (MiniJson.JsonParseException malformed) {
+            String trimmed = answer == null ? "" : answer.trim().replaceAll("\\s+", " ");
             return ChoiceResult.failure(ChoiceResult.Status.INVALID_RESPONSE,
-                    "not JSON: " + malformed.getMessage());
+                    "not JSON: " + malformed.getMessage() + (trimmed.isEmpty() ? " (empty answer)"
+                            : " (answer starts: '" + (trimmed.length() <= 80 ? trimmed
+                                    : trimmed.substring(0, 80) + "…") + "')"));
         }
         if (!(parsed instanceof Map)) {
             return ChoiceResult.failure(ChoiceResult.Status.INVALID_RESPONSE,
@@ -177,14 +214,27 @@ public final class MainModelScopeAdviceChooser implements ScopeAdviceChooser {
         return ChoiceResult.ok(AdviceDecision.ask(candidateId, message));
     }
 
-    /** Accept a bare JSON object or ONE markdown-fenced block — local unwrapping, never a re-ask. */
+    /**
+     * Deterministic LOCAL extraction, never a re-ask: accept a bare JSON object, ONE
+     * markdown-fenced block, or an object embedded in prose — live finding: gemma4:e2b prefixes
+     * the JSON with explanatory text despite the instruction, so after unfencing we cut from the
+     * first '{' to the last '}'. Anything that still fails the strict parse stays a typed
+     * INVALID_RESPONSE.
+     */
     private static String unfence(String answer) {
         String trimmed = answer == null ? "" : answer.trim();
         if (trimmed.startsWith("```")) {
             int firstBreak = trimmed.indexOf('\n');
             int lastFence = trimmed.lastIndexOf("```");
             if (firstBreak > 0 && lastFence > firstBreak) {
-                return trimmed.substring(firstBreak + 1, lastFence).trim();
+                trimmed = trimmed.substring(firstBreak + 1, lastFence).trim();
+            }
+        }
+        if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) {
+            int open = trimmed.indexOf('{');
+            int close = trimmed.lastIndexOf('}');
+            if (open >= 0 && close > open) {
+                trimmed = trimmed.substring(open, close + 1).trim();
             }
         }
         return trimmed;

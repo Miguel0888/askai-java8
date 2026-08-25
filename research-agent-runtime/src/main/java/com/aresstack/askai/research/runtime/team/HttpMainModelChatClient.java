@@ -69,18 +69,7 @@ public final class HttpMainModelChatClient implements MainModelChat {
                     "no messages to send");
         }
         cancelled = false; // per-call: a previous cancel never poisons a fresh turn after a client swap
-        String body = buildChatBody(messages, temperature, maxOutputTokens);
-        String responseJson;
-        try {
-            responseJson = post(body);
-        } catch (SocketTimeoutException timeout) {
-            return MainModelChatResult.failure(MainModelChatResult.Status.TIMEOUT,
-                    "main-model call timed out after " + descriptor.timeoutMillis + "ms");
-        } catch (IOException transport) {
-            return MainModelChatResult.failure(MainModelChatResult.Status.PROVIDER_FAILURE,
-                    "main-model call failed: " + transport.getMessage());
-        }
-        return extractAssistantText(responseJson);
+        return completeBody(buildChatBody(messages, temperature, maxOutputTokens, null));
     }
 
     @SuppressWarnings("unchecked")
@@ -119,10 +108,44 @@ public final class HttpMainModelChatClient implements MainModelChat {
     }
 
     /** Build a non-streaming /api/chat body with the full message history + options. */
-    private String buildChatBody(List<ChatMessage> messages, double temperature, int maxOutputTokens) {
+    @Override
+    public MainModelChatResult completeJson(List<ChatMessage> messages, double temperature,
+                                            int maxOutputTokens, String schemaJson) {
+        if (messages == null || messages.isEmpty()) {
+            return MainModelChatResult.failure(MainModelChatResult.Status.INVALID_RESPONSE,
+                    "no messages to send");
+        }
+        cancelled = false;
+        return completeBody(buildChatBody(messages, temperature, maxOutputTokens,
+                schemaJson == null || schemaJson.trim().isEmpty() ? "\"json\"" : schemaJson));
+    }
+
+    private MainModelChatResult completeBody(String body) {
+        String responseJson;
+        try {
+            responseJson = post(body);
+        } catch (SocketTimeoutException timeout) {
+            return MainModelChatResult.failure(MainModelChatResult.Status.TIMEOUT,
+                    "main-model call timed out after " + descriptor.timeoutMillis + "ms");
+        } catch (IOException transport) {
+            return MainModelChatResult.failure(MainModelChatResult.Status.PROVIDER_FAILURE,
+                    "main-model call failed: " + transport.getMessage());
+        }
+        return extractAssistantText(responseJson);
+    }
+
+    private String buildChatBody(List<ChatMessage> messages, double temperature,
+                                 int maxOutputTokens, String formatValue) {
         StringBuilder sb = new StringBuilder("{");
         sb.append("\"model\":\"").append(escape(descriptor.model)).append("\",");
         sb.append("\"stream\":false,");
+        if (formatValue != null) {
+            // Ollama structured outputs: the server GUARANTEES the answer's JSON shape at
+            // generation time (grammar-constrained decoding) — deterministic by construction,
+            // no repair loop needed downstream. formatValue is either "json" (quoted) or a raw
+            // JSON-schema object string.
+            sb.append("\"format\":").append(formatValue).append(',');
+        }
         sb.append("\"options\":{\"temperature\":").append(temperature);
         if (maxOutputTokens > 0) {
             sb.append(",\"num_predict\":").append(maxOutputTokens);

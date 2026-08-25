@@ -183,7 +183,16 @@ public class ScopeSweepEndToEndLiveTest {
                 });
         try {
             // --- the sweep, exactly as runScopeSweep wires it ------------------------------------
-            ScopeSweepConfiguration configuration = ScopeSweepConfiguration.defaults();
+            // Width override for small central models: -Daskai.live.probe.target=20 gates
+            // gemma-class models with the width the settings would carry productively.
+            ScopeSweepConfiguration d = ScopeSweepConfiguration.defaults();
+            ScopeSweepConfiguration configuration = new ScopeSweepConfiguration(
+                    Integer.parseInt(System.getProperty("askai.live.probe.target",
+                            String.valueOf(d.targetBroadProbes))),
+                    d.controlsPerAnchor, d.generatorTemperature, d.generatorMaxOutputTokens,
+                    d.generationTimeoutSeconds, d.fenceThresholds, d.calibrationParameters,
+                    d.boundaryMargin, d.sweepNoveltyGap, d.selectorParameters,
+                    d.chooserTemperature, d.chooserMaxOutputTokens, d.choiceTimeoutSeconds);
             BackendScopeProbeGenerator generator = new BackendScopeProbeGenerator(backend, handle,
                     new BackendScopeProbeGenerator.WireSettings(
                             configuration.generatorTemperature,

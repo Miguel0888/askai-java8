@@ -17,6 +17,21 @@ public interface MainModelChat {
      */
     MainModelChatResult complete(List<ChatMessage> messages, double temperature, int maxOutputTokens);
 
+    /**
+     * Like {@link #complete}, but the answer MUST be a JSON value — transports that support it
+     * (Ollama structured outputs) enforce this AT GENERATION TIME: {@code schemaJson == null}
+     * requests generic JSON mode, a non-null JSON-schema string constrains the exact shape
+     * (enums, maxItems). This is the deterministic fix for small models hand-rolling broken JSON
+     * (live: gemma4:e2b broke mid-object even at width 20, and generic json mode cannot stop a
+     * model that loses count — a {@code maxItems} grammar can). The default falls back to a plain
+     * completion, so fakes and the unavailable transport stay untouched; strict validation
+     * downstream still applies either way.
+     */
+    default MainModelChatResult completeJson(List<ChatMessage> messages, double temperature,
+                                             int maxOutputTokens, String schemaJson) {
+        return complete(messages, temperature, maxOutputTokens);
+    }
+
     /** The model name this client will call (for the honest readiness line and diagnostics). */
     String modelName();
 }
