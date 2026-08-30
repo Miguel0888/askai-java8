@@ -1097,6 +1097,10 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         });
         speechVoicesPanel.setAlignmentX(Component.LEFT_ALIGNMENT); // BoxLayout column, like the rows
         card.add(speechVoicesPanel);
+        // Populate NOW: on the dialog's FIRST open the combos are created here, AFTER
+        // openSettingsDialog's refresh already ran against the not-yet-built map — without this
+        // call both selectors would sit empty until the dialog is opened a second time.
+        refreshSpeechOutputVoices();
         return card;
     }
 
