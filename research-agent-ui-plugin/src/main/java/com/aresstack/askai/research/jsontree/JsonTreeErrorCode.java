@@ -23,5 +23,12 @@ public enum JsonTreeErrorCode {
     BRANCH_GRAFT_FAILED,
 
     /** The fully grafted candidate document failed re-validation; the candidate was discarded. */
-    CANDIDATE_DOCUMENT_INVALID
+    CANDIDATE_DOCUMENT_INVALID,
+
+    /**
+     * Raised by POLICY layers on top of the neutral replacer (not by the replacer itself): a
+     * syntactically perfect refinement silently dropped existing structural nodes. Removal must
+     * be an explicit operation, never a side effect of a refinement.
+     */
+    STRUCTURE_LOSS_DETECTED
 }
