@@ -16,14 +16,20 @@ import java.util.Properties;
  *   working.json / working.properties        (workingRevision, contentHash, updatedAt)
  *   revisions/0001.json / 0001.properties    (immutable, never overwritten)
  * </pre>
- * The document envelope is {@code {"title","subtitle","content":[…]}} — {@code content} is an
+ * The document envelope is {@code {"title","subtitle","concept":[…]}} — {@code concept} is an
  * ARRAY on purpose: by the tree rule that makes the working surface structural while title and
- * subtitle are ValueLeafs that drop out of every structural view automatically.
+ * subtitle are ValueLeafs that drop out of every structural view automatically. The envelope is
+ * the seed of the future BOOK document: later phases add their own sections ({@code outline},
+ * {@code content} = the manuscript, {@code style}, {@code images}, {@code sources}) when their
+ * phase needs them — never earlier. Two guardrails for those sections: structural ORDER comes
+ * from array position only (JSON property order is cosmetic, never semantic), and every section
+ * gets its OWN view + tool contract on the shared JsonTree (the concept's name-chain addressing
+ * would be wrong for a manuscript full of {@code paragraph} blocks).
  */
 public final class FileConceptStore {
 
     /** A fresh concept: empty envelope, working revision 0, nothing approved. */
-    public static final String EMPTY_DOCUMENT = "{\"title\":\"\",\"subtitle\":\"\",\"content\":[]}";
+    public static final String EMPTY_DOCUMENT = "{\"title\":\"\",\"subtitle\":\"\",\"concept\":[]}";
 
     /** Outcome of an approval attempt. */
     public static final class Approval {

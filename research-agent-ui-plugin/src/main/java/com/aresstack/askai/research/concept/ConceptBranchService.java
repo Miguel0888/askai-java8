@@ -30,8 +30,11 @@ import java.util.Map;
  * The POLICY layer between the (later) concept tools and the neutral jsontree machinery — the
  * one place that makes the Konzeptpapier editable in bites, never regenerated:
  * <ul>
- * <li>works exclusively on the {@code content} array of the document envelope (title/subtitle
- *     and future metadata are a different tool's business),</li>
+ * <li>works exclusively on the {@code concept} array of the document envelope (title/subtitle,
+ *     and later book sections like outline/content/style, are a different tool's business —
+ *     each section gets its OWN view and tool contract on the shared JsonTree; this service's
+ *     name-chain addressing is the CONCEPT contract and would be wrong for a manuscript of
+ *     repeating {@code paragraph} blocks, which must address by array position),</li>
  * <li>addresses nodes by NAME chains and hands out opaque branch HANDLES — the model's JSON
  *     stays free of technical addresses, the host alone maps handle → path + base revision,</li>
  * <li>a depth-limited read yields a READ-ONLY handle: writing back a pruned branch would
@@ -48,7 +51,7 @@ import java.util.Map;
 public final class ConceptBranchService {
 
     /** The one property of the envelope this service ever touches. */
-    public static final String CONTENT_PROPERTY = "content";
+    public static final String CONCEPT_PROPERTY = "concept";
 
     private static final Gson GSON = new GsonBuilder().disableHtmlEscaping().create();
 
@@ -292,17 +295,17 @@ public final class ConceptBranchService {
     private static Resolution resolve(JsonElement documentRoot, List<String> names) {
         Resolution resolution = new Resolution();
         if (!documentRoot.isJsonObject()
-                || !documentRoot.getAsJsonObject().has(CONTENT_PROPERTY)
-                || !documentRoot.getAsJsonObject().get(CONTENT_PROPERTY).isJsonArray()) {
+                || !documentRoot.getAsJsonObject().has(CONCEPT_PROPERTY)
+                || !documentRoot.getAsJsonObject().get(CONCEPT_PROPERTY).isJsonArray()) {
             resolution.diagnostic = JsonTreeDiagnostic
                     .of(JsonTreeErrorCode.TARGET_NODE_NOT_FOUND,
-                            "The concept document has no \"" + CONTENT_PROPERTY
+                            "The concept document has no \"" + CONCEPT_PROPERTY
                                     + "\" array — the working surface is missing.")
                     .path("$").build();
             return resolution;
         }
         List<String> fullNames = new ArrayList<String>();
-        fullNames.add(CONTENT_PROPERTY);
+        fullNames.add(CONCEPT_PROPERTY);
         if (names != null) {
             fullNames.addAll(names);
         }

@@ -41,10 +41,10 @@ public class ConceptBranchServiceTest {
         // Turn 1: read the empty working surface, add the first cards.
         ConceptBranchService.ReadResult root = service.readBranch(ROOT, 0);
         assertTrue(root.isOk());
-        assertEquals("{\"content\":[]}", root.getBranchJson());
+        assertEquals("{\"concept\":[]}", root.getBranchJson());
         assertTrue(root.isEditable());
         ConceptBranchService.EditResult cards = service.updateBranch(root.getHandleId(),
-                "{\"content\":[{\"Tasks\":[],\"Scheduling\":[],\"Echtzeit\":[],"
+                "{\"concept\":[{\"Tasks\":[],\"Scheduling\":[],\"Echtzeit\":[],"
                         + "\"Mikrocontroller\":[]}]}");
         assertTrue(cards.isApplied());
         assertEquals(1L, cards.getNewRevision());
@@ -103,7 +103,7 @@ public class ConceptBranchServiceTest {
         // GPT's regrouping example: Queues leaves Synchronisation, Kommunikation appears —
         // no node vanished, so the guard must stay silent.
         ConceptBranchService.EditResult result = service.updateBranch(root.getHandleId(),
-                "{\"content\":[{\"Synchronisation\":[{\"Mutex\":[],\"Semaphoren\":[]}],"
+                "{\"concept\":[{\"Synchronisation\":[{\"Mutex\":[],\"Semaphoren\":[]}],"
                         + "\"Kommunikation\":[{\"Queues\":[]}]}]}");
         assertTrue(result.isApplied());
     }
@@ -141,7 +141,7 @@ public class ConceptBranchServiceTest {
         // Someone else (user in the JSON editor, another agent turn) commits meanwhile:
         ConceptBranchService.ReadResult other = service.readBranch(ROOT, 0);
         assertTrue(service.updateBranch(other.getHandleId(),
-                "{\"content\":[{\"Synchronisation\":[{\"Mutex\":[],\"Semaphoren\":[],"
+                "{\"concept\":[{\"Synchronisation\":[{\"Mutex\":[],\"Semaphoren\":[],"
                         + "\"Queues\":[]}],\"Neu\":[]}]}").isApplied());
         ConceptBranchService.EditResult result = service.updateBranch(stale.getHandleId(),
                 "{\"Synchronisation\":[{\"Mutex\":[],\"Semaphoren\":[],\"Queues\":[],"
@@ -157,7 +157,7 @@ public class ConceptBranchServiceTest {
         ConceptBranchService service = fresh();
         ConceptBranchService.ReadResult root = service.readBranch(ROOT, 0);
         service.updateBranch(root.getHandleId(),
-                "{\"content\":[{\"FreeRTOS\":[{\"Grundlagen\":[{\"Echtzeit\":[],"
+                "{\"concept\":[{\"FreeRTOS\":[{\"Grundlagen\":[{\"Echtzeit\":[],"
                         + "\"Scheduling\":[]}]}]}]}");
         ConceptBranchService.ReadResult shallow =
                 service.readBranch(Collections.singletonList("FreeRTOS"), 1);
@@ -206,7 +206,7 @@ public class ConceptBranchServiceTest {
         ConceptBranchService service = fresh();
         ConceptBranchService.ReadResult root = service.readBranch(ROOT, 0);
         assertTrue(service.updateBranch(root.getHandleId(),
-                "{\"content\":[{\"Synchronisation\":[{\"Mutex\":[],\"Semaphoren\":[],"
+                "{\"concept\":[{\"Synchronisation\":[{\"Mutex\":[],\"Semaphoren\":[],"
                         + "\"Queues\":[]}]}]}").isApplied());
         return service;
     }
