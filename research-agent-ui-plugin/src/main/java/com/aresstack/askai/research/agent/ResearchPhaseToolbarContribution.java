@@ -51,7 +51,7 @@ public final class ResearchPhaseToolbarContribution implements AgentToolbarContr
         Map<String, String> shorts = new LinkedHashMap<String, String>();
         titles.put(com.aresstack.askai.research.state.oo.ResearchStateIds.SCOPING,
                 "Scoping / Konzeptphase");
-        shorts.put(com.aresstack.askai.research.state.oo.ResearchStateIds.SCOPING, "Konzept");
+        shorts.put(com.aresstack.askai.research.state.oo.ResearchStateIds.SCOPING, "Concept");
         titles.put(com.aresstack.askai.research.state.oo.ResearchStateIds.OUTLINE,
                 "Gliederung");
         shorts.put(com.aresstack.askai.research.state.oo.ResearchStateIds.OUTLINE, "Gliedern");

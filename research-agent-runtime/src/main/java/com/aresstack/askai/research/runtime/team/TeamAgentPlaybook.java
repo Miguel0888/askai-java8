@@ -487,27 +487,50 @@ public final class TeamAgentPlaybook {
                 + "scope and sources suggest, and remove only what the user excluded.\n\n";
     }
 
-    /** Feedback for a successful READ — a regular working step, not a repair. */
-    public static String conceptToolResult(String toolText) {
-        return "CONCEPT TOOL RESULT (machinery — the user does not see this):\n" + toolText
-                + "\nDecide your next step: another conceptAction, or finish with your final "
-                + "assistantMessage for the user and no conceptAction.";
+    /**
+     * Feedback for a successful READ — a regular working step, not a repair. All concept
+     * feedback follows the session's LANGUAGE SELECTOR ({@code german}) so the model is never
+     * pushed into switching its reply language mid-conversation; the block keywords
+     * (CONCEPT TOOL …/ARTIFACT_STATE) stay English as machine markers.
+     */
+    public static String conceptToolResult(String toolText, boolean german) {
+        return german
+                ? "CONCEPT TOOL RESULT (Maschinerie — der Nutzer sieht das nicht):\n" + toolText
+                        + "\nEntscheide deinen nächsten Schritt: eine weitere conceptAction, "
+                        + "oder schließe mit deiner finalen assistantMessage an den Nutzer und "
+                        + "type \"none\" ab."
+                : "CONCEPT TOOL RESULT (machinery — the user does not see this):\n" + toolText
+                        + "\nDecide your next step: another conceptAction, or finish with your "
+                        + "final assistantMessage for the user and no conceptAction.";
     }
 
     /** Feedback for a committed mutation. */
-    public static String conceptToolApplied(String toolText) {
-        return "CONCEPT TOOL APPLIED: " + toolText
-                + "\nThe concept now contains this change — and ONLY this change. Continue with "
-                + "another conceptAction if needed, or finish with your final assistantMessage and "
-                + "type \"none\". Do not claim more than this change in your answer.";
+    public static String conceptToolApplied(String toolText, boolean german) {
+        return german
+                ? "CONCEPT TOOL APPLIED: " + toolText
+                        + "\nDas Konzept enthält jetzt diese Änderung — und NUR diese. Fahre bei "
+                        + "Bedarf mit einer weiteren conceptAction fort oder schließe mit deiner "
+                        + "finalen assistantMessage und type \"none\" ab. Behaupte in deiner "
+                        + "Antwort nicht mehr als diese Änderung."
+                : "CONCEPT TOOL APPLIED: " + toolText
+                        + "\nThe concept now contains this change — and ONLY this change. "
+                        + "Continue with another conceptAction if needed, or finish with your "
+                        + "final assistantMessage and type \"none\". Do not claim more than "
+                        + "this change in your answer.";
     }
 
     /** Feedback for a REJECTED mutation — the diagnostic is the model's repair input. */
-    public static String conceptToolRejected(String diagnostic) {
-        return "CONCEPT TOOL REJECTED — the concept is UNCHANGED.\n" + diagnostic
-                + "\nCorrect exactly what the diagnostic names and try again (concept_read shows "
-                + "the current cards), or finish honestly with type \"none\" — but NEVER claim the "
-                + "change happened.";
+    public static String conceptToolRejected(String diagnostic, boolean german) {
+        return german
+                ? "CONCEPT TOOL REJECTED — das Konzept ist UNVERÄNDERT.\n" + diagnostic
+                        + "\nKorrigiere genau das, was die Diagnose benennt, und versuche es "
+                        + "erneut (concept_read zeigt die aktuellen Karten) — oder schließe "
+                        + "ehrlich mit type \"none\" ab, aber behaupte NIE, die Änderung sei "
+                        + "erfolgt."
+                : "CONCEPT TOOL REJECTED — the concept is UNCHANGED.\n" + diagnostic
+                        + "\nCorrect exactly what the diagnostic names and try again "
+                        + "(concept_read shows the current cards), or finish honestly with type "
+                        + "\"none\" — but NEVER claim the change happened.";
     }
 
     /**
@@ -517,7 +540,8 @@ public final class TeamAgentPlaybook {
      * the artifact.
      */
     public static String conceptReceipts(long conceptRevision, java.util.List<String> applied,
-                                         java.util.List<String> rejected, String currentConcept) {
+                                         java.util.List<String> rejected, String currentConcept,
+                                         boolean german) {
         StringBuilder sb = new StringBuilder("ARTIFACT_STATE\n");
         sb.append("conceptRevision: ")
           .append(conceptRevision < 0 ? "unknown" : String.valueOf(conceptRevision)).append('\n');
@@ -542,15 +566,22 @@ public final class TeamAgentPlaybook {
         if (currentConcept != null && !currentConcept.trim().isEmpty()) {
             sb.append("CURRENT_CONCEPT\n").append(currentConcept.trim()).append('\n');
         }
-        sb.append("Only claim changes listed under APPLIED_ACTIONS. A rejected action changed "
-                + "NOTHING about the concept.\n\n");
+        sb.append(german
+                ? "Behaupte nur Änderungen, die unter APPLIED_ACTIONS stehen. Eine abgelehnte "
+                        + "Aktion hat NICHTS am Konzept verändert.\n\n"
+                : "Only claim changes listed under APPLIED_ACTIONS. A rejected action changed "
+                        + "NOTHING about the concept.\n\n");
         return sb.toString();
     }
 
     /** Appended to the LAST feedback when a budget is exhausted: wrap up, no further actions. */
-    public static String conceptToolBudgetExhausted() {
-        return "TOOL BUDGET EXHAUSTED: do NOT issue another conceptAction in this turn. Answer the "
-                + "user now with an honest assistantMessage about what was changed and what is still "
-                + "open.";
+    public static String conceptToolBudgetExhausted(boolean german) {
+        return german
+                ? "TOOL-BUDGET ERSCHÖPFT: Gib in diesem Turn KEINE weitere conceptAction aus. "
+                        + "Antworte dem Nutzer jetzt ehrlich, was geändert wurde und was noch "
+                        + "offen ist."
+                : "TOOL BUDGET EXHAUSTED: do NOT issue another conceptAction in this turn. "
+                        + "Answer the user now with an honest assistantMessage about what was "
+                        + "changed and what is still open.";
     }
 }

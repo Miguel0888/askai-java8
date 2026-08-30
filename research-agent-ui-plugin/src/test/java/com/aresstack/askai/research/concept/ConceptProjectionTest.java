@@ -57,7 +57,7 @@ public class ConceptProjectionTest {
         // The title lives beside the working surface; the tools never touch it — write it the
         // store way a later metadata tool would.
         ConceptProjection untitled = ConceptProjection.of(service.snapshot());
-        assertTrue(untitled.getMermaid().contains("root((Konzept))"));
+        assertTrue(untitled.getMermaid().contains("root((Concept))"));
     }
 
     @Test

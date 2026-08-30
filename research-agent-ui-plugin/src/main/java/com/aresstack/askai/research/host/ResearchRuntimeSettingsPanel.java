@@ -167,10 +167,10 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         form.add(row("Review-Kontext:", reviewLimits));
         JPanel conceptLimits = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0));
         conceptLimits.setOpaque(false);
-        conceptLimits.add(labelled("Werkzeugrunden", conceptToolRounds));
+        conceptLimits.add(labelled("Tool rounds", conceptToolRounds));
         conceptLimits.add(javax.swing.Box.createHorizontalStrut(10));
-        conceptLimits.add(labelled("Reparaturen", conceptRepairAttempts));
-        form.add(row("Konzept-Loop:", conceptLimits));
+        conceptLimits.add(labelled("Repairs", conceptRepairAttempts));
+        form.add(row("Concept loop:", conceptLimits));
         JPanel scopeCheckRow = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0));
         scopeCheckRow.setOpaque(false);
         scopeCheckRow.add(labelled("Breite (Konzepte)", scopeCheckTargetProbes));
@@ -422,11 +422,11 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
                 "Wie viele Zeichen je Quelle in die Auswertung gelangen.");
         bindLimit(conceptToolRounds, ResearchRuntimeSettings.KEY_CONCEPT_TOOL_ROUNDS,
                 ResearchRuntimeSettings.DEFAULT_CONCEPT_TOOL_ROUNDS,
-                "Wie viele Modell-Werkzeug-Zyklen EIN Konzept-Turn machen darf (Arbeitsbudget).");
+                "How many model-tool cycles ONE concept turn may make (work budget).");
         bindLimit(conceptRepairAttempts, ResearchRuntimeSettings.KEY_CONCEPT_REPAIR_ATTEMPTS,
                 ResearchRuntimeSettings.DEFAULT_CONCEPT_REPAIR_ATTEMPTS,
-                "Wie viele abgelehnte Konzept-Schritte je Turn korrigiert werden duerfen "
-                        + "(Fehlertoleranz, getrennt vom Arbeitsbudget).");
+                "How many rejected concept steps may be corrected per turn "
+                        + "(error tolerance, separate from the work budget).");
         refreshBackendStatus();
 
         save.addActionListener(new ActionListener() {

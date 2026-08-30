@@ -15,7 +15,7 @@ import javax.swing.JLabel;
  */
 final class ConceptMindmapAction {
 
-    static final String OVERLAY_TITLE = "Konzept-Mindmap";
+    static final String OVERLAY_TITLE = "Concept Mindmap";
 
     /** Same overlay contract as the sources mindmap. */
     interface OverlayHost {
@@ -30,18 +30,17 @@ final class ConceptMindmapAction {
     static void open(ResearchAgentSession session, OverlayHost host) {
         ConceptBranchService service = session.conceptBranchService();
         if (service == null) {
-            host.showHint(hint("Kein Konzept-Dienst in dieser Session."), OVERLAY_TITLE);
+            host.showHint(hint("This session has no concept service."), OVERLAY_TITLE);
             return;
         }
         ConceptProjection projection = ConceptProjection.of(service.snapshot());
         if (!projection.isReadable()) {
-            host.showHint(hint("Konzept nicht lesbar: " + projection.getDiagnosticText()),
+            host.showHint(hint("Concept not readable: " + projection.getDiagnosticText()),
                     OVERLAY_TITLE);
             return;
         }
         if (projection.isEmptyConcept()) {
-            host.showHint(hint("Noch kein Konzept — beschreibe im Chat, was du erforschen "
-                    + "möchtest."), OVERLAY_TITLE);
+            host.showHint(hint("No concept yet — describe in the chat what you want to research."), OVERLAY_TITLE);
             return;
         }
         host.showDiagram(projection.getMermaid(), OVERLAY_TITLE);

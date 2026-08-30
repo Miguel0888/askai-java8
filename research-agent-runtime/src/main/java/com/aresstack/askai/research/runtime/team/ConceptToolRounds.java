@@ -48,9 +48,12 @@ public final class ConceptToolRounds {
      * Drive the loop starting from the turn's FIRST result. Returns the FINAL result — the only
      * one whose visible message reaches the user; every intermediate answer is a working step.
      */
+    /** @param germanFeedback the session's language selector: feedback sentences follow it so
+     *  the model is never pushed into switching its reply language. */
     public static TeamAgentResult run(TeamAgentResult initial, FollowUpTurn turn,
                                       ConceptTool tool, int maxToolRounds,
-                                      int maxRepairAttempts, Trace trace) {
+                                      int maxRepairAttempts, boolean germanFeedback,
+                                      Trace trace) {
         TeamAgentResult result = initial;
         int rounds = 0;
         int repairs = 0;
@@ -83,20 +86,20 @@ public final class ConceptToolRounds {
                 repairs++;
                 rejected.add("(invalid) " + firstLine(actionError));
                 trace.line("round " + rounds + ": invalid conceptAction (" + actionError + ")");
-                feedback = TeamAgentPlaybook.conceptToolRejected(actionError);
+                feedback = TeamAgentPlaybook.conceptToolRejected(actionError, germanFeedback);
             } else {
                 trace.line("round " + rounds + ": " + action.describe());
                 try {
                     String text = tool.call(action);
                     if (action.getType() == ConceptAction.Type.READ) {
                         trace.line("round " + rounds + " -> RESULT");
-                        feedback = TeamAgentPlaybook.conceptToolResult(text);
+                        feedback = TeamAgentPlaybook.conceptToolResult(text, germanFeedback);
                     } else {
                         conceptRevision = revisionIn(text, conceptRevision);
                         applied.add(action.describe() + " (revision " + conceptRevision + ")");
                         refetchConcept = true;
                         trace.line("round " + rounds + " -> APPLIED revision=" + conceptRevision);
-                        feedback = TeamAgentPlaybook.conceptToolApplied(text);
+                        feedback = TeamAgentPlaybook.conceptToolApplied(text, germanFeedback);
                     }
                 } catch (ToolInvoker.ToolFailure toolRejected) {
                     repairs++;
@@ -104,7 +107,7 @@ public final class ConceptToolRounds {
                     rejected.add(action.describe() + " — " + reason);
                     refetchConcept = true; // prove to the model that NOTHING changed
                     trace.line("round " + rounds + " -> REJECTED " + reason);
-                    feedback = TeamAgentPlaybook.conceptToolRejected(toolRejected.getMessage());
+                    feedback = TeamAgentPlaybook.conceptToolRejected(toolRejected.getMessage(), germanFeedback);
                 } catch (ToolInvoker.EndpointUnavailable dead) {
                     // Infrastructure, not the model's fault: keep the last good result, no retry.
                     trace.line("concept endpoint unavailable — keeping the last answer ("
@@ -128,10 +131,10 @@ public final class ConceptToolRounds {
             if (budgetExhausted) {
                 trace.line("budget reached (rounds=" + rounds + "/" + maxToolRounds
                         + " repairs=" + repairs + "/" + maxRepairAttempts + ") — wrap-up turn");
-                feedback = feedback + "\n\n" + TeamAgentPlaybook.conceptToolBudgetExhausted();
+                feedback = feedback + "\n\n" + TeamAgentPlaybook.conceptToolBudgetExhausted(germanFeedback);
             }
             result = turn.run(TeamAgentPlaybook.conceptReceipts(conceptRevision, applied,
-                    rejected, currentConcept) + feedback);
+                    rejected, currentConcept, germanFeedback) + feedback);
         }
         return result;
     }

@@ -89,7 +89,7 @@ public class ConceptToolRoundsTest {
 
         TeamAgentResult result = ConceptToolRounds.run(
                 turn("ich sehe nach", "{\"type\":\"read\",\"path\":[\"X\"]}"),
-                turns, tool, 4, 2, traceSink);
+                turns, tool, 4, 2, false, traceSink);
 
         assertEquals("Angelegt.",
                 ((ScopingAssistantOutput) result.getOutput()).getAssistantMessage());
@@ -120,7 +120,7 @@ public class ConceptToolRoundsTest {
         ConceptToolRounds.run(
                 turn("try", "{\"type\":\"add\",\"parent\":[\"FreeRTOS\",\"ESP32\"],"
                         + "\"name\":\"Grundlagen\"}"),
-                turns, tool, 4, 2, traceSink);
+                turns, tool, 4, 2, false, traceSink);
 
         String feedback = turns.feedbackSeen.get(0);
         assertTrue(feedback.contains("REJECTED_ACTIONS\n- add parent=[\"FreeRTOS\",\"ESP32\"] "
@@ -142,7 +142,7 @@ public class ConceptToolRoundsTest {
 
         TeamAgentResult result = ConceptToolRounds.run(
                 turn("try", "{\"type\":\"add\",\"parent\":[],\"name\":\"X\"}"),
-                turns, tool, 10, 1, traceSink);
+                turns, tool, 10, 1, false, traceSink);
 
         assertEquals("aufgeben",
                 ((ScopingAssistantOutput) result.getOutput()).getAssistantMessage());
@@ -160,7 +160,7 @@ public class ConceptToolRoundsTest {
         turns.script.add(turn("ok", null));
         ConceptToolRounds.run(
                 turn("try", "{\"type\":\"add\",\"parent\":[\"X\"]}"), // name missing
-                turns, tool, 4, 2, traceSink);
+                turns, tool, 4, 2, false, traceSink);
         assertTrue(tool.calls.isEmpty());
         assertTrue(turns.feedbackSeen.get(0).contains("REJECTED_ACTIONS\n- (invalid)"));
     }
@@ -176,7 +176,7 @@ public class ConceptToolRoundsTest {
 
         TeamAgentResult result = ConceptToolRounds.run(
                 turn("start", "{\"type\":\"read\",\"path\":[\"A\"]}"),
-                turns, tool, 2, 2, traceSink);
+                turns, tool, 2, 2, false, traceSink);
 
         assertEquals(2, tool.calls.size()); // reads only — no mutation, no grounding re-read
         assertTrue(turns.feedbackSeen.get(1).contains("TOOL BUDGET EXHAUSTED"));
@@ -193,7 +193,7 @@ public class ConceptToolRoundsTest {
                 new ToolInvoker.EndpointUnavailable("Connection refused"));
         TeamAgentResult initial = turn("ich schaue nach", "{\"type\":\"read\",\"path\":[\"A\"]}");
 
-        TeamAgentResult result = ConceptToolRounds.run(initial, turns, tool, 4, 2, traceSink);
+        TeamAgentResult result = ConceptToolRounds.run(initial, turns, tool, 4, 2, false, traceSink);
 
         assertEquals(initial, result);
         assertTrue(turns.feedbackSeen.isEmpty());
@@ -205,7 +205,7 @@ public class ConceptToolRoundsTest {
         ScriptedTurns turns = new ScriptedTurns();
         TeamAgentResult initial = turn("nur eine Antwort", null);
         assertEquals(initial, ConceptToolRounds.run(initial, turns, new ScriptedTool(),
-                4, 2, traceSink));
+                4, 2, false, traceSink));
         assertTrue(turns.feedbackSeen.isEmpty());
     }
 }

@@ -23,7 +23,7 @@ public final class ResearchOutlineViewContribution implements ArtifactViewContri
 
     @Override
     public String getDisplayName() {
-        return "Inhaltsverzeichnis";
+        return "Outline";
     }
 
     @Override

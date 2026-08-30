@@ -13,10 +13,10 @@ public class ResearchBriefTabTest {
     public void theBriefIsTheFirstArtifactWithItsOwnType() {
         AgentArtifact first = ResearchArtifacts.all().get(0);
         assertEquals(ResearchBriefArtifact.ARTIFACT_ID, first.getId());
-        assertEquals("Konzept", first.getDisplayName());
+        assertEquals("Concept", first.getDisplayName());
         assertEquals(ResearchArtifacts.TYPE_BRIEF, first.getArtifactTypeId());
         assertEquals(ResearchArtifacts.TYPE_BRIEF,
                 new ResearchBriefViewContribution().getArtifactTypeId());
-        assertEquals("Konzept", new ResearchBriefViewContribution().getDisplayName());
+        assertEquals("Concept", new ResearchBriefViewContribution().getDisplayName());
     }
 }

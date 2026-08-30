@@ -28,7 +28,7 @@ import java.awt.event.ActionListener;
 public final class ConceptPaperView extends JPanel {
 
     private static final String EMPTY =
-            "_Noch kein Konzept. Beschreibe im Chat, was du erforschen möchtest._";
+            "_No concept yet. Describe in the chat what you want to research._";
 
     private final MarkdownView jsonView;
     private final ResearchBriefView briefView;
@@ -67,7 +67,7 @@ public final class ConceptPaperView extends JPanel {
         // Manual refresh for ALL cases — the auto-listeners cover the normal paths, but a
         // human must never depend on them to see the current workpiece.
         refreshButton.setFocusable(false);
-        refreshButton.setToolTipText("Ansicht neu laden");
+        refreshButton.setToolTipText("Reload view");
         bar.add(refreshButton);
         revisionLabel.setEnabled(false); // quiet gray, diagnostic value only
         bar.add(revisionLabel);
@@ -103,7 +103,7 @@ public final class ConceptPaperView extends JPanel {
         revisionLabel.setText("rev " + projection.getWorkingRevision());
         if (!projection.isReadable()) {
             // Never creative repair: the honest diagnosis leads, the raw text stays visible.
-            jsonView.setMarkdown("**Konzept nicht lesbar**\n\n```\n"
+            jsonView.setMarkdown("**Concept not readable**\n\n```\n"
                     + projection.getDiagnosticText() + "\n```\n\n```\n"
                     + projection.getPrettyJson() + "\n```");
             return;

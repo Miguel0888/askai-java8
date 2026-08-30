@@ -59,7 +59,7 @@ public final class ConceptProjection {
         }
         String mermaid = forest.isEmpty() ? null
                 : MermaidMindmapRenderer.render(forest,
-                        title.isEmpty() ? "Konzept" : title);
+                        title.isEmpty() ? "Concept" : title);
         String pretty = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create()
                 .toJson(JsonParser.parseString(document));
         return new ConceptProjection(revision, title, mermaid, pretty, forest.isEmpty(), null);

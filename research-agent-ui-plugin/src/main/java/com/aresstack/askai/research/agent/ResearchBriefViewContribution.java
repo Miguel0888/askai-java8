@@ -24,7 +24,7 @@ public final class ResearchBriefViewContribution implements ArtifactViewContribu
 
     @Override
     public String getDisplayName() {
-        return "Konzept";
+        return "Concept";
     }
 
     @Override

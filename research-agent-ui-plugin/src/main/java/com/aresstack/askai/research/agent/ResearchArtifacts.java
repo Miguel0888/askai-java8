@@ -35,13 +35,13 @@ public final class ResearchArtifacts {
         // artifact — first tab.
         // The former "Visualisierung" tab is GONE: the sources mindmap lives behind the square
         // toolbar button next to the Websuche (and /map) as a transcript overlay instead.
-        list.add(new Artifact("research-brief", "Konzept", TYPE_BRIEF, ""));
+        list.add(new Artifact("research-brief", "Concept", TYPE_BRIEF, ""));
         // Sources sit BEFORE the outline: the concept already yields the first sources, and the outline is
         // (going to be) GENERATED FROM the sources — the tab order mirrors that logical flow.
         list.add(new Artifact("sources", "Sources", TYPE_SOURCES, ""));
         // Issue #29: the outline is a DERIVED projection with its own view (persisted result + stale marker
         // + explicit "Inhaltsverzeichnis erzeugen" action) — no longer a live-updating markdown tab.
-        list.add(new Artifact("outline", "Inhaltsverzeichnis", TYPE_OUTLINE, "outline.md"));
+        list.add(new Artifact("outline", "Outline", TYPE_OUTLINE, "outline.md"));
         // ONE canonical working document (issue #32): DRAFT and FINALIZATION both work on it. The legacy
         // concept/research-notes/findings/draft/final artifacts are deliberately NOT listed anymore — old
         // files stay untouched on disk, but they get no tabs and no active-workflow writes.

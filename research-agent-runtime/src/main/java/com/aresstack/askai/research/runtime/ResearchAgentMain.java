@@ -1203,6 +1203,7 @@ public final class ResearchAgentMain {
                     }
                 },
                 conceptMaxToolRounds, conceptMaxRepairAttempts,
+                "de".equalsIgnoreCase(sessionLanguage.code()),
                 new com.aresstack.askai.research.runtime.team.ConceptToolRounds.Trace() {
                     public void line(String message) {
                         ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire

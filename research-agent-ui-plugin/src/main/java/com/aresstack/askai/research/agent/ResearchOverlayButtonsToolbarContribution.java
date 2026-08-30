@@ -65,7 +65,7 @@ public final class ResearchOverlayButtonsToolbarContribution implements AgentToo
         // renders, as the host's diagram overlay — one truth, one pipeline (K3).
         ComicButton conceptMap = new ComicButton("",
                 new ResearchWebSearchToolbarContribution.MindmapIcon());
-        conceptMap.setToolTipText("Konzept visualisieren");
+        conceptMap.setToolTipText("Visualize concept");
         conceptMap.setFocusable(false);
         conceptMap.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
         conceptMap.setPreferredSize(new Dimension(26, 26));
