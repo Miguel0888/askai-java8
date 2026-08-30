@@ -457,6 +457,11 @@ public final class AgentSessionCoordinator
     }
 
 
+    /** The active agent's hamburger-replacement glyph, or {@code null} (keep the hamburger). */
+    public javax.swing.Icon getActiveMenuIcon() {
+        return activeExtension == null ? null : activeExtension.getMenuIcon();
+    }
+
     /** @return the active agent's top-bar toolbar contributions (empty when no agent is active). */
     public List<com.aresstack.askai.plugin.api.agent.toolbar.AgentToolbarContribution>
             getActiveToolbarContributions() {

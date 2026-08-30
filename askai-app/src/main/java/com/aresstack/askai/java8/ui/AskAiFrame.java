@@ -830,6 +830,14 @@ public final class AskAiFrame extends JFrame {
                         chatTabs.clearAgentFooterToolbar();
                     }
 
+                    public void setLeadingToolbar(javax.swing.JComponent component) {
+                        chatTabs.setAgentLeadingToolbar(component);
+                    }
+
+                    public void clearLeadingToolbar() {
+                        chatTabs.clearAgentLeadingToolbar();
+                    }
+
                     public void showTranscriptOverlay(javax.swing.JComponent content, String title) {
                         showOverlayOnActiveChat(content, title);
                     }
@@ -838,6 +846,14 @@ public final class AskAiFrame extends JFrame {
                         showDiagramOverlayOnActiveChat(mermaidSource, title);
                     }
                 });
+        // The ACTIVE plugin may brand the hamburger with its own glyph (hover restores ☰); the
+        // footer's mode pill follows the shared controller through the same change stream.
+        final com.aresstack.askai.plugin.host.AgentSessionCoordinator brandingCoordinator =
+                agentCoordinator;
+        agentCoordinator.addChangeListener(() -> uiExecutor.execute(() ->
+                chatTabs.setMenuOverrideIcon(brandingCoordinator.getActiveMenuIcon())));
+        chatTabs.setMenuOverrideIcon(agentCoordinator.getActiveMenuIcon());
+        chatTabs.setWorkspaceModeController(host); // the host panel IS the mode controller
         return host;
     }
 

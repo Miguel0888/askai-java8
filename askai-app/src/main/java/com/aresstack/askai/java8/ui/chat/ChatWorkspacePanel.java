@@ -89,6 +89,13 @@ public final class ChatWorkspacePanel extends JPanel {
     private final JPanel agentToolbarSlot = new JPanel(new BorderLayout());
     /** Slot for the ACTIVE agent's Chats-footer control (e.g. the session language pill). */
     private final JPanel agentFooterToolbarSlot = new JPanel(new BorderLayout());
+    /** Slot for the ACTIVE agent's LEADING control (right after the burger, before the ribbon). */
+    private final JPanel agentLeadingSlot = new JPanel(new BorderLayout());
+    /** The footer's mode pill (Yapping / agent / Partying) — anchors the active tab's mode popup. */
+    private final ResearchPillButton modePill = new ResearchPillButton("Yapping",
+            ResearchUiMetrics.FOOTER_CONTROL_HEIGHT, ResearchUiMetrics.RADIUS_CONTROL,
+            ResearchUiMetrics.FOOTER_PILL_PADDING_H);
+    private com.aresstack.askai.plugin.host.WorkspaceModeController modeController;
     /**
      * The CENTERED top-bar slot (e.g. the research web-search tag): GridBagLayout centers its one
      * child; the unfolding ribbon pushes it right and squeezes it when the width runs out.
@@ -355,6 +362,68 @@ public final class ChatWorkspacePanel extends JPanel {
         persistBurgerPinned();
     }
 
+    /** Show the active agent's LEADING control right after the burger (replaces any previous). */
+    public void setAgentLeadingToolbar(javax.swing.JComponent component) {
+        agentLeadingSlot.removeAll();
+        if (component != null) {
+            agentLeadingSlot.add(component, BorderLayout.CENTER);
+        }
+        syncLeadingCompact();
+        agentLeadingSlot.revalidate();
+        agentLeadingSlot.repaint();
+    }
+
+    public void clearAgentLeadingToolbar() {
+        setAgentLeadingToolbar(null);
+    }
+
+    /**
+     * Tell the leading control whether the unfolded ribbon needs its REDUCED view (client-property
+     * convention, see {@code AgentToolbarContribution.COMPACT_MODE_PROPERTY}) — set on the hosted
+     * component and its direct children, mirroring the transcript-inset convention.
+     */
+    private void syncLeadingCompact() {
+        Boolean compact = Boolean.valueOf(ribbon.isOpen());
+        for (java.awt.Component hosted : agentLeadingSlot.getComponents()) {
+            if (hosted instanceof javax.swing.JComponent) {
+                ((javax.swing.JComponent) hosted).putClientProperty(
+                        com.aresstack.askai.plugin.api.agent.toolbar.AgentToolbarContribution
+                                .COMPACT_MODE_PROPERTY, compact);
+                for (java.awt.Component child : ((java.awt.Container) hosted).getComponents()) {
+                    if (child instanceof javax.swing.JComponent) {
+                        ((javax.swing.JComponent) child).putClientProperty(
+                                com.aresstack.askai.plugin.api.agent.toolbar
+                                        .AgentToolbarContribution.COMPACT_MODE_PROPERTY, compact);
+                    }
+                }
+            }
+        }
+    }
+
+    /** A plugin's hamburger-replacement glyph (null = plain hamburger); hover always shows ☰. */
+    public void setMenuOverrideIcon(javax.swing.Icon icon) {
+        ChatComposerPanel.setSidebarToggleOverrideIcon(burger, icon);
+    }
+
+    /** Bind the shared mode controller so the footer's mode pill can render and refresh. */
+    public void setWorkspaceModeController(
+            com.aresstack.askai.plugin.host.WorkspaceModeController controller) {
+        this.modeController = controller;
+        if (controller != null) {
+            controller.addChangeListener(this::refreshModePill);
+        }
+        refreshModePill();
+    }
+
+    /** The footer pill mirrors the ACTIVE tab's mode label (Yapping / agent / Partying). */
+    private void refreshModePill() {
+        ChatSessionComponent active = activeSession();
+        modePill.setText(active instanceof OllamaChatPanel
+                ? ((OllamaChatPanel) active).currentModeLabel() : "Yapping");
+        modePill.revalidate();
+        modePill.repaint();
+    }
+
     /** Show the active agent's control in the Chats-pane footer (replaces any previous one). */
     public void setAgentFooterToolbar(javax.swing.JComponent component) {
         agentFooterToolbarSlot.removeAll();
@@ -438,6 +507,10 @@ public final class ChatWorkspacePanel extends JPanel {
         topLeft.setLayout(new javax.swing.BoxLayout(topLeft, javax.swing.BoxLayout.X_AXIS));
         topLeft.setOpaque(false);
         topLeft.add(burger);
+        // The LEADING agent control (e.g. the phase selector) sits LEFT-aligned right after the
+        // burger and STAYS while the ribbon unfolds — the ribbon then asks it for its compact view.
+        agentLeadingSlot.setOpaque(false);
+        topLeft.add(agentLeadingSlot);
         topLeft.add(ribbon);
         topBar.add(topLeft, BorderLayout.WEST);
         agentCenterSlot.setOpaque(false);
@@ -483,6 +556,7 @@ public final class ChatWorkspacePanel extends JPanel {
     private void openMenuAndSidebar() {
         showSidebar();
         ribbon.open();
+        syncLeadingCompact(); // the leading control shrinks to its short label beside the tabs
     }
 
     private void collapseMenuAndSidebar() {
@@ -490,12 +564,14 @@ public final class ChatWorkspacePanel extends JPanel {
         menuLocked = false;
         ChatComposerPanel.setToolbarButtonLatched(burger, false);
         ribbon.close();
+        syncLeadingCompact();
         hideSidebar();
         persistBurgerPinned();
     }
 
     private void showSidebar() {
         refreshChatList();
+        refreshModePill(); // catches tab-local mode changes (Partying) without an own event
         sidebar.rebuildTabs(); // picks up freshly contributed panes
         refreshRibbonTabs();
         sidebar.setVisible(true);
@@ -550,6 +626,7 @@ public final class ChatWorkspacePanel extends JPanel {
     private void onPointerLeftSidebarArea() {
         if (!menuLocked) {
             ribbon.close();
+            syncLeadingCompact();
             hideSidebar();
         }
         updateMouseWatcher();
@@ -685,7 +762,24 @@ public final class ChatWorkspacePanel extends JPanel {
         footer.setPreferredSize(new Dimension(10, ResearchUiMetrics.FOOTER_HEIGHT));
 
         agentFooterToolbarSlot.setOpaque(false);
-        footer.add(agentFooterToolbarSlot, BorderLayout.WEST);
+        // Left group: [language slot][mode pill] — the mode selector moved here from the
+        // composer; clicking it opens the ACTIVE tab's existing mode popup (incl. Partying),
+        // styled as the same dark pill family as the language switch.
+        modePill.setFont(ResearchUiTypography.regular(13f));
+        modePill.setToolTipText("Chat-Modus: Yapping, Questing (Agent) oder Partying");
+        modePill.addActionListener(event -> {
+            ChatSessionComponent active = activeSession();
+            if (active instanceof OllamaChatPanel) {
+                ((OllamaChatPanel) active).openModePopupAt(modePill);
+            }
+        });
+        JPanel footerLeft = new JPanel();
+        footerLeft.setLayout(new javax.swing.BoxLayout(footerLeft, javax.swing.BoxLayout.X_AXIS));
+        footerLeft.setOpaque(false);
+        footerLeft.add(agentFooterToolbarSlot);
+        footerLeft.add(javax.swing.Box.createHorizontalStrut(8));
+        footerLeft.add(modePill);
+        footer.add(footerLeft, BorderLayout.WEST);
 
         // Delete-all: same height/radius family as the language pill; white and quiet at rest,
         // red only on hover/pressed — a rarely used destructive action must not draw attention.
@@ -1164,6 +1258,7 @@ public final class ChatWorkspacePanel extends JPanel {
     }
 
     private void fireActiveSessionChanged() {
+        refreshModePill(); // the footer pill always mirrors the newly active tab's mode
         if (activeSessionListener == null) {
             return;
         }

@@ -83,6 +83,13 @@ public final class ResearchAgentPluginExtension implements AgentPluginExtension 
     }
 
     @Override
+    public javax.swing.Icon getMenuIcon() {
+        // The research flask BRANDS the workspace hamburger while this agent is active; the host
+        // shows the plain hamburger again on hover so the click's function stays obvious.
+        return new com.aresstack.askai.research.agent.ResearchPhaseToolbarContribution.FlaskIcon();
+    }
+
+    @Override
     public List<com.aresstack.askai.plugin.api.agent.toolbar.AgentToolbarContribution>
             getToolbarContributions() {
         // The session language switch lives in the drawer's CHATS FOOTER, the phase selector holds

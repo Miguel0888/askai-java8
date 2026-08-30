@@ -14,6 +14,14 @@ import javax.swing.JComponent;
  */
 public interface AgentToolbarContribution {
 
+    /**
+     * Client-property key the HOST sets (a {@code Boolean}) on a LEADING toolbar component and its
+     * direct children while the sidebar tab menu is unfolded: {@code true} asks the control for its
+     * REDUCED view (e.g. the phase pill shrinking to its ≤8-character short label) so it never
+     * dominates the tab entries; {@code false}/absent restores the full view.
+     */
+    String COMPACT_MODE_PROPERTY = "askai.toolbarCompact";
+
     /** Where in the workspace top bar this control lives. */
     enum Placement {
         /**
@@ -22,6 +30,12 @@ public interface AgentToolbarContribution {
          * and may squeeze it.
          */
         CENTER,
+        /**
+         * LEFT-aligned right after the hamburger, BEFORE the unfolding tab ribbon — e.g. the
+         * research phase selector. Stays visible while the menu unfolds; see
+         * {@link #COMPACT_MODE_PROPERTY} for the reduced view it must offer then.
+         */
+        LEADING,
         /** Left of the gear in the trailing group (the default) — e.g. a language switch. */
         TRAILING,
         /**

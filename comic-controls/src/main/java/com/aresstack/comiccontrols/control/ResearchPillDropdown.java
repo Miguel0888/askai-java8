@@ -31,12 +31,20 @@ public class ResearchPillDropdown extends JComponent {
     /** One popup row; disabled rows render muted and do not react to clicks. */
     public static final class Item {
         final String text;
+        /** The REDUCED pill label for compact mode (or null = use {@link #text}); the popup
+         *  always shows the full {@link #text} — the map's key/value contract. */
+        final String shortText;
         final Icon icon;
         final boolean enabled;
         final String tooltip;
 
         public Item(String text, Icon icon, boolean enabled, String tooltip) {
+            this(text, null, icon, enabled, tooltip);
+        }
+
+        public Item(String text, String shortText, Icon icon, boolean enabled, String tooltip) {
             this.text = text;
+            this.shortText = shortText;
             this.icon = icon;
             this.enabled = enabled;
             this.tooltip = tooltip;
@@ -113,6 +121,25 @@ public class ResearchPillDropdown extends JComponent {
         repaint();
     }
 
+    private boolean compact;
+
+    /**
+     * COMPACT mode: the pill shows each item's short label and drops its minimum width, so it
+     * stops dominating whatever unfolds beside it. The POPUP keeps the full texts either way.
+     */
+    public void setCompact(boolean compact) {
+        if (this.compact != compact) {
+            this.compact = compact;
+            revalidate();
+            repaint();
+        }
+    }
+
+    private String pillTextOf(Item item) {
+        return compact && item.shortText != null && !item.shortText.isEmpty()
+                ? item.shortText : item.text;
+    }
+
     public void setSelectionListener(SelectionListener listener) {
         this.listener = listener;
     }
@@ -173,7 +200,7 @@ public class ResearchPillDropdown extends JComponent {
                 }
                 g2.setColor(foreground);
                 int textY = (getHeight() - metrics.getHeight()) / 2 + metrics.getAscent();
-                g2.drawString(item.text, x, textY);
+                g2.drawString(pillTextOf(item), x, textY);
             }
             // The chevron sits ~12px from the right edge (design study).
             ResearchUiPainter.paintChevronDown(g2, getWidth() - paddingRight - 3,
@@ -195,9 +222,10 @@ public class ResearchPillDropdown extends JComponent {
             if (item.icon != null) {
                 width += item.icon.getIconWidth() + 8;
             }
-            width += metrics.stringWidth(item.text);
+            width += metrics.stringWidth(pillTextOf(item));
         }
-        return new Dimension(Math.max(minWidth, width), fixedHeight);
+        // Compact drops the minimum width too — the whole point is to stop dominating.
+        return new Dimension(compact ? width : Math.max(minWidth, width), fixedHeight);
     }
 
     @Override

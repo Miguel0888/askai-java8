@@ -1655,6 +1655,9 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
     }
 
     private JComponent buildComposer() {
+        // The mode selector moved into the drawer's Chats FOOTER (next to the language pill);
+        // its logic (openModePopupAt/currentModeLabel) stays here — only the button left.
+        composer.setModeSelectorVisible(false);
         composer.setChatStatus("Select a model and start chatting.");
         composer.setDictationStatus(" ");
         refreshDictationControls();
@@ -1920,6 +1923,15 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
      * overlays plain Yapping and never routes to an agent.
      */
     private void openModePopup() {
+        openModePopupAt(composer.getModeButton());
+    }
+
+    /**
+     * The ONE mode popup (Yapping / Questing agents / Partying), anchored wherever the caller
+     * lives — the drawer's footer mode pill uses this; the logic (incl. the Partying handling
+     * local to this tab) stays here, never duplicated host-side.
+     */
+    public void openModePopupAt(JComponent anchor) {
         javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
         boolean questing = modeController != null
                 && com.aresstack.askai.plugin.host.WorkspaceModeEntry.QUESTING_ID
@@ -1967,8 +1979,23 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         partying.addActionListener(event -> selectPartyingMode());
         menu.add(partying);
 
-        JComponent anchor = composer.getModeButton();
         menu.show(anchor, 0, anchor.getHeight());
+    }
+
+    /**
+     * The current mode's display label (Yapping / agent name / Partying) — the drawer footer's
+     * mode pill renders this for the ACTIVE tab.
+     */
+    public String currentModeLabel() {
+        if (modeController != null && com.aresstack.askai.plugin.host.WorkspaceModeEntry.QUESTING_ID
+                .equals(modeController.getInteractionMode())) {
+            String label = modeController.getActiveAgentLabel();
+            return label != null && !label.isEmpty() ? label : "Questing";
+        }
+        if (GroupChatMode.PARTYING.equals(chatMode)) {
+            return "Partying";
+        }
+        return YAPPING_MODE;
     }
 
     /** Updates the composer's mode label from the controller (Yapping/agent); Partying keeps its label. */
@@ -1976,20 +2003,12 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         if (modeController == null) {
             return;
         }
-        if (com.aresstack.askai.plugin.host.WorkspaceModeEntry.QUESTING_ID
-                .equals(modeController.getInteractionMode())) {
-            // The active agent's name resolves synchronously from the controller (live catalog, or the
-            // persisted label on restore before the catalog loads) — so the composer renders the exact
-            // agent atomically with the mode, never a generic "Questing" flicker followed by a switch.
-            String label = modeController.getActiveAgentLabel();
-            composer.setModeName(label != null && !label.isEmpty() ? label : "Questing");
-        } else if (GroupChatMode.PARTYING.equals(chatMode)) {
-            // The LAN party overlays plain Yapping on the controller; its label must survive
-            // unrelated controller change events.
-            composer.setModeName("Partying");
-        } else {
-            composer.setModeName(YAPPING_MODE);
-        }
+        // The active agent's name resolves synchronously from the controller (live catalog, or the
+        // persisted label on restore before the catalog loads) — so the label renders the exact
+        // agent atomically with the mode, never a generic "Questing" flicker followed by a switch.
+        // The LAN party overlays plain Yapping on the controller; its label must survive unrelated
+        // controller change events — currentModeLabel() honors that.
+        composer.setModeName(currentModeLabel());
     }
 
     private void selectYappingMode() {

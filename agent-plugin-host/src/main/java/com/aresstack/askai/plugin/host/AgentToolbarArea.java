@@ -47,6 +47,7 @@ public final class AgentToolbarArea {
             host.clearToolbar();
             host.clearCenterToolbar();
             host.clearFooterToolbar();
+            host.clearLeadingToolbar();
             return;
         }
         AgentToolbarContext context = new AgentToolbarContext() {
@@ -75,9 +76,11 @@ public final class AgentToolbarArea {
         JPanel trailingRow = newRow();
         JPanel centerRow = newRow();
         JPanel footerRow = newRow();
+        JPanel leadingRow = newRow();
         int trailingBuilt = 0;
         int centerBuilt = 0;
         int footerBuilt = 0;
+        int leadingBuilt = 0;
         for (AgentToolbarContribution contribution : coordinator.getActiveToolbarContributions()) {
             if (contribution == null || !contribution.supports(session)) {
                 continue;
@@ -89,6 +92,10 @@ public final class AgentToolbarArea {
             if (contribution.getPlacement() == AgentToolbarContribution.Placement.CENTER) {
                 centerRow.add(component);
                 centerBuilt++;
+            } else if (contribution.getPlacement()
+                    == AgentToolbarContribution.Placement.LEADING) {
+                leadingRow.add(component);
+                leadingBuilt++;
             } else if (contribution.getPlacement()
                     == AgentToolbarContribution.Placement.SIDEBAR_FOOTER) {
                 footerRow.add(component);
@@ -112,6 +119,11 @@ public final class AgentToolbarArea {
             host.clearFooterToolbar();
         } else {
             host.setFooterToolbar(footerRow);
+        }
+        if (leadingBuilt == 0) {
+            host.clearLeadingToolbar();
+        } else {
+            host.setLeadingToolbar(leadingRow);
         }
     }
 

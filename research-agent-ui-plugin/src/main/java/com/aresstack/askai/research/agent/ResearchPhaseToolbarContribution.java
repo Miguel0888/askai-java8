@@ -37,24 +37,40 @@ public final class ResearchPhaseToolbarContribution implements AgentToolbarContr
 
     /** Display names per phase id, in snapshot order ("Phase N: …" is prefixed at render time). */
     private static final Map<String, String> PHASE_TITLES;
+    /**
+     * The REDUCED labels for the unfolded-menu state — the map's KEY side: unique, at most 8
+     * characters, lightly imperative (the plugin's own wording); the full title stays the VALUE
+     * the popup shows.
+     */
+    private static final Map<String, String> PHASE_SHORT_TITLES;
+    private static final int SHORT_TITLE_LIMIT = 8;
 
     static {
         Map<String, String> titles = new LinkedHashMap<String, String>();
+        Map<String, String> shorts = new LinkedHashMap<String, String>();
         titles.put(com.aresstack.askai.research.state.oo.ResearchStateIds.SCOPING,
                 "Scoping / Konzeptphase");
+        shorts.put(com.aresstack.askai.research.state.oo.ResearchStateIds.SCOPING, "Konzept");
         titles.put(com.aresstack.askai.research.state.oo.ResearchStateIds.OUTLINE,
                 "Gliederung");
+        shorts.put(com.aresstack.askai.research.state.oo.ResearchStateIds.OUTLINE, "Gliedern");
         titles.put(com.aresstack.askai.research.state.oo.ResearchStateIds.RESEARCH,
                 "Research / Recherche");
+        shorts.put(com.aresstack.askai.research.state.oo.ResearchStateIds.RESEARCH, "Suchen");
         titles.put(com.aresstack.askai.research.state.oo.ResearchStateIds.EVIDENCE,
                 "Evidenz / Belege");
+        shorts.put(com.aresstack.askai.research.state.oo.ResearchStateIds.EVIDENCE, "Belegen");
         titles.put(com.aresstack.askai.research.state.oo.ResearchStateIds.DRAFT,
                 "Entwurf");
+        shorts.put(com.aresstack.askai.research.state.oo.ResearchStateIds.DRAFT, "Entwurf");
         titles.put(com.aresstack.askai.research.state.oo.ResearchStateIds.REVIEW,
                 "Review");
+        shorts.put(com.aresstack.askai.research.state.oo.ResearchStateIds.REVIEW, "Prüfen");
         titles.put(com.aresstack.askai.research.state.oo.ResearchStateIds.FINALIZATION,
                 "Finalisierung");
+        shorts.put(com.aresstack.askai.research.state.oo.ResearchStateIds.FINALIZATION, "Finale");
         PHASE_TITLES = titles;
+        PHASE_SHORT_TITLES = shorts;
     }
 
     @Override
@@ -64,7 +80,7 @@ public final class ResearchPhaseToolbarContribution implements AgentToolbarContr
 
     @Override
     public Placement getPlacement() {
-        return Placement.CENTER;
+        return Placement.LEADING; // left-aligned right after the (flask-branded) hamburger
     }
 
     @Override
@@ -89,8 +105,17 @@ public final class ResearchPhaseToolbarContribution implements AgentToolbarContr
                 ResearchUiPainter.mix(ResearchUiPalette.SECONDARY_HOVER, java.awt.Color.WHITE,
                         0.06f));
         pill.setPillForeground(ResearchUiPalette.TEXT_PRIMARY);
-        pill.setLeadingIcon(new FlaskIcon());
+        // No flask INSIDE the pill anymore — the flask brands the hamburger while this agent is
+        // active (getMenuIcon); the pill is text + chevron only, left-aligned.
         pill.setToolTipText("Research-Phase (Wechsel läuft über den regulären Workflow)");
+        // While the tab ribbon unfolds beside it, the host asks for the REDUCED view via the
+        // shared client property; the popup keeps the full titles either way.
+        pill.addPropertyChangeListener(
+                com.aresstack.askai.plugin.api.agent.toolbar.AgentToolbarContribution
+                        .COMPACT_MODE_PROPERTY,
+                event -> pill.setCompact(Boolean.TRUE.equals(pill.getClientProperty(
+                        com.aresstack.askai.plugin.api.agent.toolbar.AgentToolbarContribution
+                                .COMPACT_MODE_PROPERTY))));
 
         pill.setSelectionListener(new ResearchPillDropdown.SelectionListener() {
             public void itemSelected(int index) {
@@ -139,7 +164,8 @@ public final class ResearchPhaseToolbarContribution implements AgentToolbarContr
             ResearchCommandType command = snapshot.advanceCommandFor(phaseId);
             boolean reachable = command != null
                     && ResearchSemanticCommands.semanticNameFor(command) != null;
-            items.add(new ResearchPillDropdown.Item(phaseLabel(index, phaseId), null, reachable,
+            items.add(new ResearchPillDropdown.Item(phaseLabel(index, phaseId),
+                    shortLabel(phaseId), null, reachable,
                     reachable ? ResearchStateView.label(command) : null));
         }
         pill.setItems(items);
@@ -174,11 +200,23 @@ public final class ResearchPhaseToolbarContribution implements AgentToolbarContr
         return "Phase " + (index + 1) + ": " + (title == null ? phaseId : title);
     }
 
+    /** The ≤8-character key shown while the tab menu is unfolded (hard-capped defensively). */
+    private static String shortLabel(String phaseId) {
+        String label = PHASE_SHORT_TITLES.get(phaseId);
+        if (label == null) {
+            label = phaseId;
+        }
+        return label.length() <= SHORT_TITLE_LIMIT
+                ? label : label.substring(0, SHORT_TITLE_LIMIT);
+    }
+
     /**
-     * The lab-flask (Erlenmeyer) glyph, painted INSIDE the pill in white — a monochrome icon, not
-     * an emoji. 16×18 so it sits comfortably in the 34px pill.
+     * The lab-flask (Erlenmeyer) glyph — monochrome Java2D, no emoji, painted with the OWNING
+     * component's foreground so it follows every button state (ink at rest, white when the burger
+     * is latched dark). 16×18. Public: it BRANDS the workspace hamburger while the research agent
+     * is active ({@code ResearchAgentPluginExtension.getMenuIcon()}).
      */
-    static final class FlaskIcon implements javax.swing.Icon {
+    public static final class FlaskIcon implements javax.swing.Icon {
 
         public int getIconWidth() {
             return 16;
@@ -191,7 +229,8 @@ public final class ResearchPhaseToolbarContribution implements AgentToolbarContr
         public void paintIcon(java.awt.Component component, Graphics graphics, int x, int y) {
             Graphics2D g2 = ResearchUiPainter.prepare(graphics);
             try {
-                g2.setColor(ResearchUiPalette.TEXT_PRIMARY);
+                g2.setColor(component != null && component.getForeground() != null
+                        ? component.getForeground() : ResearchUiPalette.TEXT_PRIMARY);
                 g2.setStroke(new BasicStroke(1.7f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
                 // Neck (two verticals), shoulders flaring out, flat bottom — the classic flask.
                 Path2D.Float flask = new Path2D.Float();

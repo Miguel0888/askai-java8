@@ -12,6 +12,11 @@ public interface AgentToolbarHost {
 
     void clearToolbar();
 
+    /** Show a LEADING control right after the hamburger, before the tab ribbon. */
+    void setLeadingToolbar(JComponent component);
+
+    void clearLeadingToolbar();
+
     /** Show a centered top-bar control (e.g. a session search field). */
     void setCenterToolbar(JComponent component);
 

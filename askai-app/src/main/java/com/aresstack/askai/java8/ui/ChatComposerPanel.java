@@ -506,14 +506,41 @@ public final class ChatComposerPanel extends JPanel {
      * the TOP-LEFT of the chat area (it toggles the sidebar there); this factory keeps the icon and
      * styling single-sourced here.
      */
+    /** Client-property key holding a plugin's hamburger-replacement glyph (or absent). */
+    private static final String MENU_OVERRIDE_ICON = "askai.menuOverrideIcon";
+    private static final Icon MENU_ICON = new MenuIcon();
+
     public static JButton createSidebarToggleButton() {
-        ComposerButton button = new ComposerButton(new MenuIcon(), null, false);
+        final ComposerButton button = new ComposerButton(MENU_ICON, null, false);
         configureButton(button, "Chats & tools sidebar");
         // Latched (menu pinned open) it fills with the DARK "New Chat" accent, not blue — the
         // same near-black the phase selector and the active ribbon entry speak.
         button.setAccent(com.aresstack.comiccontrols.theme.ResearchUiPalette.SECONDARY_SURFACE);
         button.setPreferredSize(new Dimension(30, 28));
+        // HOVER always brings the plain hamburger back, so the user knows what the click does
+        // even while a plugin brands the resting glyph (e.g. the research flask).
+        button.getModel().addChangeListener(e -> applySidebarToggleIcon(button));
         return button;
+    }
+
+    /**
+     * Let the ACTIVE plugin replace the resting hamburger glyph ({@code null} restores it). The
+     * button's function is untouched, and hovering always shows the ordinary hamburger again.
+     */
+    public static void setSidebarToggleOverrideIcon(JButton button, Icon override) {
+        if (button instanceof ComposerButton) {
+            ((ComposerButton) button).putClientProperty(MENU_OVERRIDE_ICON, override);
+            applySidebarToggleIcon((ComposerButton) button);
+        }
+    }
+
+    private static void applySidebarToggleIcon(ComposerButton button) {
+        Object override = button.getClientProperty(MENU_OVERRIDE_ICON);
+        Icon resting = override instanceof Icon ? (Icon) override : MENU_ICON;
+        Icon wanted = button.getModel().isRollover() ? MENU_ICON : resting;
+        if (button.getIcon() != wanted) {
+            button.setIcon(wanted);
+        }
     }
 
     /**
@@ -578,6 +605,13 @@ public final class ChatComposerPanel extends JPanel {
         configureButton(button, leftDirection ? "Scroll left" : "Scroll right");
         button.setPreferredSize(new Dimension(18, 28));
         return button;
+    }
+
+    /** Hide/show the in-composer mode selector (it moved into the drawer's Chats footer). */
+    public void setModeSelectorVisible(boolean visible) {
+        modeButton.setVisible(visible);
+        revalidate();
+        repaint();
     }
 
     /** Set the label shown on the in-composer mode selector (e.g. "Yapping" or an agent name). */

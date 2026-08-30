@@ -56,4 +56,15 @@ public interface AgentPluginExtension extends ExtensionPoint {
             getToolbarContributions() {
         return java.util.Collections.emptyList();
     }
+
+    /**
+     * An optional BRAND glyph replacing the workspace's hamburger icon while this agent is active
+     * (e.g. the research flask). The button's FUNCTION is untouched — it still unfolds the tab
+     * menu — and the host shows the ordinary hamburger again on HOVER, so the user always learns
+     * what the click does. Paint with the owning component's foreground (the button swaps it per
+     * state); monochrome Java2D, no emoji. Default: {@code null} = keep the hamburger.
+     */
+    default javax.swing.Icon getMenuIcon() {
+        return null;
+    }
 }
