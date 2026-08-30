@@ -44,7 +44,15 @@ public final class PiperReadAloudService implements SpeechSynthesisPort {
             return false;
         }
         try {
-            synthesizer.speak(store, voice, plainText, current.getStartupTimeoutSeconds());
+            PiperSpeechSynthesizer.Utterance utterance = synthesizer.speak(
+                    store, voice, plainText, current.getStartupTimeoutSeconds());
+            System.err.println("[tts] " + voice.getId() + ": " + utterance);
+            if (utterance.getPcmBytes() == 0) {
+                // The engine ran but said NOTHING — that must fall back audibly, never end silent.
+                System.err.println("[tts] no audio produced; piper log: "
+                        + utterance.getEngineLogTail());
+                return false;
+            }
             return true;
         } catch (Exception failed) {
             System.err.println("[tts] model voice failed (" + voice.getId() + "): "

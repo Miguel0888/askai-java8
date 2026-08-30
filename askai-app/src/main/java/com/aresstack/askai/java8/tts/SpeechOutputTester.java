@@ -14,10 +14,16 @@ public final class SpeechOutputTester {
     private final TtsSettingsStore settings;
     private final PiperTtsStore store;
     private final PiperSpeechSynthesizer synthesizer = new PiperSpeechSynthesizer();
+    private volatile String lastDetail = "";
 
     public SpeechOutputTester(TtsSettingsStore settings, PiperTtsStore store) {
         this.settings = settings;
         this.store = store;
+    }
+
+    /** What the last test actually did (bytes/rate/engine log) — for the Technical Details. */
+    public String lastDetail() {
+        return lastDetail;
     }
 
     /**
@@ -47,9 +53,18 @@ public final class SpeechOutputTester {
                 return "Voice files are missing: " + store.voiceDirectory(voice);
             }
             try {
-                synthesizer.speak(store, voice, sample, current.getStartupTimeoutSeconds());
+                PiperSpeechSynthesizer.Utterance utterance = synthesizer.speak(
+                        store, voice, sample, current.getStartupTimeoutSeconds());
+                lastDetail = voice.getId() + ": " + utterance
+                        + (utterance.getEngineLogTail().isEmpty() ? ""
+                                : " | piper log: " + utterance.getEngineLogTail());
+                if (utterance.getPcmBytes() == 0) {
+                    return "Engine ran but produced NO audio. Piper log: "
+                            + utterance.getEngineLogTail();
+                }
                 return "";
             } catch (Exception failed) {
+                lastDetail = voice.getId() + ": " + failed;
                 return "Model voice failed: " + failed;
             }
         }

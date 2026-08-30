@@ -1144,10 +1144,12 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         button.setText("…");
         Thread runner = new Thread(new Runnable() {
             public void run() {
+                final com.aresstack.askai.java8.tts.SpeechOutputTester tester =
+                        new com.aresstack.askai.java8.tts.SpeechOutputTester(
+                                ttsSettingsStore, piperTtsStore);
                 String reason;
                 try {
-                    reason = new com.aresstack.askai.java8.tts.SpeechOutputTester(
-                            ttsSettingsStore, piperTtsStore).speakSample(language);
+                    reason = tester.speakSample(language);
                 } catch (RuntimeException unexpected) {
                     reason = "Test crashed: " + unexpected;
                 }
@@ -1156,6 +1158,11 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
                     public void run() {
                         button.setText(original);
                         button.setEnabled(true);
+                        if (!tester.lastDetail().isEmpty()) {
+                            // ALWAYS on record — 'played N bytes but inaudible' is a finding too.
+                            appendTech("speech-output test (" + language + "): "
+                                    + tester.lastDetail());
+                        }
                         if (!outcome.isEmpty()) {
                             appendTech("speech-output test (" + language + ") failed: " + outcome);
                             javax.swing.JOptionPane.showMessageDialog(button, outcome,

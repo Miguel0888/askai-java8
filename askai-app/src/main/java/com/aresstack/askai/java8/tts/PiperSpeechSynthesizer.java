@@ -33,12 +33,44 @@ public final class PiperSpeechSynthesizer {
      */
     private long generation;
 
+    /** What one utterance actually did — the diagnosis payload for "silent but no error". */
+    public static final class Utterance {
+        private final long pcmBytes;
+        private final int sampleRate;
+        private final String engineLogTail;
+
+        Utterance(long pcmBytes, int sampleRate, String engineLogTail) {
+            this.pcmBytes = pcmBytes;
+            this.sampleRate = sampleRate;
+            this.engineLogTail = engineLogTail;
+        }
+
+        /** Raw PCM bytes actually written to the audio line (0 = the engine said nothing). */
+        public long getPcmBytes() {
+            return pcmBytes;
+        }
+
+        public int getSampleRate() {
+            return sampleRate;
+        }
+
+        /** The tail of piper's own stderr log — names model-load/phoneme problems directly. */
+        public String getEngineLogTail() {
+            return engineLogTail;
+        }
+
+        @Override
+        public String toString() {
+            return pcmBytes + " PCM bytes @ " + sampleRate + " Hz";
+        }
+    }
+
     /** Blocking synthesis + playback; call OFF the EDT. */
-    public void speak(PiperTtsStore store, PiperVoice voice, String text,
-                      int startupTimeoutSeconds) throws IOException {
+    public Utterance speak(PiperTtsStore store, PiperVoice voice, String text,
+                           int startupTimeoutSeconds) throws IOException {
         String prepared = prepareText(text);
         if (prepared.isEmpty()) {
-            return;
+            return new Utterance(0, 0, "empty text");
         }
         stop();
         int sampleRate = readSampleRate(store.voiceConfigFile(voice));
@@ -64,10 +96,15 @@ public final class PiperSpeechSynthesizer {
             }
             line = currentLine;
         }
-        drainAsync(current.getErrorStream()); // piper logs to stderr; never let it block
+        StringBuilder engineLog = drainAsync(current.getErrorStream()); // stderr = piper's log
         writeTextAsync(current.getOutputStream(), prepared);
         try {
-            pump(current, currentLine, startupTimeoutSeconds, myGeneration);
+            long pcmBytes = pump(current, currentLine, startupTimeoutSeconds, myGeneration);
+            return new Utterance(pcmBytes, sampleRate, logTail(engineLog));
+        } catch (IOException failed) {
+            // Attach the engine's own words to the failure — that names the real cause.
+            throw new IOException(failed.getMessage() + " | piper log: " + logTail(engineLog),
+                    failed);
         } finally {
             synchronized (lock) {
                 if (process == current) {
@@ -77,6 +114,13 @@ public final class PiperSpeechSynthesizer {
             }
             current.destroy();
             currentLine.close();
+        }
+    }
+
+    private static String logTail(StringBuilder engineLog) {
+        synchronized (engineLog) {
+            String text = engineLog.toString().trim();
+            return text.length() <= 600 ? text : "…" + text.substring(text.length() - 600);
         }
     }
 
@@ -103,16 +147,18 @@ public final class PiperSpeechSynthesizer {
 
     // ------------------------------------------------------------------ internals
 
-    private void pump(Process current, SourceDataLine out, int startupTimeoutSeconds,
+    /** @return the PCM bytes actually written to the line (0 = engine produced nothing). */
+    private long pump(Process current, SourceDataLine out, int startupTimeoutSeconds,
                       long myGeneration) throws IOException {
         InputStream audio = current.getInputStream();
         byte[] buffer = new byte[8 * 1024];
         long startupDeadline = System.currentTimeMillis() + startupTimeoutSeconds * 1000L;
+        long pcmBytes = 0;
         boolean heardAnything = false;
         while (true) {
             synchronized (lock) {
                 if (generation != myGeneration) {
-                    return; // stopped or replaced by a newer utterance
+                    return pcmBytes; // stopped or replaced by a newer utterance
                 }
             }
             // Before the first byte, poll instead of blocking so a hung engine start honours the
@@ -138,17 +184,19 @@ public final class PiperSpeechSynthesizer {
             while (written < read) {
                 int chunk = out.write(buffer, written, read - written);
                 if (chunk <= 0) {
-                    return; // line closed by stop()
+                    return pcmBytes; // line closed by stop()
                 }
                 written += chunk;
+                pcmBytes += chunk;
             }
         }
         synchronized (lock) {
             if (generation != myGeneration) {
-                return;
+                return pcmBytes;
             }
         }
         out.drain(); // let the tail of the utterance finish playing
+        return pcmBytes;
     }
 
     private static SourceDataLine openLine(int sampleRate) throws LineUnavailableException {
@@ -205,13 +253,22 @@ public final class PiperSpeechSynthesizer {
         writer.start();
     }
 
-    private void drainAsync(final InputStream stderr) {
+    /** Drain piper's stderr AND keep it — it names model-load/phoneme problems directly. */
+    private StringBuilder drainAsync(final InputStream stderr) {
+        final StringBuilder collected = new StringBuilder();
         Thread drainer = new Thread(new Runnable() {
             public void run() {
                 byte[] buffer = new byte[4 * 1024];
                 try {
-                    while (stderr.read(buffer) >= 0) {
-                        // discard; piper's progress logging is not user-facing here
+                    int read;
+                    while ((read = stderr.read(buffer)) >= 0) {
+                        synchronized (collected) {
+                            collected.append(new String(buffer, 0, read,
+                                    StandardCharsets.UTF_8));
+                            if (collected.length() > 8 * 1024) {
+                                collected.delete(0, collected.length() - 8 * 1024);
+                            }
+                        }
                     }
                 } catch (IOException closed) {
                     // process ended
@@ -220,6 +277,7 @@ public final class PiperSpeechSynthesizer {
         }, "askai-tts-stderr");
         drainer.setDaemon(true);
         drainer.start();
+        return collected;
     }
 
     private static void sleepQuietly(long millis) {
