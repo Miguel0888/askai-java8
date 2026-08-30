@@ -31,10 +31,14 @@ public final class ResearchArtifacts {
 
     public static List<AgentArtifact> all() {
         List<AgentArtifact> list = new ArrayList<AgentArtifact>();
-        // The research brief (Fragestellung) is the scoping phase's primary artifact — first tab.
+        // The research brief ("Konzept" tab, formerly "Fragestellung") is the scoping phase's primary
+        // artifact — first tab.
         // The former "Visualisierung" tab is GONE: the sources mindmap lives behind the square
         // toolbar button next to the Websuche (and /map) as a transcript overlay instead.
-        list.add(new Artifact("research-brief", "Fragestellung", TYPE_BRIEF, ""));
+        list.add(new Artifact("research-brief", "Konzept", TYPE_BRIEF, ""));
+        // Sources sit BEFORE the outline: the concept already yields the first sources, and the outline is
+        // (going to be) GENERATED FROM the sources — the tab order mirrors that logical flow.
+        list.add(new Artifact("sources", "Sources", TYPE_SOURCES, ""));
         // Issue #29: the outline is a DERIVED projection with its own view (persisted result + stale marker
         // + explicit "Inhaltsverzeichnis erzeugen" action) — no longer a live-updating markdown tab.
         list.add(new Artifact("outline", "Inhaltsverzeichnis", TYPE_OUTLINE, "outline.md"));
@@ -42,7 +46,6 @@ public final class ResearchArtifacts {
         // concept/research-notes/findings/draft/final artifacts are deliberately NOT listed anymore — old
         // files stay untouched on disk, but they get no tabs and no active-workflow writes.
         list.add(markdown("document", "Document", "document.md"));
-        list.add(new Artifact("sources", "Sources", TYPE_SOURCES, ""));
         list.add(new Artifact("state", "State", TYPE_STATE, ""));
         // Runtime + search settings are deliberately NOT artifacts anymore: they live as the plugin's
         // settings pages in the host's gear menu (session-based), the artifact area holds work products.

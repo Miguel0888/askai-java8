@@ -61,9 +61,21 @@ public final class ResearchOverlayButtonsToolbarContribution implements AgentToo
             }
         });
 
+        // The CONCEPT mindmap button (left of the sources one): will render a Mermaid mindmap of the
+        // Konzept artifact. The action is deliberately still unwired — the visualization contract is
+        // defined in an upcoming slice; until then the button is a visible, inert placeholder.
+        ComicButton conceptMap = new ComicButton("",
+                new ResearchWebSearchToolbarContribution.MindmapIcon());
+        conceptMap.setToolTipText("Konzept visualisieren");
+        conceptMap.setFocusable(false);
+        conceptMap.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+        conceptMap.setPreferredSize(new Dimension(26, 26));
+        conceptMap.setMaximumSize(new Dimension(26, 26));
+
         JPanel row = new JPanel();
         row.setLayout(new BoxLayout(row, BoxLayout.X_AXIS));
         row.setOpaque(false);
+        row.add(conceptMap);
         row.add(mindmap); // future overlay buttons line up right here
         return row;
     }

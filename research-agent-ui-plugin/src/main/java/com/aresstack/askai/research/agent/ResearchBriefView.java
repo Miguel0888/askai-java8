@@ -8,14 +8,14 @@ import javax.swing.JPanel;
 import java.awt.BorderLayout;
 
 /**
- * The read-only "Fragestellung" view: renders the research brief working copy with the HOST Markdown renderer
+ * The read-only "Konzept" view: renders the research brief working copy with the HOST Markdown renderer
  * (no plugin-side renderer). It is a projection of the {@code FileResearchBriefStore} — not editable and not a
  * second source of truth. All methods run on the EDT.
  */
 public final class ResearchBriefView extends JPanel {
 
     private static final String EMPTY =
-            "_Noch keine Fragestellung. Beschreibe im Chat, was du erforschen möchtest._";
+            "_Noch kein Konzept. Beschreibe im Chat, was du erforschen möchtest._";
 
     private final MarkdownView markdownView;
 

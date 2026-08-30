@@ -9,7 +9,8 @@ import com.aresstack.askai.research.store.FileResearchBriefStore;
 import javax.swing.JComponent;
 
 /**
- * Contributes the "Fragestellung" view for the {@code research.brief} artifact — the scoping phase's PRIMARY
+ * Contributes the "Konzept" view (formerly "Fragestellung") for the {@code research.brief} artifact — the
+ * scoping phase's PRIMARY
  * artifact. It reads the brief working copy from the session's {@link FileResearchBriefStore} (the single
  * source of truth) and re-renders on every session state change; the store is re-read on restore, so the same
  * persisted content reappears after a tab/phase switch. Read-only, no approval, no phase transition. The
@@ -24,7 +25,7 @@ public final class ResearchBriefViewContribution implements ArtifactViewContribu
 
     @Override
     public String getDisplayName() {
-        return "Fragestellung";
+        return "Konzept";
     }
 
     @Override
