@@ -1040,9 +1040,14 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
     /** Audio & Dictation: the audio model, the transcription profile and the microphone. */
     private JComponent buildAudioCard() {
         JPanel card = settingsColumn();
+        // Form discipline: ONE label column — every dropdown starts at the same x (tab stop),
+        // no ragged left edges. Labels are collected and widened to the longest one at the end.
+        java.util.List<JLabel> formLabels = new java.util.ArrayList<JLabel>();
 
         JPanel modelRow = partySettingsRow();
-        modelRow.add(new JLabel("Audio model"));
+        JLabel audioModelLabel = new JLabel("Audio model");
+        formLabels.add(audioModelLabel);
+        modelRow.add(audioModelLabel);
         audioModelCombo.setEditable(false); // only /api/show-verified models, never free text
         audioModelCombo.setPreferredSize(new Dimension(200, audioModelCombo.getPreferredSize().height));
         audioModelCombo.addActionListener(event -> persistAudioModelSelection());
@@ -1050,7 +1055,9 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         card.add(modelRow);
 
         JPanel profileRow = partySettingsRow();
-        profileRow.add(new JLabel("Transcription profile"));
+        JLabel profileLabel = new JLabel("Transcription profile");
+        formLabels.add(profileLabel);
+        profileRow.add(profileLabel);
         audioProfileCombo.setPreferredSize(new Dimension(240, audioProfileCombo.getPreferredSize().height));
         audioProfileCombo.setToolTipText("Choose the audio-processing profile used for microphone transcription.");
         audioProfileCombo.addActionListener(event -> persistAudioProfileSelection());
@@ -1061,7 +1068,9 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         card.add(profileRow);
 
         JPanel micRow = partySettingsRow();
-        micRow.add(new JLabel("Microphone"));
+        JLabel micLabel = new JLabel("Microphone");
+        formLabels.add(micLabel);
+        micRow.add(micLabel);
         micCombo.setPreferredSize(new Dimension(240, micCombo.getPreferredSize().height));
         micCombo.addActionListener(event -> persistMicrophoneSelection());
         micRow.add(micCombo);
@@ -1075,7 +1084,9 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         // which of these voices reads an answer aloud.
         for (final String language : com.aresstack.askai.java8.tts.TextToSpeechSettings.LANGUAGE_CODES) {
             JPanel speechRow = partySettingsRow();
-            speechRow.add(new JLabel("Speech output · " + speechLanguageLabel(language)));
+            JLabel speechLabel = new JLabel("Speech output · " + speechLanguageLabel(language));
+            formLabels.add(speechLabel);
+            speechRow.add(speechLabel);
             JComboBox<Object> combo = new JComboBox<Object>();
             combo.setEditable(false); // Windows default or an INSTALLED Piper voice
             combo.setPreferredSize(new Dimension(240, combo.getPreferredSize().height));
@@ -1087,6 +1098,7 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
             speechRow.add(combo);
             card.add(speechRow);
         }
+        alignFormLabels(formLabels);
         // Voices are installed RIGHT HERE, below the selector — the 🔊 entries in Models > Setup
         // are only a shortcut to this section (the panel says so, plus the download sources).
         speechVoicesPanel = new SpeechOutputModelsPanel(piperTtsStore, ttsSettingsStore);
@@ -1112,6 +1124,17 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         }
         if (speechVoicesPanel != null) {
             speechVoicesPanel.highlightVoice(voiceId);
+        }
+    }
+
+    /** Tab-stop form alignment: every label gets the widest label's width (FlowLayout rows). */
+    private static void alignFormLabels(java.util.List<JLabel> labels) {
+        int width = 0;
+        for (JLabel label : labels) {
+            width = Math.max(width, label.getPreferredSize().width);
+        }
+        for (JLabel label : labels) {
+            label.setPreferredSize(new Dimension(width, label.getPreferredSize().height));
         }
     }
 
