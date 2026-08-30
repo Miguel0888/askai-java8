@@ -80,6 +80,31 @@ final class ResearchOutOfScopeSky extends JPanel {
         cloudScroll.getVerticalScrollBar().setUnitIncrement(16);
         com.aresstack.comiccontrols.control.ComicScrollBarUI.install(
                 cloudScroll.getVerticalScrollBar()); // the ONE shared AskAI scrollbar look
+        // Wheel priority: an EXPANDED sky with internal overflow scrolls its clouds first; when
+        // there is nothing to scroll internally, the event is handed onward so the TRANSCRIPT
+        // scrolls — never both areas at once. (The default scroll-pane wheel handling would
+        // swallow the event even with nothing to scroll, killing chat scrolling over the sky.)
+        cloudScroll.setWheelScrollingEnabled(false);
+        cloudScroll.addMouseWheelListener(event -> {
+            javax.swing.BoundedRangeModel model = cloudScroll.getVerticalScrollBar().getModel();
+            boolean scrollable = model.getExtent() > 0
+                    && model.getExtent() < model.getMaximum() - model.getMinimum();
+            if (scrollable) {
+                int delta = (int) Math.round(event.getPreciseWheelRotation()
+                        * event.getScrollAmount() * 16);
+                if (delta == 0 && event.getPreciseWheelRotation() != 0) {
+                    delta = event.getPreciseWheelRotation() < 0 ? -1 : 1;
+                }
+                model.setValue(model.getValue() + delta);
+                event.consume();
+            } else {
+                java.awt.Container parent = getParent();
+                if (parent != null) {
+                    parent.dispatchEvent(javax.swing.SwingUtilities.convertMouseEvent(
+                            (java.awt.Component) event.getSource(), event, parent));
+                }
+            }
+        });
         add(cloudScroll);
         cloudFlow.add(moreCloud);
         cloudFlow.add(addCloud);

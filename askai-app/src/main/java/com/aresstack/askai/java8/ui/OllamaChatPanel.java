@@ -598,6 +598,9 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         add(buildWorkspaceScrollBar(), BorderLayout.EAST);
     }
 
+    /** The transcript's own wheel step (matches the scroll pane's former unit increment). */
+    private static final int TRANSCRIPT_WHEEL_UNIT = 18;
+
     /** The transcript's vertical scrollbar, rehomed to the workspace's right edge (shared model). */
     private javax.swing.JScrollBar buildWorkspaceScrollBar() {
         javax.swing.JScrollPane transcriptScroll = transcript.getScrollPane();
@@ -605,16 +608,46 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
                 JScrollPane.VERTICAL_SCROLLBAR_NEVER); // the classic in-pane Swing bar is gone
         final javax.swing.JScrollBar bar = new javax.swing.JScrollBar(javax.swing.JScrollBar.VERTICAL);
         bar.setModel(transcriptScroll.getVerticalScrollBar().getModel()); // one model, one truth
-        bar.setUnitIncrement(18);
+        bar.setUnitIncrement(TRANSCRIPT_WHEEL_UNIT);
         com.aresstack.comiccontrols.control.ComicScrollBarUI.install(bar);
+        final javax.swing.BoundedRangeModel model = bar.getModel();
+        // Hotfix 4.1: with the in-pane bar POLICY-NEVER'd, Swing's own scroll-pane wheel handling
+        // goes dead (it drives the now-absent internal bar). Route the wheel straight into THE one
+        // shared model instead — over bubbles and empty background (the scroll pane) and over the
+        // sky overlay layer (events bubble up to the layered pane when no child consumes them).
+        java.awt.event.MouseWheelListener wheelRouter =
+                event -> routeWheelToModel(event, model, TRANSCRIPT_WHEEL_UNIT);
+        transcriptScroll.addMouseWheelListener(wheelRouter);
+        transcriptLayers.addMouseWheelListener(wheelRouter);
         // Only show the bar while there is something to scroll (the track is transparent anyway,
         // but a full-height idle thumb would suggest scrollable content that is not there).
-        final javax.swing.BoundedRangeModel model = bar.getModel();
         final Runnable syncVisibility = () -> bar.setVisible(
                 model.getExtent() < model.getMaximum() - model.getMinimum());
         model.addChangeListener(event -> syncVisibility.run());
         syncVisibility.run();
         return bar;
+    }
+
+    /**
+     * Move the shared transcript scroll model by one wheel event — never a second scroll position.
+     * Honors precise (fractional) wheel rotation so fine-grained devices scroll smoothly, and
+     * block scrolling (page-sized). Package-private for the regression test.
+     */
+    static void routeWheelToModel(java.awt.event.MouseWheelEvent event,
+                                  javax.swing.BoundedRangeModel model, int unitIncrement) {
+        int delta;
+        if (event.getScrollType() == java.awt.event.MouseWheelEvent.WHEEL_BLOCK_SCROLL) {
+            delta = (event.getWheelRotation() < 0 ? -1 : 1)
+                    * Math.max(unitIncrement, model.getExtent() - unitIncrement);
+        } else {
+            delta = (int) Math.round(event.getPreciseWheelRotation()
+                    * event.getScrollAmount() * unitIncrement);
+            if (delta == 0 && event.getPreciseWheelRotation() != 0) {
+                delta = event.getPreciseWheelRotation() < 0 ? -1 : 1; // tiny precise ticks still move
+            }
+        }
+        model.setValue(model.getValue() + delta); // the model clamps to [min, max - extent]
+        event.consume();
     }
 
     /** Both layers (transcript, overlay) always fill the whole area. */
