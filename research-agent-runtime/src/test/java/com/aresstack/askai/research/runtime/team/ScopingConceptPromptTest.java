@@ -16,7 +16,8 @@ public class ScopingConceptPromptTest {
         assertTrue(with.contains("WE ARE BUILDING A BOOK"));
         assertTrue(with.contains("THE CONCEPT (conceptAction):"));
         // The MainframeMate lesson, pinned: concrete examples live IN the contract text.
-        assertTrue(with.contains("{\"type\":\"add\",\"parent_path\":"));
+        assertTrue(with.contains("{\"type\":\"add\",\"parent\":"));
+        assertTrue("segments, never slash paths", with.contains("NAME SEGMENTS"));
         assertTrue(with.contains("Task Notifications"));
         assertTrue(with.contains("{\"type\":\"none\"}"));
         assertTrue("no handle field in the model contract", !with.contains("\"handle\""));

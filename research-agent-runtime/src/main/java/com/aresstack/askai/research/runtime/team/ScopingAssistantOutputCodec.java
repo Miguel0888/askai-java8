@@ -58,20 +58,32 @@ public final class ScopingAssistantOutputCodec {
             writeString(sb, action.getType().name().toLowerCase(java.util.Locale.ROOT));
             if (action.getType() == ConceptAction.Type.ADD) {
                 sb.append(',');
-                writeKey(sb, "parent_path").append(':');
-                writeString(sb, action.getParentPath());
+                writeKey(sb, "parent").append(':');
+                writeSegments(sb, action.getParent());
                 sb.append(',');
                 writeKey(sb, "name").append(':');
                 writeString(sb, action.getName());
             } else {
                 sb.append(',');
                 writeKey(sb, "path").append(':');
-                writeString(sb, action.getPath());
+                writeSegments(sb, action.getPath());
             }
             sb.append('}');
         }
         sb.append('}');
         return sb.toString();
+    }
+
+
+    private static void writeSegments(StringBuilder sb, java.util.List<String> segments) {
+        sb.append('[');
+        for (int i = 0; i < segments.size(); i++) {
+            if (i > 0) {
+                sb.append(',');
+            }
+            writeString(sb, segments.get(i));
+        }
+        sb.append(']');
     }
 
     private static StringBuilder writeKey(StringBuilder sb, String key) {

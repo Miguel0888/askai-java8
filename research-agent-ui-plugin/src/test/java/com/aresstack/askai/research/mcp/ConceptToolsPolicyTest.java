@@ -155,6 +155,24 @@ public class ConceptToolsPolicyTest {
     }
 
     @Test
+    public void segmentArraysAreTheUnambiguousFormAndSlashStaysACharacterInNames() {
+        // The gate's failure mode: a slash-joined path must never collapse into a literal root
+        // name. With *_json segments, '/' in a NAME (TCP/IP) is just a character.
+        assertFalse(invoke(tool("concept_add"), "name", "Netzwerk").isError());
+        McpToolResult tcp = invoke(tool("concept_add"),
+                "parent_path_json", "[\"Netzwerk\"]", "name", "TCP/IP");
+        assertFalse(tcp.isError());
+        McpToolResult read = invoke(tool("concept_read"), "path_json", "[\"Netzwerk\"]");
+        assertTrue(read.getText().contains("{\"Netzwerk\":[{\"TCP/IP\":[]}]}"));
+        // …and the segments form wins over the slash convenience when both are present.
+        McpToolResult removed = invoke(tool("concept_remove"),
+                "path", "falsch/weg", "path_json", "[\"Netzwerk\",\"TCP/IP\"]");
+        assertFalse(removed.isError());
+        assertTrue(invoke(tool("concept_read"), "path_json", "[\"Netzwerk\"]")
+                .getText().contains("{\"Netzwerk\":[]}"));
+    }
+
+    @Test
     public void requiredArgumentsAreValidatedBeforeDispatchWithAnExample() {
         McpToolResult noName = invoke(tool("concept_add"), "parent_path", "FreeRTOS");
         assertTrue(noName.isError());

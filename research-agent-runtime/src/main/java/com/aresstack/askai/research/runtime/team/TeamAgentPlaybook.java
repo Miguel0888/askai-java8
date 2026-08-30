@@ -206,9 +206,10 @@ public final class TeamAgentPlaybook {
                         ? ",\n  \"conceptAction\": {              // your ONE concept step THIS "
                         + "inference; use type none when you change nothing\n"
                         + "    \"type\": \"none\"|\"read\"|\"add\"|\"remove\",\n"
-                        + "    \"path\": string,                  // read/remove: card names from "
-                        + "the concept root, '/'-separated\n"
-                        + "    \"parent_path\": string, \"name\": string      // add: where and what\n"
+                        + "    \"path\": [string],                // read/remove: card names as "
+                        + "SEGMENTS from the concept root\n"
+                        + "    \"parent\": [string], \"name\": string       // add: where (segments) "
+                        + "and what (ONE label)\n"
                         + "  }\n"
                         : "\n")
                 + "}\n\n"
@@ -461,17 +462,18 @@ public final class TeamAgentPlaybook {
         return "THE CONCEPT (conceptAction):\n"
                 + "- The concept is a TREE of named topic cards. You build it in SMALL STEPS — one "
                 + "conceptAction per answer; the application executes it and hands you the result.\n"
-                + "- Cards are addressed by their NAMES from the concept root, joined with '/'. "
-                + "Nothing else — no ids, no handles.\n"
+                + "- Cards are addressed by NAME SEGMENTS (JSON arrays of card names). A name is "
+                + "ONE label, NEVER a path — '/' inside a name is just a character (TCP/IP), "
+                + "never a separator. No ids, no handles.\n"
                 + "- Examples:\n"
-                + "    inspect everything:   {\"type\":\"read\",\"path\":\"\"}\n"
-                + "    inspect one branch:   {\"type\":\"read\",\"path\":\"FreeRTOS\"}\n"
-                + "    add a top-level card: {\"type\":\"add\",\"parent_path\":\"\","
+                + "    inspect everything:   {\"type\":\"read\",\"path\":[]}\n"
+                + "    inspect one branch:   {\"type\":\"read\",\"path\":[\"FreeRTOS\"]}\n"
+                + "    add a top-level card: {\"type\":\"add\",\"parent\":[],"
                 + "\"name\":\"FreeRTOS\"}\n"
-                + "    add a subtopic:       {\"type\":\"add\",\"parent_path\":"
-                + "\"FreeRTOS/Kommunikation\",\"name\":\"Task Notifications\"}\n"
+                + "    add a subtopic:       {\"type\":\"add\",\"parent\":"
+                + "[\"FreeRTOS\",\"Kommunikation\"],\"name\":\"Task Notifications\"}\n"
                 + "    remove a card:        {\"type\":\"remove\",\"path\":"
-                + "\"FreeRTOS/Praxis/ESP-IDF\"}\n"
+                + "[\"FreeRTOS\",\"Praxis\",\"ESP-IDF\"]}\n"
                 + "    change nothing:       {\"type\":\"none\"}\n"
                 + "- If you are unsure whether a parent exists: 1) read it, 2) look at the result, "
                 + "3) add. Adding an already-existing card is rejected with the reason.\n"
@@ -514,14 +516,35 @@ public final class TeamAgentPlaybook {
      * room for the "the conversation is the state" fiction: only an APPLIED tool call changes
      * the artifact.
      */
-    public static String conceptArtifactState(long conceptRevision, boolean appliedThisTurn,
-                                              String lastConceptError) {
-        return "ARTIFACT_STATE\n"
-                + "conceptRevision: " + (conceptRevision < 0 ? "unknown" : conceptRevision) + "\n"
-                + "updateAppliedThisTurn: " + appliedThisTurn + "\n"
-                + "lastConceptError: "
-                + (lastConceptError == null || lastConceptError.isEmpty() ? "none"
-                        : lastConceptError) + "\n\n";
+    public static String conceptReceipts(long conceptRevision, java.util.List<String> applied,
+                                         java.util.List<String> rejected, String currentConcept) {
+        StringBuilder sb = new StringBuilder("ARTIFACT_STATE\n");
+        sb.append("conceptRevision: ")
+          .append(conceptRevision < 0 ? "unknown" : String.valueOf(conceptRevision)).append('\n');
+        // Explicit RECEIPTS, not a boolean: one applied add once let the model claim four —
+        // only the list of what ACTUALLY happened grounds the visible answer.
+        sb.append("APPLIED_ACTIONS\n");
+        if (applied.isEmpty()) {
+            sb.append("- (none)\n");
+        } else {
+            for (String line : applied) {
+                sb.append("- ").append(line).append('\n');
+            }
+        }
+        sb.append("REJECTED_ACTIONS\n");
+        if (rejected.isEmpty()) {
+            sb.append("- (none)\n");
+        } else {
+            for (String line : rejected) {
+                sb.append("- ").append(line).append('\n');
+            }
+        }
+        if (currentConcept != null && !currentConcept.trim().isEmpty()) {
+            sb.append("CURRENT_CONCEPT\n").append(currentConcept.trim()).append('\n');
+        }
+        sb.append("Only claim changes listed under APPLIED_ACTIONS. A rejected action changed "
+                + "NOTHING about the concept.\n\n");
+        return sb.toString();
     }
 
     /** Appended to the LAST feedback when a budget is exhausted: wrap up, no further actions. */

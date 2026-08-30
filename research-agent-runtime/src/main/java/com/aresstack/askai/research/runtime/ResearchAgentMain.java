@@ -1221,26 +1221,36 @@ public final class ResearchAgentMain {
             com.aresstack.askai.research.runtime.loop.ToolInvoker.EndpointUnavailable {
         java.util.Map<String, Object> args = new java.util.LinkedHashMap<String, Object>();
         String toolName;
+        // Segments travel as a JSON ARRAY string — never slash-joined: '/' in a card name
+        // (TCP/IP, C/C++) must stay a character, and a missed parent must never collapse a
+        // whole path into one literal root name.
         switch (action.getType()) {
             case READ:
                 toolName = "concept_read";
                 if (!action.getPath().isEmpty()) {
-                    args.put("path", action.getPath());
+                    args.put("path_json", segmentsJson(action.getPath()));
                 }
                 break;
             case ADD:
                 toolName = "concept_add";
-                if (!action.getParentPath().isEmpty()) {
-                    args.put("parent_path", action.getParentPath());
+                if (!action.getParent().isEmpty()) {
+                    args.put("parent_path_json", segmentsJson(action.getParent()));
                 }
                 args.put("name", action.getName());
                 break;
             default:
                 toolName = "concept_remove";
-                args.put("path", action.getPath());
+                args.put("path_json", segmentsJson(action.getPath()));
         }
         try {
-            String text = String.valueOf(researchMcp.callTool(toolName, args));
+            org.noear.solon.ai.chat.tool.ToolResult result = researchMcp.callTool(toolName, args);
+            String text = String.valueOf(result);
+            // An MCP ERROR result is the tool's REJECTION and must surface as one. The first gate
+            // trusted text prefixes only, so every rejection came back classified as APPLIED —
+            // repairs stayed at 0 and the model was literally TOLD its failed edit succeeded.
+            if (result != null && result.isError()) {
+                throw new com.aresstack.askai.research.runtime.loop.ToolInvoker.ToolFailure(text);
+            }
             if (text.startsWith("Tool failed:") || text.startsWith("Not allowed")) {
                 throw new com.aresstack.askai.research.runtime.loop.ToolInvoker.ToolFailure(text);
             }
@@ -1256,6 +1266,27 @@ public final class ResearchAgentMain {
             }
             throw new com.aresstack.askai.research.runtime.loop.ToolInvoker.ToolFailure(message);
         }
+    }
+
+    /** Card-name segments as a compact JSON array string (proper escaping, no separators). */
+    private static String segmentsJson(java.util.List<String> segments) {
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < segments.size(); i++) {
+            if (i > 0) {
+                sb.append(',');
+            }
+            sb.append('"');
+            String segment = segments.get(i);
+            for (int c = 0; c < segment.length(); c++) {
+                char ch = segment.charAt(c);
+                if (ch == '"' || ch == '\\') {
+                    sb.append('\\');
+                }
+                sb.append(ch);
+            }
+            sb.append('"');
+        }
+        return sb.append(']').toString();
     }
 
     /** An integer env hand-off: unset/invalid → the documented default (logged, never fatal). */

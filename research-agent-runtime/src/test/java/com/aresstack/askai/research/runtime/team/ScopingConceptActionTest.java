@@ -2,15 +2,18 @@ package com.aresstack.askai.research.runtime.team;
 
 import org.junit.Test;
 
+import java.util.Arrays;
+import java.util.Collections;
+
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 /**
- * The small-model concept contract (K2c): tiny atomic actions addressed by name paths — no
- * handles, no branch payloads. {@code none}/absent both mean "this turn touches nothing"; a
- * malformed action never kills the turn (its reason goes back to the model with an example),
- * and the canonical history round-trips the action.
+ * The hardened concept contract: paths are SEGMENT ARRAYS, never slash-joined strings — a name
+ * is one label ('/' inside it stays a character), a bare string counts as exactly one segment.
+ * {@code none}/absent both mean "this turn touches nothing"; malformed actions carry their
+ * reason back with an example; the canonical history round-trips the segments.
  */
 public class ScopingConceptActionTest {
 
@@ -21,24 +24,32 @@ public class ScopingConceptActionTest {
     }
 
     @Test
-    public void readAddAndRemoveParseWithTheirNamePaths() {
+    public void readAddAndRemoveParseWithSegmentArrays() {
         ConceptAction read = parse("{\"assistantMessage\":\"m\",\"conceptAction\":"
-                + "{\"type\":\"read\",\"path\":\"FreeRTOS/Kommunikation\"}}").getConceptAction();
+                + "{\"type\":\"read\",\"path\":[\"FreeRTOS\",\"Kommunikation\"]}}")
+                .getConceptAction();
         assertEquals(ConceptAction.Type.READ, read.getType());
-        assertEquals("FreeRTOS/Kommunikation", read.getPath());
+        assertEquals(Arrays.asList("FreeRTOS", "Kommunikation"), read.getPath());
 
         ConceptAction add = parse("{\"assistantMessage\":\"m\",\"conceptAction\":"
-                + "{\"type\":\"add\",\"parent_path\":\"FreeRTOS\",\"name\":\"Synchronisation\"}}")
+                + "{\"type\":\"add\",\"parent\":[\"FreeRTOS\"],\"name\":\"TCP/IP\"}}")
                 .getConceptAction();
         assertEquals(ConceptAction.Type.ADD, add.getType());
-        assertEquals("FreeRTOS", add.getParentPath());
-        assertEquals("Synchronisation", add.getName());
+        assertEquals(Collections.singletonList("FreeRTOS"), add.getParent());
+        assertEquals("a slash inside a NAME is just a character", "TCP/IP", add.getName());
 
         ConceptAction remove = parse("{\"assistantMessage\":\"m\",\"conceptAction\":"
-                + "{\"type\":\"remove\",\"path\":\"FreeRTOS/Praxis/ESP-IDF\"}}")
+                + "{\"type\":\"remove\",\"path\":[\"FreeRTOS\",\"Praxis\",\"ESP-IDF\"]}}")
                 .getConceptAction();
-        assertEquals(ConceptAction.Type.REMOVE, remove.getType());
-        assertEquals("FreeRTOS/Praxis/ESP-IDF", remove.getPath());
+        assertEquals(Arrays.asList("FreeRTOS", "Praxis", "ESP-IDF"), remove.getPath());
+    }
+
+    @Test
+    public void aBareStringIsExactlyOneSegmentNeverSplit() {
+        ConceptAction read = parse("{\"assistantMessage\":\"m\",\"conceptAction\":"
+                + "{\"type\":\"read\",\"path\":\"FreeRTOS/ESP32\"}}").getConceptAction();
+        assertEquals("never split on '/' — one segment, whatever it contains",
+                Collections.singletonList("FreeRTOS/ESP32"), read.getPath());
     }
 
     @Test
@@ -49,19 +60,22 @@ public class ScopingConceptActionTest {
         assertNull(none.getConceptActionError());
         ScopingAssistantOutput absent = parse("{\"assistantMessage\":\"m\"}");
         assertNull(absent.getConceptAction());
-        assertNull(absent.getConceptActionError());
         assertTrue("an action-free turn stays byte-identical to before",
                 !absent.canonicalJson().contains("conceptAction"));
     }
 
     @Test
-    public void aMalformedActionCarriesItsReasonWithAConcreteExample() {
+    public void malformedActionsCarryTheirReasonWithASegmentExample() {
         ScopingAssistantOutput missingName = parse("{\"assistantMessage\":\"m\","
-                + "\"conceptAction\":{\"type\":\"add\",\"parent_path\":\"FreeRTOS\"}}");
+                + "\"conceptAction\":{\"type\":\"add\",\"parent\":[\"FreeRTOS\"]}}");
         assertNull(missingName.getConceptAction());
         assertTrue(missingName.getConceptActionError().contains("requires \"name\""));
-        assertTrue("the rejection teaches by example",
-                missingName.getConceptActionError().contains("{\"type\":\"add\""));
+        assertTrue("the example teaches segments",
+                missingName.getConceptActionError().contains("\"parent\":[\"FreeRTOS\"]"));
+
+        ScopingAssistantOutput missingPath = parse("{\"assistantMessage\":\"m\","
+                + "\"conceptAction\":{\"type\":\"remove\"}}");
+        assertTrue(missingPath.getConceptActionError().contains("requires \"path\""));
 
         ScopingAssistantOutput unknownType = parse("{\"assistantMessage\":\"m\","
                 + "\"conceptAction\":{\"type\":\"update\"}}");
@@ -69,16 +83,16 @@ public class ScopingConceptActionTest {
     }
 
     @Test
-    public void theCanonicalHistoryRoundTripsTheAction() {
-        ScopingAssistantOutput output = parse("{\"assistantMessage\":\"m\",\"conceptAction\":"
-                + "{\"type\":\"add\",\"parent_path\":\"FreeRTOS\",\"name\":\"Tasks\"}}");
-        ScopingAssistantOutput reread = parse(output.canonicalJson());
-        assertEquals(ConceptAction.Type.ADD, reread.getConceptAction().getType());
-        assertEquals("FreeRTOS", reread.getConceptAction().getParentPath());
-        assertEquals("Tasks", reread.getConceptAction().getName());
+    public void theCanonicalHistoryRoundTripsTheSegments() {
+        ScopingAssistantOutput add = parse("{\"assistantMessage\":\"m\",\"conceptAction\":"
+                + "{\"type\":\"add\",\"parent\":[\"FreeRTOS\",\"Praxis\"],\"name\":\"C/C++\"}}");
+        ScopingAssistantOutput reread = parse(add.canonicalJson());
+        assertEquals(Arrays.asList("FreeRTOS", "Praxis"), reread.getConceptAction().getParent());
+        assertEquals("C/C++", reread.getConceptAction().getName());
 
-        ScopingAssistantOutput removed = parse("{\"assistantMessage\":\"m\",\"conceptAction\":"
-                + "{\"type\":\"remove\",\"path\":\"A/B\"}}");
-        assertEquals("A/B", parse(removed.canonicalJson()).getConceptAction().getPath());
+        ScopingAssistantOutput remove = parse("{\"assistantMessage\":\"m\",\"conceptAction\":"
+                + "{\"type\":\"remove\",\"path\":[\"A\",\"B\"]}}");
+        assertEquals(Arrays.asList("A", "B"),
+                parse(remove.canonicalJson()).getConceptAction().getPath());
     }
 }

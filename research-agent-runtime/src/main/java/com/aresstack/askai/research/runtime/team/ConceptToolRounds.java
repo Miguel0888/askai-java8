@@ -55,12 +55,15 @@ public final class ConceptToolRounds {
         int rounds = 0;
         int repairs = 0;
         boolean budgetExhausted = false;
-        // The AUTHORITATIVE artifact state, carried across the rounds: only an APPLIED call may
-        // ever flip appliedThisTurn — the model gets it as a machine-like block with every
-        // feedback, so "the conversation is the state" has no room to grow.
+        // The AUTHORITATIVE change receipts, carried across the rounds: every feedback lists
+        // WHICH actions were applied and WHICH were rejected (and why), plus the CURRENT
+        // persisted concept after any mutation attempt — a lone boolean once let one applied
+        // add be claimed as four.
         long conceptRevision = -1L;
-        boolean appliedThisTurn = false;
-        String lastConceptError = null;
+        java.util.List<String> applied = new java.util.ArrayList<String>();
+        java.util.List<String> rejected = new java.util.ArrayList<String>();
+        String currentConcept = null;
+        boolean refetchConcept = false;
         while (result != null && result.isOk()
                 && result.getOutput() instanceof ScopingAssistantOutput) {
             ScopingAssistantOutput output = (ScopingAssistantOutput) result.getOutput();
@@ -78,7 +81,7 @@ public final class ConceptToolRounds {
             if (actionError != null) {
                 // A malformed action never reaches the host; the reason goes straight back.
                 repairs++;
-                lastConceptError = firstLine(actionError);
+                rejected.add("(invalid) " + firstLine(actionError));
                 trace.line("round " + rounds + ": invalid conceptAction (" + actionError + ")");
                 feedback = TeamAgentPlaybook.conceptToolRejected(actionError);
             } else {
@@ -86,24 +89,39 @@ public final class ConceptToolRounds {
                 try {
                     String text = tool.call(action);
                     if (action.getType() == ConceptAction.Type.READ) {
+                        trace.line("round " + rounds + " -> RESULT");
                         feedback = TeamAgentPlaybook.conceptToolResult(text);
                     } else {
-                        appliedThisTurn = true;
-                        lastConceptError = null;
                         conceptRevision = revisionIn(text, conceptRevision);
+                        applied.add(action.describe() + " (revision " + conceptRevision + ")");
+                        refetchConcept = true;
+                        trace.line("round " + rounds + " -> APPLIED revision=" + conceptRevision);
                         feedback = TeamAgentPlaybook.conceptToolApplied(text);
                     }
-                } catch (ToolInvoker.ToolFailure rejected) {
+                } catch (ToolInvoker.ToolFailure toolRejected) {
                     repairs++;
-                    lastConceptError = firstLine(rejected.getMessage());
-                    trace.line("round " + rounds + ": rejected (" + firstLine(rejected.getMessage())
-                            + ")");
-                    feedback = TeamAgentPlaybook.conceptToolRejected(rejected.getMessage());
+                    String reason = firstLine(toolRejected.getMessage());
+                    rejected.add(action.describe() + " — " + reason);
+                    refetchConcept = true; // prove to the model that NOTHING changed
+                    trace.line("round " + rounds + " -> REJECTED " + reason);
+                    feedback = TeamAgentPlaybook.conceptToolRejected(toolRejected.getMessage());
                 } catch (ToolInvoker.EndpointUnavailable dead) {
                     // Infrastructure, not the model's fault: keep the last good result, no retry.
                     trace.line("concept endpoint unavailable — keeping the last answer ("
                             + firstLine(dead.getMessage()) + ")");
                     return result;
+                }
+            }
+            if (refetchConcept) {
+                // Ground the receipts in the PERSISTED state (best effort — a failed fetch
+                // simply omits the block, it never breaks the loop).
+                try {
+                    currentConcept = tool.call(readAll());
+                    refetchConcept = false;
+                } catch (ToolInvoker.ToolFailure unavailable) {
+                    currentConcept = null;
+                } catch (ToolInvoker.EndpointUnavailable unavailable) {
+                    currentConcept = null;
                 }
             }
             budgetExhausted = rounds >= maxToolRounds || repairs > maxRepairAttempts;
@@ -112,10 +130,17 @@ public final class ConceptToolRounds {
                         + " repairs=" + repairs + "/" + maxRepairAttempts + ") — wrap-up turn");
                 feedback = feedback + "\n\n" + TeamAgentPlaybook.conceptToolBudgetExhausted();
             }
-            result = turn.run(TeamAgentPlaybook.conceptArtifactState(conceptRevision,
-                    appliedThisTurn, lastConceptError) + feedback);
+            result = turn.run(TeamAgentPlaybook.conceptReceipts(conceptRevision, applied,
+                    rejected, currentConcept) + feedback);
         }
         return result;
+    }
+
+    /** The whole-concept read used to ground the receipts in the persisted state. */
+    private static ConceptAction readAll() {
+        ConceptAction.Parsed parsed = ConceptAction.parse(
+                java.util.Collections.singletonMap("type", (Object) "read"));
+        return parsed.getAction();
     }
 
     /** The {@code revision=N} the host reports on an applied call, or the previous value. */

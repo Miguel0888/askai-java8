@@ -1,28 +1,33 @@
 package com.aresstack.askai.research.runtime.team;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 
 /**
- * The model's ONE concept step for one inference — a tiny atomic operation addressed by a
- * human-readable name path (K2c, the MainframeMate lesson): {@code read} a branch, {@code add}
- * one new card, {@code remove} one card, or {@code none}. Deliberately NO handles, NO revisions,
- * NO branch payloads in the model contract — all transactional machinery lives in the host.
- * A {@code read} is a regular working step, not a repair; the budgets are counted separately
- * in {@link ConceptToolRounds}.
+ * The model's ONE concept step for one inference — a tiny atomic operation addressed by
+ * UNAMBIGUOUS PATH SEGMENTS (K2c hardening): {@code path}/{@code parent} are ARRAYS of card
+ * names, never slash-joined strings. The gate showed why: a model that misses a parent turns
+ * "FreeRTOS/ESP32/Grundlagen" into a literal root card name, and real-world names (TCP/IP,
+ * Client/Server, C/C++) make '/' unusable as an implicit separator. A plain string is accepted
+ * as exactly ONE segment — it is never split.
  */
 public final class ConceptAction {
 
     public enum Type { READ, ADD, REMOVE }
 
     private final Type type;
-    private final String path;
-    private final String parentPath;
+    private final List<String> path;
+    private final List<String> parent;
     private final String name;
 
-    private ConceptAction(Type type, String path, String parentPath, String name) {
+    private ConceptAction(Type type, List<String> path, List<String> parent, String name) {
         this.type = type;
-        this.path = path == null ? "" : path.trim();
-        this.parentPath = parentPath == null ? "" : parentPath.trim();
+        this.path = path == null ? Collections.<String>emptyList()
+                : Collections.unmodifiableList(path);
+        this.parent = parent == null ? Collections.<String>emptyList()
+                : Collections.unmodifiableList(parent);
         this.name = name == null ? "" : name.trim();
     }
 
@@ -30,31 +35,39 @@ public final class ConceptAction {
         return type;
     }
 
-    /** For READ/REMOVE: the '/'-separated name path (READ: empty = whole concept). */
-    public String getPath() {
+    /** For READ/REMOVE: the card-name segments from the concept root (READ: empty = all). */
+    public List<String> getPath() {
         return path;
     }
 
-    /** For ADD: the parent card's name path (empty = a new top-level card). */
-    public String getParentPath() {
-        return parentPath;
+    /** For ADD: the parent card's segments (empty = a new top-level card). */
+    public List<String> getParent() {
+        return parent;
     }
 
-    /** For ADD: the new card's name. */
+    /** For ADD: the new card's name — ONE label, never a path. */
     public String getName() {
         return name;
     }
 
-    /** A compact trace label ("read path='A/B'", "add parent='A' name='B'", "remove path='A'"). */
+    /** A compact trace label ('add parent=["A","B"] name="C"'). */
     public String describe() {
         switch (type) {
             case READ:
-                return "read path='" + path + "'";
+                return "read path=" + segmentsLabel(path);
             case ADD:
-                return "add parent='" + parentPath + "' name='" + name + "'";
+                return "add parent=" + segmentsLabel(parent) + " name=\"" + name + "\"";
             default:
-                return "remove path='" + path + "'";
+                return "remove path=" + segmentsLabel(path);
         }
+    }
+
+    private static String segmentsLabel(List<String> segments) {
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < segments.size(); i++) {
+            sb.append(i > 0 ? "," : "").append('"').append(segments.get(i)).append('"');
+        }
+        return sb.append(']').toString();
     }
 
     // ------------------------------------------------------------------ parsing
@@ -95,10 +108,10 @@ public final class ConceptAction {
     }
 
     /**
-     * Parse the optional {@code conceptAction} value of a scoping answer. Absent, {@code null}
-     * or an explicit {@code type:"none"} → absent (the turn touches nothing). A present but
-     * malformed action is NOT silently dropped — the reason travels back to the model as a
-     * rejection with a concrete example.
+     * Parse the optional {@code conceptAction} value. Absent, {@code null} or an explicit
+     * {@code type:"none"} → absent. A malformed action carries its reason back to the model with
+     * a concrete example. Segment lists accept a JSON array of strings; a bare string counts as
+     * ONE segment (never split on '/').
      */
     @SuppressWarnings("unchecked")
     public static Parsed parse(Object value) {
@@ -116,23 +129,24 @@ public final class ConceptAction {
         }
         if ("read".equalsIgnoreCase(type)) {
             return Parsed.ok(new ConceptAction(Type.READ,
-                    firstString(map, "path", "parent_path"), null, null));
+                    segments(map.get("path"), map.get("parent")), null, null));
         }
         if ("add".equalsIgnoreCase(type)) {
             String name = asString(map.get("name"));
             if (name == null || name.trim().isEmpty()) {
                 return Parsed.invalid("conceptAction type \"add\" requires \"name\" — example: "
-                        + "{\"type\":\"add\",\"parent_path\":\"FreeRTOS\","
+                        + "{\"type\":\"add\",\"parent\":[\"FreeRTOS\"],"
                         + "\"name\":\"Synchronisation\"}");
             }
             return Parsed.ok(new ConceptAction(Type.ADD, null,
-                    firstString(map, "parent_path", "parentPath", "path"), name));
+                    segments(map.get("parent"), map.get("parent_path"), map.get("path")), name));
         }
         if ("remove".equalsIgnoreCase(type)) {
-            String path = firstString(map, "path", "parent_path");
-            if (path == null || path.trim().isEmpty()) {
+            List<String> path = segments(map.get("path"), map.get("parent"));
+            if (path.isEmpty()) {
                 return Parsed.invalid("conceptAction type \"remove\" requires \"path\" — "
-                        + "example: {\"type\":\"remove\",\"path\":\"FreeRTOS/Praxis/ESP-IDF\"}");
+                        + "example: {\"type\":\"remove\",\"path\":[\"FreeRTOS\",\"Praxis\","
+                        + "\"ESP-IDF\"]}");
             }
             return Parsed.ok(new ConceptAction(Type.REMOVE, path, null, null));
         }
@@ -140,14 +154,25 @@ public final class ConceptAction {
                 + "\" — allowed: none, read, add, remove");
     }
 
-    private static String firstString(Map<String, Object> map, String... keys) {
-        for (String key : keys) {
-            String value = asString(map.get(key));
-            if (value != null && !value.trim().isEmpty()) {
-                return value;
+    /** First present value wins; array of strings verbatim, a bare string = ONE segment. */
+    private static List<String> segments(Object... candidates) {
+        for (Object candidate : candidates) {
+            if (candidate instanceof List) {
+                List<String> out = new ArrayList<String>();
+                for (Object element : (List<Object>) candidate) {
+                    if (element instanceof String && !((String) element).trim().isEmpty()) {
+                        out.add(((String) element).trim());
+                    }
+                }
+                return out;
+            }
+            if (candidate instanceof String && !((String) candidate).trim().isEmpty()) {
+                List<String> out = new ArrayList<String>();
+                out.add(((String) candidate).trim());
+                return out;
             }
         }
-        return null;
+        return new ArrayList<String>();
     }
 
     private static String asString(Object value) {

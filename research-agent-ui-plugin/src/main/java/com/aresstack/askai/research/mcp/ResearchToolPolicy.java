@@ -375,7 +375,7 @@ public final class ResearchToolPolicy {
                     public McpToolResult invoke(McpToolCall call) {
                         com.aresstack.askai.research.concept.ConceptBranchService.ReadResult result =
                                 ctx.conceptBranchService()
-                                        .readBranch(splitPath(call.getString("path")), 0);
+                                        .readBranch(segmentsOf(call, "path"), 0);
                         if (!result.isOk()) {
                             return McpToolResult.error(result.getDiagnostic().describeForModel());
                         }
@@ -395,7 +395,9 @@ public final class ResearchToolPolicy {
                     }
                 },
                 McpToolParameter.string("path", false,
-                        "Node names from the concept root, separated by '/'. Empty = whole concept."));
+                        "Node names from the concept root, separated by '/'. Empty = whole concept."),
+                McpToolParameter.string("path_json", false,
+                        "The segments as a JSON array of card names — the unambiguous form"));
     }
 
     private static McpToolContribution conceptAddTool(final ResearchControlContext ctx) {
@@ -418,7 +420,7 @@ public final class ResearchToolPolicy {
                         }
                         com.aresstack.askai.research.concept.ConceptBranchService.EditResult result =
                                 ctx.conceptBranchService().addNode(
-                                        splitPath(call.getString("parent_path")), name.trim());
+                                        segmentsOf(call, "parent_path"), name.trim());
                         if (!result.isApplied()) {
                             return McpToolResult.error(result.getDiagnostic().describeForModel());
                         }
@@ -430,6 +432,9 @@ public final class ResearchToolPolicy {
                 McpToolParameter.string("parent_path", false,
                         "The parent card's names from the concept root, separated by '/'. "
                                 + "Empty = add a top-level card."),
+                McpToolParameter.string("parent_path_json", false,
+                        "The parent segments as a JSON array of card names — the unambiguous "
+                                + "form ('/' in a name stays a character)"),
                 McpToolParameter.string("name", true, "The new card's name (short noun phrase)"));
     }
 
@@ -444,22 +449,58 @@ public final class ResearchToolPolicy {
                             return denied;
                         }
                         String path = call.getString("path");
-                        if (path == null || path.trim().isEmpty()) {
+                        String pathJson = call.getString("path_json");
+                        if ((path == null || path.trim().isEmpty())
+                                && (pathJson == null || pathJson.trim().isEmpty())) {
                             return McpToolResult.error("Missing argument: path — example: "
-                                    + "path=\"FreeRTOS/Praxis/ESP-IDF\"");
+                                    + "path=\"FreeRTOS/Praxis/ESP-IDF\" or "
+                                    + "path_json=[\"FreeRTOS\",\"Praxis\",\"ESP-IDF\"]");
                         }
                         com.aresstack.askai.research.concept.ConceptBranchService.EditResult result =
-                                ctx.conceptBranchService().removeNodeAt(splitPath(path));
+                                ctx.conceptBranchService().removeNodeAt(segmentsOf(call, "path"));
                         if (!result.isApplied()) {
                             return McpToolResult.error(result.getDiagnostic().describeForModel());
                         }
                         ctx.onConceptChanged(result.getNewRevision());
-                        return McpToolResult.ok("removed \"" + path.trim() + "\" revision="
-                                + result.getNewRevision());
+                        return McpToolResult.ok("removed \""
+                                + (path == null || path.trim().isEmpty() ? pathJson.trim()
+                                        : path.trim())
+                                + "\" revision=" + result.getNewRevision());
                     }
                 },
-                McpToolParameter.string("path", true,
-                        "The card's names from the concept root, separated by '/'"));
+                McpToolParameter.string("path", false,
+                        "The card's names from the concept root, separated by '/'"),
+                McpToolParameter.string("path_json", false,
+                        "The segments as a JSON array of card names — the unambiguous form"));
+    }
+
+    /**
+     * Segment resolution with the UNAMBIGUOUS form first: {@code <name>_json} carries a JSON
+     * array of card names (the runtime's transport — '/' in a name stays a character, a missed
+     * parent can never collapse into one literal root name); the plain {@code <name>} parameter
+     * keeps the slash-joined convenience for external drivers and humans.
+     */
+    private static java.util.List<String> segmentsOf(McpToolCall call, String parameter) {
+        String json = call.getString(parameter + "_json");
+        if (json != null && !json.trim().isEmpty()) {
+            java.util.List<String> segments = new ArrayList<String>();
+            try {
+                com.google.gson.JsonElement parsed = com.google.gson.JsonParser.parseString(json);
+                if (parsed.isJsonArray()) {
+                    for (com.google.gson.JsonElement element : parsed.getAsJsonArray()) {
+                        String segment = element.isJsonPrimitive() ? element.getAsString() : "";
+                        if (!segment.trim().isEmpty()) {
+                            segments.add(segment.trim());
+                        }
+                    }
+                    return segments;
+                }
+            } catch (RuntimeException notJson) {
+                // fall through to the slash form — an unreadable array must not silently
+                // reinterpret the call
+            }
+        }
+        return splitPath(call.getString(parameter));
     }
 
     /** "A/B/C" → [A, B, C]; empty/null → the concept root. */

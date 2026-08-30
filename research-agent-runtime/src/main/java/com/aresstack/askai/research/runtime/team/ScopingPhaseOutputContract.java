@@ -67,8 +67,12 @@ public final class ScopingPhaseOutputContract implements PhaseOutputContract {
                 + "\"required\":[\"query\"]}},"
                 + "\"conceptAction\":{\"type\":\"object\",\"properties\":{"
                 + "\"type\":{\"type\":\"string\",\"enum\":[\"none\",\"read\",\"add\","
-                + "\"remove\"]},\"path\":{\"type\":\"string\"},"
-                + "\"parent_path\":{\"type\":\"string\"},\"name\":{\"type\":\"string\"}},"
+                + "\"remove\"]},"
+                + "\"path\":{\"type\":\"array\",\"maxItems\":6,\"items\":"
+                + "{\"type\":\"string\"}},"
+                + "\"parent\":{\"type\":\"array\",\"maxItems\":6,\"items\":"
+                + "{\"type\":\"string\"}},"
+                + "\"name\":{\"type\":\"string\"}},"
                 + "\"required\":[\"type\"]}"
                 + "},\"required\":[\"assistantMessage\",\"conceptAction\"]}";
     }
