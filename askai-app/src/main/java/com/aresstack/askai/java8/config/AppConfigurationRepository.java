@@ -49,6 +49,31 @@ public final class AppConfigurationRepository {
     private static final String STT_AUTO_STOP_SILENCE = "stt.autoStopOnSilence";
     private static final String STT_AUTO_STOP_SILENCE_SECONDS = "stt.autoStopSilenceSeconds";
     private static final String STT_SIGNAL_THRESHOLD_PERCENT = "stt.signalThresholdPercent";
+    /** Scale marker for the threshold: absent = the OLD linear scale → converted to dB on load. */
+    private static final String STT_SIGNAL_THRESHOLD_SCALE = "stt.signalThresholdScale";
+    private static final String THRESHOLD_SCALE_DB = "db";
+
+    /**
+     * The gate threshold, migrated once: a value persisted WITHOUT the scale marker was stored
+     * on the old LINEAR scale — it converts to the SAME physical level on the dB scale (e.g.
+     * linear 8 → ≈63) instead of silently meaning something far quieter.
+     */
+    private static int signalThreshold(java.util.Properties properties, int dbDefault) {
+        String raw = properties.getProperty(STT_SIGNAL_THRESHOLD_PERCENT);
+        if (raw == null || raw.trim().isEmpty()) {
+            return dbDefault;
+        }
+        int value;
+        try {
+            value = Integer.parseInt(raw.trim());
+        } catch (NumberFormatException invalid) {
+            return dbDefault;
+        }
+        if (THRESHOLD_SCALE_DB.equals(properties.getProperty(STT_SIGNAL_THRESHOLD_SCALE))) {
+            return value;
+        }
+        return com.aresstack.askai.java8.stt.DecibelLevelScale.dbPercentFromLinearPercent(value);
+    }
     private static final String CHAT_COLOR_TRANSCRIPT_BG = "chat.color.transcriptBackground";
     private static final String CHAT_COLOR_USER_BG = "chat.color.userBackground";
     private static final String CHAT_COLOR_USER_FG = "chat.color.userForeground";
@@ -119,8 +144,7 @@ public final class AppConfigurationRepository {
                             defaultStt.isAutoStopOnSilence()),
                     parseInt(properties.getProperty(STT_AUTO_STOP_SILENCE_SECONDS,
                             String.valueOf(defaultStt.getAutoStopSilenceSeconds()))),
-                    parseInt(properties.getProperty(STT_SIGNAL_THRESHOLD_PERCENT,
-                            String.valueOf(defaultStt.getSignalThresholdPercent()))));
+                    signalThreshold(properties, defaultStt.getSignalThresholdPercent()));
             ChatColorSettings defaultColors = defaults.getChatColors();
             ChatColorSettings chatColors = new ChatColorSettings(
                     ChatColorSettings.parseHex(properties.getProperty(CHAT_COLOR_TRANSCRIPT_BG),
@@ -215,6 +239,7 @@ public final class AppConfigurationRepository {
                 String.valueOf(stt.getAutoStopSilenceSeconds()));
         properties.setProperty(STT_SIGNAL_THRESHOLD_PERCENT,
                 String.valueOf(stt.getSignalThresholdPercent()));
+        properties.setProperty(STT_SIGNAL_THRESHOLD_SCALE, THRESHOLD_SCALE_DB);
         properties.setProperty(HF_TOKEN, configuration.getHuggingFaceToken());
         properties.setProperty(DOWNLOAD_DIRECTORY, configuration.getModelDownloadDirectory().getAbsolutePath());
         properties.setProperty(HF_SEARCH_SUGGESTIONS, configuration.getHuggingFaceSearchSuggestionsRaw());

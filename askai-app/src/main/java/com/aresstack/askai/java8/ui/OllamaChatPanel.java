@@ -4105,8 +4105,9 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         }
     }
 
+    /** LOGARITHMIC (dB) level: quiet speech becomes visible mountains, a knock stops dwarfing it. */
     private static int scaleLevel(int peak) {
-        return (int) Math.max(0, Math.min(100, peak * 100L / 32767L));
+        return com.aresstack.askai.java8.stt.DecibelLevelScale.percentFromPeak(peak);
     }
 
     private static String formatDuration(long seconds) {

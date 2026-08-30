@@ -19,8 +19,12 @@ public final class SpeechToTextConfiguration {
     public static final String DEFAULT_AUDIO_PROCESSING_PROFILE_ID = AudioProcessingProfiles.DEFAULT_PROFILE_ID;
     /** Silence length that auto-stops a recording (when enabled) — Gemini-style hands-free feel. */
     public static final int DEFAULT_AUTO_STOP_SILENCE_SECONDS = 2;
-    /** Level (percent of full scale) above which the recording counts as SPEECH, below as noise. */
-    public static final int DEFAULT_SIGNAL_THRESHOLD_PERCENT = 8;
+    /**
+     * Level (percent on the LOGARITHMIC dB scale, see {@link DecibelLevelScale}) above which the
+     * recording counts as SPEECH, below as noise. 63 is the dB equivalent of the old linear 8 —
+     * the same physical level as before, expressed on the new scale.
+     */
+    public static final int DEFAULT_SIGNAL_THRESHOLD_PERCENT = 63;
 
     private final boolean enabled;
     private final Backend backend;
