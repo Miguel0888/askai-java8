@@ -1270,6 +1270,13 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             if (accepted > 0) {
                 // Nothing to remember here: new sources ARE the offer. The action surface re-derives it.
                 fireStateChanged();
+                // Opt-in convenience (Research Agent settings → General, default OFF): a
+                // SUCCESSFUL search runs the same review the "Review new sources" tag triggers —
+                // the explicit-action semantics stay, only the click is automated.
+                if (com.aresstack.askai.research.host.ResearchRuntimeSettings
+                        .loadAutoReviewAfterSearch(hostStateStore)) {
+                    requestPostSearchReview();
+                }
             }
         } else if ("review_started".equals(subKind)) {
             if (reviewInProgressOn == null) {

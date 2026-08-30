@@ -53,6 +53,19 @@ public final class ResearchRuntimeSettings {
         }
     }
 
+    /** A SUCCESSFUL web search reviews its new sources automatically. Deliberately default OFF. */
+    static final String KEY_AUTO_REVIEW_AFTER_SEARCH = "research.ui.autoReviewAfterSearch";
+
+    public static boolean loadAutoReviewAfterSearch(WorkspaceStateStore store) {
+        return store != null && store.getBoolean(KEY_AUTO_REVIEW_AFTER_SEARCH, false);
+    }
+
+    public static void saveAutoReviewAfterSearch(WorkspaceStateStore store, boolean enabled) {
+        if (store != null) {
+            store.putBoolean(KEY_AUTO_REVIEW_AFTER_SEARCH, enabled);
+        }
+    }
+
     /**
      * LLM narration toggle (default OFF until burned in): when on AND the host provides an inference
      * port, milestone texts are phrased by the main model — always validated, always with the static

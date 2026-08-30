@@ -455,7 +455,11 @@ public final class BubbleTranscriptPanel extends JPanel {
         handle.currentTitle = title == null ? "" : title;
         handle.currentExplanation = explanation == null ? "" : explanation;
         // A click hands the bubble's CURRENT text to the registered consumer (read-aloud etc.).
-        activity.addMouseListener(new java.awt.event.MouseAdapter() {
+        // Attached RECURSIVELY: the bubble is full of children (title label, explanation text
+        // area, …) that swallow the press before it ever reaches the bubble panel — a listener
+        // on the panel alone never fired. Children with their OWN mouse function (links,
+        // toggles) are skipped so they keep their meaning.
+        java.awt.event.MouseAdapter click = new java.awt.event.MouseAdapter() {
             @Override
             public void mousePressed(java.awt.event.MouseEvent event) {
                 AgentActivityClickListener listener = agentActivityClickListener;
@@ -463,7 +467,8 @@ public final class BubbleTranscriptPanel extends JPanel {
                     listener.agentActivityClicked(handle.currentTitle, handle.currentExplanation);
                 }
             }
-        });
+        };
+        attachActivityClickRecursively(activity, click);
         return handle;
     }
 
@@ -474,6 +479,25 @@ public final class BubbleTranscriptPanel extends JPanel {
         handle.currentExplanation = explanation == null ? "" : explanation;
         handle.bubble.updateActivity(title, explanation);
         refreshTranscript();
+    }
+
+    /**
+     * Attach the activity click to the bubble AND its descendants. Skipped: components that
+     * already carry their own mouse function (browse links, history toggles) — EXCEPT text
+     * components, whose UI-installed caret listeners are internal, not a user-facing action.
+     */
+    private static void attachActivityClickRecursively(java.awt.Component component,
+                                                       java.awt.event.MouseAdapter click) {
+        boolean hasOwnFunction = component.getMouseListeners().length > 0
+                && !(component instanceof javax.swing.text.JTextComponent);
+        if (!hasOwnFunction) {
+            component.addMouseListener(click);
+        }
+        if (component instanceof java.awt.Container) {
+            for (java.awt.Component child : ((java.awt.Container) component).getComponents()) {
+                attachActivityClickRecursively(child, click);
+            }
+        }
     }
 
     public void completeAgentActivity(AgentActivityHandle handle, String summary) {

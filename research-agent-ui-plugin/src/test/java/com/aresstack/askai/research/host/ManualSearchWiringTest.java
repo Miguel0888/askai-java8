@@ -174,6 +174,46 @@ public class ManualSearchWiringTest {
     }
 
     /**
+     * The General-tab convenience (default OFF): a SUCCESSFUL search with accepted sources runs
+     * the SAME review the "Review new sources" tag triggers — one review_sources envelope goes
+     * out by itself. With the setting off, nothing happens automatically.
+     */
+    @Test
+    public void aSuccessfulSearchAutoReviewsOnlyWhenTheGeneralSettingIsOn() {
+        MemoryStore store = new MemoryStore();
+        store.putBoolean("research.ui.autoReviewAfterSearch", true);
+        Fx fx = new Fx(store);
+        fx.session.dispatch(ResearchCommandType.START, null);
+        completeTurn(fx, 1L);
+        fx.session.setManualWebSearchPort(new FixedRequestIdPort("R1"));
+        fx.session.requestManualWebSearch("wearables");
+        acceptSources(fx, 2);
+        manualSearchEvent(fx, 2L, "R1", "completed", "done", "2");
+        assertEquals("the completed search launched the review by itself",
+                1, countPrefixed(fx, "#RSC1# review_sources"));
+
+        // Default OFF: the same flow leaves the review to the user's explicit click.
+        Fx off = new Fx(new MemoryStore());
+        off.session.dispatch(ResearchCommandType.START, null);
+        completeTurn(off, 1L);
+        off.session.setManualWebSearchPort(new FixedRequestIdPort("R1"));
+        off.session.requestManualWebSearch("wearables");
+        acceptSources(off, 2);
+        manualSearchEvent(off, 2L, "R1", "completed", "done", "2");
+        assertEquals(0, countPrefixed(off, "#RSC1# review_sources"));
+    }
+
+    private static int countPrefixed(Fx fx, String prefix) {
+        int count = 0;
+        for (String sent : fx.backend.serviceCommands) {
+            if (sent.startsWith(prefix)) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /**
      * The switch is ALSO the default for NEW chats: a user who set German yesterday must not be
      * greeted in English today — the seed path ({@code ResearchRuntimeSettings.loadLanguage})
      * reads exactly what the toolbar switch persisted.

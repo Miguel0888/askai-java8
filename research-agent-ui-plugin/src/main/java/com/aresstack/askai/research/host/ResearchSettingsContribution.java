@@ -72,8 +72,22 @@ public final class ResearchSettingsContribution implements AgentSettingsContribu
                 + " output — set the voice per language in the chat settings (gear) under"
                 + " \"Audio &amp; Dictation\" &gt; Speech output.</i></html>");
         hint.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
-        hint.setBorder(javax.swing.BorderFactory.createEmptyBorder(4, 22, 0, 0));
+        hint.setBorder(javax.swing.BorderFactory.createEmptyBorder(4, 22, 12, 0));
         tab.add(hint);
+        final javax.swing.JCheckBox autoReviewBox = new javax.swing.JCheckBox(
+                "Review new sources automatically after a successful web search",
+                ResearchRuntimeSettings.loadAutoReviewAfterSearch(research.getHostStateStore()));
+        autoReviewBox.setToolTipText("On: when a web search accepts sources, the review that the"
+                + " \"Review new sources\" tag triggers starts by itself. Off (default): you"
+                + " decide when to review.");
+        autoReviewBox.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
+        autoReviewBox.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent event) {
+                ResearchRuntimeSettings.saveAutoReviewAfterSearch(
+                        research.getHostStateStore(), autoReviewBox.isSelected());
+            }
+        });
+        tab.add(autoReviewBox);
         tab.add(javax.swing.Box.createVerticalGlue());
         return tab;
     }
