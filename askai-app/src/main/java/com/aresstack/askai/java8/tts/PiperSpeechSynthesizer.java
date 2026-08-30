@@ -1,9 +1,5 @@
 package com.aresstack.askai.java8.tts;
 
-import javax.sound.sampled.AudioFormat;
-import javax.sound.sampled.AudioSystem;
-import javax.sound.sampled.LineUnavailableException;
-import javax.sound.sampled.SourceDataLine;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -14,18 +10,22 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Speaks text through the installed Piper engine: one {@code piper.exe --output-raw} process per
- * utterance, text over stdin (UTF-8, one line per paragraph), raw 16-bit mono PCM streamed from
- * stdout straight into a {@link SourceDataLine} — audible from the first synthesized sentence, no
- * temp WAV files. Runs entirely on the CPU. {@link #speak} blocks until playback finishes;
- * {@link #stop()} (any thread) kills the process and the line immediately. A new {@code speak}
- * implicitly stops the previous one.
+ * Speaks text through the installed Piper engine: one {@code piper.exe --output_file} process per
+ * utterance (text over stdin, UTF-8), then the finished WAV is played by an EXTERNAL PowerShell
+ * {@code System.Media.SoundPlayer} process. Playback deliberately does NOT use the app JVM's
+ * javax.sound line: on the field it was proven to route into silence (Windows keeps PER-APP audio
+ * device/volume overrides keyed by the exe — piper synthesized fine, 100k+ PCM bytes went into
+ * the app's line, nothing was audible, while every EXTERNAL process, e.g. the SAPI Windows voice,
+ * played normally). A child process has its own audio session on the system default device — the
+ * same proven route the Windows voice uses. Runs entirely on the CPU. {@link #speak} blocks until
+ * playback finishes; {@link #stop()} (any thread) kills the current child immediately. A new
+ * {@code speak} implicitly stops the previous one.
  */
 public final class PiperSpeechSynthesizer {
 
     private final Object lock = new Object();
-    private Process process;
-    private SourceDataLine line;
+    /** The CURRENT child (first piper, then the player) — stop() kills whatever is running. */
+    private Process child;
     /**
      * Utterance GENERATION instead of a boolean stop flag: a new speak (which stops the previous
      * one) bumps it, so an overlapped older utterance can never mistake the newer speak's reset
@@ -45,7 +45,7 @@ public final class PiperSpeechSynthesizer {
             this.engineLogTail = engineLogTail;
         }
 
-        /** Raw PCM bytes actually written to the audio line (0 = the engine said nothing). */
+        /** WAV payload bytes handed to the external player (0 = the engine said nothing). */
         public long getPcmBytes() {
             return pcmBytes;
         }
@@ -61,7 +61,7 @@ public final class PiperSpeechSynthesizer {
 
         @Override
         public String toString() {
-            return pcmBytes + " PCM bytes @ " + sampleRate + " Hz";
+            return pcmBytes + " PCM bytes @ " + sampleRate + " Hz (external player)";
         }
     }
 
@@ -74,47 +74,129 @@ public final class PiperSpeechSynthesizer {
         }
         stop();
         int sampleRate = readSampleRate(store.voiceConfigFile(voice));
+        Path wav = Files.createTempFile("askai-tts-", ".wav");
+        final long myGeneration;
+        synchronized (lock) {
+            myGeneration = ++generation; // this utterance's identity; any stop outdates it
+        }
+        try {
+            StringBuilder engineLog = synthesize(store, voice, prepared, wav,
+                    startupTimeoutSeconds, myGeneration);
+            long payload = Files.isRegularFile(wav) ? Math.max(0, Files.size(wav) - 44) : 0;
+            if (payload > 0 && isCurrent(myGeneration)) {
+                play(wav, myGeneration);
+            }
+            return new Utterance(payload, sampleRate, logTail(engineLog));
+        } finally {
+            synchronized (lock) {
+                if (generation == myGeneration) {
+                    child = null;
+                }
+            }
+            try {
+                Files.deleteIfExists(wav);
+            } catch (IOException stillHeld) {
+                wav.toFile().deleteOnExit(); // player teardown may lag a moment on Windows
+            }
+        }
+    }
+
+    /** Interrupt the current utterance; safe from any thread, no-op when silent. */
+    public void stop() {
+        Process toKill;
+        synchronized (lock) {
+            generation++; // outdate the running utterance
+            toKill = child;
+            child = null;
+        }
+        if (toKill != null) {
+            toKill.destroy();
+        }
+    }
+
+    // ------------------------------------------------------------------ internals
+
+    /** Run piper into the WAV; returns its collected stderr log. */
+    private StringBuilder synthesize(PiperTtsStore store, PiperVoice voice, String prepared,
+                                     Path wav, int timeoutSeconds, long myGeneration)
+            throws IOException {
         ProcessBuilder builder = new ProcessBuilder(
                 store.engineExecutable().toString(),
                 "--model", store.voiceModelFile(voice).toString(),
                 "--config", store.voiceConfigFile(voice).toString(),
-                "--output-raw");
+                "--output_file", wav.toString());
         // Working directory = engine directory, so piper finds its bundled espeak-ng data.
         builder.directory(store.engineDirectory().toFile());
-        Process current = builder.start();
-        SourceDataLine currentLine;
-        final long myGeneration;
+        Process piper = builder.start();
+        adopt(piper, myGeneration);
+        StringBuilder engineLog = drainAsync(piper.getErrorStream());
+        drainAsync(piper.getInputStream()); // piper echoes the output path on stdout
+        writeTextAsync(piper.getOutputStream(), prepared);
+        if (!waitBounded(piper, timeoutSeconds, myGeneration)) {
+            piper.destroy();
+            throw new IOException("piper did not finish within " + timeoutSeconds
+                    + "s | piper log: " + logTail(engineLog));
+        }
+        if (isCurrent(myGeneration) && piper.exitValue() != 0) {
+            throw new IOException("piper failed (exit " + piper.exitValue()
+                    + ") | piper log: " + logTail(engineLog));
+        }
+        return engineLog;
+    }
+
+    /**
+     * Play the WAV through an EXTERNAL process (own audio session on the system default device —
+     * immune to the app JVM's per-app routing). Blocks until playback ends or stop() kills it.
+     */
+    private void play(Path wav, long myGeneration) throws IOException {
+        ProcessBuilder builder = new ProcessBuilder("powershell", "-NoProfile", "-Command",
+                "(New-Object System.Media.SoundPlayer('" + wav.toString().replace("'", "''")
+                        + "')).PlaySync()");
+        builder.redirectErrorStream(true);
+        Process player = builder.start();
+        adopt(player, myGeneration);
+        drainAsync(player.getInputStream());
+        waitBounded(player, Integer.MAX_VALUE, myGeneration); // playback runs to its end or stop()
+    }
+
+    /** Register the child so stop() can kill it — unless this utterance is already outdated. */
+    private void adopt(Process process, long myGeneration) {
+        boolean outdated;
         synchronized (lock) {
-            myGeneration = ++generation; // this utterance's identity; any stop/new speak outdates it
-            process = current;
+            outdated = generation != myGeneration;
+            if (!outdated) {
+                child = process;
+            }
+        }
+        if (outdated) {
+            process.destroy();
+        }
+    }
+
+    private boolean isCurrent(long myGeneration) {
+        synchronized (lock) {
+            return generation == myGeneration;
+        }
+    }
+
+    /** @return true when the process ended on its own; false only on timeout. */
+    private boolean waitBounded(Process process, int timeoutSeconds, long myGeneration) {
+        long deadline = System.currentTimeMillis() + timeoutSeconds * 1000L;
+        while (process.isAlive()) {
+            if (!isCurrent(myGeneration)) {
+                return true; // stop() already destroyed it; nothing left to wait for
+            }
+            if (timeoutSeconds != Integer.MAX_VALUE && System.currentTimeMillis() > deadline) {
+                return false;
+            }
             try {
-                currentLine = openLine(sampleRate);
-            } catch (LineUnavailableException noAudio) {
-                current.destroy();
-                process = null;
-                throw new IOException("no audio output line available", noAudio);
+                Thread.sleep(50);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                return true;
             }
-            line = currentLine;
         }
-        StringBuilder engineLog = drainAsync(current.getErrorStream()); // stderr = piper's log
-        writeTextAsync(current.getOutputStream(), prepared);
-        try {
-            long pcmBytes = pump(current, currentLine, startupTimeoutSeconds, myGeneration);
-            return new Utterance(pcmBytes, sampleRate, logTail(engineLog));
-        } catch (IOException failed) {
-            // Attach the engine's own words to the failure — that names the real cause.
-            throw new IOException(failed.getMessage() + " | piper log: " + logTail(engineLog),
-                    failed);
-        } finally {
-            synchronized (lock) {
-                if (process == current) {
-                    process = null;
-                    line = null;
-                }
-            }
-            current.destroy();
-            currentLine.close();
-        }
+        return true;
     }
 
     private static String logTail(StringBuilder engineLog) {
@@ -122,90 +204,6 @@ public final class PiperSpeechSynthesizer {
             String text = engineLog.toString().trim();
             return text.length() <= 600 ? text : "…" + text.substring(text.length() - 600);
         }
-    }
-
-    /** Interrupt the current utterance; safe from any thread, no-op when silent. */
-    public void stop() {
-        Process toKill;
-        SourceDataLine toClose;
-        synchronized (lock) {
-            generation++; // outdate the running utterance
-            toKill = process;
-            toClose = line;
-            process = null;
-            line = null;
-        }
-        if (toKill != null) {
-            toKill.destroy();
-        }
-        if (toClose != null) {
-            toClose.stop();
-            toClose.flush();
-            toClose.close(); // unblocks a write() stuck in speak()'s pump loop
-        }
-    }
-
-    // ------------------------------------------------------------------ internals
-
-    /** @return the PCM bytes actually written to the line (0 = engine produced nothing). */
-    private long pump(Process current, SourceDataLine out, int startupTimeoutSeconds,
-                      long myGeneration) throws IOException {
-        InputStream audio = current.getInputStream();
-        byte[] buffer = new byte[8 * 1024];
-        long startupDeadline = System.currentTimeMillis() + startupTimeoutSeconds * 1000L;
-        long pcmBytes = 0;
-        boolean heardAnything = false;
-        while (true) {
-            synchronized (lock) {
-                if (generation != myGeneration) {
-                    return pcmBytes; // stopped or replaced by a newer utterance
-                }
-            }
-            // Before the first byte, poll instead of blocking so a hung engine start honours the
-            // configured startup timeout instead of waiting forever.
-            if (!heardAnything && audio.available() == 0) {
-                if (!current.isAlive() && audio.available() == 0) {
-                    throw new IOException("piper exited before producing audio (exit "
-                            + current.exitValue() + ")");
-                }
-                if (System.currentTimeMillis() > startupDeadline) {
-                    throw new IOException("piper produced no audio within "
-                            + startupTimeoutSeconds + "s");
-                }
-                sleepQuietly(50);
-                continue;
-            }
-            int read = audio.read(buffer);
-            if (read < 0) {
-                break;
-            }
-            heardAnything = true;
-            int written = 0;
-            while (written < read) {
-                int chunk = out.write(buffer, written, read - written);
-                if (chunk <= 0) {
-                    return pcmBytes; // line closed by stop()
-                }
-                written += chunk;
-                pcmBytes += chunk;
-            }
-        }
-        synchronized (lock) {
-            if (generation != myGeneration) {
-                return pcmBytes;
-            }
-        }
-        out.drain(); // let the tail of the utterance finish playing
-        return pcmBytes;
-    }
-
-    private static SourceDataLine openLine(int sampleRate) throws LineUnavailableException {
-        AudioFormat format = new AudioFormat(AudioFormat.Encoding.PCM_SIGNED,
-                sampleRate, 16, 1, 2, sampleRate, false); // piper: S16LE mono
-        SourceDataLine line = AudioSystem.getSourceDataLine(format);
-        line.open(format);
-        line.start();
-        return line;
     }
 
     /** Piper synthesizes per input LINE — blank lines are skipped, CRLF normalized. */
@@ -253,15 +251,15 @@ public final class PiperSpeechSynthesizer {
         writer.start();
     }
 
-    /** Drain piper's stderr AND keep it — it names model-load/phoneme problems directly. */
-    private StringBuilder drainAsync(final InputStream stderr) {
+    /** Drain a child stream AND keep it (bounded) — piper's stderr names problems directly. */
+    private StringBuilder drainAsync(final InputStream stream) {
         final StringBuilder collected = new StringBuilder();
         Thread drainer = new Thread(new Runnable() {
             public void run() {
                 byte[] buffer = new byte[4 * 1024];
                 try {
                     int read;
-                    while ((read = stderr.read(buffer)) >= 0) {
+                    while ((read = stream.read(buffer)) >= 0) {
                         synchronized (collected) {
                             collected.append(new String(buffer, 0, read,
                                     StandardCharsets.UTF_8));
@@ -274,17 +272,9 @@ public final class PiperSpeechSynthesizer {
                     // process ended
                 }
             }
-        }, "askai-tts-stderr");
+        }, "askai-tts-drain");
         drainer.setDaemon(true);
         drainer.start();
         return collected;
-    }
-
-    private static void sleepQuietly(long millis) {
-        try {
-            Thread.sleep(millis);
-        } catch (InterruptedException interrupted) {
-            Thread.currentThread().interrupt();
-        }
     }
 }
