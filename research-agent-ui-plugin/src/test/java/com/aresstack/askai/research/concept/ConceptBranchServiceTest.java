@@ -251,6 +251,29 @@ public class ConceptBranchServiceTest {
         assertEquals(JsonTreeErrorCode.TARGET_NODE_NOT_FOUND, gone.getDiagnostic().getCode());
     }
 
+    /** Views subscribe at the SERVICE (the shared truth): every applied edit notifies, no reject. */
+    @Test
+    public void everyAppliedEditNotifiesTheChangeListenersRejectionsNever() throws Exception {
+        ConceptBranchService service = fresh();
+        final int[] notified = {0};
+        Runnable listener = new Runnable() {
+            public void run() {
+                notified[0]++;
+            }
+        };
+        service.addChangeListener(listener);
+        service.addChangeListener(listener); // addIfAbsent: re-registering must not double-fire
+        assertTrue(service.addNode(Collections.<String>emptyList(), "FreeRTOS").isApplied());
+        assertEquals(1, notified[0]);
+        assertFalse(service.addNode(Collections.<String>emptyList(), "FreeRTOS").isApplied());
+        assertEquals("a rejected edit never notifies", 1, notified[0]);
+        assertTrue(service.removeNodeAt(Collections.singletonList("FreeRTOS")).isApplied());
+        assertEquals(2, notified[0]);
+        service.removeChangeListener(listener);
+        service.addNode(Collections.<String>emptyList(), "Neu");
+        assertEquals("removed listeners stay silent", 2, notified[0]);
+    }
+
     // ------------------------------------------------------------------ fixture
 
     /** A concept with one grouped card: Synchronisation(Mutex, Semaphoren, Queues). */

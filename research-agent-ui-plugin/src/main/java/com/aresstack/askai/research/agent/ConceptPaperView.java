@@ -31,8 +31,21 @@ public final class ConceptPaperView extends JPanel {
     private final MarkdownView jsonView;
     private final ResearchBriefView briefView;
     private final JLabel revisionLabel = new JLabel(" ");
+    private final javax.swing.JButton refreshButton = new javax.swing.JButton("⟳");
     private final CardLayout cards = new CardLayout();
     private final JPanel cardPanel = new JPanel();
+
+    /** Wire the manual ⟳ button to the owner's re-read (the same runnable the listeners use). */
+    public void setRefreshAction(final Runnable refresh) {
+        for (ActionListener old : refreshButton.getActionListeners()) {
+            refreshButton.removeActionListener(old);
+        }
+        refreshButton.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent event) {
+                refresh.run();
+            }
+        });
+    }
 
     public ConceptPaperView(MarkdownViewFactory markdownViewFactory) {
         super(new BorderLayout());
@@ -53,6 +66,11 @@ public final class ConceptPaperView extends JPanel {
         bar.add(viewToggle(group, "Mindmap", "mindmap", true));
         bar.add(viewToggle(group, "JSON", "json", false));
         bar.add(viewToggle(group, "Brief", "brief", false));
+        // Manual refresh for ALL cases — the auto-listeners cover the normal paths, but a
+        // human must never depend on them to see the current workpiece.
+        refreshButton.setFocusable(false);
+        refreshButton.setToolTipText("Ansicht neu laden");
+        bar.add(refreshButton);
         revisionLabel.setEnabled(false); // quiet gray, diagnostic value only
         bar.add(revisionLabel);
 

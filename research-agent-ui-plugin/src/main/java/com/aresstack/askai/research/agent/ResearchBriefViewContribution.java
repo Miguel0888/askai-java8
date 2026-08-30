@@ -55,12 +55,14 @@ public final class ResearchBriefViewContribution implements ArtifactViewContribu
                 });
             }
         };
+        // The manual ⟳ runs exactly the same re-read as every listener — never a second path.
+        view.setRefreshAction(refresh);
         view.addAncestorListener(new javax.swing.event.AncestorListener() {
             public void ancestorAdded(javax.swing.event.AncestorEvent event) {
-                // Tab (re)shown: RE-ATTACH the observer AND RE-READ the current brief from the store, so a
-                // brief written while the tab was hidden appears immediately instead of staying blank until
-                // an app restart. addStateListener is addIfAbsent, so repeated calls are safe.
+                // Tab (re)shown: RE-ATTACH the observers AND RE-READ, so content written while
+                // the tab was hidden appears immediately. Both adds are addIfAbsent-safe.
                 research.addStateListener(refresh);
+                attachConceptListener(research, refresh);
                 refresh.run();
             }
 
@@ -68,13 +70,30 @@ public final class ResearchBriefViewContribution implements ArtifactViewContribu
             }
 
             public void ancestorRemoved(javax.swing.event.AncestorEvent event) {
-                // Tab hidden/closed: stop live updates so the listener set never grows, but keep the reusable
-                // MarkdownView intact for a later re-show (disposing it here would break re-render on return).
+                // Tab hidden/closed: stop live updates so the listener sets never grow, but keep
+                // the reusable MarkdownViews intact for a later re-show.
                 research.removeStateListener(refresh);
+                com.aresstack.askai.research.concept.ConceptBranchService service =
+                        research.conceptBranchService();
+                if (service != null) {
+                    service.removeChangeListener(refresh);
+                }
             }
         });
         research.addStateListener(refresh);
+        // Subscribe DIRECTLY at the service — the single shared truth notifies on every applied
+        // edit, with no delegation chain in between (the live gate caught the long chain
+        // dropping updates: the JSON view sat on rev 1 while the agent committed rev 3).
+        attachConceptListener(research, refresh);
         refresh.run(); // initial paint (shows persisted working copy on restore)
         return view;
+    }
+
+    private static void attachConceptListener(ResearchAgentSession research, Runnable refresh) {
+        com.aresstack.askai.research.concept.ConceptBranchService service =
+                research.conceptBranchService();
+        if (service != null) {
+            service.addChangeListener(refresh);
+        }
     }
 }

@@ -58,9 +58,39 @@ public final class ConceptBranchService {
     private final FileConceptStore store;
     private final Map<String, Handle> handles = new HashMap<String, Handle>();
     private long handleCounter;
+    /**
+     * Observers of COMMITTED changes. The service is the ONE shared instance per session, so a
+     * view that subscribes HERE is in sync by construction — no delegation chain (tool → context
+     * → resources → session → state listeners) that can silently drop a hop. Listeners only get
+     * "something committed"; they re-read via {@link #snapshot()}, never receive the JSON.
+     */
+    private final java.util.concurrent.CopyOnWriteArrayList<Runnable> changeListeners =
+            new java.util.concurrent.CopyOnWriteArrayList<Runnable>();
 
     public ConceptBranchService(FileConceptStore store) {
         this.store = store;
+    }
+
+    /** Subscribe to committed changes (addIfAbsent — re-registering on re-show is safe). */
+    public void addChangeListener(Runnable listener) {
+        if (listener != null) {
+            changeListeners.addIfAbsent(listener);
+        }
+    }
+
+    public void removeChangeListener(Runnable listener) {
+        changeListeners.remove(listener);
+    }
+
+    /** Every APPLIED edit funnels through here; a broken observer never breaks the commit. */
+    private void notifyChanged() {
+        for (Runnable listener : changeListeners) {
+            try {
+                listener.run();
+            } catch (RuntimeException broken) {
+                // observers must never take the edit down
+            }
+        }
     }
 
     // ------------------------------------------------------------------ results
@@ -262,6 +292,7 @@ public final class ConceptBranchService {
         }
         long newRevision = store.commitWorking(result.getDocumentJson(),
                 System.currentTimeMillis());
+        notifyChanged();
         return new EditResult(true, newRevision, null);
     }
 
@@ -359,6 +390,7 @@ public final class ConceptBranchService {
                     .build());
         }
         long newRevision = store.commitWorking(candidateJson, System.currentTimeMillis());
+        notifyChanged();
         return new EditResult(true, newRevision, null);
     }
 
@@ -422,6 +454,7 @@ public final class ConceptBranchService {
                     .build());
         }
         long newRevision = store.commitWorking(candidateJson, System.currentTimeMillis());
+        notifyChanged();
         return new EditResult(true, newRevision, null);
     }
 
