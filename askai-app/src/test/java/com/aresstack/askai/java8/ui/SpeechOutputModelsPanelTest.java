@@ -66,7 +66,8 @@ public class SpeechOutputModelsPanelTest {
         assertEquals("Not installed", panel.statusText(voice.getId()));
         panel.installButton(voice.getId()).doClick();
         assertEquals("Installed · in use", panel.statusText(voice.getId()));
-        assertFalse(panel.installButton(voice.getId()).isVisible());
+        assertEquals("the action toggles once installed", "Uninstall",
+                panel.installButton(voice.getId()).getText());
         TextToSpeechSettings selected = settings.load();
         assertEquals(TextToSpeechSettings.Engine.PIPER,
                 selected.selectionFor(voice.getLanguageCode()).getEngine());
@@ -83,6 +84,45 @@ public class SpeechOutputModelsPanelTest {
         assertEquals("Installed", panel.statusText(voice.getId()));
         assertEquals(TextToSpeechSettings.Engine.WINDOWS,
                 settings.load().selectionFor(voice.getLanguageCode()).getEngine());
+    }
+
+    @Test
+    public void uninstallRemovesTheFilesResetsTheSelectionAndAllowsAFreshInstall() throws Exception {
+        SpeechOutputModelsPanel panel = buildPanel(fakeInstall(), true);
+        PiperVoice voice = PiperVoiceCatalog.curated().get(0);
+        panel.installButton(voice.getId()).doClick(); // install + adopt
+        assertEquals("Uninstall", panel.installButton(voice.getId()).getText());
+
+        panel.installButton(voice.getId()).doClick(); // now: uninstall
+        assertEquals("Not installed", panel.statusText(voice.getId()));
+        assertEquals("Install", panel.installButton(voice.getId()).getText());
+        assertFalse("files are gone — a reinstall starts clean",
+                store.isVoiceInstalled(voice));
+        assertFalse("no dangling directory",
+                java.nio.file.Files.exists(store.voiceDirectory(voice)));
+        assertEquals("the selection returns to the Windows default",
+                TextToSpeechSettings.Engine.WINDOWS,
+                settings.load().selectionFor(voice.getLanguageCode()).getEngine());
+
+        panel.installButton(voice.getId()).doClick(); // fresh install works again
+        assertTrue(store.isVoiceInstalled(voice));
+        assertEquals("Uninstall", panel.installButton(voice.getId()).getText());
+    }
+
+    @Test
+    public void uninstallLeavesAForeignSelectionAlone() throws Exception {
+        SpeechOutputModelsPanel panel = buildPanel(fakeInstall(), false);
+        PiperVoice high = PiperVoiceCatalog.curated().get(0);   // de high
+        PiperVoice medium = PiperVoiceCatalog.curated().get(1); // de medium
+        panel.installButton(high.getId()).doClick();
+        panel.installButton(medium.getId()).doClick();
+        settings.save(settings.load().withSelection("de",
+                TextToSpeechSettings.Engine.PIPER, medium.getId()));
+
+        panel.installButton(high.getId()).doClick(); // uninstall the NOT-selected voice
+        assertEquals("the selected medium voice keeps its selection", medium.getId(),
+                settings.load().selectionFor("de").getVoiceId());
+        assertTrue(store.isVoiceInstalled(medium));
     }
 
     @Test

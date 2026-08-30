@@ -116,14 +116,22 @@ public final class SpeechOutputModelsPanel extends JPanel {
         row.add(new JLabel(voice.getLanguage() + " — " + voice.getDisplayName()
                 + "  ·  ~" + voice.getApproximateSizeMb() + " MB"));
         JLabel status = new JLabel();
-        JButton install = new JButton("Install");
-        install.addActionListener(event -> onInstall(voice));
+        // ONE toggling action per row: Install while absent, Uninstall once installed — decided
+        // at CLICK time from the store, so the button and the disk can never disagree.
+        JButton action = new JButton("Install");
+        action.addActionListener(event -> {
+            if (store.isVoiceInstalled(voice)) {
+                onUninstall(voice);
+            } else {
+                onInstall(voice);
+            }
+        });
         statusByVoice.put(voice.getId(), status);
-        buttonByVoice.put(voice.getId(), install);
+        buttonByVoice.put(voice.getId(), action);
         rowByVoice.put(voice.getId(), row);
         row.add(Box.createHorizontalStrut(8));
         row.add(status);
-        row.add(install);
+        row.add(action);
         return row;
     }
 
@@ -162,9 +170,53 @@ public final class SpeechOutputModelsPanel extends JPanel {
             boolean isInstalled = store.isVoiceInstalled(voice);
             status.setText(!isInstalled ? "Not installed"
                     : inUse ? "Installed · in use" : "Installed");
-            button.setVisible(!isInstalled);
-            button.setEnabled(!isInstalled);
+            button.setText(isInstalled ? "Uninstall" : "Install");
+            button.setVisible(true);
+            button.setEnabled(true);
         }
+    }
+
+    /** Remove the voice cleanly (reinstallable); a selection pointing at it returns to Windows. */
+    private void onUninstall(final PiperVoice voice) {
+        final JButton button = buttonByVoice.get(voice.getId());
+        final JLabel status = statusByVoice.get(voice.getId());
+        if (button != null) {
+            button.setEnabled(false);
+        }
+        if (status != null) {
+            status.setText("Removing …");
+        }
+        error.setText(" ");
+        background.execute(new Runnable() {
+            public void run() {
+                Exception failure = null;
+                try {
+                    store.uninstallVoice(voice);
+                    TextToSpeechSettings current = settings.load();
+                    TextToSpeechSettings.Selection selection =
+                            current.selectionFor(voice.getLanguageCode());
+                    if (selection.getEngine() == TextToSpeechSettings.Engine.PIPER
+                            && voice.getId().equals(selection.getVoiceId())) {
+                        settings.save(current.withSelection(voice.getLanguageCode(),
+                                TextToSpeechSettings.Engine.WINDOWS, ""));
+                    }
+                } catch (Exception ex) {
+                    failure = ex;
+                }
+                final Exception outcome = failure;
+                ui.execute(new Runnable() {
+                    public void run() {
+                        if (outcome != null) {
+                            error.setText("Uninstall failed: " + describe(outcome));
+                        }
+                        refresh();
+                        if (onVoicesChanged != null) {
+                            onVoicesChanged.run(); // the selector drops the removed voice
+                        }
+                    }
+                });
+            }
+        });
     }
 
     private void onInstall(final PiperVoice voice) {
