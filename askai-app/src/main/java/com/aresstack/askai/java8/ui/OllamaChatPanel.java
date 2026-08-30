@@ -1075,8 +1075,9 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         speechRow.add(speechOutputCombo);
         card.add(speechRow);
         JPanel speechHintRow = partySettingsRow();
-        JLabel speechHint = new JLabel("<html><i>Model voices run on the CPU (GPU: coming soon)."
-                + " Install them under Models &gt; Setup &gt; Speech Output.</i></html>");
+        JLabel speechHint = new JLabel("<html><i>CPU (recommended) — the GPU stays free for the AI"
+                + " models. GPU acceleration — coming soon."
+                + " Install voices under Models &gt; Setup &gt; Speech Output.</i></html>");
         speechHint.setEnabled(false);
         speechHintRow.add(speechHint);
         card.add(speechHintRow);

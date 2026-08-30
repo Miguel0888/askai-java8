@@ -673,6 +673,11 @@ public final class OllamaInstallPanel extends JPanel {
                     : configurationRepository.load().getHuggingFaceSearchSuggestions()) {
                 searchCombo.addItem(suggestion);
             }
+            // Speech-output DISCOVERY entries (🔊): UI-injected, never persisted — selecting one
+            // opens the dedicated Speech Output install flow instead of a HuggingFace search.
+            for (HuggingFaceSearchSuggestion discovery : SpeechOutputSuggestions.entries()) {
+                searchCombo.addItem(discovery);
+            }
             searchCombo.setSelectedItem(typed == null ? "" : typed);
         } finally {
             suppressLocalAutoActivate = false;
@@ -693,6 +698,9 @@ public final class OllamaInstallPanel extends JPanel {
             return;
         }
         HuggingFaceSearchSuggestion suggestion = (HuggingFaceSearchSuggestion) selected;
+        if (openSpeechOutputFor(suggestion.getTerm())) {
+            return; // 🔊 discovery entry: navigation to Speech Output, not a search term
+        }
         String key = suggestion.getTerm() + " " + suggestion.getTarget().name();
         if (!key.equals(lastHandledSuggestionKey)) {
             lastHandledSuggestionKey = key;
@@ -707,6 +715,36 @@ public final class OllamaInstallPanel extends JPanel {
                 programmaticLocalToggle = false;
             }
         }
+    }
+
+    /** The owner's hand-over to the Speech Output tab (voice id → open + highlight), or null. */
+    private java.util.function.Consumer<String> speechOutputOpener;
+
+    /** Wired by {@link ModelSearchPanel} so 🔊 discovery entries can open the Speech Output tab. */
+    void setSpeechOutputOpener(java.util.function.Consumer<String> opener) {
+        this.speechOutputOpener = opener;
+    }
+
+    /**
+     * @return true when {@code term} is a 🔊 speech-output discovery entry — the Speech Output
+     *         flow was opened (if wired) and the editor cleared, so no search must run
+     */
+    private boolean openSpeechOutputFor(String term) {
+        final String voiceId = SpeechOutputSuggestions.voiceIdForTerm(term);
+        if (voiceId == null) {
+            return false;
+        }
+        searchCombo.getEditor().setItem(""); // the marker is navigation, never a query
+        final java.util.function.Consumer<String> opener = speechOutputOpener;
+        if (opener != null) {
+            // Later on the EDT: let the combo's selection events settle before the tab switches.
+            SwingUtilities.invokeLater(new Runnable() {
+                public void run() {
+                    opener.accept(voiceId);
+                }
+            });
+        }
+        return true;
     }
 
     /** Opens a small editor for the dropdown suggestions (one per line) and persists the list. */
@@ -1041,6 +1079,9 @@ public final class OllamaInstallPanel extends JPanel {
         if (query.length() == 0) {
             append("Enter a search term, e.g. qwen2.5 coder 0.5b.");
             return;
+        }
+        if (openSpeechOutputFor(query)) {
+            return; // a 🔊 discovery entry is navigation, never a HuggingFace search
         }
         saveTokenToConfiguration();
         final ModelSearchCriteria criteria = buildCriteria(query);

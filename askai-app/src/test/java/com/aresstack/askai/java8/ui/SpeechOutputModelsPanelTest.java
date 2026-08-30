@@ -82,6 +82,18 @@ public class SpeechOutputModelsPanelTest {
     }
 
     @Test
+    public void highlightVoiceTintsTheTargetRow() throws Exception {
+        SpeechOutputModelsPanel panel = buildPanel(fakeInstall(), false);
+        PiperVoice voice = PiperVoiceCatalog.curated().get(0);
+        java.awt.Container row = panel.installButton(voice.getId()).getParent();
+        java.awt.Color before = row.getBackground();
+        panel.highlightVoice(voice.getId());
+        assertTrue("the discovery hand-over visibly marks the recommended voice",
+                !row.getBackground().equals(before));
+        panel.highlightVoice("no-such-voice"); // unknown ids are a quiet no-op
+    }
+
+    @Test
     public void aFailedInstallSurfacesAndStaysInstallable() throws Exception {
         SpeechOutputModelsPanel panel = buildPanel(new SpeechOutputModelsPanel.InstallAction() {
             public void install(PiperVoice voice, PiperInstaller.Progress progress) throws Exception {

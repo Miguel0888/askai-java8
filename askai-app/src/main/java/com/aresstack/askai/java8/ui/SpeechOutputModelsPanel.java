@@ -54,6 +54,7 @@ public final class SpeechOutputModelsPanel extends JPanel {
 
     private final Map<String, JLabel> statusByVoice = new LinkedHashMap<String, JLabel>();
     private final Map<String, JButton> buttonByVoice = new LinkedHashMap<String, JButton>();
+    private final Map<String, JPanel> rowByVoice = new LinkedHashMap<String, JPanel>();
     private final JLabel error = new JLabel(" ");
 
     /** Productive wiring: real installer + a background thread + the EDT + a JOptionPane prompt. */
@@ -81,9 +82,9 @@ public final class SpeechOutputModelsPanel extends JPanel {
         rows.setLayout(new BoxLayout(rows, BoxLayout.Y_AXIS));
         rows.setBorder(BorderFactory.createTitledBorder("Read-aloud voices (Piper)"));
         JLabel intro = new JLabel("<html>The default speech output is the Windows voice — it needs"
-                + " no download. These model voices sound far more natural and run entirely on the"
-                + " <b>CPU</b>, so your GPU stays free for the chat models."
-                + " GPU acceleration: <i>coming soon</i>.</html>");
+                + " no download. These model voices sound far more natural.<br>"
+                + "<b>CPU (recommended)</b> — the GPU stays free for the AI models.&nbsp;&nbsp;·"
+                + "&nbsp;&nbsp;GPU acceleration — <i>coming soon</i>.</html>");
         JPanel introRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 2));
         introRow.add(intro);
         rows.add(introRow);
@@ -103,10 +104,31 @@ public final class SpeechOutputModelsPanel extends JPanel {
         install.addActionListener(event -> onInstall(voice));
         statusByVoice.put(voice.getId(), status);
         buttonByVoice.put(voice.getId(), install);
+        rowByVoice.put(voice.getId(), row);
         row.add(Box.createHorizontalStrut(8));
         row.add(status);
         row.add(install);
         return row;
+    }
+
+    /** Briefly tints the voice's row — the hand-over target of a 🔊 discovery entry. */
+    public void highlightVoice(String voiceId) {
+        final JPanel row = rowByVoice.get(voiceId);
+        if (row == null) {
+            return;
+        }
+        final java.awt.Color original = row.getBackground();
+        final boolean wasOpaque = row.isOpaque();
+        row.setOpaque(true);
+        row.setBackground(new java.awt.Color(0xDCE9FF)); // calm AskAI-blue tint, not an alarm
+        row.repaint();
+        javax.swing.Timer restore = new javax.swing.Timer(1800, event -> {
+            row.setOpaque(wasOpaque);
+            row.setBackground(original);
+            row.repaint();
+        });
+        restore.setRepeats(false);
+        restore.start();
     }
 
     /** Recompute installed/selected state for every row. */

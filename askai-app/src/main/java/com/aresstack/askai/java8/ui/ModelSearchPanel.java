@@ -17,6 +17,7 @@ public final class ModelSearchPanel extends JPanel {
 
     private final JTabbedPane tabs;
     private final OllamaInstallPanel huggingFacePanel;
+    private final SpeechOutputModelsPanel speechOutputPanel;
 
     public ModelSearchPanel(AppConfigurationRepository configurationRepository, AskAiService askAiService) {
         this(configurationRepository, askAiService, null);
@@ -45,10 +46,26 @@ public final class ModelSearchPanel extends JPanel {
         if (nlpModelsPanel != null) {
             tabs.addTab(NlpModelsPanel.TAB_TITLE, nlpModelsPanel);
         }
+        this.speechOutputPanel = speechOutputPanel;
         if (speechOutputPanel != null) {
             tabs.addTab(SpeechOutputModelsPanel.TAB_TITLE, speechOutputPanel);
+            // The 🔊 discovery entries in the HuggingFace dropdown open this tab directly —
+            // never the GGUF/Ollama importer.
+            huggingFacePanel.setSpeechOutputOpener(new java.util.function.Consumer<String>() {
+                public void accept(String voiceId) {
+                    openSpeechOutput(voiceId);
+                }
+            });
         }
         add(tabs, BorderLayout.CENTER);
+    }
+
+    /** Selects the Speech Output tab and highlights the recommended voice's row. */
+    public void openSpeechOutput(String voiceId) {
+        if (speechOutputPanel != null) {
+            tabs.setSelectedComponent(speechOutputPanel);
+            speechOutputPanel.highlightVoice(voiceId);
+        }
     }
 
     /** The tab titles in order (for diagnostics/tests). */
