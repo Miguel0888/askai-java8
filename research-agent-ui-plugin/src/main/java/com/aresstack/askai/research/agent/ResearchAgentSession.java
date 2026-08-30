@@ -170,13 +170,18 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     }
 
     /**
-     * Live language switch for THIS session only: host texts and narrations pick it up on the next
-     * utterance; already rendered history stays untouched. The runtime agent is synchronised best-effort
-     * via a {@code set_language} service command — no chat turn, no history entry, no state-machine
-     * command; a fake backend's submitServiceCommand is a no-op.
+     * Live language switch: host texts and narrations of THIS session pick it up on the next
+     * utterance; already rendered history stays untouched. The runtime agent is synchronised
+     * best-effort via a {@code set_language} service command — no chat turn, no history entry, no
+     * state-machine command; a fake backend's submitServiceCommand is a no-op. The choice ALSO
+     * becomes the persisted default for NEW chats (same key as the gear settings' combo): a user
+     * who switched to German is greeted in German by the next session too — a fresh chat ignoring
+     * yesterday's explicit choice was terrible UX.
      */
     public void changeLanguage(ResearchLanguage value) {
         sessionLanguage.change(value);
+        com.aresstack.askai.research.host.ResearchRuntimeSettings.saveLanguage(
+                hostStateStore, value.getCode());
         publishSessionLanguage();
         publishScopeFence(); // the model must see the scope the HOST holds, from the very first turn
     }

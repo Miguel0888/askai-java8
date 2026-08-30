@@ -173,6 +173,63 @@ public class ManualSearchWiringTest {
                 fx.session.getSessionLanguage().currentLanguage());
     }
 
+    /**
+     * The switch is ALSO the default for NEW chats: a user who set German yesterday must not be
+     * greeted in English today — the seed path ({@code ResearchRuntimeSettings.loadLanguage})
+     * reads exactly what the toolbar switch persisted.
+     */
+    @Test
+    public void theLanguageSwitchPersistsAsTheDefaultForNewChats() {
+        MemoryStore store = new MemoryStore();
+        Fx fx = new Fx(store);
+        assertEquals("en", ResearchRuntimeSettings.loadLanguage(store));
+
+        fx.session.changeLanguage(com.aresstack.askai.research.agent.ResearchLanguage.GERMAN);
+
+        assertEquals("de", ResearchRuntimeSettings.loadLanguage(store));
+        assertEquals("a NEW session would now seed German",
+                com.aresstack.askai.research.agent.ResearchLanguage.GERMAN,
+                com.aresstack.askai.research.agent.ResearchLanguage.fromCode(
+                        ResearchRuntimeSettings.loadLanguage(store)));
+    }
+
+    /** Bare in-memory {@link WorkspaceStateStore} for persistence assertions. */
+    private static final class MemoryStore implements WorkspaceStateStore {
+        private final java.util.Map<String, String> values =
+                new java.util.HashMap<String, String>();
+
+        public String get(String key, String defaultValue) {
+            String value = values.get(key);
+            return value == null ? defaultValue : value;
+        }
+
+        public boolean getBoolean(String key, boolean defaultValue) {
+            String value = values.get(key);
+            return value == null ? defaultValue : Boolean.parseBoolean(value);
+        }
+
+        public int getInt(String key, int defaultValue) {
+            String value = values.get(key);
+            try {
+                return value == null ? defaultValue : Integer.parseInt(value);
+            } catch (NumberFormatException invalid) {
+                return defaultValue;
+            }
+        }
+
+        public void put(String key, String value) {
+            values.put(key, value);
+        }
+
+        public void putBoolean(String key, boolean value) {
+            values.put(key, Boolean.toString(value));
+        }
+
+        public void putInt(String key, int value) {
+            values.put(key, Integer.toString(value));
+        }
+    }
+
     @Test
     public void aSearchSnapshotsTheSessionLanguageAtSubmitTime() {
         Fx fx = new Fx();
@@ -550,8 +607,14 @@ public class ManualSearchWiringTest {
         final RecordingSink sink = new RecordingSink();
         final ProductiveResearchSessionResources resources;
         final ResearchAgentSession session;
+        final WorkspaceStateStore hostStore;
 
         Fx() {
+            this(null);
+        }
+
+        Fx(WorkspaceStateStore hostStore) {
+            this.hostStore = hostStore;
             final ProductiveResearchSessionResources[] holder = new ProductiveResearchSessionResources[1];
             ResearchControlEndpoint control = new ResearchControlEndpoint(registry, "s1", 7L,
                     new ResearchControlContext() {
@@ -585,7 +648,8 @@ public class ManualSearchWiringTest {
             resources = new ProductiveResearchSessionResources("s1", new OoResearchStateMachine("s1"),
                     null, null, null, tempProjectContext(), control, null, null, null);
             holder[0] = resources;
-            session = new ResearchAgentSession(backend, null, new PlainHost(sink), "s1", "p1", resources);
+            session = new ResearchAgentSession(backend, null, new PlainHost(sink, hostStore),
+                    "s1", "p1", resources);
             session.activate();
         }
     }
@@ -693,9 +757,15 @@ public class ManualSearchWiringTest {
 
     private static final class PlainHost implements AgentHostContext {
         private final AgentConversationSink sink;
+        private final WorkspaceStateStore store;
 
         PlainHost(AgentConversationSink sink) {
+            this(sink, null);
+        }
+
+        PlainHost(AgentConversationSink sink, WorkspaceStateStore store) {
             this.sink = sink;
+            this.store = store;
         }
 
         public UiExecutor getUiExecutor() {
@@ -715,7 +785,7 @@ public class ManualSearchWiringTest {
         }
 
         public WorkspaceStateStore getStateStore() {
-            return null;
+            return store;
         }
 
         public PluginPathService getPluginPathService() {

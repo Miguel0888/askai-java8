@@ -19,8 +19,9 @@ import java.util.List;
  * The live SESSION language switch — {@code [flag Language ▾]} — in the CHATS FOOTER of the drawer
  * (design study), no longer in the top bar. Selecting a language calls
  * {@link ResearchAgentSession#changeLanguage} — host state first, then the best-effort
- * {@code set_language} service command. It is NEVER a chat turn, never a state-machine command and
- * never touches the persisted default in the gear settings. Flags are painted in code on purpose:
+ * {@code set_language} service command. It is NEVER a chat turn and never a state-machine command;
+ * it DOES persist as the default for NEW chats (same key as the gear settings), so the next
+ * session greets in the language the user actually chose. Flags are painted in code on purpose:
  * deterministic on every JRE/font, unlike emoji flag glyphs on Windows.
  */
 public final class ResearchLanguageToolbarContribution implements AgentToolbarContribution {
@@ -49,7 +50,8 @@ public final class ResearchLanguageToolbarContribution implements AgentToolbarCo
                 0, ResearchUiMetrics.FOOTER_PILL_PADDING_H,
                 ResearchUiMetrics.FOOTER_PILL_PADDING_H);
         pill.setFont(ResearchUiTypography.regular(13f));
-        pill.setToolTipText("Language of this research session (new content only)");
+        pill.setToolTipText("Language of this research session (new content only) — "
+                + "also the default for new chats");
         List<ResearchPillDropdown.Item> items = new ArrayList<ResearchPillDropdown.Item>();
         for (ResearchLanguage language : languages) {
             items.add(new ResearchPillDropdown.Item(
