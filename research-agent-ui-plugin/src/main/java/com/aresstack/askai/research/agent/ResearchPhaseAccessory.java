@@ -10,21 +10,21 @@ import java.util.List;
 import java.util.function.Consumer;
 
 /**
- * The generic phase-bound surface BELOW the composer (the spot the old "Technical details" strip
- * occupied). Per slice only Phase 1 has content — the blacklist strip ({@link
- * ResearchBlacklistPanel}); in every other phase the surface disappears completely (no empty
- * placeholder). Visibility and data follow the session's state listener, exactly like the scoping
- * accessory above the composer; add/remove intents run through the session's ONE scope path.
+ * The generic phase-bound surface, third pass: no strip near the composer anymore — Phase 1 shows
+ * the {@link ResearchOutOfScopeSky} as a see-through layer over the TOP of the transcript
+ * ({@code TRANSCRIPT_OVERLAY} placement); in every other phase the sky disappears completely (the
+ * chat keeps its full height, no leftover surface). Visibility and data follow the session's state
+ * listener exactly like before; add/remove intents run through the session's ONE scope path.
  */
 final class ResearchPhaseAccessory implements ComposerAccessory {
 
     private final ResearchAgentSession research;
-    private final ResearchBlacklistPanel view;
+    private final ResearchOutOfScopeSky view;
     private final Runnable refresh;
 
     ResearchPhaseAccessory(final ResearchAgentSession research, final UiExecutor uiExecutor) {
         this.research = research;
-        this.view = new ResearchBlacklistPanel();
+        this.view = new ResearchOutOfScopeSky();
         this.view.setAddAction(new Consumer<String>() {
             public void accept(String text) {
                 reportRejection(research.addScopeExclusion(text));
@@ -45,9 +45,7 @@ final class ResearchPhaseAccessory implements ComposerAccessory {
                 uiExecutor.execute(new Runnable() {
                     public void run() {
                         view.setVisible(scoping);
-                        if (scoping) {
-                            view.setExclusions(exclusions);
-                        }
+                        view.setExclusions(exclusions);
                     }
                 });
             }
@@ -56,7 +54,7 @@ final class ResearchPhaseAccessory implements ComposerAccessory {
         refresh.run(); // initial paint
     }
 
-    /** A refused add/remove must stay visible — the chips would otherwise silently lie. */
+    /** A refused add/remove must stay visible — the sky would otherwise silently lie. */
     private void reportRejection(String reason) {
         if (reason != null) {
             JOptionPane.showMessageDialog(view, reason, "Ausschluss nicht übernommen",
@@ -70,7 +68,7 @@ final class ResearchPhaseAccessory implements ComposerAccessory {
 
     @Override
     public Placement getPlacement() {
-        return Placement.BELOW_COMPOSER;
+        return Placement.TRANSCRIPT_OVERLAY;
     }
 
     public void dispose() {

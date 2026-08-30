@@ -18,6 +18,11 @@ public interface ComposerAccessoryHost {
 
     void clearBelowAccessory();
 
+    /** Lay an accessory OVER the active tab's transcript (layered, e.g. the out-of-scope sky). */
+    void setTranscriptAccessory(JComponent component);
+
+    void clearTranscriptAccessory();
+
     /** Route an accessory-provided composer placeholder to the targeted tab (null = default). */
     void setComposerPlaceholder(String placeholderOrNull);
 }

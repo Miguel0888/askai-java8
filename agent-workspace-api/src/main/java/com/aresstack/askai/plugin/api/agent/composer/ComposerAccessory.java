@@ -16,7 +16,14 @@ public interface ComposerAccessory {
         /** Directly above the composer (the default) — e.g. the scoping tag surface. */
         ABOVE_COMPOSER,
         /** Directly below the composer — e.g. a phase-bound workspace strip. */
-        BELOW_COMPOSER
+        BELOW_COMPOSER,
+        /**
+         * A see-through layer OVER the chat transcript (host's layered pane), sized to the full
+         * transcript area — e.g. the out-of-scope sky. The component must paint sparsely and
+         * override {@code contains(int,int)} to claim ONLY its interactive zone, so the chat
+         * underneath stays clickable and scrollable everywhere else.
+         */
+        TRANSCRIPT_OVERLAY
     }
 
     JComponent getComponent();

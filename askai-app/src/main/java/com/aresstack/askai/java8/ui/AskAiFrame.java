@@ -123,6 +123,8 @@ public final class AskAiFrame extends JFrame {
     private OllamaChatPanel accessoryTargetTab;
     /** The tab currently showing a BELOW-composer accessory (tracked independently of the upper slot). */
     private OllamaChatPanel belowAccessoryTargetTab;
+    /** The tab currently showing a TRANSCRIPT overlay accessory (the out-of-scope sky). */
+    private OllamaChatPanel skyAccessoryTargetTab;
     /** Host runtime services (owns the process-global Solon MCP server); stopped synchronously on close. */
     private com.aresstack.askai.java8.plugin.host.AgentRuntimeServices agentRuntimeServices;
     private AudioProcessingPanel audioProcessingPanel;
@@ -764,6 +766,26 @@ public final class AskAiFrame extends JFrame {
                         if (belowAccessoryTargetTab != null) {
                             belowAccessoryTargetTab.clearBelowComposerAccessory();
                             belowAccessoryTargetTab = null;
+                        }
+                    }
+
+                    public void setTranscriptAccessory(javax.swing.JComponent component) {
+                        OllamaChatPanel active = activeChat();
+                        if (skyAccessoryTargetTab != null && skyAccessoryTargetTab != active) {
+                            skyAccessoryTargetTab.clearTranscriptSkyAccessory();
+                        }
+                        if (active != null) {
+                            active.setTranscriptSkyAccessory(component);
+                            skyAccessoryTargetTab = active;
+                        } else {
+                            skyAccessoryTargetTab = null;
+                        }
+                    }
+
+                    public void clearTranscriptAccessory() {
+                        if (skyAccessoryTargetTab != null) {
+                            skyAccessoryTargetTab.clearTranscriptSkyAccessory();
+                            skyAccessoryTargetTab = null;
                         }
                     }
 

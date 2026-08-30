@@ -627,6 +627,36 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         }
     }
 
+    /** Between the transcript (DEFAULT) and the ✕-closable diagram overlay (PALETTE). */
+    private static final Integer TRANSCRIPT_SKY_LAYER = Integer.valueOf(50);
+    private JComponent transcriptSkyAccessory;
+
+    /**
+     * Lay a host-provided SEE-THROUGH accessory over the transcript (e.g. the research
+     * out-of-scope sky), replacing any previous one. The component fills the transcript area; it
+     * must claim only its interactive zone via {@code contains}, so chat clicks/scrolling keep
+     * working underneath. EDT only.
+     */
+    public void setTranscriptSkyAccessory(JComponent accessory) {
+        clearTranscriptSkyAccessory();
+        if (accessory != null) {
+            transcriptSkyAccessory = accessory;
+            transcriptLayers.add(accessory, TRANSCRIPT_SKY_LAYER);
+            transcriptLayers.revalidate();
+            transcriptLayers.repaint();
+        }
+    }
+
+    /** Remove the transcript accessory layer (no-op when none is shown). EDT only. */
+    public void clearTranscriptSkyAccessory() {
+        if (transcriptSkyAccessory != null) {
+            transcriptLayers.remove(transcriptSkyAccessory);
+            transcriptSkyAccessory = null;
+            transcriptLayers.revalidate();
+            transcriptLayers.repaint();
+        }
+    }
+
     /**
      * Show a Mermaid SOURCE in the full embedded viewer (zoom/pan, high-res re-render, copy,
      * save — the {@link com.aresstack.askai.java8.ui.markdown.MermaidViewerPanel}) as an overlay.

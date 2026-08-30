@@ -6,8 +6,8 @@ import com.aresstack.askai.plugin.api.agent.composer.ComposerAccessoryContext;
 import com.aresstack.askai.plugin.api.agent.composer.ComposerAccessoryContribution;
 
 /**
- * Contributes the phase-bound surface below the composer (Phase 1: the blacklist strip) for
- * research sessions. Non-research sessions get nothing.
+ * Contributes the phase-bound surface (Phase 1: the out-of-scope sky over the transcript's top)
+ * for research sessions. Non-research sessions get nothing.
  */
 public final class ResearchPhaseAccessoryContribution implements ComposerAccessoryContribution {
 

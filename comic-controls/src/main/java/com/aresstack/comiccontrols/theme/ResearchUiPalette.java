@@ -54,8 +54,24 @@ public final class ResearchUiPalette {
     public static final Color CHIP_HOVER_BORDER = new Color(0x767D89);
     /** Round hover backdrop behind a chip's ✕. */
     public static final Color CHIP_CLOSE_HOVER = new Color(0x2A3039);
-    /** The subtle divider on top of the blacklist area. */
+    /** The subtle divider on top of dark workspace strips. */
     public static final Color WORKSPACE_DIVIDER = new Color(0x282E38);
+
+    // ------------------------------------------------------------------ out-of-scope sky
+    // Deliberately air-like, harmonizing with the bright AskAI surfaces — never a dominant blue.
+
+    /** The sky's top tone; it fades to fully transparent towards the chat. */
+    public static final Color SKY_TOP = new Color(0xF5FAFE);
+    /** The quiet caption ("Außerhalb des Scopes"). */
+    public static final Color SKY_CAPTION = new Color(0x6E87A2);
+    /** Cloud chips: light body, soft blue border, calm slate text. */
+    public static final Color CLOUD_SURFACE = new Color(0xF7FBFF);
+    public static final Color CLOUD_BORDER = new Color(0xAFCDE8);
+    public static final Color CLOUD_TEXT = new Color(0x40556B);
+    public static final Color CLOUD_HOVER_SURFACE = new Color(0xEAF4FC);
+    public static final Color CLOUD_HOVER_BORDER = new Color(0x8FB8DE);
+    /** The remove ✕ inside a cloud chip (hover uses {@link #CLOUD_TEXT}). */
+    public static final Color CLOUD_CLOSE = new Color(0x72879A);
 
     private ResearchUiPalette() {
     }

@@ -33,26 +33,22 @@ public final class ResearchUiMetrics {
     public static final int PHASE_PILL_PADDING_RIGHT = 14;
     public static final int PHASE_PILL_CHEVRON_GAP = 12;
 
-    /** Blacklist area under the composer (compact strip + upward drawer). */
-    public static final int BLACKLIST_HEIGHT = 90;
-    public static final int BLACKLIST_PADDING_LEFT = 14;
-    public static final int BLACKLIST_PADDING_RIGHT = 14;
-    public static final int BLACKLIST_PADDING_TOP = 12;
-    public static final int BLACKLIST_PADDING_BOTTOM = 12;
-    /** The expanded drawer scrolls vertically once its wrapped chips exceed this height. */
-    public static final int BLACKLIST_DRAWER_MAX_HEIGHT = 240;
+    /** Out-of-scope sky over the transcript's top (Phase 1). */
+    public static final int SKY_PADDING_H = 16;
+    public static final int SKY_PADDING_TOP = 10;
+    /** The soft fade-out below the content zone — the "no hard edge" part of the sky. */
+    public static final int SKY_FADE_TAIL = 70;
+    /** Collapsed, the sky grows naturally up to this many cloud rows before "+N weitere". */
+    public static final int SKY_COLLAPSED_MAX_ROWS = 3;
+    /** Expanded, the sky's content may take at most this share of the transcript height. */
+    public static final int SKY_EXPANDED_MAX_PERCENT = 33;
 
-    /** Blacklist chips. */
-    public static final int CHIP_HEIGHT = 43;
-    public static final int CHIP_PADDING_H = 15;
-    public static final int CHIP_SKULL_TEXT_GAP = 8;
-    public static final int CHIP_TEXT_CLOSE_GAP = 10;
-    public static final int CHIP_GAP = 12;
-    public static final int CHIP_CLOSE_HIT = 20;
-
-    /** "+ Hinzufügen" control. */
-    public static final int ADD_CHIP_HEIGHT = 43;
-    public static final int ADD_CHIP_PADDING_H = 12;
+    /** Cloud chips (out-of-scope entries): compact, soft, light. */
+    public static final int CLOUD_CHIP_HEIGHT = 32;
+    public static final int CLOUD_CHIP_PADDING_H = 13;
+    public static final int CLOUD_GAP_H = 10;
+    public static final int CLOUD_GAP_V = 8;
+    public static final int CLOUD_CLOSE_HIT = 18;
 
     /** Chat-history rows in the drawer (light chrome, two lines). */
     public static final int CHAT_ROW_HEIGHT = 48;

@@ -73,8 +73,9 @@ public final class ResearchAgentPluginExtension implements AgentPluginExtension 
     @Override
     public List<com.aresstack.askai.plugin.api.agent.composer.ComposerAccessoryContribution>
             getComposerAccessories() {
-        // ABOVE the composer: the scoping controls (map + suggestions + query). BELOW it: the
-        // phase-bound surface (Phase 1 = the blacklist strip; other phases show nothing).
+        // ABOVE the composer: the scoping controls (map + suggestions + query). OVER the
+        // transcript's top: the phase-bound surface (Phase 1 = the out-of-scope sky; other
+        // phases show nothing).
         return java.util.Arrays
                 .<com.aresstack.askai.plugin.api.agent.composer.ComposerAccessoryContribution>asList(
                         new com.aresstack.askai.research.agent.ScopingComposerAccessoryContribution(),

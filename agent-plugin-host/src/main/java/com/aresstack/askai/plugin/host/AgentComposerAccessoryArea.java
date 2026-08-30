@@ -59,14 +59,17 @@ public final class AgentComposerAccessoryArea {
         if (session == null) {
             host.clearAccessory();
             host.clearBelowAccessory();
+            host.clearTranscriptAccessory();
             return;
         }
         ComposerAccessoryContext context = new DefaultComposerAccessoryContext(
                 session, uiExecutor, themeService, markdownViewFactory);
         JPanel aboveStack = newStack();
         JPanel belowStack = newStack();
+        JPanel overlayStack = newOverlayStack();
         int above = 0;
         int below = 0;
+        int overlay = 0;
         for (ComposerAccessoryContribution contribution : coordinator.getActiveComposerAccessories()) {
             if (contribution == null || !contribution.supports(session)) {
                 continue;
@@ -81,6 +84,10 @@ public final class AgentComposerAccessoryArea {
                 if (accessory.getPlacement() == ComposerAccessory.Placement.BELOW_COMPOSER) {
                     belowStack.add(component);
                     below++;
+                } else if (accessory.getPlacement()
+                        == ComposerAccessory.Placement.TRANSCRIPT_OVERLAY) {
+                    overlayStack.add(component);
+                    overlay++;
                 } else {
                     aboveStack.add(component);
                     above++;
@@ -97,6 +104,11 @@ public final class AgentComposerAccessoryArea {
         } else {
             host.setBelowAccessory(belowStack);
         }
+        if (overlay == 0) {
+            host.clearTranscriptAccessory();
+        } else {
+            host.setTranscriptAccessory(overlayStack);
+        }
         for (ComposerAccessory accessory : live) {
             accessory.bindPlaceholderSink(new java.util.function.Consumer<String>() {
                 public void accept(String placeholder) {
@@ -109,6 +121,34 @@ public final class AgentComposerAccessoryArea {
     private static JPanel newStack() {
         JPanel stack = new JPanel();
         stack.setLayout(new BoxLayout(stack, BoxLayout.Y_AXIS));
+        return stack;
+    }
+
+    /**
+     * The TRANSCRIPT_OVERLAY wrapper: every child fills the whole area, and hit-testing passes
+     * through to the chat wherever no child claims the point — otherwise the see-through layer
+     * would swallow every click and wheel event over the transcript.
+     */
+    private static JPanel newOverlayStack() {
+        JPanel stack = new JPanel(null) {
+            @Override
+            public void doLayout() {
+                for (java.awt.Component child : getComponents()) {
+                    child.setBounds(0, 0, getWidth(), getHeight());
+                }
+            }
+
+            @Override
+            public boolean contains(int x, int y) {
+                for (java.awt.Component child : getComponents()) {
+                    if (child.isVisible() && child.contains(x, y)) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+        };
+        stack.setOpaque(false);
         return stack;
     }
 
