@@ -352,37 +352,53 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         }
     }
 
-    /** Speaks a CLICKED yellow activity tag — assertive delivery, session language, settings-gated. */
+    /** Speaks a CLICKED yellow tag — assertive delivery, session language, settings-gated. */
     private final ReadAloudVoice tagVoice = new ReadAloudVoice();
+    /** Test seam: (text, languageCode) — replaces the background speaker thread when set. */
+    private volatile java.util.function.BiConsumer<String, String> tagSpeakerOverride;
+
+    public void setTagSpeakerForTest(java.util.function.BiConsumer<String, String> override) {
+        this.tagSpeakerOverride = override;
+    }
 
     /**
-     * Clicking a yellow search/activity tag reads its text aloud (Research Agent settings →
-     * General, default ON): the host's speech output with the ASSERTIVE delivery, the plugin's
-     * Windows voice as the usual fallback. The setting is read per click — no restart.
+     * Read a clicked YELLOW tag aloud (Research Agent settings → General, default ON): the host's
+     * speech output with the ASSERTIVE delivery, the plugin's Windows voice as the usual
+     * fallback. The setting is read per click — no restart. Called by the yellow SEARCH
+     * SUGGESTION tags above the composer and by the amber activity bubbles in the transcript.
      */
+    public void readSearchTagAloud(final String text) {
+        if (text == null || text.trim().isEmpty()
+                || !com.aresstack.askai.research.host.ResearchRuntimeSettings
+                        .loadReadSearchTagsOnClick(hostStateStore)) {
+            return;
+        }
+        final String language = sessionLanguage.currentLanguage().getCode();
+        java.util.function.BiConsumer<String, String> override = tagSpeakerOverride;
+        if (override != null) {
+            override.accept(text, language); // tests observe the trigger + extracted text HERE
+            return;
+        }
+        Thread speaker = new Thread(new Runnable() {
+            public void run() {
+                tagVoice.speakEmphatic(text, language);
+            }
+        }, "askai-tag-voice");
+        speaker.setDaemon(true);
+        speaker.start();
+    }
+
     private void wireToolActivityReadAloud() {
+        tagVoice.setModelVoice(getHostService(
+                com.aresstack.askai.agent.model.speech.SpeechSynthesisPort.class));
         if (sink == null) {
             return;
         }
-        tagVoice.setModelVoice(getHostService(
-                com.aresstack.askai.agent.model.speech.SpeechSynthesisPort.class));
         sink.setToolActivityClickListener(
                 new com.aresstack.askai.plugin.api.agent.AgentConversationSink
                         .ToolActivityClickListener() {
-                    public void toolActivityClicked(final String title, String explanation) {
-                        if (title == null || title.trim().isEmpty()
-                                || !com.aresstack.askai.research.host.ResearchRuntimeSettings
-                                        .loadReadSearchTagsOnClick(hostStateStore)) {
-                            return;
-                        }
-                        final String language = sessionLanguage.currentLanguage().getCode();
-                        Thread speaker = new Thread(new Runnable() {
-                            public void run() {
-                                tagVoice.speakEmphatic(title, language);
-                            }
-                        }, "askai-tag-voice");
-                        speaker.setDaemon(true);
-                        speaker.start();
+                    public void toolActivityClicked(String title, String explanation) {
+                        readSearchTagAloud(title);
                     }
                 });
     }

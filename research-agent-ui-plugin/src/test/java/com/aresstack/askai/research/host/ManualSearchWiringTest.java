@@ -174,6 +174,45 @@ public class ManualSearchWiringTest {
     }
 
     /**
+     * The read-aloud trigger goes through the REAL yellow tag: clicking the rendered suggestion
+     * button must (a) fire the speaker with EXACTLY the tag's text + the session language and
+     * (b) still run the search. With the General-tab setting off, the click stays silent but the
+     * search still runs.
+     */
+    @Test
+    public void clickingTheYellowSuggestionTagSpeaksItsTextAndRunsTheSearch() {
+        MemoryStore store = new MemoryStore(); // read-aloud setting defaults ON
+        Fx fx = new Fx(store);
+        final List<String> spoken = new ArrayList<String>();
+        fx.session.setTagSpeakerForTest(new java.util.function.BiConsumer<String, String>() {
+            public void accept(String text, String language) {
+                spoken.add(language + ":" + text);
+            }
+        });
+        fx.session.dispatch(ResearchCommandType.START, null);
+        completeTurn(fx, 1L);
+        ScopingSupportView view = buildAccessoryView(fx);
+        feedSuggestion(fx, "Humor und Satire in der politischen Kultur");
+        assertEquals("the projection rendered exactly one yellow tag",
+                1, view.getSuggestionButtons().size());
+
+        view.getSuggestionButtons().get(0).doClick();
+
+        assertEquals("the click extracted and spoke the tag text",
+                java.util.Arrays.asList("en:Humor und Satire in der politischen Kultur"), spoken);
+        assertTrue("…and the search still ran", fx.backend.serviceCommands.toString()
+                .contains("Humor+und+Satire") || fx.backend.serviceCommands.toString()
+                .contains("Humor und Satire"));
+
+        // Setting OFF: silent click, search unaffected.
+        ResearchRuntimeSettings.saveReadSearchTagsOnClick(store, false);
+        spoken.clear();
+        feedSuggestion(fx, "Zweiter Vorschlag zum Testen");
+        view.getSuggestionButtons().get(0).doClick();
+        assertTrue("read-aloud disabled → nothing spoken", spoken.isEmpty());
+    }
+
+    /**
      * The General-tab convenience (default OFF): a SUCCESSFUL search with accepted sources runs
      * the SAME review the "Review new sources" tag triggers — one review_sources envelope goes
      * out by itself. With the setting off, nothing happens automatically.

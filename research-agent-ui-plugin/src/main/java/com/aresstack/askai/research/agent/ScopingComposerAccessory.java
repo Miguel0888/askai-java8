@@ -29,6 +29,9 @@ final class ScopingComposerAccessory implements ComposerAccessory {
         this.view = new ScopingSupportView();
         this.view.setSearchAction(new Consumer<String>() {
             public void accept(String query) {
+                // The clicked YELLOW tag announces itself aloud (settings-gated, assertive tone) —
+                // THIS is the "gelbe Suchtags vorlesen" surface, not the transcript bubbles.
+                research.readSearchTagAloud(query);
                 // A yellow suggestion click IS a /search: run the SAME phase-independent manual web search the
                 // typed `/search` command runs. It must NOT go through ChatSubmissionTarget.submitText — that
                 // would disguise a phase-independent service as an agent prompt and couple it to the phase/turn
