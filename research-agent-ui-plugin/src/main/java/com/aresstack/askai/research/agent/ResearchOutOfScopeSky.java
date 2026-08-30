@@ -203,6 +203,14 @@ final class ResearchOutOfScopeSky extends JPanel {
     }
 
     @Override
+    public void addNotify() {
+        super.addNotify();
+        // Hosts rehome the overlay (rebuilds, tab moves): a sky re-attached OPEN needs its
+        // closer back — removeNotify tore it down, and setOpen won't fire for an unchanged state.
+        updateOutsideClickCloser();
+    }
+
+    @Override
     public void removeNotify() {
         removeOutsideClickCloser(); // never leak the global watcher past the component's life
         speech.stop();              // …and never a voice talking for a torn-down chat
