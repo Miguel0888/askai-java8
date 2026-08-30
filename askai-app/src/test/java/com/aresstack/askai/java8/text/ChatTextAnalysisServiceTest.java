@@ -37,9 +37,10 @@ public class ChatTextAnalysisServiceTest {
             };
         }
 
-        public ChatTextAnalysisService.SentenceSplitter splitterFor(String languageCode) {
-            return new ChatTextAnalysisService.SentenceSplitter() {
-                public List<String> split(String text) {
+        public com.aresstack.askai.research.knowledge.SentenceSegmentationPort splitterFor(
+                String languageCode) {
+            return new com.aresstack.askai.research.knowledge.SentenceSegmentationPort() {
+                public List<String> segment(String text) {
                     List<String> sentences = new ArrayList<String>();
                     for (String part : text.split("\\|")) {
                         if (!part.trim().isEmpty()) {
@@ -97,7 +98,7 @@ public class ChatTextAnalysisServiceTest {
         build();
         service.acquire(this);
         List<ChatTextAnalysisService.Segment> segments = service.segment(
-                "DE: eins.|DE: zwei.\n\nEN: three.\n\nDE: vier.", "de", true, true);
+                "DE: eins.|DE: zwei.\n\nEN: three.\n\nDE: vier.", "de", true, ChatTextAnalysisService.Granularity.PARAGRAPHS);
         assertEquals(3, segments.size());
         assertEquals("de", segments.get(0).getLanguageCode());
         assertEquals("a paragraph is ONE chunk (its sentences joined) — sentence-sized chunks"
@@ -112,7 +113,7 @@ public class ChatTextAnalysisServiceTest {
         build();
         service.acquire(this);
         List<ChatTextAnalysisService.Segment> segments = service.segment(
-                "DE: eins.|kurz.|EN: three.", "de", true, true);
+                "DE: eins.|kurz.|EN: three.", "de", true, ChatTextAnalysisService.Granularity.PARAGRAPHS);
         assertEquals("the unknown middle sentence merges into the German run", 2, segments.size());
         assertEquals(Arrays.asList("DE: eins. kurz."), segments.get(0).getSentences());
         assertEquals(Arrays.asList("EN: three."), segments.get(1).getSentences());
@@ -123,7 +124,7 @@ public class ChatTextAnalysisServiceTest {
         build();
         service.acquire(this);
         List<ChatTextAnalysisService.Segment> segments = service.segment(
-                "DE: eins.\n\nDE: zwei.\n\nEN: three.", "de", true, false);
+                "DE: eins.\n\nDE: zwei.\n\nEN: three.", "de", true, ChatTextAnalysisService.Granularity.ANSWER);
         assertEquals(2, segments.size());
         assertEquals("consecutive same-language paragraphs join into one chunk",
                 Arrays.asList("DE: eins. DE: zwei."), segments.get(0).getSentences());
@@ -135,17 +136,30 @@ public class ChatTextAnalysisServiceTest {
         build();
         service.acquire(this);
         List<ChatTextAnalysisService.Segment> segments = service.segment(
-                "DE: eins.\n\nEN: three.", "de", false, true);
+                "DE: eins.\n\nEN: three.", "de", false, ChatTextAnalysisService.Granularity.PARAGRAPHS);
         assertEquals("no NLP language detection when the checkbox is off", 1, segments.size());
         assertEquals("de", segments.get(0).getLanguageCode());
         assertEquals("one chunk per paragraph", 2, segments.get(0).getSentences().size());
     }
 
     @Test
+    public void sentenceGranularityYieldsOneChunkPerSentence() {
+        build();
+        service.acquire(this);
+        List<ChatTextAnalysisService.Segment> segments = service.segment(
+                "DE: eins.|DE: zwei.\n\nEN: three.", "de", true,
+                ChatTextAnalysisService.Granularity.SENTENCES);
+        assertEquals(2, segments.size());
+        assertEquals("the user's per-sentence choice: every sentence is its own chunk",
+                Arrays.asList("DE: eins.", "DE: zwei."), segments.get(0).getSentences());
+        assertEquals(Arrays.asList("EN: three."), segments.get(1).getSentences());
+    }
+
+    @Test
     public void withoutARunningEngineTheTextStaysOneSegment() {
         build(); // never acquired — the service is not running
         List<ChatTextAnalysisService.Segment> segments = service.segment(
-                "DE: eins.|EN: three.", "de", true, true);
+                "DE: eins.|EN: three.", "de", true, ChatTextAnalysisService.Granularity.PARAGRAPHS);
         assertEquals(1, segments.size());
         assertEquals("de", segments.get(0).getLanguageCode());
         assertEquals("the pre-analysis behavior: the whole text, one voice",

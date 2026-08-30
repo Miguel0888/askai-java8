@@ -26,7 +26,10 @@ public final class TtsSettingsStore {
     private static final String KEY_NETWORK_TIMEOUT_SECONDS = "tts.networkTimeoutSeconds";
     private static final String KEY_READ_ALOUD_AUTO_START = "tts.readAloudAutoStart";
     private static final String KEY_MIXED_LANGUAGE_SPLIT = "tts.mixedLanguageSplit";
-    private static final String KEY_PARAGRAPH_WISE = "tts.paragraphWiseSynthesis";
+    private static final String KEY_CHUNKING = "tts.chunking";
+    private static final String KEY_SYNTHESIS_WORKERS = "tts.synthesisWorkers";
+    /** The short-lived paragraph boolean this enum replaced — read once for migration. */
+    private static final String LEGACY_KEY_PARAGRAPH_WISE = "tts.paragraphWiseSynthesis";
     private static final String LEGACY_KEY_ENGINE = "tts.engine";
     private static final String LEGACY_KEY_VOICE = "tts.voice";
 
@@ -68,7 +71,22 @@ public final class TtsSettingsStore {
                         TextToSpeechSettings.DEFAULT_NETWORK_TIMEOUT_SECONDS),
                 Boolean.parseBoolean(properties.getProperty(KEY_READ_ALOUD_AUTO_START, "false")),
                 Boolean.parseBoolean(properties.getProperty(KEY_MIXED_LANGUAGE_SPLIT, "true")),
-                Boolean.parseBoolean(properties.getProperty(KEY_PARAGRAPH_WISE, "true")));
+                chunking(properties),
+                parseInt(properties.getProperty(KEY_SYNTHESIS_WORKERS),
+                        TextToSpeechSettings.DEFAULT_SYNTHESIS_WORKERS));
+    }
+
+    /** The chunk granularity; the legacy paragraph boolean migrates silently. */
+    private static TextToSpeechSettings.Chunking chunking(Properties properties) {
+        String raw = properties.getProperty(KEY_CHUNKING);
+        if (raw != null) {
+            return TextToSpeechSettings.parseChunking(raw, TextToSpeechSettings.Chunking.PARAGRAPHS);
+        }
+        String legacy = properties.getProperty(LEGACY_KEY_PARAGRAPH_WISE);
+        if ("false".equalsIgnoreCase(legacy)) {
+            return TextToSpeechSettings.Chunking.ANSWER;
+        }
+        return TextToSpeechSettings.Chunking.PARAGRAPHS;
     }
 
     /** The pre-per-language format chose ONE voice; it lands in that voice's own language. */
@@ -103,8 +121,9 @@ public final class TtsSettingsStore {
                 String.valueOf(value.isReadAloudAutoStart()));
         properties.setProperty(KEY_MIXED_LANGUAGE_SPLIT,
                 String.valueOf(value.isMixedLanguageSplit()));
-        properties.setProperty(KEY_PARAGRAPH_WISE,
-                String.valueOf(value.isParagraphWiseSynthesis()));
+        properties.setProperty(KEY_CHUNKING, value.getChunking().name());
+        properties.setProperty(KEY_SYNTHESIS_WORKERS,
+                String.valueOf(value.getSynthesisWorkers()));
         Files.createDirectories(file.getParent());
         try (OutputStream out = Files.newOutputStream(file)) {
             properties.store(out, "AskAI speech output (read-aloud) settings, one voice per language");

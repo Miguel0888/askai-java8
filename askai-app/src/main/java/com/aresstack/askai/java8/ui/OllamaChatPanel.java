@@ -1238,23 +1238,41 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         JPanel mixedRow = partySettingsRow();
         mixedRow.add(mixedSplitBox);
         card.add(mixedRow);
-        final javax.swing.JCheckBox paragraphWiseBox = new javax.swing.JCheckBox(
-                "Speak paragraph by paragraph (NLP)",
-                ttsSettingsStore.load().isParagraphWiseSynthesis());
-        paragraphWiseBox.setToolTipText("On: the text is synthesized in paragraph chunks and"
-                + " played in order — the first paragraph starts much sooner, and the next one"
-                + " is prepared WHILE the current one plays (no gaps from synthesis).");
-        paragraphWiseBox.addActionListener(event -> {
+        // Chunk granularity is the USER'S choice; every chunk synthesizes in a background batch
+        // (worker pool), only playback is strictly in reading order — no gaps from synthesis.
+        JPanel chunkingRow = partySettingsRow();
+        JLabel chunkingLabel = new JLabel("Synthesis chunks");
+        formLabels.add(chunkingLabel);
+        chunkingRow.add(chunkingLabel);
+        final javax.swing.JComboBox<com.aresstack.askai.java8.tts.TextToSpeechSettings.Chunking>
+                chunkingCombo = new javax.swing.JComboBox<com.aresstack.askai.java8.tts
+                        .TextToSpeechSettings.Chunking>(
+                        com.aresstack.askai.java8.tts.TextToSpeechSettings.Chunking.values());
+        chunkingCombo.setSelectedItem(ttsSettingsStore.load().getChunking());
+        chunkingCombo.setToolTipText("How the read-aloud text is cut for synthesis: the whole"
+                + " answer, per paragraph, or per sentence. All chunks synthesize in the"
+                + " background batch; playback stays in reading order.");
+        final javax.swing.JSpinner workersSpinner = new javax.swing.JSpinner(
+                new javax.swing.SpinnerNumberModel(
+                        ttsSettingsStore.load().getSynthesisWorkers(), 1, 8, 1));
+        workersSpinner.setToolTipText("Parallel synthesis workers (CPU processes) preparing the"
+                + " chunks in the background.");
+        java.awt.event.ActionListener persistChunking = event -> {
             try {
                 ttsSettingsStore.save(ttsSettingsStore.load()
-                        .withParagraphWiseSynthesis(paragraphWiseBox.isSelected()));
+                        .withChunking((com.aresstack.askai.java8.tts.TextToSpeechSettings.Chunking)
+                                chunkingCombo.getSelectedItem())
+                        .withSynthesisWorkers((Integer) workersSpinner.getValue()));
             } catch (java.io.IOException notSaved) {
-                appendTech("paragraph-wise synthesis not saved: " + notSaved.getMessage());
+                appendTech("synthesis chunking not saved: " + notSaved.getMessage());
             }
-        });
-        JPanel paragraphRow = partySettingsRow();
-        paragraphRow.add(paragraphWiseBox);
-        card.add(paragraphRow);
+        };
+        chunkingCombo.addActionListener(persistChunking);
+        workersSpinner.addChangeListener(event -> persistChunking.actionPerformed(null));
+        chunkingRow.add(chunkingCombo);
+        chunkingRow.add(new JLabel("Workers"));
+        chunkingRow.add(workersSpinner);
+        card.add(chunkingRow);
         alignFormLabels(formLabels);
         // Voices are installed RIGHT HERE, below the selector — the 🔊 entries in Models > Setup
         // are only a shortcut to this section (the panel says so, plus the download sources).

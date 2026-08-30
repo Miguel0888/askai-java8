@@ -34,8 +34,11 @@ public final class OpenNlpAnalysisEngineLoader implements ChatTextAnalysisServic
     @Override
     public ChatTextAnalysisService.Engine load() {
         opennlp.tools.langdetect.LanguageDetectorME detectorMe = null;
-        final Map<String, opennlp.tools.sentdetect.SentenceDetectorME> sentenceByLanguage =
-                new HashMap<String, opennlp.tools.sentdetect.SentenceDetectorME>();
+        // Sentence splitting is the knowledge pipeline's CANONICAL adapter (shared with the
+        // source review) — never a second OpenNLP sentence implementation.
+        final Map<String, com.aresstack.askai.research.text.opennlp.OpenNlpSentenceSegmenter>
+                sentenceByLanguage = new HashMap<String,
+                        com.aresstack.askai.research.text.opennlp.OpenNlpSentenceSegmenter>();
         for (NlpModelDescriptor descriptor : store.listInstalled()) {
             try {
                 if (descriptor.getCapability() == NlpCapability.LANGUAGE_DETECTION
@@ -45,9 +48,8 @@ public final class OpenNlpAnalysisEngineLoader implements ChatTextAnalysisServic
                                     new File(descriptor.getArtifactPath())));
                 } else if (descriptor.getCapability() == NlpCapability.SENTENCE_DETECTION) {
                     sentenceByLanguage.put(descriptor.getLanguageCode(),
-                            new opennlp.tools.sentdetect.SentenceDetectorME(
-                                    new opennlp.tools.sentdetect.SentenceModel(
-                                            new File(descriptor.getArtifactPath()))));
+                            new com.aresstack.askai.research.text.opennlp.OpenNlpSentenceSegmenter(
+                                    new File(descriptor.getArtifactPath())));
                 }
             } catch (Exception unloadable) {
                 System.err.println("[text-analysis] model " + descriptor.getModelId()
@@ -78,23 +80,11 @@ public final class OpenNlpAnalysisEngineLoader implements ChatTextAnalysisServic
                 };
             }
 
-            public ChatTextAnalysisService.SentenceSplitter splitterFor(String languageCode) {
-                final opennlp.tools.sentdetect.SentenceDetectorME splitter =
+            public com.aresstack.askai.research.knowledge.SentenceSegmentationPort splitterFor(
+                    String languageCode) {
+                com.aresstack.askai.research.text.opennlp.OpenNlpSentenceSegmenter splitter =
                         sentenceByLanguage.get(languageCode);
-                if (splitter != null) {
-                    return new ChatTextAnalysisService.SentenceSplitter() {
-                        public List<String> split(String text) {
-                            List<String> sentences = new ArrayList<String>();
-                            for (String sentence : splitter.sentDetect(text)) {
-                                if (!sentence.trim().isEmpty()) {
-                                    sentences.add(sentence.trim());
-                                }
-                            }
-                            return sentences;
-                        }
-                    };
-                }
-                return NAIVE_SPLITTER; // no model for this language → punctuation heuristic
+                return splitter != null ? splitter : NAIVE_SPLITTER;
             }
 
             public void close() {
@@ -104,13 +94,13 @@ public final class OpenNlpAnalysisEngineLoader implements ChatTextAnalysisServic
     }
 
     /** Sentence-ish split on terminal punctuation — the model-less fallback. */
-    static final ChatTextAnalysisService.SentenceSplitter NAIVE_SPLITTER =
-            new ChatTextAnalysisService.SentenceSplitter() {
+    static final com.aresstack.askai.research.knowledge.SentenceSegmentationPort NAIVE_SPLITTER =
+            new com.aresstack.askai.research.knowledge.SentenceSegmentationPort() {
                 private final Pattern boundary = Pattern.compile("(?<=[.!?])\\s+");
 
-                public List<String> split(String text) {
+                public List<String> segment(String text) {
                     List<String> sentences = new ArrayList<String>();
-                    for (String sentence : boundary.split(text)) {
+                    for (String sentence : boundary.split(text == null ? "" : text)) {
                         if (!sentence.trim().isEmpty()) {
                             sentences.add(sentence.trim());
                         }

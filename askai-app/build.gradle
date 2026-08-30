@@ -25,7 +25,10 @@ dependencies {
     implementation 'com.aresstack:directml-model-catalog:0.2.1'
     // OpenNLP for the chat-text analysis service (language detection + sentence split of
     // read-aloud text); the models come from the dedicated NLP store (Models > Setup > NLP).
+    // Sentence splitting is SHARED with the source-review knowledge pipeline: the canonical
+    // SentenceSegmentationPort/OpenNlpSentenceSegmenter — never a second implementation.
     implementation 'org.apache.opennlp:opennlp-tools:1.9.4'
+    implementation project(':research-text-opennlp')
     // A5b: neutral reranker endpoint contract (DTO/codec only) shared with the research agent.
     implementation project(':agent-model-runtime-api')
     implementation project(':group-chat-api')

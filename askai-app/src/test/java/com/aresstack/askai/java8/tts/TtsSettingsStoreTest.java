@@ -83,11 +83,28 @@ public class TtsSettingsStoreTest {
                 temp.getRoot().toPath().resolve("tts.properties"));
         org.junit.Assert.assertTrue("mixed-language split defaults ON",
                 store.load().isMixedLanguageSplit());
-        org.junit.Assert.assertTrue("paragraph-wise synthesis defaults ON",
-                store.load().isParagraphWiseSynthesis());
-        store.save(store.load().withMixedLanguageSplit(false).withParagraphWiseSynthesis(false));
+        org.junit.Assert.assertEquals("paragraph chunks are the default",
+                TextToSpeechSettings.Chunking.PARAGRAPHS, store.load().getChunking());
+        org.junit.Assert.assertEquals(TextToSpeechSettings.DEFAULT_SYNTHESIS_WORKERS,
+                store.load().getSynthesisWorkers());
+        store.save(store.load().withMixedLanguageSplit(false)
+                .withChunking(TextToSpeechSettings.Chunking.SENTENCES)
+                .withSynthesisWorkers(4));
         org.junit.Assert.assertFalse(store.load().isMixedLanguageSplit());
-        org.junit.Assert.assertFalse(store.load().isParagraphWiseSynthesis());
+        org.junit.Assert.assertEquals(TextToSpeechSettings.Chunking.SENTENCES,
+                store.load().getChunking());
+        org.junit.Assert.assertEquals(4, store.load().getSynthesisWorkers());
+    }
+
+    @Test
+    public void theLegacyParagraphBooleanMigratesIntoTheChunkingEnum() throws Exception {
+        Path file = temp.getRoot().toPath().resolve("legacy-chunking.properties");
+        Files.write(file, "tts.paragraphWiseSynthesis=false\n".getBytes(StandardCharsets.UTF_8));
+        org.junit.Assert.assertEquals("false meant one joined chunk per answer",
+                TextToSpeechSettings.Chunking.ANSWER, new TtsSettingsStore(file).load().getChunking());
+        Files.write(file, "tts.paragraphWiseSynthesis=true\n".getBytes(StandardCharsets.UTF_8));
+        org.junit.Assert.assertEquals(TextToSpeechSettings.Chunking.PARAGRAPHS,
+                new TtsSettingsStore(file).load().getChunking());
     }
 
     @Test

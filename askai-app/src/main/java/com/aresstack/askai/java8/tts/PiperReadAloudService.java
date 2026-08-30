@@ -33,16 +33,6 @@ public final class PiperReadAloudService implements SpeechSynthesisPort {
     private final WindowsSapiVoice windowsVoice = new WindowsSapiVoice();
     private final Object lock = new Object();
     private long generation;
-    /** The one lookahead lane: chunk i+1 synthesizes here while chunk i plays. */
-    private final java.util.concurrent.ExecutorService prefetcher =
-            java.util.concurrent.Executors.newSingleThreadExecutor(
-                    new java.util.concurrent.ThreadFactory() {
-                        public Thread newThread(Runnable runnable) {
-                            Thread thread = new Thread(runnable, "askai-tts-prefetch");
-                            thread.setDaemon(true);
-                            return thread;
-                        }
-                    });
 
     public PiperReadAloudService() {
         this(new TtsSettingsStore(), new PiperTtsStore(),
@@ -103,56 +93,72 @@ public final class PiperReadAloudService implements SpeechSynthesisPort {
         if (chunks.isEmpty()) {
             return true; // nothing to say is not a failure
         }
-        // LOOKAHEAD pipeline: while chunk i PLAYS, chunk i+1 is already synthesizing — the pause
-        // between paragraphs shrinks to the player start, never a full synthesis wait.
-        boolean anySpoken = false;
-        java.util.concurrent.Future<java.nio.file.Path> next =
-                prefetch(chunks.get(0), current);
-        for (int i = 0; i < chunks.size(); i++) {
-            if (!isCurrent(myGeneration)) {
-                abandon(next);
-                return anySpoken; // stopped (or replaced) — interrupted still counts
+        // BATCH pipeline: EVERY chunk is submitted to the worker pool immediately — reusable
+        // workers synthesize in the background while playback walks the results strictly in
+        // reading order. No chunk ever waits for a previous playback to START its synthesis.
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(
+                Math.max(1, current.getSynthesisWorkers()),
+                new java.util.concurrent.ThreadFactory() {
+                    public Thread newThread(Runnable runnable) {
+                        Thread thread = new Thread(runnable, "askai-tts-worker");
+                        thread.setDaemon(true);
+                        return thread;
+                    }
+                });
+        List<java.util.concurrent.Future<java.nio.file.Path>> prepared =
+                new java.util.ArrayList<java.util.concurrent.Future<java.nio.file.Path>>();
+        try {
+            for (Chunk chunk : chunks) {
+                prepared.add(prefetch(pool, chunk, current));
             }
-            Chunk chunk = chunks.get(i);
-            java.nio.file.Path wav = resolve(next);
-            next = i + 1 < chunks.size() ? prefetch(chunks.get(i + 1), current) : null;
-            if (!isCurrent(myGeneration)) {
-                deleteQuietly(wav);
-                abandon(next);
-                return anySpoken;
-            }
-            if (wav != null) {
-                try {
-                    synthesizer.playWav(wav);
-                    anySpoken = true;
-                } catch (Exception failedPlayback) {
-                    System.err.println("[tts] playback failed: " + failedPlayback.getMessage());
-                } finally {
+            boolean anySpoken = false;
+            for (int i = 0; i < chunks.size(); i++) {
+                if (!isCurrent(myGeneration)) {
+                    return anySpoken; // stopped (or replaced) — interrupted still counts
+                }
+                Chunk chunk = chunks.get(i);
+                java.nio.file.Path wav = resolve(prepared.get(i));
+                if (!isCurrent(myGeneration)) {
                     deleteQuietly(wav);
+                    return anySpoken;
                 }
-            } else {
-                // No model voice for this chunk's language (or its synthesis failed): the
-                // culture-matched Windows voice keeps the flow audible.
-                String reason = windowsVoice.speak(chunk.text, chunk.languageCode,
-                        current.getStartupTimeoutSeconds());
-                if (reason.isEmpty()) {
-                    anySpoken = true;
+                if (wav != null) {
+                    try {
+                        synthesizer.playWav(wav);
+                        anySpoken = true;
+                    } catch (Exception failedPlayback) {
+                        System.err.println("[tts] playback failed: " + failedPlayback.getMessage());
+                    } finally {
+                        deleteQuietly(wav);
+                    }
                 } else {
-                    System.err.println("[tts] windows voice failed: " + reason);
+                    // No model voice for this chunk's language (or its synthesis failed): the
+                    // culture-matched Windows voice keeps the flow audible.
+                    String reason = windowsVoice.speak(chunk.text, chunk.languageCode,
+                            current.getStartupTimeoutSeconds());
+                    if (reason.isEmpty()) {
+                        anySpoken = true;
+                    } else {
+                        System.err.println("[tts] windows voice failed: " + reason);
+                    }
                 }
             }
+            return anySpoken;
+        } finally {
+            pool.shutdownNow(); // idle after the batch; stop() already killed live piper children
+            cleanupAbandoned(prepared);
         }
-        return anySpoken;
     }
 
-    /** Start synthesizing the chunk in the background — null future value = use Windows live. */
+    /** Submit the chunk's synthesis to the pool — null future = a Windows chunk (spoken live). */
     private java.util.concurrent.Future<java.nio.file.Path> prefetch(
-            final Chunk chunk, final TextToSpeechSettings current) {
+            java.util.concurrent.ExecutorService pool, final Chunk chunk,
+            final TextToSpeechSettings current) {
         final PiperVoice voice = activeVoice(current, chunk.languageCode);
         if (voice == null) {
             return null; // Windows chunks need no preparation
         }
-        return prefetcher.submit(new java.util.concurrent.Callable<java.nio.file.Path>() {
+        return pool.submit(new java.util.concurrent.Callable<java.nio.file.Path>() {
             public java.nio.file.Path call() {
                 try {
                     return synthesizer.synthesizeToWav(store, voice, chunk.text,
@@ -178,15 +184,18 @@ public final class PiperReadAloudService implements SpeechSynthesisPort {
         }
     }
 
-    /** A broken-off lookahead: collect its WAV (stop() already killed the piper) and delete it. */
-    private static void abandon(java.util.concurrent.Future<java.nio.file.Path> future) {
-        if (future == null) {
-            return;
-        }
-        try {
-            deleteQuietly(future.get(5, java.util.concurrent.TimeUnit.SECONDS));
-        } catch (Exception gone) {
-            future.cancel(true);
+    /** Broken-off batch: collect finished WAVs (stop() killed the pipers) and delete them. */
+    private static void cleanupAbandoned(
+            List<java.util.concurrent.Future<java.nio.file.Path>> prepared) {
+        for (java.util.concurrent.Future<java.nio.file.Path> future : prepared) {
+            if (future == null) {
+                continue;
+            }
+            try {
+                deleteQuietly(future.get(5, java.util.concurrent.TimeUnit.SECONDS));
+            } catch (Exception gone) {
+                future.cancel(true);
+            }
         }
     }
 
@@ -209,7 +218,9 @@ public final class PiperReadAloudService implements SpeechSynthesisPort {
     /** The utterance's segments: NLP-analysed when requested and available, else one segment. */
     private List<ChatTextAnalysisService.Segment> segments(String plainText, String languageCode,
                                                            TextToSpeechSettings current) {
-        boolean wantsAnalysis = current.isMixedLanguageSplit() || current.isParagraphWiseSynthesis();
+        ChatTextAnalysisService.Granularity granularity = granularityOf(current.getChunking());
+        boolean wantsAnalysis = current.isMixedLanguageSplit()
+                || granularity != ChatTextAnalysisService.Granularity.ANSWER;
         if (analysis == null || !wantsAnalysis) {
             return Collections.singletonList(singleSegment(plainText, languageCode));
         }
@@ -217,9 +228,22 @@ public final class PiperReadAloudService implements SpeechSynthesisPort {
         analysis.acquire(listener);
         try {
             return analysis.segment(plainText, languageCode,
-                    current.isMixedLanguageSplit(), current.isParagraphWiseSynthesis());
+                    current.isMixedLanguageSplit(), granularity);
         } finally {
             analysis.release(listener); // engine stops after the grace once no one else listens
+        }
+    }
+
+    private static ChatTextAnalysisService.Granularity granularityOf(
+            TextToSpeechSettings.Chunking chunking) {
+        switch (chunking) {
+            case SENTENCES:
+                return ChatTextAnalysisService.Granularity.SENTENCES;
+            case ANSWER:
+                return ChatTextAnalysisService.Granularity.ANSWER;
+            case PARAGRAPHS:
+            default:
+                return ChatTextAnalysisService.Granularity.PARAGRAPHS;
         }
     }
 

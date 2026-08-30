@@ -46,6 +46,19 @@ public final class PassageSegmentation {
         }
     }
 
+    /**
+     * How passage boundaries are found. {@link #SEMANTIC} is the historical default: the source
+     * STRUCTURE (line breaks / blocks) is always a hard boundary, and paragraph-like blocks are
+     * additionally refined by the embedding-window topic-shift detection ("both" in user terms).
+     * {@link #STRUCTURE_ONLY} skips the semantic refinement — passages come purely from the
+     * breaks/blocks, no per-sentence embedding calls (passage embeddings are still computed, the
+     * downstream clustering needs them).
+     */
+    public enum BoundaryMode {
+        SEMANTIC,
+        STRUCTURE_ONLY
+    }
+
     private final SentenceSegmentationPort sentenceSegmentation;
     private final EmbeddingPort embeddings;
     private final String segmentationVersion;
@@ -55,6 +68,7 @@ public final class PassageSegmentation {
     private final double boundaryThreshold;
     private final int minPassageSentences;
     private final int maxPassageSentences;
+    private final BoundaryMode boundaryMode;
 
     public PassageSegmentation(SentenceSegmentationPort sentenceSegmentation, EmbeddingPort embeddings,
                                String segmentationVersion) {
@@ -71,6 +85,14 @@ public final class PassageSegmentation {
     public PassageSegmentation(SentenceSegmentationPort sentenceSegmentation, EmbeddingPort embeddings,
                                String segmentationVersion, String languageCode, int windowSize,
                                double boundaryThreshold, int minPassageSentences, int maxPassageSentences) {
+        this(sentenceSegmentation, embeddings, segmentationVersion, languageCode, windowSize,
+                boundaryThreshold, minPassageSentences, maxPassageSentences, BoundaryMode.SEMANTIC);
+    }
+
+    public PassageSegmentation(SentenceSegmentationPort sentenceSegmentation, EmbeddingPort embeddings,
+                               String segmentationVersion, String languageCode, int windowSize,
+                               double boundaryThreshold, int minPassageSentences, int maxPassageSentences,
+                               BoundaryMode boundaryMode) {
         this.sentenceSegmentation = sentenceSegmentation;
         this.embeddings = embeddings;
         this.segmentationVersion = segmentationVersion == null ? "" : segmentationVersion;
@@ -79,6 +101,7 @@ public final class PassageSegmentation {
         this.boundaryThreshold = boundaryThreshold;
         this.minPassageSentences = minPassageSentences;
         this.maxPassageSentences = maxPassageSentences;
+        this.boundaryMode = boundaryMode == null ? BoundaryMode.SEMANTIC : boundaryMode;
     }
 
     public Result segment(SourceCapture capture) {
@@ -143,8 +166,10 @@ public final class PassageSegmentation {
     private List<List<Sentence>> splitSemantically(List<Sentence> sentences,
                                                    SourceCapture.StructuralBlock block) {
         List<List<Sentence>> passages = new ArrayList<List<Sentence>>();
-        if (block.getKind() != SourceCapture.BlockKind.PARAGRAPH
+        if (boundaryMode == BoundaryMode.STRUCTURE_ONLY
+                || block.getKind() != SourceCapture.BlockKind.PARAGRAPH
                 || sentences.size() <= minPassageSentences) {
+            // STRUCTURE_ONLY: the break/block IS the passage — no per-sentence embedding calls.
             passages.add(sentences);
             return passages;
         }
