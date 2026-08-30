@@ -48,6 +48,16 @@ public final class ResearchToolPolicy {
         tools.add(artifactReadTool(ctx));
         tools.add(sourceListTool(ctx));
         tools.add(sourceReviewContextTool(ctx));
+        // The Konzeptpapier tools (Fragestellung→Konzept rework). READING the concept is allowed in
+        // every phase (frozen artifacts stay readable); WRITING is bite-wise branch editing and is
+        // bound to SCOPING/running. Absent service (clickdummy/old fakes) → no concept tools at all.
+        if (ctx.conceptBranchService() != null) {
+            tools.add(conceptReadTool(ctx));
+            if (writable(phaseId, stateId, ResearchStateIds.SCOPING)) {
+                tools.add(conceptUpdateTool(ctx));
+                tools.add(conceptRemoveTool(ctx));
+            }
+        }
         // Phase + run-state gated writes. SCOPING has NO document tool anymore: the ResearchBrief is the
         // canonical scoping artifact (issue #32) — no second concept document beside it.
         if (writable(phaseId, stateId, ResearchStateIds.OUTLINE)) {
@@ -346,6 +356,123 @@ public final class ResearchToolPolicy {
                 McpToolParameter.string("title", false, "The candidate title"),
                 McpToolParameter.string("excerpt", false, "The search-result snippet/excerpt"),
                 McpToolParameter.string("score", false, "The reranker relevance score (a double)"));
+    }
+
+    // ------------------------------------------------------------------ Konzeptpapier tools
+    //
+    // The model edits the concept in BITES, never as a whole document: read a branch (getting an
+    // opaque handle), send back a refined branch, get either "applied revision=N" or a structured
+    // diagnostic it can act on. All semantics live in ConceptBranchService (deterministic, one
+    // attempt, no retries) — the repair LOOP is the caller's business, per the agreed layering.
+
+    private static McpToolContribution conceptReadTool(final ResearchControlContext ctx) {
+        return McpToolContribution.of("concept_read",
+                "Read the concept tree or one branch of it. Returns a branch handle for editing.",
+                new McpToolHandler() {
+                    public McpToolResult invoke(McpToolCall call) {
+                        java.util.List<String> names = splitPath(call.getString("path"));
+                        int depth = (int) call.getInteger("depth", 0);
+                        com.aresstack.askai.research.concept.ConceptBranchService.ReadResult result =
+                                ctx.conceptBranchService().readBranch(names, depth);
+                        if (!result.isOk()) {
+                            return McpToolResult.error(result.getDiagnostic().describeForModel());
+                        }
+                        StringBuilder sb = new StringBuilder();
+                        sb.append("handle=").append(result.getHandleId())
+                          .append(" revision=").append(result.getWorkingRevision())
+                          .append(" editable=").append(result.isEditable()).append('\n');
+                        if (result.getParentName() != null) {
+                            sb.append("parent=").append(result.getParentName()).append('\n');
+                        }
+                        if (!result.getSiblingNames().isEmpty()) {
+                            sb.append("siblings=");
+                            for (int i = 0; i < result.getSiblingNames().size(); i++) {
+                                sb.append(i > 0 ? ", " : "").append(result.getSiblingNames().get(i));
+                            }
+                            sb.append('\n');
+                        }
+                        sb.append(result.getBranchJson());
+                        return McpToolResult.ok(sb.toString());
+                    }
+                },
+                McpToolParameter.string("path", false,
+                        "Node names from the concept root, separated by '/'. Empty = whole concept."),
+                McpToolParameter.integer("depth", false,
+                        "Limit the subtree depth (orientation only — a depth-limited handle cannot "
+                                + "be used for editing). 0 = full depth, editable."));
+    }
+
+    private static McpToolContribution conceptUpdateTool(final ResearchControlContext ctx) {
+        return McpToolContribution.of("concept_update",
+                "Refine ONE concept branch (non-destructive: existing nodes must survive; moving "
+                        + "them is fine). Send the branch as {\"Name\": [ ... ]}.",
+                new McpToolHandler() {
+                    public McpToolResult invoke(McpToolCall call) {
+                        McpToolResult denied = requireWritable(ctx, ResearchStateIds.SCOPING);
+                        if (denied != null) {
+                            return denied;
+                        }
+                        String handle = call.getString("handle");
+                        String branch = call.getString("branch_json");
+                        if (handle == null || handle.trim().isEmpty()
+                                || branch == null || branch.trim().isEmpty()) {
+                            return McpToolResult.error("Required: handle, branch_json");
+                        }
+                        boolean allowRemovals =
+                                "true".equalsIgnoreCase(call.getString("allow_removals"));
+                        com.aresstack.askai.research.concept.ConceptBranchService.EditResult result =
+                                ctx.conceptBranchService()
+                                        .updateBranch(handle.trim(), branch, allowRemovals);
+                        if (!result.isApplied()) {
+                            return McpToolResult.error(result.getDiagnostic().describeForModel());
+                        }
+                        ctx.onConceptChanged(result.getNewRevision());
+                        return McpToolResult.ok("applied revision=" + result.getNewRevision());
+                    }
+                },
+                McpToolParameter.string("handle", true, "The branch handle from concept_read"),
+                McpToolParameter.string("branch_json", true,
+                        "The complete refined branch: one object with exactly one array property"),
+                McpToolParameter.string("allow_removals", false,
+                        "\"true\" to permit dropping existing nodes (default: refused)"));
+    }
+
+    private static McpToolContribution conceptRemoveTool(final ResearchControlContext ctx) {
+        return McpToolContribution.of("concept_remove",
+                "Remove ONE concept node with its whole subtree. Deliberately destructive.",
+                new McpToolHandler() {
+                    public McpToolResult invoke(McpToolCall call) {
+                        McpToolResult denied = requireWritable(ctx, ResearchStateIds.SCOPING);
+                        if (denied != null) {
+                            return denied;
+                        }
+                        String handle = call.getString("handle");
+                        if (handle == null || handle.trim().isEmpty()) {
+                            return McpToolResult.error("Missing argument: handle");
+                        }
+                        com.aresstack.askai.research.concept.ConceptBranchService.EditResult result =
+                                ctx.conceptBranchService().removeBranch(handle.trim());
+                        if (!result.isApplied()) {
+                            return McpToolResult.error(result.getDiagnostic().describeForModel());
+                        }
+                        ctx.onConceptChanged(result.getNewRevision());
+                        return McpToolResult.ok("removed revision=" + result.getNewRevision());
+                    }
+                },
+                McpToolParameter.string("handle", true, "The branch handle from concept_read"));
+    }
+
+    /** "A/B/C" → [A, B, C]; empty/null → the concept root. */
+    private static java.util.List<String> splitPath(String path) {
+        java.util.List<String> names = new ArrayList<String>();
+        if (path != null) {
+            for (String part : path.split("/")) {
+                if (!part.trim().isEmpty()) {
+                    names.add(part.trim());
+                }
+            }
+        }
+        return names;
     }
 
     private static String emptyIfNull(String v) {

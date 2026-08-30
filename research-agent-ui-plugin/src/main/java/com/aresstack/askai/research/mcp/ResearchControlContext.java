@@ -97,4 +97,20 @@ public interface ResearchControlContext {
     default int reviewContextMaximumCharactersPerSource() {
         return com.aresstack.askai.research.host.ResearchRuntimeSettings.DEFAULT_REVIEW_MAX_CHARS;
     }
+
+    /**
+     * The session's Konzeptpapier branch-edit service, or {@code null} when the capability is
+     * honestly unavailable (clickdummy / old fakes) — then no concept tool is offered at all.
+     * One instance per session: MCP tools and (later) UI must share the same handle registry.
+     */
+    default com.aresstack.askai.research.concept.ConceptBranchService conceptBranchService() {
+        return null;
+    }
+
+    /**
+     * Called after a concept edit COMMITTED (new working revision) so the host can refresh views.
+     * The default is a no-op (fakes); the productive context notifies the session.
+     */
+    default void onConceptChanged(long newWorkingRevision) {
+    }
 }

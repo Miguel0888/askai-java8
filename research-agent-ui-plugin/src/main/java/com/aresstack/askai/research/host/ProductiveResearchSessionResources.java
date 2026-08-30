@@ -61,6 +61,10 @@ public final class ProductiveResearchSessionResources {
      */
     private volatile com.aresstack.askai.agent.model.embedding.EmbeddingEndpointDescriptor
             embeddingDescriptor;
+    /** The ONE Konzeptpapier branch-edit service of this session (lazy) — MCP tools and UI share it. */
+    private volatile com.aresstack.askai.research.concept.ConceptBranchService conceptBranchService;
+    /** Notified (off the tool thread's discretion) after a concept edit committed; set by the session. */
+    private volatile Runnable conceptChangedListener;
     private volatile boolean closed;
 
     ProductiveResearchSessionResources(String sessionKey, OoResearchStateMachine stateMachine,
@@ -359,6 +363,26 @@ public final class ProductiveResearchSessionResources {
         return result;
     }
 
+    /**
+     * The session's ONE Konzeptpapier branch-edit service, bound to {@code <projectDir>/concept}.
+     * Lazy and shared: the MCP concept tools and the (later) concept view must use the SAME
+     * instance, because the branch-handle registry lives in it.
+     */
+    public synchronized com.aresstack.askai.research.concept.ConceptBranchService
+            conceptBranchService() {
+        if (conceptBranchService == null && !closed) {
+            conceptBranchService = new com.aresstack.askai.research.concept.ConceptBranchService(
+                    new com.aresstack.askai.research.store.FileConceptStore(
+                            new java.io.File(projectContext.getProjectDirectory(), "concept")));
+        }
+        return conceptBranchService;
+    }
+
+    /** Who to tell when a concept edit committed (view refresh); the session wires itself here. */
+    public void setConceptChangedListener(Runnable listener) {
+        this.conceptChangedListener = listener;
+    }
+
     /** The live-state view the research-control tool handlers authorize against. */
     ResearchControlContext controlContext() {
         return new ResearchControlContext() {
@@ -441,6 +465,19 @@ public final class ProductiveResearchSessionResources {
                                         String searchQuery, String searchRequestId) {
                 return acceptance.park(url, title, excerpt, rerankScore, searchQuery,
                         searchRequestId).render();
+            }
+
+            @Override
+            public com.aresstack.askai.research.concept.ConceptBranchService conceptBranchService() {
+                return ProductiveResearchSessionResources.this.conceptBranchService();
+            }
+
+            @Override
+            public void onConceptChanged(long newWorkingRevision) {
+                Runnable listener = conceptChangedListener;
+                if (listener != null) {
+                    listener.run();
+                }
             }
         };
     }

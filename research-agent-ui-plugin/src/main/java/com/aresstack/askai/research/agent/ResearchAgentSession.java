@@ -136,6 +136,17 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             // Issue #33: hand the session's derived-action commands to the resources so the internal
             // service-MCP endpoint can invoke the SAME use cases as the UI buttons.
             resources.setDerivedActions(derivedActions);
+            // Konzeptpapier: a committed concept edit (agent MCP tool) refreshes the views like any
+            // other state change — marshalled to the EDT like every other refresh.
+            resources.setConceptChangedListener(new Runnable() {
+                public void run() {
+                    uiExecutor.execute(new Runnable() {
+                        public void run() {
+                            fireStateChanged();
+                        }
+                    });
+                }
+            });
             // ONE gateway object serves both faces: the session's own bot-control endpoint (through the
             // resources) and the app-wide public connector (through the session directory, see activate()).
             this.botGateway = new com.aresstack.askai.research.mcp.ResearchBotSessionGateway() {
