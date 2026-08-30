@@ -110,8 +110,8 @@ public class ResearchSkyAccessoryLifecycleTest {
         assertTrue("the collapsed bar reserves its slim top room", insetOf(sky) > 0);
         assertTrue("the bar zone is interactive", sky.contains(20, 15));
         openSky(sky);
-        assertTrue("opened, the + Hinzufügen cloud is offered",
-                tooltipsOf(sky).toString().contains("Ausschluss hinzufügen"));
+        assertTrue("opened, the + Add cloud is offered",
+                tooltipsOf(sky).toString().contains("Add exclusion"));
     }
 
     @Test

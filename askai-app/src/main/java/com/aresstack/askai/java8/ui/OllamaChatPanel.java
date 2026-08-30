@@ -581,7 +581,11 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
 
     private void buildUserInterface() {
         setLayout(new BorderLayout(8, 8));
-        setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        // No top/side padding anymore: the chat area runs edge-to-edge so a full-width overlay
+        // strip (the sky STATUS BAR) can sit flush under the workspace top bar without white
+        // flanks — the bubbles and the composer carry their own inner margins. Only a small
+        // bottom breathing space remains.
+        setBorder(BorderFactory.createEmptyBorder(0, 0, 8, 0));
         // Sidebar + hamburger/gear live at the WORKSPACE level (ChatWorkspacePanel), full height.
         // The transcript sits inside a layered container so a diagram OVERLAY (comic plate with
         // the ✕) can cover the answer window without touching the transcript itself.

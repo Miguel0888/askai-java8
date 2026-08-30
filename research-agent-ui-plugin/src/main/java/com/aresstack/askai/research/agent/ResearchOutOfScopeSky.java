@@ -280,11 +280,11 @@ final class ResearchOutOfScopeSky extends JPanel {
         }
         int padH = ResearchUiMetrics.SKY_PADDING_H;
         if (!open) {
-            // Collapsed: exactly ONE search-bar height (the shared metric, never a copied number).
+            // Collapsed: a SQUARE full-width strip GLUED to the top edge — no margins, no white
+            // flanks — at exactly ONE search-bar height (the shared metric, never a copied number).
             int barHeight = com.aresstack.comiccontrols.control.ComicSearchBar.standardHeight();
-            skyBar.setBounds(padH, ResearchUiMetrics.SKY_PADDING_TOP,
-                    getWidth() - 2 * padH, barHeight);
-            contentBottom = ResearchUiMetrics.SKY_PADDING_TOP + barHeight;
+            skyBar.setBounds(0, 0, getWidth(), barHeight);
+            contentBottom = barHeight;
             publishTopInset(contentBottom + 6);
             return;
         }
@@ -411,7 +411,7 @@ final class ResearchOutOfScopeSky extends JPanel {
                 new com.aresstack.comiccontrols.control.ComicOverlayPanel.CloseButton(
                         com.aresstack.comiccontrols.theme.ComicPalette.defaultPalette(),
                         this::endInlineAdd);
-        cancel.setToolTipText("Abbrechen");
+        cancel.setToolTipText("Cancel");
         JPanel cancelWrap = new JPanel(new java.awt.GridBagLayout());
         cancelWrap.setOpaque(false);
         cancelWrap.add(cancel);
@@ -696,14 +696,14 @@ final class ResearchOutOfScopeSky extends JPanel {
         }
     }
 
-    /** {@code + Hinzufügen} in the same cloud look; clicking swaps in the inline field. */
+    /** {@code + Add} in the same cloud look (English like the rest); clicking swaps in the field. */
     private final class AddCloud extends JComponent {
 
-        private static final String TEXT = "+ Hinzufügen";
+        private static final String TEXT = "+ Add";
         private boolean hovered;
 
         AddCloud() {
-            setToolTipText("Ausschluss hinzufügen");
+            setToolTipText("Add exclusion");
             setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
             addMouseListener(new java.awt.event.MouseAdapter() {
                 @Override
@@ -806,9 +806,13 @@ final class ResearchOutOfScopeSky extends JPanel {
                         ? ResearchUiPainter.mix(ResearchUiPalette.SKY_BAR_SURFACE,
                                 ResearchUiPalette.CLOUD_HOVER_BORDER, 0.22f)
                         : ResearchUiPalette.SKY_BAR_SURFACE;
-                ResearchUiPainter.fillRound(g2, 0, 0, getWidth(), getHeight(), 10, fill);
-                ResearchUiPainter.strokeRound(g2, 0, 0, getWidth(), getHeight(), 10,
-                        ResearchUiPalette.CLOUD_HOVER_BORDER);
+                // A SQUARE strip filling the whole width — no rounding, no margins, just the
+                // firmer sky blue with a quiet bottom hairline towards the chat.
+                g2.setColor(fill);
+                g2.fillRect(0, 0, getWidth(), getHeight());
+                g2.setColor(ResearchUiPainter.mix(ResearchUiPalette.SKY_BAR_SURFACE,
+                        ResearchUiPalette.CLOUD_TEXT, 0.25f));
+                g2.fillRect(0, getHeight() - 1, getWidth(), 1);
 
                 int centerY = getHeight() / 2;
                 g2.setColor(ResearchUiPalette.CLOUD_TEXT);

@@ -881,6 +881,9 @@ public final class ChatWorkspacePanel extends JPanel {
                                 long startOfToday) {
         final String chatId = openId != null ? openId.toString() : record.getId();
         final String title = rowTitle(openId, record);
+        if (chatId.equals(renamingChatId)) {
+            return buildRenameRow(openId, record, title);
+        }
         Runnable open = () -> {
             try {
                 ChatSessionId target = openId != null ? openId
@@ -912,6 +915,13 @@ public final class ChatWorkspacePanel extends JPanel {
     private javax.swing.JPopupMenu buildRowMenu(final ChatSessionId openId, final ChatRecord record,
                                                 final String title) {
         javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
+        // Rename morphs the ROW into an inline field (like the sky's + Add), no dialog.
+        javax.swing.JMenuItem rename = new javax.swing.JMenuItem("Rename…");
+        rename.addActionListener(event -> {
+            renamingChatId = openId != null ? openId.toString() : record.getId();
+            refreshChatList();
+        });
+        menu.add(rename);
         if (openId != null) {
             javax.swing.JMenuItem close = new javax.swing.JMenuItem("Close this chat");
             close.addActionListener(event -> closeSession(openId));
@@ -933,6 +943,78 @@ public final class ChatWorkspacePanel extends JPanel {
             menu.add(delete);
         }
         return menu;
+    }
+
+    /** The chat currently morphing into an inline rename field (its id), or {@code null}. */
+    private String renamingChatId;
+
+    /**
+     * The rename "Verwandlung": the row becomes [field | comic ✕] — Enter applies, Escape or the
+     * shared close chip (the same one the sky's add field uses) cancels. No dialog.
+     */
+    private JComponent buildRenameRow(final ChatSessionId openId, final ChatRecord record,
+                                      String title) {
+        final javax.swing.JTextField field = new javax.swing.JTextField(title);
+        field.setFont(ResearchUiTypography.regular(13f));
+        field.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(ResearchUiPainter.mix(
+                        ResearchUiPalette.ACCENT_BLUE, java.awt.Color.WHITE, 0.5f)),
+                BorderFactory.createEmptyBorder(4, 8, 4, 8)));
+        final Runnable cancel = () -> {
+            renamingChatId = null;
+            refreshChatList();
+        };
+        field.addActionListener(event -> {
+            String value = field.getText();
+            renamingChatId = null;
+            applyRename(openId, record, value);
+        });
+        field.addKeyListener(new java.awt.event.KeyAdapter() {
+            @Override
+            public void keyPressed(java.awt.event.KeyEvent event) {
+                if (event.getKeyCode() == java.awt.event.KeyEvent.VK_ESCAPE) {
+                    cancel.run();
+                }
+            }
+        });
+        JPanel row = new JPanel(new BorderLayout(4, 0));
+        row.setOpaque(false);
+        row.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
+        row.add(field, BorderLayout.CENTER);
+        com.aresstack.comiccontrols.control.ComicOverlayPanel.CloseButton close =
+                new com.aresstack.comiccontrols.control.ComicOverlayPanel.CloseButton(
+                        com.aresstack.comiccontrols.theme.ComicPalette.defaultPalette(),
+                        cancel);
+        close.setToolTipText("Cancel");
+        JPanel closeWrap = new JPanel(new java.awt.GridBagLayout());
+        closeWrap.setOpaque(false);
+        closeWrap.add(close);
+        row.add(closeWrap, BorderLayout.EAST);
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
+        javax.swing.SwingUtilities.invokeLater(() -> {
+            field.requestFocusInWindow();
+            field.selectAll();
+        });
+        return row;
+    }
+
+    /**
+     * Persist the new title. An OPEN chat owns its live record (the panel autosaves it), so the
+     * change must go through the panel — exactly like {@link #applyProject}. Blank keeps the old
+     * title (a rename to nothing is a cancel, not a deletion).
+     */
+    void applyRename(ChatSessionId openId, ChatRecord record, String newTitle) {
+        String trimmed = newTitle == null ? "" : newTitle.trim();
+        if (!trimmed.isEmpty()) {
+            ChatSessionComponent session = openId == null ? null : sessionsById.get(openId);
+            if (session instanceof OllamaChatPanel) {
+                ((OllamaChatPanel) session).setChatTitle(trimmed);
+            } else if (record != null && historyStore != null) {
+                record.setTitle(trimmed);
+                historyStore.save(record);
+            }
+        }
+        refreshChatList();
     }
 
     /** Delete ONE saved chat after the existing confirmation — unchanged safety logic. */

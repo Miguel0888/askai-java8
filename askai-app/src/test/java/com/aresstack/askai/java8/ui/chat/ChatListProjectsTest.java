@@ -110,6 +110,50 @@ public class ChatListProjectsTest {
         });
     }
 
+    @Test
+    public void renamePersistsThroughTheStoreForSavedChats() throws Exception {
+        final ChatWorkspacePanel workspace = build();
+        onEdt(new Runnable() {
+            public void run() {
+                ChatRecord lasagne = null;
+                for (ChatRecord record : store.list()) {
+                    if ("Rezept Lasagne".equals(record.getTitle())) {
+                        lasagne = record;
+                    }
+                }
+                assertTrue(lasagne != null);
+                workspace.applyRename(null, lasagne, "Lasagne Deluxe");
+                assertTrue("the list shows the new title",
+                        indexContaining(workspace.chatListEntriesForTest(), "Lasagne Deluxe") >= 0);
+                assertFalse("the old title is gone",
+                        indexContaining(workspace.chatListEntriesForTest(), "Rezept Lasagne") >= 0);
+            }
+        });
+        boolean persisted = false;
+        for (ChatRecord record : store.list()) {
+            persisted |= "Lasagne Deluxe".equals(record.getTitle());
+        }
+        assertTrue("the rename reached the persistent store", persisted);
+    }
+
+    @Test
+    public void aBlankRenameKeepsTheOldTitle() throws Exception {
+        final ChatWorkspacePanel workspace = build();
+        onEdt(new Runnable() {
+            public void run() {
+                ChatRecord lasagne = null;
+                for (ChatRecord record : store.list()) {
+                    if ("Rezept Lasagne".equals(record.getTitle())) {
+                        lasagne = record;
+                    }
+                }
+                workspace.applyRename(null, lasagne, "   ");
+                assertTrue("blank rename = cancel, never a deletion",
+                        indexContaining(workspace.chatListEntriesForTest(), "Rezept Lasagne") >= 0);
+            }
+        });
+    }
+
     private static int indexContaining(List<String> entries, String needle) {
         for (int i = 0; i < entries.size(); i++) {
             if (entries.get(i) != null && entries.get(i).contains(needle)) {

@@ -133,6 +133,82 @@ public class ResearchSkyHostGeometryTest {
         });
     }
 
+    @Test
+    public void theCollapsedStatusBarReallyPaintsThroughTheHostChain() throws Exception {
+        // The user-facing regression check: DEFAULT state, no setOpenForTest, no hand-sizing —
+        // the firmer sky-blue status bar must actually appear over the transcript.
+        SwingUtilities.invokeAndWait(new Runnable() {
+            public void run() {
+                JLayeredPane layers = transcriptLayersReplica();
+                JPanel transcriptStandIn = new JPanel();
+                transcriptStandIn.setBackground(new Color(0xCC3333));
+                layers.add(transcriptStandIn, JLayeredPane.DEFAULT_LAYER);
+                JPanel root = new JPanel(new BorderLayout());
+                root.add(layers, BorderLayout.CENTER);
+                JFrame frame = new JFrame("sky-bar-test");
+                try {
+                    frame.setDefaultCloseOperation(javax.swing.WindowConstants.DISPOSE_ON_CLOSE);
+                    frame.getContentPane().setLayout(new BorderLayout());
+                    frame.getContentPane().add(root, BorderLayout.CENTER);
+                    frame.setSize(920, 760);
+                    frame.addNotify();
+                    frame.validate();
+
+                    JPanel stack = overlayStackReplica();
+                    ResearchOutOfScopeSky sky = new ResearchOutOfScopeSky();
+                    sky.setExclusions(java.util.Arrays.asList("Thema A", "Thema B"));
+                    stack.add(sky);
+                    layers.add(stack, Integer.valueOf(50));
+                    layers.revalidate();
+                    frame.getRootPane().validate();
+
+                    java.awt.Component bar = findByName(sky, "sky.statusBar");
+                    assertTrue("the status bar child exists", bar != null);
+                    assertTrue("the status bar is visible", bar.isVisible());
+                    assertTrue("the status bar is really laid out (was "
+                            + bar.getWidth() + "x" + bar.getHeight() + ")",
+                            bar.getWidth() > 0 && bar.getHeight() > 0);
+
+                    BufferedImage image = new BufferedImage(900, 700,
+                            BufferedImage.TYPE_INT_RGB);
+                    Graphics2D g2 = image.createGraphics();
+                    root.paint(g2);
+                    g2.dispose();
+                    int inBar = image.getRGB(450, 25) & 0xFFFFFF; // middle of the bar zone
+                    int deep = image.getRGB(450, 450) & 0xFFFFFF;
+                    assertTrue("the bar zone shows the firmer sky blue, not the raw chat (was "
+                            + hex(inBar) + ")", coolBlue(inBar));
+                    assertEquals("the deep chat keeps its own color", 0xCC3333, deep);
+                } finally {
+                    frame.dispose();
+                }
+            }
+        });
+    }
+
+    private static java.awt.Component findByName(java.awt.Component root, String name) {
+        if (name.equals(root.getName())) {
+            return root;
+        }
+        if (root instanceof java.awt.Container) {
+            for (java.awt.Component child : ((java.awt.Container) root).getComponents()) {
+                java.awt.Component found = findByName(child, name);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
+    }
+
+    /** The SKY_BAR_SURFACE family: clearly blue-leaning and bright — never the loud red chat. */
+    private static boolean coolBlue(int rgb) {
+        int r = (rgb >> 16) & 0xFF;
+        int g = (rgb >> 8) & 0xFF;
+        int b = rgb & 0xFF;
+        return b > 180 && b > r && g > 150;
+    }
+
     /**
      * The near-covering SKY_TOP wash over the loud red stand-in: every channel bright (the red
      * background alone has g/b ≈ 0x33, so a bright green/blue proves the sky really painted).
