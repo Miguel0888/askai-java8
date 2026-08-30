@@ -21,6 +21,10 @@ public class PiperVoiceCatalogTest {
             assertTrue("hf path has language depth", voice.getHfPath().split("/").length >= 3);
             assertEquals(voice.getId() + ".onnx", voice.onnxFileName());
             assertEquals(voice.getId() + ".onnx.json", voice.configFileName());
+            assertTrue("the language code opens the voice id (piper convention: de_DE-…)",
+                    voice.getId().startsWith(voice.getLanguageCode() + "_"));
+            assertTrue("…and opens the repo path", voice.getHfPath()
+                    .startsWith(voice.getLanguageCode() + "/"));
             // The voice id embeds the quality step that ends the hf path (piper convention).
             String quality = voice.getHfPath().substring(voice.getHfPath().lastIndexOf('/') + 1);
             assertTrue(voice.getId() + " ends with " + quality, voice.getId().endsWith(quality));

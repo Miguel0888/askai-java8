@@ -60,16 +60,19 @@ public class SpeechOutputModelsPanelTest {
     }
 
     @Test
-    public void installAndAdoptSelectsTheVoiceCentrally() throws Exception {
+    public void installAndAdoptSelectsTheVoiceForItsOwnLanguageOnly() throws Exception {
         SpeechOutputModelsPanel panel = buildPanel(fakeInstall(), true);
-        PiperVoice voice = PiperVoiceCatalog.curated().get(0);
+        PiperVoice voice = PiperVoiceCatalog.curated().get(0); // German
         assertEquals("Not installed", panel.statusText(voice.getId()));
         panel.installButton(voice.getId()).doClick();
         assertEquals("Installed · in use", panel.statusText(voice.getId()));
         assertFalse(panel.installButton(voice.getId()).isVisible());
         TextToSpeechSettings selected = settings.load();
-        assertEquals(TextToSpeechSettings.Engine.PIPER, selected.getEngine());
-        assertEquals(voice.getId(), selected.getVoiceId());
+        assertEquals(TextToSpeechSettings.Engine.PIPER,
+                selected.selectionFor(voice.getLanguageCode()).getEngine());
+        assertEquals(voice.getId(), selected.selectionFor(voice.getLanguageCode()).getVoiceId());
+        assertEquals("adopting a German voice never touches English",
+                TextToSpeechSettings.Engine.WINDOWS, selected.selectionFor("en").getEngine());
     }
 
     @Test
@@ -78,7 +81,8 @@ public class SpeechOutputModelsPanelTest {
         PiperVoice voice = PiperVoiceCatalog.curated().get(1);
         panel.installButton(voice.getId()).doClick();
         assertEquals("Installed", panel.statusText(voice.getId()));
-        assertEquals(TextToSpeechSettings.Engine.WINDOWS, settings.load().getEngine());
+        assertEquals(TextToSpeechSettings.Engine.WINDOWS,
+                settings.load().selectionFor(voice.getLanguageCode()).getEngine());
     }
 
     @Test
@@ -105,6 +109,7 @@ public class SpeechOutputModelsPanelTest {
         assertTrue(panel.errorText().contains("network unplugged"));
         assertEquals("Not installed", panel.statusText(voice.getId()));
         assertTrue(panel.installButton(voice.getId()).isEnabled());
-        assertEquals(TextToSpeechSettings.Engine.WINDOWS, settings.load().getEngine());
+        assertEquals(TextToSpeechSettings.Engine.WINDOWS,
+                settings.load().selectionFor(voice.getLanguageCode()).getEngine());
     }
 }

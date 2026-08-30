@@ -199,6 +199,18 @@ final class ResearchOutOfScopeSky extends JPanel {
         speech.setModelVoice(port);
     }
 
+    /** The session's LIVE language (the toolbar switch) — read per utterance, never cached. */
+    private java.util.function.Supplier<String> readAloudLanguage;
+
+    void setReadAloudLanguage(java.util.function.Supplier<String> languageCodeSupplier) {
+        this.readAloudLanguage = languageCodeSupplier;
+    }
+
+    private String currentReadAloudLanguage() {
+        java.util.function.Supplier<String> supplier = readAloudLanguage;
+        return supplier == null ? null : supplier.get();
+    }
+
     /** The newest assistant answer (host truth) — pushed by the accessory on every refresh. */
     void setLatestAnswer(String messageId, String markdown) {
         this.latestAnswerId = messageId;
@@ -213,10 +225,11 @@ final class ResearchOutOfScopeSky extends JPanel {
 
     private void speakLatest() {
         final String text = latestAnswerText;
+        final String language = currentReadAloudLanguage();
         lastSpokenAnswerId = latestAnswerId;
         Thread speaker = new Thread(new Runnable() {
             public void run() {
-                speech.speak(text); // process start + stdin write stay off the EDT
+                speech.speak(text, language); // process start + stdin write stay off the EDT
             }
         }, "askai-read-aloud");
         speaker.setDaemon(true);

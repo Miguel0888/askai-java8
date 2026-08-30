@@ -203,9 +203,11 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
     private final JComboBox<String> micCombo = new JComboBox<String>();
     private final JButton micRefreshButton = new JButton("Refresh");
     private final JButton testMicButton = new JButton("Test microphone");
-    // Speech output (read-aloud): the Windows voice by default, or an installed Piper model voice.
+    // Speech output (read-aloud), PER LANGUAGE: the Windows voice of that language by default,
+    // or an installed Piper model voice — an English answer is never read with a German voice.
     private static final String SPEECH_OUTPUT_WINDOWS = "Windows voice (default)";
-    private final JComboBox<Object> speechOutputCombo = new JComboBox<Object>();
+    private final java.util.Map<String, JComboBox<Object>> speechOutputCombos =
+            new java.util.LinkedHashMap<String, JComboBox<Object>>();
     private boolean updatingSpeechOutputCombo;
     private final com.aresstack.askai.java8.tts.TtsSettingsStore ttsSettingsStore =
             new com.aresstack.askai.java8.tts.TtsSettingsStore();
@@ -1069,16 +1071,22 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         micRow.add(testMicButton);
         card.add(micRow);
 
-        JPanel speechRow = partySettingsRow();
-        speechRow.add(new JLabel("Speech output"));
-        speechOutputCombo.setEditable(false); // Windows default or an INSTALLED Piper voice
-        speechOutputCombo.setPreferredSize(
-                new Dimension(240, speechOutputCombo.getPreferredSize().height));
-        speechOutputCombo.setToolTipText("The read-aloud voice. Model voices run entirely on the"
-                + " CPU — the GPU stays free. Install voices right below.");
-        speechOutputCombo.addActionListener(event -> persistSpeechOutputSelection());
-        speechRow.add(speechOutputCombo);
-        card.add(speechRow);
+        // One selector PER LANGUAGE (like the NLP models): the session's language switch decides
+        // which of these voices reads an answer aloud.
+        for (final String language : com.aresstack.askai.java8.tts.TextToSpeechSettings.LANGUAGE_CODES) {
+            JPanel speechRow = partySettingsRow();
+            speechRow.add(new JLabel("Speech output · " + speechLanguageLabel(language)));
+            JComboBox<Object> combo = new JComboBox<Object>();
+            combo.setEditable(false); // Windows default or an INSTALLED Piper voice
+            combo.setPreferredSize(new Dimension(240, combo.getPreferredSize().height));
+            combo.setToolTipText("The read-aloud voice for " + speechLanguageLabel(language)
+                    + " answers. Model voices run entirely on the CPU — the GPU stays free."
+                    + " Install voices right below.");
+            combo.addActionListener(event -> persistSpeechOutputSelection(language));
+            speechOutputCombos.put(language, combo);
+            speechRow.add(combo);
+            card.add(speechRow);
+        }
         // Voices are installed RIGHT HERE, below the selector — the 🔊 entries in Models > Setup
         // are only a shortcut to this section (the panel says so, plus the download sources).
         speechVoicesPanel = new SpeechOutputModelsPanel(piperTtsStore, ttsSettingsStore);
@@ -1103,41 +1111,64 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         }
     }
 
-    /** Reloads the speech-output combo: the Windows default plus every INSTALLED Piper voice. */
+    /** Human label for a speech-output language code (the selector row captions). */
+    private static String speechLanguageLabel(String languageCode) {
+        if ("de".equals(languageCode)) {
+            return "German";
+        }
+        if ("en".equals(languageCode)) {
+            return "English";
+        }
+        return languageCode;
+    }
+
+    /** Reloads every language's combo: the Windows default plus that language's INSTALLED voices. */
     private void refreshSpeechOutputVoices() {
         if (speechVoicesPanel != null) {
-            speechVoicesPanel.refresh(); // install rows and combo always tell the same story
+            speechVoicesPanel.refresh(); // install rows and combos always tell the same story
         }
         updatingSpeechOutputCombo = true;
         try {
             com.aresstack.askai.java8.tts.TextToSpeechSettings tts = ttsSettingsStore.load();
-            speechOutputCombo.removeAllItems();
-            speechOutputCombo.addItem(SPEECH_OUTPUT_WINDOWS);
-            Object desired = SPEECH_OUTPUT_WINDOWS;
-            for (com.aresstack.askai.java8.tts.PiperVoice voice : piperTtsStore.installedVoices()) {
-                speechOutputCombo.addItem(voice);
-                if (tts.getEngine() == com.aresstack.askai.java8.tts.TextToSpeechSettings.Engine.PIPER
-                        && voice.getId().equals(tts.getVoiceId())) {
-                    desired = voice; // a selected-but-uninstalled voice falls back to Windows
+            for (java.util.Map.Entry<String, JComboBox<Object>> entry
+                    : speechOutputCombos.entrySet()) {
+                String language = entry.getKey();
+                JComboBox<Object> combo = entry.getValue();
+                com.aresstack.askai.java8.tts.TextToSpeechSettings.Selection selection =
+                        tts.selectionFor(language);
+                combo.removeAllItems();
+                combo.addItem(SPEECH_OUTPUT_WINDOWS);
+                Object desired = SPEECH_OUTPUT_WINDOWS;
+                for (com.aresstack.askai.java8.tts.PiperVoice voice
+                        : piperTtsStore.installedVoices(language)) {
+                    combo.addItem(voice);
+                    if (selection.getEngine()
+                            == com.aresstack.askai.java8.tts.TextToSpeechSettings.Engine.PIPER
+                            && voice.getId().equals(selection.getVoiceId())) {
+                        desired = voice; // a selected-but-uninstalled voice falls back to Windows
+                    }
                 }
+                combo.setSelectedItem(desired);
             }
-            speechOutputCombo.setSelectedItem(desired);
         } finally {
             updatingSpeechOutputCombo = false;
         }
     }
 
-    private void persistSpeechOutputSelection() {
+    private void persistSpeechOutputSelection(String language) {
         if (updatingSpeechOutputCombo) {
             return;
         }
-        Object selected = speechOutputCombo.getSelectedItem();
+        JComboBox<Object> combo = speechOutputCombos.get(language);
+        Object selected = combo == null ? null : combo.getSelectedItem();
         com.aresstack.askai.java8.tts.TextToSpeechSettings current = ttsSettingsStore.load();
         com.aresstack.askai.java8.tts.TextToSpeechSettings updated =
                 selected instanceof com.aresstack.askai.java8.tts.PiperVoice
-                        ? current.withEngine(com.aresstack.askai.java8.tts.TextToSpeechSettings.Engine.PIPER)
-                                .withVoiceId(((com.aresstack.askai.java8.tts.PiperVoice) selected).getId())
-                        : current.withEngine(com.aresstack.askai.java8.tts.TextToSpeechSettings.Engine.WINDOWS);
+                        ? current.withSelection(language,
+                                com.aresstack.askai.java8.tts.TextToSpeechSettings.Engine.PIPER,
+                                ((com.aresstack.askai.java8.tts.PiperVoice) selected).getId())
+                        : current.withSelection(language,
+                                com.aresstack.askai.java8.tts.TextToSpeechSettings.Engine.WINDOWS, "");
         try {
             ttsSettingsStore.save(updated);
         } catch (java.io.IOException notSaved) {

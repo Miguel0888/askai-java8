@@ -147,19 +147,21 @@ public final class SpeechOutputModelsPanel extends JPanel {
         restore.start();
     }
 
-    /** Recompute installed/selected state for every row. */
+    /** Recompute installed/selected state for every row ("in use" is per LANGUAGE). */
     void refresh() {
-        String selected = settings.load().getEngine() == TextToSpeechSettings.Engine.PIPER
-                ? settings.load().getVoiceId() : "";
+        TextToSpeechSettings tts = settings.load();
         for (PiperVoice voice : PiperVoiceCatalog.curated()) {
             JLabel status = statusByVoice.get(voice.getId());
             JButton button = buttonByVoice.get(voice.getId());
             if (status == null || button == null) {
                 continue;
             }
+            TextToSpeechSettings.Selection selection = tts.selectionFor(voice.getLanguageCode());
+            boolean inUse = selection.getEngine() == TextToSpeechSettings.Engine.PIPER
+                    && voice.getId().equals(selection.getVoiceId());
             boolean isInstalled = store.isVoiceInstalled(voice);
             status.setText(!isInstalled ? "Not installed"
-                    : voice.getId().equals(selected) ? "Installed · in use" : "Installed");
+                    : inUse ? "Installed · in use" : "Installed");
             button.setVisible(!isInstalled);
             button.setEnabled(!isInstalled);
         }
@@ -211,15 +213,17 @@ public final class SpeechOutputModelsPanel extends JPanel {
         });
     }
 
-    /** The frustration-free hand-over: use the fresh voice right away, or leave the default. */
+    /**
+     * The frustration-free hand-over: use the fresh voice right away — FOR ITS LANGUAGE — or
+     * leave that language on the Windows default.
+     */
     private void offerAdoption(PiperVoice voice) {
         if (!adoptPrompt.confirmUseNow(voice)) {
             return;
         }
         try {
-            settings.save(settings.load()
-                    .withEngine(TextToSpeechSettings.Engine.PIPER)
-                    .withVoiceId(voice.getId()));
+            settings.save(settings.load().withSelection(voice.getLanguageCode(),
+                    TextToSpeechSettings.Engine.PIPER, voice.getId()));
         } catch (java.io.IOException notSaved) {
             error.setText("Voice installed, but selecting it failed: " + notSaved.getMessage());
         }
@@ -250,9 +254,10 @@ public final class SpeechOutputModelsPanel extends JPanel {
         return new AdoptPrompt() {
             public boolean confirmUseNow(PiperVoice voice) {
                 return JOptionPane.showConfirmDialog(SpeechOutputModelsPanel.this,
-                        "Use \"" + voice + "\" for speech output now?\n\n"
+                        "Use \"" + voice + "\" for " + voice.getLanguage()
+                                + " speech output now?\n\n"
                                 + "You can change this anytime right here under\n"
-                                + "\"Audio & Dictation\" > Speech output.",
+                                + "\"Audio & Dictation\" > Speech output · " + voice.getLanguage() + ".",
                         "Voice installed", JOptionPane.YES_NO_OPTION,
                         JOptionPane.QUESTION_MESSAGE) == JOptionPane.YES_OPTION;
             }

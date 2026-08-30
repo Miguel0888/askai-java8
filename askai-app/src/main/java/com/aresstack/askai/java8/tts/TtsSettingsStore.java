@@ -7,20 +7,25 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Properties;
 
 /**
- * The speech-output settings file: {@code %APPDATA%\.askai-java8\askai-tts.properties}. A separate
+ * The speech-output settings file: {@code %APPDATA%\.askai-java8\askai-tts.properties}, one
+ * engine/voice pair PER LANGUAGE ({@code tts.<lang>.engine} / {@code tts.<lang>.voice}). A separate
  * file (not {@code askai-java8.properties}) so the central repository's whole-file rewrites can
  * never clobber these keys and vice versa. Reads are cheap and always fresh — callers load per use
  * instead of caching, so a change from the settings dialog is picked up by the very next speak.
+ * The short-lived single-selection keys ({@code tts.engine}/{@code tts.voice}) migrate silently
+ * into the voice's own language.
  */
 public final class TtsSettingsStore {
 
-    private static final String KEY_ENGINE = "tts.engine";
-    private static final String KEY_VOICE = "tts.voice";
     private static final String KEY_STARTUP_TIMEOUT_SECONDS = "tts.startupTimeoutSeconds";
     private static final String KEY_NETWORK_TIMEOUT_SECONDS = "tts.networkTimeoutSeconds";
+    private static final String LEGACY_KEY_ENGINE = "tts.engine";
+    private static final String LEGACY_KEY_VOICE = "tts.voice";
 
     private final Path file;
 
@@ -42,27 +47,55 @@ public final class TtsSettingsStore {
                 return TextToSpeechSettings.defaults(); // a broken file must never break speaking
             }
         }
-        return new TextToSpeechSettings(
-                TextToSpeechSettings.parseEngine(properties.getProperty(KEY_ENGINE)),
-                properties.getProperty(KEY_VOICE, ""),
+        Map<String, TextToSpeechSettings.Selection> selections =
+                new LinkedHashMap<String, TextToSpeechSettings.Selection>();
+        for (String language : TextToSpeechSettings.LANGUAGE_CODES) {
+            String engine = properties.getProperty("tts." + language + ".engine");
+            if (engine != null) {
+                selections.put(language, new TextToSpeechSettings.Selection(
+                        TextToSpeechSettings.parseEngine(engine),
+                        properties.getProperty("tts." + language + ".voice", "")));
+            }
+        }
+        migrateLegacySingleSelection(properties, selections);
+        return new TextToSpeechSettings(selections,
                 parseInt(properties.getProperty(KEY_STARTUP_TIMEOUT_SECONDS),
                         TextToSpeechSettings.DEFAULT_STARTUP_TIMEOUT_SECONDS),
                 parseInt(properties.getProperty(KEY_NETWORK_TIMEOUT_SECONDS),
                         TextToSpeechSettings.DEFAULT_NETWORK_TIMEOUT_SECONDS));
     }
 
+    /** The pre-per-language format chose ONE voice; it lands in that voice's own language. */
+    private static void migrateLegacySingleSelection(
+            Properties properties, Map<String, TextToSpeechSettings.Selection> selections) {
+        if (TextToSpeechSettings.parseEngine(properties.getProperty(LEGACY_KEY_ENGINE))
+                != TextToSpeechSettings.Engine.PIPER) {
+            return;
+        }
+        PiperVoice voice = PiperVoiceCatalog.findById(properties.getProperty(LEGACY_KEY_VOICE));
+        if (voice != null && !selections.containsKey(voice.getLanguageCode())) {
+            selections.put(voice.getLanguageCode(), new TextToSpeechSettings.Selection(
+                    TextToSpeechSettings.Engine.PIPER, voice.getId()));
+        }
+    }
+
     public void save(TextToSpeechSettings settings) throws IOException {
         TextToSpeechSettings value = settings == null ? TextToSpeechSettings.defaults() : settings;
         Properties properties = new Properties();
-        properties.setProperty(KEY_ENGINE, value.getEngine().name());
-        properties.setProperty(KEY_VOICE, value.getVoiceId());
+        for (Map.Entry<String, TextToSpeechSettings.Selection> entry
+                : value.selections().entrySet()) {
+            properties.setProperty("tts." + entry.getKey() + ".engine",
+                    entry.getValue().getEngine().name());
+            properties.setProperty("tts." + entry.getKey() + ".voice",
+                    entry.getValue().getVoiceId());
+        }
         properties.setProperty(KEY_STARTUP_TIMEOUT_SECONDS,
                 String.valueOf(value.getStartupTimeoutSeconds()));
         properties.setProperty(KEY_NETWORK_TIMEOUT_SECONDS,
                 String.valueOf(value.getNetworkTimeoutSeconds()));
         Files.createDirectories(file.getParent());
         try (OutputStream out = Files.newOutputStream(file)) {
-            properties.store(out, "AskAI speech output (read-aloud) settings");
+            properties.store(out, "AskAI speech output (read-aloud) settings, one voice per language");
         }
     }
 

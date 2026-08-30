@@ -10,14 +10,16 @@ public final class PiperVoice {
     private final String id;
     private final String displayName;
     private final String language;
+    private final String languageCode;
     private final String hfPath;
     private final long approximateSizeMb;
 
-    public PiperVoice(String id, String displayName, String language, String hfPath,
-                      long approximateSizeMb) {
+    public PiperVoice(String id, String displayName, String language, String languageCode,
+                      String hfPath, long approximateSizeMb) {
         this.id = id;
         this.displayName = displayName;
         this.language = language;
+        this.languageCode = languageCode;
         this.hfPath = hfPath;
         this.approximateSizeMb = approximateSizeMb;
     }
@@ -35,6 +37,11 @@ public final class PiperVoice {
     /** Human language label, e.g. {@code German}. */
     public String getLanguage() {
         return language;
+    }
+
+    /** ISO-639-1 language code, e.g. {@code de} — the per-language selection key. */
+    public String getLanguageCode() {
+        return languageCode;
     }
 
     /** Repo-relative directory in {@code rhasspy/piper-voices}, e.g. {@code de/de_DE/thorsten/high}. */

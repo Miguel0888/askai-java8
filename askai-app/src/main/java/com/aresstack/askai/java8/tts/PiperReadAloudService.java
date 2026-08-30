@@ -3,11 +3,11 @@ package com.aresstack.askai.java8.tts;
 import com.aresstack.askai.agent.model.speech.SpeechSynthesisPort;
 
 /**
- * The host's {@link SpeechSynthesisPort} over the Piper store + settings: active only when the
- * user explicitly selected a Piper voice (chat settings → Audio &amp; Dictation) AND engine + voice
- * are installed. Settings are re-read per call — a change in the dialog affects the very next
- * speak, no restart. Failures return {@code false} so callers fall back to their default voice
- * (read-aloud must never go silent because of a model problem).
+ * The host's {@link SpeechSynthesisPort} over the Piper store + settings, PER LANGUAGE: active for
+ * a language only when the user explicitly selected a Piper voice for it (chat settings → Audio
+ * &amp; Dictation) AND engine + voice are installed. Settings are re-read per call — a change in
+ * the dialog affects the very next speak, no restart. Failures return {@code false} so callers
+ * fall back to their default voice (read-aloud must never go silent because of a model problem).
  */
 public final class PiperReadAloudService implements SpeechSynthesisPort {
 
@@ -26,20 +26,20 @@ public final class PiperReadAloudService implements SpeechSynthesisPort {
     }
 
     @Override
-    public boolean isModelVoiceActive() {
-        return activeVoice() != null;
+    public boolean isModelVoiceActive(String languageCode) {
+        return activeVoice(settings.load(), languageCode) != null;
     }
 
     @Override
-    public String describeActiveVoice() {
-        PiperVoice voice = activeVoice();
+    public String describeActiveVoice(String languageCode) {
+        PiperVoice voice = activeVoice(settings.load(), languageCode);
         return voice == null ? "" : voice.toString();
     }
 
     @Override
-    public boolean speak(String plainText) {
+    public boolean speak(String plainText, String languageCode) {
         TextToSpeechSettings current = settings.load();
-        PiperVoice voice = activeVoice(current);
+        PiperVoice voice = activeVoice(current, languageCode);
         if (voice == null) {
             return false;
         }
@@ -58,15 +58,14 @@ public final class PiperReadAloudService implements SpeechSynthesisPort {
         synthesizer.stop();
     }
 
-    private PiperVoice activeVoice() {
-        return activeVoice(settings.load());
-    }
-
-    private PiperVoice activeVoice(TextToSpeechSettings current) {
-        if (current.getEngine() != TextToSpeechSettings.Engine.PIPER) {
+    private PiperVoice activeVoice(TextToSpeechSettings current, String languageCode) {
+        TextToSpeechSettings.Selection selection = current.selectionFor(languageCode);
+        if (selection.getEngine() != TextToSpeechSettings.Engine.PIPER) {
             return null;
         }
-        PiperVoice voice = PiperVoiceCatalog.findById(current.getVoiceId());
-        return voice != null && store.isReadyToSpeak(voice) ? voice : null;
+        PiperVoice voice = PiperVoiceCatalog.findById(selection.getVoiceId());
+        // The selected voice must MATCH the language — a stale cross-language id never speaks.
+        return voice != null && voice.getLanguageCode().equals(languageCode)
+                && store.isReadyToSpeak(voice) ? voice : null;
     }
 }

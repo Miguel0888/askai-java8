@@ -16,13 +16,13 @@ public final class PiperVoiceCatalog {
     public static final String VOICES_REPOSITORY = "rhasspy/piper-voices";
 
     private static final List<PiperVoice> CURATED = Collections.unmodifiableList(Arrays.asList(
-            new PiperVoice("de_DE-thorsten-high", "Thorsten (high quality)", "German",
+            new PiperVoice("de_DE-thorsten-high", "Thorsten (high quality)", "German", "de",
                     "de/de_DE/thorsten/high", 109),
-            new PiperVoice("de_DE-thorsten-medium", "Thorsten (smaller, faster)", "German",
+            new PiperVoice("de_DE-thorsten-medium", "Thorsten (smaller, faster)", "German", "de",
                     "de/de_DE/thorsten/medium", 61),
-            new PiperVoice("en_US-lessac-high", "Lessac (high quality)", "English",
+            new PiperVoice("en_US-lessac-high", "Lessac (high quality)", "English", "en",
                     "en/en_US/lessac/high", 109),
-            new PiperVoice("en_US-lessac-medium", "Lessac (smaller, faster)", "English",
+            new PiperVoice("en_US-lessac-medium", "Lessac (smaller, faster)", "English", "en",
                     "en/en_US/lessac/medium", 61)));
 
     private PiperVoiceCatalog() {

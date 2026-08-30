@@ -26,9 +26,16 @@ final class ResearchPhaseAccessory implements ComposerAccessory {
         this.research = research;
         this.view = new ResearchOutOfScopeSky();
         // Model voice for read-aloud: host-configured (chat settings → Audio & Dictation); the
-        // sky falls back to the Windows voice whenever the port is absent or inactive.
+        // sky falls back to the Windows voice whenever the port is absent or inactive. The
+        // SESSION's live language decides which language's voice speaks — German text gets the
+        // German voice, English text the English one (Windows fallback included).
         this.view.setModelVoice(research.getHostService(
                 com.aresstack.askai.agent.model.speech.SpeechSynthesisPort.class));
+        this.view.setReadAloudLanguage(new java.util.function.Supplier<String>() {
+            public String get() {
+                return research.getSessionLanguage().currentLanguage().getCode();
+            }
+        });
         this.view.setAddAction(new Consumer<String>() {
             public void accept(String text) {
                 reportRejection(research.addScopeExclusion(text));

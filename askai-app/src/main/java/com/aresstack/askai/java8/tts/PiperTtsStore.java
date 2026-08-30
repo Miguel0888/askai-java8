@@ -68,6 +68,17 @@ public final class PiperTtsStore {
         return installed;
     }
 
+    /** @return the installed voices of ONE language (the per-language selector's choices). */
+    public List<PiperVoice> installedVoices(String languageCode) {
+        List<PiperVoice> installed = new ArrayList<PiperVoice>();
+        for (PiperVoice voice : installedVoices()) {
+            if (voice.getLanguageCode().equals(languageCode)) {
+                installed.add(voice);
+            }
+        }
+        return installed;
+    }
+
     /** @return whether this voice is fully usable: engine + both voice files present. */
     public boolean isReadyToSpeak(PiperVoice voice) {
         return isEngineInstalled() && isVoiceInstalled(voice);
