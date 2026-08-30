@@ -78,8 +78,9 @@ final class WindowsSpeech {
 
     /**
      * Flatten markdown into speakable text: code fences and inline code dropped, links reduced to
-     * their label, list/heading/emphasis markers removed. Deliberately rough — the voice does not
-     * need typography, it needs sentences.
+     * their label, list/heading/emphasis markers removed. PARAGRAPHS survive as {@code \n\n} —
+     * the host chunks the speech per paragraph (natural pauses), so the blank-line structure is
+     * meaning, not typography; soft single line breaks flatten to spaces as before.
      */
     static String plainTextForSpeech(String markdown) {
         if (markdown == null) {
@@ -93,7 +94,14 @@ final class WindowsSpeech {
         text = text.replaceAll("(?m)^\\s*[-*+]\\s+", "");
         text = text.replaceAll("(?m)^\\s*>\\s?", "");
         text = text.replaceAll("[*_~]{1,3}", "");
-        text = text.replaceAll("\\s+", " ").trim();
-        return text;
+        text = text.replaceAll("[ \t\r]+", " ");        // collapse spaces, keep line structure
+        text = text.replaceAll(" ?\n ?", "\n");
+        String marker = "\u0001";                      // never occurs in chat text
+        text = text.replaceAll("\n{2,}", marker);      // protect paragraph breaks first
+        text = text.replaceAll("\n", " ");             // soft wraps become spaces
+        text = text.replace(marker, "\n\n");          // paragraphs come back as blank lines
+        text = text.replaceAll(" {2,}", " ");
+        text = text.replaceAll("(?m)^ | $", "");
+        return text.trim();
     }
 }

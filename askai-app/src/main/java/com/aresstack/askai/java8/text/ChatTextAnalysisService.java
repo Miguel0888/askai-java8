@@ -136,56 +136,90 @@ public final class ChatTextAnalysisService {
     }
 
     /**
-     * Split {@code text} into same-language segments (and optionally sentences).
+     * Split {@code text} into same-language segments, chunked by PARAGRAPH (blank-line breaks —
+     * the flattened chat text preserves them). Sentences are detected only INTERNALLY, to vote on
+     * each paragraph's language(s); a language change inside a paragraph still splits it, but the
+     * synthesis chunks are whole paragraphs — sentence-sized chunks caused audible gaps between
+     * every sentence (one engine start each).
      *
      * @param detectLanguages when false, NLP language detection is not used AT ALL (the whole
      *                        text stays in the fallback language)
-     * @param splitSentences  when false, each segment carries ONE joined chunk instead of
-     *                        per-sentence chunks
+     * @param paragraphChunks when false, each segment carries ONE joined chunk instead of
+     *                        per-paragraph chunks
      */
     public synchronized List<Segment> segment(String text, String fallbackLanguage,
-                                              boolean detectLanguages, boolean splitSentences) {
+                                              boolean detectLanguages, boolean paragraphChunks) {
         String value = text == null ? "" : text.trim();
         List<Segment> single = Collections.singletonList(
                 new Segment(fallbackLanguage, Collections.singletonList(value)));
         if (value.isEmpty()) {
             return single;
         }
-        if (engine == null || (!detectLanguages && !splitSentences)) {
+        if (engine == null || (!detectLanguages && !paragraphChunks)) {
             return single; // service not running (models missing) or nothing requested → as before
         }
-        List<String> sentences = engine.splitterFor(fallbackLanguage).split(value);
-        if (sentences.isEmpty()) {
+        LanguageDetector detector = detectLanguages ? engine.languageDetector() : null;
+        // Language RUNS at paragraph granularity: (language, chunkText) in reading order.
+        List<String[]> runs = new ArrayList<String[]>();
+        for (String paragraph : value.split("\\n{2,}")) {
+            String trimmed = paragraph.trim().replaceAll("\\s+", " ");
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            List<String> sentences = engine.splitterFor(fallbackLanguage).split(trimmed);
+            if (sentences.isEmpty()) {
+                sentences = Collections.singletonList(trimmed);
+            }
+            String runLanguage = null;
+            StringBuilder runText = new StringBuilder();
+            for (String sentence : sentences) {
+                String detected = detector == null ? "" : detector.detectLanguage(sentence);
+                String language = detected == null || detected.isEmpty()
+                        ? fallbackLanguage : detected;
+                if (runLanguage != null && !language.equals(runLanguage)) {
+                    runs.add(new String[]{runLanguage, runText.toString()});
+                    runText = new StringBuilder();
+                }
+                runLanguage = language;
+                if (runText.length() > 0) {
+                    runText.append(' ');
+                }
+                runText.append(sentence);
+            }
+            if (runLanguage != null) {
+                runs.add(new String[]{runLanguage, runText.toString()});
+            }
+        }
+        if (runs.isEmpty()) {
             return single;
         }
-        LanguageDetector detector = detectLanguages ? engine.languageDetector() : null;
+        // Merge consecutive same-language runs into segments; chunk boundaries stay per run
+        // (i.e. per paragraph) unless the caller asked for one joined chunk per segment.
         List<Segment> segments = new ArrayList<Segment>();
         String currentLanguage = null;
-        List<String> currentSentences = new ArrayList<String>();
-        for (String sentence : sentences) {
-            String detected = detector == null ? "" : detector.detectLanguage(sentence);
-            String language = detected == null || detected.isEmpty() ? fallbackLanguage : detected;
-            if (currentLanguage != null && !language.equals(currentLanguage)) {
-                segments.add(new Segment(currentLanguage, chunks(currentSentences, splitSentences)));
-                currentSentences = new ArrayList<String>();
+        List<String> currentChunks = new ArrayList<String>();
+        for (String[] run : runs) {
+            if (currentLanguage != null && !run[0].equals(currentLanguage)) {
+                segments.add(new Segment(currentLanguage, chunks(currentChunks, paragraphChunks)));
+                currentChunks = new ArrayList<String>();
             }
-            currentLanguage = language;
-            currentSentences.add(sentence);
+            currentLanguage = run[0];
+            currentChunks.add(run[1]);
         }
-        segments.add(new Segment(currentLanguage, chunks(currentSentences, splitSentences)));
+        segments.add(new Segment(currentLanguage, chunks(currentChunks, paragraphChunks)));
         return segments;
     }
 
-    private static List<String> chunks(List<String> sentences, boolean splitSentences) {
-        if (splitSentences) {
-            return sentences;
+    private static List<String> chunks(List<String> paragraphs, boolean paragraphChunks) {
+        if (paragraphChunks) {
+            return paragraphs;
         }
         StringBuilder joined = new StringBuilder();
-        for (String sentence : sentences) {
+        for (String paragraph : paragraphs) {
             if (joined.length() > 0) {
                 joined.append(' ');
             }
-            joined.append(sentence);
+            joined.append(paragraph);
         }
         return Collections.singletonList(joined.toString());
     }

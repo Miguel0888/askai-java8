@@ -24,8 +24,8 @@ import java.util.regex.Pattern;
 public final class PiperSpeechSynthesizer {
 
     private final Object lock = new Object();
-    /** The CURRENT child (first piper, then the player) — stop() kills whatever is running. */
-    private Process child;
+    /** Every live child of the CURRENT utterance (a prefetching piper may overlap the player). */
+    private final java.util.Set<Process> children = new java.util.HashSet<Process>();
     /**
      * Utterance GENERATION instead of a boolean stop flag: a new speak (which stops the previous
      * one) bumps it, so an overlapped older utterance can never mistake the newer speak's reset
@@ -88,11 +88,6 @@ public final class PiperSpeechSynthesizer {
             }
             return new Utterance(payload, sampleRate, logTail(engineLog));
         } finally {
-            synchronized (lock) {
-                if (generation == myGeneration) {
-                    child = null;
-                }
-            }
             try {
                 Files.deleteIfExists(wav);
             } catch (IOException stillHeld) {
@@ -101,16 +96,52 @@ public final class PiperSpeechSynthesizer {
         }
     }
 
-    /** Interrupt the current utterance; safe from any thread, no-op when silent. */
+    /** Interrupt the current utterance (incl. a prefetching piper); safe from any thread. */
     public void stop() {
-        Process toKill;
+        java.util.List<Process> toKill;
         synchronized (lock) {
             generation++; // outdate the running utterance
-            toKill = child;
-            child = null;
+            toKill = new java.util.ArrayList<Process>(children);
+            children.clear();
         }
-        if (toKill != null) {
-            toKill.destroy();
+        for (Process process : toKill) {
+            process.destroy();
+        }
+    }
+
+    /**
+     * Synthesize ONE chunk into a caller-owned temp WAV — PREFETCHABLE: it may run while another
+     * chunk's player is still playing (that is what closes the gaps between paragraphs). Joins
+     * the CURRENT utterance: stop() kills it like every other child.
+     *
+     * @return the WAV (caller deletes), never empty audio (that throws with piper's log)
+     */
+    public java.nio.file.Path synthesizeToWav(PiperTtsStore store, PiperVoice voice, String text,
+                                              int timeoutSeconds) throws IOException {
+        String prepared = prepareText(text);
+        if (prepared.isEmpty()) {
+            throw new IOException("empty text");
+        }
+        java.nio.file.Path wav = Files.createTempFile("askai-tts-", ".wav");
+        long myGeneration = currentGeneration();
+        StringBuilder engineLog = synthesize(store, voice, prepared, wav, timeoutSeconds,
+                myGeneration);
+        long payload = Files.isRegularFile(wav) ? Math.max(0, Files.size(wav) - 44) : 0;
+        if (payload == 0) {
+            Files.deleteIfExists(wav);
+            throw new IOException("piper produced no audio | piper log: " + logTail(engineLog));
+        }
+        return wav;
+    }
+
+    /** Play a prepared WAV through the external player; blocks until done or stop(). */
+    public void playWav(java.nio.file.Path wav) throws IOException {
+        play(wav, currentGeneration());
+    }
+
+    private long currentGeneration() {
+        synchronized (lock) {
+            return generation;
         }
     }
 
@@ -165,7 +196,7 @@ public final class PiperSpeechSynthesizer {
         synchronized (lock) {
             outdated = generation != myGeneration;
             if (!outdated) {
-                child = process;
+                children.add(process);
             }
         }
         if (outdated) {
@@ -181,22 +212,28 @@ public final class PiperSpeechSynthesizer {
 
     /** @return true when the process ended on its own; false only on timeout. */
     private boolean waitBounded(Process process, int timeoutSeconds, long myGeneration) {
-        long deadline = System.currentTimeMillis() + timeoutSeconds * 1000L;
-        while (process.isAlive()) {
-            if (!isCurrent(myGeneration)) {
-                return true; // stop() already destroyed it; nothing left to wait for
+        try {
+            long deadline = System.currentTimeMillis() + timeoutSeconds * 1000L;
+            while (process.isAlive()) {
+                if (!isCurrent(myGeneration)) {
+                    return true; // stop() already destroyed it; nothing left to wait for
+                }
+                if (timeoutSeconds != Integer.MAX_VALUE && System.currentTimeMillis() > deadline) {
+                    return false;
+                }
+                try {
+                    Thread.sleep(50);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    return true;
+                }
             }
-            if (timeoutSeconds != Integer.MAX_VALUE && System.currentTimeMillis() > deadline) {
-                return false;
-            }
-            try {
-                Thread.sleep(50);
-            } catch (InterruptedException interrupted) {
-                Thread.currentThread().interrupt();
-                return true;
+            return true;
+        } finally {
+            synchronized (lock) {
+                children.remove(process);
             }
         }
-        return true;
     }
 
     private static String logTail(StringBuilder engineLog) {

@@ -83,11 +83,11 @@ public class TtsSettingsStoreTest {
                 temp.getRoot().toPath().resolve("tts.properties"));
         org.junit.Assert.assertTrue("mixed-language split defaults ON",
                 store.load().isMixedLanguageSplit());
-        org.junit.Assert.assertTrue("sentence-wise synthesis defaults ON",
-                store.load().isSentenceWiseSynthesis());
-        store.save(store.load().withMixedLanguageSplit(false).withSentenceWiseSynthesis(false));
+        org.junit.Assert.assertTrue("paragraph-wise synthesis defaults ON",
+                store.load().isParagraphWiseSynthesis());
+        store.save(store.load().withMixedLanguageSplit(false).withParagraphWiseSynthesis(false));
         org.junit.Assert.assertFalse(store.load().isMixedLanguageSplit());
-        org.junit.Assert.assertFalse(store.load().isSentenceWiseSynthesis());
+        org.junit.Assert.assertFalse(store.load().isParagraphWiseSynthesis());
     }
 
     @Test

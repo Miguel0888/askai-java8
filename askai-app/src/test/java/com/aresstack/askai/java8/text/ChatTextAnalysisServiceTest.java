@@ -93,49 +93,52 @@ public class ChatTextAnalysisServiceTest {
     }
 
     @Test
-    public void sameLanguageRunsMergeIntoSegments() {
+    public void paragraphsBecomeChunksAndSameLanguageRunsMergeIntoSegments() {
         build();
         service.acquire(this);
         List<ChatTextAnalysisService.Segment> segments = service.segment(
-                "DE: eins.|DE: zwei.|EN: three.|DE: vier.", "de", true, true);
+                "DE: eins.|DE: zwei.\n\nEN: three.\n\nDE: vier.", "de", true, true);
         assertEquals(3, segments.size());
         assertEquals("de", segments.get(0).getLanguageCode());
-        assertEquals(Arrays.asList("DE: eins.", "DE: zwei."), segments.get(0).getSentences());
+        assertEquals("a paragraph is ONE chunk (its sentences joined) — sentence-sized chunks"
+                        + " caused audible gaps", Arrays.asList("DE: eins. DE: zwei."),
+                segments.get(0).getSentences());
         assertEquals("en", segments.get(1).getLanguageCode());
         assertEquals("de", segments.get(2).getLanguageCode());
     }
 
     @Test
-    public void unknownLanguagesStayInTheFallback() {
+    public void aLanguageSwitchInsideAParagraphStillSplitsTheChunk() {
         build();
         service.acquire(this);
         List<ChatTextAnalysisService.Segment> segments = service.segment(
                 "DE: eins.|kurz.|EN: three.", "de", true, true);
-        assertEquals("the unknown middle sentence merges into the German run",
-                2, segments.size());
-        assertEquals(Arrays.asList("DE: eins.", "kurz."), segments.get(0).getSentences());
-    }
-
-    @Test
-    public void sentenceWiseOffJoinsEachSegmentIntoOneChunk() {
-        build();
-        service.acquire(this);
-        List<ChatTextAnalysisService.Segment> segments = service.segment(
-                "DE: eins.|DE: zwei.|EN: three.", "de", true, false);
-        assertEquals(2, segments.size());
-        assertEquals(Arrays.asList("DE: eins. DE: zwei."), segments.get(0).getSentences());
+        assertEquals("the unknown middle sentence merges into the German run", 2, segments.size());
+        assertEquals(Arrays.asList("DE: eins. kurz."), segments.get(0).getSentences());
         assertEquals(Arrays.asList("EN: three."), segments.get(1).getSentences());
     }
 
     @Test
-    public void languageDetectionOffKeepsEverythingInTheFallbackButStillSplits() {
+    public void paragraphChunksOffJoinsEachSegmentIntoOneChunk() {
         build();
         service.acquire(this);
         List<ChatTextAnalysisService.Segment> segments = service.segment(
-                "DE: eins.|EN: three.", "de", false, true);
+                "DE: eins.\n\nDE: zwei.\n\nEN: three.", "de", true, false);
+        assertEquals(2, segments.size());
+        assertEquals("consecutive same-language paragraphs join into one chunk",
+                Arrays.asList("DE: eins. DE: zwei."), segments.get(0).getSentences());
+        assertEquals(Arrays.asList("EN: three."), segments.get(1).getSentences());
+    }
+
+    @Test
+    public void languageDetectionOffKeepsEverythingInTheFallbackButStillChunksParagraphs() {
+        build();
+        service.acquire(this);
+        List<ChatTextAnalysisService.Segment> segments = service.segment(
+                "DE: eins.\n\nEN: three.", "de", false, true);
         assertEquals("no NLP language detection when the checkbox is off", 1, segments.size());
         assertEquals("de", segments.get(0).getLanguageCode());
-        assertEquals(2, segments.get(0).getSentences().size());
+        assertEquals("one chunk per paragraph", 2, segments.get(0).getSentences().size());
     }
 
     @Test

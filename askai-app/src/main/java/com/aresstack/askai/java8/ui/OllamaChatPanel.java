@@ -1238,23 +1238,23 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         JPanel mixedRow = partySettingsRow();
         mixedRow.add(mixedSplitBox);
         card.add(mixedRow);
-        final javax.swing.JCheckBox sentenceWiseBox = new javax.swing.JCheckBox(
-                "Speak sentence by sentence (NLP)",
-                ttsSettingsStore.load().isSentenceWiseSynthesis());
-        sentenceWiseBox.setToolTipText("On: the text is split into sentences and synthesized one"
-                + " by one, played in order — the first sentence starts much sooner. Uses the"
-                + " NLP sentence models when installed.");
-        sentenceWiseBox.addActionListener(event -> {
+        final javax.swing.JCheckBox paragraphWiseBox = new javax.swing.JCheckBox(
+                "Speak paragraph by paragraph (NLP)",
+                ttsSettingsStore.load().isParagraphWiseSynthesis());
+        paragraphWiseBox.setToolTipText("On: the text is synthesized in paragraph chunks and"
+                + " played in order — the first paragraph starts much sooner, and the next one"
+                + " is prepared WHILE the current one plays (no gaps from synthesis).");
+        paragraphWiseBox.addActionListener(event -> {
             try {
                 ttsSettingsStore.save(ttsSettingsStore.load()
-                        .withSentenceWiseSynthesis(sentenceWiseBox.isSelected()));
+                        .withParagraphWiseSynthesis(paragraphWiseBox.isSelected()));
             } catch (java.io.IOException notSaved) {
-                appendTech("sentence-wise synthesis not saved: " + notSaved.getMessage());
+                appendTech("paragraph-wise synthesis not saved: " + notSaved.getMessage());
             }
         });
-        JPanel sentenceRow = partySettingsRow();
-        sentenceRow.add(sentenceWiseBox);
-        card.add(sentenceRow);
+        JPanel paragraphRow = partySettingsRow();
+        paragraphRow.add(paragraphWiseBox);
+        card.add(paragraphRow);
         alignFormLabels(formLabels);
         // Voices are installed RIGHT HERE, below the selector — the 🔊 entries in Models > Setup
         // are only a shortcut to this section (the panel says so, plus the download sources).
