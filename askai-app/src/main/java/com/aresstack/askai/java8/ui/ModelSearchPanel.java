@@ -28,6 +28,15 @@ public final class ModelSearchPanel extends JPanel {
      */
     public ModelSearchPanel(AppConfigurationRepository configurationRepository, AskAiService askAiService,
                             NlpModelsPanel nlpModelsPanel) {
+        this(configurationRepository, askAiService, nlpModelsPanel, null);
+    }
+
+    /**
+     * @param speechOutputPanel the Speech Output tab (curated Piper read-aloud voices); when
+     *                          non-null it is added after the NLP tab. Prebuilt by the owner.
+     */
+    public ModelSearchPanel(AppConfigurationRepository configurationRepository, AskAiService askAiService,
+                            NlpModelsPanel nlpModelsPanel, SpeechOutputModelsPanel speechOutputPanel) {
         super(new BorderLayout());
         this.huggingFacePanel = new OllamaInstallPanel(configurationRepository, askAiService);
         this.tabs = new JTabbedPane();
@@ -35,6 +44,9 @@ public final class ModelSearchPanel extends JPanel {
         tabs.addTab("Ollama Library", new OllamaLibraryPanel(askAiService));
         if (nlpModelsPanel != null) {
             tabs.addTab(NlpModelsPanel.TAB_TITLE, nlpModelsPanel);
+        }
+        if (speechOutputPanel != null) {
+            tabs.addTab(SpeechOutputModelsPanel.TAB_TITLE, speechOutputPanel);
         }
         add(tabs, BorderLayout.CENTER);
     }

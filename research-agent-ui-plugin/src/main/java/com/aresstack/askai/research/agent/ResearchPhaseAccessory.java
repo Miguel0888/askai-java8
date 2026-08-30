@@ -25,6 +25,10 @@ final class ResearchPhaseAccessory implements ComposerAccessory {
     ResearchPhaseAccessory(final ResearchAgentSession research, final UiExecutor uiExecutor) {
         this.research = research;
         this.view = new ResearchOutOfScopeSky();
+        // Model voice for read-aloud: host-configured (chat settings → Audio & Dictation); the
+        // sky falls back to the Windows voice whenever the port is absent or inactive.
+        this.view.setModelVoice(research.getHostService(
+                com.aresstack.askai.agent.model.speech.SpeechSynthesisPort.class));
         this.view.setAddAction(new Consumer<String>() {
             public void accept(String text) {
                 reportRejection(research.addScopeExclusion(text));

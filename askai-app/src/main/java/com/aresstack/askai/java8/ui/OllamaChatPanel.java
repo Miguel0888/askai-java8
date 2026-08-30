@@ -203,6 +203,14 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
     private final JComboBox<String> micCombo = new JComboBox<String>();
     private final JButton micRefreshButton = new JButton("Refresh");
     private final JButton testMicButton = new JButton("Test microphone");
+    // Speech output (read-aloud): the Windows voice by default, or an installed Piper model voice.
+    private static final String SPEECH_OUTPUT_WINDOWS = "Windows voice (default)";
+    private final JComboBox<Object> speechOutputCombo = new JComboBox<Object>();
+    private boolean updatingSpeechOutputCombo;
+    private final com.aresstack.askai.java8.tts.TtsSettingsStore ttsSettingsStore =
+            new com.aresstack.askai.java8.tts.TtsSettingsStore();
+    private final com.aresstack.askai.java8.tts.PiperTtsStore piperTtsStore =
+            new com.aresstack.askai.java8.tts.PiperTtsStore();
     private final JTextArea techDetails = new JTextArea(6, 40);
 
     private final List<OllamaChatTurn> history = new ArrayList<OllamaChatTurn>();
@@ -1055,7 +1063,63 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         testMicButton.addActionListener(event -> testMicrophone());
         micRow.add(testMicButton);
         card.add(micRow);
+
+        JPanel speechRow = partySettingsRow();
+        speechRow.add(new JLabel("Speech output"));
+        speechOutputCombo.setEditable(false); // Windows default or an INSTALLED Piper voice
+        speechOutputCombo.setPreferredSize(
+                new Dimension(240, speechOutputCombo.getPreferredSize().height));
+        speechOutputCombo.setToolTipText("The read-aloud voice. Model voices run entirely on the"
+                + " CPU — the GPU stays free. Install voices under Models > Setup > Speech Output.");
+        speechOutputCombo.addActionListener(event -> persistSpeechOutputSelection());
+        speechRow.add(speechOutputCombo);
+        card.add(speechRow);
+        JPanel speechHintRow = partySettingsRow();
+        JLabel speechHint = new JLabel("<html><i>Model voices run on the CPU (GPU: coming soon)."
+                + " Install them under Models &gt; Setup &gt; Speech Output.</i></html>");
+        speechHint.setEnabled(false);
+        speechHintRow.add(speechHint);
+        card.add(speechHintRow);
         return card;
+    }
+
+    /** Reloads the speech-output combo: the Windows default plus every INSTALLED Piper voice. */
+    private void refreshSpeechOutputVoices() {
+        updatingSpeechOutputCombo = true;
+        try {
+            com.aresstack.askai.java8.tts.TextToSpeechSettings tts = ttsSettingsStore.load();
+            speechOutputCombo.removeAllItems();
+            speechOutputCombo.addItem(SPEECH_OUTPUT_WINDOWS);
+            Object desired = SPEECH_OUTPUT_WINDOWS;
+            for (com.aresstack.askai.java8.tts.PiperVoice voice : piperTtsStore.installedVoices()) {
+                speechOutputCombo.addItem(voice);
+                if (tts.getEngine() == com.aresstack.askai.java8.tts.TextToSpeechSettings.Engine.PIPER
+                        && voice.getId().equals(tts.getVoiceId())) {
+                    desired = voice; // a selected-but-uninstalled voice falls back to Windows
+                }
+            }
+            speechOutputCombo.setSelectedItem(desired);
+        } finally {
+            updatingSpeechOutputCombo = false;
+        }
+    }
+
+    private void persistSpeechOutputSelection() {
+        if (updatingSpeechOutputCombo) {
+            return;
+        }
+        Object selected = speechOutputCombo.getSelectedItem();
+        com.aresstack.askai.java8.tts.TextToSpeechSettings current = ttsSettingsStore.load();
+        com.aresstack.askai.java8.tts.TextToSpeechSettings updated =
+                selected instanceof com.aresstack.askai.java8.tts.PiperVoice
+                        ? current.withEngine(com.aresstack.askai.java8.tts.TextToSpeechSettings.Engine.PIPER)
+                                .withVoiceId(((com.aresstack.askai.java8.tts.PiperVoice) selected).getId())
+                        : current.withEngine(com.aresstack.askai.java8.tts.TextToSpeechSettings.Engine.WINDOWS);
+        try {
+            ttsSettingsStore.save(updated);
+        } catch (java.io.IOException notSaved) {
+            appendTech("speech-output selection not saved: " + notSaved.getMessage());
+        }
     }
 
     /**
@@ -1650,6 +1714,7 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
     /** Opens the (modeless) chat settings dialog — triggered by the drawer footer's gear button. */
     public void openSettingsDialog() {
         refreshAudioProfiles(); // reload so profiles saved in the editor appear immediately
+        refreshSpeechOutputVoices(); // voices installed in Models > Setup appear immediately
         if (settingsDialog == null) {
             java.awt.Window owner = SwingUtilities.getWindowAncestor(this);
             settingsDialog = new javax.swing.JDialog(

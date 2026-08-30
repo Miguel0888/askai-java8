@@ -185,14 +185,19 @@ final class ResearchOutOfScopeSky extends JPanel {
     /**
      * Read-aloud, Gemini-style: the bar's right-hand Play/Pause toggle. Play speaks the LATEST
      * assistant answer and STAYS active — every new answer is spoken automatically as it arrives —
-     * until Pause stops it. Voice = the Windows synthesizer ({@link WindowsSpeech}); a
-     * configurable output model is a later settings slice.
+     * until Pause stops it. The voice is chosen by {@link ReadAloudVoice}: the host's configured
+     * MODEL voice when one is active, otherwise the Windows default.
      */
-    private final WindowsSpeech speech = new WindowsSpeech();
+    private final ReadAloudVoice speech = new ReadAloudVoice();
     private boolean readAloudActive;
     private String latestAnswerId;
     private String latestAnswerText;
     private String lastSpokenAnswerId;
+
+    /** The host's speech-output service (model voice), or null — wired by the accessory. */
+    void setModelVoice(com.aresstack.askai.agent.model.speech.SpeechSynthesisPort port) {
+        speech.setModelVoice(port);
+    }
 
     /** The newest assistant answer (host truth) — pushed by the accessory on every refresh. */
     void setLatestAnswer(String messageId, String markdown) {

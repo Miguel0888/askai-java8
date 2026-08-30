@@ -73,6 +73,9 @@ public final class AgentRuntimeServices {
     private final NlpModelCatalog nlpCatalog;
     /** Tracks running research sessions so their descriptors can be re-published on a model change. */
     private final LocalActiveResearchSessionRegistry activeSessions;
+    /** Speech output (read-aloud) with an installed Piper model voice; inactive → plugin default voice. */
+    private final com.aresstack.askai.agent.model.speech.SpeechSynthesisPort speechSynthesis =
+            new com.aresstack.askai.java8.tts.PiperReadAloudService();
 
     /** The embedding descriptor request timeout (local sidecar; probe + calls). */
     private static final long EMBEDDING_TIMEOUT_MILLIS = 60_000L;
@@ -212,6 +215,7 @@ public final class AgentRuntimeServices {
         if (activeSessions != null) {
             services.put(ActiveResearchSessionRegistry.class, activeSessions);
         }
+        services.put(com.aresstack.askai.agent.model.speech.SpeechSynthesisPort.class, speechSynthesis);
         return services;
     }
 
