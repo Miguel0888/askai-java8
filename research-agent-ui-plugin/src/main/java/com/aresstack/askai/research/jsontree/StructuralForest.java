@@ -16,6 +16,15 @@ public final class StructuralForest {
         this.roots = Collections.unmodifiableList(roots);
     }
 
+    /**
+     * A forest from explicit roots — e.g. the CHILDREN of one node, when a view wants to show a
+     * section's content without the section wrapper itself (the Konzept tab shows the concept's
+     * cards, not a "concept" node).
+     */
+    public static StructuralForest of(List<StructuralNode> roots) {
+        return new StructuralForest(new java.util.ArrayList<StructuralNode>(roots));
+    }
+
     public List<StructuralNode> getRoots() {
         return roots;
     }

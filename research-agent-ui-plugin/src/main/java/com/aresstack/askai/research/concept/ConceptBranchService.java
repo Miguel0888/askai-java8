@@ -162,6 +162,33 @@ public final class ConceptBranchService {
 
     // ------------------------------------------------------------------ read
 
+    /** One ATOMIC (document, revision) pair — so every view renders ONE consistent snapshot. */
+    public static final class DocumentSnapshot {
+        private final String documentJson;
+        private final long workingRevision;
+
+        DocumentSnapshot(String documentJson, long workingRevision) {
+            this.documentJson = documentJson;
+            this.workingRevision = workingRevision;
+        }
+
+        public String getDocumentJson() {
+            return documentJson;
+        }
+
+        public long getWorkingRevision() {
+            return workingRevision;
+        }
+    }
+
+    /**
+     * The current document with its revision, read atomically. The UI renders EVERYTHING (mindmap,
+     * JSON view, revision label) from one snapshot — never mixing revision N's tree with N+1's text.
+     */
+    public synchronized DocumentSnapshot snapshot() {
+        return new DocumentSnapshot(store.effectiveContent(), store.workingRevision());
+    }
+
     /**
      * Read the whole working surface ({@code names} empty) or one branch addressed by its name
      * chain. {@code depth <= 0} reads the full subtree and yields an EDITABLE handle;

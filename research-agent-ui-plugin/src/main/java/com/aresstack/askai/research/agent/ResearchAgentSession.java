@@ -1885,6 +1885,16 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     }
 
     /**
+     * The session's ONE Konzeptpapier branch-edit service (shared with the agent MCP tools — the
+     * handle registry lives in it), or {@code null} in the in-memory clickdummy. The Konzept tab
+     * and the mindmap overlay render from its atomic snapshots.
+     */
+    public com.aresstack.askai.research.concept.ConceptBranchService conceptBranchService() {
+        return productiveResources == null || productiveResources.isClosed()
+                ? null : productiveResources.conceptBranchService();
+    }
+
+    /**
      * Persist the research brief to its working copy, OFF the EDT, and refresh the view only when it actually
      * changed (no duplicate write/revision for an identical brief). This is the ONLY brief persistence path;
      * the brief is never mirrored into a session field as an alternative source of truth. No approval, no
