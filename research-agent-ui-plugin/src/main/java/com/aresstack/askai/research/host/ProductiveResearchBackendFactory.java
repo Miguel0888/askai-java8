@@ -751,6 +751,16 @@ public final class ProductiveResearchBackendFactory {
                                             holder[0] == null ? null : holder[0].getSessionGateway();
                                     return gateway == null ? null : gateway.describeHistory(raw);
                                 }
+
+                                // Delegating wrappers must forward DEFAULT methods explicitly, or the
+                                // interface default (null) silently swallows the capability — the same
+                                // trap the concept tools fell into on the control context.
+                                @Override
+                                public String describeTechnicalLog(int tailLines) {
+                                    com.aresstack.askai.research.mcp.ResearchBotSessionGateway gateway =
+                                            holder[0] == null ? null : holder[0].getSessionGateway();
+                                    return gateway == null ? null : gateway.describeTechnicalLog(tailLines);
+                                }
                             };
             final com.aresstack.askai.research.mcp.ResearchBotControlEndpoint botControl =
                     !botControlMcpEnabled ? null
