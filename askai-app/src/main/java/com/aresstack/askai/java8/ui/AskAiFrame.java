@@ -868,6 +868,12 @@ public final class AskAiFrame extends JFrame {
                     }
                 });
         chat.setAgentCommandRegistry(agentCoordinator);
+        // The chat list's activity dot/metadata: authoritative per-scope runtime state, no UI heuristics.
+        final com.aresstack.askai.plugin.host.AgentSessionCoordinator activityCoordinator = agentCoordinator;
+        final String activityScope = chat.getSessionId().toString();
+        chat.setAgentActivityProbes(
+                () -> activityCoordinator.isScopeBusy(activityScope),
+                () -> activityCoordinator.scopePhaseLabel(activityScope));
         // Tab close ENDS this tab's agent session(s) off-EDT (its ChatSessionId is the scope).
         final com.aresstack.askai.plugin.host.AgentSessionCoordinator closerCoordinator = agentCoordinator;
         chat.setTabSessionCloser(new OllamaChatPanel.TabSessionCloser() {

@@ -62,22 +62,25 @@ public class ChatListProjectsTest {
     }
 
     @Test
-    public void projectGroupsRenderBetweenActiveAndTheTimeGroupedHistory() throws Exception {
+    public void projectGroupsRenderBeforeTheTimeGroupedHistoryAndIdleChatsAreNotAktiv() throws Exception {
         final ChatWorkspacePanel workspace = build();
         onEdt(new Runnable() {
             public void run() {
                 List<String> entries = workspace.chatListEntriesForTest();
-                int activeHeader = indexContaining(entries, "AKTIV");
+                // The open FakeSession does no work — AKTIV holds only ACTUALLY busy chats, so
+                // the group must be absent entirely (a merely existing session is not activity).
+                assertFalse("idle sessions never form an AKTIV group",
+                        indexContaining(entries, "AKTIV") >= 0);
                 int projectHeader = indexContaining(entries, "Autos");
                 int projectChat = indexContaining(entries, "Oldtimer Preise");
                 int timeHeader = indexContaining(entries, "HEUTE"); // records were saved just now
                 int looseChat = indexContaining(entries, "Rezept Lasagne");
-                assertTrue("open sessions render under AKTIV first", activeHeader >= 0);
+                int openChat = indexContaining(entries, "(new chat)");
                 assertTrue("the project heading exists", projectHeader >= 0);
                 assertTrue("project chats sit under their heading, before the history groups",
-                        activeHeader < projectHeader && projectHeader < projectChat
-                                && projectChat < timeHeader);
+                        projectHeader < projectChat && projectChat < timeHeader);
                 assertTrue("unassigned saved chats land in their time group", timeHeader < looseChat);
+                assertTrue("the idle open chat is ordinary history under HEUTE", timeHeader < openChat);
             }
         });
     }

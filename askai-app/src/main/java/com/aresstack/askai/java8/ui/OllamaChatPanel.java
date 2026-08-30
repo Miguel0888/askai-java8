@@ -586,8 +586,35 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         // The transcript sits inside a layered container so a diagram OVERLAY (comic plate with
         // the ✕) can cover the answer window without touching the transcript itself.
         transcriptLayers.add(transcript.getComponent(), javax.swing.JLayeredPane.DEFAULT_LAYER);
-        add(transcriptLayers, BorderLayout.CENTER);
-        add(buildBottomArea(), BorderLayout.SOUTH);
+        JPanel chatColumn = new JPanel(new BorderLayout());
+        chatColumn.setOpaque(false);
+        chatColumn.add(transcriptLayers, BorderLayout.CENTER);
+        chatColumn.add(buildBottomArea(), BorderLayout.SOUTH);
+        add(chatColumn, BorderLayout.CENTER);
+        // ONE calm scrollbar as the shared right axis of the whole chat column: it runs from the
+        // top (beside the sky overlay) down to the composer's bottom edge, but it still drives
+        // ONLY the transcript — suggestions and composer never scroll. Geometrically it lives
+        // OUTSIDE the chat column; semantically it shares the transcript scroll pane's model.
+        add(buildWorkspaceScrollBar(), BorderLayout.EAST);
+    }
+
+    /** The transcript's vertical scrollbar, rehomed to the workspace's right edge (shared model). */
+    private javax.swing.JScrollBar buildWorkspaceScrollBar() {
+        javax.swing.JScrollPane transcriptScroll = transcript.getScrollPane();
+        transcriptScroll.setVerticalScrollBarPolicy(
+                JScrollPane.VERTICAL_SCROLLBAR_NEVER); // the classic in-pane Swing bar is gone
+        final javax.swing.JScrollBar bar = new javax.swing.JScrollBar(javax.swing.JScrollBar.VERTICAL);
+        bar.setModel(transcriptScroll.getVerticalScrollBar().getModel()); // one model, one truth
+        bar.setUnitIncrement(18);
+        com.aresstack.comiccontrols.control.ComicScrollBarUI.install(bar);
+        // Only show the bar while there is something to scroll (the track is transparent anyway,
+        // but a full-height idle thumb would suggest scrollable content that is not there).
+        final javax.swing.BoundedRangeModel model = bar.getModel();
+        final Runnable syncVisibility = () -> bar.setVisible(
+                model.getExtent() < model.getMaximum() - model.getMinimum());
+        model.addChangeListener(event -> syncVisibility.run());
+        syncVisibility.run();
+        return bar;
     }
 
     /** Both layers (transcript, overlay) always fill the whole area. */
@@ -630,18 +657,34 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
     /** Between the transcript (DEFAULT) and the ✕-closable diagram overlay (PALETTE). */
     private static final Integer TRANSCRIPT_SKY_LAYER = Integer.valueOf(50);
     private JComponent transcriptSkyAccessory;
+    /** Observes the overlay's TRANSCRIPT_TOP_INSET client property (on it and direct children). */
+    private final java.beans.PropertyChangeListener skyInsetListener =
+            event -> applyTranscriptTopInsetFromSky();
 
     /**
      * Lay a host-provided SEE-THROUGH accessory over the transcript (e.g. the research
      * out-of-scope sky), replacing any previous one. The component fills the transcript area; it
      * must claim only its interactive zone via {@code contains}, so chat clicks/scrolling keep
-     * working underneath. EDT only.
+     * working underneath. The accessory publishes how much top room the scroll geometry needs
+     * (see {@code ComposerAccessory.TRANSCRIPT_TOP_INSET_PROPERTY}); the transcript applies it so
+     * the FIRST message stays fully readable at scroll position 0. EDT only.
      */
     public void setTranscriptSkyAccessory(JComponent accessory) {
         clearTranscriptSkyAccessory();
         if (accessory != null) {
             transcriptSkyAccessory = accessory;
             transcriptLayers.add(accessory, TRANSCRIPT_SKY_LAYER);
+            accessory.addPropertyChangeListener(
+                    com.aresstack.askai.plugin.api.agent.composer.ComposerAccessory
+                            .TRANSCRIPT_TOP_INSET_PROPERTY, skyInsetListener);
+            for (java.awt.Component child : accessory.getComponents()) {
+                if (child instanceof JComponent) {
+                    ((JComponent) child).addPropertyChangeListener(
+                            com.aresstack.askai.plugin.api.agent.composer.ComposerAccessory
+                                    .TRANSCRIPT_TOP_INSET_PROPERTY, skyInsetListener);
+                }
+            }
+            applyTranscriptTopInsetFromSky();
             transcriptLayers.revalidate();
             transcriptLayers.repaint();
         }
@@ -650,11 +693,43 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
     /** Remove the transcript accessory layer (no-op when none is shown). EDT only. */
     public void clearTranscriptSkyAccessory() {
         if (transcriptSkyAccessory != null) {
+            transcriptSkyAccessory.removePropertyChangeListener(
+                    com.aresstack.askai.plugin.api.agent.composer.ComposerAccessory
+                            .TRANSCRIPT_TOP_INSET_PROPERTY, skyInsetListener);
+            for (java.awt.Component child : transcriptSkyAccessory.getComponents()) {
+                if (child instanceof JComponent) {
+                    ((JComponent) child).removePropertyChangeListener(
+                            com.aresstack.askai.plugin.api.agent.composer.ComposerAccessory
+                                    .TRANSCRIPT_TOP_INSET_PROPERTY, skyInsetListener);
+                }
+            }
             transcriptLayers.remove(transcriptSkyAccessory);
             transcriptSkyAccessory = null;
+            transcript.setTopInset(0); // the sky is gone — the chat gets its full height back
             transcriptLayers.revalidate();
             transcriptLayers.repaint();
         }
+    }
+
+    /** The largest published inset across the overlay component and its direct children. */
+    private void applyTranscriptTopInsetFromSky() {
+        int inset = 0;
+        if (transcriptSkyAccessory != null) {
+            inset = insetProperty(transcriptSkyAccessory);
+            for (java.awt.Component child : transcriptSkyAccessory.getComponents()) {
+                if (child instanceof JComponent) {
+                    inset = Math.max(inset, insetProperty((JComponent) child));
+                }
+            }
+        }
+        transcript.setTopInset(inset);
+    }
+
+    private static int insetProperty(JComponent component) {
+        Object value = component.getClientProperty(
+                com.aresstack.askai.plugin.api.agent.composer.ComposerAccessory
+                        .TRANSCRIPT_TOP_INSET_PROPERTY);
+        return value instanceof Integer ? Math.max(0, (Integer) value) : 0;
     }
 
     /**
@@ -1483,6 +1558,35 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
     private javax.swing.JDialog settingsDialog;
     /** One per color button: re-reads its current color into its swatch (used by "Reset"). */
     private final List<Runnable> colorSwatchRefreshers = new ArrayList<Runnable>();
+
+    // The chat list's activity read-model: wired by the frame to the coordinator's per-scope state.
+    private java.util.function.BooleanSupplier agentScopeBusyProbe;
+    private java.util.function.Supplier<String> agentScopePhaseProbe;
+
+    /** Wire this tab's agent activity probes (busy + phase label) to the authoritative runtime. */
+    public void setAgentActivityProbes(java.util.function.BooleanSupplier busyProbe,
+                                       java.util.function.Supplier<String> phaseProbe) {
+        this.agentScopeBusyProbe = busyProbe;
+        this.agentScopePhaseProbe = phaseProbe;
+    }
+
+    /**
+     * True while THIS chat actually processes something right now: the local Ollama stream is
+     * running, or one of this tab's agent sessions reports busy in its OWN state snapshot. A
+     * merely existing/registered session is NOT busy — that distinction is the whole point.
+     */
+    public boolean isProcessingBusy() {
+        if (chatBusy) {
+            return true;
+        }
+        return agentScopeBusyProbe != null && agentScopeBusyProbe.getAsBoolean();
+    }
+
+    /** This tab's agent phase label (e.g. "SCOPING"), or "" when no session carries one. */
+    public String describeAgentPhaseForList() {
+        String label = agentScopePhaseProbe == null ? null : agentScopePhaseProbe.get();
+        return label == null ? "" : label;
+    }
 
     /**
      * The active agent's display label for the drawer's chat-list metadata line (Questing only),

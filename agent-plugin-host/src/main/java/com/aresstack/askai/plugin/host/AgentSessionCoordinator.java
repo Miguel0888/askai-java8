@@ -481,6 +481,49 @@ public final class AgentSessionCoordinator
                 : contributions;
     }
 
+    // ------------------------------------------------------------------ per-scope activity read-model
+
+    /**
+     * True when ANY session bound to this tab scope reports actual running work — read from the
+     * sessions' OWN {@link com.aresstack.askai.plugin.api.agent.AgentStateSnapshot#isBusy() state
+     * snapshot} (the authoritative runtime state), never from message texts or timestamps. This is
+     * the chat list's green activity dot: a merely EXISTING session is not "busy".
+     */
+    public boolean isScopeBusy(String scope) {
+        if (scope == null) {
+            return false;
+        }
+        for (Map.Entry<String, AgentSession> entry : sessions.entrySet()) {
+            if (!scope.equals(scopeOf(entry.getKey()))) {
+                continue;
+            }
+            com.aresstack.askai.plugin.api.agent.AgentStateSnapshot state =
+                    entry.getValue().getState();
+            if (state != null && state.isBusy()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** The first session's phase label for this tab scope ("" when none) — quiet list metadata. */
+    public String scopePhaseLabel(String scope) {
+        if (scope == null) {
+            return "";
+        }
+        for (Map.Entry<String, AgentSession> entry : sessions.entrySet()) {
+            if (!scope.equals(scopeOf(entry.getKey()))) {
+                continue;
+            }
+            com.aresstack.askai.plugin.api.agent.AgentStateSnapshot state =
+                    entry.getValue().getState();
+            if (state != null && !state.getPhaseLabel().isEmpty()) {
+                return state.getPhaseLabel();
+            }
+        }
+        return "";
+    }
+
     // ------------------------------------------------------------------ ChatSubmissionRouter
 
     @Override

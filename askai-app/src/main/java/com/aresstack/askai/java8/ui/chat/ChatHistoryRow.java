@@ -8,7 +8,6 @@ import com.aresstack.comiccontrols.theme.ResearchUiTypography;
 
 import javax.swing.JComponent;
 import javax.swing.JPopupMenu;
-import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Cursor;
 import java.awt.Dimension;
@@ -21,11 +20,14 @@ import java.awt.event.MouseEvent;
 
 /**
  * One chat entry of the drawer's history — a two-line, rounded, hover-aware row instead of the old
- * HTML-label button line. Line 1: status dot + title (13 Semi Bold) + time (right, 11 Regular);
+ * HTML-label button line. Line 1: activity dot + title (13 Semi Bold) + time (right, 11 Regular);
  * line 2: quiet metadata (11 Regular). No permanent frame: transparent at rest, a very light
  * blue/grey wash on hover, the light {@link ResearchUiPalette#ACCENT_BLUE} wash plus a 3px left
- * accent when selected. A {@code …} action trigger exists ONLY while hovered; it (and right-click)
- * opens the menu the workspace supplies — the row itself owns no chat actions.
+ * accent when selected. The green dot means ONE thing: processing is running in this chat RIGHT
+ * NOW — selection and activity are independent states (selected∧idle → wash without dot; busy
+ * without selection → dot without wash). Idle rows carry no marker at all. A {@code …} action
+ * trigger exists ONLY while hovered; it (and right-click) opens the menu the workspace supplies —
+ * the row itself owns no chat actions.
  */
 final class ChatHistoryRow extends JComponent {
 
@@ -42,19 +44,19 @@ final class ChatHistoryRow extends JComponent {
     private final String title;
     private final String meta;
     private final String time;
-    private final boolean active;
+    private final boolean busy;
     private final boolean selected;
     private final Runnable openAction;
     private final MenuSupplier menuSupplier;
     private boolean hovered;
     private boolean menuHovered;
 
-    ChatHistoryRow(String title, String meta, String time, boolean active, boolean selected,
+    ChatHistoryRow(String title, String meta, String time, boolean busy, boolean selected,
                    Runnable openAction, MenuSupplier menuSupplier) {
         this.title = title;
         this.meta = meta == null ? "" : meta;
         this.time = time == null ? "" : time;
-        this.active = active;
+        this.busy = busy;
         this.selected = selected;
         this.openAction = openAction;
         this.menuSupplier = menuSupplier;
@@ -149,16 +151,13 @@ final class ChatHistoryRow extends JComponent {
             int paddingH = ResearchUiMetrics.CHAT_ROW_PADDING_H;
             ComicPalette palette = ComicPalette.defaultPalette();
 
-            // Status dot: ● small green for a live session, ○ muted ring for history.
+            // Activity dot: ● small green ONLY while processing actually runs; idle rows carry
+            // no marker (the reserved column keeps titles aligned either way).
             int dotCenterY = 15;
             int dotX = paddingH;
-            if (active) {
+            if (busy) {
                 g2.setColor(palette.getAgentPetrol());
                 g2.fillOval(dotX, dotCenterY - 4, 8, 8);
-            } else {
-                g2.setColor(ResearchUiPalette.LIGHT_TEXT_MUTED);
-                g2.setStroke(new BasicStroke(1.3f));
-                g2.drawOval(dotX, dotCenterY - 4, 8, 8);
             }
             int textX = dotX + 8 + 8;
 

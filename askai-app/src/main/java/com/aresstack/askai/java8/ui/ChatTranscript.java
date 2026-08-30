@@ -29,6 +29,16 @@ final class ChatTranscript {
         return panel;
     }
 
+    /** The transcript's own scroll pane — for rehoming its vertical bar into the workspace edge. */
+    javax.swing.JScrollPane getScrollPane() {
+        return panel.getScrollPane();
+    }
+
+    /** Extra top room in the scroll geometry (under the out-of-scope sky); 0 = plain padding. */
+    void setTopInset(int pixels) {
+        panel.setTopInset(pixels);
+    }
+
     /** Applies the user-chosen chat colors, keeping the default activity/failure/info colors. */
     void applyColors(ChatColorSettings colors) {
         panel.applyPalette(paletteFrom(colors));

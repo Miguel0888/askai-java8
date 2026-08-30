@@ -76,6 +76,28 @@ public final class BubbleTranscriptPanel extends JPanel {
         return scrollPane;
     }
 
+    /** The message list's base padding — the top-inset (sky) adds onto the base top value. */
+    private static final int BASE_PADDING_TOP = 8;
+    private static final int BASE_PADDING_BOTTOM = 12;
+    private int topInset;
+
+    /**
+     * Extra top room INSIDE the scroll geometry (e.g. under the out-of-scope sky overlay): scrolled
+     * fully up, the first message starts below a covering visual layer instead of hiding behind it.
+     * Part of the scrollable content, not of the overlay; {@code 0} restores the plain padding.
+     */
+    public void setTopInset(int pixels) {
+        int inset = Math.max(0, pixels);
+        if (inset == topInset) {
+            return;
+        }
+        topInset = inset;
+        messageList.setBorder(BorderFactory.createEmptyBorder(
+                BASE_PADDING_TOP + topInset, 0, BASE_PADDING_BOTTOM, 0));
+        messageList.revalidate();
+        messageList.repaint();
+    }
+
     /**
      * Swaps the color palette. The transcript/background colors update immediately; new bubbles use the new
      * user/assistant colors. Existing bubbles keep the colors they were drawn with (a chat restart or the
@@ -529,7 +551,7 @@ public final class BubbleTranscriptPanel extends JPanel {
         JPanel panel = new WidthTrackingList();
         panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
         panel.setBackground(palette.getTranscriptBackground());
-        panel.setBorder(BorderFactory.createEmptyBorder(8, 0, 12, 0));
+        panel.setBorder(BorderFactory.createEmptyBorder(BASE_PADDING_TOP, 0, BASE_PADDING_BOTTOM, 0));
         return panel;
     }
 

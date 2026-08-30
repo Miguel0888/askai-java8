@@ -501,16 +501,49 @@ public final class ChatWorkspacePanel extends JPanel {
         sidebar.setVisible(true);
         sidebarSplit.openLeft(); // brings back the divider at the remembered width
         updateMouseWatcher();
+        lastBusySignature = busySignature();
+        activityRefreshTimer.start();
         revalidate();
         repaint();
     }
 
     private void hideSidebar() {
+        activityRefreshTimer.stop();
         sidebar.setVisible(false);
         sidebarSplit.collapseLeft(); // width 0, divider gone
         updateMouseWatcher();
         revalidate();
         repaint();
+    }
+
+    /**
+     * While the drawer is open, the activity dots must not go stale: a quiet poll compares the
+     * busy SET (from the sessions' authoritative runtime state) and rebuilds the list only when it
+     * actually changed — so hover states never flicker on idle ticks.
+     */
+    private java.util.Set<ChatSessionId> lastBusySignature = java.util.Collections.emptySet();
+    private final javax.swing.Timer activityRefreshTimer =
+            new javax.swing.Timer(2500, event -> onActivityPollTick());
+
+    private void onActivityPollTick() {
+        if (!sidebar.isVisible()) {
+            return;
+        }
+        java.util.Set<ChatSessionId> signature = busySignature();
+        if (!signature.equals(lastBusySignature)) {
+            lastBusySignature = signature;
+            refreshChatList();
+        }
+    }
+
+    private java.util.Set<ChatSessionId> busySignature() {
+        java.util.Set<ChatSessionId> busy = new java.util.HashSet<ChatSessionId>();
+        for (ChatSessionId id : sessionsById.keySet()) {
+            if (isSessionBusy(id)) {
+                busy.add(id);
+            }
+        }
+        return busy;
     }
 
     /** Ribbon and drawer fold away TOGETHER after hover-out — unless latched by the burger click. */
@@ -701,10 +734,12 @@ public final class ChatWorkspacePanel extends JPanel {
     private static final long DAY_MS = 24L * 60L * 60L * 1000L;
 
     /**
-     * Rebuild the list, grouped for the drawer's two-line history rows: AKTIV (open sessions),
-     * then the PROJECT groups (recency order of first appearance), then the remaining history by
-     * age — HEUTE, GESTERN, LETZTE 7 TAGE, ÄLTER. Empty groups are simply absent. The search bar
-     * filters every section live by title and project name.
+     * Rebuild the list, grouped for the drawer's two-line history rows: AKTIV holds ONLY chats in
+     * which processing is actually running right now (authoritative runtime state, see {@link
+     * OllamaChatPanel#isProcessingBusy()}) — an idle open session is ordinary history. Then the
+     * PROJECT groups (recency order of first appearance), then everything else by age — HEUTE,
+     * GESTERN, LETZTE 7 TAGE, ÄLTER. Empty groups are simply absent (including AKTIV). The search
+     * bar filters every section live by title and project name.
      */
     private void refreshChatList() {
         chatListPanel.removeAll();
@@ -736,17 +771,19 @@ public final class ChatWorkspacePanel extends JPanel {
             if (!matchesFilter(entry, project, filter)) {
                 continue;
             }
-            if (project != null) {
+            if (isSessionBusy(entry.openId)) {
+                active.add(entry); // ACTUALLY working right now — busy wins over project/time
+            } else if (project != null) {
                 List<ChatListEntry> group = byProject.get(project);
                 if (group == null) {
                     group = new ArrayList<ChatListEntry>();
                     byProject.put(project, group);
                 }
                 group.add(entry);
-            } else if (entry.openId != null) {
-                active.add(entry);
             } else {
-                long at = entry.record.getModifiedAt();
+                // Idle chats (open or not) are ordinary history, bucketed by their last change;
+                // a freshly opened chat without a persisted record belongs to today.
+                long at = entry.record == null ? startOfToday : entry.record.getModifiedAt();
                 if (at >= startOfToday) {
                     today.add(entry);
                 } else if (at >= startOfToday - DAY_MS) {
@@ -856,11 +893,19 @@ public final class ChatWorkspacePanel extends JPanel {
                 collapseMenuAndSidebar();
             }
         };
+        boolean busy = isSessionBusy(openId);
         return new ChatHistoryRow(title,
-                openId != null ? activeMeta(openId) : savedMeta(record, startOfToday),
+                rowMeta(openId, record, busy, startOfToday),
                 rowTime(record, startOfToday),
-                openId != null, openId != null && openId.equals(activeId),
+                busy, openId != null && openId.equals(activeId),
                 open, () -> buildRowMenu(openId, record, title));
+    }
+
+    /** True when this chat's session ACTUALLY processes something right now (never "it exists"). */
+    private boolean isSessionBusy(ChatSessionId openId) {
+        ChatSessionComponent session = openId == null ? null : sessionsById.get(openId);
+        return session instanceof OllamaChatPanel
+                && ((OllamaChatPanel) session).isProcessingBusy();
     }
 
     /** The hover/right-click menu of one row — existing functions only, nothing new. */
@@ -902,16 +947,37 @@ public final class ChatWorkspacePanel extends JPanel {
         }
     }
 
-    /** Line 2 for an OPEN session: the active agent's label when Questing, else a quiet marker. */
-    private String activeMeta(ChatSessionId openId) {
-        ChatSessionComponent session = sessionsById.get(openId);
+    /**
+     * Line 2: what is actually known and useful — never a repetitive "Aktive Sitzung". Busy chats
+     * say so ("Research Agent · arbeitet"); idle open chats show agent · phase when available;
+     * everything else falls back to the quiet time metadata.
+     */
+    private String rowMeta(ChatSessionId openId, ChatRecord record, boolean busy,
+                           long startOfToday) {
+        ChatSessionComponent session = openId == null ? null : sessionsById.get(openId);
         if (session instanceof OllamaChatPanel) {
-            String label = ((OllamaChatPanel) session).describeActiveAgentForList();
-            if (label != null && !label.trim().isEmpty()) {
-                return label;
+            OllamaChatPanel panel = (OllamaChatPanel) session;
+            String agent = panel.describeActiveAgentForList();
+            if (busy) {
+                return agent == null || agent.trim().isEmpty() ? "arbeitet"
+                        : agent + " · arbeitet";
+            }
+            String phase = titleCase(panel.describeAgentPhaseForList());
+            if (agent != null && !agent.trim().isEmpty()) {
+                return phase.isEmpty() ? agent : agent + " · " + phase;
             }
         }
-        return "Aktive Sitzung";
+        return savedMeta(record, startOfToday);
+    }
+
+    /** "SCOPING" → "Scoping" (the list speaks quietly, not in enum shouting). */
+    private static String titleCase(String label) {
+        if (label == null || label.trim().isEmpty()) {
+            return "";
+        }
+        String trimmed = label.trim();
+        return Character.toUpperCase(trimmed.charAt(0))
+                + trimmed.substring(1).toLowerCase(java.util.Locale.ROOT);
     }
 
     /** Line 2 for a saved chat: Heute / Gestern / the date. */

@@ -34,9 +34,11 @@ import java.util.function.Consumer;
  * the chat transcript. This component is a see-through layer over the transcript (host layered
  * pane, {@code TRANSCRIPT_OVERLAY} placement): it paints a vertical alpha gradient (near-covering
  * at the very top, fully transparent towards the chat — never a hard edge), so scrolling bubbles
- * fade away "behind" the sky, while the cloud chips and the small caption sit fully visible above
- * the gradient. {@link #contains(int, int)} claims ONLY the content zone; below it the chat stays
- * clickable and scrollable.
+ * fade away "behind" the sky, while the cloud chips sit fully visible above the gradient. No
+ * permanent caption: the area's meaning lives in tooltips ("Außerhalb des Scopes"). The sky also
+ * publishes a transcript TOP INSET (client property) so the first message is fully readable at
+ * scroll position 0 instead of hiding behind the covering zone. {@link #contains(int, int)} claims
+ * ONLY the content zone; below it the chat stays clickable and scrollable.
  *
  * <p>Height is dynamic: no exclusions → nothing at all; otherwise the sky grows with the wrapped
  * cloud rows up to {@link ResearchUiMetrics#SKY_COLLAPSED_MAX_ROWS}, then a {@code +N weitere}
@@ -48,7 +50,9 @@ import java.util.function.Consumer;
  */
 final class ResearchOutOfScopeSky extends JPanel {
 
-    private final CaptionToggle caption = new CaptionToggle();
+    /** The area's meaning lives in the tooltip now — no permanent caption anymore. */
+    private static final String SEMANTIC_TOOLTIP = "Außerhalb des Scopes";
+
     private final CloudFlowPanel cloudFlow = new CloudFlowPanel();
     private final JScrollPane cloudScroll;
     private final MoreCloud moreCloud = new MoreCloud();
@@ -61,19 +65,21 @@ final class ResearchOutOfScopeSky extends JPanel {
     private final List<CloudChip> chips = new ArrayList<CloudChip>();
     private boolean expanded;
     private boolean adding;
-    /** Bottom of the interactive content zone (caption + clouds); the fade tail hangs below it. */
+    /** Bottom of the interactive content zone (the clouds); the fade tail hangs below it. */
     private int contentBottom;
 
     ResearchOutOfScopeSky() {
         super(null); // fully manual layout: the sky sizes itself from its cloud rows
         setOpaque(false);
-        add(caption);
+        setToolTipText(SEMANTIC_TOOLTIP);
         cloudScroll = new JScrollPane(cloudFlow,
                 JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
         cloudScroll.setBorder(BorderFactory.createEmptyBorder());
         cloudScroll.setOpaque(false);
         cloudScroll.getViewport().setOpaque(false);
         cloudScroll.getVerticalScrollBar().setUnitIncrement(16);
+        com.aresstack.comiccontrols.control.ComicScrollBarUI.install(
+                cloudScroll.getVerticalScrollBar()); // the ONE shared AskAI scrollbar look
         add(cloudScroll);
         cloudFlow.add(moreCloud);
         cloudFlow.add(addCloud);
@@ -105,9 +111,28 @@ final class ResearchOutOfScopeSky extends JPanel {
         if (this.exclusions.isEmpty()) {
             expanded = false; // an emptied sky starts over collapsed next time
             adding = false;
+            publishTopInset(0);
         }
         revalidate();
         repaint();
+    }
+
+    @Override
+    public void setVisible(boolean visible) {
+        if (!visible) {
+            publishTopInset(0); // other phases: the chat gets its full height back immediately
+        }
+        super.setVisible(visible);
+    }
+
+    /**
+     * Tell the host how much top room the transcript's SCROLL GEOMETRY needs (client-property
+     * convention, see {@code ComposerAccessory.TRANSCRIPT_TOP_INSET_PROPERTY}): scrolled fully up,
+     * the first message must sit below the covering zone — inside the transparent fade is fine.
+     */
+    private void publishTopInset(int pixels) {
+        putClientProperty(com.aresstack.askai.plugin.api.agent.composer.ComposerAccessory
+                .TRANSCRIPT_TOP_INSET_PROPERTY, Integer.valueOf(pixels));
     }
 
     // ------------------------------------------------------------------ hit-testing & painting
@@ -131,14 +156,17 @@ final class ResearchOutOfScopeSky extends JPanel {
                 return;
             }
             Color top = ResearchUiPalette.SKY_TOP;
-            // Air, not a panel: nearly covering at the very top, fully transparent at the bottom —
-            // bubbles scrolling up fade smoothly away behind the sky, with NO hard edge anywhere.
+            // Air, not a panel: strongly covering at the very top, bubbles faintly visible through
+            // the middle, fully transparent at the bottom — a LONG soft ramp instead of a filled
+            // rectangle, so no horizontal edge is ever perceptible.
+            float contentStop = Math.max(0.1f, Math.min(0.85f,
+                    contentBottom / (float) skyHeight));
             LinearGradientPaint sky = new LinearGradientPaint(0f, 0f, 0f, skyHeight,
-                    new float[]{0f, Math.max(0.05f, Math.min(0.9f,
-                            contentBottom / (float) skyHeight)), 1f},
+                    new float[]{0f, contentStop * 0.55f, contentStop, 1f},
                     new Color[]{
-                            new Color(top.getRed(), top.getGreen(), top.getBlue(), 252),
-                            new Color(top.getRed(), top.getGreen(), top.getBlue(), 236),
+                            new Color(top.getRed(), top.getGreen(), top.getBlue(), 242),
+                            new Color(top.getRed(), top.getGreen(), top.getBlue(), 205),
+                            new Color(top.getRed(), top.getGreen(), top.getBlue(), 105),
                             new Color(top.getRed(), top.getGreen(), top.getBlue(), 0)});
             g2.setPaint(sky);
             g2.fillRect(0, 0, getWidth(), skyHeight);
@@ -160,18 +188,15 @@ final class ResearchOutOfScopeSky extends JPanel {
     @Override
     public void doLayout() {
         boolean any = !exclusions.isEmpty();
-        caption.setVisible(any);
         cloudScroll.setVisible(any);
         if (!any) {
             contentBottom = 0;
+            publishTopInset(0);
             return;
         }
         int padH = ResearchUiMetrics.SKY_PADDING_H;
         int innerWidth = getWidth() - 2 * padH;
-        Dimension captionPref = caption.getPreferredSize();
-        caption.setBounds(padH, ResearchUiMetrics.SKY_PADDING_TOP,
-                captionPref.width, captionPref.height);
-        int cloudTop = ResearchUiMetrics.SKY_PADDING_TOP + captionPref.height + 8;
+        int cloudTop = ResearchUiMetrics.SKY_PADDING_TOP;
 
         applyVisibility(innerWidth);
         int naturalHeight = flowHeight(visibleFlowChildren(), innerWidth);
@@ -184,24 +209,25 @@ final class ResearchOutOfScopeSky extends JPanel {
         int viewportHeight = Math.min(naturalHeight, expanded ? expandedCap : collapsedCap);
         cloudScroll.setBounds(padH, cloudTop, innerWidth, viewportHeight);
         contentBottom = cloudTop + viewportHeight + 8;
+        // The chat's scroll geometry follows: at scroll 0 the first bubble starts just below the
+        // covering zone, inside the transparent fade — reachable, readable, and it still slides
+        // softly behind the sky as soon as the user scrolls.
+        publishTopInset(contentBottom + 8);
     }
 
-    /** Which flow children show: collapsed hides the tail behind {@code +N weitere}. */
+    /**
+     * Which flow children show. Collapsed hides the tail behind {@code +N weitere}; expanded shows
+     * every cloud plus the same control as a "weniger anzeigen" way back. When everything fits
+     * anyway, the expansion resolves itself.
+     */
     private void applyVisibility(int width) {
         addCloud.setVisible(!adding);
         addField.setVisible(adding);
-        if (expanded) {
-            for (CloudChip chip : chips) {
-                chip.setVisible(true);
-            }
-            moreCloud.setVisible(false);
-            return;
-        }
         int maxRows = ResearchUiMetrics.SKY_COLLAPSED_MAX_ROWS;
         // Largest k so that k clouds + (tail? +N weitere) + the add control fit the row budget.
         int visibleCount = chips.size();
         while (visibleCount >= 0) {
-            moreCloud.setCount(chips.size() - visibleCount);
+            moreCloud.setCollapsedCount(chips.size() - visibleCount);
             List<JComponent> candidate = new ArrayList<JComponent>();
             for (int index = 0; index < visibleCount; index++) {
                 candidate.add(chips.get(index));
@@ -216,11 +242,23 @@ final class ResearchOutOfScopeSky extends JPanel {
             visibleCount--;
         }
         visibleCount = Math.max(0, visibleCount);
+        boolean overflow = visibleCount < chips.size();
+        if (!overflow) {
+            expanded = false; // nothing hidden — an expanded state has nothing left to show
+        }
+        if (expanded) {
+            for (CloudChip chip : chips) {
+                chip.setVisible(true);
+            }
+            moreCloud.setExpandedMode();
+            moreCloud.setVisible(true); // the way back: "weniger anzeigen"
+            return;
+        }
         for (int index = 0; index < chips.size(); index++) {
             chips.get(index).setVisible(index < visibleCount);
         }
-        moreCloud.setCount(chips.size() - visibleCount);
-        moreCloud.setVisible(visibleCount < chips.size());
+        moreCloud.setCollapsedCount(chips.size() - visibleCount);
+        moreCloud.setVisible(overflow);
     }
 
     private List<JComponent> visibleFlowChildren() {
@@ -332,76 +370,6 @@ final class ResearchOutOfScopeSky extends JPanel {
                 + metrics.getAscent();
     }
 
-    // ------------------------------------------------------------------ caption
-
-    /** {@code Außerhalb des Scopes} with a chevron when there is something to expand/collapse. */
-    private final class CaptionToggle extends JComponent {
-
-        private static final String TEXT = "Außerhalb des Scopes";
-        private boolean hovered;
-
-        CaptionToggle() {
-            setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-            addMouseListener(new java.awt.event.MouseAdapter() {
-                @Override
-                public void mouseEntered(java.awt.event.MouseEvent event) {
-                    hovered = true;
-                    repaint();
-                }
-
-                @Override
-                public void mouseExited(java.awt.event.MouseEvent event) {
-                    hovered = false;
-                    repaint();
-                }
-
-                @Override
-                public void mousePressed(java.awt.event.MouseEvent event) {
-                    if (expandable()) {
-                        expanded = !expanded;
-                        ResearchOutOfScopeSky.this.revalidate();
-                        ResearchOutOfScopeSky.this.repaint();
-                    }
-                }
-            });
-        }
-
-        private boolean expandable() {
-            return expanded || moreCloud.isVisible();
-        }
-
-        @Override
-        protected void paintComponent(Graphics graphics) {
-            Graphics2D g2 = ResearchUiPainter.prepare(graphics);
-            try {
-                g2.setFont(ResearchUiTypography.semiBold(11.5f));
-                FontMetrics metrics = g2.getFontMetrics();
-                g2.setColor(hovered && expandable()
-                        ? ResearchUiPalette.CLOUD_TEXT : ResearchUiPalette.SKY_CAPTION);
-                int textY = (getHeight() - metrics.getHeight()) / 2 + metrics.getAscent();
-                g2.drawString(TEXT, 0, textY);
-                if (expandable()) {
-                    int chevronX = metrics.stringWidth(TEXT) + 12;
-                    if (expanded) {
-                        ResearchUiPainter.paintChevronUp(g2, chevronX, getHeight() / 2, 4,
-                                g2.getColor());
-                    } else {
-                        ResearchUiPainter.paintChevronDown(g2, chevronX, getHeight() / 2, 4,
-                                g2.getColor());
-                    }
-                }
-            } finally {
-                g2.dispose();
-            }
-        }
-
-        @Override
-        public Dimension getPreferredSize() {
-            FontMetrics metrics = getFontMetrics(ResearchUiTypography.semiBold(11.5f));
-            return new Dimension(metrics.stringWidth(TEXT) + 12 + 10, 18);
-        }
-    }
-
     // ------------------------------------------------------------------ the wrap panel
 
     /** The cloud flow: left-aligned wrap, width follows the viewport (vertical scroll only). */
@@ -447,7 +415,7 @@ final class ResearchOutOfScopeSky extends JPanel {
 
         CloudChip(String text) {
             this.text = text;
-            setToolTipText(text);
+            setToolTipText(SEMANTIC_TOOLTIP + ": " + text);
             java.awt.event.MouseAdapter mouse = new java.awt.event.MouseAdapter() {
                 @Override
                 public void mouseEntered(java.awt.event.MouseEvent event) {
@@ -529,10 +497,14 @@ final class ResearchOutOfScopeSky extends JPanel {
         }
     }
 
-    /** The quiet {@code +N weitere} cloud — clicking it grows the sky itself (no popup). */
+    /**
+     * The quiet toggle cloud: {@code +N weitere} while collapsed (clicking it grows the sky
+     * itself — no popup), {@code weniger anzeigen} while expanded (the way back).
+     */
     private final class MoreCloud extends JComponent {
 
         private int count;
+        private boolean expandedMode;
         private boolean hovered;
 
         MoreCloud() {
@@ -553,22 +525,33 @@ final class ResearchOutOfScopeSky extends JPanel {
 
                 @Override
                 public void mousePressed(java.awt.event.MouseEvent event) {
-                    expanded = true;
+                    expanded = !expandedMode;
                     ResearchOutOfScopeSky.this.revalidate();
                     ResearchOutOfScopeSky.this.repaint();
                 }
             });
         }
 
-        void setCount(int count) {
-            if (this.count != count) {
+        void setCollapsedCount(int count) {
+            if (this.count != count || expandedMode) {
                 this.count = count;
-                setToolTipText(text() + " anzeigen");
+                this.expandedMode = false;
+                setToolTipText(SEMANTIC_TOOLTIP + " — " + text() + " anzeigen");
+                revalidate();
+            }
+        }
+
+        void setExpandedMode() {
+            if (!expandedMode) {
+                expandedMode = true;
+                setToolTipText(SEMANTIC_TOOLTIP + " — wieder einklappen");
+                revalidate();
             }
         }
 
         private String text() {
-            return "+" + count + (count == 1 ? " weiterer" : " weitere");
+            return expandedMode ? "weniger anzeigen"
+                    : "+" + count + (count == 1 ? " weiterer" : " weitere");
         }
 
         @Override

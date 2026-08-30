@@ -11,6 +11,15 @@ import javax.swing.JComponent;
  */
 public interface ComposerAccessory {
 
+    /**
+     * Client-property key a {@link Placement#TRANSCRIPT_OVERLAY} component sets on ITSELF (an
+     * {@code Integer}, pixels): how much top inset the scrolling transcript content needs so that,
+     * scrolled fully up, the first message sits BELOW the overlay's covering zone. The host
+     * observes the property on the overlay component and its direct children and applies the
+     * largest value to the transcript's scroll geometry; {@code 0}/absent means no inset.
+     */
+    String TRANSCRIPT_TOP_INSET_PROPERTY = "askai.transcriptTopInset";
+
     /** Which side of the composer the accessory occupies. */
     enum Placement {
         /** Directly above the composer (the default) — e.g. the scoping tag surface. */
