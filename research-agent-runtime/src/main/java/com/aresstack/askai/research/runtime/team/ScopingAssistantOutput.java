@@ -33,6 +33,8 @@ public final class ScopingAssistantOutput implements PhaseAssistantOutput {
     private final ConceptAction conceptAction;
     /** Why a present conceptAction was malformed (goes back to the model), or null. */
     private final String conceptActionError;
+    /** The model EXPLICITLY chose type "none" (observable in the trace) vs. an absent field. */
+    private final boolean conceptActionExplicitNone;
 
     public ScopingAssistantOutput(String assistantMessage, String researchBriefMarkdown,
                                   List<SearchSuggestion> searchSuggestions, PhaseAdvice advice) {
@@ -67,6 +69,12 @@ public final class ScopingAssistantOutput implements PhaseAssistantOutput {
         this.scopeUpdate = scopeUpdate;
         this.conceptAction = conceptAction == null ? null : conceptAction.getAction();
         this.conceptActionError = conceptAction == null ? null : conceptAction.getError();
+        this.conceptActionExplicitNone = conceptAction != null && conceptAction.isExplicitNone();
+    }
+
+    /** Whether the model EXPLICITLY answered type "none" (vs. omitting the field). */
+    public boolean isConceptActionExplicitNone() {
+        return conceptActionExplicitNone;
     }
 
     /** The ONE concept tool step this inference requests, or {@code null} (a finished turn). */

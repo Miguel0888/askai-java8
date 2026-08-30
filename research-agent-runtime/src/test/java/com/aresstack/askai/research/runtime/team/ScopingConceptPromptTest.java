@@ -18,6 +18,10 @@ public class ScopingConceptPromptTest {
         // The MainframeMate lesson, pinned: concrete examples live IN the contract text.
         assertTrue(with.contains("{\"type\":\"add\",\"parent\":"));
         assertTrue("segments, never slash paths", with.contains("NAME SEGMENTS"));
+        // K2e: explicit user-command examples + read discipline + scope-decisions-into-workpiece.
+        assertTrue(with.contains("Map an explicit user command DIRECTLY"));
+        assertTrue(with.contains("Do not read unrelated branches"));
+        assertTrue(with.contains("Never pretend an exclusion or focus is stored"));
         assertTrue(with.contains("Task Notifications"));
         assertTrue(with.contains("{\"type\":\"none\"}"));
         assertTrue("no handle field in the model contract", !with.contains("\"handle\""));

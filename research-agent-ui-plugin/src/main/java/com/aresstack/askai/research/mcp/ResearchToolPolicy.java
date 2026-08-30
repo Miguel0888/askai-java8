@@ -380,6 +380,9 @@ public final class ResearchToolPolicy {
                             return McpToolResult.error(result.getDiagnostic().describeForModel());
                         }
                         StringBuilder sb = new StringBuilder();
+                        // Revision as DISPLAYED state (the CURRENT_CONCEPT block cites it) — it
+                        // is never a token the model must echo back.
+                        sb.append("revision=").append(result.getWorkingRevision()).append('\n');
                         if (result.getParentName() != null) {
                             sb.append("parent=").append(result.getParentName()).append('\n');
                         }

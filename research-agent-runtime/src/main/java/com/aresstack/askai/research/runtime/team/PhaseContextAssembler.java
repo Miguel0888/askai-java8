@@ -36,6 +36,22 @@ public final class PhaseContextAssembler {
         }
     };
 
+    /**
+     * Supplies the AUTHORITATIVE persisted concept block for the NEXT turn (K2e): with the
+     * concept tools active, EVERY inference must see the real workpiece BEFORE it answers —
+     * a type=none turn once claimed an "Arduino focus" that existed nowhere but in the chat.
+     * Empty = no block (no tools / old host / fetch failed).
+     */
+    public interface CurrentConcept {
+        String rendered();
+    }
+
+    private static final CurrentConcept EMPTY_CONCEPT = new CurrentConcept() {
+        public String rendered() {
+            return "";
+        }
+    };
+
     private static final CurrentLanguage ENGLISH_DEFAULT = new CurrentLanguage() {
         public String displayName() {
             return "English";
@@ -46,6 +62,7 @@ public final class PhaseContextAssembler {
     private final CurrentLanguage currentLanguage;
     /** Supplies the host's AUTHORITATIVE scope projection per turn; "" when the host sent none. */
     private volatile CurrentScope currentScope = EMPTY_SCOPE;
+    private volatile CurrentConcept currentConcept = EMPTY_CONCEPT;
 
     public PhaseContextAssembler() {
         this(systemDate(), ENGLISH_DEFAULT);
@@ -64,6 +81,12 @@ public final class PhaseContextAssembler {
     /** The scope projection source; without it a turn simply carries no scope context. */
     public PhaseContextAssembler withCurrentScope(CurrentScope scope) {
         this.currentScope = scope == null ? EMPTY_SCOPE : scope;
+        return this;
+    }
+
+    /** The persisted-concept source; without it a turn simply carries no concept context. */
+    public PhaseContextAssembler withCurrentConcept(CurrentConcept concept) {
+        this.currentConcept = concept == null ? EMPTY_CONCEPT : concept;
         return this;
     }
 
@@ -108,6 +131,13 @@ public final class PhaseContextAssembler {
         String scope = currentScope.rendered();
         if (!scope.isEmpty()) {
             messages.add(ChatMessage.system(TeamAgentPlaybook.scopeFenceContext(scope)));
+        }
+        // The persisted CONCEPT — authoritative for this turn, exactly like the scope fence:
+        // without it a type=none inference can only reconstruct the concept from the chat,
+        // which is how unpersisted "focus" claims are born.
+        String concept = currentConcept.rendered();
+        if (!concept.isEmpty()) {
+            messages.add(ChatMessage.system(concept));
         }
         if (history != null) {
             messages.addAll(history);

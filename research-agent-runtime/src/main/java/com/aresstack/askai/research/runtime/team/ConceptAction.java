@@ -76,6 +76,11 @@ public final class ConceptAction {
     public static final class Parsed {
         private final ConceptAction action;
         private final String error;
+        private boolean explicitNone;
+
+        public boolean isExplicitNone() {
+            return explicitNone;
+        }
 
         private Parsed(ConceptAction action, String error) {
             this.action = action;
@@ -96,6 +101,13 @@ public final class ConceptAction {
 
         static Parsed absent() {
             return new Parsed(null, null);
+        }
+
+        /** The model EXPLICITLY chose type "none" (observable) — vs. an absent field. */
+        static Parsed none() {
+            Parsed parsed = new Parsed(null, null);
+            parsed.explicitNone = true;
+            return parsed;
         }
 
         static Parsed ok(ConceptAction action) {
@@ -124,8 +136,11 @@ public final class ConceptAction {
         }
         Map<String, Object> map = (Map<String, Object>) value;
         String type = asString(map.get("type"));
-        if (type == null || "none".equalsIgnoreCase(type.trim())) {
+        if (type == null) {
             return Parsed.absent();
+        }
+        if ("none".equalsIgnoreCase(type.trim())) {
+            return Parsed.none();
         }
         if ("read".equalsIgnoreCase(type)) {
             return Parsed.ok(new ConceptAction(Type.READ,

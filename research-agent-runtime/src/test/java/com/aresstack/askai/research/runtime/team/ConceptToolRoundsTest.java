@@ -207,5 +207,17 @@ public class ConceptToolRoundsTest {
         assertEquals(initial, ConceptToolRounds.run(initial, turns, new ScriptedTool(),
                 4, 2, false, traceSink));
         assertTrue(turns.feedbackSeen.isEmpty());
+        assertTrue("an ABSENT field leaves no NONE trace", trace.isEmpty());
+    }
+
+    @Test
+    public void anExplicitNoneIsObservableInTheTrace() throws Exception {
+        ScriptedTurns turns = new ScriptedTurns();
+        TeamAgentResult initial = turn("nichts zu tun", "{\"type\":\"none\"}");
+        assertEquals(initial, ConceptToolRounds.run(initial, turns, new ScriptedTool(),
+                4, 2, false, traceSink));
+        assertTrue(turns.feedbackSeen.isEmpty());
+        assertTrue("the model CHOSE none — distinguishable from an absent field",
+                trace.contains("concept action: NONE"));
     }
 }

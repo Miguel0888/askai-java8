@@ -190,6 +190,26 @@ public final class ResearchAgentMain {
                             public String displayName() {
                                 return sessionLanguage.displayName();
                             }
+                        }).withCurrentConcept(
+                        new com.aresstack.askai.research.runtime.team.PhaseContextAssembler
+                                .CurrentConcept() {
+                            public String rendered() {
+                                // K2e: with concept tools active, EVERY inference sees the
+                                // persisted workpiece BEFORE answering — a type=none turn must
+                                // describe reality, not the conversation. Best effort: a failed
+                                // fetch just omits the block.
+                                if (!conceptToolsAvailable) {
+                                    return "";
+                                }
+                                try {
+                                    return com.aresstack.askai.research.runtime.team
+                                            .TeamAgentPlaybook.currentConceptContext(
+                                                    conceptToolCall(wholeConceptRead()),
+                                                    "de".equalsIgnoreCase(sessionLanguage.code()));
+                                } catch (Exception unavailable) {
+                                    return "";
+                                }
+                            }
                         }).withCurrentScope(
                         new com.aresstack.askai.research.runtime.team.PhaseContextAssembler
                                 .CurrentScope() {
@@ -1267,6 +1287,12 @@ public final class ResearchAgentMain {
             }
             throw new com.aresstack.askai.research.runtime.loop.ToolInvoker.ToolFailure(message);
         }
+    }
+
+    /** The whole-concept read action used for the per-inference CURRENT_CONCEPT block. */
+    private static com.aresstack.askai.research.runtime.team.ConceptAction wholeConceptRead() {
+        return com.aresstack.askai.research.runtime.team.ConceptAction.parse(
+                java.util.Collections.singletonMap("type", (Object) "read")).getAction();
     }
 
     /** Card-name segments as a compact JSON array string (proper escaping, no separators). */

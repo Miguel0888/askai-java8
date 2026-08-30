@@ -73,6 +73,10 @@ public final class ConceptToolRounds {
             ConceptAction action = output.getConceptAction();
             String actionError = output.getConceptActionError();
             if (action == null && actionError == null) {
+                if (output.isConceptActionExplicitNone()) {
+                    // Observable: the model CHOSE none — distinguishable from an absent field.
+                    trace.line("concept action: NONE");
+                }
                 return result; // the model finished without a further action — the normal end
             }
             if (budgetExhausted) {

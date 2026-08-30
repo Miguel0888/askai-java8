@@ -475,6 +475,15 @@ public final class TeamAgentPlaybook {
                 + "    remove a card:        {\"type\":\"remove\",\"path\":"
                 + "[\"FreeRTOS\",\"Praxis\",\"ESP-IDF\"]}\n"
                 + "    change nothing:       {\"type\":\"none\"}\n"
+                + "- Map an explicit user command DIRECTLY to its one action:\n"
+                + "    \"Speichere ausschlie\u00dflich die Karte FreeRTOS.\"  ->  "
+                + "{\"type\":\"add\",\"parent\":[],\"name\":\"FreeRTOS\"}\n"
+                + "    \"F\u00fcge unter FreeRTOS Tasks hinzu.\"           ->  "
+                + "{\"type\":\"add\",\"parent\":[\"FreeRTOS\"],\"name\":\"Tasks\"}\n"
+                + "    \"Entferne ESP-IDF unter Praxis.\"               ->  "
+                + "{\"type\":\"remove\",\"path\":[\"Praxis\",\"ESP-IDF\"]}\n"
+                + "- Do not read unrelated branches before an explicit atomic add/remove. Read "
+                + "only when the current path or structure is genuinely unknown.\n"
                 + "- If you are unsure whether a parent exists: 1) read it, 2) look at the result, "
                 + "3) add. Adding an already-existing card is rejected with the reason.\n"
                 + "- ONE card per add. Build the tree over several steps instead of inventing a deep "
@@ -483,6 +492,10 @@ public final class TeamAgentPlaybook {
                 + "- NEVER claim a card was saved or the concept changed unless the tool answered "
                 + "APPLIED in this turn. A rejected step changed NOTHING — say so honestly or fix "
                 + "it.\n"
+                + "- A decision like \"only Arduino, not ESP-IDF\" IS a concept change: persist "
+                + "the positive part as a card (add \"Arduino\" under the fitting parent); "
+                + "remove \"ESP-IDF\" only if it actually exists. Never pretend an exclusion or "
+                + "focus is stored when it is not.\n"
                 + "- The concept mirrors the CONVERSATION: add what the user asks for, propose what "
                 + "scope and sources suggest, and remove only what the user excluded.\n\n";
     }
@@ -572,6 +585,28 @@ public final class TeamAgentPlaybook {
                 : "Only claim changes listed under APPLIED_ACTIONS. A rejected action changed "
                         + "NOTHING about the concept.\n\n");
         return sb.toString();
+    }
+
+    /**
+     * The per-inference CURRENT_CONCEPT block (K2e): the persisted workpiece, shown BEFORE the
+     * model answers, with the binding no-unpersisted-claims rule. Follows the language selector
+     * like all model-facing machinery sentences.
+     */
+    public static String currentConceptContext(String snapshotText, boolean german) {
+        String header = "CURRENT_CONCEPT (authoritative, persisted)\n" + snapshotText.trim() + "\n";
+        return german
+                ? header
+                        + "Das Gespr\u00e4ch ist NICHT das Konzept. Nutzerentscheidungen, die das "
+                        + "Buchkonzept \u00e4ndern, m\u00fcssen mit einer conceptAction persistiert "
+                        + "werden. Wenn conceptAction.type \"none\" ist, beschreibe das Konzept "
+                        + "EXAKT so, wie oben gezeigt \u2014 gib niemals eine nicht persistierte "
+                        + "Pr\u00e4ferenz, einen Ausschluss oder Fokus als Teil des Konzepts aus."
+                : header
+                        + "The conversation is NOT the concept. User decisions that change the "
+                        + "book concept must be persisted with a concept action. If "
+                        + "conceptAction.type is \"none\", describe the concept EXACTLY as shown "
+                        + "above \u2014 do not present an unpersisted preference, exclusion or "
+                        + "focus as part of the concept.";
     }
 
     /** Appended to the LAST feedback when a budget is exhausted: wrap up, no further actions. */
