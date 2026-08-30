@@ -60,6 +60,19 @@ final class ResearchOutOfScopeSky extends JPanel {
     private final MoreCloud moreCloud = new MoreCloud();
     private final AddCloud addCloud = new AddCloud();
     private final JTextField addField = new JTextField(16);
+    /** Field + the shared comic ✕ ({@link com.aresstack.comiccontrols.control.ComicOverlayPanel.CloseButton}) as ONE flow entry. */
+    private final JPanel addFieldRow = new JPanel(new java.awt.BorderLayout(2, 0)) {
+        @Override
+        public Dimension getPreferredSize() {
+            Dimension size = super.getPreferredSize();
+            return new Dimension(size.width, ResearchUiMetrics.CLOUD_CHIP_HEIGHT);
+        }
+
+        @Override
+        public Dimension getMaximumSize() {
+            return getPreferredSize();
+        }
+    };
 
     private Consumer<String> addAction;
     private Consumer<String> removeAction;
@@ -111,7 +124,7 @@ final class ResearchOutOfScopeSky extends JPanel {
         cloudFlow.add(moreCloud);
         cloudFlow.add(addCloud);
         styleAddField();
-        cloudFlow.add(addField);
+        cloudFlow.add(addFieldRow);
     }
 
     void setAddAction(Consumer<String> action) {
@@ -259,7 +272,7 @@ final class ResearchOutOfScopeSky extends JPanel {
      */
     private void applyVisibility(int width) {
         addCloud.setVisible(!adding);
-        addField.setVisible(adding);
+        addFieldRow.setVisible(adding);
         int maxRows = ResearchUiMetrics.SKY_COLLAPSED_MAX_ROWS;
         // Largest k so that k clouds + (tail? +N weitere) + the add control fit the row budget.
         int visibleCount = chips.size();
@@ -272,7 +285,7 @@ final class ResearchOutOfScopeSky extends JPanel {
             if (visibleCount < chips.size()) {
                 candidate.add(moreCloud);
             }
-            candidate.add(adding ? (JComponent) addField : addCloud);
+            candidate.add(adding ? (JComponent) addFieldRow : addCloud);
             if (rowsFor(candidate, width) <= maxRows) {
                 break;
             }
@@ -335,14 +348,26 @@ final class ResearchOutOfScopeSky extends JPanel {
     // ------------------------------------------------------------------ inline add
 
     private void styleAddField() {
-        addField.setVisible(false);
+        addFieldRow.setVisible(false);
+        addFieldRow.setOpaque(true);
+        addFieldRow.setBackground(Color.WHITE);
+        addFieldRow.setBorder(BorderFactory.createLineBorder(ResearchUiPalette.CLOUD_BORDER));
         addField.setFont(ResearchUiTypography.regular(12.5f));
-        addField.setBackground(Color.WHITE);
+        addField.setOpaque(false);
         addField.setForeground(ResearchUiPalette.CLOUD_TEXT);
         addField.setCaretColor(ResearchUiPalette.CLOUD_TEXT);
-        addField.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(ResearchUiPalette.CLOUD_BORDER),
-                BorderFactory.createEmptyBorder(5, 10, 5, 10)));
+        addField.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 4));
+        addFieldRow.add(addField, java.awt.BorderLayout.CENTER);
+        // The SAME comic ✕ the mindmap overlay closes with — reused, not copied: cancels the add.
+        com.aresstack.comiccontrols.control.ComicOverlayPanel.CloseButton cancel =
+                new com.aresstack.comiccontrols.control.ComicOverlayPanel.CloseButton(
+                        com.aresstack.comiccontrols.theme.ComicPalette.defaultPalette(),
+                        this::endInlineAdd);
+        cancel.setToolTipText("Abbrechen");
+        JPanel cancelWrap = new JPanel(new java.awt.GridBagLayout());
+        cancelWrap.setOpaque(false);
+        cancelWrap.add(cancel);
+        addFieldRow.add(cancelWrap, java.awt.BorderLayout.EAST);
         addField.addActionListener(event -> {
             String value = addField.getText().trim();
             endInlineAdd();
@@ -452,7 +477,9 @@ final class ResearchOutOfScopeSky extends JPanel {
 
         CloudChip(String text) {
             this.text = text;
-            setToolTipText(SEMANTIC_TOOLTIP + ": " + text);
+            // The AREA carries the "Außerhalb des Scopes" meaning (the sky's own tooltip); a chip
+            // only repeats its full text — useful when the cloud had to ellipsize, never a prefix.
+            setToolTipText(text);
             java.awt.event.MouseAdapter mouse = new java.awt.event.MouseAdapter() {
                 @Override
                 public void mouseEntered(java.awt.event.MouseEvent event) {
@@ -573,7 +600,7 @@ final class ResearchOutOfScopeSky extends JPanel {
             if (this.count != count || expandedMode) {
                 this.count = count;
                 this.expandedMode = false;
-                setToolTipText(SEMANTIC_TOOLTIP + " — " + text() + " anzeigen");
+                setToolTipText(text() + " anzeigen");
                 // No revalidate() here: this runs INSIDE the sky's doLayout — re-invalidating the
                 // ancestors mid-validation is a layout-loop hazard; the flow lays out right after.
             }
@@ -582,7 +609,7 @@ final class ResearchOutOfScopeSky extends JPanel {
         void setExpandedMode() {
             if (!expandedMode) {
                 expandedMode = true;
-                setToolTipText(SEMANTIC_TOOLTIP + " — wieder einklappen");
+                setToolTipText("wieder einklappen");
             }
         }
 
