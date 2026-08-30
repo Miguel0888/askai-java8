@@ -60,7 +60,7 @@ public final class PhaseAssistantProfileRegistry {
         PhaseAssistantProfile scoping = new PhaseAssistantProfile(
                 SCOPING_PHASE_ID,
                 TeamAgentPlaybook.scopingSystemPrompt(alwaysOfferSuggestions, conceptToolsAvailable),
-                new ScopingPhaseOutputContract(),
+                new ScopingPhaseOutputContract(conceptToolsAvailable),
                 "research-brief",
                 Collections.<String>emptyList(),
                 Collections.<String>emptySet(),

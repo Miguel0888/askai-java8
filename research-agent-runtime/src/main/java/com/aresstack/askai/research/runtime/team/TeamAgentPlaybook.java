@@ -204,7 +204,7 @@ public final class TeamAgentPlaybook {
                 + "  ]"
                 + (conceptTools
                         ? ",\n  \"conceptAction\": {              // your ONE concept step THIS "
-                        + "inference; {\"type\":\"none\"} when you change nothing\n"
+                        + "inference; use type none when you change nothing\n"
                         + "    \"type\": \"none\"|\"read\"|\"add\"|\"remove\",\n"
                         + "    \"path\": string,                  // read/remove: card names from "
                         + "the concept root, '/'-separated\n"

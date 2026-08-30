@@ -9,4 +9,13 @@ public interface PhaseOutputContract {
 
     /** Parse+validate one raw model answer for this phase into a typed output, or a typed failure reason. */
     PhaseParseResult parse(String rawModelText);
+
+    /**
+     * An optional JSON schema enforced AT GENERATION TIME (Ollama structured outputs) — the
+     * deterministic fix for small models hand-rolling broken JSON. {@code null} = plain
+     * completion (the long-standing behaviour); strict parsing downstream applies either way.
+     */
+    default String outputSchemaJson() {
+        return null;
+    }
 }

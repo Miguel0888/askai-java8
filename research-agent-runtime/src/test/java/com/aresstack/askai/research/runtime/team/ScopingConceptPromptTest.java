@@ -28,6 +28,18 @@ public class ScopingConceptPromptTest {
     }
 
     @Test
+    public void theConceptContractPublishesTheGenerationTimeSchemaOnlyWithTheFlag() {
+        String schema = new ScopingPhaseOutputContract(true).outputSchemaJson();
+        assertTrue(schema.contains("\"enum\":[\"none\",\"read\",\"add\",\"remove\"]"));
+        assertTrue("the action decision is always explicit",
+                schema.contains("\"required\":[\"assistantMessage\",\"conceptAction\"]"));
+        assertTrue("runaway lists are stopped by the grammar", schema.contains("maxItems"));
+        assertEquals("without the tools the long-standing schema-free behaviour stays",
+                null, new ScopingPhaseOutputContract(false).outputSchemaJson());
+        assertEquals(null, new ScopingPhaseOutputContract().outputSchemaJson());
+    }
+
+    @Test
     public void theRegistryHandsTheFlagThrough() {
         assertTrue(PhaseAssistantProfileRegistry.defaults(false, true)
                 .forPhase("scoping").getSystemPrompt().contains("conceptAction"));

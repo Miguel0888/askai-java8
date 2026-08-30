@@ -264,9 +264,21 @@ public final class ResearchTeamAgent {
         return TeamAgentResult.ok(output, validatedCommand);
     }
 
+    /**
+     * ONE model call, schema-constrained when the contract provides a generation-time schema
+     * (Ollama structured outputs) — grammar stops a small model from losing count of its braces;
+     * without a schema the long-standing plain completion stays byte-identical.
+     */
+    private MainModelChatResult callModel(List<ChatMessage> messages, PhaseOutputContract contract) {
+        String schema = contract.outputSchemaJson();
+        return schema == null
+                ? model.complete(messages, TEMPERATURE, maxOutputTokens)
+                : model.completeJson(messages, TEMPERATURE, maxOutputTokens, schema);
+    }
+
     /** One model call + phase-contract parse, with EXACTLY ONE bounded parse-repair on failure. */
     private Parsed callParseWithRepair(List<ChatMessage> messages, PhaseOutputContract contract) {
-        MainModelChatResult call = model.complete(messages, TEMPERATURE, maxOutputTokens);
+        MainModelChatResult call = callModel(messages, contract);
         if (!call.isOk()) {
             return Parsed.fail(TeamAgentResult.modelUnavailable(call.getDetail()));
         }
@@ -319,7 +331,7 @@ public final class ResearchTeamAgent {
      * turn stays intact for a clean retry.
      */
     private Parsed callParseOnce(List<ChatMessage> messages, PhaseOutputContract contract) {
-        MainModelChatResult call = model.complete(messages, TEMPERATURE, maxOutputTokens);
+        MainModelChatResult call = callModel(messages, contract);
         if (!call.isOk()) {
             return Parsed.fail(TeamAgentResult.modelUnavailable(call.getDetail()));
         }
