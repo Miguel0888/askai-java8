@@ -47,23 +47,39 @@ final class ReadAloudVoice {
         this.modelVoice = port;
     }
 
-    /** Blocking (call off the EDT): the language's model voice when active, else the default. */
+    /**
+     * Blocking (call off the EDT): the language's model voice when active, else the default.
+     * HARDENED against every failure shape — including linkage/runtime ERRORS from a host/plugin
+     * version skew: whatever goes wrong on the model path is logged and the Windows voice speaks.
+     * Read-aloud may sound plain, but it must never be silent.
+     */
     void speak(String markdown, String languageCode) {
-        SpeechSynthesisPort port = modelVoice;
-        if (port != null && port.isModelVoiceActive(languageCode)) {
-            fallback.stop(); // never two voices at once
-            if (port.speak(WindowsSpeech.plainTextForSpeech(markdown), languageCode)) {
-                return;
+        try {
+            SpeechSynthesisPort port = modelVoice;
+            if (port != null && port.isModelVoiceActive(languageCode)) {
+                fallback.stop(); // never two voices at once
+                boolean spoke = port.speak(WindowsSpeech.plainTextForSpeech(markdown), languageCode);
+                System.err.println("[read-aloud] model voice (" + languageCode + ") spoke=" + spoke);
+                if (spoke) {
+                    return;
+                }
+                // The model voice failed mid-setup (engine gone, audio line busy, …) → default voice.
             }
-            // The model voice failed mid-setup (engine gone, audio line busy, …) → default voice.
+        } catch (Throwable modelPathBroken) {
+            System.err.println("[read-aloud] model-voice path failed (" + languageCode + "): "
+                    + modelPathBroken);
         }
         fallback.speak(markdown, languageCode);
     }
 
     void stop() {
-        SpeechSynthesisPort port = modelVoice;
-        if (port != null) {
-            port.stop();
+        try {
+            SpeechSynthesisPort port = modelVoice;
+            if (port != null) {
+                port.stop();
+            }
+        } catch (Throwable modelPathBroken) {
+            System.err.println("[read-aloud] model-voice stop failed: " + modelPathBroken);
         }
         fallback.stop();
     }

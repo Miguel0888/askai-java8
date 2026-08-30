@@ -337,11 +337,18 @@ public final class TeamAgentPlaybook {
         }
     }
 
-    /** The bootstrap instruction that elicits a warm opening greeting + ONE open question. */
-    public static String greetingInstruction() {
-        return "The session has just started and the user has not written anything yet. Greet the user "
-                + "warmly in one or two sentences and ask your ONE open question about what they would like "
-                + "to find out. Do not explain any process or steps. Respond with the JSON object only.";
+    /**
+     * The bootstrap instruction that elicits a warm opening greeting + ONE open question. Carries the
+     * working language EXPLICITLY: the system rules say "answer in the language the user writes in", and
+     * this internal instruction is English — without the override, a German session was deterministically
+     * greeted in English (the model mirrored the instruction's language, exactly as told).
+     */
+    public static String greetingInstruction(String languageDisplayName) {
+        return "The session has just started and the user has not written anything yet — there is no user "
+                + "language to mirror. Greet in " + languageDisplayName + ", the configured working "
+                + "language (this instruction's own language is meaningless). Greet the user warmly in one "
+                + "or two sentences and ask your ONE open question about what they would like to find out. "
+                + "Do not explain any process or steps. Respond with the JSON object only.";
     }
 
     /**

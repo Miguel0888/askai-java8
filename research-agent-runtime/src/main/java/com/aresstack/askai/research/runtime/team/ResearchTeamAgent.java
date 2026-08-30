@@ -155,7 +155,8 @@ public final class ResearchTeamAgent {
         PhaseAssistantProfile greeting = profiles.fallback();
         List<ChatMessage> messages = contextAssembler.assemble(greeting, state, confirmedQuestion,
                 confirmedAspects, proposedQuestion, proposedAspects, history);
-        messages.add(ChatMessage.user(TeamAgentPlaybook.greetingInstruction()));
+        messages.add(ChatMessage.user(TeamAgentPlaybook.greetingInstruction(
+                contextAssembler.workingLanguageDisplayName())));
         TeamAgentResult result = runTurn(messages, state, greeting.getOutputContract());
         if (result.isOk()) {
             greeted = true;

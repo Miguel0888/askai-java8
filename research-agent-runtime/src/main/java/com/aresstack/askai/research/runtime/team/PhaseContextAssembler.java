@@ -72,6 +72,11 @@ public final class PhaseContextAssembler {
         this.currentLanguage = currentLanguage == null ? ENGLISH_DEFAULT : currentLanguage;
     }
 
+    /** The live working language's display name — the greeting bootstrap names it explicitly. */
+    public String workingLanguageDisplayName() {
+        return currentLanguage.displayName();
+    }
+
     private static CurrentDate systemDate() {
         return new CurrentDate() {
             public String today() {

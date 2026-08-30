@@ -26,7 +26,12 @@ public final class PiperSpeechSynthesizer {
     private final Object lock = new Object();
     private Process process;
     private SourceDataLine line;
-    private boolean stopRequested;
+    /**
+     * Utterance GENERATION instead of a boolean stop flag: a new speak (which stops the previous
+     * one) bumps it, so an overlapped older utterance can never mistake the newer speak's reset
+     * for "keep going" — and a stop() during the newer speak's setup can never be swallowed.
+     */
+    private long generation;
 
     /** Blocking synthesis + playback; call OFF the EDT. */
     public void speak(PiperTtsStore store, PiperVoice voice, String text,
@@ -46,8 +51,9 @@ public final class PiperSpeechSynthesizer {
         builder.directory(store.engineDirectory().toFile());
         Process current = builder.start();
         SourceDataLine currentLine;
+        final long myGeneration;
         synchronized (lock) {
-            stopRequested = false;
+            myGeneration = ++generation; // this utterance's identity; any stop/new speak outdates it
             process = current;
             try {
                 currentLine = openLine(sampleRate);
@@ -61,7 +67,7 @@ public final class PiperSpeechSynthesizer {
         drainAsync(current.getErrorStream()); // piper logs to stderr; never let it block
         writeTextAsync(current.getOutputStream(), prepared);
         try {
-            pump(current, currentLine, startupTimeoutSeconds);
+            pump(current, currentLine, startupTimeoutSeconds, myGeneration);
         } finally {
             synchronized (lock) {
                 if (process == current) {
@@ -79,7 +85,7 @@ public final class PiperSpeechSynthesizer {
         Process toKill;
         SourceDataLine toClose;
         synchronized (lock) {
-            stopRequested = true;
+            generation++; // outdate the running utterance
             toKill = process;
             toClose = line;
             process = null;
@@ -97,16 +103,16 @@ public final class PiperSpeechSynthesizer {
 
     // ------------------------------------------------------------------ internals
 
-    private void pump(Process current, SourceDataLine out, int startupTimeoutSeconds)
-            throws IOException {
+    private void pump(Process current, SourceDataLine out, int startupTimeoutSeconds,
+                      long myGeneration) throws IOException {
         InputStream audio = current.getInputStream();
         byte[] buffer = new byte[8 * 1024];
         long startupDeadline = System.currentTimeMillis() + startupTimeoutSeconds * 1000L;
         boolean heardAnything = false;
         while (true) {
             synchronized (lock) {
-                if (stopRequested) {
-                    return;
+                if (generation != myGeneration) {
+                    return; // stopped or replaced by a newer utterance
                 }
             }
             // Before the first byte, poll instead of blocking so a hung engine start honours the
@@ -138,7 +144,7 @@ public final class PiperSpeechSynthesizer {
             }
         }
         synchronized (lock) {
-            if (stopRequested) {
+            if (generation != myGeneration) {
                 return;
             }
         }
