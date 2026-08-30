@@ -66,6 +66,11 @@ public final class PiperReadAloudService implements SpeechSynthesisPort {
         synthesizer.stop();
     }
 
+    @Override
+    public boolean isReadAloudActiveByDefault() {
+        return settings.load().isReadAloudAutoStart();
+    }
+
     private PiperVoice activeVoice(TextToSpeechSettings current, String languageCode) {
         TextToSpeechSettings.Selection selection = current.selectionFor(languageCode);
         if (selection.getEngine() != TextToSpeechSettings.Engine.PIPER) {

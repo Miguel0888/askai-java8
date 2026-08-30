@@ -90,6 +90,9 @@ public final class ChatComposerPanel extends JPanel {
 
         void saveRecording();
 
+        /** Play (or stop) the last recording through the configured playback output. */
+        void playRecording();
+
         void installAudioModel();
 
         void transcribeAudioFile();
@@ -144,6 +147,7 @@ public final class ChatComposerPanel extends JPanel {
     private final JButton discardButton;
     private final JButton retryButton;
     private final JButton saveButton;
+    private final JButton playRecordingButton;
     private final JButton installButton;
     private final JButton sendButton;
     private final JButton stopButton;
@@ -179,6 +183,8 @@ public final class ChatComposerPanel extends JPanel {
         this.discardButton = createIconButton(new CloseIcon(), "Discard or cancel dictation");
         this.retryButton = createSecondaryButton(new RetryIcon(), "Retry", "Retry transcription");
         this.saveButton = createSecondaryButton(new SaveIcon(), "Save", "Save recording");
+        this.playRecordingButton = createSecondaryButton(new PlayIcon(), "Play",
+                "Play the recording (through the configured playback output)");
         this.installButton = createSecondaryButton(new InstallIcon(), "Install", "Install an audio model");
         this.sendButton = createPrimaryButton(new SendIcon(), "Send", PRIMARY);
         this.stopButton = createPrimaryButton(new StopIcon(), "Stop", DANGER);
@@ -231,12 +237,14 @@ public final class ChatComposerPanel extends JPanel {
         actionsPanel.setOpaque(false);
         actionsPanel.add(discardButton);
         actionsPanel.add(retryButton);
+        actionsPanel.add(playRecordingButton); // preview first, then persist — natural order
         actionsPanel.add(saveButton);
         actionsPanel.add(installButton);
 
         discardButton.setVisible(false);
         retryButton.setVisible(false);
         saveButton.setVisible(false);
+        playRecordingButton.setVisible(false);
         installButton.setVisible(false);
         levelBar.setVisible(false);
         return actionsPanel;
@@ -395,6 +403,11 @@ public final class ChatComposerPanel extends JPanel {
         retryButton.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent event) {
                 actions.retryTranscription();
+            }
+        });
+        playRecordingButton.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent event) {
+                actions.playRecording();
             }
         });
         saveButton.addActionListener(new ActionListener() {
@@ -743,6 +756,7 @@ public final class ChatComposerPanel extends JPanel {
         discardButton.setEnabled(view.discardEnabled);
         retryButton.setVisible(view.retryVisible);
         saveButton.setVisible(view.saveVisible);
+        playRecordingButton.setVisible(view.saveVisible); // exists exactly when Save does
         installButton.setVisible(view.installVisible);
         audioFileButton.setEnabled(view.audioFileEnabled);
         updateMessageAvailability();
@@ -1049,6 +1063,14 @@ public final class ChatComposerPanel extends JPanel {
             g2.drawArc(2, 2, 11, 11, 35, 285);
             g2.drawLine(2, 3, 2, 8);
             g2.drawLine(2, 3, 7, 3);
+        }
+    }
+
+    private static final class PlayIcon extends StrokeIcon {
+        protected void paint(Graphics2D g2) {
+            g2.drawLine(5, 3, 5, 13);   // play triangle, stroke style like the other icons
+            g2.drawLine(5, 3, 12, 8);
+            g2.drawLine(5, 13, 12, 8);
         }
     }
 

@@ -45,6 +45,9 @@ public final class AppConfigurationRepository {
     private static final String STT_AUDIO_MODEL_AUTOMATIC = "stt.audioModelAutomatic";
     private static final String STT_LAST_AUDIO_MODEL = "stt.lastAudioModel";
     private static final String STT_AUDIO_PROFILE = "stt.audioProcessingProfile";
+    private static final String STT_AUTO_SEND = "stt.autoSendTranscription";
+    private static final String STT_AUTO_STOP_SILENCE = "stt.autoStopOnSilence";
+    private static final String STT_AUTO_STOP_SILENCE_SECONDS = "stt.autoStopSilenceSeconds";
     private static final String CHAT_COLOR_TRANSCRIPT_BG = "chat.color.transcriptBackground";
     private static final String CHAT_COLOR_USER_BG = "chat.color.userBackground";
     private static final String CHAT_COLOR_USER_FG = "chat.color.userForeground";
@@ -108,7 +111,13 @@ public final class AppConfigurationRepository {
                     parseBoolean(properties.getProperty(STT_AUDIO_MODEL_AUTOMATIC),
                             defaultStt.isAudioModelAutomatic()),
                     properties.getProperty(STT_LAST_AUDIO_MODEL, defaultStt.getLastAudioModel()),
-                    properties.getProperty(STT_AUDIO_PROFILE, defaultStt.getAudioProcessingProfileId()));
+                    properties.getProperty(STT_AUDIO_PROFILE, defaultStt.getAudioProcessingProfileId()),
+                    parseBoolean(properties.getProperty(STT_AUTO_SEND),
+                            defaultStt.isAutoSendTranscription()),
+                    parseBoolean(properties.getProperty(STT_AUTO_STOP_SILENCE),
+                            defaultStt.isAutoStopOnSilence()),
+                    parseInt(properties.getProperty(STT_AUTO_STOP_SILENCE_SECONDS,
+                            String.valueOf(defaultStt.getAutoStopSilenceSeconds()))));
             ChatColorSettings defaultColors = defaults.getChatColors();
             ChatColorSettings chatColors = new ChatColorSettings(
                     ChatColorSettings.parseHex(properties.getProperty(CHAT_COLOR_TRANSCRIPT_BG),
@@ -197,6 +206,10 @@ public final class AppConfigurationRepository {
         properties.setProperty(STT_AUDIO_MODEL_AUTOMATIC, String.valueOf(stt.isAudioModelAutomatic()));
         properties.setProperty(STT_LAST_AUDIO_MODEL, stt.getLastAudioModel());
         properties.setProperty(STT_AUDIO_PROFILE, stt.getAudioProcessingProfileId());
+        properties.setProperty(STT_AUTO_SEND, String.valueOf(stt.isAutoSendTranscription()));
+        properties.setProperty(STT_AUTO_STOP_SILENCE, String.valueOf(stt.isAutoStopOnSilence()));
+        properties.setProperty(STT_AUTO_STOP_SILENCE_SECONDS,
+                String.valueOf(stt.getAutoStopSilenceSeconds()));
         properties.setProperty(HF_TOKEN, configuration.getHuggingFaceToken());
         properties.setProperty(DOWNLOAD_DIRECTORY, configuration.getModelDownloadDirectory().getAbsolutePath());
         properties.setProperty(HF_SEARCH_SUGGESTIONS, configuration.getHuggingFaceSearchSuggestionsRaw());

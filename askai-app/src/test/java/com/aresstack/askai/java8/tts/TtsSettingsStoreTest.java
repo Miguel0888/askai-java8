@@ -64,6 +64,20 @@ public class TtsSettingsStoreTest {
     }
 
     @Test
+    public void readAloudAutoStartRoundTripsAndDefaultsOff() throws Exception {
+        TtsSettingsStore store = new TtsSettingsStore(
+                temp.getRoot().toPath().resolve("tts.properties"));
+        org.junit.Assert.assertFalse("off by default — auto-reading is an opt-in",
+                store.load().isReadAloudAutoStart());
+        store.save(store.load().withReadAloudAutoStart(true));
+        org.junit.Assert.assertTrue(store.load().isReadAloudAutoStart());
+        store.save(store.load().withSelection("de", TextToSpeechSettings.Engine.PIPER,
+                "de_DE-thorsten-high"));
+        org.junit.Assert.assertTrue("selection changes keep the auto-start flag",
+                store.load().isReadAloudAutoStart());
+    }
+
+    @Test
     public void anUnknownEngineFallsBackToWindows() {
         assertEquals(TextToSpeechSettings.Engine.WINDOWS,
                 TextToSpeechSettings.parseEngine("KOKORO"));

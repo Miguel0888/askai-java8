@@ -233,6 +233,10 @@ public final class ChatComposerPanelTest {
             increment("save");
         }
 
+        public void playRecording() {
+            increment("play");
+        }
+
         public void installAudioModel() {
             increment("install");
         }

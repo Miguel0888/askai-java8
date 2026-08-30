@@ -34,4 +34,13 @@ public interface SpeechSynthesisPort {
 
     /** Stop the current utterance immediately; no-op when silent. */
     void stop();
+
+    /**
+     * Central user preference (chat settings → Audio &amp; Dictation): read-aloud should start
+     * ACTIVE — new answers are spoken automatically without pressing Play. Engine-independent
+     * (applies to the Windows default voice too); the plugin still owns the Play/Pause toggle.
+     */
+    default boolean isReadAloudActiveByDefault() {
+        return false;
+    }
 }

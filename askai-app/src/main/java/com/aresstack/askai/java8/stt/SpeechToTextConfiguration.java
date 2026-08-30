@@ -17,6 +17,8 @@ public final class SpeechToTextConfiguration {
     public static final int DEFAULT_MAX_FILE_SIZE_MB = 200;
     public static final int DEFAULT_TIMEOUT_SECONDS = 600;
     public static final String DEFAULT_AUDIO_PROCESSING_PROFILE_ID = AudioProcessingProfiles.DEFAULT_PROFILE_ID;
+    /** Silence length that auto-stops a recording (when enabled) — Gemini-style hands-free feel. */
+    public static final int DEFAULT_AUTO_STOP_SILENCE_SECONDS = 2;
 
     private final boolean enabled;
     private final Backend backend;
@@ -30,6 +32,10 @@ public final class SpeechToTextConfiguration {
     private final boolean audioModelAutomatic;  // pick a verified audio model automatically
     private final String lastAudioModel;        // last model that transcribed successfully (preferred)
     private final String audioProcessingProfileId;
+    // Hands-free additions (both ON = the Gemini feel):
+    private final boolean autoSendTranscription;   // send right after transcription (no review stop)
+    private final boolean autoStopOnSilence;       // stop the recording after a long-enough pause
+    private final int autoStopSilenceSeconds;      // how long that pause must be
 
     public SpeechToTextConfiguration(boolean enabled, Backend backend, String modelName, String language,
                                      String prompt, int maxFileSizeMb, int timeoutSeconds) {
@@ -49,6 +55,16 @@ public final class SpeechToTextConfiguration {
                                      String prompt, int maxFileSizeMb, int timeoutSeconds,
                                      String microphoneDeviceId, boolean audioModelAutomatic, String lastAudioModel,
                                      String audioProcessingProfileId) {
+        this(enabled, backend, modelName, language, prompt, maxFileSizeMb, timeoutSeconds,
+                microphoneDeviceId, audioModelAutomatic, lastAudioModel, audioProcessingProfileId,
+                false, false, DEFAULT_AUTO_STOP_SILENCE_SECONDS);
+    }
+
+    public SpeechToTextConfiguration(boolean enabled, Backend backend, String modelName, String language,
+                                     String prompt, int maxFileSizeMb, int timeoutSeconds,
+                                     String microphoneDeviceId, boolean audioModelAutomatic, String lastAudioModel,
+                                     String audioProcessingProfileId, boolean autoSendTranscription,
+                                     boolean autoStopOnSilence, int autoStopSilenceSeconds) {
         this.enabled = enabled;
         this.backend = backend == null ? Backend.OLLAMA : backend;
         this.modelName = modelName == null ? "" : modelName.trim();
@@ -62,6 +78,10 @@ public final class SpeechToTextConfiguration {
         this.audioProcessingProfileId = audioProcessingProfileId == null
                 || audioProcessingProfileId.trim().isEmpty()
                 ? DEFAULT_AUDIO_PROCESSING_PROFILE_ID : audioProcessingProfileId.trim();
+        this.autoSendTranscription = autoSendTranscription;
+        this.autoStopOnSilence = autoStopOnSilence;
+        this.autoStopSilenceSeconds = autoStopSilenceSeconds > 0
+                ? autoStopSilenceSeconds : DEFAULT_AUTO_STOP_SILENCE_SECONDS;
     }
 
     /** Enabled by default with no dedicated model: the chat panel then falls back to the chat model. */
@@ -121,34 +141,72 @@ public final class SpeechToTextConfiguration {
         return audioProcessingProfileId;
     }
 
+    /** @return whether the transcribed text is sent immediately (no review stop). */
+    public boolean isAutoSendTranscription() {
+        return autoSendTranscription;
+    }
+
+    /** @return whether a long-enough silence auto-stops the recording. */
+    public boolean isAutoStopOnSilence() {
+        return autoStopOnSilence;
+    }
+
+    /** @return the silence length (seconds) that triggers the auto-stop. */
+    public int getAutoStopSilenceSeconds() {
+        return autoStopSilenceSeconds;
+    }
+
     public SpeechToTextConfiguration withModelName(String value) {
         return new SpeechToTextConfiguration(enabled, backend, value, language, prompt, maxFileSizeMb,
                 timeoutSeconds, microphoneDeviceId, audioModelAutomatic, lastAudioModel,
-                audioProcessingProfileId);
+                audioProcessingProfileId, autoSendTranscription, autoStopOnSilence,
+                autoStopSilenceSeconds);
     }
 
     public SpeechToTextConfiguration withMicrophoneDeviceId(String value) {
         return new SpeechToTextConfiguration(enabled, backend, modelName, language, prompt, maxFileSizeMb,
                 timeoutSeconds, value, audioModelAutomatic, lastAudioModel,
-                audioProcessingProfileId);
+                audioProcessingProfileId, autoSendTranscription, autoStopOnSilence,
+                autoStopSilenceSeconds);
     }
 
     public SpeechToTextConfiguration withAudioModelAutomatic(boolean value) {
         return new SpeechToTextConfiguration(enabled, backend, modelName, language, prompt, maxFileSizeMb,
                 timeoutSeconds, microphoneDeviceId, value, lastAudioModel,
-                audioProcessingProfileId);
+                audioProcessingProfileId, autoSendTranscription, autoStopOnSilence,
+                autoStopSilenceSeconds);
     }
 
     public SpeechToTextConfiguration withLastAudioModel(String value) {
         return new SpeechToTextConfiguration(enabled, backend, modelName, language, prompt, maxFileSizeMb,
                 timeoutSeconds, microphoneDeviceId, audioModelAutomatic, value,
-                audioProcessingProfileId);
+                audioProcessingProfileId, autoSendTranscription, autoStopOnSilence,
+                autoStopSilenceSeconds);
     }
 
 
     public SpeechToTextConfiguration withAudioProcessingProfileId(String value) {
         return new SpeechToTextConfiguration(enabled, backend, modelName, language, prompt, maxFileSizeMb,
-                timeoutSeconds, microphoneDeviceId, audioModelAutomatic, lastAudioModel, value);
+                timeoutSeconds, microphoneDeviceId, audioModelAutomatic, lastAudioModel, value,
+                autoSendTranscription, autoStopOnSilence, autoStopSilenceSeconds);
+    }
+
+    public SpeechToTextConfiguration withAutoSendTranscription(boolean value) {
+        return new SpeechToTextConfiguration(enabled, backend, modelName, language, prompt, maxFileSizeMb,
+                timeoutSeconds, microphoneDeviceId, audioModelAutomatic, lastAudioModel,
+                audioProcessingProfileId, value, autoStopOnSilence, autoStopSilenceSeconds);
+    }
+
+    public SpeechToTextConfiguration withAutoStopOnSilence(boolean value) {
+        return new SpeechToTextConfiguration(enabled, backend, modelName, language, prompt, maxFileSizeMb,
+                timeoutSeconds, microphoneDeviceId, audioModelAutomatic, lastAudioModel,
+                audioProcessingProfileId, autoSendTranscription, value, autoStopSilenceSeconds);
+    }
+
+    public SpeechToTextConfiguration withAutoStopSilenceSeconds(int value) {
+        return new SpeechToTextConfiguration(enabled, backend, modelName, language, prompt, maxFileSizeMb,
+                timeoutSeconds, microphoneDeviceId, audioModelAutomatic, lastAudioModel,
+                audioProcessingProfileId, autoSendTranscription, autoStopOnSilence, value);
     }
 
     public static Backend parseBackend(String value) {

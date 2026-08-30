@@ -29,13 +29,18 @@ final class ResearchPhaseAccessory implements ComposerAccessory {
         // sky falls back to the Windows voice whenever the port is absent or inactive. The
         // SESSION's live language decides which language's voice speaks — German text gets the
         // German voice, English text the English one (Windows fallback included).
-        this.view.setModelVoice(research.getHostService(
-                com.aresstack.askai.agent.model.speech.SpeechSynthesisPort.class));
+        com.aresstack.askai.agent.model.speech.SpeechSynthesisPort speechPort =
+                research.getHostService(
+                        com.aresstack.askai.agent.model.speech.SpeechSynthesisPort.class);
+        this.view.setModelVoice(speechPort);
         this.view.setReadAloudLanguage(new java.util.function.Supplier<String>() {
             public String get() {
                 return research.getSessionLanguage().currentLanguage().getCode();
             }
         });
+        if (speechPort != null && speechPort.isReadAloudActiveByDefault()) {
+            this.view.enableReadAloudAutoStart(); // central preference: Play is on from the start
+        }
         this.view.setAddAction(new Consumer<String>() {
             public void accept(String text) {
                 reportRejection(research.addScopeExclusion(text));

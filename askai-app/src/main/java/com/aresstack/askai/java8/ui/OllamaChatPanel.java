@@ -215,6 +215,19 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
             new com.aresstack.askai.java8.tts.PiperTtsStore();
     /** The voice INSTALL section embedded right below the selector (built with the audio card). */
     private SpeechOutputModelsPanel speechVoicesPanel;
+    // Playback output (recording preview + tests): persisted device across JavaSound/OpenAL/VLC.
+    private final javax.swing.JComboBox<Object> playbackOutputCombo =
+            new javax.swing.JComboBox<Object>();
+    private boolean updatingPlaybackOutputCombo;
+    private final com.aresstack.askai.java8.audio.preview.AudioPlaybackSettingsStore
+            audioPlaybackStore = new com.aresstack.askai.java8.audio.preview.AudioPlaybackSettingsStore();
+    private final com.aresstack.askai.java8.audio.preview.VlcInstallation vlcInstallation =
+            new com.aresstack.askai.java8.audio.preview.VlcInstallation();
+    private final javax.swing.JTextField vlcPathField = new javax.swing.JTextField(20);
+    private com.aresstack.askai.java8.audio.preview.DispatchingAudioPreviewPlaybackService previewPlayback;
+    // Hands-free dictation state (auto-stop on silence).
+    private boolean recordingHadSignal;
+    private long lastSignalAtMillis;
     /** The settings dialog's category list — kept so callers can open a specific category. */
     private javax.swing.JList<String> settingsNavigation;
     private final JTextArea techDetails = new JTextArea(6, 40);
@@ -365,6 +378,10 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
 
             public void saveRecording() {
                 OllamaChatPanel.this.saveRecording();
+            }
+
+            public void playRecording() {
+                playRecordingPreview();
             }
 
             public void installAudioModel() {
@@ -1080,6 +1097,85 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         micRow.add(testMicButton);
         card.add(micRow);
 
+        // Playback output: the device the recording preview (Play beside Save) and the audio
+        // tests use — JavaSound, OpenAL or the VLC sidecar. Persisted; VLC appears once vlc.exe
+        // is known (below). This selection used to hide unpersisted in the DSP test panel.
+        JPanel playbackRow = partySettingsRow();
+        JLabel playbackLabel = new JLabel("Playback output");
+        formLabels.add(playbackLabel);
+        playbackRow.add(playbackLabel);
+        playbackOutputCombo.setPreferredSize(
+                new Dimension(240, playbackOutputCombo.getPreferredSize().height));
+        playbackOutputCombo.setToolTipText("Where recording previews and audio tests play:"
+                + " Java Sound, OpenAL or VLC (external process).");
+        playbackOutputCombo.addActionListener(event -> persistPlaybackOutputSelection());
+        playbackRow.add(playbackOutputCombo);
+        JButton playbackTestButton = new JButton("Test");
+        playbackTestButton.setToolTipText("Play a short beep through the selected output.");
+        playbackTestButton.addActionListener(event -> testPlaybackOutput());
+        playbackRow.add(playbackTestButton);
+        card.add(playbackRow);
+
+        JPanel vlcRow = partySettingsRow();
+        JLabel vlcLabel = new JLabel("VLC executable");
+        formLabels.add(vlcLabel);
+        vlcRow.add(vlcLabel);
+        vlcPathField.setEditable(false);
+        vlcPathField.setToolTipText("The vlc.exe used for the VLC output backend."
+                + " Empty = automatic detection.");
+        vlcRow.add(vlcPathField);
+        JButton vlcBrowseButton = new JButton("Browse…");
+        vlcBrowseButton.setToolTipText("Select vlc.exe to enable the VLC output backend.");
+        vlcBrowseButton.addActionListener(event -> browseVlcExecutable());
+        vlcRow.add(vlcBrowseButton);
+        JButton vlcClearButton = new JButton("Clear");
+        vlcClearButton.setToolTipText("Remove the manual path and fall back to automatic detection.");
+        vlcClearButton.addActionListener(event -> {
+            vlcInstallation.setExecutable(null);
+            updateVlcPathField();
+            refreshPlaybackOutputs(); // the VLC entry follows the executable's availability
+        });
+        vlcRow.add(vlcClearButton);
+        updateVlcPathField();
+        card.add(vlcRow);
+
+        // Hands-free transcription — both ON gives the Gemini feel: talk, pause, it sends.
+        final javax.swing.JCheckBox autoSendBox = new javax.swing.JCheckBox(
+                "Send transcription automatically",
+                model.getSpeechToTextConfiguration().isAutoSendTranscription());
+        autoSendBox.setToolTipText("On: the transcribed text is sent immediately after the"
+                + " recording stops. Off: review the text first and press Send yourself.");
+        autoSendBox.addActionListener(event -> {
+            model.setSpeechToTextConfiguration(model.getSpeechToTextConfiguration()
+                    .withAutoSendTranscription(autoSendBox.isSelected()));
+            model.saveSettings();
+        });
+        JPanel autoSendRow = partySettingsRow();
+        autoSendRow.add(autoSendBox);
+        card.add(autoSendRow);
+
+        final javax.swing.JCheckBox autoStopBox = new javax.swing.JCheckBox(
+                "Stop recording after a silence of",
+                model.getSpeechToTextConfiguration().isAutoStopOnSilence());
+        autoStopBox.setToolTipText("On: when you pause speaking for the configured time, the"
+                + " recording stops by itself (and transcribes).");
+        final javax.swing.JSpinner silenceSpinner = new javax.swing.JSpinner(
+                new javax.swing.SpinnerNumberModel(
+                        model.getSpeechToTextConfiguration().getAutoStopSilenceSeconds(), 1, 60, 1));
+        java.awt.event.ActionListener persistAutoStop = event -> {
+            model.setSpeechToTextConfiguration(model.getSpeechToTextConfiguration()
+                    .withAutoStopOnSilence(autoStopBox.isSelected())
+                    .withAutoStopSilenceSeconds((Integer) silenceSpinner.getValue()));
+            model.saveSettings();
+        };
+        autoStopBox.addActionListener(persistAutoStop);
+        silenceSpinner.addChangeListener(event -> persistAutoStop.actionPerformed(null));
+        JPanel autoStopRow = partySettingsRow();
+        autoStopRow.add(autoStopBox);
+        autoStopRow.add(silenceSpinner);
+        autoStopRow.add(new JLabel("seconds"));
+        card.add(autoStopRow);
+
         // One selector PER LANGUAGE (like the NLP models): the session's language switch decides
         // which of these voices reads an answer aloud.
         for (final String language : com.aresstack.askai.java8.tts.TextToSpeechSettings.LANGUAGE_CODES) {
@@ -1104,6 +1200,24 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
             speechRow.add(speechTestButton);
             card.add(speechRow);
         }
+        // Read-aloud starts ACTIVE by default: new research answers are spoken without pressing
+        // Play (engine-independent — applies to the Windows voice too).
+        final javax.swing.JCheckBox readAloudAutoBox = new javax.swing.JCheckBox(
+                "Read answers aloud automatically (research chats)",
+                ttsSettingsStore.load().isReadAloudAutoStart());
+        readAloudAutoBox.setToolTipText("On: a research chat starts with read-aloud active —"
+                + " every new answer is spoken. The Play/Pause orb still pauses it anytime.");
+        readAloudAutoBox.addActionListener(event -> {
+            try {
+                ttsSettingsStore.save(ttsSettingsStore.load()
+                        .withReadAloudAutoStart(readAloudAutoBox.isSelected()));
+            } catch (java.io.IOException notSaved) {
+                appendTech("read-aloud auto-start not saved: " + notSaved.getMessage());
+            }
+        });
+        JPanel readAloudRow = partySettingsRow();
+        readAloudRow.add(readAloudAutoBox);
+        card.add(readAloudRow);
         alignFormLabels(formLabels);
         // Voices are installed RIGHT HERE, below the selector — the 🔊 entries in Models > Setup
         // are only a shortcut to this section (the panel says so, plus the download sources).
@@ -1119,6 +1233,7 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         // openSettingsDialog's refresh already ran against the not-yet-built map — without this
         // call both selectors would sit empty until the dialog is opened a second time.
         refreshSpeechOutputVoices();
+        refreshPlaybackOutputs();
         return card;
     }
 
@@ -1175,6 +1290,132 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         }, "askai-tts-test");
         runner.setDaemon(true);
         runner.start();
+    }
+
+    // ------------------------------------------------------------------ playback output
+
+    private com.aresstack.askai.java8.audio.preview.DispatchingAudioPreviewPlaybackService
+            previewPlayback() {
+        if (previewPlayback == null) {
+            previewPlayback =
+                    new com.aresstack.askai.java8.audio.preview.DispatchingAudioPreviewPlaybackService();
+        }
+        return previewPlayback;
+    }
+
+    /** Reload the playback-output combo from the catalog and select the persisted device. */
+    private void refreshPlaybackOutputs() {
+        updatingPlaybackOutputCombo = true;
+        try {
+            java.util.List<com.aresstack.askai.java8.audio.preview.AudioOutputDevice> devices;
+            try {
+                devices = new com.aresstack.askai.java8.audio.preview.AudioOutputDeviceCatalog()
+                        .findAll();
+            } catch (Exception unavailable) {
+                devices = java.util.Collections.emptyList();
+            }
+            playbackOutputCombo.removeAllItems();
+            for (com.aresstack.askai.java8.audio.preview.AudioOutputDevice device : devices) {
+                playbackOutputCombo.addItem(device);
+            }
+            com.aresstack.askai.java8.audio.preview.AudioOutputDevice selected =
+                    audioPlaybackStore.resolve(devices);
+            if (selected != null) {
+                playbackOutputCombo.setSelectedItem(selected);
+                previewPlayback().setOutputDevice(selected);
+            }
+        } finally {
+            updatingPlaybackOutputCombo = false;
+        }
+    }
+
+    private void persistPlaybackOutputSelection() {
+        if (updatingPlaybackOutputCombo) {
+            return;
+        }
+        Object selected = playbackOutputCombo.getSelectedItem();
+        if (!(selected instanceof com.aresstack.askai.java8.audio.preview.AudioOutputDevice)) {
+            return;
+        }
+        com.aresstack.askai.java8.audio.preview.AudioOutputDevice device =
+                (com.aresstack.askai.java8.audio.preview.AudioOutputDevice) selected;
+        previewPlayback().setOutputDevice(device);
+        try {
+            audioPlaybackStore.persistSelection(device);
+        } catch (java.io.IOException notSaved) {
+            appendTech("playback-output selection not saved: " + notSaved.getMessage());
+        }
+    }
+
+    /** A short beep through the selected playback output — audible confirmation, like the mic test. */
+    private void testPlaybackOutput() {
+        persistPlaybackOutputSelection();
+        previewPlayback().play(com.aresstack.askai.java8.audio.preview.TestTones.beep(),
+                com.aresstack.askai.java8.audio.preview.TestTones.BEEP_FORMAT, new Runnable() {
+                    public void run() {
+                        // nothing to update — the beep is its own feedback
+                    }
+                });
+    }
+
+    /** Show the currently configured VLC path, or a hint that automatic detection is in effect. */
+    private void updateVlcPathField() {
+        String configured = vlcInstallation.getConfiguredPath();
+        vlcPathField.setText(configured.isEmpty() ? "(automatic detection)" : configured);
+        vlcPathField.setCaretPosition(0);
+    }
+
+    private void browseVlcExecutable() {
+        javax.swing.JFileChooser chooser = new javax.swing.JFileChooser();
+        chooser.setDialogTitle("Select vlc.exe");
+        chooser.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter(
+                "Executables (*.exe)", "exe"));
+        if (chooser.showOpenDialog(this) == javax.swing.JFileChooser.APPROVE_OPTION
+                && chooser.getSelectedFile() != null) {
+            vlcInstallation.setExecutable(chooser.getSelectedFile());
+            updateVlcPathField();
+            refreshPlaybackOutputs(); // the VLC entry follows the executable's availability
+        }
+    }
+
+    /** Play/stop the LAST dictation recording through the configured playback output. */
+    private void playRecordingPreview() {
+        if (previewPlayback != null && previewPlayback.isPlaying()) {
+            previewPlayback.stop();
+            return;
+        }
+        final java.io.File wav = dictation.savedRecordingSource();
+        if (wav == null) {
+            return; // the button is only visible with a savable recording — belt and braces
+        }
+        Thread player = new Thread(new Runnable() {
+            public void run() {
+                try {
+                    com.aresstack.audio.domain.AudioBuffer buffer =
+                            new com.aresstack.askai.java8.audio.preview.WavAudioTestSource(wav, true)
+                                    .readBuffer();
+                    com.aresstack.askai.java8.audio.preview.DispatchingAudioPreviewPlaybackService
+                            playback = previewPlayback();
+                    playback.setOutputDevice(audioPlaybackStore.resolve(
+                            new com.aresstack.askai.java8.audio.preview.AudioOutputDeviceCatalog()
+                                    .findAll()));
+                    playback.play(buffer.getSamples(), buffer.getFormat(), new Runnable() {
+                        public void run() {
+                            // playback finished — nothing to update
+                        }
+                    });
+                } catch (final Exception failed) {
+                    onUi(new Runnable() {
+                        public void run() {
+                            appendTech("recording preview failed: " + failed);
+                            setDictationStatus("Recording preview failed: " + failed.getMessage());
+                        }
+                    });
+                }
+            }
+        }, "askai-recording-preview");
+        player.setDaemon(true);
+        player.start();
     }
 
     /** Tab-stop form alignment: every label gets the widest label's width (FlowLayout rows). */
@@ -1846,6 +2087,7 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
     public void openSettingsDialog() {
         refreshAudioProfiles(); // reload so profiles saved in the editor appear immediately
         refreshSpeechOutputVoices(); // voices installed in Models > Setup appear immediately
+        refreshPlaybackOutputs(); // playback devices (incl. a newly located VLC) appear immediately
         if (settingsDialog == null) {
             java.awt.Window owner = SwingUtilities.getWindowAncestor(this);
             settingsDialog = new javax.swing.JDialog(
@@ -3650,8 +3892,8 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
     }
 
     private void onDictationResult(DictationResult result) {
-        // Insert at the caret, preserve existing text, never auto-send. The service delivers exactly
-        // one terminal callback per operation, so this cannot double-insert.
+        // Insert at the caret, preserve existing text. The service delivers exactly one terminal
+        // callback per operation, so this cannot double-insert.
         JTextArea editor = composer.getEditor();
         ComposerInserter.Insertion insertion = ComposerInserter.insert(
                 editor.getText(), editor.getSelectionStart(), editor.getSelectionEnd(), result.getText());
@@ -3660,6 +3902,14 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         composer.focusEditor();
         persistLastAudioModel(result.getModelUsed());
         showDiagnostics(result.getDiagnostics());
+        if (model.getSpeechToTextConfiguration().isAutoSendTranscription()
+                && !editor.getText().trim().isEmpty()) {
+            // Hands-free (settings opt-in): the transcript goes out immediately, no review stop.
+            setDictationStatus("Transcription sent.");
+            refreshDictationControls();
+            sendChat();
+            return;
+        }
         setDictationStatus("Transcription ready. Review the text and press Send.");
         refreshDictationControls();
     }
@@ -3724,6 +3974,8 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
 
     private void startLevelTimer() {
         stopLevelTimer();
+        recordingHadSignal = false;
+        lastSignalAtMillis = System.currentTimeMillis();
         levelTimer = new Timer(100, event -> {
             AudioLevelMeter meter = dictation.getActiveMeter();
             long seconds = (System.currentTimeMillis() - recordingStartedAtMillis) / 1000L;
@@ -3734,6 +3986,22 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
             composer.setAudioLevel(scaleLevel(meter.getPeak()));
             boolean signal = meter.getOverallRms() > 30 || meter.getPeak() > 500;
             boolean clipping = meter.getClippedSampleCount() > 0;
+            // Hands-free auto-stop (settings opt-in): once the user HAS spoken, a long-enough
+            // pause stops the recording exactly like pressing Stop — the transcript follows,
+            // and with auto-send both together give the Gemini feel.
+            if (meter.getPeak() > 500) {
+                recordingHadSignal = true;
+                lastSignalAtMillis = System.currentTimeMillis();
+            }
+            SpeechToTextConfiguration stt = model.getSpeechToTextConfiguration();
+            if (stt.isAutoStopOnSilence() && recordingHadSignal
+                    && dictationState == DictationState.RECORDING
+                    && System.currentTimeMillis() - lastSignalAtMillis
+                            >= stt.getAutoStopSilenceSeconds() * 1000L) {
+                setDictationStatus("Silence — stopping and transcribing …");
+                dictation.stopAndTranscribe(requestedAudioModel(), stt.getLanguage(), "");
+                return;
+            }
             setDictationStatus("● Recording — " + formatDuration(seconds) + " · " + micLabel()
                     + (clipping ? " · CLIPPING" : signal ? " · signal" : " · no signal")
                     + "  (Stop to transcribe · Discard/Esc to cancel)");

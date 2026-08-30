@@ -241,14 +241,29 @@ public final class AudioProcessingTestPanel extends JPanel {
         }
         if (reselect != null) {
             outputCombo.setSelectedItem(reselect);
-        } else if (outputCombo.getItemCount() > 0) {
-            outputCombo.setSelectedIndex(0); // OpenAL primary first, else Java Sound system default
+        } else {
+            // The PERSISTED selection (shared with the chat settings' Playback output row) —
+            // historically this reset to the list head on every open, losing e.g. VLC silently.
+            AudioOutputDevice persisted = new com.aresstack.askai.java8.audio.preview
+                    .AudioPlaybackSettingsStore().resolve(devices);
+            if (persisted != null) {
+                outputCombo.setSelectedItem(persisted);
+            }
         }
         applySelectedOutputDevice();
     }
 
     private void applySelectedOutputDevice() {
-        playback.setOutputDevice((AudioOutputDevice) outputCombo.getSelectedItem());
+        AudioOutputDevice selected = (AudioOutputDevice) outputCombo.getSelectedItem();
+        playback.setOutputDevice(selected);
+        if (selected != null) {
+            try {
+                new com.aresstack.askai.java8.audio.preview.AudioPlaybackSettingsStore()
+                        .persistSelection(selected); // one shared selection with the chat settings
+            } catch (java.io.IOException ignored) {
+                // the panel keeps working; the chat settings row will simply not see this change
+            }
+        }
     }
 
     private static void fillCombo(JComboBox<String> combo, List<String> devices) {

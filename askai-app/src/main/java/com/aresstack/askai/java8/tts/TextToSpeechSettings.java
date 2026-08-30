@@ -53,9 +53,16 @@ public final class TextToSpeechSettings {
     private final Map<String, Selection> byLanguage;
     private final int startupTimeoutSeconds;
     private final int networkTimeoutSeconds;
+    /** Read-aloud starts ACTIVE in research chats: new answers are spoken without pressing Play. */
+    private final boolean readAloudAutoStart;
 
     public TextToSpeechSettings(Map<String, Selection> byLanguage, int startupTimeoutSeconds,
                                 int networkTimeoutSeconds) {
+        this(byLanguage, startupTimeoutSeconds, networkTimeoutSeconds, false);
+    }
+
+    public TextToSpeechSettings(Map<String, Selection> byLanguage, int startupTimeoutSeconds,
+                                int networkTimeoutSeconds, boolean readAloudAutoStart) {
         Map<String, Selection> selections = new LinkedHashMap<String, Selection>();
         if (byLanguage != null) {
             selections.putAll(byLanguage);
@@ -65,6 +72,7 @@ public final class TextToSpeechSettings {
                 ? startupTimeoutSeconds : DEFAULT_STARTUP_TIMEOUT_SECONDS;
         this.networkTimeoutSeconds = networkTimeoutSeconds > 0
                 ? networkTimeoutSeconds : DEFAULT_NETWORK_TIMEOUT_SECONDS;
+        this.readAloudAutoStart = readAloudAutoStart;
     }
 
     public static TextToSpeechSettings defaults() {
@@ -81,7 +89,18 @@ public final class TextToSpeechSettings {
     public TextToSpeechSettings withSelection(String languageCode, Engine engine, String voiceId) {
         Map<String, Selection> selections = new LinkedHashMap<String, Selection>(byLanguage);
         selections.put(languageCode, new Selection(engine, voiceId));
-        return new TextToSpeechSettings(selections, startupTimeoutSeconds, networkTimeoutSeconds);
+        return new TextToSpeechSettings(selections, startupTimeoutSeconds, networkTimeoutSeconds,
+                readAloudAutoStart);
+    }
+
+    /** @return whether read-aloud starts ACTIVE (auto-reading new answers) in research chats. */
+    public boolean isReadAloudAutoStart() {
+        return readAloudAutoStart;
+    }
+
+    public TextToSpeechSettings withReadAloudAutoStart(boolean value) {
+        return new TextToSpeechSettings(byLanguage, startupTimeoutSeconds, networkTimeoutSeconds,
+                value);
     }
 
     /** Visible for the store: every explicitly configured language. */

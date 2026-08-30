@@ -190,9 +190,20 @@ final class ResearchOutOfScopeSky extends JPanel {
      */
     private final ReadAloudVoice speech = new ReadAloudVoice();
     private boolean readAloudActive;
+    /** Central "start active" preference: armed by the accessory, applied on the FIRST push. */
+    private boolean armReadAloudOnFirstAnswer;
     private String latestAnswerId;
     private String latestAnswerText;
     private String lastSpokenAnswerId;
+
+    /**
+     * Central preference (chat settings): read-aloud starts ACTIVE. Applied when the first answer
+     * push arrives — the RESTORED answer of a reopened chat is skipped on purpose (it would blurt
+     * out old text on open); every answer AFTER that is spoken automatically.
+     */
+    void enableReadAloudAutoStart() {
+        this.armReadAloudOnFirstAnswer = true;
+    }
 
     /** The host's speech-output service (model voice), or null — wired by the accessory. */
     void setModelVoice(com.aresstack.askai.agent.model.speech.SpeechSynthesisPort port) {
@@ -215,7 +226,11 @@ final class ResearchOutOfScopeSky extends JPanel {
     void setLatestAnswer(String messageId, String markdown) {
         this.latestAnswerId = messageId;
         this.latestAnswerText = markdown;
-        if (readAloudActive && messageId != null && !messageId.isEmpty()
+        if (armReadAloudOnFirstAnswer) {
+            armReadAloudOnFirstAnswer = false;
+            readAloudActive = true;
+            lastSpokenAnswerId = messageId; // don't catch up on the restored answer
+        } else if (readAloudActive && messageId != null && !messageId.isEmpty()
                 && !messageId.equals(lastSpokenAnswerId)) {
             speakLatest(); // a NEW answer arrived while reading is active → read it out
         }
