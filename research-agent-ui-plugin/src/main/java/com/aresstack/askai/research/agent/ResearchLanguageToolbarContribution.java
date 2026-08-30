@@ -3,24 +3,24 @@ package com.aresstack.askai.research.agent;
 import com.aresstack.askai.plugin.api.agent.AgentSession;
 import com.aresstack.askai.plugin.api.agent.toolbar.AgentToolbarContext;
 import com.aresstack.askai.plugin.api.agent.toolbar.AgentToolbarContribution;
+import com.aresstack.comiccontrols.control.ResearchPillDropdown;
+import com.aresstack.comiccontrols.theme.ResearchUiMetrics;
+import com.aresstack.comiccontrols.theme.ResearchUiTypography;
 
-import javax.swing.DefaultListCellRenderer;
 import javax.swing.Icon;
-import javax.swing.JComboBox;
 import javax.swing.JComponent;
-import javax.swing.JLabel;
-import javax.swing.JList;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Graphics;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
- * The live SESSION language switch in the workspace top bar: {@code [flag Language ▾]} left of the gear.
- * Selecting a language calls {@link ResearchAgentSession#changeLanguage} — host state first, then the
- * best-effort {@code set_language} service command. It is NEVER a chat turn, never a state-machine command
- * and never touches the persisted default in the gear settings. Flags are painted in code on purpose:
+ * The live SESSION language switch — {@code [flag Language ▾]} — in the CHATS FOOTER of the drawer
+ * (design study), no longer in the top bar. Selecting a language calls
+ * {@link ResearchAgentSession#changeLanguage} — host state first, then the best-effort
+ * {@code set_language} service command. It is NEVER a chat turn, never a state-machine command and
+ * never touches the persisted default in the gear settings. Flags are painted in code on purpose:
  * deterministic on every JRE/font, unlike emoji flag glyphs on Windows.
  */
 public final class ResearchLanguageToolbarContribution implements AgentToolbarContribution {
@@ -31,6 +31,11 @@ public final class ResearchLanguageToolbarContribution implements AgentToolbarCo
     }
 
     @Override
+    public Placement getPlacement() {
+        return Placement.SIDEBAR_FOOTER;
+    }
+
+    @Override
     public boolean supports(AgentSession session) {
         return session instanceof ResearchAgentSession;
     }
@@ -38,33 +43,40 @@ public final class ResearchLanguageToolbarContribution implements AgentToolbarCo
     @Override
     public JComponent createComponent(AgentToolbarContext context) {
         final ResearchAgentSession session = (ResearchAgentSession) context.getSession();
-        final JComboBox<ResearchLanguage> combo =
-                new JComboBox<ResearchLanguage>(ResearchLanguage.values());
-        combo.setFocusable(false);
-        combo.setToolTipText("Language of this research session (new content only)");
-        combo.setRenderer(new DefaultListCellRenderer() {
-            @Override
-            public Component getListCellRendererComponent(JList<?> list, Object value, int index,
-                                                          boolean isSelected, boolean cellHasFocus) {
-                JLabel label = (JLabel) super.getListCellRendererComponent(
-                        list, value, index, isSelected, cellHasFocus);
-                ResearchLanguage language = (ResearchLanguage) value;
-                label.setText(language == ResearchLanguage.GERMAN ? "Deutsch" : "English");
-                label.setIcon(new FlagIcon(language));
-                return label;
-            }
-        });
-        combo.setSelectedItem(session.getSessionLanguage().currentLanguage());
-        combo.addActionListener(new ActionListener() {
-            public void actionPerformed(ActionEvent event) {
-                ResearchLanguage selected = (ResearchLanguage) combo.getSelectedItem();
-                if (selected != null
-                        && selected != session.getSessionLanguage().currentLanguage()) {
+        final ResearchLanguage[] languages = ResearchLanguage.values();
+        final ResearchPillDropdown pill = new ResearchPillDropdown(
+                ResearchUiMetrics.FOOTER_CONTROL_HEIGHT, ResearchUiMetrics.RADIUS_CONTROL,
+                0, ResearchUiMetrics.FOOTER_PILL_PADDING_H,
+                ResearchUiMetrics.FOOTER_PILL_PADDING_H);
+        pill.setFont(ResearchUiTypography.regular(13f));
+        pill.setToolTipText("Language of this research session (new content only)");
+        List<ResearchPillDropdown.Item> items = new ArrayList<ResearchPillDropdown.Item>();
+        for (ResearchLanguage language : languages) {
+            items.add(new ResearchPillDropdown.Item(
+                    language == ResearchLanguage.GERMAN ? "Deutsch" : "English",
+                    new FlagIcon(language), true, null));
+        }
+        pill.setItems(items);
+        pill.setSelectedIndex(indexOf(languages, session.getSessionLanguage().currentLanguage()));
+        pill.setSelectionListener(new ResearchPillDropdown.SelectionListener() {
+            public void itemSelected(int index) {
+                ResearchLanguage selected = languages[index];
+                if (selected != session.getSessionLanguage().currentLanguage()) {
                     session.changeLanguage(selected);
                 }
+                pill.setSelectedIndex(index);
             }
         });
-        return combo;
+        return pill;
+    }
+
+    private static int indexOf(ResearchLanguage[] languages, ResearchLanguage current) {
+        for (int index = 0; index < languages.length; index++) {
+            if (languages[index] == current) {
+                return index;
+            }
+        }
+        return 0;
     }
 
     /** 16×11 flag glyphs, painted (no fonts, no image resources): DE tricolour, simplified Union Jack. */

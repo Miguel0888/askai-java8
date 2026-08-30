@@ -17,6 +17,11 @@ public interface AgentToolbarHost {
 
     void clearCenterToolbar();
 
+    /** Show a control in the drawer's Chats-pane footer (next to the host's gear). */
+    void setFooterToolbar(JComponent component);
+
+    void clearFooterToolbar();
+
     /** Show a closable overlay over the ACTIVE chat's transcript (e.g. a hint panel). */
     void showTranscriptOverlay(JComponent content, String title);
 

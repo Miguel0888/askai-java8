@@ -13,6 +13,11 @@ public interface ComposerAccessoryHost {
 
     void clearAccessory();
 
+    /** Place an accessory BELOW the active tab's composer (e.g. a phase-bound workspace strip). */
+    void setBelowAccessory(JComponent component);
+
+    void clearBelowAccessory();
+
     /** Route an accessory-provided composer placeholder to the targeted tab (null = default). */
     void setComposerPlaceholder(String placeholderOrNull);
 }

@@ -356,6 +356,14 @@ public final class ResearchScopeDraft {
             return addDistinct(exclusions, value);
         }
 
+        /** Take a plain exclusion back OUT (exact wording; unknown values are a no-op). */
+        public Builder removeExclusion(String value) {
+            if (value != null) {
+                exclusions.remove(value.trim());
+            }
+            return this;
+        }
+
         public Builder addDomain(String value) {
             return addDistinct(domains, value);
         }

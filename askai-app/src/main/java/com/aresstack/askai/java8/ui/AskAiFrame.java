@@ -121,6 +121,8 @@ public final class AskAiFrame extends JFrame {
     private com.aresstack.askai.plugin.host.AgentComposerAccessoryArea composerAccessoryArea;
     /** The tab currently showing a composer accessory, so it can be cleared when the active tab changes. */
     private OllamaChatPanel accessoryTargetTab;
+    /** The tab currently showing a BELOW-composer accessory (tracked independently of the upper slot). */
+    private OllamaChatPanel belowAccessoryTargetTab;
     /** Host runtime services (owns the process-global Solon MCP server); stopped synchronously on close. */
     private com.aresstack.askai.java8.plugin.host.AgentRuntimeServices agentRuntimeServices;
     private AudioProcessingPanel audioProcessingPanel;
@@ -745,6 +747,26 @@ public final class AskAiFrame extends JFrame {
                         }
                     }
 
+                    public void setBelowAccessory(javax.swing.JComponent component) {
+                        OllamaChatPanel active = activeChat();
+                        if (belowAccessoryTargetTab != null && belowAccessoryTargetTab != active) {
+                            belowAccessoryTargetTab.clearBelowComposerAccessory();
+                        }
+                        if (active != null) {
+                            active.setBelowComposerAccessory(component);
+                            belowAccessoryTargetTab = active;
+                        } else {
+                            belowAccessoryTargetTab = null;
+                        }
+                    }
+
+                    public void clearBelowAccessory() {
+                        if (belowAccessoryTargetTab != null) {
+                            belowAccessoryTargetTab.clearBelowComposerAccessory();
+                            belowAccessoryTargetTab = null;
+                        }
+                    }
+
                     public void setComposerPlaceholder(String placeholderOrNull) {
                         if (accessoryTargetTab != null) {
                             accessoryTargetTab.setComposerPlaceholder(placeholderOrNull);
@@ -776,6 +798,14 @@ public final class AskAiFrame extends JFrame {
 
                     public void clearCenterToolbar() {
                         chatTabs.clearAgentCenterToolbar();
+                    }
+
+                    public void setFooterToolbar(javax.swing.JComponent component) {
+                        chatTabs.setAgentFooterToolbar(component);
+                    }
+
+                    public void clearFooterToolbar() {
+                        chatTabs.clearAgentFooterToolbar();
                     }
 
                     public void showTranscriptOverlay(javax.swing.JComponent content, String title) {

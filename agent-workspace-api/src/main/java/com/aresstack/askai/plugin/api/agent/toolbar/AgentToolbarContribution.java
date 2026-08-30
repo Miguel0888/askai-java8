@@ -23,7 +23,12 @@ public interface AgentToolbarContribution {
          */
         CENTER,
         /** Left of the gear in the trailing group (the default) — e.g. a language switch. */
-        TRAILING
+        TRAILING,
+        /**
+         * The footer strip at the bottom of the drawer's "Chats" pane (next to the host's gear) —
+         * e.g. the session language switch. Not part of the top bar at all.
+         */
+        SIDEBAR_FOOTER
     }
 
     /** A stable id for this control (diagnostics / de-duplication). */

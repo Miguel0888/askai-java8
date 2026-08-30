@@ -58,12 +58,15 @@ public final class AgentComposerAccessoryArea {
         AgentSession session = coordinator.getActiveSession();
         if (session == null) {
             host.clearAccessory();
+            host.clearBelowAccessory();
             return;
         }
         ComposerAccessoryContext context = new DefaultComposerAccessoryContext(
                 session, uiExecutor, themeService, markdownViewFactory);
-        JPanel stack = new JPanel();
-        stack.setLayout(new BoxLayout(stack, BoxLayout.Y_AXIS));
+        JPanel aboveStack = newStack();
+        JPanel belowStack = newStack();
+        int above = 0;
+        int below = 0;
         for (ComposerAccessoryContribution contribution : coordinator.getActiveComposerAccessories()) {
             if (contribution == null || !contribution.supports(session)) {
                 continue;
@@ -75,21 +78,38 @@ public final class AgentComposerAccessoryArea {
             live.add(accessory);
             JComponent component = accessory.getComponent();
             if (component != null) {
-                stack.add(component);
+                if (accessory.getPlacement() == ComposerAccessory.Placement.BELOW_COMPOSER) {
+                    belowStack.add(component);
+                    below++;
+                } else {
+                    aboveStack.add(component);
+                    above++;
+                }
             }
         }
-        if (live.isEmpty()) {
+        if (above == 0) {
             host.clearAccessory();
         } else {
-            host.setAccessory(stack);
-            for (ComposerAccessory accessory : live) {
-                accessory.bindPlaceholderSink(new java.util.function.Consumer<String>() {
-                    public void accept(String placeholder) {
-                        host.setComposerPlaceholder(placeholder);
-                    }
-                });
-            }
+            host.setAccessory(aboveStack);
         }
+        if (below == 0) {
+            host.clearBelowAccessory();
+        } else {
+            host.setBelowAccessory(belowStack);
+        }
+        for (ComposerAccessory accessory : live) {
+            accessory.bindPlaceholderSink(new java.util.function.Consumer<String>() {
+                public void accept(String placeholder) {
+                    host.setComposerPlaceholder(placeholder);
+                }
+            });
+        }
+    }
+
+    private static JPanel newStack() {
+        JPanel stack = new JPanel();
+        stack.setLayout(new BoxLayout(stack, BoxLayout.Y_AXIS));
+        return stack;
     }
 
     private void disposeLive() {

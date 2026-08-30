@@ -73,20 +73,23 @@ public final class ResearchAgentPluginExtension implements AgentPluginExtension 
     @Override
     public List<com.aresstack.askai.plugin.api.agent.composer.ComposerAccessoryContribution>
             getComposerAccessories() {
-        // The scoping controls (map + suggestions + query) live above the composer, not in the artifact area.
-        return java.util.Collections
-                .<com.aresstack.askai.plugin.api.agent.composer.ComposerAccessoryContribution>singletonList(
-                        new com.aresstack.askai.research.agent.ScopingComposerAccessoryContribution());
+        // ABOVE the composer: the scoping controls (map + suggestions + query). BELOW it: the
+        // phase-bound surface (Phase 1 = the blacklist strip; other phases show nothing).
+        return java.util.Arrays
+                .<com.aresstack.askai.plugin.api.agent.composer.ComposerAccessoryContribution>asList(
+                        new com.aresstack.askai.research.agent.ScopingComposerAccessoryContribution(),
+                        new com.aresstack.askai.research.agent.ResearchPhaseAccessoryContribution());
     }
 
     @Override
     public List<com.aresstack.askai.plugin.api.agent.toolbar.AgentToolbarContribution>
             getToolbarContributions() {
-        // The live SESSION language switch (trailing, left of the workspace gear; the gear setting
-        // stays the default for NEW sessions only) and the CENTERED "Websuche" tag.
+        // The session language switch lives in the drawer's CHATS FOOTER, the phase selector holds
+        // the CENTERED spot, and the "Websuche" tag (+ mindmap button) trails at the far right.
         return java.util.Arrays
                 .<com.aresstack.askai.plugin.api.agent.toolbar.AgentToolbarContribution>asList(
                         new com.aresstack.askai.research.agent.ResearchLanguageToolbarContribution(),
+                        new com.aresstack.askai.research.agent.ResearchPhaseToolbarContribution(),
                         new com.aresstack.askai.research.agent.ResearchWebSearchToolbarContribution());
     }
 }

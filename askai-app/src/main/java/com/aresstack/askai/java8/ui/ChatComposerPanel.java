@@ -528,6 +528,14 @@ public final class ChatComposerPanel extends JPanel {
     }
 
     /**
+     * The bare gear GLYPH (paints with the owning component's foreground) — for buttons that manage
+     * their own surface, e.g. the dark chats-footer settings button.
+     */
+    public static Icon createGearGlyphIcon() {
+        return new GearIcon();
+    }
+
+    /**
      * Override the editor's placeholder text (e.g. the research scoping query proposed by the agent);
      * null or blank restores the default prompt. The placeholder never touches typed text.
      */

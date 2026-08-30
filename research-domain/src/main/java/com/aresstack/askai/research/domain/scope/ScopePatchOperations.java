@@ -138,6 +138,26 @@ public final class ScopePatchOperations {
         return listOperation("addExclusion", exclusion, ListTarget.EXCLUSION);
     }
 
+    /**
+     * The user takes a PLAIN exclusion back (e.g. the ✕ on a blacklist chip). Only the string list —
+     * an EXCLUDED facet stays on record forever and is not touched by this.
+     */
+    public static ScopePatchOperation removeExclusion(final String exclusion) {
+        return new ScopePatchOperation() {
+            public String kind() {
+                return "removeExclusion";
+            }
+
+            public void applyTo(ResearchScopeDraft.Builder builder) {
+                builder.removeExclusion(exclusion);
+            }
+
+            public String describe() {
+                return "removeExclusion " + exclusion;
+            }
+        };
+    }
+
     public static ScopePatchOperation addDomain(final String domain) {
         return listOperation("addDomain", domain, ListTarget.DOMAIN);
     }

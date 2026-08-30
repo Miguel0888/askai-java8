@@ -46,6 +46,7 @@ public final class AgentToolbarArea {
         if (session == null) {
             host.clearToolbar();
             host.clearCenterToolbar();
+            host.clearFooterToolbar();
             return;
         }
         AgentToolbarContext context = new AgentToolbarContext() {
@@ -73,8 +74,10 @@ public final class AgentToolbarArea {
         };
         JPanel trailingRow = newRow();
         JPanel centerRow = newRow();
+        JPanel footerRow = newRow();
         int trailingBuilt = 0;
         int centerBuilt = 0;
+        int footerBuilt = 0;
         for (AgentToolbarContribution contribution : coordinator.getActiveToolbarContributions()) {
             if (contribution == null || !contribution.supports(session)) {
                 continue;
@@ -86,6 +89,10 @@ public final class AgentToolbarArea {
             if (contribution.getPlacement() == AgentToolbarContribution.Placement.CENTER) {
                 centerRow.add(component);
                 centerBuilt++;
+            } else if (contribution.getPlacement()
+                    == AgentToolbarContribution.Placement.SIDEBAR_FOOTER) {
+                footerRow.add(component);
+                footerBuilt++;
             } else {
                 trailingRow.add(component);
                 trailingBuilt++;
@@ -100,6 +107,11 @@ public final class AgentToolbarArea {
             host.clearCenterToolbar();
         } else {
             host.setCenterToolbar(centerRow);
+        }
+        if (footerBuilt == 0) {
+            host.clearFooterToolbar();
+        } else {
+            host.setFooterToolbar(footerRow);
         }
     }
 

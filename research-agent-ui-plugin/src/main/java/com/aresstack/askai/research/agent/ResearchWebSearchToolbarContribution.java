@@ -23,8 +23,8 @@ import java.awt.event.ActionListener;
 
 /**
  * The "Websuche" tag in the workspace top bar: the {@link ComicSearchTag} (yellow chip look, ink
- * magnifier), CENTERED between hamburger/ribbon and the trailing controls — the unfolding ribbon
- * pushes it right and may squeeze it. Firing runs {@link ResearchAgentSession#requestManualWebSearch}
+ * magnifier), TRAILING at the far right of the top bar (the old centered spot now belongs to the
+ * phase selector). Firing runs {@link ResearchAgentSession#requestManualWebSearch}
  * — the SAME phase-independent /search path as a suggestion click, so the captured sources flow
  * into the corpus and the bot can review them afterwards. Never a chat turn, never a state command.
  *
@@ -41,7 +41,7 @@ public final class ResearchWebSearchToolbarContribution implements AgentToolbarC
 
     @Override
     public Placement getPlacement() {
-        return Placement.CENTER;
+        return Placement.TRAILING;
     }
 
     @Override

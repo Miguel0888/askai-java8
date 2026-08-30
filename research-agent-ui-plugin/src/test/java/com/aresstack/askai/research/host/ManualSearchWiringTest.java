@@ -204,26 +204,27 @@ public class ManualSearchWiringTest {
                 new com.aresstack.askai.research.agent.ResearchLanguageToolbarContribution();
         assertTrue("the control applies to research sessions", contribution.supports(fx.session));
 
-        javax.swing.JComboBox<?> combo = (javax.swing.JComboBox<?>) contribution.createComponent(
-                new com.aresstack.askai.plugin.api.agent.toolbar.AgentToolbarContext() {
-                    public com.aresstack.askai.plugin.api.agent.AgentSession getSession() {
-                        return fx.session;
-                    }
+        com.aresstack.comiccontrols.control.ResearchPillDropdown pill =
+                (com.aresstack.comiccontrols.control.ResearchPillDropdown)
+                        contribution.createComponent(
+                                new com.aresstack.askai.plugin.api.agent.toolbar.AgentToolbarContext() {
+                                    public com.aresstack.askai.plugin.api.agent.AgentSession getSession() {
+                                        return fx.session;
+                                    }
 
-                    public UiExecutor getUiExecutor() {
-                        return inlineUi();
-                    }
+                                    public UiExecutor getUiExecutor() {
+                                        return inlineUi();
+                                    }
 
-                    public ThemeService getThemeService() {
-                        return null;
-                    }
-                });
-        assertEquals("the dropdown mirrors the session language",
-                com.aresstack.askai.research.agent.ResearchLanguage.ENGLISH, combo.getSelectedItem());
+                                    public ThemeService getThemeService() {
+                                        return null;
+                                    }
+                                });
+        assertEquals("the dropdown mirrors the session language (index 0 = English)",
+                0, pill.getSelectedIndex());
 
         int promptsBefore = fx.backend.prompts.size();
-        int envelopesBefore = fx.backend.serviceCommands.size();
-        combo.setSelectedItem(com.aresstack.askai.research.agent.ResearchLanguage.GERMAN);
+        pill.select(1); // GERMAN, like a popup click
 
         assertEquals("the switch reaches the host session first",
                 com.aresstack.askai.research.agent.ResearchLanguage.GERMAN,
@@ -234,7 +235,7 @@ public class ManualSearchWiringTest {
         assertEquals("never a state change", ResearchStateIds.RUNNING,
                 fx.resources.currentState().getStateId());
 
-        combo.setSelectedItem(com.aresstack.askai.research.agent.ResearchLanguage.GERMAN);
+        pill.select(1);
         assertEquals("re-selecting the current language sends nothing",
                 1, countEnvelopes(fx, "#RSC1# set_language language=de"));
     }

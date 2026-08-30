@@ -138,6 +138,8 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
     private final ChatComposerPanel composer;
     /** Generic per-tab slot above the composer for a host-provided agent accessory; hidden when empty. */
     private final JPanel composerAccessorySlot = new JPanel(new BorderLayout());
+    /** Its twin BELOW the composer (e.g. the research blacklist strip); hidden when empty. */
+    private final JPanel belowComposerAccessorySlot = new JPanel(new BorderLayout());
     // The single source of truth for the interaction mode (Yapping/Questing) and the selected agent is the
     // host WorkspaceModeController; this panel's composer selector only drives and reflects it.
     private com.aresstack.askai.plugin.host.WorkspaceModeController modeController;
@@ -635,20 +637,22 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
     }
 
     /**
-     * The bottom area of a chat: the composer, with the (collapsed) Technical details directly below it,
-     * both full width. There is no top toolbar anymore — New chat is the workspace's "+" tab and model
-     * refresh is the global button in the menu bar.
+     * The bottom area of a chat: accessory slot, composer, and the BELOW-composer accessory slot,
+     * all full width. The old collapsed "Technical details" strip is gone from here — the same log
+     * lives in the settings dialog's "Technical Details" category now.
      */
     private JComponent buildBottomArea() {
         JPanel bottom = new JPanel(new BorderLayout());
-        // A generic per-tab accessory slot directly ABOVE the composer, populated by the host for the active
-        // agent (e.g. the research scoping controls). Empty and INVISIBLE by default, so it reserves no space.
+        // Generic per-tab accessory slots directly ABOVE and BELOW the composer, populated by the host for
+        // the active agent (e.g. research scoping controls / the phase-bound blacklist strip). Empty and
+        // INVISIBLE by default, so they reserve no space.
         JPanel composerStack = new JPanel(new BorderLayout());
         composerAccessorySlot.setVisible(false);
         composerStack.add(composerAccessorySlot, BorderLayout.NORTH);
         composerStack.add(buildComposer(), BorderLayout.CENTER);
+        belowComposerAccessorySlot.setVisible(false);
+        composerStack.add(belowComposerAccessorySlot, BorderLayout.SOUTH);
         bottom.add(composerStack, BorderLayout.NORTH);
-        bottom.add(new CollapsiblePanel("Technical details", buildTechnicalDetails(), false), BorderLayout.SOUTH);
         return bottom;
     }
 
@@ -672,6 +676,24 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         composerAccessorySlot.revalidate();
         composerAccessorySlot.repaint();
         setComposerPlaceholder(null); // an accessory-provided placeholder never outlives the accessory
+    }
+
+    /** Show a host-provided accessory BELOW the composer (replacing any previous one). EDT only. */
+    public void setBelowComposerAccessory(JComponent accessory) {
+        belowComposerAccessorySlot.removeAll();
+        if (accessory != null) {
+            belowComposerAccessorySlot.add(accessory, BorderLayout.CENTER);
+            belowComposerAccessorySlot.setVisible(true);
+        } else {
+            belowComposerAccessorySlot.setVisible(false);
+        }
+        belowComposerAccessorySlot.revalidate();
+        belowComposerAccessorySlot.repaint();
+    }
+
+    /** Remove any below-composer accessory so the slot reserves no space. EDT only. */
+    public void clearBelowComposerAccessory() {
+        setBelowComposerAccessory(null);
     }
 
     /** Override the composer's placeholder text (null restores the default). EDT only. */
@@ -711,20 +733,22 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         }
     }
 
-    /** The always-available (collapsed) technical log shown in the header. */
+    /**
+     * The always-available technical log of THIS chat. It used to be a collapsible strip under the
+     * composer; now it fills the settings dialog's "Technical Details" category — same data, same
+     * {@link #appendTech} feed, only the display place changed.
+     */
     private JComponent buildTechnicalDetails() {
         techDetails.setEditable(false);
         techDetails.setLineWrap(true);
         techDetails.setWrapStyleWord(true);
-        JScrollPane techScroll = new JScrollPane(techDetails);
-        techScroll.setPreferredSize(new Dimension(techScroll.getPreferredSize().width, 140));
-        return techScroll;
+        return new JScrollPane(techDetails);
     }
 
     /** The category names shown in the Outlook-style navigation list, in display order. */
     private static final String[] SETTINGS_CATEGORIES = {
             "General", "Audio & Dictation", "Notifications", "Party: Identity & Room",
-            "Party: Network", "Party: Bot", "Party: History"};
+            "Party: Network", "Party: Bot", "Party: History", "Technical Details"};
 
     /**
      * The chat settings dialog content, Outlook-style: a category list on the left selects one
@@ -759,6 +783,8 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         cards.add(settingsCard(partyCards[1]), SETTINGS_CATEGORIES[4]);
         cards.add(settingsCard(partyCards[2]), SETTINGS_CATEGORIES[5]);
         cards.add(settingsCard(partyCards[3]), SETTINGS_CATEGORIES[6]);
+        // The technical log is already scrollable — no settingsCard wrapper (no double scroll pane).
+        cards.add(buildTechnicalDetails(), SETTINGS_CATEGORIES[7]);
 
         java.util.List<String> categories =
                 new java.util.ArrayList<String>(java.util.Arrays.asList(SETTINGS_CATEGORIES));
@@ -1428,8 +1454,7 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
     /** One per color button: re-reads its current color into its swatch (used by "Reset"). */
     private final List<Runnable> colorSwatchRefreshers = new ArrayList<Runnable>();
 
-    /** Opens the (modeless) Chat settings dialog behind the composer's gear icon. */
-    /** Opens the chat settings dialog; also triggered by the workspace's top-right gear button. */
+    /** Opens the (modeless) chat settings dialog — triggered by the drawer footer's gear button. */
     public void openSettingsDialog() {
         refreshAudioProfiles(); // reload so profiles saved in the editor appear immediately
         if (settingsDialog == null) {

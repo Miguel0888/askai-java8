@@ -9,6 +9,10 @@ import com.aresstack.askai.java8.ui.sidebar.ChatSidebarTab;
 import com.aresstack.comiccontrols.control.ComicButton;
 import com.aresstack.comiccontrols.control.ComicScrollPane;
 import com.aresstack.comiccontrols.control.ComicSplitPane;
+import com.aresstack.comiccontrols.control.ResearchIconButton;
+import com.aresstack.comiccontrols.control.ResearchPillButton;
+import com.aresstack.comiccontrols.theme.ResearchUiMetrics;
+import com.aresstack.comiccontrols.theme.ResearchUiTypography;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
@@ -39,8 +43,9 @@ import java.util.Map;
  * opening and closing chats happens through the sidebar (drawer): its "Chats" tab merges the OPEN
  * sessions with the saved history, so one list is both the tab bar replacement and the history. The
  * drawer spans the workspace's full height on the left, opens on hamburger hover/click, closes when
- * the mouse leaves it (unless pinned), and the top bar carries the hamburger (top-left) and the chat
- * settings gear (top-right). Each chat keeps a stable {@link ChatSessionId}; sessions are addressed
+ * the mouse leaves it (unless pinned), and the top bar carries the hamburger (top-left) plus the
+ * agent toolbar slots; New chat and the settings gear live INSIDE the drawer's Chats pane (button on
+ * top, gear in the footer). Each chat keeps a stable {@link ChatSessionId}; sessions are addressed
  * by id, never by index. At least one chat stays open.
  */
 public final class ChatWorkspacePanel extends JPanel {
@@ -79,8 +84,10 @@ public final class ChatWorkspacePanel extends JPanel {
 
     private final ChatSidebarPanel sidebar;
     private final JButton burger;
-    /** Slot for the ACTIVE agent's generic toolbar contributions, left of the gear (may stay empty). */
+    /** Slot for the ACTIVE agent's TRAILING toolbar contributions, far right (may stay empty). */
     private final JPanel agentToolbarSlot = new JPanel(new BorderLayout());
+    /** Slot for the ACTIVE agent's Chats-footer control (e.g. the session language pill). */
+    private final JPanel agentFooterToolbarSlot = new JPanel(new BorderLayout());
     /**
      * The CENTERED top-bar slot (e.g. the research web-search tag): GridBagLayout centers its one
      * child; the unfolding ribbon pushes it right and squeezes it when the width runs out.
@@ -347,7 +354,21 @@ public final class ChatWorkspacePanel extends JPanel {
         persistBurgerPinned();
     }
 
-    /** Show the active agent's toolbar controls left of the gear (replaces any previous ones). */
+    /** Show the active agent's control in the Chats-pane footer (replaces any previous one). */
+    public void setAgentFooterToolbar(javax.swing.JComponent component) {
+        agentFooterToolbarSlot.removeAll();
+        if (component != null) {
+            agentFooterToolbarSlot.add(component, BorderLayout.CENTER);
+        }
+        agentFooterToolbarSlot.revalidate();
+        agentFooterToolbarSlot.repaint();
+    }
+
+    public void clearAgentFooterToolbar() {
+        setAgentFooterToolbar(null);
+    }
+
+    /** Show the active agent's TRAILING toolbar controls far right (replaces any previous ones). */
     public void setAgentToolbar(javax.swing.JComponent component) {
         agentToolbarSlot.removeAll();
         if (component != null) {
@@ -407,24 +428,6 @@ public final class ChatWorkspacePanel extends JPanel {
             refreshRibbonTabs(); // re-emphasize the newly active entry
         });
 
-        JButton gear = ChatComposerPanel.createSettingsIconButton();
-        gear.addActionListener(event -> {
-            ChatSessionComponent active = activeSession();
-            if (active instanceof OllamaChatPanel) {
-                ((OllamaChatPanel) active).openSettingsDialog();
-            }
-        });
-        // New chat is a simple "+" icon next to the gear (it used to be a button in the drawer).
-        JButton newChat = ChatComposerPanel.createNewChatIconButton();
-        newChat.addActionListener(event -> {
-            openNewChat();
-            if (menuLocked) {
-                refreshChatList();
-            } else {
-                collapseMenuAndSidebar();
-            }
-        });
-
         JPanel topBar = new JPanel(new BorderLayout(4, 0));
         topBar.setOpaque(false);
         topBar.setBorder(BorderFactory.createEmptyBorder(2, 4, 0, 4));
@@ -438,26 +441,17 @@ public final class ChatWorkspacePanel extends JPanel {
         topBar.add(topLeft, BorderLayout.WEST);
         agentCenterSlot.setOpaque(false);
         topBar.add(agentCenterSlot, BorderLayout.CENTER);
-        // Generic agent toolbar contributions (e.g. a session language switch) sit LEFT of the
-        // "+"/gear pair. The workspace only hosts the slots; components come from the plugin.
-        JPanel topRight = new JPanel(new BorderLayout(4, 0));
-        topRight.setOpaque(false);
+        // The agent's TRAILING contributions (e.g. Websuche + Mindmap) sit at the FAR right — the
+        // old "+"/gear pair moved into the drawer's Chats pane. The workspace only hosts the slot;
+        // components come from the plugin.
         agentToolbarSlot.setOpaque(false);
-        topRight.add(agentToolbarSlot, BorderLayout.CENTER);
-        JPanel rightButtons = new JPanel();
-        rightButtons.setLayout(new javax.swing.BoxLayout(rightButtons, javax.swing.BoxLayout.X_AXIS));
-        rightButtons.setOpaque(false);
-        rightButtons.add(newChat);
-        rightButtons.add(gear);
-        topRight.add(rightButtons, BorderLayout.EAST);
-        topBar.add(topRight, BorderLayout.EAST);
+        topBar.add(agentToolbarSlot, BorderLayout.EAST);
 
         sidebar.setVisible(false);
         sidebar.setExtraTabsSupplier(() -> sidebarTabsSource == null
                 ? java.util.Collections.<ChatSidebarTab>emptyList() : sidebarTabsSource.get());
         // No pane title in the header — the ribbon's colored entry already names the active pane.
-        // The chat SEARCH BAR takes that spot (New chat moved to the "+" icon next to the gear);
-        // it filters live on every keystroke, no Enter needed.
+        // The chat SEARCH BAR takes that spot; it filters live on every keystroke, no Enter needed.
         chatFilter.getTextField().getDocument().addDocumentListener(
                 new javax.swing.event.DocumentListener() {
                     public void insertUpdate(javax.swing.event.DocumentEvent e) {
@@ -614,19 +608,75 @@ public final class ChatWorkspacePanel extends JPanel {
         scroll.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
         scroll.getVerticalScrollBar().setUnitIncrement(16);
 
+        // "+ Neuer Chat" above the list — the design study's dark pill, only as wide as its text.
+        ResearchPillButton newChat = new ResearchPillButton("+ Neuer Chat",
+                ResearchUiMetrics.NEW_CHAT_HEIGHT, ResearchUiMetrics.RADIUS_CONTROL,
+                ResearchUiMetrics.NEW_CHAT_PADDING_H);
+        newChat.setFont(ResearchUiTypography.semiBold(13f));
+        newChat.setToolTipText("Open a new chat");
+        newChat.addActionListener(event -> {
+            openNewChat();
+            if (menuLocked) {
+                refreshChatList();
+            } else {
+                collapseMenuAndSidebar();
+            }
+        });
+        JPanel north = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0));
+        north.setOpaque(false);
+        north.setBorder(BorderFactory.createEmptyBorder(8, 8, 4, 8));
+        north.add(newChat);
+
         JButton deleteAll = new ComicButton("Delete all chats…", ComicButton.Accent.CRITICAL);
         deleteAll.setToolTipText("Delete every saved chat (asks for confirmation)");
         deleteAll.addActionListener(event -> deleteAllChats());
+        JPanel deleteRow = new JPanel(new BorderLayout());
+        deleteRow.setOpaque(false);
+        deleteRow.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
+        deleteRow.add(deleteAll, BorderLayout.CENTER);
+
         JPanel south = new JPanel(new BorderLayout());
         south.setOpaque(false);
-        south.setBorder(BorderFactory.createEmptyBorder(4, 8, 8, 8));
-        south.add(deleteAll, BorderLayout.CENTER);
+        south.add(deleteRow, BorderLayout.NORTH);
+        south.add(buildChatsFooter(), BorderLayout.SOUTH);
 
         JPanel tab = new JPanel(new BorderLayout());
         tab.setOpaque(false);
+        tab.add(north, BorderLayout.NORTH);
         tab.add(scroll, BorderLayout.CENTER);
         tab.add(south, BorderLayout.SOUTH);
         return tab;
+    }
+
+    /**
+     * The Chats-pane FOOTER of the design study: [language slot] … [gear], pinned to the bottom of
+     * the pane (it never scrolls with the list). The language control is the active agent's
+     * SIDEBAR_FOOTER toolbar contribution; the gear opens the active chat's settings dialog.
+     */
+    private JComponent buildChatsFooter() {
+        JPanel footer = new JPanel(new BorderLayout(8, 0));
+        footer.setOpaque(false);
+        footer.setBorder(BorderFactory.createEmptyBorder(
+                ResearchUiMetrics.FOOTER_PADDING_V, ResearchUiMetrics.FOOTER_PADDING_H,
+                ResearchUiMetrics.FOOTER_PADDING_V, ResearchUiMetrics.FOOTER_PADDING_H));
+        footer.setPreferredSize(new Dimension(10, ResearchUiMetrics.FOOTER_HEIGHT));
+
+        agentFooterToolbarSlot.setOpaque(false);
+        footer.add(agentFooterToolbarSlot, BorderLayout.WEST);
+
+        ResearchIconButton gear = new ResearchIconButton(
+                ChatComposerPanel.createGearGlyphIcon(), "Chat settings");
+        gear.addActionListener(event -> {
+            ChatSessionComponent active = activeSession();
+            if (active instanceof OllamaChatPanel) {
+                ((OllamaChatPanel) active).openSettingsDialog();
+            }
+        });
+        JPanel gearWrap = new JPanel(new java.awt.GridBagLayout());
+        gearWrap.setOpaque(false);
+        gearWrap.add(gear);
+        footer.add(gearWrap, BorderLayout.EAST);
+        return footer;
     }
 
     /** One chat-list entry: an open session ({@code openId != null}) and/or its persisted record. */

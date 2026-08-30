@@ -2438,6 +2438,74 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         for (String change : applied.getChanges()) {
             System.err.println("[research-scope] " + change);
         }
+        if (applied.isApplied()) {
+            // Scope surfaces (e.g. the blacklist chips under the composer) refresh through the
+            // ordinary state listener — a model-recorded exclusion must appear without a restart.
+            fireStateChanged();
+        }
+    }
+
+    /** The current persisted scope draft (an empty one in fake mode) — the blacklist UI reads this. */
+    public com.aresstack.askai.research.domain.scope.ResearchScopeDraft currentScopeDraft() {
+        com.aresstack.askai.research.scope.ResearchScopeCoordinator coordinator = scopeCoordinator();
+        return coordinator == null
+                ? com.aresstack.askai.research.domain.scope.ResearchScopeDraft.empty()
+                : coordinator.current();
+    }
+
+    /**
+     * Record a user-worded exclusion ("+ Hinzufügen" on the blacklist) through the ONE scope path —
+     * the same coordinator/patch/persist route a scoping turn takes, never a parallel store.
+     *
+     * @return {@code null} when recorded (or already present), else the honest rejection reason
+     */
+    public String addScopeExclusion(String text) {
+        return applyExclusionPatch(text, true);
+    }
+
+    /**
+     * Take a plain exclusion back out (the chip's ✕). Only the user-worded string list — EXCLUDED
+     * facets stay on record, exactly like {@code ScopePatchOperations.removeExclusion} documents.
+     *
+     * @return {@code null} when removed (or already absent), else the honest rejection reason
+     */
+    public String removeScopeExclusion(String text) {
+        return applyExclusionPatch(text, false);
+    }
+
+    private String applyExclusionPatch(String text, boolean add) {
+        String value = text == null ? "" : text.trim();
+        if (value.isEmpty()) {
+            return "der Ausschluss ist leer";
+        }
+        com.aresstack.askai.research.scope.ResearchScopeCoordinator coordinator = scopeCoordinator();
+        if (coordinator == null) {
+            return "kein Projektkontext (Fake-Modus) — der Rechercheumfang wird nicht persistiert";
+        }
+        // A no-op must not burn a revision: adding an existing / removing an absent value returns quietly.
+        boolean present = coordinator.current().getExclusions().contains(value);
+        if (add == present) {
+            return null;
+        }
+        com.aresstack.askai.research.domain.scope.ScopePatch patch =
+                new com.aresstack.askai.research.domain.scope.ScopePatch(
+                        java.util.Collections.singletonList(add
+                                ? com.aresstack.askai.research.domain.scope.ScopePatchOperations
+                                        .addExclusion(value)
+                                : com.aresstack.askai.research.domain.scope.ScopePatchOperations
+                                        .removeExclusion(value)));
+        com.aresstack.askai.research.scope.ScopeUpdateResult result = coordinator.apply(patch,
+                java.util.Collections.<com.aresstack.askai.research.domain.scope
+                        .UnresolvedScopeIssue>emptyList());
+        if (result.getStatus()
+                == com.aresstack.askai.research.scope.ScopeUpdateResult.Status.REJECTED) {
+            return result.getReason();
+        }
+        if (result.isApplied()) {
+            publishScopeFence(); // the next model turn must see the authoritative scope immediately
+            fireStateChanged();  // the chips re-render through the ordinary state listener
+        }
+        return null;
     }
 
     private void reportScopeProblem(final String message) {
