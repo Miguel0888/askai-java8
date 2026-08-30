@@ -48,6 +48,8 @@ public final class LocalModelRuntimeMain {
         LocalModelRuntimeServer server = new LocalModelRuntimeServer(store, engine, generationEngine);
         int boundPort = server.start(host, port);
         Runtime.getRuntime().addShutdownHook(new Thread(server::stop, "local-runtime-shutdown"));
+        // Die with the parent (stdin EOF): a hard-killed host must never leave this JVM behind.
+        ParentDeathWatchdog.install("local-runtime");
 
         String baseUrl = "http://" + host + ":" + boundPort;
         // The ONE machine-readable ready line on stdout (the host parses exactly this).

@@ -108,6 +108,23 @@ public final class ResearchAgentMain {
                 .transport(new StdioAcpAgentTransport())
                 .build().run();
         System.err.println("[research-agent] terminated");
+        // The stdio loop ended (parent gone or clean close) — but NON-DAEMON leftovers (MCP
+        // endpoints, provider clients, actor threads) kept the JVM alive as a zombie: dozens of
+        // orphaned agent JVMs piled up until the machine ran out of commit memory. Exit runs the
+        // shutdown hooks; the halt fallback guards against a hook that hangs.
+        Thread reaper = new Thread(new Runnable() {
+            public void run() {
+                try {
+                    Thread.sleep(5_000);
+                } catch (InterruptedException ignored) {
+                    Thread.currentThread().interrupt();
+                }
+                Runtime.getRuntime().halt(0);
+            }
+        }, "research-agent-halt-fallback");
+        reaper.setDaemon(true);
+        reaper.start();
+        System.exit(0);
     }
 
     @Initialize

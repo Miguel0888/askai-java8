@@ -40,6 +40,9 @@ public final class BrowserMcpSidecarMain {
             System.exit(2);
         }
 
+        // Die with the parent (stdin EOF): a hard-killed agent/host must never leave this JVM
+        // (and its Playwright browser) behind — part of the Zulu orphan-leak fix.
+        ParentDeathWatchdog.install("browser-sidecar");
         Solon.start(BrowserMcpSidecarMain.class, new String[]{
                 "--server.host=127.0.0.1",
                 "--server.port=" + port
