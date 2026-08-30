@@ -62,6 +62,11 @@ public final class ResearchUiPalette {
 
     /** The sky's top tone; it fades to fully transparent towards the chat. */
     public static final Color SKY_TOP = new Color(0xF5FAFE);
+    /**
+     * The COLLAPSED sky status bar: a firmer, calm sky blue so the bar reads as a deliberate
+     * control — clearly stronger than the airy near-white of the open sky.
+     */
+    public static final Color SKY_BAR_SURFACE = new Color(0xBFDCF2);
     /** The quiet caption ("Außerhalb des Scopes"). */
     public static final Color SKY_CAPTION = new Color(0x6E87A2);
     /** Cloud chips: light body, soft blue border, calm slate text. */

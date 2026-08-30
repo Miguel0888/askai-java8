@@ -90,6 +90,7 @@ public class ResearchSkyHostGeometryTest {
                     JPanel stack = overlayStackReplica();
                     ResearchOutOfScopeSky sky = new ResearchOutOfScopeSky();
                     sky.setExclusions(java.util.Arrays.asList("Thema A", "Thema B"));
+                    sky.setOpenForTest(true); // this test proves the OPEN sky's geometry/paint
                     stack.add(sky);
                     layers.add(stack, Integer.valueOf(50));
                     layers.revalidate();

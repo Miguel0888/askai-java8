@@ -80,8 +80,16 @@ final class ResearchOutOfScopeSky extends JPanel {
     private final List<CloudChip> chips = new ArrayList<CloudChip>();
     private boolean expanded;
     private boolean adding;
-    /** Bottom of the interactive content zone (the clouds); the fade tail hangs below it. */
+    /** Bottom of the interactive content zone (bar or clouds); the fade tail hangs below it. */
     private int contentBottom;
+    /**
+     * UI-only session preference, never domain state: the sky STARTS as the slim status bar
+     * (chevron + count, exactly one search-bar height); clicking it opens the full cloud sky.
+     * Collapses again with the accessory's lifetime — an app restart starts collapsed again.
+     */
+    private boolean open;
+    private final SkyBar skyBar = new SkyBar();
+    private final CollapseChevron collapseChevron = new CollapseChevron();
 
     ResearchOutOfScopeSky() {
         super(null); // fully manual layout: the sky sizes itself from its cloud rows
@@ -125,6 +133,30 @@ final class ResearchOutOfScopeSky extends JPanel {
         cloudFlow.add(addCloud);
         styleAddField();
         cloudFlow.add(addFieldRow);
+        add(skyBar);
+        add(collapseChevron);
+    }
+
+    /** Toggle between the slim status bar and the full cloud sky (pure UI preference). */
+    private void setOpen(boolean value) {
+        if (open != value) {
+            open = value;
+            revalidate();
+            repaint();
+        }
+    }
+
+    // Visible for tests (same package): the collapsed/open UI preference.
+    void setOpenForTest(boolean value) {
+        setOpen(value);
+    }
+
+    boolean isOpenForTest() {
+        return open;
+    }
+
+    boolean cloudsShownForTest() {
+        return cloudScroll.isVisible();
     }
 
     void setAddAction(Consumer<String> action) {
@@ -191,8 +223,8 @@ final class ResearchOutOfScopeSky extends JPanel {
 
     @Override
     protected void paintComponent(Graphics graphics) {
-        if (contentBottom <= 0) {
-            return; // no real layout yet — nothing to anchor the gradient to
+        if (contentBottom <= 0 || !open) {
+            return; // collapsed: the status-bar child paints itself, no gradient behind it
         }
         Graphics2D g2 = ResearchUiPainter.prepare(graphics);
         try {
@@ -233,9 +265,11 @@ final class ResearchOutOfScopeSky extends JPanel {
 
     @Override
     public void doLayout() {
-        // The cloud area is ALWAYS present while the sky is: with zero exclusions it carries
-        // exactly the "+ Hinzufügen" cloud — there is no blank sky state within SCOPING.
-        cloudScroll.setVisible(true);
+        // Within SCOPING the sky is never absent: collapsed it is the slim status bar, open it is
+        // the cloud area — which always carries at least the "+ Hinzufügen" cloud.
+        cloudScroll.setVisible(open);
+        collapseChevron.setVisible(open);
+        skyBar.setVisible(!open);
         if (getWidth() <= 0 || getHeight() <= 0) {
             // Not really laid out yet (first pass before the host sized this layer): claim NO
             // chat space — a positive inset without visible sky would leave an invisible dead
@@ -245,7 +279,21 @@ final class ResearchOutOfScopeSky extends JPanel {
             return;
         }
         int padH = ResearchUiMetrics.SKY_PADDING_H;
-        int innerWidth = getWidth() - 2 * padH;
+        if (!open) {
+            // Collapsed: exactly ONE search-bar height (the shared metric, never a copied number).
+            int barHeight = com.aresstack.comiccontrols.control.ComicSearchBar.standardHeight();
+            skyBar.setBounds(padH, ResearchUiMetrics.SKY_PADDING_TOP,
+                    getWidth() - 2 * padH, barHeight);
+            contentBottom = ResearchUiMetrics.SKY_PADDING_TOP + barHeight;
+            publishTopInset(contentBottom + 6);
+            return;
+        }
+        int chevronSize = 22;
+        collapseChevron.setBounds(padH, ResearchUiMetrics.SKY_PADDING_TOP
+                + (ResearchUiMetrics.CLOUD_CHIP_HEIGHT - chevronSize) / 2,
+                chevronSize, chevronSize);
+        int cloudLeft = padH + chevronSize + 8;
+        int innerWidth = getWidth() - cloudLeft - padH;
         int cloudTop = ResearchUiMetrics.SKY_PADDING_TOP;
 
         applyVisibility(innerWidth);
@@ -257,7 +305,7 @@ final class ResearchOutOfScopeSky extends JPanel {
                 getHeight() * ResearchUiMetrics.SKY_EXPANDED_MAX_PERCENT / 100 - cloudTop);
         // Collapsed content always fits its cap by construction; expanded may scroll internally.
         int viewportHeight = Math.min(naturalHeight, expanded ? expandedCap : collapsedCap);
-        cloudScroll.setBounds(padH, cloudTop, innerWidth, viewportHeight);
+        cloudScroll.setBounds(cloudLeft, cloudTop, innerWidth, viewportHeight);
         contentBottom = cloudTop + viewportHeight + 8;
         // The chat's scroll geometry follows: at scroll 0 the first bubble starts just below the
         // covering zone, inside the transparent fade — reachable, readable, and it still slides
@@ -704,6 +752,138 @@ final class ResearchOutOfScopeSky extends JPanel {
         @Override
         public Dimension getMaximumSize() {
             return getPreferredSize();
+        }
+    }
+
+    // ------------------------------------------------------------------ collapsed status bar
+
+    /**
+     * The COLLAPSED sky: one calm but clearly-visible status bar (firmer sky blue, chevron-down,
+     * mini cloud, the exclusion count). The WHOLE bar is clickable and opens the full sky; the
+     * "Außerhalb des Scopes" meaning stays in the tooltip — the bar itself shows status only.
+     */
+    private final class SkyBar extends JComponent {
+
+        private boolean hovered;
+
+        SkyBar() {
+            setName("sky.statusBar"); // stable handle for tests and diagnostics
+            setToolTipText(SEMANTIC_TOOLTIP);
+            setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            addMouseListener(new java.awt.event.MouseAdapter() {
+                @Override
+                public void mouseEntered(java.awt.event.MouseEvent event) {
+                    hovered = true;
+                    repaint();
+                }
+
+                @Override
+                public void mouseExited(java.awt.event.MouseEvent event) {
+                    hovered = false;
+                    repaint();
+                }
+
+                @Override
+                public void mousePressed(java.awt.event.MouseEvent event) {
+                    setOpen(true);
+                }
+            });
+        }
+
+        private String countText() {
+            int count = exclusions.size();
+            if (count == 0) {
+                return "Noch keine Ausschlüsse";
+            }
+            return count == 1 ? "1 Ausschluss" : count + " Ausschlüsse";
+        }
+
+        @Override
+        protected void paintComponent(Graphics graphics) {
+            Graphics2D g2 = ResearchUiPainter.prepare(graphics);
+            try {
+                Color fill = hovered
+                        ? ResearchUiPainter.mix(ResearchUiPalette.SKY_BAR_SURFACE,
+                                ResearchUiPalette.CLOUD_HOVER_BORDER, 0.22f)
+                        : ResearchUiPalette.SKY_BAR_SURFACE;
+                ResearchUiPainter.fillRound(g2, 0, 0, getWidth(), getHeight(), 10, fill);
+                ResearchUiPainter.strokeRound(g2, 0, 0, getWidth(), getHeight(), 10,
+                        ResearchUiPalette.CLOUD_HOVER_BORDER);
+
+                int centerY = getHeight() / 2;
+                g2.setColor(ResearchUiPalette.CLOUD_TEXT);
+                ResearchUiPainter.paintChevronDown(g2, 16, centerY, 5,
+                        ResearchUiPalette.CLOUD_TEXT);
+                int x = 30;
+                paintMiniCloud(g2, x, centerY - 6);
+                x += 22;
+                g2.setFont(ResearchUiTypography.regular(12.5f));
+                FontMetrics metrics = g2.getFontMetrics();
+                g2.setColor(ResearchUiPalette.CLOUD_TEXT);
+                g2.drawString(countText(), x,
+                        (getHeight() - metrics.getHeight()) / 2 + metrics.getAscent());
+            } finally {
+                g2.dispose();
+            }
+        }
+
+        /** An 18×12 mini cloud silhouette — the bar's quiet subject marker, no emoji. */
+        private void paintMiniCloud(Graphics2D g2, int x, int y) {
+            Area cloud = new Area(new RoundRectangle2D.Float(x, y + 5f, 18f, 7f, 7f, 7f));
+            cloud.add(new Area(new Ellipse2D.Float(x + 3f, y + 1f, 8f, 8f)));
+            cloud.add(new Area(new Ellipse2D.Float(x + 8f, y, 9f, 9f)));
+            g2.setColor(ResearchUiPalette.CLOUD_SURFACE);
+            g2.fill(cloud);
+            g2.setColor(ResearchUiPalette.CLOUD_TEXT);
+            g2.setStroke(new BasicStroke(1.1f));
+            g2.draw(cloud);
+        }
+    }
+
+    /** The small chevron-up in the OPEN sky's top-left corner — folds it back into the bar. */
+    private final class CollapseChevron extends JComponent {
+
+        private boolean hovered;
+
+        CollapseChevron() {
+            setName("sky.collapse");
+            setVisible(false);
+            setToolTipText("Einklappen");
+            setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            addMouseListener(new java.awt.event.MouseAdapter() {
+                @Override
+                public void mouseEntered(java.awt.event.MouseEvent event) {
+                    hovered = true;
+                    repaint();
+                }
+
+                @Override
+                public void mouseExited(java.awt.event.MouseEvent event) {
+                    hovered = false;
+                    repaint();
+                }
+
+                @Override
+                public void mousePressed(java.awt.event.MouseEvent event) {
+                    setOpen(false);
+                }
+            });
+        }
+
+        @Override
+        protected void paintComponent(Graphics graphics) {
+            Graphics2D g2 = ResearchUiPainter.prepare(graphics);
+            try {
+                if (hovered) {
+                    g2.setColor(ResearchUiPainter.mix(ResearchUiPalette.SKY_BAR_SURFACE,
+                            java.awt.Color.WHITE, 0.35f));
+                    g2.fillOval(0, 0, getWidth(), getHeight());
+                }
+                ResearchUiPainter.paintChevronUp(g2, getWidth() / 2, getHeight() / 2, 5,
+                        hovered ? ResearchUiPalette.CLOUD_TEXT : ResearchUiPalette.SKY_CAPTION);
+            } finally {
+                g2.dispose();
+            }
         }
     }
 }

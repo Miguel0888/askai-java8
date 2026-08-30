@@ -50,6 +50,35 @@ public class ResearchOutOfScopeSkyTest {
     }
 
     @Test
+    public void theSkyStartsAsACollapsedStatusBar() throws Exception {
+        // UI preference, not domain state: a freshly opened chat shows the slim status bar
+        // (search-bar height, clickable as a whole), NOT the full cloud sky.
+        final ResearchOutOfScopeSky sky = build();
+        SwingUtilities.invokeAndWait(new Runnable() {
+            public void run() {
+                sky.setExclusions(Arrays.asList("Thema A", "Thema B"));
+            }
+        });
+        layout(sky);
+        assertFalse("collapsed by default", sky.isOpenForTest());
+        int barInset = publishedInset(sky);
+        assertTrue("the bar reserves its slim top room", barInset > 0);
+        assertTrue("collapsed costs about ONE search-bar height, not the cloud sky",
+                barInset <= com.aresstack.comiccontrols.control.ComicSearchBar.standardHeight()
+                        + 40);
+        assertFalse("the clouds are not shown while collapsed", sky.cloudsShownForTest());
+        assertTrue("the bar zone is clickable", sky.contains(20, 15));
+
+        SwingUtilities.invokeAndWait(new Runnable() {
+            public void run() {
+                sky.setOpenForTest(true);
+            }
+        });
+        layout(sky);
+        assertTrue("opening grows the sky beyond the bar", publishedInset(sky) > barInset);
+    }
+
+    @Test
     public void withoutExclusionsTheSkyStillShowsTheAddCloud() throws Exception {
         // Within SCOPING there is NO blank sky: zero exclusions render exactly [+ Hinzufügen],
         // so the FIRST exclusion can always be added right here (the original cloud behavior).
@@ -57,6 +86,7 @@ public class ResearchOutOfScopeSkyTest {
         SwingUtilities.invokeAndWait(new Runnable() {
             public void run() {
                 sky.setExclusions(Collections.<String>emptyList());
+                sky.setOpenForTest(true);
             }
         });
         layout(sky);
@@ -73,6 +103,7 @@ public class ResearchOutOfScopeSkyTest {
         SwingUtilities.invokeAndWait(new Runnable() {
             public void run() {
                 sky.setExclusions(Arrays.asList("Thema A", "Thema B"));
+                sky.setOpenForTest(true);
             }
         });
         layout(sky);
@@ -89,6 +120,7 @@ public class ResearchOutOfScopeSkyTest {
         SwingUtilities.invokeAndWait(new Runnable() {
             public void run() {
                 sky.setExclusions(Collections.singletonList("Thema A"));
+                sky.setOpenForTest(true);
             }
         });
         layout(sky);
@@ -109,6 +141,7 @@ public class ResearchOutOfScopeSkyTest {
         SwingUtilities.invokeAndWait(new Runnable() {
             public void run() {
                 sky.setExclusions(Collections.singletonList("Thema A"));
+                sky.setOpenForTest(true);
             }
         });
         layout(sky);

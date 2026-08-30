@@ -65,8 +65,9 @@ public class ResearchSkyAccessoryLifecycleTest {
         JComponent sky = createSky(fx);
         assertTrue("SCOPING + exclusions → the sky is visible", sky.isVisible());
         layout(sky);
-        assertTrue("the transcript is told to reserve top room", insetOf(sky) > 0);
-        assertTrue("the cloud for the exclusion is rendered",
+        assertTrue("collapsed by default, the bar still reserves top room", insetOf(sky) > 0);
+        openSky(sky);
+        assertTrue("opened, the cloud for the exclusion is rendered",
                 tooltipsOf(sky).toString().contains("Thema A"));
     }
 
@@ -91,6 +92,7 @@ public class ResearchSkyAccessoryLifecycleTest {
         assertTrue("a restored SCOPING chat with saved exclusions shows its sky", sky.isVisible());
         layout(sky);
         assertTrue(insetOf(sky) > 0);
+        openSky(sky);
         assertTrue(tooltipsOf(sky).toString().contains("Thema A"));
     }
 
@@ -105,10 +107,11 @@ public class ResearchSkyAccessoryLifecycleTest {
         JComponent sky = createSky(fx);
         assertTrue("the scoping sky is visible even with zero exclusions", sky.isVisible());
         layout(sky);
-        assertTrue("the minimal sky reserves its top room", insetOf(sky) > 0);
-        assertTrue("the + Hinzufügen cloud is offered",
+        assertTrue("the collapsed bar reserves its slim top room", insetOf(sky) > 0);
+        assertTrue("the bar zone is interactive", sky.contains(20, 15));
+        openSky(sky);
+        assertTrue("opened, the + Hinzufügen cloud is offered",
                 tooltipsOf(sky).toString().contains("Ausschluss hinzufügen"));
-        assertTrue("its zone is interactive", sky.contains(20, 12));
     }
 
     @Test
@@ -147,6 +150,35 @@ public class ResearchSkyAccessoryLifecycleTest {
             }
         });
         return ref.get();
+    }
+
+    /** Open the collapsed status bar like a user: a real mouse press on the WHOLE bar. */
+    private static void openSky(final JComponent sky) throws Exception {
+        javax.swing.SwingUtilities.invokeAndWait(new Runnable() {
+            public void run() {
+                Component bar = findByName(sky, "sky.statusBar");
+                assertTrue("the collapsed status bar exists", bar != null);
+                bar.dispatchEvent(new java.awt.event.MouseEvent(bar,
+                        java.awt.event.MouseEvent.MOUSE_PRESSED, System.currentTimeMillis(),
+                        0, 5, 5, 1, false));
+            }
+        });
+        layout(sky);
+    }
+
+    private static Component findByName(Component root, String name) {
+        if (name.equals(root.getName())) {
+            return root;
+        }
+        if (root instanceof Container) {
+            for (Component child : ((Container) root).getComponents()) {
+                Component found = findByName(child, name);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
     }
 
     private static void layout(final JComponent sky) throws Exception {
