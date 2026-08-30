@@ -1096,6 +1096,12 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
             combo.addActionListener(event -> persistSpeechOutputSelection(language));
             speechOutputCombos.put(language, combo);
             speechRow.add(combo);
+            JButton speechTestButton = new JButton("Test");
+            speechTestButton.setToolTipText("Speak a sample sentence with the selected "
+                    + speechLanguageLabel(language) + " voice — failures show their reason.");
+            speechTestButton.addActionListener(event ->
+                    runSpeechOutputTest(language, speechTestButton));
+            speechRow.add(speechTestButton);
             card.add(speechRow);
         }
         alignFormLabels(formLabels);
@@ -1125,6 +1131,43 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         if (speechVoicesPanel != null) {
             speechVoicesPanel.highlightVoice(voiceId);
         }
+    }
+
+    /**
+     * The speech-output "Test" run: speaks the persisted selection IN THIS APP (same classes and
+     * audio path read-aloud uses) off the EDT; a failure surfaces with its concrete reason —
+     * dialog + Technical Details — never as silence.
+     */
+    private void runSpeechOutputTest(final String language, final JButton button) {
+        button.setEnabled(false);
+        final String original = button.getText();
+        button.setText("…");
+        Thread runner = new Thread(new Runnable() {
+            public void run() {
+                String reason;
+                try {
+                    reason = new com.aresstack.askai.java8.tts.SpeechOutputTester(
+                            ttsSettingsStore, piperTtsStore).speakSample(language);
+                } catch (RuntimeException unexpected) {
+                    reason = "Test crashed: " + unexpected;
+                }
+                final String outcome = reason;
+                onUi(new Runnable() {
+                    public void run() {
+                        button.setText(original);
+                        button.setEnabled(true);
+                        if (!outcome.isEmpty()) {
+                            appendTech("speech-output test (" + language + ") failed: " + outcome);
+                            javax.swing.JOptionPane.showMessageDialog(button, outcome,
+                                    "Speech output test failed",
+                                    javax.swing.JOptionPane.ERROR_MESSAGE);
+                        }
+                    }
+                });
+            }
+        }, "askai-tts-test");
+        runner.setDaemon(true);
+        runner.start();
     }
 
     /** Tab-stop form alignment: every label gets the widest label's width (FlowLayout rows). */
