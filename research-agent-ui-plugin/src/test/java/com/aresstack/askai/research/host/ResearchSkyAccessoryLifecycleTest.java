@@ -95,16 +95,20 @@ public class ResearchSkyAccessoryLifecycleTest {
     }
 
     @Test
-    public void withoutExclusionsNoSkyIsForced() throws Exception {
+    public void withoutExclusionsTheScopingSkyStillOffersTheAddCloud() throws Exception {
+        // A fresh scoping chat has zero exclusions — the sky must NOT be blank, or the first
+        // exclusion could never be added manually. It shows exactly the + Hinzufügen cloud.
         Fx fx = new Fx(tempDir());
         fx.session.dispatch(ResearchCommandType.START, null);
         completeTurn(fx, 1L);
 
         JComponent sky = createSky(fx);
+        assertTrue("the scoping sky is visible even with zero exclusions", sky.isVisible());
         layout(sky);
-        assertEquals("an empty exclusion list never creates an artificial sky",
-                0, insetOf(sky));
-        assertFalse("nothing is claimed over the chat", sky.contains(20, 12));
+        assertTrue("the minimal sky reserves its top room", insetOf(sky) > 0);
+        assertTrue("the + Hinzufügen cloud is offered",
+                tooltipsOf(sky).toString().contains("Ausschluss hinzufügen"));
+        assertTrue("its zone is interactive", sky.contains(20, 12));
     }
 
     @Test

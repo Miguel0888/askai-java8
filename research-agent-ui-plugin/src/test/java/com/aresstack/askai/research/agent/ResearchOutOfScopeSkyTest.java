@@ -39,14 +39,20 @@ public class ResearchOutOfScopeSkyTest {
     private static void layout(final ResearchOutOfScopeSky sky) throws Exception {
         SwingUtilities.invokeAndWait(new Runnable() {
             public void run() {
+                if (!sky.isDisplayable()) {
+                    sky.addNotify(); // a real (lightweight) peer so validate() descends
+                }
                 sky.setSize(900, 600);
-                sky.doLayout();
+                sky.invalidate();
+                sky.validate(); // full validateTree: scroll pane, viewport, flow, clouds
             }
         });
     }
 
     @Test
-    public void withoutExclusionsTheSkyClaimsNothingAndPublishesZeroInset() throws Exception {
+    public void withoutExclusionsTheSkyStillShowsTheAddCloud() throws Exception {
+        // Within SCOPING there is NO blank sky: zero exclusions render exactly [+ Hinzufügen],
+        // so the FIRST exclusion can always be added right here (the original cloud behavior).
         final ResearchOutOfScopeSky sky = build();
         SwingUtilities.invokeAndWait(new Runnable() {
             public void run() {
@@ -54,8 +60,11 @@ public class ResearchOutOfScopeSkyTest {
             }
         });
         layout(sky);
-        assertEquals("no exclusions → no scroll inset", 0, publishedInset(sky));
-        assertFalse("no exclusions → the chat owns every click", sky.contains(20, 20));
+        JComponent addCloud = sky.addCloudForTest();
+        assertTrue("the + Hinzufügen cloud is visible", addCloud.isVisible());
+        assertTrue("…and really laid out", addCloud.getWidth() > 0 && addCloud.getHeight() > 0);
+        assertTrue("the minimal sky publishes its inset", publishedInset(sky) > 0);
+        assertTrue("the add cloud's zone is interactive", sky.contains(20, 12));
     }
 
     @Test
@@ -95,7 +104,7 @@ public class ResearchOutOfScopeSkyTest {
     }
 
     @Test
-    public void emptyingTheExclusionsResetsTheInsetToZero() throws Exception {
+    public void emptyingTheExclusionsFallsBackToTheAddCloudNotToABlankSky() throws Exception {
         final ResearchOutOfScopeSky sky = build();
         SwingUtilities.invokeAndWait(new Runnable() {
             public void run() {
@@ -107,10 +116,11 @@ public class ResearchOutOfScopeSkyTest {
         SwingUtilities.invokeAndWait(new Runnable() {
             public void run() {
                 sky.setExclusions(Collections.<String>emptyList());
-                sky.doLayout();
             }
         });
-        assertEquals("removing the last exclusion removes the sky's claim on the chat's space",
-                0, publishedInset(sky));
+        layout(sky);
+        assertTrue("the sky shrinks to the + Hinzufügen row but never disappears within scoping",
+                publishedInset(sky) > 0);
+        assertTrue(sky.addCloudForTest().isVisible());
     }
 }

@@ -44,9 +44,11 @@ import java.util.function.Consumer;
  * cloud rows up to {@link ResearchUiMetrics#SKY_COLLAPSED_MAX_ROWS}, then a {@code +N weitere}
  * cloud collapses the tail. Expanding (that cloud or the caption chevron) grows the sky itself —
  * no floating popup — capped at {@link ResearchUiMetrics#SKY_EXPANDED_MAX_PERCENT} of the
- * transcript height; past that only the cloud area scrolls internally. Pure view as before:
- * renders what {@link #setExclusions} hands it, reports add/remove intents through the injected
- * actions.</p>
+ * transcript height; past that only the cloud area scrolls internally. Within SCOPING there is NO
+ * blank sky state: with zero exclusions the sky still shows the {@code + Hinzufügen} cloud, so the
+ * FIRST exclusion can always be added right here; only leaving the phase hides the sky entirely.
+ * Pure view as before: renders what {@link #setExclusions} hands it, reports add/remove intents
+ * through the injected actions.</p>
  */
 final class ResearchOutOfScopeSky extends JPanel {
 
@@ -116,6 +118,11 @@ final class ResearchOutOfScopeSky extends JPanel {
         this.addAction = action;
     }
 
+    /** For tests: the {@code + Hinzufügen} cloud — always present while the sky is visible. */
+    JComponent addCloudForTest() {
+        return addCloud;
+    }
+
     void setRemoveAction(Consumer<String> action) {
         this.removeAction = action;
     }
@@ -135,9 +142,10 @@ final class ResearchOutOfScopeSky extends JPanel {
         }
         if (this.exclusions.isEmpty()) {
             expanded = false; // an emptied sky starts over collapsed next time
-            adding = false;
-            publishTopInset(0);
         }
+        // NO empty special case beyond that: within SCOPING the sky is never blank — with zero
+        // exclusions it still shows the "+ Hinzufügen" cloud, so the first exclusion can always
+        // be added right here (the original cloud pass behaved exactly like this).
         revalidate();
         repaint();
     }
@@ -165,13 +173,13 @@ final class ResearchOutOfScopeSky extends JPanel {
     /** Claim ONLY the content zone; the fade tail and everything below stays the chat's. */
     @Override
     public boolean contains(int x, int y) {
-        return isVisible() && !exclusions.isEmpty() && y >= 0 && y <= contentBottom;
+        return isVisible() && y >= 0 && y <= contentBottom;
     }
 
     @Override
     protected void paintComponent(Graphics graphics) {
-        if (exclusions.isEmpty()) {
-            return;
+        if (contentBottom <= 0) {
+            return; // no real layout yet — nothing to anchor the gradient to
         }
         Graphics2D g2 = ResearchUiPainter.prepare(graphics);
         try {
@@ -212,13 +220,9 @@ final class ResearchOutOfScopeSky extends JPanel {
 
     @Override
     public void doLayout() {
-        boolean any = !exclusions.isEmpty();
-        cloudScroll.setVisible(any);
-        if (!any) {
-            contentBottom = 0;
-            publishTopInset(0);
-            return;
-        }
+        // The cloud area is ALWAYS present while the sky is: with zero exclusions it carries
+        // exactly the "+ Hinzufügen" cloud — there is no blank sky state within SCOPING.
+        cloudScroll.setVisible(true);
         if (getWidth() <= 0 || getHeight() <= 0) {
             // Not really laid out yet (first pass before the host sized this layer): claim NO
             // chat space — a positive inset without visible sky would leave an invisible dead
