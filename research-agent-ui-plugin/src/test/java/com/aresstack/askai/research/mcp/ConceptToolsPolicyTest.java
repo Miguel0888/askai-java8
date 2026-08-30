@@ -16,7 +16,6 @@ import org.junit.Test;
 import java.io.File;
 import java.nio.file.Files;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 import static org.junit.Assert.assertEquals;
@@ -25,10 +24,10 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 /**
- * The Konzeptpapier MCP tools: reading everywhere, bite-wise WRITING only in SCOPING/running —
- * with the server-side re-check at execution time (visibility ≠ authorization), the structured
- * diagnostics as the error payload (the model's repair input), and the change notification on
- * every commit. All change semantics live in ConceptBranchService; the tools only translate.
+ * The SMALL-MODEL facade over the concept (K2c): three tiny tools addressed by name paths —
+ * no handles, no revisions to echo, examples in the descriptions, required arguments validated
+ * before dispatch, and the same server-side phase re-check as every write tool. All change
+ * semantics stay in ConceptBranchService.
  */
 public class ConceptToolsPolicyTest {
 
@@ -97,16 +96,16 @@ public class ConceptToolsPolicyTest {
         return tool.getHandler().invoke(new McpToolCall(tool.getName(), args));
     }
 
-    // ------------------------------------------------------------------ visibility
+    // ------------------------------------------------------------------ visibility & contract
 
     @Test
     public void writingIsOfferedOnlyInScopingRunningButReadingEverywhere() {
         assertTrue(tool("concept_read") != null);
-        assertTrue(tool("concept_update") != null);
+        assertTrue(tool("concept_add") != null);
         assertTrue(tool("concept_remove") != null);
         phaseId = ResearchStateIds.RESEARCH; // later phase: the concept is frozen but readable
         assertTrue(tool("concept_read") != null);
-        assertNull(tool("concept_update"));
+        assertNull(tool("concept_add"));
         assertNull(tool("concept_remove"));
     }
 
@@ -114,107 +113,82 @@ public class ConceptToolsPolicyTest {
     public void withoutAServiceNoConceptToolExistsAtAll() {
         service = null;
         assertNull(tool("concept_read"));
-        assertNull(tool("concept_update"));
+        assertNull(tool("concept_add"));
         assertNull(tool("concept_remove"));
     }
 
-    // ------------------------------------------------------------------ the bite-wise flow
+    @Test
+    public void theDescriptionsCarryConcreteExamplesTheMainframeMateWay() {
+        assertTrue(tool("concept_add").getDescription().contains("Task Notifications"));
+        assertTrue(tool("concept_remove").getDescription().contains("ESP-IDF"));
+        assertTrue(tool("concept_read").getDescription().contains("FreeRTOS"));
+    }
+
+    // ------------------------------------------------------------------ the atomic flow
 
     @Test
-    public void theFullReadEditCommitFlowWorksThroughTheTools() {
-        McpToolResult read = invoke(tool("concept_read"));
+    public void addReadRemoveWorkByNamePathsWithoutAnyCeremony() {
+        McpToolResult first = invoke(tool("concept_add"), "name", "FreeRTOS");
+        assertFalse(first.isError());
+        assertEquals("added \"FreeRTOS\" revision=1", first.getText());
+        assertEquals(1, changeNotifications);
+
+        McpToolResult sub = invoke(tool("concept_add"),
+                "parent_path", "FreeRTOS", "name", "Kommunikation");
+        assertFalse(sub.isError());
+        McpToolResult subsub = invoke(tool("concept_add"),
+                "parent_path", "FreeRTOS/Kommunikation", "name", "Task Notifications");
+        assertFalse(subsub.isError());
+        assertEquals("added \"Task Notifications\" revision=3", subsub.getText());
+
+        McpToolResult read = invoke(tool("concept_read"), "path", "FreeRTOS/Kommunikation");
         assertFalse(read.isError());
-        assertTrue(read.getText().startsWith("handle=b-"));
-        assertTrue(read.getText().contains("editable=true"));
-        assertTrue(read.getText().contains("{\"concept\":[]}"));
-        String handle = read.getText().substring("handle=".length(),
-                read.getText().indexOf(' '));
+        assertTrue(read.getText().contains("{\"Kommunikation\":[{\"Task Notifications\":[]}]}"));
+        assertTrue("no handle line anywhere", !read.getText().contains("handle"));
 
-        McpToolResult update = invoke(tool("concept_update"),
-                "handle", handle,
-                "branch_json", "{\"concept\":[{\"Tasks\":[],\"Queues\":[]}]}");
-        assertFalse(update.isError());
-        assertEquals("applied revision=1", update.getText());
-        assertEquals("a committed edit notifies the host", 1, changeNotifications);
-
-        McpToolResult branch = invoke(tool("concept_read"), "path", "Tasks");
-        assertFalse(branch.isError());
-        assertTrue("orientation travels with the branch",
-                branch.getText().contains("siblings=Queues"));
-        assertTrue(branch.getText().contains("{\"Tasks\":[]}"));
+        McpToolResult removed = invoke(tool("concept_remove"),
+                "path", "FreeRTOS/Kommunikation/Task Notifications");
+        assertFalse(removed.isError());
+        assertEquals("removed \"FreeRTOS/Kommunikation/Task Notifications\" revision=4",
+                removed.getText());
+        assertEquals(4, changeNotifications);
     }
 
     @Test
-    public void aBrokenBranchComesBackAsTheStructuredDiagnosticNotAGsonError() {
-        McpToolResult read = invoke(tool("concept_read"));
-        String handle = read.getText().substring("handle=".length(), read.getText().indexOf(' '));
-        McpToolResult update = invoke(tool("concept_update"),
-                "handle", handle,
-                "branch_json", "{\"concept\":[{\"Tasks\":[] \"Queues\":[]}]}");
-        assertTrue(update.isError());
-        assertTrue("the model receives the feedback block: " + update.getText(),
-                update.getText().startsWith("JSON_SYNTAX_ERROR"));
-        assertFalse("no raw Gson advice leaks", update.getText().contains("setLenient"));
-        assertEquals("a rejected edit never notifies", 0, changeNotifications);
+    public void requiredArgumentsAreValidatedBeforeDispatchWithAnExample() {
+        McpToolResult noName = invoke(tool("concept_add"), "parent_path", "FreeRTOS");
+        assertTrue(noName.isError());
+        assertTrue(noName.getText().contains("Missing argument: name"));
+        assertTrue("the error teaches by example", noName.getText().contains("Synchronisation"));
+        McpToolResult noPath = invoke(tool("concept_remove"));
+        assertTrue(noPath.isError());
+        assertTrue(noPath.getText().contains("Missing argument: path"));
+        assertEquals(0, changeNotifications);
     }
 
     @Test
-    public void silentNodeLossIsRejectedThroughTheToolToo() {
-        McpToolResult seedRead = invoke(tool("concept_read"));
-        String seedHandle = seedRead.getText().substring("handle=".length(),
-                seedRead.getText().indexOf(' '));
-        invoke(tool("concept_update"), "handle", seedHandle,
-                "branch_json", "{\"concept\":[{\"Tasks\":[],\"Queues\":[]}]}");
-        McpToolResult read = invoke(tool("concept_read"));
-        String handle = read.getText().substring("handle=".length(), read.getText().indexOf(' '));
-        McpToolResult update = invoke(tool("concept_update"), "handle", handle,
-                "branch_json", "{\"concept\":[{\"Tasks\":[]}]}");
-        assertTrue(update.isError());
-        assertTrue(update.getText().startsWith("STRUCTURE_LOSS_DETECTED"));
-        assertTrue("the lost node is named", update.getText().contains("Queues"));
+    public void duplicatesAndUnknownParentsComeBackAsTeachingDiagnostics() {
+        invoke(tool("concept_add"), "name", "FreeRTOS");
+        McpToolResult duplicate = invoke(tool("concept_add"), "name", "FreeRTOS");
+        assertTrue(duplicate.isError());
+        assertTrue(duplicate.getText().contains("already exists"));
+
+        McpToolResult orphan = invoke(tool("concept_add"),
+                "parent_path", "Gibtsnicht", "name", "X");
+        assertTrue(orphan.isError());
+        assertTrue(orphan.getText().startsWith("TARGET_NODE_NOT_FOUND"));
+        assertEquals("failures never notify", 1, changeNotifications);
     }
 
     // ------------------------------------------------------------------ authorization re-check
 
     @Test
     public void aPhaseTransitionBetweenListAndCallIsCaughtAtExecutionTime() {
-        McpToolContribution update = tool("concept_update"); // offered while SCOPING/running…
-        McpToolResult read = invoke(tool("concept_read"));
-        String handle = read.getText().substring("handle=".length(), read.getText().indexOf(' '));
+        McpToolContribution add = tool("concept_add"); // offered while SCOPING/running…
         phaseId = ResearchStateIds.RESEARCH; // …but the phase moved on before the call arrived
-        McpToolResult result = invoke(update, "handle", handle,
-                "branch_json", "{\"concept\":[{\"Tasks\":[]}]}");
+        McpToolResult result = invoke(add, "name", "FreeRTOS");
         assertTrue(result.isError());
         assertTrue(result.getText().contains("Not allowed in the current state"));
         assertEquals(0, changeNotifications);
-    }
-
-    @Test
-    public void removeIsExplicitAndNotifiesOnCommit() {
-        McpToolResult seedRead = invoke(tool("concept_read"));
-        String seedHandle = seedRead.getText().substring("handle=".length(),
-                seedRead.getText().indexOf(' '));
-        invoke(tool("concept_update"), "handle", seedHandle,
-                "branch_json", "{\"concept\":[{\"Tasks\":[],\"Queues\":[]}]}");
-        McpToolResult read = invoke(tool("concept_read"), "path", "Queues");
-        String handle = read.getText().substring("handle=".length(), read.getText().indexOf(' '));
-        McpToolResult removed = invoke(tool("concept_remove"), "handle", handle);
-        assertFalse(removed.isError());
-        assertEquals("removed revision=2", removed.getText());
-        assertEquals(2, changeNotifications);
-        McpToolResult after = invoke(tool("concept_read"));
-        assertFalse(after.getText().contains("Queues"));
-    }
-
-    @Test
-    public void aDepthLimitedReadSaysItIsNotEditable() {
-        McpToolResult seedRead = invoke(tool("concept_read"));
-        String seedHandle = seedRead.getText().substring("handle=".length(),
-                seedRead.getText().indexOf(' '));
-        invoke(tool("concept_update"), "handle", seedHandle,
-                "branch_json", "{\"concept\":[{\"A\":[{\"B\":[{\"C\":[]}]}]}]}");
-        McpToolResult shallow = invoke(tool("concept_read"), "path", "A", "depth", "1");
-        assertTrue(shallow.getText().contains("editable=false"));
-        assertTrue("grandchildren pruned", shallow.getText().contains("{\"A\":[{\"B\":[]}]}"));
     }
 }

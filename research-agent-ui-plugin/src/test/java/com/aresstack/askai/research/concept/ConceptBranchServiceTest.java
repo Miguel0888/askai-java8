@@ -199,6 +199,58 @@ public class ConceptBranchServiceTest {
                         + "\"Event Groups\":[]}]}").isApplied());
     }
 
+    // ------------------------------------------------------------------ small-model facade (K2c)
+
+    /** The atomic path-based operations under the MCP facade: add appends, never rebuilds. */
+    @Test
+    public void atomicAddBuildsTheTreeCardByCard() throws Exception {
+        ConceptBranchService service = fresh();
+        assertTrue(service.addNode(Collections.<String>emptyList(), "FreeRTOS").isApplied());
+        assertTrue(service.addNode(Collections.singletonList("FreeRTOS"), "Grundlagen")
+                .isApplied());
+        ConceptBranchService.EditResult third =
+                service.addNode(Arrays.asList("FreeRTOS", "Grundlagen"), "Echtzeit");
+        assertTrue(third.isApplied());
+        assertEquals(3L, third.getNewRevision());
+        assertEquals("{\"FreeRTOS\":[{\"Grundlagen\":[{\"Echtzeit\":[]}]}]}",
+                service.readBranch(Collections.singletonList("FreeRTOS"), 0).getBranchJson());
+        // Cards join the SAME container object — the concept's compact grouping style.
+        assertTrue(service.addNode(Collections.singletonList("FreeRTOS"), "Praxis").isApplied());
+        assertEquals("{\"FreeRTOS\":[{\"Grundlagen\":[{\"Echtzeit\":[]}],\"Praxis\":[]}]}",
+                service.readBranch(Collections.singletonList("FreeRTOS"), 0).getBranchJson());
+    }
+
+    @Test
+    public void atomicAddRejectsDuplicatesBlankNamesAndUnknownParents() throws Exception {
+        ConceptBranchService service = fresh();
+        service.addNode(Collections.<String>emptyList(), "FreeRTOS");
+        ConceptBranchService.EditResult duplicate =
+                service.addNode(Collections.<String>emptyList(), "FreeRTOS");
+        assertFalse(duplicate.isApplied());
+        assertTrue(duplicate.getDiagnostic().getMessage().contains("already exists"));
+        assertFalse(service.addNode(Collections.<String>emptyList(), "  ").isApplied());
+        ConceptBranchService.EditResult orphan =
+                service.addNode(Collections.singletonList("Gibtsnicht"), "X");
+        assertFalse(orphan.isApplied());
+        assertEquals(JsonTreeErrorCode.TARGET_NODE_NOT_FOUND, orphan.getDiagnostic().getCode());
+        assertEquals("failures never move the revision", 1L, store.workingRevision());
+    }
+
+    @Test
+    public void atomicRemoveDeletesByPathButNeverTheWorkingSurface() throws Exception {
+        ConceptBranchService service = fresh();
+        service.addNode(Collections.<String>emptyList(), "FreeRTOS");
+        service.addNode(Collections.singletonList("FreeRTOS"), "ESP-IDF");
+        assertTrue(service.removeNodeAt(Arrays.asList("FreeRTOS", "ESP-IDF")).isApplied());
+        assertEquals("{\"FreeRTOS\":[]}",
+                service.readBranch(Collections.singletonList("FreeRTOS"), 0).getBranchJson());
+        assertFalse(service.removeNodeAt(Collections.<String>emptyList()).isApplied());
+        ConceptBranchService.EditResult gone =
+                service.removeNodeAt(Arrays.asList("FreeRTOS", "ESP-IDF"));
+        assertFalse("removing a missing card is a diagnosis, not a crash", gone.isApplied());
+        assertEquals(JsonTreeErrorCode.TARGET_NODE_NOT_FOUND, gone.getDiagnostic().getCode());
+    }
+
     // ------------------------------------------------------------------ fixture
 
     /** A concept with one grouped card: Synchronisation(Mutex, Semaphoren, Queues). */

@@ -55,6 +55,12 @@ public final class ConceptToolRounds {
         int rounds = 0;
         int repairs = 0;
         boolean budgetExhausted = false;
+        // The AUTHORITATIVE artifact state, carried across the rounds: only an APPLIED call may
+        // ever flip appliedThisTurn — the model gets it as a machine-like block with every
+        // feedback, so "the conversation is the state" has no room to grow.
+        long conceptRevision = -1L;
+        boolean appliedThisTurn = false;
+        String lastConceptError = null;
         while (result != null && result.isOk()
                 && result.getOutput() instanceof ScopingAssistantOutput) {
             ScopingAssistantOutput output = (ScopingAssistantOutput) result.getOutput();
@@ -72,17 +78,24 @@ public final class ConceptToolRounds {
             if (actionError != null) {
                 // A malformed action never reaches the host; the reason goes straight back.
                 repairs++;
+                lastConceptError = firstLine(actionError);
                 trace.line("round " + rounds + ": invalid conceptAction (" + actionError + ")");
                 feedback = TeamAgentPlaybook.conceptToolRejected(actionError);
             } else {
                 trace.line("round " + rounds + ": " + action.describe());
                 try {
                     String text = tool.call(action);
-                    feedback = action.getType() == ConceptAction.Type.READ
-                            ? TeamAgentPlaybook.conceptToolResult(text)
-                            : TeamAgentPlaybook.conceptToolApplied(text);
+                    if (action.getType() == ConceptAction.Type.READ) {
+                        feedback = TeamAgentPlaybook.conceptToolResult(text);
+                    } else {
+                        appliedThisTurn = true;
+                        lastConceptError = null;
+                        conceptRevision = revisionIn(text, conceptRevision);
+                        feedback = TeamAgentPlaybook.conceptToolApplied(text);
+                    }
                 } catch (ToolInvoker.ToolFailure rejected) {
                     repairs++;
+                    lastConceptError = firstLine(rejected.getMessage());
                     trace.line("round " + rounds + ": rejected (" + firstLine(rejected.getMessage())
                             + ")");
                     feedback = TeamAgentPlaybook.conceptToolRejected(rejected.getMessage());
@@ -99,9 +112,26 @@ public final class ConceptToolRounds {
                         + " repairs=" + repairs + "/" + maxRepairAttempts + ") — wrap-up turn");
                 feedback = feedback + "\n\n" + TeamAgentPlaybook.conceptToolBudgetExhausted();
             }
-            result = turn.run(feedback);
+            result = turn.run(TeamAgentPlaybook.conceptArtifactState(conceptRevision,
+                    appliedThisTurn, lastConceptError) + feedback);
         }
         return result;
+    }
+
+    /** The {@code revision=N} the host reports on an applied call, or the previous value. */
+    private static long revisionIn(String toolText, long fallback) {
+        if (toolText != null) {
+            java.util.regex.Matcher matcher =
+                    java.util.regex.Pattern.compile("revision=(\\d+)").matcher(toolText);
+            if (matcher.find()) {
+                try {
+                    return Long.parseLong(matcher.group(1));
+                } catch (NumberFormatException overflow) {
+                    return fallback;
+                }
+            }
+        }
+        return fallback;
     }
 
     private static String firstLine(String text) {

@@ -54,7 +54,7 @@ public final class ResearchToolPolicy {
         if (ctx.conceptBranchService() != null) {
             tools.add(conceptReadTool(ctx));
             if (writable(phaseId, stateId, ResearchStateIds.SCOPING)) {
-                tools.add(conceptUpdateTool(ctx));
+                tools.add(conceptAddTool(ctx));
                 tools.add(conceptRemoveTool(ctx));
             }
         }
@@ -360,27 +360,26 @@ public final class ResearchToolPolicy {
 
     // ------------------------------------------------------------------ Konzeptpapier tools
     //
-    // The model edits the concept in BITES, never as a whole document: read a branch (getting an
-    // opaque handle), send back a refined branch, get either "applied revision=N" or a structured
-    // diagnostic it can act on. All semantics live in ConceptBranchService (deterministic, one
-    // attempt, no retries) — the repair LOOP is the caller's business, per the agreed layering.
+    // The SMALL-MODEL facade (K2c, the MainframeMate lesson): tiny atomic operations addressed
+    // by a human-readable name path — no handles, no revisions, no full-branch replacement in
+    // the model contract. Examples live IN the tool description; required arguments are
+    // validated server-side BEFORE dispatch; all transactional machinery (strict parse,
+    // candidate validation, atomic commit) runs inside ConceptBranchService on every call.
 
     private static McpToolContribution conceptReadTool(final ResearchControlContext ctx) {
         return McpToolContribution.of("concept_read",
-                "Read the concept tree or one branch of it. Returns a branch handle for editing.",
+                "Read the concept tree or one of its branches. "
+                        + "Example: path=\"\" (whole concept). Example: path=\"FreeRTOS\". "
+                        + "Example: path=\"FreeRTOS/Kommunikation\".",
                 new McpToolHandler() {
                     public McpToolResult invoke(McpToolCall call) {
-                        java.util.List<String> names = splitPath(call.getString("path"));
-                        int depth = (int) call.getInteger("depth", 0);
                         com.aresstack.askai.research.concept.ConceptBranchService.ReadResult result =
-                                ctx.conceptBranchService().readBranch(names, depth);
+                                ctx.conceptBranchService()
+                                        .readBranch(splitPath(call.getString("path")), 0);
                         if (!result.isOk()) {
                             return McpToolResult.error(result.getDiagnostic().describeForModel());
                         }
                         StringBuilder sb = new StringBuilder();
-                        sb.append("handle=").append(result.getHandleId())
-                          .append(" revision=").append(result.getWorkingRevision())
-                          .append(" editable=").append(result.isEditable()).append('\n');
                         if (result.getParentName() != null) {
                             sb.append("parent=").append(result.getParentName()).append('\n');
                         }
@@ -396,70 +395,71 @@ public final class ResearchToolPolicy {
                     }
                 },
                 McpToolParameter.string("path", false,
-                        "Node names from the concept root, separated by '/'. Empty = whole concept."),
-                McpToolParameter.integer("depth", false,
-                        "Limit the subtree depth (orientation only — a depth-limited handle cannot "
-                                + "be used for editing). 0 = full depth, editable."));
+                        "Node names from the concept root, separated by '/'. Empty = whole concept."));
     }
 
-    private static McpToolContribution conceptUpdateTool(final ResearchControlContext ctx) {
-        return McpToolContribution.of("concept_update",
-                "Refine ONE concept branch (non-destructive: existing nodes must survive; moving "
-                        + "them is fine). Send the branch as {\"Name\": [ ... ]}.",
+    private static McpToolContribution conceptAddTool(final ResearchControlContext ctx) {
+        return McpToolContribution.of("concept_add",
+                "Add ONE new topic card to the concept. "
+                        + "Example: parent_path=\"\", name=\"FreeRTOS\" (a top-level card). "
+                        + "Example: parent_path=\"FreeRTOS/Kommunikation\", "
+                        + "name=\"Task Notifications\". "
+                        + "If unsure whether the parent exists, call concept_read first.",
                 new McpToolHandler() {
                     public McpToolResult invoke(McpToolCall call) {
                         McpToolResult denied = requireWritable(ctx, ResearchStateIds.SCOPING);
                         if (denied != null) {
                             return denied;
                         }
-                        String handle = call.getString("handle");
-                        String branch = call.getString("branch_json");
-                        if (handle == null || handle.trim().isEmpty()
-                                || branch == null || branch.trim().isEmpty()) {
-                            return McpToolResult.error("Required: handle, branch_json");
+                        String name = call.getString("name");
+                        if (name == null || name.trim().isEmpty()) {
+                            return McpToolResult.error("Missing argument: name — example: "
+                                    + "parent_path=\"FreeRTOS\", name=\"Synchronisation\"");
                         }
-                        boolean allowRemovals =
-                                "true".equalsIgnoreCase(call.getString("allow_removals"));
                         com.aresstack.askai.research.concept.ConceptBranchService.EditResult result =
-                                ctx.conceptBranchService()
-                                        .updateBranch(handle.trim(), branch, allowRemovals);
+                                ctx.conceptBranchService().addNode(
+                                        splitPath(call.getString("parent_path")), name.trim());
                         if (!result.isApplied()) {
                             return McpToolResult.error(result.getDiagnostic().describeForModel());
                         }
                         ctx.onConceptChanged(result.getNewRevision());
-                        return McpToolResult.ok("applied revision=" + result.getNewRevision());
+                        return McpToolResult.ok("added \"" + name.trim() + "\" revision="
+                                + result.getNewRevision());
                     }
                 },
-                McpToolParameter.string("handle", true, "The branch handle from concept_read"),
-                McpToolParameter.string("branch_json", true,
-                        "The complete refined branch: one object with exactly one array property"),
-                McpToolParameter.string("allow_removals", false,
-                        "\"true\" to permit dropping existing nodes (default: refused)"));
+                McpToolParameter.string("parent_path", false,
+                        "The parent card's names from the concept root, separated by '/'. "
+                                + "Empty = add a top-level card."),
+                McpToolParameter.string("name", true, "The new card's name (short noun phrase)"));
     }
 
     private static McpToolContribution conceptRemoveTool(final ResearchControlContext ctx) {
         return McpToolContribution.of("concept_remove",
-                "Remove ONE concept node with its whole subtree. Deliberately destructive.",
+                "Remove ONE topic card (and everything under it) from the concept. Deliberately "
+                        + "destructive. Example: path=\"FreeRTOS/Praxis/ESP-IDF\".",
                 new McpToolHandler() {
                     public McpToolResult invoke(McpToolCall call) {
                         McpToolResult denied = requireWritable(ctx, ResearchStateIds.SCOPING);
                         if (denied != null) {
                             return denied;
                         }
-                        String handle = call.getString("handle");
-                        if (handle == null || handle.trim().isEmpty()) {
-                            return McpToolResult.error("Missing argument: handle");
+                        String path = call.getString("path");
+                        if (path == null || path.trim().isEmpty()) {
+                            return McpToolResult.error("Missing argument: path — example: "
+                                    + "path=\"FreeRTOS/Praxis/ESP-IDF\"");
                         }
                         com.aresstack.askai.research.concept.ConceptBranchService.EditResult result =
-                                ctx.conceptBranchService().removeBranch(handle.trim());
+                                ctx.conceptBranchService().removeNodeAt(splitPath(path));
                         if (!result.isApplied()) {
                             return McpToolResult.error(result.getDiagnostic().describeForModel());
                         }
                         ctx.onConceptChanged(result.getNewRevision());
-                        return McpToolResult.ok("removed revision=" + result.getNewRevision());
+                        return McpToolResult.ok("removed \"" + path.trim() + "\" revision="
+                                + result.getNewRevision());
                     }
                 },
-                McpToolParameter.string("handle", true, "The branch handle from concept_read"));
+                McpToolParameter.string("path", true,
+                        "The card's names from the concept root, separated by '/'"));
     }
 
     /** "A/B/C" → [A, B, C]; empty/null → the concept root. */

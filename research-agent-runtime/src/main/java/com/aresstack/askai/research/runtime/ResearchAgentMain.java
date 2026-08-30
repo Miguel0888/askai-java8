@@ -1227,21 +1227,17 @@ public final class ResearchAgentMain {
                 if (!action.getPath().isEmpty()) {
                     args.put("path", action.getPath());
                 }
-                if (action.getDepth() > 0) {
-                    args.put("depth", String.valueOf(action.getDepth()));
-                }
                 break;
-            case UPDATE:
-                toolName = "concept_update";
-                args.put("handle", action.getHandle());
-                args.put("branch_json", action.getBranchJson());
-                if (action.isAllowRemovals()) {
-                    args.put("allow_removals", "true");
+            case ADD:
+                toolName = "concept_add";
+                if (!action.getParentPath().isEmpty()) {
+                    args.put("parent_path", action.getParentPath());
                 }
+                args.put("name", action.getName());
                 break;
             default:
                 toolName = "concept_remove";
-                args.put("handle", action.getHandle());
+                args.put("path", action.getPath());
         }
         try {
             String text = String.valueOf(researchMcp.callTool(toolName, args));

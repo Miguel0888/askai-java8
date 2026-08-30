@@ -13,14 +13,14 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 /**
- * The tool-round loop is NOT just a repair loop: a read is a regular working step (work budget),
- * only a REJECTED mutation counts against the separate repair budget. When either budget runs out
- * the model gets ONE wrap-up inference and any further action is dropped; a dead endpoint keeps
- * the last good answer. The loop itself is deterministic — all semantics live in the host.
+ * The tool-round loop with the small-model contract: a read is a regular working step (work
+ * budget), only a REJECTED mutation counts against the separate repair budget, and EVERY
+ * feedback carries the authoritative ARTIFACT_STATE block — only an APPLIED call may claim a
+ * change. Budgets exhausted → one wrap-up inference, further actions dropped; a dead endpoint
+ * keeps the last good answer.
  */
 public class ConceptToolRoundsTest {
 
-    /** A scripted follow-up turn: pops the next scripted output, records the feedback it saw. */
     private static final class ScriptedTurns implements ConceptToolRounds.FollowUpTurn {
         final List<TeamAgentResult> script = new ArrayList<TeamAgentResult>();
         final List<String> feedbackSeen = new ArrayList<String>();
@@ -34,7 +34,6 @@ public class ConceptToolRoundsTest {
         }
     }
 
-    /** A scripted tool: maps action descriptions to results/failures, records the calls. */
     private static final class ScriptedTool implements ConceptToolRounds.ConceptTool {
         final Map<String, Object> byDescription = new HashMap<String, Object>();
         final List<String> calls = new ArrayList<String>();
@@ -70,51 +69,57 @@ public class ConceptToolRoundsTest {
     }
 
     @Test
-    public void readThenUpdateThenFinishIsTheHappyPath() throws Exception {
+    public void readThenAddThenFinishIsTheHappyPath() throws Exception {
         ScriptedTurns turns = new ScriptedTurns();
         ScriptedTool tool = new ScriptedTool();
-        tool.byDescription.put("read path='Synchronisation'",
-                "handle=b-1 revision=3 editable=true\n{\"Synchronisation\":[]}");
-        tool.byDescription.put("update handle=b-1", "applied revision=4");
-        turns.script.add(turn("working",
-                "{\"type\":\"update\",\"handle\":\"b-1\",\"branchJson\":"
-                        + "\"{\\\"Synchronisation\\\":[{\\\"Mutex\\\":[]}]}\"}"));
-        turns.script.add(turn("Fertig umgruppiert.", null));
+        tool.byDescription.put("read path=''", "{\"concept\":[]}");
+        tool.byDescription.put("add parent='' name='FreeRTOS'", "added \"FreeRTOS\" revision=1");
+        turns.script.add(turn("lege an",
+                "{\"type\":\"add\",\"parent_path\":\"\",\"name\":\"FreeRTOS\"}"));
+        turns.script.add(turn("Angelegt.", null));
 
         TeamAgentResult result = ConceptToolRounds.run(
-                turn("ich sehe nach", "{\"type\":\"read\",\"path\":\"Synchronisation\"}"),
+                turn("ich sehe nach", "{\"type\":\"read\",\"path\":\"\"}"),
                 turns, tool, 4, 2, traceSink);
 
-        assertEquals("Fertig umgruppiert.",
+        assertEquals("Angelegt.",
                 ((ScopingAssistantOutput) result.getOutput()).getAssistantMessage());
         assertEquals(2, tool.calls.size());
-        assertTrue("the read feedback is a RESULT, not a repair",
-                turns.feedbackSeen.get(0).startsWith("CONCEPT TOOL RESULT"));
-        assertTrue("the commit feedback says APPLIED",
-                turns.feedbackSeen.get(1).startsWith("CONCEPT TOOL APPLIED"));
+        String readFeedback = turns.feedbackSeen.get(0);
+        assertTrue("EVERY feedback leads with the authoritative state block",
+                readFeedback.startsWith("ARTIFACT_STATE"));
+        assertTrue(readFeedback.contains("updateAppliedThisTurn: false"));
+        assertTrue(readFeedback.contains("CONCEPT TOOL RESULT"));
+        String addFeedback = turns.feedbackSeen.get(1);
+        assertTrue(addFeedback.contains("updateAppliedThisTurn: true"));
+        assertTrue(addFeedback.contains("conceptRevision: 1"));
+        assertTrue(addFeedback.contains("CONCEPT TOOL APPLIED"));
     }
 
     @Test
-    public void aRejectedUpdateFeedsTheDiagnosticBackAndCountsAsRepair() throws Exception {
+    public void aRejectedAddFeedsTheDiagnosticBackAndCountsAsRepair() throws Exception {
         ScriptedTurns turns = new ScriptedTurns();
         ScriptedTool tool = new ScriptedTool();
-        tool.byDescription.put("update handle=b-1", new ToolInvoker.ToolFailure(
-                "STRUCTURE_LOSS_DETECTED\nPath: $.concept.Sync\nThe proposed refinement silently "
-                        + "removes existing concept nodes: \"Queues\"."));
-        tool.byDescription.put("update handle=b-2", "applied revision=4");
-        turns.script.add(turn("second try",
-                "{\"type\":\"update\",\"handle\":\"b-2\",\"branchJson\":\"{\\\"S\\\":[]}\"}"));
+        tool.byDescription.put("add parent='' name='Tasks'", new ToolInvoker.ToolFailure(
+                "BRANCH_GRAFT_FAILED\nA card named \"Tasks\" already exists here."));
+        tool.byDescription.put("add parent='Tasks' name='Scheduling'",
+                "added \"Scheduling\" revision=2");
+        turns.script.add(turn("anders",
+                "{\"type\":\"add\",\"parent_path\":\"Tasks\",\"name\":\"Scheduling\"}"));
         turns.script.add(turn("Erledigt.", null));
 
         TeamAgentResult result = ConceptToolRounds.run(
-                turn("try", "{\"type\":\"update\",\"handle\":\"b-1\",\"branchJson\":\"{\\\"S\\\":[]}\"}"),
+                turn("try", "{\"type\":\"add\",\"parent_path\":\"\",\"name\":\"Tasks\"}"),
                 turns, tool, 4, 2, traceSink);
 
         assertEquals("Erledigt.",
                 ((ScopingAssistantOutput) result.getOutput()).getAssistantMessage());
-        assertTrue(turns.feedbackSeen.get(0).startsWith("CONCEPT TOOL REJECTED"));
-        assertTrue("the diagnostic travels verbatim",
-                turns.feedbackSeen.get(0).contains("STRUCTURE_LOSS_DETECTED"));
+        String rejection = turns.feedbackSeen.get(0);
+        assertTrue(rejection.contains("CONCEPT TOOL REJECTED"));
+        assertTrue("the diagnostic travels verbatim", rejection.contains("already exists"));
+        assertTrue("the state block names the error",
+                rejection.contains("lastConceptError: BRANCH_GRAFT_FAILED"));
+        assertTrue(rejection.contains("updateAppliedThisTurn: false"));
     }
 
     @Test
@@ -122,13 +127,12 @@ public class ConceptToolRoundsTest {
         ScriptedTurns turns = new ScriptedTurns();
         ScriptedTool tool = new ScriptedTool();
         turns.script.add(turn("ok", null));
-        // type update without handle → parser carries the error instead of the action
         TeamAgentResult result = ConceptToolRounds.run(
-                turn("try", "{\"type\":\"update\",\"branchJson\":\"{\\\"S\\\":[]}\"}"),
+                turn("try", "{\"type\":\"add\",\"parent_path\":\"X\"}"), // name missing
                 turns, tool, 4, 2, traceSink);
         assertTrue(tool.calls.isEmpty());
-        assertTrue(turns.feedbackSeen.get(0).startsWith("CONCEPT TOOL REJECTED"));
-        assertTrue(turns.feedbackSeen.get(0).contains("requires \"handle\""));
+        assertTrue(turns.feedbackSeen.get(0).contains("CONCEPT TOOL REJECTED"));
+        assertTrue(turns.feedbackSeen.get(0).contains("requires \"name\""));
         assertEquals("ok", ((ScopingAssistantOutput) result.getOutput()).getAssistantMessage());
     }
 
@@ -138,8 +142,6 @@ public class ConceptToolRoundsTest {
         ScriptedTool tool = new ScriptedTool();
         tool.byDescription.put("read path='A'", "branch A");
         tool.byDescription.put("read path='B'", "branch B");
-        // maxToolRounds=2: round 1 read A, round 2 read B → budget note; the wrap-up STILL tries
-        // an action, which must be dropped, keeping the wrap-up answer.
         turns.script.add(turn("next", "{\"type\":\"read\",\"path\":\"B\"}"));
         turns.script.add(turn("wrap-up trotz Verbot", "{\"type\":\"read\",\"path\":\"C\"}"));
 
@@ -148,33 +150,28 @@ public class ConceptToolRoundsTest {
                 turns, tool, 2, 2, traceSink);
 
         assertEquals(2, tool.calls.size());
-        assertTrue("the last feedback carries the budget note",
-                turns.feedbackSeen.get(1).contains("TOOL BUDGET EXHAUSTED"));
+        assertTrue(turns.feedbackSeen.get(1).contains("TOOL BUDGET EXHAUSTED"));
         assertEquals("wrap-up trotz Verbot",
                 ((ScopingAssistantOutput) result.getOutput()).getAssistantMessage());
-        assertTrue("the dropped action leaves a trace",
-                trace.get(trace.size() - 1).contains("dropping"));
+        assertTrue(trace.get(trace.size() - 1).contains("dropping"));
     }
 
     @Test
     public void repairBudgetIsSeparateFromTheWorkBudget() throws Exception {
         ScriptedTurns turns = new ScriptedTurns();
         ScriptedTool tool = new ScriptedTool();
-        tool.byDescription.put("update handle=b-1",
-                new ToolInvoker.ToolFailure("JSON_SYNTAX_ERROR\nLine 1"));
-        // maxRepairAttempts=1: the FIRST rejection is within budget, the SECOND exhausts it.
-        turns.script.add(turn("retry",
-                "{\"type\":\"update\",\"handle\":\"b-1\",\"branchJson\":\"{\\\"S\\\":[]}\"}"));
+        tool.byDescription.put("add parent='' name='X'",
+                new ToolInvoker.ToolFailure("BRANCH_GRAFT_FAILED\nboom"));
+        turns.script.add(turn("retry", "{\"type\":\"add\",\"parent_path\":\"\",\"name\":\"X\"}"));
         turns.script.add(turn("aufgeben", null));
 
         TeamAgentResult result = ConceptToolRounds.run(
-                turn("try", "{\"type\":\"update\",\"handle\":\"b-1\",\"branchJson\":\"{\\\"S\\\":[]}\"}"),
+                turn("try", "{\"type\":\"add\",\"parent_path\":\"\",\"name\":\"X\"}"),
                 turns, tool, 10, 1, traceSink);
 
         assertEquals("aufgeben",
                 ((ScopingAssistantOutput) result.getOutput()).getAssistantMessage());
-        assertTrue("the second rejection carries the budget note",
-                turns.feedbackSeen.get(1).contains("TOOL BUDGET EXHAUSTED"));
+        assertTrue(turns.feedbackSeen.get(1).contains("TOOL BUDGET EXHAUSTED"));
     }
 
     @Test
@@ -187,7 +184,7 @@ public class ConceptToolRoundsTest {
 
         TeamAgentResult result = ConceptToolRounds.run(initial, turns, tool, 4, 2, traceSink);
 
-        assertEquals("the last good result survives, no follow-up turn", initial, result);
+        assertEquals(initial, result);
         assertTrue(turns.feedbackSeen.isEmpty());
         assertTrue(trace.get(trace.size() - 1).contains("unavailable"));
     }

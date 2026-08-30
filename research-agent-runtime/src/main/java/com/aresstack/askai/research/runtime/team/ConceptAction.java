@@ -3,70 +3,57 @@ package com.aresstack.askai.research.runtime.team;
 import java.util.Map;
 
 /**
- * The model's ONE concept tool step for one inference — an OPERATION, never a whole tree. Exactly
- * one action per inference by design: the runtime owns the loop, the model only ever decides its
- * NEXT step ("read this branch", "apply this refined branch", "remove this node", or nothing).
- * A {@code read} is a regular working step, not a repair — the distinction lives in
- * {@link ConceptToolRounds}, which counts tool rounds and repair attempts separately.
+ * The model's ONE concept step for one inference — a tiny atomic operation addressed by a
+ * human-readable name path (K2c, the MainframeMate lesson): {@code read} a branch, {@code add}
+ * one new card, {@code remove} one card, or {@code none}. Deliberately NO handles, NO revisions,
+ * NO branch payloads in the model contract — all transactional machinery lives in the host.
+ * A {@code read} is a regular working step, not a repair; the budgets are counted separately
+ * in {@link ConceptToolRounds}.
  */
 public final class ConceptAction {
 
-    public enum Type { READ, UPDATE, REMOVE }
+    public enum Type { READ, ADD, REMOVE }
 
     private final Type type;
     private final String path;
-    private final int depth;
-    private final String handle;
-    private final String branchJson;
-    private final boolean allowRemovals;
+    private final String parentPath;
+    private final String name;
 
-    private ConceptAction(Type type, String path, int depth, String handle, String branchJson,
-                          boolean allowRemovals) {
+    private ConceptAction(Type type, String path, String parentPath, String name) {
         this.type = type;
         this.path = path == null ? "" : path.trim();
-        this.depth = depth;
-        this.handle = handle == null ? "" : handle.trim();
-        this.branchJson = branchJson == null ? "" : branchJson;
-        this.allowRemovals = allowRemovals;
+        this.parentPath = parentPath == null ? "" : parentPath.trim();
+        this.name = name == null ? "" : name.trim();
     }
 
     public Type getType() {
         return type;
     }
 
-    /** For READ: the '/'-separated node-name path (empty = whole concept). */
+    /** For READ/REMOVE: the '/'-separated name path (READ: empty = whole concept). */
     public String getPath() {
         return path;
     }
 
-    /** For READ: the depth limit (0 = full depth, editable handle). */
-    public int getDepth() {
-        return depth;
+    /** For ADD: the parent card's name path (empty = a new top-level card). */
+    public String getParentPath() {
+        return parentPath;
     }
 
-    /** For UPDATE/REMOVE: the branch handle from a previous read. */
-    public String getHandle() {
-        return handle;
+    /** For ADD: the new card's name. */
+    public String getName() {
+        return name;
     }
 
-    /** For UPDATE: the complete refined branch ({@code {"Name": [ ... ]}}). */
-    public String getBranchJson() {
-        return branchJson;
-    }
-
-    public boolean isAllowRemovals() {
-        return allowRemovals;
-    }
-
-    /** A compact trace label ("read path='A/B' depth=1", "update handle=b-3"). */
+    /** A compact trace label ("read path='A/B'", "add parent='A' name='B'", "remove path='A'"). */
     public String describe() {
         switch (type) {
             case READ:
-                return "read path='" + path + "'" + (depth > 0 ? " depth=" + depth : "");
-            case UPDATE:
-                return "update handle=" + handle + (allowRemovals ? " allowRemovals" : "");
+                return "read path='" + path + "'";
+            case ADD:
+                return "add parent='" + parentPath + "' name='" + name + "'";
             default:
-                return "remove handle=" + handle;
+                return "remove path='" + path + "'";
         }
     }
 
@@ -108,10 +95,10 @@ public final class ConceptAction {
     }
 
     /**
-     * Parse the optional {@code conceptAction} value of a scoping answer. Absent/null → absent.
-     * A present but malformed action is NOT silently dropped — the reason travels back to the
-     * model as a rejection so it can correct itself (the same philosophy as every diagnostic
-     * in this pipeline).
+     * Parse the optional {@code conceptAction} value of a scoping answer. Absent, {@code null}
+     * or an explicit {@code type:"none"} → absent (the turn touches nothing). A present but
+     * malformed action is NOT silently dropped — the reason travels back to the model as a
+     * rejection with a concrete example.
      */
     @SuppressWarnings("unchecked")
     public static Parsed parse(Object value) {
@@ -119,59 +106,51 @@ public final class ConceptAction {
             return Parsed.absent();
         }
         if (!(value instanceof Map)) {
-            return Parsed.invalid("conceptAction must be a JSON object with a \"type\" field");
+            return Parsed.invalid("conceptAction must be a JSON object with a \"type\" field "
+                    + "(none, read, add or remove)");
         }
         Map<String, Object> map = (Map<String, Object>) value;
         String type = asString(map.get("type"));
-        if ("read".equalsIgnoreCase(type)) {
-            return Parsed.ok(new ConceptAction(Type.READ, asString(map.get("path")),
-                    asInt(map.get("depth")), null, null, false));
+        if (type == null || "none".equalsIgnoreCase(type.trim())) {
+            return Parsed.absent();
         }
-        if ("update".equalsIgnoreCase(type)) {
-            String handle = asString(map.get("handle"));
-            Object branch = map.get("branchJson");
-            // The branch may arrive as an embedded JSON object (preferred) or as a string; both
-            // are re-serialized/passed through — the HOST's strict parser is the authority.
-            String branchJson = branch instanceof String ? (String) branch
-                    : branch instanceof Map ? MiniJsonWriter.write(branch) : null;
-            if (handle == null || handle.trim().isEmpty()) {
-                return Parsed.invalid("conceptAction type \"update\" requires \"handle\" "
-                        + "(from a previous concept read)");
+        if ("read".equalsIgnoreCase(type)) {
+            return Parsed.ok(new ConceptAction(Type.READ,
+                    firstString(map, "path", "parent_path"), null, null));
+        }
+        if ("add".equalsIgnoreCase(type)) {
+            String name = asString(map.get("name"));
+            if (name == null || name.trim().isEmpty()) {
+                return Parsed.invalid("conceptAction type \"add\" requires \"name\" — example: "
+                        + "{\"type\":\"add\",\"parent_path\":\"FreeRTOS\","
+                        + "\"name\":\"Synchronisation\"}");
             }
-            if (branchJson == null || branchJson.trim().isEmpty()) {
-                return Parsed.invalid("conceptAction type \"update\" requires \"branchJson\" — "
-                        + "the complete refined branch as {\"Name\": [ ... ]}");
-            }
-            return Parsed.ok(new ConceptAction(Type.UPDATE, null, 0, handle, branchJson,
-                    Boolean.TRUE.equals(map.get("allowRemovals"))
-                            || "true".equalsIgnoreCase(asString(map.get("allowRemovals")))));
+            return Parsed.ok(new ConceptAction(Type.ADD, null,
+                    firstString(map, "parent_path", "parentPath", "path"), name));
         }
         if ("remove".equalsIgnoreCase(type)) {
-            String handle = asString(map.get("handle"));
-            if (handle == null || handle.trim().isEmpty()) {
-                return Parsed.invalid("conceptAction type \"remove\" requires \"handle\"");
+            String path = firstString(map, "path", "parent_path");
+            if (path == null || path.trim().isEmpty()) {
+                return Parsed.invalid("conceptAction type \"remove\" requires \"path\" — "
+                        + "example: {\"type\":\"remove\",\"path\":\"FreeRTOS/Praxis/ESP-IDF\"}");
             }
-            return Parsed.ok(new ConceptAction(Type.REMOVE, null, 0, handle, null, false));
+            return Parsed.ok(new ConceptAction(Type.REMOVE, path, null, null));
         }
         return Parsed.invalid("conceptAction has unknown type \"" + type
-                + "\" — allowed: read, update, remove");
+                + "\" — allowed: none, read, add, remove");
+    }
+
+    private static String firstString(Map<String, Object> map, String... keys) {
+        for (String key : keys) {
+            String value = asString(map.get(key));
+            if (value != null && !value.trim().isEmpty()) {
+                return value;
+            }
+        }
+        return null;
     }
 
     private static String asString(Object value) {
         return value instanceof String ? (String) value : null;
-    }
-
-    private static int asInt(Object value) {
-        if (value instanceof Number) {
-            return (int) Math.round(((Number) value).doubleValue());
-        }
-        if (value instanceof String) {
-            try {
-                return Integer.parseInt(((String) value).trim());
-            } catch (NumberFormatException notANumber) {
-                return 0;
-            }
-        }
-        return 0;
     }
 }

@@ -203,14 +203,12 @@ public final class TeamAgentPlaybook {
                 + "    { \"label\": string, \"query\": string, \"rationale\": string }\n"
                 + "  ]"
                 + (conceptTools
-                        ? ",\n  \"conceptAction\": {              // OPTIONAL: your ONE concept-tool step "
-                        + "THIS inference\n"
-                        + "    \"type\": \"read\"|\"update\"|\"remove\",\n"
-                        + "    \"path\": string, \"depth\": number,                  // read: 'A/B' from "
-                        + "the concept root, depth 0 = full\n"
-                        + "    \"handle\": string, \"branchJson\": string,           // update/remove: the "
-                        + "handle from your read\n"
-                        + "    \"allowRemovals\": boolean\n"
+                        ? ",\n  \"conceptAction\": {              // your ONE concept step THIS "
+                        + "inference; {\"type\":\"none\"} when you change nothing\n"
+                        + "    \"type\": \"none\"|\"read\"|\"add\"|\"remove\",\n"
+                        + "    \"path\": string,                  // read/remove: card names from "
+                        + "the concept root, '/'-separated\n"
+                        + "    \"parent_path\": string, \"name\": string      // add: where and what\n"
                         + "  }\n"
                         : "\n")
                 + "}\n\n"
@@ -461,24 +459,30 @@ public final class TeamAgentPlaybook {
     /** How to use the concept tool: one small step per inference, read before update, no rewrites. */
     private static String conceptToolRules() {
         return "THE CONCEPT (conceptAction):\n"
-                + "- The concept is a TREE of named cards (topics), maintained in SMALL STEPS — you "
-                + "never rewrite it as a whole.\n"
-                + "- Issue at most ONE conceptAction per answer. The application executes it and hands "
-                + "you the result; then you decide your next step. When nothing is left to do, answer "
-                + "the user with your final assistantMessage and NO conceptAction.\n"
-                + "- ALWAYS read a branch first (type \"read\"): the result carries the handle you need "
-                + "for editing, plus the parent and sibling names so you never invent a card that "
-                + "already exists. A read with depth > 0 is orientation only — its handle cannot edit.\n"
-                + "- \"update\" sends the COMPLETE refined branch as {\"Name\": [ ... ]}: one object "
-                + "per group of children, an array per card, [] for a card without children yet. "
-                + "Existing cards must survive a refinement — moving them into a new group is fine; "
-                + "deliberate deletion is type \"remove\".\n"
-                + "- Card names are short noun phrases in the user's language — the user's own words "
-                + "win over your terminology.\n"
-                + "- A rejected step returns a diagnostic. Correct exactly what it names and try again; "
-                + "a stale revision means: read the branch again first.\n"
+                + "- The concept is a TREE of named topic cards. You build it in SMALL STEPS — one "
+                + "conceptAction per answer; the application executes it and hands you the result.\n"
+                + "- Cards are addressed by their NAMES from the concept root, joined with '/'. "
+                + "Nothing else — no ids, no handles.\n"
+                + "- Examples:\n"
+                + "    inspect everything:   {\"type\":\"read\",\"path\":\"\"}\n"
+                + "    inspect one branch:   {\"type\":\"read\",\"path\":\"FreeRTOS\"}\n"
+                + "    add a top-level card: {\"type\":\"add\",\"parent_path\":\"\","
+                + "\"name\":\"FreeRTOS\"}\n"
+                + "    add a subtopic:       {\"type\":\"add\",\"parent_path\":"
+                + "\"FreeRTOS/Kommunikation\",\"name\":\"Task Notifications\"}\n"
+                + "    remove a card:        {\"type\":\"remove\",\"path\":"
+                + "\"FreeRTOS/Praxis/ESP-IDF\"}\n"
+                + "    change nothing:       {\"type\":\"none\"}\n"
+                + "- If you are unsure whether a parent exists: 1) read it, 2) look at the result, "
+                + "3) add. Adding an already-existing card is rejected with the reason.\n"
+                + "- ONE card per add. Build the tree over several steps instead of inventing a deep "
+                + "structure at once; card names are short noun phrases in the user's language, and "
+                + "the user's own words win over your terminology.\n"
+                + "- NEVER claim a card was saved or the concept changed unless the tool answered "
+                + "APPLIED in this turn. A rejected step changed NOTHING — say so honestly or fix "
+                + "it.\n"
                 + "- The concept mirrors the CONVERSATION: add what the user asks for, propose what "
-                + "scope and sources suggest, and never invent depth the user has not asked about.\n\n";
+                + "scope and sources suggest, and remove only what the user excluded.\n\n";
     }
 
     /** Feedback for a successful READ — a regular working step, not a repair. */
@@ -488,20 +492,36 @@ public final class TeamAgentPlaybook {
                 + "assistantMessage for the user and no conceptAction.";
     }
 
-    /** Feedback for a committed mutation. Earlier handles are stale from now on. */
+    /** Feedback for a committed mutation. */
     public static String conceptToolApplied(String toolText) {
         return "CONCEPT TOOL APPLIED: " + toolText
-                + "\nThe concept now contains this change; handles from before it are stale (read "
-                + "again before further edits). Continue with another conceptAction if needed, or "
-                + "finish with your final assistantMessage and no conceptAction. Do not claim more "
-                + "than this change in your answer.";
+                + "\nThe concept now contains this change — and ONLY this change. Continue with "
+                + "another conceptAction if needed, or finish with your final assistantMessage and "
+                + "type \"none\". Do not claim more than this change in your answer.";
     }
 
     /** Feedback for a REJECTED mutation — the diagnostic is the model's repair input. */
     public static String conceptToolRejected(String diagnostic) {
         return "CONCEPT TOOL REJECTED — the concept is UNCHANGED.\n" + diagnostic
-                + "\nCorrect exactly what the diagnostic names and issue the corrected conceptAction "
-                + "(for a stale revision: read the branch again first).";
+                + "\nCorrect exactly what the diagnostic names and try again (concept_read shows "
+                + "the current cards), or finish honestly with type \"none\" — but NEVER claim the "
+                + "change happened.";
+    }
+
+    /**
+     * The AUTHORITATIVE artifact state, prepended to every concept feedback as a machine-like
+     * block — small models follow a regular state block better than prose, and it removes any
+     * room for the "the conversation is the state" fiction: only an APPLIED tool call changes
+     * the artifact.
+     */
+    public static String conceptArtifactState(long conceptRevision, boolean appliedThisTurn,
+                                              String lastConceptError) {
+        return "ARTIFACT_STATE\n"
+                + "conceptRevision: " + (conceptRevision < 0 ? "unknown" : conceptRevision) + "\n"
+                + "updateAppliedThisTurn: " + appliedThisTurn + "\n"
+                + "lastConceptError: "
+                + (lastConceptError == null || lastConceptError.isEmpty() ? "none"
+                        : lastConceptError) + "\n\n";
     }
 
     /** Appended to the LAST feedback when a budget is exhausted: wrap up, no further actions. */

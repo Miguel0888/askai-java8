@@ -15,6 +15,12 @@ public class ScopingConceptPromptTest {
         assertTrue(with.contains("conceptAction"));
         assertTrue(with.contains("WE ARE BUILDING A BOOK"));
         assertTrue(with.contains("THE CONCEPT (conceptAction):"));
+        // The MainframeMate lesson, pinned: concrete examples live IN the contract text.
+        assertTrue(with.contains("{\"type\":\"add\",\"parent_path\":"));
+        assertTrue(with.contains("Task Notifications"));
+        assertTrue(with.contains("{\"type\":\"none\"}"));
+        assertTrue("no handle field in the model contract", !with.contains("\"handle\""));
+        assertTrue("no branch payloads in the model contract", !with.contains("branchJson"));
         String without = TeamAgentPlaybook.scopingSystemPrompt(false, false);
         assertFalse(without.contains("conceptAction"));
         assertEquals("the flagless overload is the old prompt, byte-identical",

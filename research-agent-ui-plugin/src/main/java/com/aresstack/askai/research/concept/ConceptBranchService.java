@@ -265,6 +265,126 @@ public final class ConceptBranchService {
         return new EditResult(true, newRevision, null);
     }
 
+    // ------------------------------------------------------------------ small-model facade (K2c)
+    //
+    // The MODEL-facing contract is deliberately dumb (the MainframeMate lesson: small models use
+    // tools reliably when the contract is tiny, concrete and example-backed): one atomic
+    // operation per call, addressed by a human-readable name path — NO handles, NO revisions,
+    // NO full-branch replacement. All transactional machinery (strict parse, candidate
+    // validation, atomic commit, revision bump) still runs underneath on every call.
+
+    /** Add one new EMPTY card under the parent path (empty parent = the concept root). */
+    public synchronized EditResult addNode(List<String> parentNames, String name) {
+        String cardName = name == null ? "" : name.trim();
+        if (cardName.isEmpty()) {
+            return editError(JsonTreeDiagnostic.of(JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
+                    "A new concept card needs a non-empty name.").build());
+        }
+        String document = store.effectiveContent();
+        StrictJsonParseResult parsed = StrictJsonParser.parse(document);
+        if (!parsed.isOk()) {
+            return editError(parsed.getDiagnostic());
+        }
+        Resolution resolution = resolve(parsed.getElement(), parentNames);
+        if (resolution.diagnostic != null) {
+            return editError(resolution.diagnostic);
+        }
+        JsonElement candidate = parsed.getElement().deepCopy();
+        JsonArray parentArray = arrayAt(candidate, resolution.path);
+        if (parentArray == null) {
+            return editError(JsonTreeDiagnostic.of(JsonTreeErrorCode.TARGET_NODE_NOT_FOUND,
+                    "The parent no longer exists.").path(resolution.path.describe()).build());
+        }
+        // Duplicate guard across ALL containers of the parent: the SAME card twice is always a
+        // model mistake — the diagnostic names the conflict instead of silently stacking it.
+        for (JsonElement element : parentArray) {
+            if (element.isJsonObject() && element.getAsJsonObject().has(cardName)) {
+                return editError(JsonTreeDiagnostic.of(JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
+                        "A card named \"" + cardName + "\" already exists here.")
+                        .path(resolution.path.describe())
+                        .hint("Read the concept (concept_read) to see the existing cards, or "
+                                + "choose a different name.")
+                        .build());
+            }
+        }
+        // Append: join the first container object (the concept's compact grouping style), or
+        // open the first container if the array has none yet.
+        JsonObject container = null;
+        for (JsonElement element : parentArray) {
+            if (element.isJsonObject()) {
+                container = element.getAsJsonObject();
+                break;
+            }
+        }
+        if (container == null) {
+            container = new JsonObject();
+            parentArray.add(container);
+        }
+        container.add(cardName, new JsonArray());
+        return commitCandidate(candidate);
+    }
+
+    /** Remove the card at the name path with its whole subtree. Deliberately destructive. */
+    public synchronized EditResult removeNodeAt(List<String> names) {
+        if (names == null || names.isEmpty()) {
+            return editError(JsonTreeDiagnostic.of(JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
+                    "The concept's working surface itself cannot be removed — name the card "
+                            + "to remove (e.g. \"FreeRTOS/Praxis/ESP-IDF\").").build());
+        }
+        String document = store.effectiveContent();
+        StrictJsonParseResult parsed = StrictJsonParser.parse(document);
+        if (!parsed.isOk()) {
+            return editError(parsed.getDiagnostic());
+        }
+        Resolution resolution = resolve(parsed.getElement(), names);
+        if (resolution.diagnostic != null) {
+            return editError(resolution.diagnostic);
+        }
+        JsonElement candidate = parsed.getElement().deepCopy();
+        JsonTreeDiagnostic removal = removeAt(candidate, resolution.path);
+        if (removal != null) {
+            return editError(removal);
+        }
+        return commitCandidate(candidate);
+    }
+
+    /** Full-candidate validation + atomic commit — the shared tail of every atomic operation. */
+    private EditResult commitCandidate(JsonElement candidate) {
+        String candidateJson = GSON.toJson(candidate);
+        JsonTreeParseResult validated = JsonTreeParser.parse(candidateJson);
+        if (!validated.isOk()) {
+            return editError(JsonTreeDiagnostic.of(JsonTreeErrorCode.CANDIDATE_DOCUMENT_INVALID,
+                    "The changed document failed re-validation and was discarded. Underlying "
+                            + "problem: " + validated.getDiagnostic().getMessage())
+                    .build());
+        }
+        long newRevision = store.commitWorking(candidateJson, System.currentTimeMillis());
+        return new EditResult(true, newRevision, null);
+    }
+
+    /** Walk a resolved path to its target ARRAY inside {@code root} (a deep copy), or null. */
+    private static JsonArray arrayAt(JsonElement root, JsonBranchPath path) {
+        JsonObject container = root.getAsJsonObject();
+        List<JsonBranchPath.Step> steps = path.getSteps();
+        for (int i = 0; i < steps.size(); i++) {
+            JsonBranchPath.Step step = steps.get(i);
+            JsonElement value = container.get(step.getProperty());
+            if (value == null || !value.isJsonArray()) {
+                return null;
+            }
+            JsonArray array = value.getAsJsonArray();
+            if (i == steps.size() - 1) {
+                return array;
+            }
+            if (step.getElementIndex() < 0 || step.getElementIndex() >= array.size()
+                    || !array.get(step.getElementIndex()).isJsonObject()) {
+                return null;
+            }
+            container = array.get(step.getElementIndex()).getAsJsonObject();
+        }
+        return null;
+    }
+
     // ------------------------------------------------------------------ remove
 
     /** DELIBERATELY destructive: removes the addressed node with its whole subtree. */
