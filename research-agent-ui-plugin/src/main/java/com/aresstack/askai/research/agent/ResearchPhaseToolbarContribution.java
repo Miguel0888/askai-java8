@@ -23,8 +23,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * The research PHASE SELECTOR in the workspace top bar (the old Websuche spot): ONE pill control —
- * painted lab-flask glyph, phase text and chevron together — in the DARK "New Chat" accent
+ * The research PHASE SELECTOR — a dark pill in the drawer's CHATS FOOTER beside the language
+ * switch (maintenance corner: rarely touched in the normal flow), always showing its ≤8-character
+ * short label while the popup carries the full phase titles. Dark "New Chat" accent
  * ({@link ResearchUiPalette#SECONDARY_SURFACE}), shared with the hamburger and the active ribbon
  * entry. It is deliberately NOT a second state
  * mechanism: the dropdown renders {@link ResearchStateSnapshot#getPhaseOrder()}, a selectable entry
@@ -80,7 +81,9 @@ public final class ResearchPhaseToolbarContribution implements AgentToolbarContr
 
     @Override
     public Placement getPlacement() {
-        return Placement.LEADING; // left-aligned right after the (flask-branded) hamburger
+        // Bottom right, beside the language pill: the phase is rarely touched in the normal flow
+        // (only when something was forgotten) — navigation stays up top, maintenance lives here.
+        return Placement.SIDEBAR_FOOTER;
     }
 
     @Override
@@ -94,28 +97,20 @@ public final class ResearchPhaseToolbarContribution implements AgentToolbarContr
         final UiExecutor uiExecutor = context.getUiExecutor();
 
         final ResearchPillDropdown pill = new ResearchPillDropdown(
-                ResearchUiMetrics.PHASE_PILL_HEIGHT, ResearchUiMetrics.RADIUS_CONTROL,
-                ResearchUiMetrics.PHASE_PILL_MIN_WIDTH,
-                ResearchUiMetrics.PHASE_PILL_PADDING_LEFT,
-                ResearchUiMetrics.PHASE_PILL_PADDING_RIGHT);
-        pill.setFont(ResearchUiTypography.regular(14f));
-        // The DARK "New Chat" family (SECONDARY_SURFACE) instead of blue — one near-black accent
-        // shared with the hamburger and the active ribbon entry; hover/open lift it slightly.
+                ResearchUiMetrics.FOOTER_CONTROL_HEIGHT, ResearchUiMetrics.RADIUS_CONTROL,
+                0, ResearchUiMetrics.FOOTER_PILL_PADDING_H,
+                ResearchUiMetrics.FOOTER_PILL_PADDING_H);
+        pill.setFont(ResearchUiTypography.regular(13f));
+        // The DARK "New Chat" family (SECONDARY_SURFACE) — one near-black accent shared with the
+        // hamburger and the active ribbon entry; hover/open lift it slightly.
         pill.setFills(ResearchUiPalette.SECONDARY_SURFACE, ResearchUiPalette.SECONDARY_HOVER,
                 ResearchUiPainter.mix(ResearchUiPalette.SECONDARY_HOVER, java.awt.Color.WHITE,
                         0.06f));
         pill.setPillForeground(ResearchUiPalette.TEXT_PRIMARY);
-        // No flask INSIDE the pill anymore — the flask brands the hamburger while this agent is
-        // active (getMenuIcon); the pill is text + chevron only, left-aligned.
         pill.setToolTipText("Research-Phase (Wechsel läuft über den regulären Workflow)");
-        // While the tab ribbon unfolds beside it, the host asks for the REDUCED view via the
-        // shared client property; the popup keeps the full titles either way.
-        pill.addPropertyChangeListener(
-                com.aresstack.askai.plugin.api.agent.toolbar.AgentToolbarContribution
-                        .COMPACT_MODE_PROPERTY,
-                event -> pill.setCompact(Boolean.TRUE.equals(pill.getClientProperty(
-                        com.aresstack.askai.plugin.api.agent.toolbar.AgentToolbarContribution
-                                .COMPACT_MODE_PROPERTY))));
+        // ALWAYS the ≤8-character short label on the pill; the popup shows the full titles. The
+        // old open-menu size flipping is gone — it was flaky and is simply not needed anymore.
+        pill.setCompact(true);
 
         pill.setSelectionListener(new ResearchPillDropdown.SelectionListener() {
             public void itemSelected(int index) {

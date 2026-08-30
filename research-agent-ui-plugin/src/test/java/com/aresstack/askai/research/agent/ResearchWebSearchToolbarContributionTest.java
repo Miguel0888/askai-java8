@@ -23,10 +23,11 @@ public class ResearchWebSearchToolbarContributionTest {
     }
 
     @Test
-    public void thePhaseSelectorLeadsRightAfterTheBurger() {
+    public void thePhaseSelectorLivesInTheChatsFooterBesideTheLanguagePill() {
         ResearchPhaseToolbarContribution contribution = new ResearchPhaseToolbarContribution();
         assertEquals("research-phase-selector", contribution.getId());
-        assertEquals(AgentToolbarContribution.Placement.LEADING, contribution.getPlacement());
+        assertEquals(AgentToolbarContribution.Placement.SIDEBAR_FOOTER,
+                contribution.getPlacement());
         assertFalse("only research sessions get the selector", contribution.supports(null));
     }
 

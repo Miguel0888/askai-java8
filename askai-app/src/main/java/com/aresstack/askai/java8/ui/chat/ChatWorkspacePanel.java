@@ -91,10 +91,13 @@ public final class ChatWorkspacePanel extends JPanel {
     private final JPanel agentFooterToolbarSlot = new JPanel(new BorderLayout());
     /** Slot for the ACTIVE agent's LEADING control (right after the burger, before the ribbon). */
     private final JPanel agentLeadingSlot = new JPanel(new BorderLayout());
-    /** The footer's mode pill (Yapping / agent / Partying) — anchors the active tab's mode popup. */
+    /**
+     * The TOP-BAR mode pill (Yapping / agent / Partying), right beside the hamburger — the mode
+     * IS navigation (and explains the plugin-branded burger icon); it anchors the active tab's
+     * mode popup. Sized to the burger's 28px row, not the footer's 34px pills.
+     */
     private final ResearchPillButton modePill = new ResearchPillButton("Yapping",
-            ResearchUiMetrics.FOOTER_CONTROL_HEIGHT, ResearchUiMetrics.RADIUS_CONTROL,
-            ResearchUiMetrics.FOOTER_PILL_PADDING_H);
+            28, ResearchUiMetrics.RADIUS_CONTROL, 12);
     private com.aresstack.askai.plugin.host.WorkspaceModeController modeController;
     /**
      * The CENTERED top-bar slot (e.g. the research web-search tag): GridBagLayout centers its one
@@ -507,8 +510,20 @@ public final class ChatWorkspacePanel extends JPanel {
         topLeft.setLayout(new javax.swing.BoxLayout(topLeft, javax.swing.BoxLayout.X_AXIS));
         topLeft.setOpaque(false);
         topLeft.add(burger);
-        // The LEADING agent control (e.g. the phase selector) sits LEFT-aligned right after the
-        // burger and STAYS while the ribbon unfolds — the ribbon then asks it for its compact view.
+        // The MODE pill (Yapping / agent / Partying) sits right beside the burger: switching the
+        // mode is navigation, and the plugin-branded burger icon reads as its consequence.
+        modePill.setFont(ResearchUiTypography.regular(12.5f));
+        modePill.setToolTipText("Chat-Modus: Yapping, Questing (Agent) oder Partying");
+        modePill.addActionListener(event -> {
+            ChatSessionComponent active = activeSession();
+            if (active instanceof OllamaChatPanel) {
+                ((OllamaChatPanel) active).openModePopupAt(modePill);
+            }
+        });
+        topLeft.add(javax.swing.Box.createHorizontalStrut(6));
+        topLeft.add(modePill);
+        topLeft.add(javax.swing.Box.createHorizontalStrut(6));
+        // The LEADING agent slot stays as generic infrastructure (currently unused by research).
         agentLeadingSlot.setOpaque(false);
         topLeft.add(agentLeadingSlot);
         topLeft.add(ribbon);
@@ -762,24 +777,9 @@ public final class ChatWorkspacePanel extends JPanel {
         footer.setPreferredSize(new Dimension(10, ResearchUiMetrics.FOOTER_HEIGHT));
 
         agentFooterToolbarSlot.setOpaque(false);
-        // Left group: [language slot][mode pill] — the mode selector moved here from the
-        // composer; clicking it opens the ACTIVE tab's existing mode popup (incl. Partying),
-        // styled as the same dark pill family as the language switch.
-        modePill.setFont(ResearchUiTypography.regular(13f));
-        modePill.setToolTipText("Chat-Modus: Yapping, Questing (Agent) oder Partying");
-        modePill.addActionListener(event -> {
-            ChatSessionComponent active = activeSession();
-            if (active instanceof OllamaChatPanel) {
-                ((OllamaChatPanel) active).openModePopupAt(modePill);
-            }
-        });
-        JPanel footerLeft = new JPanel();
-        footerLeft.setLayout(new javax.swing.BoxLayout(footerLeft, javax.swing.BoxLayout.X_AXIS));
-        footerLeft.setOpaque(false);
-        footerLeft.add(agentFooterToolbarSlot);
-        footerLeft.add(javax.swing.Box.createHorizontalStrut(8));
-        footerLeft.add(modePill);
-        footer.add(footerLeft, BorderLayout.WEST);
+        // Left group: the agent's footer contributions (language pill + phase selector — the
+        // maintenance controls). The MODE pill moved up beside the burger: mode is navigation.
+        footer.add(agentFooterToolbarSlot, BorderLayout.WEST);
 
         // Delete-all: same height/radius family as the language pill; white and quiet at rest,
         // red only on hover/pressed — a rarely used destructive action must not draw attention.

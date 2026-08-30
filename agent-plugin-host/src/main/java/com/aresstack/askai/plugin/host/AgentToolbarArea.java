@@ -90,18 +90,18 @@ public final class AgentToolbarArea {
                 continue;
             }
             if (contribution.getPlacement() == AgentToolbarContribution.Placement.CENTER) {
-                centerRow.add(component);
+                addWithGap(centerRow, component, centerBuilt);
                 centerBuilt++;
             } else if (contribution.getPlacement()
                     == AgentToolbarContribution.Placement.LEADING) {
-                leadingRow.add(component);
+                addWithGap(leadingRow, component, leadingBuilt);
                 leadingBuilt++;
             } else if (contribution.getPlacement()
                     == AgentToolbarContribution.Placement.SIDEBAR_FOOTER) {
-                footerRow.add(component);
+                addWithGap(footerRow, component, footerBuilt);
                 footerBuilt++;
             } else {
-                trailingRow.add(component);
+                addWithGap(trailingRow, component, trailingBuilt);
                 trailingBuilt++;
             }
         }
@@ -125,6 +125,14 @@ public final class AgentToolbarArea {
         } else {
             host.setLeadingToolbar(leadingRow);
         }
+    }
+
+    /** Neighboring contributions breathe: a small strut between row members, never glued pills. */
+    private static void addWithGap(JPanel row, JComponent component, int alreadyBuilt) {
+        if (alreadyBuilt > 0) {
+            row.add(javax.swing.Box.createHorizontalStrut(8));
+        }
+        row.add(component);
     }
 
     private static JPanel newRow() {

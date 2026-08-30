@@ -84,7 +84,7 @@ public final class AskAiFrame extends JFrame {
     private final OllamaService ollamaService;
     private final FeatureActionService featureActionService;
     private final SpeechToTextService speechToTextService;
-    private final ConnectionStatusView connectionStatusView;
+    private final ConnectionWidget connectionStatusView;
     private final CardLayout contentLayout;
     private final JPanel contentPanel;
     private final OllamaModelsPanel modelsPanel;
@@ -131,7 +131,6 @@ public final class AskAiFrame extends JFrame {
     private ModelSearchPanel installSearchPanel;
     private BatchTranscriptionPanel batchPanel;
     private final GlobalCatalogRefreshService catalogRefreshService;
-    private final JButton globalRefreshButton;
     /** The general-purpose video recorder controller; created lazily on first use of Help → Record Video. */
     private com.aresstack.askai.java8.video.VideoRecordingController videoRecordingController;
 
@@ -146,9 +145,13 @@ public final class AskAiFrame extends JFrame {
                 askAiService.localRuntimeManager());
         this.featureActionService = new OllamaFeatureActionService(model);
         this.speechToTextService = new DefaultSpeechToTextService(configurationRepository);
-        this.connectionStatusView = new ConnectionStatusView(new Runnable() {
+        this.connectionStatusView = new ConnectionWidget(new Runnable() {
             public void run() {
                 openConnectionSettings();
+            }
+        }, new Runnable() {
+            public void run() {
+                catalogRefreshService.refresh(); // no-op if one is already running
             }
         });
         this.contentLayout = new CardLayout();
@@ -167,7 +170,6 @@ public final class AskAiFrame extends JFrame {
                 new Consumer<Runnable>() {
                     public void accept(Runnable runnable) { onUi(runnable); }
                 });
-        this.globalRefreshButton = createGlobalRefreshButton();
         // R0.4 lifecycle: after an AskAI restart the local model runtime comes back automatically
         // when locally installed models exist, and it always ends with AskAI.
         final com.aresstack.askai.java8.localmodels.LocalModelRuntimeManager localRuntime =
@@ -192,7 +194,7 @@ public final class AskAiFrame extends JFrame {
             }
         }, "askai-local-runtime-shutdown"));
         this.catalogRefreshService.subscribe(new GlobalCatalogRefreshService.Listener() {
-            public void onRefreshStarted() { globalRefreshButton.setEnabled(false); }
+            public void onRefreshStarted() { connectionStatusView.setRefreshEnabled(false); }
             public void onCatalogRefreshed(GlobalCatalogSnapshot snapshot) { applyGlobalSnapshot(snapshot); }
         });
         this.audioProfileRepository = new FileAudioProfileRepository();
@@ -274,8 +276,10 @@ public final class AskAiFrame extends JFrame {
         menuBar.add(createConfigurationMenu());
         menuBar.add(createHelpMenu());
         menuBar.add(Box.createHorizontalGlue());
+        // ONE fused connection widget: status dot (hover → comic refresh glyph, click refreshes
+        // connection/models/audio profiles) + address (click opens the connection settings). No
+        // separate always-visible refresh button eating menu-bar space anymore.
         menuBar.add(connectionStatusView);
-        menuBar.add(globalRefreshButton); // one refresh for connection, models and audio profiles
         return menuBar;
     }
 
@@ -292,19 +296,6 @@ public final class AskAiFrame extends JFrame {
         });
         menu.add(quit);
         return menu;
-    }
-
-    private JButton createGlobalRefreshButton() {
-        JButton button = new JButton(new RefreshIcon(14));
-        button.setToolTipText("Refresh connection, models and audio profiles");
-        button.setFocusPainted(false);
-        button.setMargin(new Insets(0, 6, 0, 10));
-        button.addActionListener(new ActionListener() {
-            public void actionPerformed(ActionEvent event) {
-                catalogRefreshService.refresh(); // no-op if one is already running
-            }
-        });
-        return button;
     }
 
     /** Load installed model names for the chat model list (blocking; runs off the EDT in the refresh service). */
@@ -333,7 +324,7 @@ public final class AskAiFrame extends JFrame {
 
     /** Distribute a global catalog snapshot to every open chat tab and the batch panel (on the EDT). */
     private void applyGlobalSnapshot(GlobalCatalogSnapshot snapshot) {
-        globalRefreshButton.setEnabled(true);
+        connectionStatusView.setRefreshEnabled(true);
         if (chatWorkspace != null) {
             for (ChatSessionComponent session : chatWorkspace.sessions()) {
                 if (session instanceof OllamaChatPanel) {
