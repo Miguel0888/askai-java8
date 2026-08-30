@@ -96,19 +96,8 @@ public final class SourceMindmap {
         return best;
     }
 
-    /**
-     * A mindmap-safe label: the grammar is indentation-based with shape brackets, so brackets,
-     * parentheses, quotes and line breaks are stripped, whitespace collapsed, length capped.
-     */
+    /** A mindmap-safe label — the shared {@link MindmapLabels} rules with this map's length cap. */
     static String label(String text, String fallback) {
-        String value = text == null ? "" : text;
-        value = value.replaceAll("[\\[\\](){}\"'`\\r\\n\\t]", " ").replaceAll("\\s+", " ").trim();
-        if (value.isEmpty()) {
-            value = fallback == null ? "?" : label(fallback, "?");
-        }
-        if (value.length() > MAX_LABEL_CHARS) {
-            value = value.substring(0, MAX_LABEL_CHARS - 1).trim() + "…";
-        }
-        return value;
+        return MindmapLabels.sanitize(text, fallback, MAX_LABEL_CHARS);
     }
 }
