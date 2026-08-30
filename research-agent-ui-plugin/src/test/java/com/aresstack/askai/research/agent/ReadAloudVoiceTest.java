@@ -58,25 +58,24 @@ public class ReadAloudVoiceTest {
     }
 
     @Test
-    public void theModelVoiceOnlySpeaksItsOwnLanguage() {
+    public void aPresentPortOwnsTheWholeUtterance() {
+        // The HOST orchestrates now (segmentation, model voice OR Windows voice per segment):
+        // a present port always gets the call, with the flattened plain text and the language.
         ReadAloudVoice voice = new ReadAloudVoice(fallback);
         voice.setModelVoice(portFor("de", true));
-        voice.speak("English answer", "en");
-        assertEquals("no English model voice → English WINDOWS voice",
-                java.util.Arrays.asList("windows[en]:English answer"), log);
-        log.clear();
-        voice.speak("Deutsche Antwort", "de");
+        voice.speak("**Deutsche** Antwort", "de");
         assertEquals(java.util.Arrays.asList("windows-stop",
-                "model[de]:" + WindowsSpeech.plainTextForSpeech("Deutsche Antwort")), log);
+                "model[de]:" + WindowsSpeech.plainTextForSpeech("**Deutsche** Antwort")), log);
     }
 
     @Test
-    public void aFailingModelVoiceFallsBackToWindowsSoNothingGoesSilent() {
+    public void aFailingPortFallsBackToWindowsSoNothingGoesSilent() {
         ReadAloudVoice voice = new ReadAloudVoice(fallback);
-        voice.setModelVoice(portFor("de", false));
-        voice.speak("Antwort", "de");
+        voice.setModelVoice(portFor("de", false)); // port produced NO audio at all
+        voice.speak("Antwort", "en");
         assertEquals(3, log.size());
-        assertEquals("windows[de]:Antwort", log.get(2));
+        assertEquals("model[en]:Antwort", log.get(1));
+        assertEquals("windows[en]:Antwort", log.get(2));
     }
 
     @Test

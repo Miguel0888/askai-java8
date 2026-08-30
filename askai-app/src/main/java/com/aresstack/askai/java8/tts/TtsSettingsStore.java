@@ -25,6 +25,8 @@ public final class TtsSettingsStore {
     private static final String KEY_STARTUP_TIMEOUT_SECONDS = "tts.startupTimeoutSeconds";
     private static final String KEY_NETWORK_TIMEOUT_SECONDS = "tts.networkTimeoutSeconds";
     private static final String KEY_READ_ALOUD_AUTO_START = "tts.readAloudAutoStart";
+    private static final String KEY_MIXED_LANGUAGE_SPLIT = "tts.mixedLanguageSplit";
+    private static final String KEY_SENTENCE_WISE = "tts.sentenceWiseSynthesis";
     private static final String LEGACY_KEY_ENGINE = "tts.engine";
     private static final String LEGACY_KEY_VOICE = "tts.voice";
 
@@ -64,7 +66,9 @@ public final class TtsSettingsStore {
                         TextToSpeechSettings.DEFAULT_STARTUP_TIMEOUT_SECONDS),
                 parseInt(properties.getProperty(KEY_NETWORK_TIMEOUT_SECONDS),
                         TextToSpeechSettings.DEFAULT_NETWORK_TIMEOUT_SECONDS),
-                Boolean.parseBoolean(properties.getProperty(KEY_READ_ALOUD_AUTO_START, "false")));
+                Boolean.parseBoolean(properties.getProperty(KEY_READ_ALOUD_AUTO_START, "false")),
+                Boolean.parseBoolean(properties.getProperty(KEY_MIXED_LANGUAGE_SPLIT, "true")),
+                Boolean.parseBoolean(properties.getProperty(KEY_SENTENCE_WISE, "true")));
     }
 
     /** The pre-per-language format chose ONE voice; it lands in that voice's own language. */
@@ -97,6 +101,10 @@ public final class TtsSettingsStore {
                 String.valueOf(value.getNetworkTimeoutSeconds()));
         properties.setProperty(KEY_READ_ALOUD_AUTO_START,
                 String.valueOf(value.isReadAloudAutoStart()));
+        properties.setProperty(KEY_MIXED_LANGUAGE_SPLIT,
+                String.valueOf(value.isMixedLanguageSplit()));
+        properties.setProperty(KEY_SENTENCE_WISE,
+                String.valueOf(value.isSentenceWiseSynthesis()));
         Files.createDirectories(file.getParent());
         try (OutputStream out = Files.newOutputStream(file)) {
             properties.store(out, "AskAI speech output (read-aloud) settings, one voice per language");

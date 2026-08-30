@@ -9,7 +9,10 @@ package com.aresstack.askai.agent.model.nlp;
 public enum NlpCapability {
 
     /** Sentence boundary detection (OpenNLP {@code SentenceModel}). */
-    SENTENCE_DETECTION("sentence-detection");
+    SENTENCE_DETECTION("sentence-detection"),
+
+    /** Language identification of a text passage (OpenNLP {@code LanguageDetectorModel}). */
+    LANGUAGE_DETECTION("language-detection");
 
     private final String tag;
 

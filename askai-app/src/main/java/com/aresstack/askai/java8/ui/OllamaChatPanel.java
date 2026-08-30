@@ -1218,6 +1218,43 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         JPanel readAloudRow = partySettingsRow();
         readAloudRow.add(readAloudAutoBox);
         card.add(readAloudRow);
+        // NLP-powered read-aloud refinements (both default ON; without the NLP models — Models >
+        // Setup > NLP — everything silently degrades to the plain single-voice behavior).
+        final javax.swing.JCheckBox mixedSplitBox = new javax.swing.JCheckBox(
+                "Route German/English passages to their own voice (NLP)",
+                ttsSettingsStore.load().isMixedLanguageSplit());
+        mixedSplitBox.setToolTipText("On: the text is scanned for German and English passages;"
+                + " each passage is spoken by that language's voice, in order. Needs the NLP"
+                + " language-detection model — without it the single selected voice speaks."
+                + " Off: NLP language detection is not used at all.");
+        mixedSplitBox.addActionListener(event -> {
+            try {
+                ttsSettingsStore.save(ttsSettingsStore.load()
+                        .withMixedLanguageSplit(mixedSplitBox.isSelected()));
+            } catch (java.io.IOException notSaved) {
+                appendTech("mixed-language split not saved: " + notSaved.getMessage());
+            }
+        });
+        JPanel mixedRow = partySettingsRow();
+        mixedRow.add(mixedSplitBox);
+        card.add(mixedRow);
+        final javax.swing.JCheckBox sentenceWiseBox = new javax.swing.JCheckBox(
+                "Speak sentence by sentence (NLP)",
+                ttsSettingsStore.load().isSentenceWiseSynthesis());
+        sentenceWiseBox.setToolTipText("On: the text is split into sentences and synthesized one"
+                + " by one, played in order — the first sentence starts much sooner. Uses the"
+                + " NLP sentence models when installed.");
+        sentenceWiseBox.addActionListener(event -> {
+            try {
+                ttsSettingsStore.save(ttsSettingsStore.load()
+                        .withSentenceWiseSynthesis(sentenceWiseBox.isSelected()));
+            } catch (java.io.IOException notSaved) {
+                appendTech("sentence-wise synthesis not saved: " + notSaved.getMessage());
+            }
+        });
+        JPanel sentenceRow = partySettingsRow();
+        sentenceRow.add(sentenceWiseBox);
+        card.add(sentenceRow);
         alignFormLabels(formLabels);
         // Voices are installed RIGHT HERE, below the selector — the 🔊 entries in Models > Setup
         // are only a shortcut to this section (the panel says so, plus the download sources).

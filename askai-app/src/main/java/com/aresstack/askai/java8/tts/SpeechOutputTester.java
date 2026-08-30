@@ -1,8 +1,5 @@
 package com.aresstack.askai.java8.tts;
 
-import java.io.OutputStream;
-import java.util.concurrent.TimeUnit;
-
 /**
  * The settings dialog's "Test" next to each speech-output selector: speaks a fixed sample with
  * EXACTLY the persisted selection of that language — the Piper model voice or the culture-matched
@@ -68,38 +65,8 @@ public final class SpeechOutputTester {
                 return "Model voice failed: " + failed;
             }
         }
-        return windowsSpeak(sample, languageCode, current.getStartupTimeoutSeconds());
-    }
-
-    /** The Windows OS voice of that language (culture-matched, like the read-aloud fallback). */
-    private static String windowsSpeak(String text, String languageCode, int timeoutSeconds) {
-        String culture = "de".equals(languageCode) ? "de-DE"
-                : "en".equals(languageCode) ? "en-US" : null;
-        String selectVoice = culture == null ? "" :
-                "try { $s.SelectVoiceByHints([System.Speech.Synthesis.VoiceGender]::NotSet, "
-                        + "[System.Speech.Synthesis.VoiceAge]::NotSet, 0, "
-                        + "(New-Object System.Globalization.CultureInfo('" + culture + "'))) } "
-                        + "catch { }; ";
-        try {
-            ProcessBuilder builder = new ProcessBuilder("powershell", "-NoProfile", "-Command",
-                    "[Console]::InputEncoding = New-Object System.Text.UTF8Encoding $false; "
-                            + "Add-Type -AssemblyName System.Speech; "
-                            + "$s = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
-                            + selectVoice
-                            + "$s.Speak([Console]::In.ReadToEnd())");
-            builder.redirectErrorStream(true);
-            Process process = builder.start();
-            OutputStream stdin = process.getOutputStream();
-            stdin.write(text.getBytes("UTF-8"));
-            stdin.close();
-            if (!process.waitFor(Math.max(10, timeoutSeconds), TimeUnit.SECONDS)) {
-                process.destroy();
-                return "Windows voice did not finish within " + timeoutSeconds + "s";
-            }
-            return process.exitValue() == 0 ? ""
-                    : "Windows voice failed (powershell exit " + process.exitValue() + ")";
-        } catch (Exception failed) {
-            return "Windows voice unavailable: " + failed;
-        }
+        // The Windows OS voice of that language (culture-matched, like the read-aloud fallback).
+        return new WindowsSapiVoice().speak(sample, languageCode,
+                current.getStartupTimeoutSeconds());
     }
 }

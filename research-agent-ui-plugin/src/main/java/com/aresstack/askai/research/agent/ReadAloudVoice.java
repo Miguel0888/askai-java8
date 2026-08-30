@@ -48,26 +48,28 @@ final class ReadAloudVoice {
     }
 
     /**
-     * Blocking (call off the EDT): the language's model voice when active, else the default.
-     * HARDENED against every failure shape — including linkage/runtime ERRORS from a host/plugin
-     * version skew: whatever goes wrong on the model path is logged and the Windows voice speaks.
-     * Read-aloud may sound plain, but it must never be silent.
+     * Blocking (call off the EDT): the HOST port speaks whenever it is present — it owns the whole
+     * orchestration now (NLP language/sentence segmentation, per-segment model voice OR Windows
+     * voice). The plugin's own {@link WindowsSpeech} remains the last-resort fallback for an
+     * absent/failing port. HARDENED against every failure shape — including linkage/runtime ERRORS
+     * from a host/plugin version skew: whatever goes wrong on the port path is logged and the
+     * Windows voice speaks. Read-aloud may sound plain, but it must never be silent.
      */
     void speak(String markdown, String languageCode) {
         try {
             SpeechSynthesisPort port = modelVoice;
-            if (port != null && port.isModelVoiceActive(languageCode)) {
+            if (port != null) {
                 fallback.stop(); // never two voices at once
                 boolean spoke = port.speak(WindowsSpeech.plainTextForSpeech(markdown), languageCode);
-                System.err.println("[read-aloud] model voice (" + languageCode + ") spoke=" + spoke);
+                System.err.println("[read-aloud] host voice (" + languageCode + ") spoke=" + spoke);
                 if (spoke) {
                     return;
                 }
-                // The model voice failed mid-setup (engine gone, audio line busy, …) → default voice.
+                // The host could not produce ANY audio → the plugin's own default voice.
             }
-        } catch (Throwable modelPathBroken) {
-            System.err.println("[read-aloud] model-voice path failed (" + languageCode + "): "
-                    + modelPathBroken);
+        } catch (Throwable portPathBroken) {
+            System.err.println("[read-aloud] host-voice path failed (" + languageCode + "): "
+                    + portPathBroken);
         }
         fallback.speak(markdown, languageCode);
     }

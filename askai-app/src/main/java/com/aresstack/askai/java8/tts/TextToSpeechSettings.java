@@ -55,14 +55,25 @@ public final class TextToSpeechSettings {
     private final int networkTimeoutSeconds;
     /** Read-aloud starts ACTIVE in research chats: new answers are spoken without pressing Play. */
     private final boolean readAloudAutoStart;
+    /** NLP-detected German/English passages each go to their OWN voice (fallback: single voice). */
+    private final boolean mixedLanguageSplit;
+    /** Synthesize sentence by sentence (NLP split) and play the pieces in order. */
+    private final boolean sentenceWiseSynthesis;
 
     public TextToSpeechSettings(Map<String, Selection> byLanguage, int startupTimeoutSeconds,
                                 int networkTimeoutSeconds) {
-        this(byLanguage, startupTimeoutSeconds, networkTimeoutSeconds, false);
+        this(byLanguage, startupTimeoutSeconds, networkTimeoutSeconds, false, true, true);
     }
 
     public TextToSpeechSettings(Map<String, Selection> byLanguage, int startupTimeoutSeconds,
                                 int networkTimeoutSeconds, boolean readAloudAutoStart) {
+        this(byLanguage, startupTimeoutSeconds, networkTimeoutSeconds, readAloudAutoStart,
+                true, true);
+    }
+
+    public TextToSpeechSettings(Map<String, Selection> byLanguage, int startupTimeoutSeconds,
+                                int networkTimeoutSeconds, boolean readAloudAutoStart,
+                                boolean mixedLanguageSplit, boolean sentenceWiseSynthesis) {
         Map<String, Selection> selections = new LinkedHashMap<String, Selection>();
         if (byLanguage != null) {
             selections.putAll(byLanguage);
@@ -73,6 +84,8 @@ public final class TextToSpeechSettings {
         this.networkTimeoutSeconds = networkTimeoutSeconds > 0
                 ? networkTimeoutSeconds : DEFAULT_NETWORK_TIMEOUT_SECONDS;
         this.readAloudAutoStart = readAloudAutoStart;
+        this.mixedLanguageSplit = mixedLanguageSplit;
+        this.sentenceWiseSynthesis = sentenceWiseSynthesis;
     }
 
     public static TextToSpeechSettings defaults() {
@@ -90,7 +103,7 @@ public final class TextToSpeechSettings {
         Map<String, Selection> selections = new LinkedHashMap<String, Selection>(byLanguage);
         selections.put(languageCode, new Selection(engine, voiceId));
         return new TextToSpeechSettings(selections, startupTimeoutSeconds, networkTimeoutSeconds,
-                readAloudAutoStart);
+                readAloudAutoStart, mixedLanguageSplit, sentenceWiseSynthesis);
     }
 
     /** @return whether read-aloud starts ACTIVE (auto-reading new answers) in research chats. */
@@ -100,7 +113,27 @@ public final class TextToSpeechSettings {
 
     public TextToSpeechSettings withReadAloudAutoStart(boolean value) {
         return new TextToSpeechSettings(byLanguage, startupTimeoutSeconds, networkTimeoutSeconds,
-                value);
+                value, mixedLanguageSplit, sentenceWiseSynthesis);
+    }
+
+    /** @return whether NLP-detected German/English passages are routed to their own voices. */
+    public boolean isMixedLanguageSplit() {
+        return mixedLanguageSplit;
+    }
+
+    public TextToSpeechSettings withMixedLanguageSplit(boolean value) {
+        return new TextToSpeechSettings(byLanguage, startupTimeoutSeconds, networkTimeoutSeconds,
+                readAloudAutoStart, value, sentenceWiseSynthesis);
+    }
+
+    /** @return whether synthesis runs sentence by sentence (NLP split, pieces played in order). */
+    public boolean isSentenceWiseSynthesis() {
+        return sentenceWiseSynthesis;
+    }
+
+    public TextToSpeechSettings withSentenceWiseSynthesis(boolean value) {
+        return new TextToSpeechSettings(byLanguage, startupTimeoutSeconds, networkTimeoutSeconds,
+                readAloudAutoStart, mixedLanguageSplit, value);
     }
 
     /** Visible for the store: every explicitly configured language. */

@@ -23,6 +23,9 @@ dependencies {
     // single source of truth for locally runnable model families (capabilities, download manifests,
     // runtime family, backends). Pinned to the published Maven Central release.
     implementation 'com.aresstack:directml-model-catalog:0.2.1'
+    // OpenNLP for the chat-text analysis service (language detection + sentence split of
+    // read-aloud text); the models come from the dedicated NLP store (Models > Setup > NLP).
+    implementation 'org.apache.opennlp:opennlp-tools:1.9.4'
     // A5b: neutral reranker endpoint contract (DTO/codec only) shared with the research agent.
     implementation project(':agent-model-runtime-api')
     implementation project(':group-chat-api')

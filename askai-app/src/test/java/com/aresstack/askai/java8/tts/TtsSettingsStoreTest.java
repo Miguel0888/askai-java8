@@ -78,6 +78,19 @@ public class TtsSettingsStoreTest {
     }
 
     @Test
+    public void theNlpReadAloudRefinementsDefaultOnAndRoundTrip() throws Exception {
+        TtsSettingsStore store = new TtsSettingsStore(
+                temp.getRoot().toPath().resolve("tts.properties"));
+        org.junit.Assert.assertTrue("mixed-language split defaults ON",
+                store.load().isMixedLanguageSplit());
+        org.junit.Assert.assertTrue("sentence-wise synthesis defaults ON",
+                store.load().isSentenceWiseSynthesis());
+        store.save(store.load().withMixedLanguageSplit(false).withSentenceWiseSynthesis(false));
+        org.junit.Assert.assertFalse(store.load().isMixedLanguageSplit());
+        org.junit.Assert.assertFalse(store.load().isSentenceWiseSynthesis());
+    }
+
+    @Test
     public void anUnknownEngineFallsBackToWindows() {
         assertEquals(TextToSpeechSettings.Engine.WINDOWS,
                 TextToSpeechSettings.parseEngine("KOKORO"));

@@ -75,10 +75,11 @@ public final class NlpModelsPanel extends JPanel {
         setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         JPanel rows = new JPanel();
         rows.setLayout(new BoxLayout(rows, BoxLayout.Y_AXIS));
-        rows.setBorder(BorderFactory.createTitledBorder("Sentence Detection (Apache OpenNLP)"));
+        rows.setBorder(BorderFactory.createTitledBorder("Apache OpenNLP models"));
         for (NlpModelCatalogEntry entry : catalog.availableModels()) {
-            if (entry.getCapability() != NlpCapability.SENTENCE_DETECTION) {
-                continue; // N5: sentence detection only
+            if (entry.getCapability() != NlpCapability.SENTENCE_DETECTION
+                    && entry.getCapability() != NlpCapability.LANGUAGE_DETECTION) {
+                continue; // curated capabilities only
             }
             rows.add(buildRow(entry));
         }
@@ -169,6 +170,9 @@ public final class NlpModelsPanel extends JPanel {
         }
         if ("en".equals(code)) {
             return "English";
+        }
+        if ("*".equals(code)) {
+            return "All languages"; // the language-neutral detector artifact
         }
         return code;
     }
