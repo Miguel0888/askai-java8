@@ -322,8 +322,12 @@ public class ResearchLoopTest {
         fx.browser.failEverything = true;
         ResearchLoop failing = fx.loop(new ResearchRunBudget(30, 20, 8, 2, 600_000, 3, 2));
         ResearchStopReason reason = failing.run("pf4j");
-        assertTrue(reason == ResearchStopReason.ERROR_BUDGET_EXHAUSTED
-                || reason == ResearchStopReason.NO_RELEVANT_PATHS);
+        // A browser that fails EVERYTHING is a TECHNICAL outcome: either the error budget ends the
+        // run, or the thrown seed search reports SEARCH_TECHNICAL_PROBLEM. It must never end as
+        // the honest-empty NO_RELEVANT_PATHS — that read as a green success without a searched page.
+        assertTrue("unexpected stop reason: " + reason,
+                reason == ResearchStopReason.ERROR_BUDGET_EXHAUSTED
+                || reason == ResearchStopReason.SEARCH_TECHNICAL_PROBLEM);
 
         // Reset semantics on the progress itself: error, error, success → 0, error → 1.
         ResearchRunProgress p = new ResearchRunProgress();
