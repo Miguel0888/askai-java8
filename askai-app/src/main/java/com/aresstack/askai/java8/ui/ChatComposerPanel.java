@@ -52,15 +52,20 @@ public final class ChatComposerPanel extends JPanel {
     private static final int ARC = 18;
     private static final int MIN_EDITOR_HEIGHT = 62;
     private static final Color BORDER_NORMAL = new Color(0xB8BDC5);
-    private static final Color BORDER_FOCUSED = new Color(0x2979FF);
+    // The accent/danger tokens are single-sourced in ResearchUiPalette so the phase selector and
+    // the drawer controls use EXACTLY the navigation blue — never a second palette.
+    private static final Color BORDER_FOCUSED =
+            com.aresstack.comiccontrols.theme.ResearchUiPalette.ACCENT_BLUE;
     private static final Color BORDER_DICTATION = new Color(0xF57C00);
     private static final Color BACKGROUND_NORMAL = new Color(0xF5F6F7);
     private static final Color BACKGROUND_FOCUSED = Color.WHITE;
     private static final Color BACKGROUND_DICTATION = new Color(0xFFF8E1);
     private static final Color TEXT_MUTED = new Color(0x777D85);
     private static final Color PLACEHOLDER = new Color(0x9AA0A6);
-    private static final Color PRIMARY = new Color(0x2979FF);
-    private static final Color DANGER = new Color(0xD32F2F);
+    private static final Color PRIMARY =
+            com.aresstack.comiccontrols.theme.ResearchUiPalette.ACCENT_BLUE;
+    private static final Color DANGER =
+            com.aresstack.comiccontrols.theme.ResearchUiPalette.DANGER_RED;
     private static final Color RECORDING = new Color(0xF57C00);
 
     /** Route semantic user actions without exposing the internal buttons. */

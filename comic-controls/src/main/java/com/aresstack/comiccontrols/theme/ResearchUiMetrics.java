@@ -32,17 +32,15 @@ public final class ResearchUiMetrics {
     public static final int PHASE_PILL_PADDING_LEFT = 16;
     public static final int PHASE_PILL_PADDING_RIGHT = 14;
     public static final int PHASE_PILL_CHEVRON_GAP = 12;
-    public static final int PHASE_ICON_BOX = 24;
-    public static final int PHASE_ICON_GAP = 10;
 
-    /** Blacklist area under the composer. */
+    /** Blacklist area under the composer (compact strip + upward drawer). */
     public static final int BLACKLIST_HEIGHT = 90;
     public static final int BLACKLIST_PADDING_LEFT = 14;
     public static final int BLACKLIST_PADDING_RIGHT = 14;
     public static final int BLACKLIST_PADDING_TOP = 12;
     public static final int BLACKLIST_PADDING_BOTTOM = 12;
-    public static final int BLACKLIST_LABEL_WIDTH = 125;
-    public static final int BLACKLIST_LABEL_GAP = 13;
+    /** The expanded drawer scrolls vertically once its wrapped chips exceed this height. */
+    public static final int BLACKLIST_DRAWER_MAX_HEIGHT = 240;
 
     /** Blacklist chips. */
     public static final int CHIP_HEIGHT = 43;
@@ -55,6 +53,13 @@ public final class ResearchUiMetrics {
     /** "+ Hinzufügen" control. */
     public static final int ADD_CHIP_HEIGHT = 43;
     public static final int ADD_CHIP_PADDING_H = 12;
+
+    /** Chat-history rows in the drawer (light chrome, two lines). */
+    public static final int CHAT_ROW_HEIGHT = 48;
+    public static final int CHAT_ROW_RADIUS = 10;
+    public static final int CHAT_ROW_PADDING_H = 12;
+    /** The 3px vertical accent bar marking the selected row. */
+    public static final int CHAT_ROW_ACCENT_WIDTH = 3;
 
     private ResearchUiMetrics() {
     }

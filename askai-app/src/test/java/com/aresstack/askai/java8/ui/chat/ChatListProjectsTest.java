@@ -62,19 +62,22 @@ public class ChatListProjectsTest {
     }
 
     @Test
-    public void projectGroupsRenderOnTopBeforeLooseChatsAndHistory() throws Exception {
+    public void projectGroupsRenderBetweenActiveAndTheTimeGroupedHistory() throws Exception {
         final ChatWorkspacePanel workspace = build();
         onEdt(new Runnable() {
             public void run() {
                 List<String> entries = workspace.chatListEntriesForTest();
+                int activeHeader = indexContaining(entries, "AKTIV");
                 int projectHeader = indexContaining(entries, "Autos");
                 int projectChat = indexContaining(entries, "Oldtimer Preise");
-                int history = indexContaining(entries, "History");
+                int timeHeader = indexContaining(entries, "HEUTE"); // records were saved just now
                 int looseChat = indexContaining(entries, "Rezept Lasagne");
+                assertTrue("open sessions render under AKTIV first", activeHeader >= 0);
                 assertTrue("the project heading exists", projectHeader >= 0);
-                assertTrue("project chats sit under their heading, before everything else",
-                        projectHeader < projectChat && projectChat < history);
-                assertTrue("unassigned saved chats stay in History", history < looseChat);
+                assertTrue("project chats sit under their heading, before the history groups",
+                        activeHeader < projectHeader && projectHeader < projectChat
+                                && projectChat < timeHeader);
+                assertTrue("unassigned saved chats land in their time group", timeHeader < looseChat);
             }
         });
     }

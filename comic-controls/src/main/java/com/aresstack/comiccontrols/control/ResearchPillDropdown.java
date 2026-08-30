@@ -62,6 +62,8 @@ public class ResearchPillDropdown extends JComponent {
     private SelectionListener listener;
     private boolean hovered;
     private JPopupMenu popup;
+    /** Painted INSIDE the pill, before the selected item's own icon/text (e.g. the flask glyph). */
+    private Icon leadingIcon;
 
     public ResearchPillDropdown(int fixedHeight, int radius, int minWidth,
                                 int paddingLeft, int paddingRight) {
@@ -101,6 +103,13 @@ public class ResearchPillDropdown extends JComponent {
 
     public void setPillForeground(Color color) {
         this.foreground = color;
+        repaint();
+    }
+
+    /** A glyph that is part of the pill itself (left of the value), or {@code null} for none. */
+    public void setLeadingIcon(Icon icon) {
+        this.leadingIcon = icon;
+        revalidate();
         repaint();
     }
 
@@ -148,6 +157,11 @@ public class ResearchPillDropdown extends JComponent {
             ResearchUiPainter.fillRound(g2, 0, 0, getWidth(), getHeight(), radius, fill);
 
             int x = paddingLeft;
+            if (leadingIcon != null) {
+                int iconY = (getHeight() - leadingIcon.getIconHeight()) / 2;
+                leadingIcon.paintIcon(this, g2, x, iconY);
+                x += leadingIcon.getIconWidth() + 8;
+            }
             Item item = selectedItem();
             g2.setFont(getFont());
             FontMetrics metrics = g2.getFontMetrics();
@@ -174,6 +188,9 @@ public class ResearchPillDropdown extends JComponent {
         FontMetrics metrics = getFontMetrics(getFont());
         Item item = selectedItem();
         int width = paddingLeft + paddingRight + 8 + 9; // chevron zone
+        if (leadingIcon != null) {
+            width += leadingIcon.getIconWidth() + 8;
+        }
         if (item != null) {
             if (item.icon != null) {
                 width += item.icon.getIconWidth() + 8;

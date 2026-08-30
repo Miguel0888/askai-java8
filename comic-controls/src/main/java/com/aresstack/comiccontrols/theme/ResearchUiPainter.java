@@ -48,4 +48,24 @@ public final class ResearchUiPainter {
         g2.drawLine(cx - halfWidth, cy - halfWidth / 2 - 1, cx, cy + halfWidth / 2);
         g2.drawLine(cx, cy + halfWidth / 2, cx + halfWidth, cy - halfWidth / 2 - 1);
     }
+
+    /** An upward chevron (open-the-drawer marker), centered on {@code (cx, cy)}. */
+    public static void paintChevronUp(Graphics2D g2, int cx, int cy, int halfWidth, Color color) {
+        g2.setColor(color);
+        g2.setStroke(new BasicStroke(1.6f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        g2.drawLine(cx - halfWidth, cy + halfWidth / 2, cx, cy - halfWidth / 2 - 1);
+        g2.drawLine(cx, cy - halfWidth / 2 - 1, cx + halfWidth, cy + halfWidth / 2);
+    }
+
+    /**
+     * Mix {@code base} towards {@code target} by {@code amount} (0 = base, 1 = target) — the ONE way
+     * hover/pressed/selection shades are derived from an accent token instead of new hex values.
+     */
+    public static Color mix(Color base, Color target, float amount) {
+        float keep = 1f - amount;
+        return new Color(
+                Math.round(base.getRed() * keep + target.getRed() * amount),
+                Math.round(base.getGreen() * keep + target.getGreen() * amount),
+                Math.round(base.getBlue() * keep + target.getBlue() * amount));
+    }
 }

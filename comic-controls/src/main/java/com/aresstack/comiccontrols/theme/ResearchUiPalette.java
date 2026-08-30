@@ -32,6 +32,21 @@ public final class ResearchUiPalette {
     public static final Color BORDER_DARK = new Color(0x5E6370);
     public static final Color BORDER_WINDOW = new Color(0x38404D);
 
+    /**
+     * THE AskAI accent blue of the active navigation (the highlighted Chats ribbon entry / composer
+     * primary — {@code ChatComposerPanel} reads its PRIMARY from here). The phase selector and the
+     * chat-list selection use exactly this token; no second blue palette exists.
+     */
+    public static final Color ACCENT_BLUE = new Color(0x2979FF);
+    /** The destructive red of the composer family (delete-all hover, stop button). */
+    public static final Color DANGER_RED = new Color(0xD32F2F);
+
+    /** Light-chrome tokens for design-study controls embedded in the BRIGHT AskAI surfaces. */
+    public static final Color LIGHT_CONTROL_BG = Color.WHITE;
+    public static final Color LIGHT_CONTROL_BORDER = new Color(0xC9CED6);
+    public static final Color LIGHT_CONTROL_TEXT = new Color(0x44484D);
+    public static final Color LIGHT_TEXT_MUTED = new Color(0x8A909B);
+
     /** Hover fill of secondary dark controls. */
     public static final Color SECONDARY_HOVER = new Color(0x202832);
     /** Hovered chip body / hovered chip border. */

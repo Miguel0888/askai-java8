@@ -18,10 +18,17 @@ final class JustifiedTagLayout implements LayoutManager {
 
     private final int hgap;
     private final int vgap;
+    private final boolean justify;
 
     JustifiedTagLayout(int hgap, int vgap) {
+        this(hgap, vgap, true);
+    }
+
+    /** {@code justify=false} keeps the wrap behavior but leaves rows LEFT-aligned (chip drawers). */
+    JustifiedTagLayout(int hgap, int vgap, boolean justify) {
         this.hgap = hgap;
         this.vgap = vgap;
+        this.justify = justify;
     }
 
     public void addLayoutComponent(String name, Component comp) {
@@ -81,8 +88,8 @@ final class JustifiedTagLayout implements LayoutManager {
                 int gaps = row.size() - 1;
                 // Blocksatz: spread the right-side leftover evenly across the inter-tag gaps.
                 int free = Math.max(0, width - tagsWidth - gaps * hgap);
-                int extraPerGap = gaps > 0 ? free / gaps : 0;
-                int remainder = gaps > 0 ? free % gaps : 0;
+                int extraPerGap = justify && gaps > 0 ? free / gaps : 0;
+                int remainder = justify && gaps > 0 ? free % gaps : 0;
                 int x = insets.left;
                 for (int i = 0; i < row.size(); i++) {
                     Component child = row.get(i);

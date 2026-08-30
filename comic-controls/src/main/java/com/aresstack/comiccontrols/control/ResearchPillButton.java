@@ -24,7 +24,11 @@ public class ResearchPillButton extends JButton {
     private Color hoverFill = ResearchUiPalette.SECONDARY_HOVER;
     private Color pressedFill = ResearchUiPalette.PURPLE_PRIMARY;
     private Color normalForeground = ResearchUiPalette.TEXT_PRIMARY;
+    private Color hoverForeground = ResearchUiPalette.TEXT_PRIMARY;
     private Color pressedForeground = Color.WHITE;
+    private Color normalBorder;
+    private Color hoverBorder;
+    private Color pressedBorder;
 
     public ResearchPillButton(String text, int fixedHeight, int radius, int paddingH) {
         super(text);
@@ -46,10 +50,19 @@ public class ResearchPillButton extends JButton {
         repaint();
     }
 
-    public void setForegrounds(Color normal, Color pressed) {
+    public void setForegrounds(Color normal, Color hover, Color pressed) {
         this.normalForeground = normal;
+        this.hoverForeground = hover;
         this.pressedForeground = pressed;
         setForeground(normal);
+        repaint();
+    }
+
+    /** Optional 1px borders per state ({@code null} = borderless, the default). */
+    public void setBorders(Color normal, Color hover, Color pressed) {
+        this.normalBorder = normal;
+        this.hoverBorder = hover;
+        this.pressedBorder = pressed;
         repaint();
     }
 
@@ -61,7 +74,11 @@ public class ResearchPillButton extends JButton {
             boolean hovered = getModel().isRollover();
             Color fill = pressed ? pressedFill : hovered ? hoverFill : normalFill;
             ResearchUiPainter.fillRound(g2, 0, 0, getWidth(), getHeight(), radius, fill);
-            g2.setColor(pressed ? pressedForeground : normalForeground);
+            Color border = pressed ? pressedBorder : hovered ? hoverBorder : normalBorder;
+            if (border != null) {
+                ResearchUiPainter.strokeRound(g2, 0, 0, getWidth(), getHeight(), radius, border);
+            }
+            g2.setColor(pressed ? pressedForeground : hovered ? hoverForeground : normalForeground);
             g2.setFont(getFont());
             FontMetrics metrics = g2.getFontMetrics();
             int textY = (getHeight() - metrics.getHeight()) / 2 + metrics.getAscent();

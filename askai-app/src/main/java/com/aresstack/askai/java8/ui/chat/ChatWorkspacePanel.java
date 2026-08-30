@@ -6,12 +6,13 @@ import com.aresstack.askai.java8.ui.ChatComposerPanel;
 import com.aresstack.askai.java8.ui.OllamaChatPanel;
 import com.aresstack.askai.java8.ui.sidebar.ChatSidebarPanel;
 import com.aresstack.askai.java8.ui.sidebar.ChatSidebarTab;
-import com.aresstack.comiccontrols.control.ComicButton;
 import com.aresstack.comiccontrols.control.ComicScrollPane;
 import com.aresstack.comiccontrols.control.ComicSplitPane;
 import com.aresstack.comiccontrols.control.ResearchIconButton;
 import com.aresstack.comiccontrols.control.ResearchPillButton;
 import com.aresstack.comiccontrols.theme.ResearchUiMetrics;
+import com.aresstack.comiccontrols.theme.ResearchUiPainter;
+import com.aresstack.comiccontrols.theme.ResearchUiPalette;
 import com.aresstack.comiccontrols.theme.ResearchUiTypography;
 
 import javax.swing.BorderFactory;
@@ -627,31 +628,20 @@ public final class ChatWorkspacePanel extends JPanel {
         north.setBorder(BorderFactory.createEmptyBorder(8, 8, 4, 8));
         north.add(newChat);
 
-        JButton deleteAll = new ComicButton("Delete all chats…", ComicButton.Accent.CRITICAL);
-        deleteAll.setToolTipText("Delete every saved chat (asks for confirmation)");
-        deleteAll.addActionListener(event -> deleteAllChats());
-        JPanel deleteRow = new JPanel(new BorderLayout());
-        deleteRow.setOpaque(false);
-        deleteRow.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
-        deleteRow.add(deleteAll, BorderLayout.CENTER);
-
-        JPanel south = new JPanel(new BorderLayout());
-        south.setOpaque(false);
-        south.add(deleteRow, BorderLayout.NORTH);
-        south.add(buildChatsFooter(), BorderLayout.SOUTH);
-
         JPanel tab = new JPanel(new BorderLayout());
         tab.setOpaque(false);
         tab.add(north, BorderLayout.NORTH);
         tab.add(scroll, BorderLayout.CENTER);
-        tab.add(south, BorderLayout.SOUTH);
+        tab.add(buildChatsFooter(), BorderLayout.SOUTH);
         return tab;
     }
 
     /**
-     * The Chats-pane FOOTER of the design study: [language slot] … [gear], pinned to the bottom of
-     * the pane (it never scrolls with the list). The language control is the active agent's
-     * SIDEBAR_FOOTER toolbar contribution; the gear opens the active chat's settings dialog.
+     * The Chats-pane FOOTER: [language slot] [Delete all chats…] [gear] in ONE row, pinned to the
+     * bottom of the pane (it never scrolls with the list). The language control is the active
+     * agent's SIDEBAR_FOOTER toolbar contribution; delete-all lost its own full-width row — it is a
+     * small quiet control now that only turns red on hover (the confirmation logic is unchanged);
+     * the gear opens the active chat's settings dialog.
      */
     private JComponent buildChatsFooter() {
         JPanel footer = new JPanel(new BorderLayout(8, 0));
@@ -663,6 +653,24 @@ public final class ChatWorkspacePanel extends JPanel {
 
         agentFooterToolbarSlot.setOpaque(false);
         footer.add(agentFooterToolbarSlot, BorderLayout.WEST);
+
+        // Delete-all: same height/radius family as the language pill; white and quiet at rest,
+        // red only on hover/pressed — a rarely used destructive action must not draw attention.
+        ResearchPillButton deleteAll = new ResearchPillButton("Delete all chats…",
+                ResearchUiMetrics.FOOTER_CONTROL_HEIGHT, ResearchUiMetrics.RADIUS_CONTROL, 13);
+        deleteAll.setFont(ResearchUiTypography.regular(12.5f));
+        deleteAll.setToolTipText("Delete every saved chat (asks for confirmation)");
+        deleteAll.setFills(ResearchUiPalette.LIGHT_CONTROL_BG, ResearchUiPalette.DANGER_RED,
+                ResearchUiPainter.mix(ResearchUiPalette.DANGER_RED, java.awt.Color.BLACK, 0.18f));
+        deleteAll.setBorders(ResearchUiPalette.LIGHT_CONTROL_BORDER, ResearchUiPalette.DANGER_RED,
+                ResearchUiPainter.mix(ResearchUiPalette.DANGER_RED, java.awt.Color.BLACK, 0.18f));
+        deleteAll.setForegrounds(ResearchUiPalette.LIGHT_CONTROL_TEXT, java.awt.Color.WHITE,
+                java.awt.Color.WHITE);
+        deleteAll.addActionListener(event -> deleteAllChats());
+        JPanel deleteWrap = new JPanel(new java.awt.GridBagLayout());
+        deleteWrap.setOpaque(false);
+        deleteWrap.add(deleteAll);
+        footer.add(deleteWrap, BorderLayout.CENTER);
 
         ResearchIconButton gear = new ResearchIconButton(
                 ChatComposerPanel.createGearGlyphIcon(), "Chat settings");
@@ -690,10 +698,13 @@ public final class ChatWorkspacePanel extends JPanel {
         }
     }
 
+    private static final long DAY_MS = 24L * 60L * 60L * 1000L;
+
     /**
-     * Rebuild the list: PROJECT groups first (grouped by the records' project name, in recency
-     * order of first appearance), then ungrouped open sessions, then the remaining ungrouped
-     * history. The search bar filters every section live by title and project name.
+     * Rebuild the list, grouped for the drawer's two-line history rows: AKTIV (open sessions),
+     * then the PROJECT groups (recency order of first appearance), then the remaining history by
+     * age — HEUTE, GESTERN, LETZTE 7 TAGE, ÄLTER. Empty groups are simply absent. The search bar
+     * filters every section live by title and project name.
      */
     private void refreshChatList() {
         chatListPanel.removeAll();
@@ -703,8 +714,8 @@ public final class ChatWorkspacePanel extends JPanel {
         for (ChatRecord record : saved) {
             savedById.put(record.getId(), record);
         }
-        java.text.SimpleDateFormat when = new java.text.SimpleDateFormat("dd/MM/yy HH:mm");
         String filter = chatFilter.getText().trim().toLowerCase(java.util.Locale.ROOT);
+        long startOfToday = startOfToday();
 
         List<ChatListEntry> entries = new ArrayList<ChatListEntry>();
         for (ChatSessionId id : sessionsById.keySet()) {
@@ -715,8 +726,11 @@ public final class ChatWorkspacePanel extends JPanel {
         }
 
         Map<String, List<ChatListEntry>> byProject = new LinkedHashMap<String, List<ChatListEntry>>();
-        List<ChatListEntry> looseOpen = new ArrayList<ChatListEntry>();
-        List<ChatListEntry> looseSaved = new ArrayList<ChatListEntry>();
+        List<ChatListEntry> active = new ArrayList<ChatListEntry>();
+        List<ChatListEntry> today = new ArrayList<ChatListEntry>();
+        List<ChatListEntry> yesterday = new ArrayList<ChatListEntry>();
+        List<ChatListEntry> lastWeek = new ArrayList<ChatListEntry>();
+        List<ChatListEntry> older = new ArrayList<ChatListEntry>();
         for (ChatListEntry entry : entries) {
             String project = entry.record == null ? null : entry.record.getProject();
             if (!matchesFilter(entry, project, filter)) {
@@ -730,30 +744,32 @@ public final class ChatWorkspacePanel extends JPanel {
                 }
                 group.add(entry);
             } else if (entry.openId != null) {
-                looseOpen.add(entry);
+                active.add(entry);
             } else {
-                looseSaved.add(entry);
+                long at = entry.record.getModifiedAt();
+                if (at >= startOfToday) {
+                    today.add(entry);
+                } else if (at >= startOfToday - DAY_MS) {
+                    yesterday.add(entry);
+                } else if (at >= startOfToday - 6 * DAY_MS) {
+                    lastWeek.add(entry);
+                } else {
+                    older.add(entry);
+                }
             }
         }
 
+        addChatGroup("AKTIV", active, startOfToday);
         for (Map.Entry<String, List<ChatListEntry>> group : byProject.entrySet()) {
             chatListPanel.add(projectHeader(group.getKey()));
             for (ChatListEntry entry : group.getValue()) {
-                chatListPanel.add(buildRow(entry.openId, entry.record, when));
+                chatListPanel.add(buildRow(entry.openId, entry.record, startOfToday));
             }
         }
-        for (ChatListEntry entry : looseOpen) {
-            chatListPanel.add(buildRow(entry.openId, entry.record, when));
-        }
-        if (!looseSaved.isEmpty()) {
-            JLabel divider = new JLabel("History");
-            divider.setEnabled(false);
-            divider.setBorder(BorderFactory.createEmptyBorder(8, 8, 2, 8));
-            chatListPanel.add(divider);
-            for (ChatListEntry entry : looseSaved) {
-                chatListPanel.add(buildRow(null, entry.record, when));
-            }
-        }
+        addChatGroup("HEUTE", today, startOfToday);
+        addChatGroup("GESTERN", yesterday, startOfToday);
+        addChatGroup("LETZTE 7 TAGE", lastWeek, startOfToday);
+        addChatGroup("ÄLTER", older, startOfToday);
         if (chatListPanel.getComponentCount() == 0) {
             JLabel none = new JLabel(filter.isEmpty() ? "No chats" : "No matching chats");
             none.setEnabled(false);
@@ -762,6 +778,27 @@ public final class ChatWorkspacePanel extends JPanel {
         }
         chatListPanel.revalidate();
         chatListPanel.repaint();
+    }
+
+    /** One time/state group: quiet header + its rows; an empty group renders nothing at all. */
+    private void addChatGroup(String title, List<ChatListEntry> group, long startOfToday) {
+        if (group.isEmpty()) {
+            return;
+        }
+        chatListPanel.add(groupHeader(title));
+        for (ChatListEntry entry : group) {
+            chatListPanel.add(buildRow(entry.openId, entry.record, startOfToday));
+        }
+    }
+
+    /** Midnight of the local calendar day — the boundary for HEUTE/GESTERN/… bucketing. */
+    private static long startOfToday() {
+        java.util.Calendar calendar = java.util.Calendar.getInstance();
+        calendar.set(java.util.Calendar.HOUR_OF_DAY, 0);
+        calendar.set(java.util.Calendar.MINUTE, 0);
+        calendar.set(java.util.Calendar.SECOND, 0);
+        calendar.set(java.util.Calendar.MILLISECOND, 0);
+        return calendar.getTimeInMillis();
     }
 
     private static boolean matchesFilter(ChatListEntry entry, String project, String filter) {
@@ -773,12 +810,21 @@ public final class ChatWorkspacePanel extends JPanel {
                 || (project != null && project.toLowerCase(java.util.Locale.ROOT).contains(filter));
     }
 
-    /** A project group's heading — bold with a small petrol marker, sitting above its chats. */
+    /** A project group's heading — the quiet group typography, petrol so projects stay distinct. */
     private JComponent projectHeader(String project) {
         JLabel header = new JLabel("▪ " + project);
-        header.setFont(header.getFont().deriveFont(java.awt.Font.BOLD, 12f));
+        header.setFont(ResearchUiTypography.semiBold(11f));
         header.setForeground(new java.awt.Color(0x15827A)); // the design language's petrol role
-        header.setBorder(BorderFactory.createEmptyBorder(8, 8, 2, 8));
+        header.setBorder(BorderFactory.createEmptyBorder(14, 10, 4, 8));
+        return header;
+    }
+
+    /** A time/state group heading (AKTIV, HEUTE, …): 11px Semi Bold, muted, extra top spacing. */
+    private JComponent groupHeader(String title) {
+        JLabel header = new JLabel(title);
+        header.setFont(ResearchUiTypography.semiBold(11f));
+        header.setForeground(com.aresstack.comiccontrols.theme.ResearchUiPalette.LIGHT_TEXT_MUTED);
+        header.setBorder(BorderFactory.createEmptyBorder(14, 10, 4, 8));
         return header;
     }
 
@@ -789,31 +835,16 @@ public final class ChatWorkspacePanel extends JPanel {
     }
 
     /**
-     * One row for an OPEN session ({@code openId != null}, with a ✕ that closes it) or a saved-only
-     * chat ({@code openId == null}). Clicking the row brings the chat to the foreground (opening it
-     * first when needed); the trash deletes the persisted chat after confirmation.
+     * One two-line history row ({@link ChatHistoryRow}): status dot, title, time, quiet metadata.
+     * Clicking the row brings the chat to the foreground (opening it first when needed); ALL other
+     * actions (close, delete, project) live behind the hover-only {@code …} / right-click menu —
+     * the same existing functions the old inline ✕/🗑 buttons and the right-click menu called.
      */
     private JComponent buildRow(final ChatSessionId openId, final ChatRecord record,
-                                java.text.SimpleDateFormat when) {
+                                long startOfToday) {
         final String chatId = openId != null ? openId.toString() : record.getId();
-        boolean current = openId != null && openId.equals(activeId);
-        String title = rowTitle(openId, record);
-        StringBuilder label = new StringBuilder("<html><b>").append(escapeHtml(title)).append("</b>");
-        label.append(" &nbsp;<span style='color:gray'>");
-        if (record != null) {
-            label.append(when.format(new java.util.Date(record.getModifiedAt())));
-        }
-        if (current) {
-            label.append(" · current");
-        }
-        label.append("</span></html>");
-
-        JButton open = new JButton(label.toString());
-        open.setHorizontalAlignment(SwingConstants.LEFT);
-        open.setBorderPainted(false);
-        open.setContentAreaFilled(false);
-        open.setFocusPainted(false);
-        open.addActionListener(event -> {
+        final String title = rowTitle(openId, record);
+        Runnable open = () -> {
             try {
                 ChatSessionId target = openId != null ? openId
                         : new ChatSessionId(java.util.UUID.fromString(chatId));
@@ -824,66 +855,90 @@ public final class ChatWorkspacePanel extends JPanel {
             if (!menuLocked) {
                 collapseMenuAndSidebar();
             }
-        });
-
-        JPanel trailing = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.RIGHT, 2, 0));
-        trailing.setOpaque(false);
-        if (openId != null) {
-            JButton close = new JButton("✕");
-            close.setToolTipText("Close this chat");
-            close.setBorderPainted(false);
-            close.setContentAreaFilled(false);
-            close.setFocusPainted(false);
-            close.addActionListener(event -> closeSession(openId));
-            trailing.add(close);
-        }
-        if (record != null) {
-            final String persistedTitle = title;
-            JButton delete = new JButton("🗑"); // 🗑
-            delete.setToolTipText("Delete this saved chat");
-            delete.setBorderPainted(false);
-            delete.setContentAreaFilled(false);
-            delete.setFocusPainted(false);
-            delete.addActionListener(event -> {
-                int choice = JOptionPane.showConfirmDialog(ChatWorkspacePanel.this,
-                        "Delete the saved chat \"" + persistedTitle + "\"? This cannot be undone.",
-                        "Delete chat", JOptionPane.OK_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE);
-                if (choice == JOptionPane.OK_OPTION && historyStore != null) {
-                    historyStore.delete(record.getId());
-                    detachOpenPanelFromDeletedChat(record.getId());
-                    refreshChatList();
-                }
-            });
-            trailing.add(delete);
-        }
-
-        JPanel row = new JPanel(new BorderLayout(4, 0));
-        row.setOpaque(false);
-        row.add(open, BorderLayout.CENTER);
-        row.add(trailing, BorderLayout.EAST);
-        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
-        if (record != null) {
-            installProjectMenu(row, open, openId, record);
-        }
-        return row;
+        };
+        return new ChatHistoryRow(title,
+                openId != null ? activeMeta(openId) : savedMeta(record, startOfToday),
+                rowTime(record, startOfToday),
+                openId != null, openId != null && openId.equals(activeId),
+                open, () -> buildRowMenu(openId, record, title));
     }
 
-    /** Right-click on a persisted row: assign the chat to a project (or take it out again). */
-    private void installProjectMenu(JPanel row, JButton open, final ChatSessionId openId,
-                                    final ChatRecord record) {
+    /** The hover/right-click menu of one row — existing functions only, nothing new. */
+    private javax.swing.JPopupMenu buildRowMenu(final ChatSessionId openId, final ChatRecord record,
+                                                final String title) {
         javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
-        javax.swing.JMenuItem assign = new javax.swing.JMenuItem(
-                record.getProject() == null ? "Assign to project…" : "Move to project…");
-        assign.addActionListener(event -> openAssignProjectDialog(openId, record));
-        menu.add(assign);
-        if (record.getProject() != null) {
-            javax.swing.JMenuItem remove = new javax.swing.JMenuItem(
-                    "Remove from \"" + record.getProject() + "\"");
-            remove.addActionListener(event -> applyProject(openId, record, null));
-            menu.add(remove);
+        if (openId != null) {
+            javax.swing.JMenuItem close = new javax.swing.JMenuItem("Close this chat");
+            close.addActionListener(event -> closeSession(openId));
+            menu.add(close);
         }
-        row.setComponentPopupMenu(menu);
-        open.setComponentPopupMenu(menu);
+        if (record != null) {
+            javax.swing.JMenuItem assign = new javax.swing.JMenuItem(
+                    record.getProject() == null ? "Assign to project…" : "Move to project…");
+            assign.addActionListener(event -> openAssignProjectDialog(openId, record));
+            menu.add(assign);
+            if (record.getProject() != null) {
+                javax.swing.JMenuItem remove = new javax.swing.JMenuItem(
+                        "Remove from \"" + record.getProject() + "\"");
+                remove.addActionListener(event -> applyProject(openId, record, null));
+                menu.add(remove);
+            }
+            javax.swing.JMenuItem delete = new javax.swing.JMenuItem("Delete this saved chat…");
+            delete.addActionListener(event -> deletePersistedChat(record, title));
+            menu.add(delete);
+        }
+        return menu;
+    }
+
+    /** Delete ONE saved chat after the existing confirmation — unchanged safety logic. */
+    private void deletePersistedChat(ChatRecord record, String title) {
+        int choice = JOptionPane.showConfirmDialog(this,
+                "Delete the saved chat \"" + title + "\"? This cannot be undone.",
+                "Delete chat", JOptionPane.OK_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE);
+        if (choice == JOptionPane.OK_OPTION && historyStore != null) {
+            historyStore.delete(record.getId());
+            detachOpenPanelFromDeletedChat(record.getId());
+            refreshChatList();
+        }
+    }
+
+    /** Line 2 for an OPEN session: the active agent's label when Questing, else a quiet marker. */
+    private String activeMeta(ChatSessionId openId) {
+        ChatSessionComponent session = sessionsById.get(openId);
+        if (session instanceof OllamaChatPanel) {
+            String label = ((OllamaChatPanel) session).describeActiveAgentForList();
+            if (label != null && !label.trim().isEmpty()) {
+                return label;
+            }
+        }
+        return "Aktive Sitzung";
+    }
+
+    /** Line 2 for a saved chat: Heute / Gestern / the date. */
+    private static String savedMeta(ChatRecord record, long startOfToday) {
+        if (record == null) {
+            return "";
+        }
+        long at = record.getModifiedAt();
+        if (at >= startOfToday) {
+            return "Heute";
+        }
+        if (at >= startOfToday - DAY_MS) {
+            return "Gestern";
+        }
+        return new java.text.SimpleDateFormat("dd.MM.yyyy").format(new java.util.Date(at));
+    }
+
+    /** The right-aligned time: HH:mm for today/yesterday (older rows carry the date in line 2). */
+    private static String rowTime(ChatRecord record, long startOfToday) {
+        if (record == null) {
+            return "";
+        }
+        long at = record.getModifiedAt();
+        if (at >= startOfToday - DAY_MS) {
+            return new java.text.SimpleDateFormat("HH:mm").format(new java.util.Date(at));
+        }
+        return "";
     }
 
     private void openAssignProjectDialog(ChatSessionId openId, ChatRecord record) {
@@ -952,10 +1007,6 @@ public final class ChatWorkspacePanel extends JPanel {
         }
     }
 
-    private static String escapeHtml(String text) {
-        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
-    }
-
     // ------------------------------------------------------------------ listener plumbing
 
     private void fireTabSetChanged() {
@@ -1012,20 +1063,15 @@ public final class ChatWorkspacePanel extends JPanel {
         return chatFilter;
     }
 
-    /** The visible chat-list texts in order (project headers, row titles, dividers) — for tests. */
+    /** The visible chat-list texts in order (group/project headers, row titles) — for tests. */
     java.util.List<String> chatListEntriesForTest() {
         refreshChatList();
         java.util.List<String> texts = new ArrayList<String>();
         for (java.awt.Component component : chatListPanel.getComponents()) {
-            if (component instanceof JLabel) {
+            if (component instanceof ChatHistoryRow) {
+                texts.add(((ChatHistoryRow) component).titleForTest());
+            } else if (component instanceof JLabel) {
                 texts.add(((JLabel) component).getText());
-            } else if (component instanceof JPanel) {
-                for (java.awt.Component child : ((JPanel) component).getComponents()) {
-                    if (child instanceof JButton) {
-                        texts.add(((JButton) child).getText());
-                        break;
-                    }
-                }
             }
         }
         return texts;

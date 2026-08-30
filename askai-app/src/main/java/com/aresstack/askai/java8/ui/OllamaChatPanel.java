@@ -1454,6 +1454,18 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
     /** One per color button: re-reads its current color into its swatch (used by "Reset"). */
     private final List<Runnable> colorSwatchRefreshers = new ArrayList<Runnable>();
 
+    /**
+     * The active agent's display label for the drawer's chat-list metadata line (Questing only),
+     * or {@code null} — the mode is workspace-global, so this reads the shared controller.
+     */
+    public String describeActiveAgentForList() {
+        if (modeController == null || !com.aresstack.askai.plugin.host.WorkspaceModeEntry.QUESTING_ID
+                .equals(modeController.getInteractionMode())) {
+            return null;
+        }
+        return modeController.getActiveAgentLabel();
+    }
+
     /** Opens the (modeless) chat settings dialog — triggered by the drawer footer's gear button. */
     public void openSettingsDialog() {
         refreshAudioProfiles(); // reload so profiles saved in the editor appear immediately

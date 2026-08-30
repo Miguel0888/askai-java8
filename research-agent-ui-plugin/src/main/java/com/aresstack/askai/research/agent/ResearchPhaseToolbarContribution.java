@@ -11,13 +11,9 @@ import com.aresstack.comiccontrols.theme.ResearchUiPainter;
 import com.aresstack.comiccontrols.theme.ResearchUiPalette;
 import com.aresstack.comiccontrols.theme.ResearchUiTypography;
 
-import javax.swing.Box;
-import javax.swing.BoxLayout;
 import javax.swing.JComponent;
 import javax.swing.JOptionPane;
-import javax.swing.JPanel;
 import java.awt.BasicStroke;
-import java.awt.Dimension;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.geom.Path2D;
@@ -27,8 +23,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * The research PHASE SELECTOR in the workspace top bar (the old Websuche spot): a painted lab-flask
- * glyph plus the purple pill dropdown of the design study. It is deliberately NOT a second state
+ * The research PHASE SELECTOR in the workspace top bar (the old Websuche spot): ONE pill control —
+ * painted lab-flask glyph, phase text and chevron together — in THE AskAI accent blue of the active
+ * navigation ({@link ResearchUiPalette#ACCENT_BLUE}), not the Figma purple. It is deliberately NOT a second state
  * mechanism: the dropdown renders {@link ResearchStateSnapshot#getPhaseOrder()}, a selectable entry
  * exists exactly where {@link ResearchStateSnapshot#advanceCommandFor} names an allowed USER
  * command, and a click runs that command through {@link ResearchAgentSession#executeCommand} — the
@@ -85,9 +82,12 @@ public final class ResearchPhaseToolbarContribution implements AgentToolbarContr
                 ResearchUiMetrics.PHASE_PILL_PADDING_LEFT,
                 ResearchUiMetrics.PHASE_PILL_PADDING_RIGHT);
         pill.setFont(ResearchUiTypography.regular(14f));
-        pill.setFills(ResearchUiPalette.PURPLE_PRIMARY, ResearchUiPalette.PURPLE_HOVER,
-                ResearchUiPalette.PURPLE_ACTION);
-        pill.setPillForeground(ResearchUiPalette.TEXT_PRIMARY);
+        // THE existing AskAI navigation blue — hover slightly lighter, pressed/open slightly darker.
+        pill.setFills(ResearchUiPalette.ACCENT_BLUE,
+                ResearchUiPainter.mix(ResearchUiPalette.ACCENT_BLUE, java.awt.Color.WHITE, 0.15f),
+                ResearchUiPainter.mix(ResearchUiPalette.ACCENT_BLUE, java.awt.Color.BLACK, 0.15f));
+        pill.setPillForeground(java.awt.Color.WHITE);
+        pill.setLeadingIcon(new FlaskIcon());
         pill.setToolTipText("Research-Phase (Wechsel läuft über den regulären Workflow)");
 
         pill.setSelectionListener(new ResearchPillDropdown.SelectionListener() {
@@ -121,14 +121,7 @@ public final class ResearchPhaseToolbarContribution implements AgentToolbarContr
         });
         session.addStateListener(refresh);
         refresh.run(); // initial paint
-
-        JPanel group = new JPanel();
-        group.setLayout(new BoxLayout(group, BoxLayout.X_AXIS));
-        group.setOpaque(false);
-        group.add(new FlaskGlyph());
-        group.add(Box.createHorizontalStrut(ResearchUiMetrics.PHASE_ICON_GAP));
-        group.add(pill);
-        return group;
+        return pill; // glyph, text and chevron are ONE control now — no separate icon beside it
     }
 
     /** Rebuild the dropdown rows from the snapshot: reachable phases enabled, everything else quiet. */
@@ -180,44 +173,37 @@ public final class ResearchPhaseToolbarContribution implements AgentToolbarContr
     }
 
     /**
-     * The lab-flask (Erlenmeyer) glyph: 24×24 box, ~19px visible, 1.9px stroke, painted — no emoji.
+     * The lab-flask (Erlenmeyer) glyph, painted INSIDE the pill in white — a monochrome icon, not
+     * an emoji. 16×18 so it sits comfortably in the 34px pill.
      */
-    static final class FlaskGlyph extends JComponent {
+    static final class FlaskIcon implements javax.swing.Icon {
 
-        FlaskGlyph() {
-            setOpaque(false);
+        public int getIconWidth() {
+            return 16;
         }
 
-        @Override
-        protected void paintComponent(Graphics graphics) {
+        public int getIconHeight() {
+            return 18;
+        }
+
+        public void paintIcon(java.awt.Component component, Graphics graphics, int x, int y) {
             Graphics2D g2 = ResearchUiPainter.prepare(graphics);
             try {
-                g2.setColor(ResearchUiPalette.TEXT_PRIMARY);
-                g2.setStroke(new BasicStroke(1.9f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                g2.setColor(java.awt.Color.WHITE);
+                g2.setStroke(new BasicStroke(1.7f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
                 // Neck (two verticals), shoulders flaring out, flat bottom — the classic flask.
                 Path2D.Float flask = new Path2D.Float();
-                flask.moveTo(10f, 3f);
-                flask.lineTo(10f, 9.5f);
-                flask.lineTo(5f, 20.5f);
-                flask.lineTo(19f, 20.5f);
-                flask.lineTo(14f, 9.5f);
-                flask.lineTo(14f, 3f);
+                flask.moveTo(x + 6f, y + 1.5f);
+                flask.lineTo(x + 6f, y + 6.5f);
+                flask.lineTo(x + 2f, y + 15.5f);
+                flask.lineTo(x + 14f, y + 15.5f);
+                flask.lineTo(x + 10f, y + 6.5f);
+                flask.lineTo(x + 10f, y + 1.5f);
                 g2.draw(flask);
-                g2.drawLine(8, 3, 16, 3); // the rim
+                g2.drawLine(x + 4, y + 1, x + 12, y + 1); // the rim
             } finally {
                 g2.dispose();
             }
-        }
-
-        @Override
-        public Dimension getPreferredSize() {
-            return new Dimension(ResearchUiMetrics.PHASE_ICON_BOX,
-                    ResearchUiMetrics.PHASE_ICON_BOX);
-        }
-
-        @Override
-        public Dimension getMaximumSize() {
-            return getPreferredSize();
         }
     }
 }
