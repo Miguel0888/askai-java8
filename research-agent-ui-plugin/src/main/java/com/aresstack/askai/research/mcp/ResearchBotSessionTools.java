@@ -22,9 +22,10 @@ public final class ResearchBotSessionTools {
     private ResearchBotSessionTools() {
     }
 
-    /** The three driving tools bound to one gateway. */
+    /** The four driving tools bound to one gateway. */
     public static List<McpToolContribution> of(ResearchBotSessionGateway gateway) {
-        return Arrays.asList(runCommandTool(gateway), sessionStateTool(gateway), chatHistoryTool(gateway));
+        return Arrays.asList(runCommandTool(gateway), sessionStateTool(gateway), chatHistoryTool(gateway),
+                technicalLogTool(gateway));
     }
 
     /** The shared command description — the directory face documents the same commands. */
@@ -82,6 +83,29 @@ public final class ResearchBotSessionTools {
                                 : McpToolResult.ok(state);
                     }
                 });
+    }
+
+    static final String TECHNICAL_LOG_DESCRIPTION =
+            "The tail of this session's TECHNICAL detail lines (the collapsed diagnostics of the "
+            + "transcript: status lines, concept tool rounds, wire logs, readiness verdicts) — "
+            + "the same lines a human reads in the GUI. Pass tail=<n> for more or fewer lines "
+            + "(default 200, oldest first).";
+
+    /** Observability for a driving client: re-read the technical diagnostics without the GUI. */
+    private static McpToolContribution technicalLogTool(final ResearchBotSessionGateway gateway) {
+        return McpToolContribution.of("technical_log", TECHNICAL_LOG_DESCRIPTION,
+                new McpToolHandler() {
+                    public McpToolResult invoke(McpToolCall call) {
+                        String log = gateway == null ? null
+                                : gateway.describeTechnicalLog((int) call.getInteger("tail", 0));
+                        return log == null
+                                ? McpToolResult.error(
+                                        "No research session is attached to this endpoint yet.")
+                                : McpToolResult.ok(log);
+                    }
+                },
+                McpToolParameter.string("tail", false,
+                        "How many trailing lines to return (default 200)"));
     }
 
     /** The phase-attributed chat record: summaries per finished phase by default, raw=true for everything. */

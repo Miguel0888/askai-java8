@@ -18,4 +18,14 @@ public interface ResearchBotSessionGateway {
 
     /** The phase-attributed chat record; {@code raw} = every entry instead of phase summaries. */
     String describeHistory(boolean raw);
+
+    /**
+     * The tail of the session's TECHNICAL detail lines (the collapsed diagnostics area of the
+     * transcript: wire logs, concept tool rounds, readiness verdicts). Observability for a
+     * driving client — the same lines a human reads in the GUI, nothing extra. The default is
+     * {@code null} (endpoint without an attached session / faces that do not serve it).
+     */
+    default String describeTechnicalLog(int tailLines) {
+        return null;
+    }
 }

@@ -161,6 +161,11 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                         public String describeHistory(boolean raw) {
                             return describeChatHistory(raw);
                         }
+
+                        @Override
+                        public String describeTechnicalLog(int tailLines) {
+                            return ResearchAgentSession.this.describeTechnicalLog(tailLines);
+                        }
                     };
             resources.setSessionGateway(botGateway);
             resources.setProjectionUpdateListener(new Runnable() {
@@ -2384,13 +2389,13 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             sink.appendInfoMessage(lineId, german
                     ? "Themenraum-Prüfung unerwartet fehlgeschlagen." : "Scope check failed.");
             sink.markInfoStatus(lineId, false, scopeCheckRetry());
-            sink.appendTechnicalLog("[scope-check] unexpected: " + unexpected);
+            technicalLog("[scope-check] unexpected: " + unexpected);
             return;
         }
         if (scopeCheckCancelRequested) {
             sink.appendInfoMessage(lineId, german
                     ? "Themenraum-Prüfung abgebrochen." : "Scope check cancelled.");
-            sink.appendTechnicalLog("[scope-check] cancelled by the user");
+            technicalLog("[scope-check] cancelled by the user");
             return;
         }
         appendScopeCheckTechnicalLog(report);
@@ -2494,16 +2499,16 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         if (!outcome.getDiagnostics().isEmpty()) {
             log.append(" diagnostics=").append(outcome.getDiagnostics());
         }
-        sink.appendTechnicalLog(log.toString());
+        technicalLog(log.toString());
         if (outcome.isReady()) {
             for (com.aresstack.askai.research.domain.scope.ScopeDriftGuard guard
                     : outcome.getAdviceSet().getDriftGuards()) {
-                sink.appendTechnicalLog("[scope-check] drift guard: '" + guard.getProbeText()
+                technicalLog("[scope-check] drift guard: '" + guard.getProbeText()
                         + "' bleibt ausgeschlossen (" + guard.getNearestOutAnchorId() + ")");
             }
         }
         if (report.getChoice() != null && !report.getChoice().isOk()) {
-            sink.appendTechnicalLog("[scope-check] choice failed: "
+            technicalLog("[scope-check] choice failed: "
                     + report.getChoice().getStatus() + " " + report.getChoice().getMessage());
         }
     }
@@ -3126,10 +3131,47 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     private final java.util.ArrayDeque<String> runActivityHistory = new java.util.ArrayDeque<String>();
     private static final int RUN_HISTORY_LINES = 5;
 
+    /**
+     * Bounded ring buffer of the technical detail lines — what the collapsed diagnostics area
+     * shows, kept re-readable so a DRIVING client (bot MCP technical_log) can reconstruct the
+     * agent strategy without the GUI. The cap is memory safety only, not a workflow budget.
+     */
+    private final java.util.ArrayDeque<String> technicalLogLines =
+            new java.util.ArrayDeque<String>();
+    private static final int TECHNICAL_LOG_MAX_LINES = 2000;
+
+    /** The ONE recorder: every technical line goes to the sink AND into the readable tail. */
+    private void technicalLog(String line) {
+        synchronized (technicalLogLines) {
+            technicalLogLines.addLast(line == null ? "" : line);
+            while (technicalLogLines.size() > TECHNICAL_LOG_MAX_LINES) {
+                technicalLogLines.removeFirst();
+            }
+        }
+        sink.appendTechnicalLog(line);
+    }
+
+    /** The last {@code tailLines} technical lines, oldest first ({@code <= 0} = a sane default). */
+    String describeTechnicalLog(int tailLines) {
+        int wanted = tailLines <= 0 ? 200 : tailLines;
+        StringBuilder sb = new StringBuilder();
+        synchronized (technicalLogLines) {
+            int skip = Math.max(0, technicalLogLines.size() - wanted);
+            int index = 0;
+            for (String line : technicalLogLines) {
+                if (index++ < skip) {
+                    continue;
+                }
+                sb.append(line).append('\n');
+            }
+        }
+        return sb.length() == 0 ? "(no technical details recorded yet)" : sb.toString();
+    }
+
     private void applyRunLog(ResearchBackendEvent event) {
         // Full diagnostics belong EXCLUSIVELY to the host's collapsed "Technical details" area — the
         // visible progress card never carries raw log lines, source ids or redirect URLs.
-        sink.appendTechnicalLog(event.getText());
+        technicalLog(event.getText());
     }
 
     private void applyRunProgress(ResearchBackendEvent event) {
