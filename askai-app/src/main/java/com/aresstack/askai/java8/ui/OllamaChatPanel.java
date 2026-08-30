@@ -211,6 +211,10 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
             new com.aresstack.askai.java8.tts.TtsSettingsStore();
     private final com.aresstack.askai.java8.tts.PiperTtsStore piperTtsStore =
             new com.aresstack.askai.java8.tts.PiperTtsStore();
+    /** The voice INSTALL section embedded right below the selector (built with the audio card). */
+    private SpeechOutputModelsPanel speechVoicesPanel;
+    /** The settings dialog's category list — kept so callers can open a specific category. */
+    private javax.swing.JList<String> settingsNavigation;
     private final JTextArea techDetails = new JTextArea(6, 40);
 
     private final List<OllamaChatTurn> history = new ArrayList<OllamaChatTurn>();
@@ -967,6 +971,7 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
 
         final javax.swing.JList<String> navigation =
                 new javax.swing.JList<String>(categories.toArray(new String[0]));
+        settingsNavigation = navigation; // openSpeechOutputSettings jumps to a category directly
         navigation.setSelectionMode(javax.swing.ListSelectionModel.SINGLE_SELECTION);
         navigation.setSelectedIndex(0);
         navigation.setFixedCellHeight(30);
@@ -1070,22 +1075,39 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         speechOutputCombo.setPreferredSize(
                 new Dimension(240, speechOutputCombo.getPreferredSize().height));
         speechOutputCombo.setToolTipText("The read-aloud voice. Model voices run entirely on the"
-                + " CPU — the GPU stays free. Install voices under Models > Setup > Speech Output.");
+                + " CPU — the GPU stays free. Install voices right below.");
         speechOutputCombo.addActionListener(event -> persistSpeechOutputSelection());
         speechRow.add(speechOutputCombo);
         card.add(speechRow);
-        JPanel speechHintRow = partySettingsRow();
-        JLabel speechHint = new JLabel("<html><i>CPU (recommended) — the GPU stays free for the AI"
-                + " models. GPU acceleration — coming soon."
-                + " Install voices under Models &gt; Setup &gt; Speech Output.</i></html>");
-        speechHint.setEnabled(false);
-        speechHintRow.add(speechHint);
-        card.add(speechHintRow);
+        // Voices are installed RIGHT HERE, below the selector — the 🔊 entries in Models > Setup
+        // are only a shortcut to this section (the panel says so, plus the download sources).
+        speechVoicesPanel = new SpeechOutputModelsPanel(piperTtsStore, ttsSettingsStore);
+        speechVoicesPanel.setOnVoicesChanged(new Runnable() {
+            public void run() {
+                refreshSpeechOutputVoices();
+            }
+        });
+        speechVoicesPanel.setAlignmentX(Component.LEFT_ALIGNMENT); // BoxLayout column, like the rows
+        card.add(speechVoicesPanel);
         return card;
+    }
+
+    /** Opens the settings dialog on Audio &amp; Dictation and marks the recommended voice's row. */
+    public void openSpeechOutputSettings(String voiceId) {
+        openSettingsDialog();
+        if (settingsNavigation != null) {
+            settingsNavigation.setSelectedValue(SETTINGS_CATEGORIES[1], true);
+        }
+        if (speechVoicesPanel != null) {
+            speechVoicesPanel.highlightVoice(voiceId);
+        }
     }
 
     /** Reloads the speech-output combo: the Windows default plus every INSTALLED Piper voice. */
     private void refreshSpeechOutputVoices() {
+        if (speechVoicesPanel != null) {
+            speechVoicesPanel.refresh(); // install rows and combo always tell the same story
+        }
         updatingSpeechOutputCombo = true;
         try {
             com.aresstack.askai.java8.tts.TextToSpeechSettings tts = ttsSettingsStore.load();

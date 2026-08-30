@@ -1108,12 +1108,18 @@ public final class AskAiFrame extends JFrame {
                         catalogRefreshService.refresh();
                     }
                 });
-        final SpeechOutputModelsPanel speechOutputModelsPanel = new SpeechOutputModelsPanel(
-                new com.aresstack.askai.java8.tts.PiperTtsStore(),
-                new com.aresstack.askai.java8.tts.TtsSettingsStore());
         final ModelSearchPanel modelSearchPanel =
-                new ModelSearchPanel(configurationRepository, askAiService, nlpModelsPanel,
-                        speechOutputModelsPanel);
+                new ModelSearchPanel(configurationRepository, askAiService, nlpModelsPanel);
+        // 🔊 discovery entries in the HuggingFace suggestions are a SHORTCUT: they open the
+        // active chat's settings on Audio & Dictation, where the voices are installed and chosen.
+        modelSearchPanel.setSpeechOutputOpener(new java.util.function.Consumer<String>() {
+            public void accept(String voiceId) {
+                OllamaChatPanel chat = activeChat();
+                if (chat != null) {
+                    chat.openSpeechOutputSettings(voiceId);
+                }
+            }
+        });
         contentPanel.add(modelSearchPanel, INSTALL_VIEW);
         // "Add-ons on Hugging Face" from an installed model card: switch to Setup and enter add-on mode so
         // the chosen encoder is attached to this model (from/adapters), not installed as a new model.

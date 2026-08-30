@@ -717,10 +717,10 @@ public final class OllamaInstallPanel extends JPanel {
         }
     }
 
-    /** The owner's hand-over to the Speech Output tab (voice id → open + highlight), or null. */
+    /** The owner's hand-over for 🔊 entries (voice id → chat settings, Audio & Dictation), or null. */
     private java.util.function.Consumer<String> speechOutputOpener;
 
-    /** Wired by {@link ModelSearchPanel} so 🔊 discovery entries can open the Speech Output tab. */
+    /** Wired via {@link ModelSearchPanel}: 🔊 discovery entries open the voice-install SECTION. */
     void setSpeechOutputOpener(java.util.function.Consumer<String> opener) {
         this.speechOutputOpener = opener;
     }

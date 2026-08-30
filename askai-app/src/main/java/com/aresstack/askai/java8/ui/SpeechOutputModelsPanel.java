@@ -23,17 +23,16 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 
 /**
- * The Model Browser "Speech Output" tab: install a curated, natural-sounding read-aloud voice
- * (Piper, HuggingFace {@code rhasspy/piper-voices}) with one click. The engine and every voice run
- * ENTIRELY on the CPU — the GPU stays free for the chat models (GPU acceleration: coming soon).
- * After a successful install the user is asked whether to use the voice right away; either way it
- * stays selectable in the chat settings under "Audio &amp; Dictation". Mirrors
- * {@link NlpModelsPanel}: pure UI orchestration, installs off the EDT, errors shown, never
- * swallowed.
+ * The read-aloud voice install section INSIDE the chat settings (Audio &amp; Dictation), right
+ * below the speech-output selector: install a curated, natural-sounding Piper voice (HuggingFace
+ * {@code rhasspy/piper-voices}) with one click, exactly where the voice is chosen. The engine and
+ * every voice run ENTIRELY on the CPU — the GPU stays free for the AI models (GPU acceleration:
+ * coming soon). After a successful install the user is asked whether to use the voice right away.
+ * The 🔊 entries in Models → Setup → Hugging Face are only a SHORTCUT that opens this section.
+ * Mirrors {@link NlpModelsPanel}: pure UI orchestration, installs off the EDT, errors shown,
+ * never swallowed.
  */
 public final class SpeechOutputModelsPanel extends JPanel {
-
-    public static final String TAB_TITLE = "Speech Output";
 
     /** The one action the panel performs; {@link PiperInstaller#install} matches it. */
     public interface InstallAction {
@@ -56,6 +55,8 @@ public final class SpeechOutputModelsPanel extends JPanel {
     private final Map<String, JButton> buttonByVoice = new LinkedHashMap<String, JButton>();
     private final Map<String, JPanel> rowByVoice = new LinkedHashMap<String, JPanel>();
     private final JLabel error = new JLabel(" ");
+    /** Fires after a voice install (and its adoption choice) so the owner's selector can reload. */
+    private Runnable onVoicesChanged;
 
     /** Productive wiring: real installer + a background thread + the EDT + a JOptionPane prompt. */
     public SpeechOutputModelsPanel(PiperTtsStore store, TtsSettingsStore settings) {
@@ -91,8 +92,23 @@ public final class SpeechOutputModelsPanel extends JPanel {
         for (PiperVoice voice : PiperVoiceCatalog.curated()) {
             rows.add(buildRow(voice));
         }
+        // Full transparency about the downloads — and that the Models route is only a shortcut.
+        JLabel sources = new JLabel("<html><i>Downloads: voices from HuggingFace"
+                + " “rhasspy/piper-voices”; the engine once (~21 MB) from the pinned"
+                + " Piper 2023.11.14-2 release on GitHub. Stored under"
+                + " %APPDATA%\\.askai-java8\\tts.<br>"
+                + "The 🔊 entries under Models &gt; Setup &gt; Hugging Face are just a"
+                + " shortcut that opens this section.</i></html>");
+        JPanel sourcesRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 2));
+        sourcesRow.add(sources);
+        rows.add(sourcesRow);
         add(rows, BorderLayout.NORTH);
         add(error, BorderLayout.SOUTH);
+    }
+
+    /** Owner hook: reload the speech-output selector after installs/adoption. */
+    public void setOnVoicesChanged(Runnable listener) {
+        this.onVoicesChanged = listener;
     }
 
     private JPanel buildRow(final PiperVoice voice) {
@@ -182,6 +198,9 @@ public final class SpeechOutputModelsPanel extends JPanel {
                         if (outcome == null) {
                             offerAdoption(voice);
                             refresh();
+                            if (onVoicesChanged != null) {
+                                onVoicesChanged.run();
+                            }
                         } else {
                             error.setText("Install failed: " + describe(outcome));
                             refresh();
@@ -232,8 +251,8 @@ public final class SpeechOutputModelsPanel extends JPanel {
             public boolean confirmUseNow(PiperVoice voice) {
                 return JOptionPane.showConfirmDialog(SpeechOutputModelsPanel.this,
                         "Use \"" + voice + "\" for speech output now?\n\n"
-                                + "You can change this anytime in the chat settings (gear)\n"
-                                + "under \"Audio & Dictation\".",
+                                + "You can change this anytime right here under\n"
+                                + "\"Audio & Dictation\" > Speech output.",
                         "Voice installed", JOptionPane.YES_NO_OPTION,
                         JOptionPane.QUESTION_MESSAGE) == JOptionPane.YES_OPTION;
             }

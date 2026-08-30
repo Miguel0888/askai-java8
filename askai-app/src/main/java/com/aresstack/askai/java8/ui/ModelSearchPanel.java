@@ -17,7 +17,6 @@ public final class ModelSearchPanel extends JPanel {
 
     private final JTabbedPane tabs;
     private final OllamaInstallPanel huggingFacePanel;
-    private final SpeechOutputModelsPanel speechOutputPanel;
 
     public ModelSearchPanel(AppConfigurationRepository configurationRepository, AskAiService askAiService) {
         this(configurationRepository, askAiService, null);
@@ -29,15 +28,6 @@ public final class ModelSearchPanel extends JPanel {
      */
     public ModelSearchPanel(AppConfigurationRepository configurationRepository, AskAiService askAiService,
                             NlpModelsPanel nlpModelsPanel) {
-        this(configurationRepository, askAiService, nlpModelsPanel, null);
-    }
-
-    /**
-     * @param speechOutputPanel the Speech Output tab (curated Piper read-aloud voices); when
-     *                          non-null it is added after the NLP tab. Prebuilt by the owner.
-     */
-    public ModelSearchPanel(AppConfigurationRepository configurationRepository, AskAiService askAiService,
-                            NlpModelsPanel nlpModelsPanel, SpeechOutputModelsPanel speechOutputPanel) {
         super(new BorderLayout());
         this.huggingFacePanel = new OllamaInstallPanel(configurationRepository, askAiService);
         this.tabs = new JTabbedPane();
@@ -46,26 +36,15 @@ public final class ModelSearchPanel extends JPanel {
         if (nlpModelsPanel != null) {
             tabs.addTab(NlpModelsPanel.TAB_TITLE, nlpModelsPanel);
         }
-        this.speechOutputPanel = speechOutputPanel;
-        if (speechOutputPanel != null) {
-            tabs.addTab(SpeechOutputModelsPanel.TAB_TITLE, speechOutputPanel);
-            // The 🔊 discovery entries in the HuggingFace dropdown open this tab directly —
-            // never the GGUF/Ollama importer.
-            huggingFacePanel.setSpeechOutputOpener(new java.util.function.Consumer<String>() {
-                public void accept(String voiceId) {
-                    openSpeechOutput(voiceId);
-                }
-            });
-        }
         add(tabs, BorderLayout.CENTER);
     }
 
-    /** Selects the Speech Output tab and highlights the recommended voice's row. */
-    public void openSpeechOutput(String voiceId) {
-        if (speechOutputPanel != null) {
-            tabs.setSelectedComponent(speechOutputPanel);
-            speechOutputPanel.highlightVoice(voiceId);
-        }
+    /**
+     * Wires where a 🔊 speech-output discovery entry lands (voice id → the chat settings' Audio
+     * &amp; Dictation section — the entries are a SHORTCUT there, never a GGUF/Ollama import).
+     */
+    public void setSpeechOutputOpener(java.util.function.Consumer<String> opener) {
+        huggingFacePanel.setSpeechOutputOpener(opener);
     }
 
     /** The tab titles in order (for diagnostics/tests). */
