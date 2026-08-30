@@ -137,6 +137,41 @@ public class ChatListProjectsTest {
     }
 
     @Test
+    public void softDeleteKeepsTheRowVisibleAndUndoRestoresTheStore() throws Exception {
+        final ChatWorkspacePanel workspace = build();
+        final String[] deletedId = new String[1];
+        onEdt(new Runnable() {
+            public void run() {
+                ChatRecord lasagne = null;
+                for (ChatRecord record : store.list()) {
+                    if ("Rezept Lasagne".equals(record.getTitle())) {
+                        lasagne = record;
+                    }
+                }
+                deletedId[0] = lasagne.getId();
+                workspace.deletePersistedChat(lasagne, lasagne.getTitle());
+                assertTrue("the deleted row STAYS visible for this run",
+                        indexContaining(workspace.chatListEntriesForTest(), "Rezept Lasagne") >= 0);
+            }
+        });
+        boolean inStore = false;
+        for (ChatRecord record : store.list()) {
+            inStore |= "Rezept Lasagne".equals(record.getTitle());
+        }
+        assertFalse("…but it is really gone from the store", inStore);
+        onEdt(new Runnable() {
+            public void run() {
+                workspace.undoDelete(deletedId[0]);
+            }
+        });
+        boolean restored = false;
+        for (ChatRecord record : store.list()) {
+            restored |= "Rezept Lasagne".equals(record.getTitle());
+        }
+        assertTrue("undo brings the record back into the store", restored);
+    }
+
+    @Test
     public void aBlankRenameKeepsTheOldTitle() throws Exception {
         final ChatWorkspacePanel workspace = build();
         onEdt(new Runnable() {

@@ -848,10 +848,25 @@ public final class ChatWorkspacePanel extends JPanel {
 
         List<ChatListEntry> entries = new ArrayList<ChatListEntry>();
         for (ChatSessionId id : sessionsById.keySet()) {
-            entries.add(new ChatListEntry(id, savedById.remove(id.toString())));
+            ChatRecord record = savedById.remove(id.toString());
+            if (record == null) {
+                record = deletedChats.get(id.toString()); // deleted but open: keep title/time
+            }
+            entries.add(new ChatListEntry(id, record));
         }
         for (ChatRecord record : savedById.values()) {
             entries.add(new ChatListEntry(null, record));
+        }
+        // Soft-deleted CLOSED chats stay listed for this run (marked "Deleted", undo-able);
+        // a restart drops them for good.
+        for (Map.Entry<String, ChatRecord> deleted : deletedChats.entrySet()) {
+            boolean open = false;
+            for (ChatSessionId id : sessionsById.keySet()) {
+                open |= id.toString().equals(deleted.getKey());
+            }
+            if (!open) {
+                entries.add(new ChatListEntry(null, deleted.getValue()));
+            }
         }
 
         Map<String, List<ChatListEntry>> byProject = new LinkedHashMap<String, List<ChatListEntry>>();
@@ -991,11 +1006,14 @@ public final class ChatWorkspacePanel extends JPanel {
             }
         };
         boolean busy = isSessionBusy(openId);
+        final boolean deleted = deletedChats.containsKey(chatId);
         return new ChatHistoryRow(title,
-                rowMeta(openId, record, busy, startOfToday),
+                deleted ? "Deleted" : rowMeta(openId, record, busy, startOfToday),
                 rowTime(record, startOfToday),
-                busy, openId != null && openId.equals(activeId),
-                open, () -> buildRowMenu(openId, record, title));
+                busy, openId != null && openId.equals(activeId), deleted,
+                deleted && openId == null ? null : open, // a deleted closed chat is not openable
+                () -> buildRowMenu(openId, record, title),
+                deleted ? () -> undoDelete(chatId) : null);
     }
 
     /** True when this chat's session ACTUALLY processes something right now (never "it exists"). */
@@ -1009,6 +1027,20 @@ public final class ChatWorkspacePanel extends JPanel {
     private javax.swing.JPopupMenu buildRowMenu(final ChatSessionId openId, final ChatRecord record,
                                                 final String title) {
         javax.swing.JPopupMenu menu = new javax.swing.JPopupMenu();
+        final String menuChatId = openId != null ? openId.toString()
+                : record != null ? record.getId() : null;
+        if (menuChatId != null && deletedChats.containsKey(menuChatId)) {
+            // A deleted row offers exactly its way back — the arrow's twin for menu users.
+            javax.swing.JMenuItem restore = new javax.swing.JMenuItem("Restore");
+            restore.addActionListener(event -> undoDelete(menuChatId));
+            menu.add(restore);
+            if (openId != null) {
+                javax.swing.JMenuItem close = new javax.swing.JMenuItem("Close this chat");
+                close.addActionListener(event -> closeSession(openId));
+                menu.add(close);
+            }
+            return menu;
+        }
         // Rename morphs the ROW into an inline field (like the sky's + Add), no dialog.
         javax.swing.JMenuItem rename = new javax.swing.JMenuItem("Rename…");
         rename.addActionListener(event -> {
@@ -1032,7 +1064,8 @@ public final class ChatWorkspacePanel extends JPanel {
                 remove.addActionListener(event -> applyProject(openId, record, null));
                 menu.add(remove);
             }
-            javax.swing.JMenuItem delete = new javax.swing.JMenuItem("Delete this saved chat…");
+            javax.swing.JMenuItem delete = new javax.swing.JMenuItem("Delete");
+            delete.setToolTipText("Soft delete — undo stays available until the app restarts");
             delete.addActionListener(event -> deletePersistedChat(record, title));
             menu.add(delete);
         }
@@ -1111,16 +1144,37 @@ public final class ChatWorkspacePanel extends JPanel {
         refreshChatList();
     }
 
-    /** Delete ONE saved chat after the existing confirmation — unchanged safety logic. */
-    private void deletePersistedChat(ChatRecord record, String title) {
-        int choice = JOptionPane.showConfirmDialog(this,
-                "Delete the saved chat \"" + title + "\"? This cannot be undone.",
-                "Delete chat", JOptionPane.OK_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE);
-        if (choice == JOptionPane.OK_OPTION && historyStore != null) {
-            historyStore.delete(record.getId());
-            detachOpenPanelFromDeletedChat(record.getId());
-            refreshChatList();
+    /**
+     * SOFT delete: the record leaves the store immediately, but the row stays visible for this
+     * app run marked "Deleted" with an UNDO arrow — the undo replaces the old blocking confirm
+     * dialog. A restart forgets deleted items for good (this map is memory-only on purpose).
+     */
+    private final Map<String, ChatRecord> deletedChats = new LinkedHashMap<String, ChatRecord>();
+
+    void deletePersistedChat(ChatRecord record, String title) {
+        if (historyStore == null || record == null) {
+            return;
         }
+        historyStore.delete(record.getId());
+        detachOpenPanelFromDeletedChat(record.getId());
+        deletedChats.put(record.getId(), record);
+        refreshChatList();
+    }
+
+    /** Bring a soft-deleted chat back: persist the kept record and re-attach an open panel. */
+    void undoDelete(String chatId) {
+        ChatRecord record = deletedChats.remove(chatId);
+        if (record == null || historyStore == null) {
+            return;
+        }
+        historyStore.save(record);
+        for (Map.Entry<ChatSessionId, ChatSessionComponent> entry : sessionsById.entrySet()) {
+            if (entry.getKey().toString().equals(chatId)
+                    && entry.getValue() instanceof OllamaChatPanel) {
+                ((OllamaChatPanel) entry.getValue()).reattachToPersistedChat(record);
+            }
+        }
+        refreshChatList();
     }
 
     /**

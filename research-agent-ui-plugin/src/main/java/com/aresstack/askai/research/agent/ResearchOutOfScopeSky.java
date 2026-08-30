@@ -90,6 +90,8 @@ final class ResearchOutOfScopeSky extends JPanel {
     private boolean open;
     private final SkyBar skyBar = new SkyBar();
     private final CollapseChevron collapseChevron = new CollapseChevron();
+    /** The OPEN sky's round read-aloud button — right side, vertically centered in the sky. */
+    private final SpeakOrb speakOrb = new SpeakOrb();
 
     ResearchOutOfScopeSky() {
         super(null); // fully manual layout: the sky sizes itself from its cloud rows
@@ -135,6 +137,7 @@ final class ResearchOutOfScopeSky extends JPanel {
         cloudFlow.add(addFieldRow);
         add(skyBar);
         add(collapseChevron);
+        add(speakOrb);
     }
 
     /** Toggle between the slim status bar and the full cloud sky (pure UI preference). */
@@ -242,6 +245,7 @@ final class ResearchOutOfScopeSky extends JPanel {
             speakLatest(); // a NEW answer arrived while reading is active → read it out
         }
         skyBar.repaint();
+        speakOrb.repaint();
     }
 
     private void speakLatest() {
@@ -267,6 +271,7 @@ final class ResearchOutOfScopeSky extends JPanel {
             }
         }
         skyBar.repaint();
+        speakOrb.repaint();
     }
 
     /** Stop the voice and drop the wish state — accessory dispose / tab switch. */
@@ -390,6 +395,7 @@ final class ResearchOutOfScopeSky extends JPanel {
         // the cloud area — which always carries at least the "+ Hinzufügen" cloud.
         cloudScroll.setVisible(open);
         collapseChevron.setVisible(open);
+        speakOrb.setVisible(open);
         skyBar.setVisible(!open);
         if (getWidth() <= 0 || getHeight() <= 0) {
             // Not really laid out yet (first pass before the host sized this layer): claim NO
@@ -415,7 +421,9 @@ final class ResearchOutOfScopeSky extends JPanel {
                 + (ResearchUiMetrics.CLOUD_CHIP_HEIGHT - chevronSize) / 2,
                 chevronSize, chevronSize);
         int cloudLeft = padH + chevronSize + 8;
-        int innerWidth = getWidth() - cloudLeft - padH;
+        int orbSize = 36;
+        // The round read-aloud button reserves the right edge; clouds wrap before it.
+        int innerWidth = getWidth() - cloudLeft - padH - orbSize - 10;
         int cloudTop = ResearchUiMetrics.SKY_PADDING_TOP;
 
         applyVisibility(innerWidth);
@@ -429,6 +437,9 @@ final class ResearchOutOfScopeSky extends JPanel {
         int viewportHeight = Math.min(naturalHeight, expanded ? expandedCap : collapsedCap);
         cloudScroll.setBounds(cloudLeft, cloudTop, innerWidth, viewportHeight);
         contentBottom = cloudTop + viewportHeight + 8;
+        // Nicely CENTERED in the open sky's content zone, not glued to its top.
+        speakOrb.setBounds(getWidth() - padH - orbSize,
+                Math.max(2, (contentBottom - orbSize) / 2), orbSize, orbSize);
         // The chat's scroll geometry follows: at scroll 0 the first bubble starts just below the
         // covering zone, inside the transparent fade — reachable, readable, and it still slides
         // softly behind the sky as soon as the user scrolls.
@@ -1016,6 +1027,76 @@ final class ResearchOutOfScopeSky extends JPanel {
             g2.setColor(ResearchUiPalette.CLOUD_TEXT);
             g2.setStroke(new BasicStroke(1.1f));
             g2.draw(cloud);
+        }
+    }
+
+    /**
+     * The OPEN sky's read-aloud control: the bar's Play/Pause zone GROWS into this round comic
+     * chip at the right edge, vertically centered in the sky — same toggle, same voice.
+     */
+    private final class SpeakOrb extends JComponent {
+
+        private boolean hovered;
+
+        SpeakOrb() {
+            setName("sky.readAloudOrb");
+            setVisible(false);
+            setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            addMouseListener(new java.awt.event.MouseAdapter() {
+                @Override
+                public void mouseEntered(java.awt.event.MouseEvent event) {
+                    hovered = true;
+                    repaint();
+                }
+
+                @Override
+                public void mouseExited(java.awt.event.MouseEvent event) {
+                    hovered = false;
+                    repaint();
+                }
+
+                @Override
+                public void mousePressed(java.awt.event.MouseEvent event) {
+                    toggleReadAloud();
+                }
+            });
+        }
+
+        @Override
+        public String getToolTipText(java.awt.event.MouseEvent event) {
+            return readAloudActive
+                    ? "Vorlesen pausieren"
+                    : "Letzte Antwort vorlesen (neue Antworten werden automatisch vorgelesen)";
+        }
+
+        {
+            setToolTipText(" "); // register with the tooltip manager; text comes dynamically
+        }
+
+        @Override
+        protected void paintComponent(Graphics graphics) {
+            Graphics2D g2 = ResearchUiPainter.prepare(graphics);
+            try {
+                g2.setColor(hovered ? ResearchUiPalette.CLOUD_HOVER_SURFACE
+                        : ResearchUiPalette.CLOUD_SURFACE);
+                g2.fillOval(1, 1, getWidth() - 2, getHeight() - 2);
+                g2.setColor(hovered ? ResearchUiPalette.CLOUD_HOVER_BORDER
+                        : ResearchUiPalette.CLOUD_BORDER);
+                g2.setStroke(new BasicStroke(1.3f));
+                g2.drawOval(1, 1, getWidth() - 3, getHeight() - 3);
+                g2.setColor(ResearchUiPalette.CLOUD_TEXT);
+                int cx = getWidth() / 2;
+                int cy = getHeight() / 2;
+                if (readAloudActive) {
+                    g2.fillRect(cx - 6, cy - 7, 4, 14);
+                    g2.fillRect(cx + 2, cy - 7, 4, 14);
+                } else {
+                    g2.fillPolygon(new int[]{cx - 4, cx - 4, cx + 7},
+                            new int[]{cy - 7, cy + 7, cy}, 3);
+                }
+            } finally {
+                g2.dispose();
+            }
         }
     }
 

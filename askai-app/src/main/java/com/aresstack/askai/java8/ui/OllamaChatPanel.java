@@ -508,6 +508,16 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         chatRecord = null;
     }
 
+    /**
+     * UNDO of a sidebar delete: re-adopt the restored record so autosave continues on it — the
+     * exact counterpart of {@link #detachFromPersistedChat}. Ignored for a foreign record.
+     */
+    public void reattachToPersistedChat(com.aresstack.askai.java8.history.ChatRecord record) {
+        if (record != null && sessionId.toString().equals(record.getId())) {
+            chatRecord = record;
+        }
+    }
+
     // ------------------------------------------------------------------ dictation wiring
 
     private AudioModelResolver audioModelResolver() {

@@ -46,20 +46,30 @@ final class ChatHistoryRow extends JComponent {
     private final String time;
     private final boolean busy;
     private final boolean selected;
+    private final boolean deleted;
     private final Runnable openAction;
     private final MenuSupplier menuSupplier;
+    private final Runnable undoAction;
     private boolean hovered;
     private boolean menuHovered;
 
     ChatHistoryRow(String title, String meta, String time, boolean busy, boolean selected,
                    Runnable openAction, MenuSupplier menuSupplier) {
+        this(title, meta, time, busy, selected, false, openAction, menuSupplier, null);
+    }
+
+    ChatHistoryRow(String title, String meta, String time, boolean busy, boolean selected,
+                   boolean deleted, Runnable openAction, MenuSupplier menuSupplier,
+                   Runnable undoAction) {
         this.title = title;
         this.meta = meta == null ? "" : meta;
         this.time = time == null ? "" : time;
         this.busy = busy;
         this.selected = selected;
+        this.deleted = deleted;
         this.openAction = openAction;
         this.menuSupplier = menuSupplier;
+        this.undoAction = undoAction;
         setOpaque(false);
         setToolTipText(title);
         setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
@@ -92,6 +102,10 @@ final class ChatHistoryRow extends JComponent {
                     showMenu(event.getX(), event.getY());
                     return;
                 }
+                if (deleted && undoAction != null && menuHit().contains(event.getPoint())) {
+                    undoAction.run(); // the permanent return arrow brings the chat back
+                    return;
+                }
                 if (hovered && menuHit().contains(event.getPoint())) {
                     Rectangle hit = menuHit();
                     showMenu(hit.x, hit.y + hit.height);
@@ -113,6 +127,18 @@ final class ChatHistoryRow extends JComponent {
     }
 
     String titleForTest() {
+        return title;
+    }
+
+    boolean deletedForTest() {
+        return deleted;
+    }
+
+    @Override
+    public String getToolTipText(MouseEvent event) {
+        if (deleted && undoAction != null && menuHit().contains(event.getPoint())) {
+            return "Restore (until the app restarts)";
+        }
         return title;
     }
 
@@ -172,7 +198,26 @@ final class ChatHistoryRow extends JComponent {
                         dotCenterY + timeMetrics.getAscent() / 2 - 1);
             }
             int titleLimit = rightEdge - timeWidth - 8;
-            if (hovered) {
+            if (deleted && undoAction != null) {
+                // Deleted rows carry a PERMANENT return arrow (no hover needed): one click undoes
+                // the delete for as long as the app runs.
+                Rectangle hit = menuHit();
+                if (menuHovered) {
+                    g2.setColor(ResearchUiPainter.mix(
+                            ResearchUiPalette.ACCENT_BLUE, Color.WHITE, 0.82f));
+                    g2.fillOval(hit.x, hit.y, hit.width, hit.height);
+                }
+                g2.setColor(ResearchUiPalette.LIGHT_CONTROL_TEXT);
+                g2.setStroke(new java.awt.BasicStroke(1.6f, java.awt.BasicStroke.CAP_ROUND,
+                        java.awt.BasicStroke.JOIN_ROUND));
+                int cx = hit.x + hit.width / 2;
+                int cy = hit.y + hit.height / 2;
+                g2.drawLine(cx - 5, cy, cx + 6, cy);       // shaft
+                g2.drawLine(cx - 5, cy, cx - 1, cy - 4);   // arrow head (pointing back/left)
+                g2.drawLine(cx - 5, cy, cx - 1, cy + 4);
+                g2.drawLine(cx + 6, cy, cx + 6, cy - 5);   // the return hook
+                titleLimit = hit.x - 6;
+            } else if (hovered) {
                 Rectangle hit = menuHit();
                 if (menuHovered) {
                     g2.setColor(ResearchUiPainter.mix(
@@ -189,17 +234,20 @@ final class ChatHistoryRow extends JComponent {
             }
 
             // Line 1: the title, ellipsized against time/… so nothing ever clips mid-glyph.
+            // A deleted chat dims its title — the row must READ as deleted, not merely say so.
             g2.setFont(ResearchUiTypography.semiBold(13f));
             FontMetrics titleMetrics = g2.getFontMetrics();
-            g2.setColor(palette.getInk());
+            g2.setColor(deleted ? ResearchUiPalette.LIGHT_TEXT_MUTED : palette.getInk());
             g2.drawString(ellipsize(title, titleMetrics, titleLimit - textX), textX,
                     dotCenterY + titleMetrics.getAscent() / 2 - 1);
 
-            // Line 2: quiet metadata.
+            // Line 2: quiet metadata ("Deleted" speaks in a calmed danger red).
             if (!meta.isEmpty()) {
                 g2.setFont(ResearchUiTypography.regular(11f));
                 FontMetrics metaMetrics = g2.getFontMetrics();
-                g2.setColor(ResearchUiPalette.LIGHT_TEXT_MUTED);
+                g2.setColor(deleted
+                        ? ResearchUiPainter.mix(ResearchUiPalette.DANGER_RED, Color.WHITE, 0.25f)
+                        : ResearchUiPalette.LIGHT_TEXT_MUTED);
                 g2.drawString(ellipsize(meta, metaMetrics, rightEdge - textX), textX,
                         getHeight() - 9);
             }
