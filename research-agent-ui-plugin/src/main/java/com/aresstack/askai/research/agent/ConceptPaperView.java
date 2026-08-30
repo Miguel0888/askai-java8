@@ -17,17 +17,19 @@ import java.awt.event.ActionListener;
 
 /**
  * The Konzept tab's content: PURE additional views of the ONE store state — no second UI model,
- * no copy of the concept in Swing state. [Mindmap] and [JSON] render the SAME atomic snapshot
- * (the revision label proves it); [Brief] keeps the legacy research-brief markdown visible until
- * K4 retires it. The JSON view is READ-ONLY by design: editing arrives only when it can go
- * through the same parse→candidate→validate→commit path as everyone else. All methods EDT.
+ * no copy of the concept in Swing state. [JSON] renders the atomic snapshot (the revision label
+ * proves which one); [Brief] keeps the legacy research-brief markdown visible until K4 retires
+ * it. The MINDMAP is deliberately NOT a card here: it lives behind the "Konzept visualisieren"
+ * toolbar button, in the SAME host diagram overlay as the sources mindmap (the proper rendering
+ * engine with zoom/pan) — the tab shows the raw truth. The JSON view is READ-ONLY by design:
+ * editing arrives only when it can go through the same parse→candidate→validate→commit path as
+ * everyone else. All methods EDT.
  */
 public final class ConceptPaperView extends JPanel {
 
     private static final String EMPTY =
             "_Noch kein Konzept. Beschreibe im Chat, was du erforschen möchtest._";
 
-    private final MarkdownView mindmapView;
     private final MarkdownView jsonView;
     private final ResearchBriefView briefView;
     private final JLabel revisionLabel = new JLabel(" ");
@@ -49,22 +51,18 @@ public final class ConceptPaperView extends JPanel {
 
     public ConceptPaperView(MarkdownViewFactory markdownViewFactory) {
         super(new BorderLayout());
-        this.mindmapView = markdownViewFactory.create(
-                MarkdownViewOptions.builder().renderMermaid(true).selectable(true).build());
         this.jsonView = markdownViewFactory.create(
                 MarkdownViewOptions.builder().renderMermaid(false).selectable(true).build());
         this.briefView = new ResearchBriefView(markdownViewFactory);
 
         cardPanel.setLayout(cards);
-        cardPanel.add(mindmapView.getComponent(), "mindmap");
         cardPanel.add(jsonView.getComponent(), "json");
         cardPanel.add(briefView, "brief");
 
         JPanel bar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
         bar.setOpaque(false);
         ButtonGroup group = new ButtonGroup();
-        bar.add(viewToggle(group, "Mindmap", "mindmap", true));
-        bar.add(viewToggle(group, "JSON", "json", false));
+        bar.add(viewToggle(group, "JSON", "json", true));
         bar.add(viewToggle(group, "Brief", "brief", false));
         // Manual refresh for ALL cases — the auto-listeners cover the normal paths, but a
         // human must never depend on them to see the current workpiece.
@@ -92,33 +90,28 @@ public final class ConceptPaperView extends JPanel {
     }
 
     /**
-     * Render one atomic snapshot into ALL cards at once — mindmap and JSON can never drift
-     * apart. {@code projection} may be {@code null} (clickdummy without a concept service).
+     * Render one atomic snapshot into ALL cards at once. {@code projection} may be {@code null}
+     * (clickdummy without a concept service).
      */
     public void render(ConceptProjection projection, String briefMarkdown) {
         briefView.render(briefMarkdown);
         if (projection == null) {
-            mindmapView.setMarkdown(EMPTY);
             jsonView.setMarkdown(EMPTY);
             revisionLabel.setText(" ");
             return;
         }
         revisionLabel.setText("rev " + projection.getWorkingRevision());
         if (!projection.isReadable()) {
-            // Never a broken diagram, never creative repair: the honest diagnosis instead.
-            mindmapView.setMarkdown("**Konzept nicht lesbar**\n\n```\n"
-                    + projection.getDiagnosticText() + "\n```");
-            jsonView.setMarkdown("```\n" + projection.getPrettyJson() + "\n```");
+            // Never creative repair: the honest diagnosis leads, the raw text stays visible.
+            jsonView.setMarkdown("**Konzept nicht lesbar**\n\n```\n"
+                    + projection.getDiagnosticText() + "\n```\n\n```\n"
+                    + projection.getPrettyJson() + "\n```");
             return;
         }
-        mindmapView.setMarkdown(projection.isEmptyConcept()
-                ? EMPTY
-                : "```mermaid\n" + projection.getMermaid() + "```");
         jsonView.setMarkdown("```json\n" + projection.getPrettyJson() + "\n```");
     }
 
     public void dispose() {
-        mindmapView.dispose();
         jsonView.dispose();
         briefView.dispose();
     }
