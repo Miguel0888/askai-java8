@@ -42,10 +42,16 @@ final class ResearchPhaseAccessory implements ComposerAccessory {
                 final List<String> exclusions = scoping
                         ? research.currentScopeDraft().getExclusions()
                         : java.util.Collections.<String>emptyList();
+                // Read-aloud source: the host's persisted last assistant answer — while the
+                // bar's Play is active, each NEW answer is spoken automatically on this refresh.
+                final com.aresstack.askai.plugin.api.service.ChatMessageSnapshot lastAnswer =
+                        scoping ? research.lastAssistantMessage() : null;
                 uiExecutor.execute(new Runnable() {
                     public void run() {
                         view.setVisible(scoping);
                         view.setExclusions(exclusions);
+                        view.setLatestAnswer(lastAnswer == null ? null : lastAnswer.getMessageId(),
+                                lastAnswer == null ? null : lastAnswer.getText());
                     }
                 });
             }
@@ -73,5 +79,6 @@ final class ResearchPhaseAccessory implements ComposerAccessory {
 
     public void dispose() {
         research.removeStateListener(refresh);
+        view.shutdownReadAloud(); // the voice never outlives its chat tab
     }
 }

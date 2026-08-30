@@ -2608,6 +2608,28 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 : state.getPhaseId();
     }
 
+    /**
+     * The LAST persisted assistant answer of this chat, or {@code null} — the read-aloud source.
+     * Reads the host's one truth ({@link com.aresstack.askai.plugin.api.service.ChatSessionHistoryReader}),
+     * never a second copy of the text; callable from any thread.
+     */
+    public com.aresstack.askai.plugin.api.service.ChatMessageSnapshot lastAssistantMessage() {
+        com.aresstack.askai.plugin.api.service.ChatSessionHistoryReader reader =
+                getHostService(com.aresstack.askai.plugin.api.service.ChatSessionHistoryReader.class);
+        if (reader == null || chatSessionId.isEmpty()) {
+            return null;
+        }
+        java.util.List<com.aresstack.askai.plugin.api.service.ChatMessageSnapshot> messages =
+                reader.readMessages(chatSessionId);
+        for (int index = messages.size() - 1; index >= 0; index--) {
+            if (com.aresstack.askai.plugin.api.service.ChatMessageSnapshot.ROLE_ASSISTANT
+                    .equals(messages.get(index).getRole())) {
+                return messages.get(index);
+            }
+        }
+        return null;
+    }
+
     /** The session's derived-action commands — the single entry point for buttons AND the service MCP. */
     public ResearchDerivedActions derivedActions() {
         return derivedActions;

@@ -141,9 +141,69 @@ final class ResearchOutOfScopeSky extends JPanel {
     private void setOpen(boolean value) {
         if (open != value) {
             open = value;
+            updateOutsideClickCloser();
             revalidate();
             repaint();
         }
+    }
+
+    /**
+     * While the sky is OPEN, a global mouse watcher folds it back into the bar when the user
+     * clicks anywhere OUTSIDE its content zone (into the chat, the composer, the drawer, …) —
+     * the same drawer-like behavior the workspace sidebar already has.
+     */
+    private java.awt.event.AWTEventListener outsideClickCloser;
+
+    private void updateOutsideClickCloser() {
+        if (open && outsideClickCloser == null) {
+            outsideClickCloser = new java.awt.event.AWTEventListener() {
+                public void eventDispatched(java.awt.AWTEvent event) {
+                    if (!(event instanceof java.awt.event.MouseEvent)
+                            || event.getID() != java.awt.event.MouseEvent.MOUSE_PRESSED
+                            || !open || !isShowing()
+                            // A peered but WINDOWLESS component reports showing=true — screen
+                            // coordinates only exist under a real window (guards tests too).
+                            || javax.swing.SwingUtilities.getWindowAncestor(
+                                    ResearchOutOfScopeSky.this) == null) {
+                        return;
+                    }
+                    java.awt.event.MouseEvent mouse = (java.awt.event.MouseEvent) event;
+                    java.awt.Point mine = getLocationOnScreen();
+                    int x = mouse.getXOnScreen() - mine.x;
+                    int y = mouse.getYOnScreen() - mine.y;
+                    boolean insideContent = x >= 0 && x <= getWidth()
+                            && y >= 0 && y <= contentBottom;
+                    if (!insideContent) {
+                        setOpen(false);
+                    }
+                }
+            };
+            try {
+                java.awt.Toolkit.getDefaultToolkit().addAWTEventListener(outsideClickCloser,
+                        java.awt.AWTEvent.MOUSE_EVENT_MASK);
+            } catch (SecurityException restricted) {
+                outsideClickCloser = null; // click-outside degrades gracefully; the chevron works
+            }
+        } else if (!open) {
+            removeOutsideClickCloser();
+        }
+    }
+
+    private void removeOutsideClickCloser() {
+        if (outsideClickCloser != null) {
+            try {
+                java.awt.Toolkit.getDefaultToolkit().removeAWTEventListener(outsideClickCloser);
+            } catch (SecurityException ignore) {
+            }
+            outsideClickCloser = null;
+        }
+    }
+
+    @Override
+    public void removeNotify() {
+        removeOutsideClickCloser(); // never leak the global watcher past the component's life
+        speech.stop();              // …and never a voice talking for a torn-down chat
+        super.removeNotify();
     }
 
     // Visible for tests (same package): the collapsed/open UI preference.
@@ -157,6 +217,66 @@ final class ResearchOutOfScopeSky extends JPanel {
 
     boolean cloudsShownForTest() {
         return cloudScroll.isVisible();
+    }
+
+    // ------------------------------------------------------------------ read-aloud (V1: Windows)
+
+    /**
+     * Read-aloud, Gemini-style: the bar's right-hand Play/Pause toggle. Play speaks the LATEST
+     * assistant answer and STAYS active — every new answer is spoken automatically as it arrives —
+     * until Pause stops it. Voice = the Windows synthesizer ({@link WindowsSpeech}); a
+     * configurable output model is a later settings slice.
+     */
+    private final WindowsSpeech speech = new WindowsSpeech();
+    private boolean readAloudActive;
+    private String latestAnswerId;
+    private String latestAnswerText;
+    private String lastSpokenAnswerId;
+
+    /** The newest assistant answer (host truth) — pushed by the accessory on every refresh. */
+    void setLatestAnswer(String messageId, String markdown) {
+        this.latestAnswerId = messageId;
+        this.latestAnswerText = markdown;
+        if (readAloudActive && messageId != null && !messageId.isEmpty()
+                && !messageId.equals(lastSpokenAnswerId)) {
+            speakLatest(); // a NEW answer arrived while reading is active → read it out
+        }
+        skyBar.repaint();
+    }
+
+    private void speakLatest() {
+        final String text = latestAnswerText;
+        lastSpokenAnswerId = latestAnswerId;
+        Thread speaker = new Thread(new Runnable() {
+            public void run() {
+                speech.speak(text); // process start + stdin write stay off the EDT
+            }
+        }, "askai-read-aloud");
+        speaker.setDaemon(true);
+        speaker.start();
+    }
+
+    private void toggleReadAloud() {
+        if (readAloudActive) {
+            readAloudActive = false;
+            speech.stop();
+        } else {
+            readAloudActive = true;
+            if (latestAnswerText != null && !latestAnswerText.trim().isEmpty()) {
+                speakLatest(); // Play always (re)reads the latest answer immediately
+            }
+        }
+        skyBar.repaint();
+    }
+
+    /** Stop the voice and drop the wish state — accessory dispose / tab switch. */
+    void shutdownReadAloud() {
+        readAloudActive = false;
+        speech.stop();
+    }
+
+    boolean isReadAloudActiveForTest() {
+        return readAloudActive;
     }
 
     void setAddAction(Consumer<String> action) {
@@ -199,6 +319,7 @@ final class ResearchOutOfScopeSky extends JPanel {
     public void setVisible(boolean visible) {
         if (!visible) {
             publishTopInset(0); // other phases: the chat gets its full height back immediately
+            removeOutsideClickCloser();
         }
         super.setVisible(visible);
     }
@@ -280,11 +401,12 @@ final class ResearchOutOfScopeSky extends JPanel {
         }
         int padH = ResearchUiMetrics.SKY_PADDING_H;
         if (!open) {
-            // Collapsed: a SQUARE full-width strip GLUED to the top edge — no margins, no white
-            // flanks — at exactly ONE search-bar height (the shared metric, never a copied number).
+            // Collapsed: a SQUARE full-width strip with EXACTLY the search bar's top air and
+            // height (both shared metrics) — so its bottom edge lines up with the drawer's
+            // search bar; no side margins, no white flanks.
             int barHeight = com.aresstack.comiccontrols.control.ComicSearchBar.standardHeight();
-            skyBar.setBounds(0, 0, getWidth(), barHeight);
-            contentBottom = barHeight;
+            skyBar.setBounds(0, ResearchUiMetrics.SLIM_BAR_TOP_GAP, getWidth(), barHeight);
+            contentBottom = ResearchUiMetrics.SLIM_BAR_TOP_GAP + barHeight;
             publishTopInset(contentBottom + 6);
             return;
         }
@@ -765,12 +887,13 @@ final class ResearchOutOfScopeSky extends JPanel {
     private final class SkyBar extends JComponent {
 
         private boolean hovered;
+        private boolean speakHovered;
 
         SkyBar() {
             setName("sky.statusBar"); // stable handle for tests and diagnostics
             setToolTipText(SEMANTIC_TOOLTIP);
             setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-            addMouseListener(new java.awt.event.MouseAdapter() {
+            java.awt.event.MouseAdapter mouse = new java.awt.event.MouseAdapter() {
                 @Override
                 public void mouseEntered(java.awt.event.MouseEvent event) {
                     hovered = true;
@@ -780,14 +903,47 @@ final class ResearchOutOfScopeSky extends JPanel {
                 @Override
                 public void mouseExited(java.awt.event.MouseEvent event) {
                     hovered = false;
+                    speakHovered = false;
                     repaint();
                 }
 
                 @Override
-                public void mousePressed(java.awt.event.MouseEvent event) {
-                    setOpen(true);
+                public void mouseMoved(java.awt.event.MouseEvent event) {
+                    boolean inSpeak = speakHit().contains(event.getPoint());
+                    if (inSpeak != speakHovered) {
+                        speakHovered = inSpeak;
+                        repaint();
+                    }
                 }
-            });
+
+                @Override
+                public void mousePressed(java.awt.event.MouseEvent event) {
+                    if (speakHit().contains(event.getPoint())) {
+                        toggleReadAloud(); // the reserved right-hand zone, never an open/close
+                    } else {
+                        setOpen(true);
+                    }
+                }
+            };
+            addMouseListener(mouse);
+            addMouseMotionListener(mouse);
+        }
+
+        /** The reserved read-aloud zone at the bar's right edge (Play ↔ Pause, Gemini-style). */
+        private java.awt.Rectangle speakHit() {
+            int size = 24;
+            return new java.awt.Rectangle(getWidth() - size - 10,
+                    (getHeight() - size) / 2, size, size);
+        }
+
+        @Override
+        public String getToolTipText(java.awt.event.MouseEvent event) {
+            if (speakHit().contains(event.getPoint())) {
+                return readAloudActive
+                        ? "Vorlesen pausieren"
+                        : "Letzte Antwort vorlesen (neue Antworten werden automatisch vorgelesen)";
+            }
+            return SEMANTIC_TOOLTIP;
         }
 
         private String countText() {
@@ -826,6 +982,25 @@ final class ResearchOutOfScopeSky extends JPanel {
                 g2.setColor(ResearchUiPalette.CLOUD_TEXT);
                 g2.drawString(countText(), x,
                         (getHeight() - metrics.getHeight()) / 2 + metrics.getAscent());
+
+                // The read-aloud toggle in the reserved right-hand zone: ▶ while silent, ❚❚
+                // while active (it flips back on Pause) — painted, no emoji.
+                java.awt.Rectangle speak = speakHit();
+                if (speakHovered) {
+                    g2.setColor(ResearchUiPainter.mix(ResearchUiPalette.SKY_BAR_SURFACE,
+                            java.awt.Color.WHITE, 0.4f));
+                    g2.fillOval(speak.x, speak.y, speak.width, speak.height);
+                }
+                g2.setColor(ResearchUiPalette.CLOUD_TEXT);
+                int cx = speak.x + speak.width / 2;
+                int cy = speak.y + speak.height / 2;
+                if (readAloudActive) {
+                    g2.fillRect(cx - 5, cy - 6, 4, 12);
+                    g2.fillRect(cx + 2, cy - 6, 4, 12);
+                } else {
+                    g2.fillPolygon(new int[]{cx - 4, cx - 4, cx + 6},
+                            new int[]{cy - 6, cy + 6, cy}, 3);
+                }
             } finally {
                 g2.dispose();
             }

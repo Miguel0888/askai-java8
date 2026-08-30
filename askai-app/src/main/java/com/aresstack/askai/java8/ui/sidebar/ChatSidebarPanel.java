@@ -130,7 +130,9 @@ public final class ChatSidebarPanel extends JPanel {
 
     private JComponent buildHeader() {
         JPanel headerPanel = new JPanel(new BorderLayout());
-        headerPanel.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 4));
+        // The top air is the SHARED slim-bar metric — the sky status bar aligns to the same edge.
+        headerPanel.setBorder(BorderFactory.createEmptyBorder(
+                com.aresstack.comiccontrols.theme.ResearchUiMetrics.SLIM_BAR_TOP_GAP, 8, 4, 4));
         headerLeft.setOpaque(false);
         headerPanel.add(headerLeft, BorderLayout.CENTER); // the slot spans the drawer width
         this.header = headerPanel;

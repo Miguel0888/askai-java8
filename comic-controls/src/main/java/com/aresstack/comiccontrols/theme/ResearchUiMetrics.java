@@ -33,6 +33,13 @@ public final class ResearchUiMetrics {
     public static final int PHASE_PILL_PADDING_RIGHT = 14;
     public static final int PHASE_PILL_CHEVRON_GAP = 12;
 
+    /**
+     * Top air above SLIM BARS — the drawer's search bar and the collapsed sky status bar share
+     * this one value, so their top edges (and with the shared height, their bottom edges) stay
+     * aligned automatically.
+     */
+    public static final int SLIM_BAR_TOP_GAP = 4;
+
     /** Out-of-scope sky over the transcript's top (Phase 1). */
     public static final int SKY_PADDING_H = 16;
     public static final int SKY_PADDING_TOP = 10;
