@@ -196,18 +196,32 @@ public class ManualSearchWiringTest {
         assertEquals("the projection rendered exactly one yellow tag",
                 1, view.getSuggestionButtons().size());
 
+        // The default sub-option gates on the read-aloud state: WITHOUT Play (and without the
+        // central auto-read setting) a clicked tag stays silent — the user did not ask for voice.
         view.getSuggestionButtons().get(0).doClick();
+        assertTrue("read-aloud not in use → the tag stays silent by default", spoken.isEmpty());
+        assertTrue("…but the search ran anyway", fx.backend.serviceCommands.toString()
+                .contains("Humor"));
 
+        // Play pressed (the accessory mirrors the sky's wish) → the next tag speaks.
+        fx.session.setReadAloudActive(true);
+        feedSuggestion(fx, "Psychologische Wirkung von Humor", 3L);
+        view.getSuggestionButtons().get(0).doClick();
         assertEquals("the click extracted and spoke the tag text",
-                java.util.Arrays.asList("en:Humor und Satire in der politischen Kultur"), spoken);
-        assertTrue("…and the search still ran", fx.backend.serviceCommands.toString()
-                .contains("Humor+und+Satire") || fx.backend.serviceCommands.toString()
-                .contains("Humor und Satire"));
+                java.util.Arrays.asList("en:Psychologische Wirkung von Humor"), spoken);
 
-        // Setting OFF: silent click, search unaffected.
+        // Sub-option OFF: tags always speak, active or not.
+        fx.session.setReadAloudActive(false);
+        ResearchRuntimeSettings.saveReadTagsOnlyWhenReadAloudActive(store, false);
+        spoken.clear();
+        feedSuggestion(fx, "Dritter Vorschlag zum Testen", 4L);
+        view.getSuggestionButtons().get(0).doClick();
+        assertEquals(java.util.Arrays.asList("en:Dritter Vorschlag zum Testen"), spoken);
+
+        // Parent OFF: silent click, search unaffected.
         ResearchRuntimeSettings.saveReadSearchTagsOnClick(store, false);
         spoken.clear();
-        feedSuggestion(fx, "Zweiter Vorschlag zum Testen");
+        feedSuggestion(fx, "Vierter Vorschlag zum Testen", 5L);
         view.getSuggestionButtons().get(0).doClick();
         assertTrue("read-aloud disabled → nothing spoken", spoken.isEmpty());
     }
@@ -561,12 +575,17 @@ public class ManualSearchWiringTest {
 
     /** Deliver a scoping projection so the accessory renders a clickable yellow suggestion tag. */
     private static void feedSuggestion(Fx fx, String query) {
+        feedSuggestion(fx, query, 2L);
+    }
+
+    /** As above with an explicit sequence — REPEATED projections need increasing sequences. */
+    private static void feedSuggestion(Fx fx, String query, long seq) {
         ScopingAssistantUpdate projection = new ScopingAssistantUpdate(
                 ResearchStateIds.SCOPING,
                 Collections.singletonList(new ScopingAssistantUpdate.Suggestion(query, "explore", 1)),
                 "NEUTRAL", "");
         fx.session.onEvent(ResearchBackendEvent.builder(ResearchBackendEventType.SCOPING_PROJECTION)
-                .envelope("evt-proj", "s1", "p1", 2L, 0L, 2L, null)
+                .envelope("evt-proj-" + seq, "s1", "p1", seq, 0L, seq, null)
                 .scopingProjection(projection).build());
     }
 

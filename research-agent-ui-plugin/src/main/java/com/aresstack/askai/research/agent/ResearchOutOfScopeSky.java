@@ -210,6 +210,21 @@ final class ResearchOutOfScopeSky extends JPanel {
         speech.setModelVoice(port);
     }
 
+    /** Told whenever the Play/Pause wish flips — the session gates tag reading on it. */
+    private java.util.function.Consumer<Boolean> readAloudStateListener;
+
+    void setReadAloudStateListener(java.util.function.Consumer<Boolean> listener) {
+        this.readAloudStateListener = listener;
+        notifyReadAloudState();
+    }
+
+    private void notifyReadAloudState() {
+        java.util.function.Consumer<Boolean> listener = readAloudStateListener;
+        if (listener != null) {
+            listener.accept(readAloudActive);
+        }
+    }
+
     /** The session's LIVE language (the toolbar switch) — read per utterance, never cached. */
     private java.util.function.Supplier<String> readAloudLanguage;
 
@@ -230,6 +245,7 @@ final class ResearchOutOfScopeSky extends JPanel {
             armReadAloudOnFirstAnswer = false;
             readAloudActive = true;
             lastSpokenAnswerId = messageId; // don't catch up on the restored answer
+            notifyReadAloudState();
         } else if (readAloudActive && messageId != null && !messageId.isEmpty()
                 && !messageId.equals(lastSpokenAnswerId)) {
             speakLatest(); // a NEW answer arrived while reading is active → read it out
@@ -261,6 +277,7 @@ final class ResearchOutOfScopeSky extends JPanel {
                 speakLatest(); // Play always (re)reads the latest answer immediately
             }
         }
+        notifyReadAloudState();
         skyBar.repaint();
         speakOrb.repaint();
     }
@@ -268,6 +285,7 @@ final class ResearchOutOfScopeSky extends JPanel {
     /** Stop the voice and drop the wish state — accessory dispose / tab switch. */
     void shutdownReadAloud() {
         readAloudActive = false;
+        notifyReadAloudState();
         speech.stop();
     }
 

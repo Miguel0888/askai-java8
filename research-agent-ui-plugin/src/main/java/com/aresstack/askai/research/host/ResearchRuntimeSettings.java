@@ -53,6 +53,23 @@ public final class ResearchRuntimeSettings {
         }
     }
 
+    /**
+     * Sub-option of {@link #KEY_READ_TAGS_ON_CLICK}: tags speak ONLY while read-aloud is active
+     * (Play pressed, or automatic reading enabled). Default ON — a user who never wanted speech
+     * output is not surprised by talking tags.
+     */
+    static final String KEY_READ_TAGS_ONLY_WHEN_ACTIVE = "research.ui.readSearchTagsOnlyWhenReadAloudActive";
+
+    public static boolean loadReadTagsOnlyWhenReadAloudActive(WorkspaceStateStore store) {
+        return store == null || store.getBoolean(KEY_READ_TAGS_ONLY_WHEN_ACTIVE, true);
+    }
+
+    public static void saveReadTagsOnlyWhenReadAloudActive(WorkspaceStateStore store, boolean enabled) {
+        if (store != null) {
+            store.putBoolean(KEY_READ_TAGS_ONLY_WHEN_ACTIVE, enabled);
+        }
+    }
+
     /** A SUCCESSFUL web search reviews its new sources automatically. Deliberately default OFF. */
     static final String KEY_AUTO_REVIEW_AFTER_SEARCH = "research.ui.autoReviewAfterSearch";
 

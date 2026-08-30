@@ -61,13 +61,30 @@ public final class ResearchSettingsContribution implements AgentSettingsContribu
         readTagsBox.setToolTipText("Clicking a yellow search/activity tag in the chat speaks its"
                 + " text with an assertive delivery.");
         readTagsBox.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
+        final javax.swing.JCheckBox onlyWhenActiveBox = new javax.swing.JCheckBox(
+                "Only while read-aloud is active (Play pressed or automatic reading enabled)",
+                ResearchRuntimeSettings.loadReadTagsOnlyWhenReadAloudActive(
+                        research.getHostStateStore()));
+        onlyWhenActiveBox.setToolTipText("On (default): clicked tags stay silent unless you"
+                + " actually use the speech output. Off: tags always speak when clicked.");
+        onlyWhenActiveBox.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
+        onlyWhenActiveBox.setBorder(javax.swing.BorderFactory.createEmptyBorder(2, 22, 2, 0));
+        onlyWhenActiveBox.setEnabled(readTagsBox.isSelected());
+        onlyWhenActiveBox.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent event) {
+                ResearchRuntimeSettings.saveReadTagsOnlyWhenReadAloudActive(
+                        research.getHostStateStore(), onlyWhenActiveBox.isSelected());
+            }
+        });
         readTagsBox.addActionListener(new java.awt.event.ActionListener() {
             public void actionPerformed(java.awt.event.ActionEvent event) {
                 ResearchRuntimeSettings.saveReadSearchTagsOnClick(
                         research.getHostStateStore(), readTagsBox.isSelected());
+                onlyWhenActiveBox.setEnabled(readTagsBox.isSelected()); // sub-option follows
             }
         });
         tab.add(readTagsBox);
+        tab.add(onlyWhenActiveBox);
         javax.swing.JLabel hint = new javax.swing.JLabel("<html><i>Uses the configured speech"
                 + " output — set the voice per language in the chat settings (gear) under"
                 + " \"Audio &amp; Dictation\" &gt; Speech output.</i></html>");

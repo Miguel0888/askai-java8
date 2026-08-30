@@ -356,9 +356,16 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     private final ReadAloudVoice tagVoice = new ReadAloudVoice();
     /** Test seam: (text, languageCode) — replaces the background speaker thread when set. */
     private volatile java.util.function.BiConsumer<String, String> tagSpeakerOverride;
+    /** The sky's LIVE Play/Pause wish, mirrored by the accessory. */
+    private volatile boolean readAloudActive;
 
     public void setTagSpeakerForTest(java.util.function.BiConsumer<String, String> override) {
         this.tagSpeakerOverride = override;
+    }
+
+    /** The accessory mirrors the sky's Play/Pause wish here — the tag-reading gate reads it. */
+    public void setReadAloudActive(boolean active) {
+        this.readAloudActive = active;
     }
 
     /**
@@ -371,6 +378,13 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         if (text == null || text.trim().isEmpty()
                 || !com.aresstack.askai.research.host.ResearchRuntimeSettings
                         .loadReadSearchTagsOnClick(hostStateStore)) {
+            return;
+        }
+        // Sub-option (default ON): tags speak only while the user actually USES the speech
+        // output — Play pressed in the sky, or automatic reading enabled centrally. Off: always.
+        if (com.aresstack.askai.research.host.ResearchRuntimeSettings
+                .loadReadTagsOnlyWhenReadAloudActive(hostStateStore)
+                && !isReadAloudInUse()) {
             return;
         }
         final String language = sessionLanguage.currentLanguage().getCode();
@@ -386,6 +400,16 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         }, "askai-tag-voice");
         speaker.setDaemon(true);
         speaker.start();
+    }
+
+    /** Play pressed in this session's sky, OR automatic reading enabled in the central settings. */
+    private boolean isReadAloudInUse() {
+        if (readAloudActive) {
+            return true;
+        }
+        com.aresstack.askai.agent.model.speech.SpeechSynthesisPort port = getHostService(
+                com.aresstack.askai.agent.model.speech.SpeechSynthesisPort.class);
+        return port != null && port.isReadAloudActiveByDefault();
     }
 
     private void wireToolActivityReadAloud() {

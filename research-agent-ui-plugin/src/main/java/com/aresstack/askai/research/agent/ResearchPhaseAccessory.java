@@ -41,6 +41,13 @@ final class ResearchPhaseAccessory implements ComposerAccessory {
         if (speechPort != null && speechPort.isReadAloudActiveByDefault()) {
             this.view.enableReadAloudAutoStart(); // central preference: Play is on from the start
         }
+        // The session mirrors the LIVE Play/Pause wish — the "tags only while read-aloud is
+        // active" gate reads exactly this state.
+        this.view.setReadAloudStateListener(new Consumer<Boolean>() {
+            public void accept(Boolean active) {
+                research.setReadAloudActive(Boolean.TRUE.equals(active));
+            }
+        });
         this.view.setAddAction(new Consumer<String>() {
             public void accept(String text) {
                 reportRejection(research.addScopeExclusion(text));
