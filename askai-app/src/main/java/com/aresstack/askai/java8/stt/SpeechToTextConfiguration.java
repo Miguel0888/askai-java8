@@ -97,7 +97,9 @@ public final class SpeechToTextConfiguration {
         this.autoStopOnSilence = autoStopOnSilence;
         this.autoStopSilenceSeconds = autoStopSilenceSeconds > 0
                 ? autoStopSilenceSeconds : DEFAULT_AUTO_STOP_SILENCE_SECONDS;
-        this.signalThresholdPercent = signalThresholdPercent > 0 && signalThresholdPercent <= 95
+        // 0 is a VALID gate position: the line at the very bottom means "accept everything,
+        // even the faintest noise" — only out-of-range values fall back to the default.
+        this.signalThresholdPercent = signalThresholdPercent >= 0 && signalThresholdPercent <= 95
                 ? signalThresholdPercent : DEFAULT_SIGNAL_THRESHOLD_PERCENT;
     }
 

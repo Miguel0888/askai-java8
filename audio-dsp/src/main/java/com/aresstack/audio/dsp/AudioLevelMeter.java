@@ -11,6 +11,8 @@ public final class AudioLevelMeter implements Pcm16Processor {
 
     private volatile double lastFrameRms;
     private volatile int peak;
+    /** Peak since the last {@link #consumeRecentPeak()} — the LIVE level for meters/waveforms. */
+    private volatile int recentPeak;
     private volatile long clippedSampleCount;
     private volatile long totalSampleCount;
     // Running sum of squares over every sample seen, for the overall RMS across the whole recording.
@@ -19,7 +21,7 @@ public final class AudioLevelMeter implements Pcm16Processor {
     @Override
     public void process(short[] samples, int sampleCount, PcmAudioFormat format) {
         double sumOfSquares = 0;
-        int framePeak = peak;
+        int framePeak = 0;
         long clipped = clippedSampleCount;
         for (int i = 0; i < sampleCount; i++) {
             int magnitude = Math.abs((int) samples[i]);
@@ -32,10 +34,26 @@ public final class AudioLevelMeter implements Pcm16Processor {
             }
         }
         lastFrameRms = sampleCount == 0 ? 0 : Math.sqrt(sumOfSquares / sampleCount);
-        peak = framePeak;
+        if (framePeak > peak) {
+            peak = framePeak; // the OVERALL maximum keeps its historical meaning (quality checks)
+        }
+        if (framePeak > recentPeak) {
+            recentPeak = framePeak;
+        }
         clippedSampleCount = clipped;
         totalSampleCount += sampleCount;
         overallSumOfSquares += sumOfSquares;
+    }
+
+    /**
+     * The peak since the LAST call, then reset — a rolling window for live level displays. The
+     * cumulative {@link #getPeak()} froze every meter at the loudest moment of the recording
+     * (one knock on the microphone pinned the bar at maximum forever).
+     */
+    public int consumeRecentPeak() {
+        int value = recentPeak;
+        recentPeak = 0;
+        return value;
     }
 
     public double getLastFrameRms() {
@@ -64,6 +82,7 @@ public final class AudioLevelMeter implements Pcm16Processor {
     public void reset() {
         lastFrameRms = 0;
         peak = 0;
+        recentPeak = 0;
         clippedSampleCount = 0;
         totalSampleCount = 0;
         overallSumOfSquares = 0;

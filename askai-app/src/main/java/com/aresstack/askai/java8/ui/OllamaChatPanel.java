@@ -1178,7 +1178,7 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         // ONE setting: levels below this percent count as background noise, not as speech.
         final javax.swing.JSpinner thresholdSpinner = new javax.swing.JSpinner(
                 new javax.swing.SpinnerNumberModel(
-                        model.getSpeechToTextConfiguration().getSignalThresholdPercent(), 1, 95, 1));
+                        model.getSpeechToTextConfiguration().getSignalThresholdPercent(), 0, 95, 1));
         thresholdSpinner.setToolTipText("Signal threshold (percent of full scale): what counts as"
                 + " SPEECH. Also draggable as the line inside the recording waveform.");
         thresholdSpinner.addChangeListener(event -> {
@@ -4065,7 +4065,9 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
                 setDictationStatus("● Recording — " + formatDuration(seconds));
                 return;
             }
-            int level = scaleLevel(meter.getPeak());
+            // LIVE window, not the recording's all-time maximum — the cumulative peak froze
+            // every display (and the silence detection) at the loudest moment forever.
+            int level = scaleLevel(meter.consumeRecentPeak());
             composer.setAudioLevel(level);
             composer.pushWaveformLevel(level); // the floating sampler over the editor
             SpeechToTextConfiguration stt = model.getSpeechToTextConfiguration();
