@@ -48,6 +48,17 @@ public final class ScopingAssistantOutputCodec {
         writeKey(sb, "reason").append(':');
         writeString(sb, output.getAdvice().getReason());
         sb.append('}');
+        // The SCOPE proposal stays in the canonical history too: the concept tool-round loop
+        // once erased every intermediate scopePatch from the model own memory, and the live
+        // exclusion (kein ESP-IDF) vanished without a trace.
+        ScopeUpdateDocument scopeUpdate = output.getScopeUpdate();
+        if (scopeUpdate != null && scopeUpdate.isValid() && !scopeUpdate.isEmpty()) {
+            sb.append(",\"scopePatch\":{\"operations\":")
+              .append(scopeUpdate.operationsJson()).append('}');
+            sb.append(",\"unresolvedIssues\":").append(scopeUpdate.issuesJson());
+            sb.append(",\"orientationSuggestions\":")
+              .append(scopeUpdate.suggestionsJson());
+        }
         // The concept step stays in the canonical history so later turns can SEE what the
         // assistant did with the tool.
         ConceptAction action = output.getConceptAction();

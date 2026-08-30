@@ -89,7 +89,7 @@ public class ConceptToolRoundsTest {
 
         TeamAgentResult result = ConceptToolRounds.run(
                 turn("ich sehe nach", "{\"type\":\"read\",\"path\":[\"X\"]}"),
-                turns, tool, 4, 2, false, traceSink);
+                turns, tool, 4, 2, false, null, traceSink);
 
         assertEquals("Angelegt.",
                 ((ScopingAssistantOutput) result.getOutput()).getAssistantMessage());
@@ -108,6 +108,40 @@ public class ConceptToolRoundsTest {
                 trace.contains("round 2 -> APPLIED revision=1"));
     }
 
+    /** The live exclusion bug: intermediate rounds must hand their scopePatch to the sink. */
+    @Test
+    public void anIntermediateRoundsScopePatchReachesTheSinkInsteadOfVanishing() throws Exception {
+        ScriptedTurns turns = new ScriptedTurns();
+        ScriptedTool tool = new ScriptedTool();
+        tool.byDescription.put("add parent=[] name=\"Arduino\"", "added \"Arduino\" revision=1");
+        turns.script.add(turn("fertig", null));
+        final List<ScopingAssistantOutput> intermediates = new ArrayList<ScopingAssistantOutput>();
+
+        // ONE answer, BOTH channels: conceptAction (add Arduino) AND scopePatch (exclude ESP-IDF).
+        TeamAgentResult initial = turn("nur Arduino",
+                "{\"type\":\"add\",\"parent\":[],\"name\":\"Arduino\"}");
+        ScopingAssistantOutputParser.Result withPatch = ScopingAssistantOutputParser.parse(
+                "{\"assistantMessage\":\"nur Arduino\","
+                        + "\"scopePatch\":{\"operations\":[{\"kind\":\"addExclusion\","
+                        + "\"value\":\"ESP-IDF\"}]},"
+                        + "\"conceptAction\":{\"type\":\"add\",\"parent\":[],"
+                        + "\"name\":\"Arduino\"}}");
+        assertTrue(withPatch.isOk());
+        initial = TeamAgentResult.ok(withPatch.getOutput(), null);
+
+        ConceptToolRounds.run(initial, turns, tool, 4, 2, false,
+                new ConceptToolRounds.IntermediateSink() {
+                    public void intermediate(ScopingAssistantOutput output) {
+                        intermediates.add(output);
+                    }
+                }, traceSink);
+
+        assertEquals("the consumed round reached the sink", 1, intermediates.size());
+        assertTrue("its scope update survives for emission",
+                intermediates.get(0).getScopeUpdate() != null
+                        && intermediates.get(0).getScopeUpdate().isValid());
+    }
+
     @Test
     public void aRejectedAddIsAReceiptARepairAndATraceOutcome() throws Exception {
         ScriptedTurns turns = new ScriptedTurns();
@@ -120,7 +154,7 @@ public class ConceptToolRoundsTest {
         ConceptToolRounds.run(
                 turn("try", "{\"type\":\"add\",\"parent\":[\"FreeRTOS\",\"ESP32\"],"
                         + "\"name\":\"Grundlagen\"}"),
-                turns, tool, 4, 2, false, traceSink);
+                turns, tool, 4, 2, false, null, traceSink);
 
         String feedback = turns.feedbackSeen.get(0);
         assertTrue(feedback.contains("REJECTED_ACTIONS\n- add parent=[\"FreeRTOS\",\"ESP32\"] "
@@ -142,7 +176,7 @@ public class ConceptToolRoundsTest {
 
         TeamAgentResult result = ConceptToolRounds.run(
                 turn("try", "{\"type\":\"add\",\"parent\":[],\"name\":\"X\"}"),
-                turns, tool, 10, 1, false, traceSink);
+                turns, tool, 10, 1, false, null, traceSink);
 
         assertEquals("aufgeben",
                 ((ScopingAssistantOutput) result.getOutput()).getAssistantMessage());
@@ -160,7 +194,7 @@ public class ConceptToolRoundsTest {
         turns.script.add(turn("ok", null));
         ConceptToolRounds.run(
                 turn("try", "{\"type\":\"add\",\"parent\":[\"X\"]}"), // name missing
-                turns, tool, 4, 2, false, traceSink);
+                turns, tool, 4, 2, false, null, traceSink);
         assertTrue(tool.calls.isEmpty());
         assertTrue(turns.feedbackSeen.get(0).contains("REJECTED_ACTIONS\n- (invalid)"));
     }
@@ -176,7 +210,7 @@ public class ConceptToolRoundsTest {
 
         TeamAgentResult result = ConceptToolRounds.run(
                 turn("start", "{\"type\":\"read\",\"path\":[\"A\"]}"),
-                turns, tool, 2, 2, false, traceSink);
+                turns, tool, 2, 2, false, null, traceSink);
 
         assertEquals(2, tool.calls.size()); // reads only — no mutation, no grounding re-read
         assertTrue(turns.feedbackSeen.get(1).contains("TOOL BUDGET EXHAUSTED"));
@@ -193,7 +227,7 @@ public class ConceptToolRoundsTest {
                 new ToolInvoker.EndpointUnavailable("Connection refused"));
         TeamAgentResult initial = turn("ich schaue nach", "{\"type\":\"read\",\"path\":[\"A\"]}");
 
-        TeamAgentResult result = ConceptToolRounds.run(initial, turns, tool, 4, 2, false, traceSink);
+        TeamAgentResult result = ConceptToolRounds.run(initial, turns, tool, 4, 2, false, null, traceSink);
 
         assertEquals(initial, result);
         assertTrue(turns.feedbackSeen.isEmpty());
@@ -205,7 +239,7 @@ public class ConceptToolRoundsTest {
         ScriptedTurns turns = new ScriptedTurns();
         TeamAgentResult initial = turn("nur eine Antwort", null);
         assertEquals(initial, ConceptToolRounds.run(initial, turns, new ScriptedTool(),
-                4, 2, false, traceSink));
+                4, 2, false, null, traceSink));
         assertTrue(turns.feedbackSeen.isEmpty());
         assertTrue("an ABSENT field leaves no NONE trace", trace.isEmpty());
     }
@@ -215,7 +249,7 @@ public class ConceptToolRoundsTest {
         ScriptedTurns turns = new ScriptedTurns();
         TeamAgentResult initial = turn("nichts zu tun", "{\"type\":\"none\"}");
         assertEquals(initial, ConceptToolRounds.run(initial, turns, new ScriptedTool(),
-                4, 2, false, traceSink));
+                4, 2, false, null, traceSink));
         assertTrue(turns.feedbackSeen.isEmpty());
         assertTrue("the model CHOSE none — distinguishable from an absent field",
                 trace.contains("concept action: NONE"));

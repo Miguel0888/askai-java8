@@ -41,6 +41,16 @@ public final class ConceptToolRounds {
         void line(String message);
     }
 
+    /**
+     * Receives every INTERMEDIATE output the loop replaces with a follow-up inference. The live
+     * exclusion bug: a turn answering "kein ESP-IDF, nur Arduino" carried conceptAction AND
+     * scopePatch — the loop kept only the final (usually patch-free) result, so the exclusion
+     * silently vanished. The caller emits each consumed round's scope update through this sink.
+     */
+    public interface IntermediateSink {
+        void intermediate(ScopingAssistantOutput output);
+    }
+
     private ConceptToolRounds() {
     }
 
@@ -53,7 +63,7 @@ public final class ConceptToolRounds {
     public static TeamAgentResult run(TeamAgentResult initial, FollowUpTurn turn,
                                       ConceptTool tool, int maxToolRounds,
                                       int maxRepairAttempts, boolean germanFeedback,
-                                      Trace trace) {
+                                      IntermediateSink intermediateSink, Trace trace) {
         TeamAgentResult result = initial;
         int rounds = 0;
         int repairs = 0;
@@ -136,6 +146,11 @@ public final class ConceptToolRounds {
                 trace.line("budget reached (rounds=" + rounds + "/" + maxToolRounds
                         + " repairs=" + repairs + "/" + maxRepairAttempts + ") — wrap-up turn");
                 feedback = feedback + "\n\n" + TeamAgentPlaybook.conceptToolBudgetExhausted(germanFeedback);
+            }
+            if (intermediateSink != null) {
+                // This output is about to be REPLACED by the follow-up inference — whatever it
+                // proposed beyond the concept action (scopePatch!) must not vanish with it.
+                intermediateSink.intermediate(output);
             }
             result = turn.run(TeamAgentPlaybook.conceptReceipts(conceptRevision, applied,
                     rejected, currentConcept, germanFeedback) + feedback);

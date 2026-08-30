@@ -114,6 +114,19 @@ public final class ScopeUpdateDocument {
         return new ScopeUpdateDocument(operations, issues, suggestions, rejections);
     }
 
+    /** The operations as a JSON array — for the canonical-history codec (lossless round-trip). */
+    String operationsJson() {
+        return array(operations);
+    }
+
+    String issuesJson() {
+        return array(issues);
+    }
+
+    String suggestionsJson() {
+        return array(suggestions);
+    }
+
     /** The canonical JSON the host decodes. */
     public String toJson() {
         StringBuilder sb = new StringBuilder("{");

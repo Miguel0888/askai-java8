@@ -62,8 +62,11 @@ final class ResearchPhaseAccessory implements ComposerAccessory {
             public void run() {
                 final boolean scoping = ResearchStateIds.SCOPING.equals(
                         research.currentResearchSnapshot().getCurrentPhaseId());
+                // ONE projection over the ONE draft: the user-worded exclusion strings PLUS the
+                // labels of EXCLUDED facets — before this, a model-recorded excludeFacet was
+                // persisted but invisible ("Noch keine Ausschlüsse" over a stored exclusion).
                 final List<String> exclusions = scoping
-                        ? research.currentScopeDraft().getExclusions()
+                        ? exclusionsProjection(research.currentScopeDraft())
                         : java.util.Collections.<String>emptyList();
                 // Read-aloud source: the host's persisted last assistant answer — while the
                 // bar's Play is active, each NEW answer is spoken automatically on this refresh.
@@ -103,5 +106,18 @@ final class ResearchPhaseAccessory implements ComposerAccessory {
     public void dispose() {
         research.removeStateListener(refresh);
         view.shutdownReadAloud(); // the voice never outlives its chat tab
+    }
+
+    /** Exclusion strings + EXCLUDED facet labels, deduplicated, draft order. */
+    private static java.util.List<String> exclusionsProjection(
+            com.aresstack.askai.research.domain.scope.ResearchScopeDraft draft) {
+        java.util.LinkedHashSet<String> union =
+                new java.util.LinkedHashSet<String>(draft.getExclusions());
+        for (com.aresstack.askai.research.domain.scope.ScopeFacet facet : draft.excludedFacets()) {
+            if (!facet.getLabel().trim().isEmpty()) {
+                union.add(facet.getLabel().trim());
+            }
+        }
+        return new java.util.ArrayList<String>(union);
     }
 }

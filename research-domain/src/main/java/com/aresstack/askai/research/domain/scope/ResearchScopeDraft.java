@@ -229,6 +229,17 @@ public final class ResearchScopeDraft {
         return null;
     }
 
+    /** The facets the user RULED OUT — kept on record; the exclusions UI projects these too. */
+    public List<ScopeFacet> excludedFacets() {
+        List<ScopeFacet> excluded = new ArrayList<ScopeFacet>();
+        for (ScopeFacet facet : facets) {
+            if (facet.isExcluded()) {
+                excluded.add(facet);
+            }
+        }
+        return Collections.unmodifiableList(excluded);
+    }
+
     /** The facets that are IN right now (provisional or confirmed) — excluded ones are kept, not deleted. */
     public List<ScopeFacet> includedFacets() {
         List<ScopeFacet> included = new ArrayList<ScopeFacet>();

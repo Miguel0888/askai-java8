@@ -2416,6 +2416,10 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             case ASKED:
                 // The deliverable: the agent asks its ONE question. The user's answer flows
                 // through the normal scoping turn — this message changes nothing by itself.
+                // The RUNTIME model never saw this host-said question; the fence carries it,
+                // otherwise the user's answer arrives at a model that never asked.
+                lastScopeCheckQuestion = report.getChoice().getDecision().getAssistantMessage();
+                publishScopeFence();
                 sayAsAgent(report.getChoice().getDecision().getAssistantMessage());
                 break;
             case NOTHING_TO_ASK:
@@ -2566,6 +2570,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             System.err.println("[research-scope] " + change);
         }
         if (applied.isApplied()) {
+            // The fence must never lag the draft within a multi-round turn — republish NOW,
+            // exactly like the manual exclusion chips do.
+            publishScopeFence();
             // Scope surfaces (e.g. the blacklist chips under the composer) refresh through the
             // ordinary state listener — a model-recorded exclusion must appear without a restart.
             fireStateChanged();
@@ -2608,6 +2615,33 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         com.aresstack.askai.research.scope.ResearchScopeCoordinator coordinator = scopeCoordinator();
         if (coordinator == null) {
             return "kein Projektkontext (Fake-Modus) — der Rechercheumfang wird nicht persistiert";
+        }
+        if (!add) {
+            // The chip may project an EXCLUDED facet (not a string exclusion). Removing it means
+            // the user LIFTS the exclusion — the facet returns to the scope as confirmed-in.
+            for (com.aresstack.askai.research.domain.scope.ScopeFacet facet
+                    : coordinator.current().excludedFacets()) {
+                if (facet.getLabel().trim().equalsIgnoreCase(value)) {
+                    com.aresstack.askai.research.scope.ScopeUpdateResult lifted = coordinator.apply(
+                            new com.aresstack.askai.research.domain.scope.ScopePatch(
+                                    java.util.Collections.singletonList(
+                                            com.aresstack.askai.research.domain.scope
+                                                    .ScopePatchOperations.confirmFacet(
+                                                            facet.getFacetId(),
+                                                            "user lifted the exclusion"))),
+                            java.util.Collections.<com.aresstack.askai.research.domain.scope
+                                    .UnresolvedScopeIssue>emptyList());
+                    if (lifted.getStatus() == com.aresstack.askai.research.scope
+                            .ScopeUpdateResult.Status.REJECTED) {
+                        return lifted.getReason();
+                    }
+                    if (lifted.isApplied()) {
+                        publishScopeFence();
+                        fireStateChanged();
+                    }
+                    return null;
+                }
+            }
         }
         // A no-op must not burn a revision: adding an existing / removing an absent value returns quietly.
         boolean present = coordinator.current().getExclusions().contains(value);
@@ -2654,15 +2688,23 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
      * Send the AUTHORITATIVE scope to the runtime before a turn. The host owns the draft; without this the
      * model would rebuild the scope from the chat history and lose earlier decisions in the process.
      */
+    /** The host-said scope-check question, carried on the fence so the model knows it asked. */
+    private volatile String lastScopeCheckQuestion = "";
+
     private void publishScopeFence() {
         com.aresstack.askai.research.scope.ResearchScopeCoordinator coordinator = scopeCoordinator();
         if (coordinator == null || handle == null || disposed || !coordinator.isUsable()) {
             return;
         }
+        String fence = com.aresstack.askai.research.domain.scope.ResearchScopeFenceView.render(
+                coordinator.current());
+        if (!lastScopeCheckQuestion.isEmpty()) {
+            fence = fence + "\nLAST SCOPE CHECK — the assistant already asked the user this "
+                    + "question; interpret their next answer against it:\n"
+                    + lastScopeCheckQuestion + "\n";
+        }
         backend.submitServiceCommand(handle,
-                com.aresstack.askai.research.search.ResearchServiceCommandWire.setScope(
-                        com.aresstack.askai.research.domain.scope.ResearchScopeFenceView.render(
-                                coordinator.current())));
+                com.aresstack.askai.research.search.ResearchServiceCommandWire.setScope(fence));
     }
 
     /** The journal file of this research project, or null (fake mode / no project context). */

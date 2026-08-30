@@ -54,6 +54,9 @@ public class ResearchScopeDraftTest {
         assertEquals("only one is in scope", 1, draft.includedFacets().size());
         assertEquals("validation", draft.includedFacets().get(0).getFacetId());
         assertTrue(draft.facet("buying").isExcluded());
+        // The exclusions UI projects exactly these — a persisted excludeFacet must be visible.
+        assertEquals(1, draft.excludedFacets().size());
+        assertEquals("buying", draft.excludedFacets().get(0).getFacetId());
     }
 
     @Test

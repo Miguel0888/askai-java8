@@ -1224,6 +1224,12 @@ public final class ResearchAgentMain {
                 },
                 conceptMaxToolRounds, conceptMaxRepairAttempts,
                 "de".equalsIgnoreCase(sessionLanguage.code()),
+                new com.aresstack.askai.research.runtime.team.ConceptToolRounds.IntermediateSink() {
+                    public void intermediate(
+                            com.aresstack.askai.research.runtime.team.ScopingAssistantOutput output) {
+                        emitScopeUpdate(ctx, view.getPhaseId(), output);
+                    }
+                },
                 new com.aresstack.askai.research.runtime.team.ConceptToolRounds.Trace() {
                     public void line(String message) {
                         ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
@@ -1316,6 +1322,29 @@ public final class ResearchAgentMain {
         return sb.append(']').toString();
     }
 
+    /**
+     * Send one output's scope proposal to the host: valid → scopeUpdate, invalid → the visible
+     * rejection. Shared by the FINAL result and every INTERMEDIATE concept round, so a turn
+     * carrying conceptAction AND scopePatch loses neither — the live "kein ESP-IDF" exclusion
+     * was dropped exactly here before.
+     */
+    private void emitScopeUpdate(SyncPromptContext ctx, String phaseId,
+            com.aresstack.askai.research.runtime.team.ScopingAssistantOutput output) {
+        com.aresstack.askai.research.runtime.team.ScopeUpdateDocument scopeUpdate =
+                output.getScopeUpdate();
+        if (scopeUpdate == null) {
+            return;
+        }
+        if (scopeUpdate.isValid()) {
+            ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
+                    .scopeUpdate(phaseId, scopeUpdate.toJson()));
+        } else {
+            // The WHOLE update is dropped — never a part of it — and the host says so visibly.
+            ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
+                    .scopeUpdateRejected(phaseId, scopeUpdate.describeViolations()));
+        }
+    }
+
     /** An integer env hand-off: unset/invalid → the documented default (logged, never fatal). */
     private static int envInt(String name, int fallback) {
         String value = System.getenv(name);
@@ -1351,18 +1380,9 @@ public final class ResearchAgentMain {
             // owns. Display projection (above) and scope update are different concerns.
             if (result.getOutput() instanceof com.aresstack.askai.research.runtime.team
                     .ScopingAssistantOutput) {
-                com.aresstack.askai.research.runtime.team.ScopeUpdateDocument scopeUpdate =
-                        ((com.aresstack.askai.research.runtime.team.ScopingAssistantOutput)
-                                result.getOutput()).getScopeUpdate();
-                if (scopeUpdate != null && scopeUpdate.isValid()) {
-                    ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
-                            .scopeUpdate(phaseId, scopeUpdate.toJson()));
-                } else if (scopeUpdate != null) {
-                    // The WHOLE update is dropped — never a part of it — and the host says so visibly. The
-                    // conversation itself survives: the answer is fine, only the scope proposal was not.
-                    ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
-                            .scopeUpdateRejected(phaseId, scopeUpdate.describeViolations()));
-                }
+                emitScopeUpdate(ctx, phaseId,
+                        (com.aresstack.askai.research.runtime.team.ScopingAssistantOutput)
+                                result.getOutput());
             }
             String brief = com.aresstack.askai.research.runtime.team.ScopingBriefSource
                     .briefMarkdown(result.getOutput());

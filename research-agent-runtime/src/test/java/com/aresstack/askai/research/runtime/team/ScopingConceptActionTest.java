@@ -82,6 +82,20 @@ public class ScopingConceptActionTest {
         assertTrue(unknownType.getConceptActionError().contains("unknown type"));
     }
 
+    /** The codec's "ALL fields" claim finally holds: the scope proposal round-trips too. */
+    @Test
+    public void theCanonicalHistoryRoundTripsTheScopePatch() {
+        ScopingAssistantOutput output = parse("{\"assistantMessage\":\"m\","
+                + "\"scopePatch\":{\"operations\":[{\"kind\":\"addExclusion\","
+                + "\"value\":\"ESP-IDF\"}]},"
+                + "\"conceptAction\":{\"type\":\"none\"}}");
+        assertTrue(output.getScopeUpdate() != null && output.getScopeUpdate().isValid());
+        ScopingAssistantOutput reread = parse(output.canonicalJson());
+        assertTrue("the exclusion survives the history round-trip",
+                reread.getScopeUpdate() != null && reread.getScopeUpdate().isValid()
+                        && reread.getScopeUpdate().toJson().contains("ESP-IDF"));
+    }
+
     @Test
     public void theCanonicalHistoryRoundTripsTheSegments() {
         ScopingAssistantOutput add = parse("{\"assistantMessage\":\"m\",\"conceptAction\":"

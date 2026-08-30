@@ -492,10 +492,13 @@ public final class TeamAgentPlaybook {
                 + "- NEVER claim a card was saved or the concept changed unless the tool answered "
                 + "APPLIED in this turn. A rejected step changed NOTHING — say so honestly or fix "
                 + "it.\n"
-                + "- A decision like \"only Arduino, not ESP-IDF\" IS a concept change: persist "
-                + "the positive part as a card (add \"Arduino\" under the fitting parent); "
-                + "remove \"ESP-IDF\" only if it actually exists. Never pretend an exclusion or "
-                + "focus is stored when it is not.\n"
+                + "- A decision like \"only Arduino, not ESP-IDF\" changes BOTH artifacts in the "
+                + "SAME answer: persist the positive part as a card via conceptAction (add "
+                + "\"Arduino\" under the fitting parent; remove \"ESP-IDF\" only if it exists) "
+                + "AND record the exclusion in the scope via scopePatch (excludeFacet for an "
+                + "existing facet, else addExclusion). conceptAction and scopePatch are "
+                + "independent channels — one sentence may need both. Never pretend an exclusion "
+                + "or focus is stored when it is not.\n"
                 + "- The concept mirrors the CONVERSATION: add what the user asks for, propose what "
                 + "scope and sources suggest, and remove only what the user excluded.\n\n";
     }
