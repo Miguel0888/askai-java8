@@ -19,6 +19,8 @@ public final class SpeechToTextConfiguration {
     public static final String DEFAULT_AUDIO_PROCESSING_PROFILE_ID = AudioProcessingProfiles.DEFAULT_PROFILE_ID;
     /** Silence length that auto-stops a recording (when enabled) — Gemini-style hands-free feel. */
     public static final int DEFAULT_AUTO_STOP_SILENCE_SECONDS = 2;
+    /** Level (percent of full scale) above which the recording counts as SPEECH, below as noise. */
+    public static final int DEFAULT_SIGNAL_THRESHOLD_PERCENT = 8;
 
     private final boolean enabled;
     private final Backend backend;
@@ -36,6 +38,7 @@ public final class SpeechToTextConfiguration {
     private final boolean autoSendTranscription;   // send right after transcription (no review stop)
     private final boolean autoStopOnSilence;       // stop the recording after a long-enough pause
     private final int autoStopSilenceSeconds;      // how long that pause must be
+    private final int signalThresholdPercent;      // the Skype-style noise gate (draggable line)
 
     public SpeechToTextConfiguration(boolean enabled, Backend backend, String modelName, String language,
                                      String prompt, int maxFileSizeMb, int timeoutSeconds) {
@@ -57,7 +60,7 @@ public final class SpeechToTextConfiguration {
                                      String audioProcessingProfileId) {
         this(enabled, backend, modelName, language, prompt, maxFileSizeMb, timeoutSeconds,
                 microphoneDeviceId, audioModelAutomatic, lastAudioModel, audioProcessingProfileId,
-                false, false, DEFAULT_AUTO_STOP_SILENCE_SECONDS);
+                false, false, DEFAULT_AUTO_STOP_SILENCE_SECONDS, DEFAULT_SIGNAL_THRESHOLD_PERCENT);
     }
 
     public SpeechToTextConfiguration(boolean enabled, Backend backend, String modelName, String language,
@@ -65,6 +68,18 @@ public final class SpeechToTextConfiguration {
                                      String microphoneDeviceId, boolean audioModelAutomatic, String lastAudioModel,
                                      String audioProcessingProfileId, boolean autoSendTranscription,
                                      boolean autoStopOnSilence, int autoStopSilenceSeconds) {
+        this(enabled, backend, modelName, language, prompt, maxFileSizeMb, timeoutSeconds,
+                microphoneDeviceId, audioModelAutomatic, lastAudioModel, audioProcessingProfileId,
+                autoSendTranscription, autoStopOnSilence, autoStopSilenceSeconds,
+                DEFAULT_SIGNAL_THRESHOLD_PERCENT);
+    }
+
+    public SpeechToTextConfiguration(boolean enabled, Backend backend, String modelName, String language,
+                                     String prompt, int maxFileSizeMb, int timeoutSeconds,
+                                     String microphoneDeviceId, boolean audioModelAutomatic, String lastAudioModel,
+                                     String audioProcessingProfileId, boolean autoSendTranscription,
+                                     boolean autoStopOnSilence, int autoStopSilenceSeconds,
+                                     int signalThresholdPercent) {
         this.enabled = enabled;
         this.backend = backend == null ? Backend.OLLAMA : backend;
         this.modelName = modelName == null ? "" : modelName.trim();
@@ -82,6 +97,8 @@ public final class SpeechToTextConfiguration {
         this.autoStopOnSilence = autoStopOnSilence;
         this.autoStopSilenceSeconds = autoStopSilenceSeconds > 0
                 ? autoStopSilenceSeconds : DEFAULT_AUTO_STOP_SILENCE_SECONDS;
+        this.signalThresholdPercent = signalThresholdPercent > 0 && signalThresholdPercent <= 95
+                ? signalThresholdPercent : DEFAULT_SIGNAL_THRESHOLD_PERCENT;
     }
 
     /** Enabled by default with no dedicated model: the chat panel then falls back to the chat model. */
@@ -160,28 +177,28 @@ public final class SpeechToTextConfiguration {
         return new SpeechToTextConfiguration(enabled, backend, value, language, prompt, maxFileSizeMb,
                 timeoutSeconds, microphoneDeviceId, audioModelAutomatic, lastAudioModel,
                 audioProcessingProfileId, autoSendTranscription, autoStopOnSilence,
-                autoStopSilenceSeconds);
+                autoStopSilenceSeconds, signalThresholdPercent);
     }
 
     public SpeechToTextConfiguration withMicrophoneDeviceId(String value) {
         return new SpeechToTextConfiguration(enabled, backend, modelName, language, prompt, maxFileSizeMb,
                 timeoutSeconds, value, audioModelAutomatic, lastAudioModel,
                 audioProcessingProfileId, autoSendTranscription, autoStopOnSilence,
-                autoStopSilenceSeconds);
+                autoStopSilenceSeconds, signalThresholdPercent);
     }
 
     public SpeechToTextConfiguration withAudioModelAutomatic(boolean value) {
         return new SpeechToTextConfiguration(enabled, backend, modelName, language, prompt, maxFileSizeMb,
                 timeoutSeconds, microphoneDeviceId, value, lastAudioModel,
                 audioProcessingProfileId, autoSendTranscription, autoStopOnSilence,
-                autoStopSilenceSeconds);
+                autoStopSilenceSeconds, signalThresholdPercent);
     }
 
     public SpeechToTextConfiguration withLastAudioModel(String value) {
         return new SpeechToTextConfiguration(enabled, backend, modelName, language, prompt, maxFileSizeMb,
                 timeoutSeconds, microphoneDeviceId, audioModelAutomatic, value,
                 audioProcessingProfileId, autoSendTranscription, autoStopOnSilence,
-                autoStopSilenceSeconds);
+                autoStopSilenceSeconds, signalThresholdPercent);
     }
 
 
@@ -194,19 +211,34 @@ public final class SpeechToTextConfiguration {
     public SpeechToTextConfiguration withAutoSendTranscription(boolean value) {
         return new SpeechToTextConfiguration(enabled, backend, modelName, language, prompt, maxFileSizeMb,
                 timeoutSeconds, microphoneDeviceId, audioModelAutomatic, lastAudioModel,
-                audioProcessingProfileId, value, autoStopOnSilence, autoStopSilenceSeconds);
+                audioProcessingProfileId, value, autoStopOnSilence, autoStopSilenceSeconds,
+                signalThresholdPercent);
     }
 
     public SpeechToTextConfiguration withAutoStopOnSilence(boolean value) {
         return new SpeechToTextConfiguration(enabled, backend, modelName, language, prompt, maxFileSizeMb,
                 timeoutSeconds, microphoneDeviceId, audioModelAutomatic, lastAudioModel,
-                audioProcessingProfileId, autoSendTranscription, value, autoStopSilenceSeconds);
+                audioProcessingProfileId, autoSendTranscription, value, autoStopSilenceSeconds,
+                signalThresholdPercent);
     }
 
     public SpeechToTextConfiguration withAutoStopSilenceSeconds(int value) {
         return new SpeechToTextConfiguration(enabled, backend, modelName, language, prompt, maxFileSizeMb,
                 timeoutSeconds, microphoneDeviceId, audioModelAutomatic, lastAudioModel,
-                audioProcessingProfileId, autoSendTranscription, autoStopOnSilence, value);
+                audioProcessingProfileId, autoSendTranscription, autoStopOnSilence, value,
+                signalThresholdPercent);
+    }
+
+    /** @return the level (percent) above which the recording counts as speech (noise gate). */
+    public int getSignalThresholdPercent() {
+        return signalThresholdPercent;
+    }
+
+    public SpeechToTextConfiguration withSignalThresholdPercent(int value) {
+        return new SpeechToTextConfiguration(enabled, backend, modelName, language, prompt, maxFileSizeMb,
+                timeoutSeconds, microphoneDeviceId, audioModelAutomatic, lastAudioModel,
+                audioProcessingProfileId, autoSendTranscription, autoStopOnSilence, autoStopSilenceSeconds,
+                value);
     }
 
     public static Backend parseBackend(String value) {

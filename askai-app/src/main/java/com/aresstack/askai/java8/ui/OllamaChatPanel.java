@@ -1173,7 +1173,21 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         JPanel autoStopRow = partySettingsRow();
         autoStopRow.add(autoStopBox);
         autoStopRow.add(silenceSpinner);
-        autoStopRow.add(new JLabel("seconds"));
+        autoStopRow.add(new JLabel("seconds · signal above"));
+        // The same noise gate as the draggable line in the recording waveform — two handles,
+        // ONE setting: levels below this percent count as background noise, not as speech.
+        final javax.swing.JSpinner thresholdSpinner = new javax.swing.JSpinner(
+                new javax.swing.SpinnerNumberModel(
+                        model.getSpeechToTextConfiguration().getSignalThresholdPercent(), 1, 95, 1));
+        thresholdSpinner.setToolTipText("Signal threshold (percent of full scale): what counts as"
+                + " SPEECH. Also draggable as the line inside the recording waveform.");
+        thresholdSpinner.addChangeListener(event -> {
+            model.setSpeechToTextConfiguration(model.getSpeechToTextConfiguration()
+                    .withSignalThresholdPercent((Integer) thresholdSpinner.getValue()));
+            model.saveSettings();
+        });
+        autoStopRow.add(thresholdSpinner);
+        autoStopRow.add(new JLabel("%"));
         card.add(autoStopRow);
 
         // One selector PER LANGUAGE (like the NLP models): the session's language switch decides
@@ -2161,6 +2175,15 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         // The mode selector moved into the drawer's Chats FOOTER (next to the language pill);
         // its logic (openModePopupAt/currentModeLabel) stays here — only the button left.
         composer.setModeSelectorVisible(false);
+        // Dragging the waveform's threshold line DURING a recording persists the noise gate
+        // immediately — the very next timer tick judges signal/silence with the new value.
+        composer.setWaveformThresholdListener(new ComposerWaveformOverlay.ThresholdListener() {
+            public void thresholdChanged(int percent) {
+                model.setSpeechToTextConfiguration(model.getSpeechToTextConfiguration()
+                        .withSignalThresholdPercent(percent));
+                model.saveSettings();
+            }
+        });
         composer.setChatStatus("Select a model and start chatting.");
         composer.setDictationStatus(" ");
         refreshDictationControls();
@@ -3935,9 +3958,13 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
         dictationState = state;
         if (state == DictationState.RECORDING) {
             recordingStartedAtMillis = System.currentTimeMillis();
+            composer.setWaveformThreshold(
+                    model.getSpeechToTextConfiguration().getSignalThresholdPercent());
+            composer.setWaveformActive(true);
             startLevelTimer();
         } else {
             stopLevelTimer();
+            composer.setWaveformActive(false);
             if (state.isTerminal() || state == DictationState.IDLE) {
                 composer.setAudioLevel(0);
             }
@@ -4038,17 +4065,22 @@ public final class OllamaChatPanel extends JPanel implements ChatSessionComponen
                 setDictationStatus("● Recording — " + formatDuration(seconds));
                 return;
             }
-            composer.setAudioLevel(scaleLevel(meter.getPeak()));
-            boolean signal = meter.getOverallRms() > 30 || meter.getPeak() > 500;
+            int level = scaleLevel(meter.getPeak());
+            composer.setAudioLevel(level);
+            composer.pushWaveformLevel(level); // the floating sampler over the editor
+            SpeechToTextConfiguration stt = model.getSpeechToTextConfiguration();
+            // The USER-SET noise gate (the draggable line in the waveform): only levels above it
+            // count as speech — a fixed threshold drowned in strong background noise and the
+            // silence auto-stop never fired.
+            boolean signal = level >= stt.getSignalThresholdPercent();
             boolean clipping = meter.getClippedSampleCount() > 0;
             // Hands-free auto-stop (settings opt-in): once the user HAS spoken, a long-enough
             // pause stops the recording exactly like pressing Stop — the transcript follows,
             // and with auto-send both together give the Gemini feel.
-            if (meter.getPeak() > 500) {
+            if (signal) {
                 recordingHadSignal = true;
                 lastSignalAtMillis = System.currentTimeMillis();
             }
-            SpeechToTextConfiguration stt = model.getSpeechToTextConfiguration();
             if (stt.isAutoStopOnSilence() && recordingHadSignal
                     && dictationState == DictationState.RECORDING
                     && System.currentTimeMillis() - lastSignalAtMillis

@@ -133,6 +133,8 @@ public final class ChatComposerPanel extends JPanel {
     private final Actions actions;
     private final PlaceholderTextArea editor;
     private final JScrollPane editorScroll;
+    /** The ChatGPT-style recording sampler + Skype-style threshold line over the editor. */
+    private final ComposerWaveformOverlay waveformOverlay = new ComposerWaveformOverlay();
     private final JPanel statusPanel;
     private final JLabel chatStatusLabel;
     private final JLabel dictationStatusLabel;
@@ -204,7 +206,30 @@ public final class ChatComposerPanel extends JPanel {
         setBorder(new EmptyBorder(9, 11, 8, 8));
 
         add(attachmentStrip, BorderLayout.NORTH);
-        add(editorScroll, BorderLayout.CENTER);
+        // The editor gets a LAYERED wrapper so the recording waveform can float OVER the text:
+        // background-less bars + the draggable signal-threshold line; every non-line pixel stays
+        // click-through, the typed text and the caret remain fully visible and editable.
+        javax.swing.JLayeredPane editorLayers = new javax.swing.JLayeredPane() {
+            @Override
+            public void doLayout() {
+                for (java.awt.Component child : getComponents()) {
+                    child.setBounds(0, 0, getWidth(), getHeight());
+                }
+            }
+
+            @Override
+            public Dimension getPreferredSize() {
+                return editorScroll.getPreferredSize();
+            }
+
+            @Override
+            public Dimension getMinimumSize() {
+                return editorScroll.getMinimumSize();
+            }
+        };
+        editorLayers.add(editorScroll, javax.swing.JLayeredPane.DEFAULT_LAYER);
+        editorLayers.add(waveformOverlay, javax.swing.JLayeredPane.PALETTE_LAYER);
+        add(editorLayers, BorderLayout.CENTER);
         add(buildFooter(), BorderLayout.SOUTH);
 
         setMinimumSize(new Dimension(320, 104));
@@ -767,6 +792,26 @@ public final class ChatComposerPanel extends JPanel {
     /** Update the live microphone level. */
     public void setAudioLevel(int value) {
         levelBar.setValue(Math.max(0, Math.min(100, value)));
+    }
+
+    /** Recording lifecycle of the waveform sampler floating over the editor. */
+    public void setWaveformActive(boolean active) {
+        waveformOverlay.setActive(active);
+    }
+
+    /** One live level sample (0-100) for the waveform bars. */
+    public void pushWaveformLevel(int level) {
+        waveformOverlay.pushLevel(level);
+    }
+
+    /** The signal-threshold line's position (percent of full scale). */
+    public void setWaveformThreshold(int percent) {
+        waveformOverlay.setThresholdPercent(percent);
+    }
+
+    /** Live threshold changes while the user DRAGS the line during a recording. */
+    public void setWaveformThresholdListener(ComposerWaveformOverlay.ThresholdListener listener) {
+        waveformOverlay.setThresholdListener(listener);
     }
 
     /** Update the normal chat status shown inside the composer. */

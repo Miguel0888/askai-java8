@@ -48,6 +48,7 @@ public final class AppConfigurationRepository {
     private static final String STT_AUTO_SEND = "stt.autoSendTranscription";
     private static final String STT_AUTO_STOP_SILENCE = "stt.autoStopOnSilence";
     private static final String STT_AUTO_STOP_SILENCE_SECONDS = "stt.autoStopSilenceSeconds";
+    private static final String STT_SIGNAL_THRESHOLD_PERCENT = "stt.signalThresholdPercent";
     private static final String CHAT_COLOR_TRANSCRIPT_BG = "chat.color.transcriptBackground";
     private static final String CHAT_COLOR_USER_BG = "chat.color.userBackground";
     private static final String CHAT_COLOR_USER_FG = "chat.color.userForeground";
@@ -117,7 +118,9 @@ public final class AppConfigurationRepository {
                     parseBoolean(properties.getProperty(STT_AUTO_STOP_SILENCE),
                             defaultStt.isAutoStopOnSilence()),
                     parseInt(properties.getProperty(STT_AUTO_STOP_SILENCE_SECONDS,
-                            String.valueOf(defaultStt.getAutoStopSilenceSeconds()))));
+                            String.valueOf(defaultStt.getAutoStopSilenceSeconds()))),
+                    parseInt(properties.getProperty(STT_SIGNAL_THRESHOLD_PERCENT,
+                            String.valueOf(defaultStt.getSignalThresholdPercent()))));
             ChatColorSettings defaultColors = defaults.getChatColors();
             ChatColorSettings chatColors = new ChatColorSettings(
                     ChatColorSettings.parseHex(properties.getProperty(CHAT_COLOR_TRANSCRIPT_BG),
@@ -210,6 +213,8 @@ public final class AppConfigurationRepository {
         properties.setProperty(STT_AUTO_STOP_SILENCE, String.valueOf(stt.isAutoStopOnSilence()));
         properties.setProperty(STT_AUTO_STOP_SILENCE_SECONDS,
                 String.valueOf(stt.getAutoStopSilenceSeconds()));
+        properties.setProperty(STT_SIGNAL_THRESHOLD_PERCENT,
+                String.valueOf(stt.getSignalThresholdPercent()));
         properties.setProperty(HF_TOKEN, configuration.getHuggingFaceToken());
         properties.setProperty(DOWNLOAD_DIRECTORY, configuration.getModelDownloadDirectory().getAbsolutePath());
         properties.setProperty(HF_SEARCH_SUGGESTIONS, configuration.getHuggingFaceSearchSuggestionsRaw());
