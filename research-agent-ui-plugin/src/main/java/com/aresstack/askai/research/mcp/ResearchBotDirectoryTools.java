@@ -37,7 +37,8 @@ public final class ResearchBotDirectoryTools {
 
     public static List<McpToolContribution> of(ResearchBotSessionDirectory directory) {
         return Arrays.asList(sessionsListTool(directory), sessionCreateTool(directory),
-                runCommandTool(directory), sessionStateTool(directory), chatHistoryTool(directory));
+                runCommandTool(directory), sessionStateTool(directory), chatHistoryTool(directory),
+                technicalLogTool(directory), conceptJsonTool(directory));
     }
 
     /** How long a create may take before it is reported as not confirmed (agent start spawns processes). */
@@ -205,6 +206,49 @@ public final class ResearchBotDirectoryTools {
                 McpToolParameter.string("sessionId", false, SESSION_ID_PARAMETER),
                 McpToolParameter.string("raw", false,
                         "true = every recorded message of every phase (default: phase summaries)"));
+    }
+
+    private static McpToolContribution technicalLogTool(final ResearchBotSessionDirectory directory) {
+        return McpToolContribution.of("technical_log",
+                ResearchBotSessionTools.TECHNICAL_LOG_DESCRIPTION
+                        + " Pass sessionId to read a specific session (see sessions_list).",
+                new McpToolHandler() {
+                    public McpToolResult invoke(McpToolCall call) {
+                        Resolution resolution = resolve(directory, call);
+                        if (resolution.problem != null) {
+                            return McpToolResult.error(resolution.problem);
+                        }
+                        String log = resolution.gateway.describeTechnicalLog(
+                                (int) call.getInteger("tail", 0));
+                        return log == null
+                                ? McpToolResult.error("This research session cannot report its "
+                                        + "technical log right now.")
+                                : McpToolResult.ok(log);
+                    }
+                },
+                McpToolParameter.string("sessionId", false, SESSION_ID_PARAMETER),
+                McpToolParameter.string("tail", false,
+                        "How many trailing lines to return (default 200)"));
+    }
+
+    private static McpToolContribution conceptJsonTool(final ResearchBotSessionDirectory directory) {
+        return McpToolContribution.of("concept_json",
+                ResearchBotSessionTools.CONCEPT_JSON_DESCRIPTION
+                        + " Pass sessionId to read a specific session (see sessions_list).",
+                new McpToolHandler() {
+                    public McpToolResult invoke(McpToolCall call) {
+                        Resolution resolution = resolve(directory, call);
+                        if (resolution.problem != null) {
+                            return McpToolResult.error(resolution.problem);
+                        }
+                        String snapshot = resolution.gateway.describeConceptSnapshot();
+                        return snapshot == null
+                                ? McpToolResult.error("This session has no concept service (or "
+                                        + "none is attached yet).")
+                                : McpToolResult.ok(snapshot);
+                    }
+                },
+                McpToolParameter.string("sessionId", false, SESSION_ID_PARAMETER));
     }
 
     /** Either a gateway or the concrete reason no session could be addressed — never both. */

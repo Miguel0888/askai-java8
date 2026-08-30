@@ -22,10 +22,10 @@ public final class ResearchBotSessionTools {
     private ResearchBotSessionTools() {
     }
 
-    /** The four driving tools bound to one gateway. */
+    /** The five driving tools bound to one gateway. */
     public static List<McpToolContribution> of(ResearchBotSessionGateway gateway) {
         return Arrays.asList(runCommandTool(gateway), sessionStateTool(gateway), chatHistoryTool(gateway),
-                technicalLogTool(gateway));
+                technicalLogTool(gateway), conceptJsonTool(gateway));
     }
 
     /** The shared command description — the directory face documents the same commands. */
@@ -106,6 +106,25 @@ public final class ResearchBotSessionTools {
                 },
                 McpToolParameter.string("tail", false,
                         "How many trailing lines to return (default 200)"));
+    }
+
+    static final String CONCEPT_JSON_DESCRIPTION =
+            "The Konzeptpapier as ONE atomic snapshot: a revision=N line followed by the concept "
+            + "document JSON. Read-only observability — verify the workpiece itself instead of "
+            + "trusting the agent's claims about it.";
+
+    /** The workpiece itself, for drivers verifying state independently of the agent's words. */
+    private static McpToolContribution conceptJsonTool(final ResearchBotSessionGateway gateway) {
+        return McpToolContribution.of("concept_json", CONCEPT_JSON_DESCRIPTION,
+                new McpToolHandler() {
+                    public McpToolResult invoke(McpToolCall call) {
+                        String snapshot = gateway == null ? null : gateway.describeConceptSnapshot();
+                        return snapshot == null
+                                ? McpToolResult.error(
+                                        "This session has no concept service (or none is attached yet).")
+                                : McpToolResult.ok(snapshot);
+                    }
+                });
     }
 
     /** The phase-attributed chat record: summaries per finished phase by default, raw=true for everything. */

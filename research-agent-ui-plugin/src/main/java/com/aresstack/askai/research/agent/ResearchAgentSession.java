@@ -166,6 +166,19 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                         public String describeTechnicalLog(int tailLines) {
                             return ResearchAgentSession.this.describeTechnicalLog(tailLines);
                         }
+
+                        @Override
+                        public String describeConceptSnapshot() {
+                            com.aresstack.askai.research.concept.ConceptBranchService service =
+                                    conceptBranchService();
+                            if (service == null) {
+                                return null;
+                            }
+                            com.aresstack.askai.research.concept.ConceptBranchService
+                                    .DocumentSnapshot snapshot = service.snapshot();
+                            return "revision=" + snapshot.getWorkingRevision() + "\n"
+                                    + snapshot.getDocumentJson();
+                        }
                     };
             resources.setSessionGateway(botGateway);
             resources.setProjectionUpdateListener(new Runnable() {

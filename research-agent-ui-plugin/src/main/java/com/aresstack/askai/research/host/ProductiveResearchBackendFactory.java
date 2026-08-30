@@ -761,6 +761,13 @@ public final class ProductiveResearchBackendFactory {
                                             holder[0] == null ? null : holder[0].getSessionGateway();
                                     return gateway == null ? null : gateway.describeTechnicalLog(tailLines);
                                 }
+
+                                @Override
+                                public String describeConceptSnapshot() {
+                                    com.aresstack.askai.research.mcp.ResearchBotSessionGateway gateway =
+                                            holder[0] == null ? null : holder[0].getSessionGateway();
+                                    return gateway == null ? null : gateway.describeConceptSnapshot();
+                                }
                             };
             final com.aresstack.askai.research.mcp.ResearchBotControlEndpoint botControl =
                     !botControlMcpEnabled ? null

@@ -71,6 +71,13 @@ public class ResearchBotSessionDirectoryTest {
     private InProcessMcpServerRegistry registry;
     private McpEndpointHandle handle;
 
+    @org.junit.After
+    public void leaveTheSingletonEmpty() {
+        // The directory is a PROCESS singleton: a registration this class leaks becomes another
+        // test class's "several sessions are live" — clean up after, not only before.
+        directory.clear();
+    }
+
     @Before
     public void publishTheDirectoryAsAnEndpoint() {
         directory.clear(); // the directory is a process singleton — every test starts empty
@@ -91,7 +98,7 @@ public class ResearchBotSessionDirectoryTest {
     @Test
     public void thePublicFaceOffersTheMultiSessionTools() {
         assertEquals(Arrays.asList("sessions_list", "session_create", "run_command", "session_state",
-                        "chat_history"),
+                        "chat_history", "technical_log", "concept_json"),
                 registry.listToolNames("public-connector", handle.getToken()));
         // The catalog is STABLE: with nothing running the tools still exist and answer honestly.
         McpToolResult empty = call("sessions_list");

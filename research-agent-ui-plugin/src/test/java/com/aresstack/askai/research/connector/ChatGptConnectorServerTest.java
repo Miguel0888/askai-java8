@@ -50,6 +50,7 @@ public class ChatGptConnectorServerTest {
 
     @Before
     public void start() throws Exception {
+        directory.clear(); // defensive: the directory is a process singleton
         registration = directory.register("chat-uuid-1", "agent#chat-uuid-1", gateway);
         ConnectorConfig config = new ConnectorConfig(0, "https://askai.example.com", "askai", "secret", null);
         server = new ChatGptConnectorServer(config, new ConnectorOAuthService(config),

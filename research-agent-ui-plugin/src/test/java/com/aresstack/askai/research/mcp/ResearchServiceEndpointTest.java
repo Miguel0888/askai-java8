@@ -136,13 +136,13 @@ public class ResearchServiceEndpointTest {
     }
 
     @Test
-    public void theBotControlEndpointOffersExactlyTheFourDrivingTools() {
+    public void theBotControlEndpointOffersExactlyTheFiveDrivingTools() {
         InProcessMcpServerRegistry reg = new InProcessMcpServerRegistry();
         ResearchBotControlEndpoint bot = new ResearchBotControlEndpoint(reg, "s1", 1L,
                 new RecordingGateway());
         bot.open();
         assertEquals(java.util.Arrays.asList("run_command", "session_state", "chat_history",
-                "technical_log"),
+                "technical_log", "concept_json"),
                 reg.listToolNames(bot.getEndpointId(), bot.getHandle().getToken()));
         bot.close();
     }

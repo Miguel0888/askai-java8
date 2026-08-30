@@ -28,4 +28,13 @@ public interface ResearchBotSessionGateway {
     default String describeTechnicalLog(int tailLines) {
         return null;
     }
+
+    /**
+     * The Konzeptpapier as ONE atomic snapshot ({@code revision=N} line + the document JSON) —
+     * observability for a driving client verifying the workpiece independently of the agent's
+     * claims. Read-only; {@code null} when the session has no concept service.
+     */
+    default String describeConceptSnapshot() {
+        return null;
+    }
 }
