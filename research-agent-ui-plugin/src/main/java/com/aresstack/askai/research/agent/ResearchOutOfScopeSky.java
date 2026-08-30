@@ -137,6 +137,18 @@ final class ResearchOutOfScopeSky extends JPanel {
         cloudFlow.add(addFieldRow);
         add(skyBar);
         add(collapseChevron);
+        // Folding is a SKY gesture, not an outside-click: pressing the open sky's own air —
+        // the transparent background between the clouds or the visible fade below them — tucks
+        // it back into the bar. Clicks that land on a cloud, the orb, the chevron or the chat
+        // BELOW the fade never arrive here (children and pass-through keep their own meaning).
+        addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mousePressed(java.awt.event.MouseEvent event) {
+                if (open) {
+                    setOpen(false);
+                }
+            }
+        });
         add(speakOrb);
     }
 
@@ -144,76 +156,14 @@ final class ResearchOutOfScopeSky extends JPanel {
     private void setOpen(boolean value) {
         if (open != value) {
             open = value;
-            updateOutsideClickCloser();
             revalidate();
             repaint();
         }
     }
 
-    /**
-     * While the sky is OPEN, a global mouse watcher folds it back into the bar when the user
-     * clicks anywhere OUTSIDE its content zone (into the chat, the composer, the drawer, …) —
-     * the same drawer-like behavior the workspace sidebar already has.
-     */
-    private java.awt.event.AWTEventListener outsideClickCloser;
-
-    private void updateOutsideClickCloser() {
-        if (open && outsideClickCloser == null) {
-            outsideClickCloser = new java.awt.event.AWTEventListener() {
-                public void eventDispatched(java.awt.AWTEvent event) {
-                    if (!(event instanceof java.awt.event.MouseEvent)
-                            || event.getID() != java.awt.event.MouseEvent.MOUSE_PRESSED
-                            || !open || !isShowing()
-                            // A peered but WINDOWLESS component reports showing=true — screen
-                            // coordinates only exist under a real window (guards tests too).
-                            || javax.swing.SwingUtilities.getWindowAncestor(
-                                    ResearchOutOfScopeSky.this) == null) {
-                        return;
-                    }
-                    java.awt.event.MouseEvent mouse = (java.awt.event.MouseEvent) event;
-                    java.awt.Point mine = getLocationOnScreen();
-                    int x = mouse.getXOnScreen() - mine.x;
-                    int y = mouse.getYOnScreen() - mine.y;
-                    boolean insideContent = x >= 0 && x <= getWidth()
-                            && y >= 0 && y <= contentBottom;
-                    if (!insideContent) {
-                        setOpen(false);
-                    }
-                }
-            };
-            try {
-                java.awt.Toolkit.getDefaultToolkit().addAWTEventListener(outsideClickCloser,
-                        java.awt.AWTEvent.MOUSE_EVENT_MASK);
-            } catch (SecurityException restricted) {
-                outsideClickCloser = null; // click-outside degrades gracefully; the chevron works
-            }
-        } else if (!open) {
-            removeOutsideClickCloser();
-        }
-    }
-
-    private void removeOutsideClickCloser() {
-        if (outsideClickCloser != null) {
-            try {
-                java.awt.Toolkit.getDefaultToolkit().removeAWTEventListener(outsideClickCloser);
-            } catch (SecurityException ignore) {
-            }
-            outsideClickCloser = null;
-        }
-    }
-
-    @Override
-    public void addNotify() {
-        super.addNotify();
-        // Hosts rehome the overlay (rebuilds, tab moves): a sky re-attached OPEN needs its
-        // closer back — removeNotify tore it down, and setOpen won't fire for an unchanged state.
-        updateOutsideClickCloser();
-    }
-
     @Override
     public void removeNotify() {
-        removeOutsideClickCloser(); // never leak the global watcher past the component's life
-        speech.stop();              // …and never a voice talking for a torn-down chat
+        speech.stop(); // never a voice talking for a torn-down chat
         super.removeNotify();
     }
 
@@ -301,6 +251,10 @@ final class ResearchOutOfScopeSky extends JPanel {
         return addCloud;
     }
 
+    int contentBottomForTest() {
+        return contentBottom;
+    }
+
     void setRemoveAction(Consumer<String> action) {
         this.removeAction = action;
     }
@@ -332,7 +286,6 @@ final class ResearchOutOfScopeSky extends JPanel {
     public void setVisible(boolean visible) {
         if (!visible) {
             publishTopInset(0); // other phases: the chat gets its full height back immediately
-            removeOutsideClickCloser();
         }
         super.setVisible(visible);
     }
@@ -349,10 +302,15 @@ final class ResearchOutOfScopeSky extends JPanel {
 
     // ------------------------------------------------------------------ hit-testing & painting
 
-    /** Claim ONLY the content zone; the fade tail and everything below stays the chat's. */
+    /**
+     * OPEN, the sky claims everything it visibly IS — the content zone plus the painted fade
+     * tail — so a press on "the transparent sky" folds it. Below the fade (and beside the
+     * collapsed bar) the chat keeps every click, hover and wheel.
+     */
     @Override
     public boolean contains(int x, int y) {
-        return isVisible() && y >= 0 && y <= contentBottom;
+        int claimBottom = open ? contentBottom + ResearchUiMetrics.SKY_FADE_TAIL : contentBottom;
+        return isVisible() && y >= 0 && y <= Math.min(claimBottom, getHeight());
     }
 
     @Override
