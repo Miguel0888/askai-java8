@@ -20,6 +20,12 @@ public final class WindowsSapiVoice {
      * @return "" when spoken, otherwise a human-readable reason
      */
     public String speak(String text, String languageCode, int timeoutSeconds) {
+        return speak(text, languageCode, timeoutSeconds, 0);
+    }
+
+    /** @param rate SAPI speaking rate -10..10 (0 = default; negative = slower, more deliberate). */
+    public String speak(String text, String languageCode, int timeoutSeconds, int rate) {
+        int clampedRate = Math.max(-10, Math.min(10, rate));
         String culture = "de".equals(languageCode) ? "de-DE"
                 : "en".equals(languageCode) ? "en-US" : null;
         String selectVoice = culture == null ? "" :
@@ -33,6 +39,7 @@ public final class WindowsSapiVoice {
                             + "Add-Type -AssemblyName System.Speech; "
                             + "$s = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
                             + selectVoice
+                            + (clampedRate == 0 ? "" : "$s.Rate = " + clampedRate + "; ")
                             + "$s.Speak([Console]::In.ReadToEnd())");
             builder.redirectErrorStream(true);
             Process current = builder.start();

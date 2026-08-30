@@ -44,10 +44,32 @@ public class ReadAloudVoiceTest {
                 return succeeds;
             }
 
+            public boolean speakEmphatic(String plainText, String languageCode) {
+                log.add("model-emphatic[" + languageCode + "]:" + plainText);
+                return succeeds;
+            }
+
             public void stop() {
                 log.add("model-stop");
             }
         };
+    }
+
+    @Test
+    public void aClickedTagSpeaksWithTheAssertiveDelivery() {
+        ReadAloudVoice voice = new ReadAloudVoice(fallback);
+        voice.setModelVoice(portFor("de", true));
+        voice.speakEmphatic("Websuche: Kartoffelsalat", "de");
+        assertEquals(java.util.Arrays.asList("windows-stop",
+                "model-emphatic[de]:Websuche: Kartoffelsalat"), log);
+    }
+
+    @Test
+    public void aFailedEmphaticPortFallsBackToTheWindowsVoice() {
+        ReadAloudVoice voice = new ReadAloudVoice(fallback);
+        voice.setModelVoice(portFor("de", false));
+        voice.speakEmphatic("Tag", "en");
+        assertEquals("windows[en]:Tag", log.get(2));
     }
 
     @Test

@@ -81,7 +81,7 @@ public final class PiperSpeechSynthesizer {
         }
         try {
             StringBuilder engineLog = synthesize(store, voice, prepared, wav,
-                    startupTimeoutSeconds, myGeneration);
+                    startupTimeoutSeconds, myGeneration, 1.0);
             long payload = Files.isRegularFile(wav) ? Math.max(0, Files.size(wav) - 44) : 0;
             if (payload > 0 && isCurrent(myGeneration)) {
                 play(wav, myGeneration);
@@ -118,6 +118,16 @@ public final class PiperSpeechSynthesizer {
      */
     public java.nio.file.Path synthesizeToWav(PiperTtsStore store, PiperVoice voice, String text,
                                               int timeoutSeconds) throws IOException {
+        return synthesizeToWav(store, voice, text, timeoutSeconds, 1.0);
+    }
+
+    /**
+     * @param lengthScale piper's speaking-pace factor (1.0 = the voice's default; >1 = slower,
+     *                    weightier — the "assertive" delivery for spoken confirmations)
+     */
+    public java.nio.file.Path synthesizeToWav(PiperTtsStore store, PiperVoice voice, String text,
+                                              int timeoutSeconds, double lengthScale)
+            throws IOException {
         String prepared = prepareText(text);
         if (prepared.isEmpty()) {
             throw new IOException("empty text");
@@ -125,7 +135,7 @@ public final class PiperSpeechSynthesizer {
         java.nio.file.Path wav = Files.createTempFile("askai-tts-", ".wav");
         long myGeneration = currentGeneration();
         StringBuilder engineLog = synthesize(store, voice, prepared, wav, timeoutSeconds,
-                myGeneration);
+                myGeneration, lengthScale);
         long payload = Files.isRegularFile(wav) ? Math.max(0, Files.size(wav) - 44) : 0;
         if (payload == 0) {
             Files.deleteIfExists(wav);
@@ -149,13 +159,18 @@ public final class PiperSpeechSynthesizer {
 
     /** Run piper into the WAV; returns its collected stderr log. */
     private StringBuilder synthesize(PiperTtsStore store, PiperVoice voice, String prepared,
-                                     Path wav, int timeoutSeconds, long myGeneration)
-            throws IOException {
-        ProcessBuilder builder = new ProcessBuilder(
+                                     Path wav, int timeoutSeconds, long myGeneration,
+                                     double lengthScale) throws IOException {
+        java.util.List<String> command = new java.util.ArrayList<String>(java.util.Arrays.asList(
                 store.engineExecutable().toString(),
                 "--model", store.voiceModelFile(voice).toString(),
                 "--config", store.voiceConfigFile(voice).toString(),
-                "--output_file", wav.toString());
+                "--output_file", wav.toString()));
+        if (lengthScale > 0 && Math.abs(lengthScale - 1.0) > 0.001) {
+            command.add("--length_scale");
+            command.add(String.format(java.util.Locale.ROOT, "%.2f", lengthScale));
+        }
+        ProcessBuilder builder = new ProcessBuilder(command);
         // Working directory = engine directory, so piper finds its bundled espeak-ng data.
         builder.directory(store.engineDirectory().toFile());
         Process piper = builder.start();

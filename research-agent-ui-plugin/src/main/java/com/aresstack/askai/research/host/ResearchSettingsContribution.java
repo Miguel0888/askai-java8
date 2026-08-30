@@ -29,6 +29,7 @@ public final class ResearchSettingsContribution implements AgentSettingsContribu
         final SearchProviderCardsPanel searchProviders =
                 new SearchProviderCardsPanel(research.getHostStateStore());
         JTabbedPane tabs = new JTabbedPane();
+        tabs.addTab("General", buildGeneralTab(research));
         tabs.addTab("Runtime", new ResearchRuntimeSettingsPanel(research.getHostStateStore(), research));
         // The provider PICKER + each provider's own settings card (browser default, full DataForSEO
         // editor). The old shared engine/locale fields are gone — each provider owns its full config.
@@ -47,5 +48,33 @@ public final class ResearchSettingsContribution implements AgentSettingsContribu
             }
         });
         return tabs;
+    }
+
+    /** General research-UI preferences — the first, non-technical tab. */
+    private static JComponent buildGeneralTab(final ResearchAgentSession research) {
+        javax.swing.JPanel tab = new javax.swing.JPanel();
+        tab.setLayout(new javax.swing.BoxLayout(tab, javax.swing.BoxLayout.Y_AXIS));
+        tab.setBorder(javax.swing.BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        final javax.swing.JCheckBox readTagsBox = new javax.swing.JCheckBox(
+                "Read search tags aloud when clicked",
+                ResearchRuntimeSettings.loadReadSearchTagsOnClick(research.getHostStateStore()));
+        readTagsBox.setToolTipText("Clicking a yellow search/activity tag in the chat speaks its"
+                + " text with an assertive delivery.");
+        readTagsBox.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
+        readTagsBox.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent event) {
+                ResearchRuntimeSettings.saveReadSearchTagsOnClick(
+                        research.getHostStateStore(), readTagsBox.isSelected());
+            }
+        });
+        tab.add(readTagsBox);
+        javax.swing.JLabel hint = new javax.swing.JLabel("<html><i>Uses the configured speech"
+                + " output — set the voice per language in the chat settings (gear) under"
+                + " \"Audio &amp; Dictation\" &gt; Speech output.</i></html>");
+        hint.setAlignmentX(java.awt.Component.LEFT_ALIGNMENT);
+        hint.setBorder(javax.swing.BorderFactory.createEmptyBorder(4, 22, 0, 0));
+        tab.add(hint);
+        tab.add(javax.swing.Box.createVerticalGlue());
+        return tab;
     }
 }

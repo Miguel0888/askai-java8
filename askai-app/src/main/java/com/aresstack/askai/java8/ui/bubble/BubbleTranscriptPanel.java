@@ -423,9 +423,23 @@ public final class BubbleTranscriptPanel extends JPanel {
         return query.isEmpty() ? null : "/search " + query;
     }
 
+    /** Optional consumer of clicks on amber activity bubbles (e.g. read the search tag aloud). */
+    public interface AgentActivityClickListener {
+        void agentActivityClicked(String title, String explanation);
+    }
+
+    private AgentActivityClickListener agentActivityClickListener;
+
+    /** Register (or clear with null) the click consumer for ALL amber activity bubbles. */
+    public void setAgentActivityClickListener(AgentActivityClickListener listener) {
+        this.agentActivityClickListener = listener;
+    }
+
     /** Opaque handle to one amber tool-/agent-activity bubble; the panel keeps the component internally. */
     public static final class AgentActivityHandle {
         private final AgentActivityBubblePanel bubble;
+        private volatile String currentTitle = "";
+        private volatile String currentExplanation = "";
 
         private AgentActivityHandle(AgentActivityBubblePanel bubble) {
             this.bubble = bubble;
@@ -437,12 +451,27 @@ public final class BubbleTranscriptPanel extends JPanel {
         AgentActivityBubblePanel activity = new AgentActivityBubblePanel(BubbleSide.LEFT, palette, title, explanation);
         activity.setHeaderTimestamp(System.currentTimeMillis());
         addThoughtBubble(activity);
-        return new AgentActivityHandle(activity);
+        final AgentActivityHandle handle = new AgentActivityHandle(activity);
+        handle.currentTitle = title == null ? "" : title;
+        handle.currentExplanation = explanation == null ? "" : explanation;
+        // A click hands the bubble's CURRENT text to the registered consumer (read-aloud etc.).
+        activity.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mousePressed(java.awt.event.MouseEvent event) {
+                AgentActivityClickListener listener = agentActivityClickListener;
+                if (listener != null) {
+                    listener.agentActivityClicked(handle.currentTitle, handle.currentExplanation);
+                }
+            }
+        });
+        return handle;
     }
 
     public void updateAgentActivity(AgentActivityHandle handle, String title, String explanation) {
         requireEventDispatchThread();
         requireKnownActivity(handle == null ? null : handle.bubble);
+        handle.currentTitle = title == null ? "" : title;
+        handle.currentExplanation = explanation == null ? "" : explanation;
         handle.bubble.updateActivity(title, explanation);
         refreshTranscript();
     }

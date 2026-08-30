@@ -36,6 +36,15 @@ public interface SpeechSynthesisPort {
     void stop();
 
     /**
+     * Like {@link #speak}, but with a deliberately ASSERTIVE delivery (slightly slower, weightier
+     * pacing) — for short spoken confirmations such as a clicked search tag. Hosts without a tone
+     * concept simply speak normally.
+     */
+    default boolean speakEmphatic(String plainText, String languageCode) {
+        return speak(plainText, languageCode);
+    }
+
+    /**
      * Central user preference (chat settings → Audio &amp; Dictation): read-aloud should start
      * ACTIVE — new answers are spoken automatically without pressing Play. Engine-independent
      * (applies to the Windows default voice too); the plugin still owns the Play/Pause toggle.

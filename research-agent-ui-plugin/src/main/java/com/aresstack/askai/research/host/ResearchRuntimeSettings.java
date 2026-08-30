@@ -40,6 +40,19 @@ public final class ResearchRuntimeSettings {
         }
     }
 
+    /** Clicking a yellow search/activity tag reads it aloud (assertive delivery). Default ON. */
+    static final String KEY_READ_TAGS_ON_CLICK = "research.ui.readSearchTagsOnClick";
+
+    public static boolean loadReadSearchTagsOnClick(WorkspaceStateStore store) {
+        return store == null || store.getBoolean(KEY_READ_TAGS_ON_CLICK, true);
+    }
+
+    public static void saveReadSearchTagsOnClick(WorkspaceStateStore store, boolean enabled) {
+        if (store != null) {
+            store.putBoolean(KEY_READ_TAGS_ON_CLICK, enabled);
+        }
+    }
+
     /**
      * LLM narration toggle (default OFF until burned in): when on AND the host provides an inference
      * port, milestone texts are phrased by the main model — always validated, always with the static

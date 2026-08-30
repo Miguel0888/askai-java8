@@ -43,6 +43,16 @@ final class AskAiAgentConversationSink implements AgentConversationSink {
     private final Map<String, BubbleTranscriptPanel.AgentActivityHandle> tools =
             new HashMap<String, BubbleTranscriptPanel.AgentActivityHandle>();
 
+    @Override
+    public void setToolActivityClickListener(final ToolActivityClickListener listener) {
+        transcript.setAgentActivityClickListener(listener == null ? null
+                : new BubbleTranscriptPanel.AgentActivityClickListener() {
+                    public void agentActivityClicked(String title, String explanation) {
+                        listener.toolActivityClicked(title, explanation);
+                    }
+                });
+    }
+
     AskAiAgentConversationSink(ChatTranscript transcript, Runnable afterUpdate, TechnicalLog technicalLog) {
         this(transcript, afterUpdate, technicalLog, null);
     }

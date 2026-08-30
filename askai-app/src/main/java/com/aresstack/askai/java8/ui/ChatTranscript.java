@@ -168,6 +168,11 @@ final class ChatTranscript {
         return panel.startAgentActivity(title, explanation);
     }
 
+    /** Clicks on amber activity bubbles (e.g. read the search tag aloud) — pass-through. */
+    void setAgentActivityClickListener(BubbleTranscriptPanel.AgentActivityClickListener listener) {
+        panel.setAgentActivityClickListener(listener);
+    }
+
     void updateAgentActivity(BubbleTranscriptPanel.AgentActivityHandle handle, String title, String explanation) {
         panel.updateAgentActivity(handle, title, explanation);
     }

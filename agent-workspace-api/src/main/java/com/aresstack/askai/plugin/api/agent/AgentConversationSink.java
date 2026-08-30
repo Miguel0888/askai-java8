@@ -24,6 +24,18 @@ public interface AgentConversationSink {
 
     void startToolActivity(String activityId, String title, String explanation);
 
+    /** Invoked when the user CLICKS a tool-activity bubble (e.g. to have its tag read aloud). */
+    interface ToolActivityClickListener {
+        void toolActivityClicked(String title, String explanation);
+    }
+
+    /**
+     * Optional: register a click listener for this conversation's tool-activity bubbles. Hosts
+     * without clickable activities (and test fakes) simply keep the no-op default.
+     */
+    default void setToolActivityClickListener(ToolActivityClickListener listener) {
+    }
+
     void updateToolActivity(String activityId, String title, String explanation);
 
     void completeToolActivity(String activityId, String summary);

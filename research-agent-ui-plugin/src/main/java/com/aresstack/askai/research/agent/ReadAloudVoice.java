@@ -74,6 +74,23 @@ final class ReadAloudVoice {
         fallback.speak(markdown, languageCode);
     }
 
+    /** Assertive delivery for short spoken confirmations (clicked search tags); same fallbacks. */
+    void speakEmphatic(String markdown, String languageCode) {
+        try {
+            SpeechSynthesisPort port = modelVoice;
+            if (port != null) {
+                fallback.stop();
+                if (port.speakEmphatic(WindowsSpeech.plainTextForSpeech(markdown), languageCode)) {
+                    return;
+                }
+            }
+        } catch (Throwable portPathBroken) {
+            System.err.println("[read-aloud] emphatic path failed (" + languageCode + "): "
+                    + portPathBroken);
+        }
+        fallback.speak(markdown, languageCode);
+    }
+
     void stop() {
         try {
             SpeechSynthesisPort port = modelVoice;

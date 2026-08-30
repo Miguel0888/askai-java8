@@ -75,8 +75,21 @@ public final class PiperReadAloudService implements SpeechSynthesisPort {
         }
     }
 
+    /** The assertive delivery: slightly slower, weightier pacing on BOTH engines. */
+    private static final double EMPHATIC_LENGTH_SCALE = 1.15;
+    private static final int EMPHATIC_SAPI_RATE = -2;
+
     @Override
     public boolean speak(String plainText, String languageCode) {
+        return speak(plainText, languageCode, false);
+    }
+
+    @Override
+    public boolean speakEmphatic(String plainText, String languageCode) {
+        return speak(plainText, languageCode, true);
+    }
+
+    private boolean speak(String plainText, String languageCode, boolean emphatic) {
         TextToSpeechSettings current = settings.load();
         final long myGeneration;
         synchronized (lock) {
@@ -109,7 +122,7 @@ public final class PiperReadAloudService implements SpeechSynthesisPort {
                 new java.util.ArrayList<java.util.concurrent.Future<java.nio.file.Path>>();
         try {
             for (Chunk chunk : chunks) {
-                prepared.add(prefetch(pool, chunk, current));
+                prepared.add(prefetch(pool, chunk, current, emphatic));
             }
             boolean anySpoken = false;
             for (int i = 0; i < chunks.size(); i++) {
@@ -135,7 +148,8 @@ public final class PiperReadAloudService implements SpeechSynthesisPort {
                     // No model voice for this chunk's language (or its synthesis failed): the
                     // culture-matched Windows voice keeps the flow audible.
                     String reason = windowsVoice.speak(chunk.text, chunk.languageCode,
-                            current.getStartupTimeoutSeconds());
+                            current.getStartupTimeoutSeconds(),
+                            emphatic ? EMPHATIC_SAPI_RATE : 0);
                     if (reason.isEmpty()) {
                         anySpoken = true;
                     } else {
@@ -153,7 +167,7 @@ public final class PiperReadAloudService implements SpeechSynthesisPort {
     /** Submit the chunk's synthesis to the pool — null future = a Windows chunk (spoken live). */
     private java.util.concurrent.Future<java.nio.file.Path> prefetch(
             java.util.concurrent.ExecutorService pool, final Chunk chunk,
-            final TextToSpeechSettings current) {
+            final TextToSpeechSettings current, final boolean emphatic) {
         final PiperVoice voice = activeVoice(current, chunk.languageCode);
         if (voice == null) {
             return null; // Windows chunks need no preparation
@@ -162,7 +176,8 @@ public final class PiperReadAloudService implements SpeechSynthesisPort {
             public java.nio.file.Path call() {
                 try {
                     return synthesizer.synthesizeToWav(store, voice, chunk.text,
-                            current.getStartupTimeoutSeconds());
+                            current.getStartupTimeoutSeconds(),
+                            emphatic ? EMPHATIC_LENGTH_SCALE : 1.0);
                 } catch (Exception failed) {
                     System.err.println("[tts] model voice failed (" + voice.getId() + "): "
                             + failed.getMessage());

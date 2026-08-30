@@ -312,6 +312,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         this.manualWebSearchPort = new com.aresstack.askai.research.search.BackendManualWebSearchPort(
                 backend, handle);
         restoreManualSearchedQueries(); // covered queries survive a restart (each source remembers its query)
+        wireToolActivityReadAloud();
         final String notice = startupNotice;
         if (notice != null && sink != null) {
             uiExecutor.execute(new Runnable() {
@@ -349,6 +350,41 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 showRestoredActionsIfAny();
             }
         }
+    }
+
+    /** Speaks a CLICKED yellow activity tag — assertive delivery, session language, settings-gated. */
+    private final ReadAloudVoice tagVoice = new ReadAloudVoice();
+
+    /**
+     * Clicking a yellow search/activity tag reads its text aloud (Research Agent settings →
+     * General, default ON): the host's speech output with the ASSERTIVE delivery, the plugin's
+     * Windows voice as the usual fallback. The setting is read per click — no restart.
+     */
+    private void wireToolActivityReadAloud() {
+        if (sink == null) {
+            return;
+        }
+        tagVoice.setModelVoice(getHostService(
+                com.aresstack.askai.agent.model.speech.SpeechSynthesisPort.class));
+        sink.setToolActivityClickListener(
+                new com.aresstack.askai.plugin.api.agent.AgentConversationSink
+                        .ToolActivityClickListener() {
+                    public void toolActivityClicked(final String title, String explanation) {
+                        if (title == null || title.trim().isEmpty()
+                                || !com.aresstack.askai.research.host.ResearchRuntimeSettings
+                                        .loadReadSearchTagsOnClick(hostStateStore)) {
+                            return;
+                        }
+                        final String language = sessionLanguage.currentLanguage().getCode();
+                        Thread speaker = new Thread(new Runnable() {
+                            public void run() {
+                                tagVoice.speakEmphatic(title, language);
+                            }
+                        }, "askai-tag-voice");
+                        speaker.setDaemon(true);
+                        speaker.start();
+                    }
+                });
     }
 
     /**
