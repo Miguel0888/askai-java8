@@ -219,6 +219,14 @@ final class ResearchOutOfScopeSky extends JPanel {
             publishTopInset(0);
             return;
         }
+        if (getWidth() <= 0 || getHeight() <= 0) {
+            // Not really laid out yet (first pass before the host sized this layer): claim NO
+            // chat space — a positive inset without visible sky would leave an invisible dead
+            // zone above the first message.
+            contentBottom = 0;
+            publishTopInset(0);
+            return;
+        }
         int padH = ResearchUiMetrics.SKY_PADDING_H;
         int innerWidth = getWidth() - 2 * padH;
         int cloudTop = ResearchUiMetrics.SKY_PADDING_TOP;
@@ -562,7 +570,8 @@ final class ResearchOutOfScopeSky extends JPanel {
                 this.count = count;
                 this.expandedMode = false;
                 setToolTipText(SEMANTIC_TOOLTIP + " — " + text() + " anzeigen");
-                revalidate();
+                // No revalidate() here: this runs INSIDE the sky's doLayout — re-invalidating the
+                // ancestors mid-validation is a layout-loop hazard; the flow lays out right after.
             }
         }
 
@@ -570,7 +579,6 @@ final class ResearchOutOfScopeSky extends JPanel {
             if (!expandedMode) {
                 expandedMode = true;
                 setToolTipText(SEMANTIC_TOOLTIP + " — wieder einklappen");
-                revalidate();
             }
         }
 
