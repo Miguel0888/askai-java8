@@ -68,7 +68,17 @@ public final class TeamAgentPlaybook {
      * genuinely help right now — the long-standing behaviour.
      */
     public static String scopingSystemPrompt(boolean alwaysOfferSuggestions) {
-        return "You are a helpful research assistant inside AskAI. You sit BESIDE the user to help them work "
+        return scopingSystemPrompt(alwaysOfferSuggestions, false);
+    }
+
+    /**
+     * @param conceptTools whether the host offers the Konzeptpapier tools this session. Only then does the
+     * prompt carry the book preamble, the concept rules and the {@code conceptAction} field — against an
+     * older host the scoping prompt stays byte-identical to before.
+     */
+    public static String scopingSystemPrompt(boolean alwaysOfferSuggestions, boolean conceptTools) {
+        return (conceptTools ? bookPreamble() : "")
+                + "You are a helpful research assistant inside AskAI. You sit BESIDE the user to help them work "
                 + "out WHAT they want to research — you do not run a workflow, you do not own any process, and "
                 + "you never act as a gatekeeper. The application owns the process and asks the user for "
                 + "approvals; you only help the user express and sharpen their research scope.\n\n"
@@ -191,8 +201,20 @@ public final class TeamAgentPlaybook {
                 + "  ],\n"
                 + "  \"orientationSuggestions\": [         // OPTIONAL: short lookups you PROPOSE\n"
                 + "    { \"label\": string, \"query\": string, \"rationale\": string }\n"
-                + "  ]\n"
+                + "  ]"
+                + (conceptTools
+                        ? ",\n  \"conceptAction\": {              // OPTIONAL: your ONE concept-tool step "
+                        + "THIS inference\n"
+                        + "    \"type\": \"read\"|\"update\"|\"remove\",\n"
+                        + "    \"path\": string, \"depth\": number,                  // read: 'A/B' from "
+                        + "the concept root, depth 0 = full\n"
+                        + "    \"handle\": string, \"branchJson\": string,           // update/remove: the "
+                        + "handle from your read\n"
+                        + "    \"allowRemovals\": boolean\n"
+                        + "  }\n"
+                        : "\n")
                 + "}\n\n"
+                + (conceptTools ? conceptToolRules() : "")
                 + scopePatchContract()
                 + "Only assistantMessage is required. A turn that simply asks one good question — no brief, "
                 + "no suggestion, no scope change — is a COMPLETE turn.\n\n"
@@ -419,5 +441,73 @@ public final class TeamAgentPlaybook {
         return "Reply again with exactly one JSON object matching the schema and nothing else — no prose, "
                 + "no code fences, nothing outside the object. Keep assistantMessage a normal, warm reply to "
                 + "the user; do not mention formatting, JSON, or this instruction.";
+    }
+
+    // ------------------------------------------------------------------ Konzeptpapier (concept tools)
+
+    /**
+     * The BOOK metaphor as the shared frame: a concrete mental object ("we build a book, piece by
+     * piece") instead of abstract role prose — the same preamble later heads the other phases'
+     * playbooks. Only prepended when the host actually offers the concept tools.
+     */
+    private static String bookPreamble() {
+        return "WE ARE BUILDING A BOOK together with the user. A book is never produced in one answer: "
+                + "it grows piece by piece through long-lived artifacts, each phase building on the "
+                + "previous one's result. This phase shapes the CONCEPT — the tree of what the book "
+                + "will cover. It is not yet the table of contents and not the text; it is the map "
+                + "that will steer the research.\n\n";
+    }
+
+    /** How to use the concept tool: one small step per inference, read before update, no rewrites. */
+    private static String conceptToolRules() {
+        return "THE CONCEPT (conceptAction):\n"
+                + "- The concept is a TREE of named cards (topics), maintained in SMALL STEPS — you "
+                + "never rewrite it as a whole.\n"
+                + "- Issue at most ONE conceptAction per answer. The application executes it and hands "
+                + "you the result; then you decide your next step. When nothing is left to do, answer "
+                + "the user with your final assistantMessage and NO conceptAction.\n"
+                + "- ALWAYS read a branch first (type \"read\"): the result carries the handle you need "
+                + "for editing, plus the parent and sibling names so you never invent a card that "
+                + "already exists. A read with depth > 0 is orientation only — its handle cannot edit.\n"
+                + "- \"update\" sends the COMPLETE refined branch as {\"Name\": [ ... ]}: one object "
+                + "per group of children, an array per card, [] for a card without children yet. "
+                + "Existing cards must survive a refinement — moving them into a new group is fine; "
+                + "deliberate deletion is type \"remove\".\n"
+                + "- Card names are short noun phrases in the user's language — the user's own words "
+                + "win over your terminology.\n"
+                + "- A rejected step returns a diagnostic. Correct exactly what it names and try again; "
+                + "a stale revision means: read the branch again first.\n"
+                + "- The concept mirrors the CONVERSATION: add what the user asks for, propose what "
+                + "scope and sources suggest, and never invent depth the user has not asked about.\n\n";
+    }
+
+    /** Feedback for a successful READ — a regular working step, not a repair. */
+    public static String conceptToolResult(String toolText) {
+        return "CONCEPT TOOL RESULT (machinery — the user does not see this):\n" + toolText
+                + "\nDecide your next step: another conceptAction, or finish with your final "
+                + "assistantMessage for the user and no conceptAction.";
+    }
+
+    /** Feedback for a committed mutation. Earlier handles are stale from now on. */
+    public static String conceptToolApplied(String toolText) {
+        return "CONCEPT TOOL APPLIED: " + toolText
+                + "\nThe concept now contains this change; handles from before it are stale (read "
+                + "again before further edits). Continue with another conceptAction if needed, or "
+                + "finish with your final assistantMessage and no conceptAction. Do not claim more "
+                + "than this change in your answer.";
+    }
+
+    /** Feedback for a REJECTED mutation — the diagnostic is the model's repair input. */
+    public static String conceptToolRejected(String diagnostic) {
+        return "CONCEPT TOOL REJECTED — the concept is UNCHANGED.\n" + diagnostic
+                + "\nCorrect exactly what the diagnostic names and issue the corrected conceptAction "
+                + "(for a stale revision: read the branch again first).";
+    }
+
+    /** Appended to the LAST feedback when a budget is exhausted: wrap up, no further actions. */
+    public static String conceptToolBudgetExhausted() {
+        return "TOOL BUDGET EXHAUSTED: do NOT issue another conceptAction in this turn. Answer the "
+                + "user now with an honest assistantMessage about what was changed and what is still "
+                + "open.";
     }
 }

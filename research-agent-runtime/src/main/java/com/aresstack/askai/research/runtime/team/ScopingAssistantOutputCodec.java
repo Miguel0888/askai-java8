@@ -48,6 +48,34 @@ public final class ScopingAssistantOutputCodec {
         writeKey(sb, "reason").append(':');
         writeString(sb, output.getAdvice().getReason());
         sb.append('}');
+        // The concept step stays in the canonical history so later turns can SEE what the
+        // assistant did with the tool (the branch travels as a string; the parser reads both).
+        ConceptAction action = output.getConceptAction();
+        if (action != null) {
+            sb.append(',');
+            writeKey(sb, "conceptAction").append(":{");
+            writeKey(sb, "type").append(':');
+            writeString(sb, action.getType().name().toLowerCase(java.util.Locale.ROOT));
+            if (action.getType() == ConceptAction.Type.READ) {
+                sb.append(',');
+                writeKey(sb, "path").append(':');
+                writeString(sb, action.getPath());
+                sb.append(',');
+                writeKey(sb, "depth").append(':').append(action.getDepth());
+            } else {
+                sb.append(',');
+                writeKey(sb, "handle").append(':');
+                writeString(sb, action.getHandle());
+                if (action.getType() == ConceptAction.Type.UPDATE) {
+                    sb.append(',');
+                    writeKey(sb, "branchJson").append(':');
+                    writeString(sb, action.getBranchJson());
+                    sb.append(',');
+                    writeKey(sb, "allowRemovals").append(':').append(action.isAllowRemovals());
+                }
+            }
+            sb.append('}');
+        }
         sb.append('}');
         return sb.toString();
     }

@@ -309,6 +309,35 @@ public final class ResearchRuntimeSettings {
         }
     }
 
+    static final String KEY_CONCEPT_TOOL_ROUNDS = "research.runtime.conceptToolRounds";
+    /** How many model↔tool cycles ONE concept turn may make — the WORK budget of the loop. */
+    public static final int DEFAULT_CONCEPT_TOOL_ROUNDS = 4;
+    static final String KEY_CONCEPT_REPAIR_ATTEMPTS = "research.runtime.conceptRepairAttempts";
+    /** How many REJECTED concept steps may be corrected per turn — the ERROR tolerance, kept apart. */
+    public static final int DEFAULT_CONCEPT_REPAIR_ATTEMPTS = 2;
+
+    /** Tool-round budget of the Konzeptpapier loop (work budget ≠ error tolerance). New sessions. */
+    public static int loadConceptToolRounds(WorkspaceStateStore store) {
+        return loadPositiveInt(store, KEY_CONCEPT_TOOL_ROUNDS, DEFAULT_CONCEPT_TOOL_ROUNDS);
+    }
+
+    public static void saveConceptToolRounds(WorkspaceStateStore store, int rounds) {
+        if (store != null && rounds > 0) {
+            store.put(KEY_CONCEPT_TOOL_ROUNDS, String.valueOf(rounds));
+        }
+    }
+
+    /** Repair budget of the Konzeptpapier loop (rejected steps that may be corrected per turn). */
+    public static int loadConceptRepairAttempts(WorkspaceStateStore store) {
+        return loadPositiveInt(store, KEY_CONCEPT_REPAIR_ATTEMPTS, DEFAULT_CONCEPT_REPAIR_ATTEMPTS);
+    }
+
+    public static void saveConceptRepairAttempts(WorkspaceStateStore store, int attempts) {
+        if (store != null && attempts > 0) {
+            store.put(KEY_CONCEPT_REPAIR_ATTEMPTS, String.valueOf(attempts));
+        }
+    }
+
     static final String KEY_BOT_CONTROL = "research.runtime.botControlMcp";
 
     /**

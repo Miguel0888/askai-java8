@@ -47,9 +47,19 @@ public final class PhaseAssistantProfileRegistry {
 
     /** @param alwaysOfferSuggestions the "Immer Suchvorschläge anbieten" settings checkbox (default off). */
     public static PhaseAssistantProfileRegistry defaults(boolean alwaysOfferSuggestions) {
+        return defaults(alwaysOfferSuggestions, false);
+    }
+
+    /**
+     * @param conceptToolsAvailable whether the HOST offers the Konzeptpapier tools this session
+     * (detected from the research MCP tool list at startup) — only then does the scoping prompt
+     * carry the book preamble, the concept rules and the {@code conceptAction} field.
+     */
+    public static PhaseAssistantProfileRegistry defaults(boolean alwaysOfferSuggestions,
+                                                         boolean conceptToolsAvailable) {
         PhaseAssistantProfile scoping = new PhaseAssistantProfile(
                 SCOPING_PHASE_ID,
-                TeamAgentPlaybook.scopingSystemPrompt(alwaysOfferSuggestions),
+                TeamAgentPlaybook.scopingSystemPrompt(alwaysOfferSuggestions, conceptToolsAvailable),
                 new ScopingPhaseOutputContract(),
                 "research-brief",
                 Collections.<String>emptyList(),

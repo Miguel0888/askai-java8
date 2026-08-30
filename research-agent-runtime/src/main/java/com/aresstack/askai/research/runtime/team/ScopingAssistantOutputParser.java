@@ -111,8 +111,13 @@ public final class ScopingAssistantOutputParser {
         // the host reports it as a visible problem.
         ScopeUpdateDocument scopeUpdate = ScopeUpdateDocument.from(object.get("scopePatch"),
                 object.get("unresolvedIssues"), object.get("orientationSuggestions"));
+        // The optional ONE concept tool step. A malformed action does NOT fail the turn (that
+        // would cost the user their message); the reason travels in the output and goes back to
+        // the model as a rejection through the tool-round loop.
+        ConceptAction.Parsed conceptAction = ConceptAction.parse(object.get("conceptAction"));
         return new Result(new ScopingAssistantOutput(assistantMessage, brief, suggestions, advice,
-                scopeUpdate.isEmpty() && scopeUpdate.isValid() ? null : scopeUpdate), null);
+                scopeUpdate.isEmpty() && scopeUpdate.isValid() ? null : scopeUpdate,
+                conceptAction), null);
     }
 
     private static Result fail(String error) {

@@ -93,6 +93,22 @@ public final class ProductiveResearchBackendFactory {
         }
     }
 
+    /** Konzeptpapier loop budgets: tool rounds = work budget, repair attempts = error tolerance. */
+    private volatile int conceptToolRounds = ResearchRuntimeSettings.DEFAULT_CONCEPT_TOOL_ROUNDS;
+    private volatile int conceptRepairAttempts = ResearchRuntimeSettings.DEFAULT_CONCEPT_REPAIR_ATTEMPTS;
+
+    public void setConceptToolRounds(int rounds) {
+        if (rounds > 0) {
+            this.conceptToolRounds = rounds;
+        }
+    }
+
+    public void setConceptRepairAttempts(int attempts) {
+        if (attempts > 0) {
+            this.conceptRepairAttempts = attempts;
+        }
+    }
+
     // Search-run limits (the settings values, handed to the agent at launch; defaults are the fallbacks).
     private volatile int searchTargetSources = ResearchRuntimeSettings.DEFAULT_SEARCH_TARGET_SOURCES;
     private volatile int searchMaxPages = ResearchRuntimeSettings.DEFAULT_SEARCH_MAX_PAGES;
@@ -660,6 +676,9 @@ public final class ProductiveResearchBackendFactory {
             baseEnv.put("ASKAI_SCOPING_ALWAYS_SUGGEST", String.valueOf(alwaysOfferSearchSuggestions));
             // Settings "Agent-Antwortbudget (Tokens)" → the model-turn output budget (review = longest).
             baseEnv.put("ASKAI_AGENT_MAX_OUTPUT_TOKENS", String.valueOf(agentMaxOutputTokens));
+            // Settings "Konzept-Werkzeugrunden / -Reparaturen" → the concept tool-round loop budgets.
+            baseEnv.put("ASKAI_CONCEPT_TOOL_ROUNDS", String.valueOf(conceptToolRounds));
+            baseEnv.put("ASKAI_CONCEPT_REPAIR_ATTEMPTS", String.valueOf(conceptRepairAttempts));
             // Settings "Such-Limits": the completion target + the safety limits of one search run.
             baseEnv.put("ASKAI_SEARCH_TARGET_SOURCES", String.valueOf(searchTargetSources));
             baseEnv.put("ASKAI_SEARCH_MAX_PAGES", String.valueOf(searchMaxPages));

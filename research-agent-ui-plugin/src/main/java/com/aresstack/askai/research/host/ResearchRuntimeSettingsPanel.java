@@ -46,6 +46,9 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
             "Immer Suchvorschläge anbieten (Orientierungs-Tags; applies to new sessions)", false);
     /** Answer budget per agent model turn (tokens) — the longest contracted answer is the source review. */
     private final JTextField agentMaxTokens = new JTextField(6);
+    // Konzeptpapier tool-round loop: work budget and error tolerance, deliberately separate.
+    private final JTextField conceptToolRounds = new JTextField(4);
+    private final JTextField conceptRepairAttempts = new JTextField(4);
     // Search-run limits: the completion target + the safety limits. Every bound is a setting.
     private final JTextField searchTargetSources = new JTextField(4);
     private final JTextField searchMaxPages = new JTextField(4);
@@ -162,6 +165,12 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         reviewLimits.add(javax.swing.Box.createHorizontalStrut(10));
         reviewLimits.add(labelled("Zeichen/Quelle", reviewMaxChars));
         form.add(row("Review-Kontext:", reviewLimits));
+        JPanel conceptLimits = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0));
+        conceptLimits.setOpaque(false);
+        conceptLimits.add(labelled("Werkzeugrunden", conceptToolRounds));
+        conceptLimits.add(javax.swing.Box.createHorizontalStrut(10));
+        conceptLimits.add(labelled("Reparaturen", conceptRepairAttempts));
+        form.add(row("Konzept-Loop:", conceptLimits));
         JPanel scopeCheckRow = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 0));
         scopeCheckRow.setOpaque(false);
         scopeCheckRow.add(labelled("Breite (Konzepte)", scopeCheckTargetProbes));
@@ -411,6 +420,13 @@ public final class ResearchRuntimeSettingsPanel extends JPanel {
         bindLimit(reviewMaxChars, ResearchRuntimeSettings.KEY_REVIEW_MAX_CHARS,
                 ResearchRuntimeSettings.DEFAULT_REVIEW_MAX_CHARS,
                 "Wie viele Zeichen je Quelle in die Auswertung gelangen.");
+        bindLimit(conceptToolRounds, ResearchRuntimeSettings.KEY_CONCEPT_TOOL_ROUNDS,
+                ResearchRuntimeSettings.DEFAULT_CONCEPT_TOOL_ROUNDS,
+                "Wie viele Modell-Werkzeug-Zyklen EIN Konzept-Turn machen darf (Arbeitsbudget).");
+        bindLimit(conceptRepairAttempts, ResearchRuntimeSettings.KEY_CONCEPT_REPAIR_ATTEMPTS,
+                ResearchRuntimeSettings.DEFAULT_CONCEPT_REPAIR_ATTEMPTS,
+                "Wie viele abgelehnte Konzept-Schritte je Turn korrigiert werden duerfen "
+                        + "(Fehlertoleranz, getrennt vom Arbeitsbudget).");
         refreshBackendStatus();
 
         save.addActionListener(new ActionListener() {

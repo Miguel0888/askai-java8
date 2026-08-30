@@ -172,6 +172,10 @@ public final class ResearchAgentSessionFactory implements AgentSessionFactory {
                 ResearchRuntimeSettings.loadAlwaysOfferSearchSuggestions(hostContext.getStateStore()));
         factory.setAgentMaxOutputTokens(
                 ResearchRuntimeSettings.loadAgentMaxOutputTokens(hostContext.getStateStore()));
+        factory.setConceptToolRounds(
+                ResearchRuntimeSettings.loadConceptToolRounds(hostContext.getStateStore()));
+        factory.setConceptRepairAttempts(
+                ResearchRuntimeSettings.loadConceptRepairAttempts(hostContext.getStateStore()));
         factory.setSearchRunLimits(
                 ResearchRuntimeSettings.loadPositiveInt(hostContext.getStateStore(),
                         ResearchRuntimeSettings.KEY_SEARCH_TARGET_SOURCES,

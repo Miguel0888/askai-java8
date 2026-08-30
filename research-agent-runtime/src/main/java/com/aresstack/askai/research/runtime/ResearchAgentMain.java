@@ -49,6 +49,13 @@ public final class ResearchAgentMain {
     /** The request id of the LAST manual search — the default scope of /review-sources. */
     private volatile String lastManualSearchRequestId = "";
     private com.aresstack.askai.research.runtime.team.ResearchTeamAgent teamAgent;
+    /** Whether the HOST offers the Konzeptpapier tools (detected from the MCP tool list at startup). */
+    private boolean conceptToolsAvailable;
+    /** Tool-round / repair budgets for the concept loop — the user's settings via env hand-off. */
+    private int conceptMaxToolRounds =
+            com.aresstack.askai.research.runtime.team.ConceptToolRounds.DEFAULT_MAX_TOOL_ROUNDS;
+    private int conceptMaxRepairAttempts =
+            com.aresstack.askai.research.runtime.team.ConceptToolRounds.DEFAULT_MAX_REPAIR_ATTEMPTS;
     /**
      * The session's live working language (runtime mirror). set_language updates it best-effort; the
      * language snapshot on operation requests (manual_search) is authoritative and re-synchronises it.
@@ -151,6 +158,12 @@ public final class ResearchAgentMain {
             if ("research_status".equals(tool.name())) {
                 hasStatus = true;
             }
+            // Konzeptpapier capability detection: only a host that OFFERS the concept tools gets
+            // the concept prompt block and the tool-round loop — against an older host the
+            // scoping behaviour stays exactly as before.
+            if ("concept_read".equals(tool.name())) {
+                conceptToolsAvailable = true;
+            }
         }
         if (!hasStatus) {
             throw new IllegalStateException("research_status is not offered by the research MCP endpoint");
@@ -169,7 +182,8 @@ public final class ResearchAgentMain {
         this.teamAgent = new com.aresstack.askai.research.runtime.team.ResearchTeamAgent(mainModelChat,
                 com.aresstack.askai.research.runtime.team.PhaseAssistantProfileRegistry.defaults(
                         // Settings checkbox "Immer Suchvorschläge anbieten" (host env hand-off, default off).
-                        "true".equalsIgnoreCase(System.getenv("ASKAI_SCOPING_ALWAYS_SUGGEST"))),
+                        "true".equalsIgnoreCase(System.getenv("ASKAI_SCOPING_ALWAYS_SUGGEST")),
+                        conceptToolsAvailable),
                 new com.aresstack.askai.research.runtime.team.PhaseContextAssembler(
                         new com.aresstack.askai.research.runtime.team.PhaseContextAssembler
                                 .CurrentLanguage() {
@@ -194,8 +208,16 @@ public final class ResearchAgentMain {
                         + outputBudget.trim());
             }
         }
+        // Konzeptpapier loop budgets (host env hand-off): tool rounds ≠ repair attempts — one is the
+        // WORK budget, the other the ERROR tolerance; both are settings, never hidden constants.
+        conceptMaxToolRounds = envInt("ASKAI_CONCEPT_TOOL_ROUNDS", conceptMaxToolRounds);
+        conceptMaxRepairAttempts = envInt("ASKAI_CONCEPT_REPAIR_ATTEMPTS", conceptMaxRepairAttempts);
         System.err.println("[research-agent] TeamAgent ready on main model: " + mainModelChat.modelName()
-                + " outputBudget=" + teamAgent.getMaxOutputTokens());
+                + " outputBudget=" + teamAgent.getMaxOutputTokens()
+                + " conceptTools=" + conceptToolsAvailable
+                + (conceptToolsAvailable
+                        ? " rounds=" + conceptMaxToolRounds + " repairs=" + conceptMaxRepairAttempts
+                        : ""));
 
         // A browser research session REQUIRES the mandatory reranker. Build and readiness-check it here,
         // at session/new — a missing/invalid snapshot or an unreachable endpoint fails the session start
@@ -626,11 +648,15 @@ public final class ResearchAgentMain {
                 // A greeting bootstrap carries no user text; if this first turn DID carry a real message,
                 // answer it in the same turn so nothing the user typed is dropped.
                 if (!text.trim().isEmpty()) {
-                    emitTeamAgentResult(ctx, teamAgent.respond(text, view), view.getPhaseId());
+                    emitTeamAgentResult(ctx,
+                            runConceptToolRounds(ctx, teamAgent.respond(text, view), view),
+                            view.getPhaseId());
                 }
             }
         } else {
-            emitTeamAgentResult(ctx, teamAgent.respond(text, view), view.getPhaseId());
+            emitTeamAgentResult(ctx,
+                    runConceptToolRounds(ctx, teamAgent.respond(text, view), view),
+                    view.getPhaseId());
         }
         return cancelled.get()
                 ? new AcpSchema.PromptResponse(AcpSchema.StopReason.CANCELLED)
@@ -1146,6 +1172,111 @@ public final class ResearchAgentMain {
      * {@code readyForBrief} flag, no proceed-word analysis and no auto-emitted scope proposal here; the
      * user owns every transition.</p>
      */
+    /**
+     * The Konzeptpapier TOOL-ROUND loop of one user turn (K2b): while the model's answer carries a
+     * {@code conceptAction}, execute it on the host's synchronous MCP lane and run a follow-up
+     * inference with the typed feedback (TOOL_RESULT / TOOL_APPLIED / TOOL_REJECTED). Only the
+     * FINAL result reaches {@code emitTeamAgentResult}; every loop step leaves a technical log
+     * line. Without concept tools (older host) the initial result passes through untouched.
+     */
+    private com.aresstack.askai.research.runtime.team.TeamAgentResult runConceptToolRounds(
+            final SyncPromptContext ctx,
+            com.aresstack.askai.research.runtime.team.TeamAgentResult initial,
+            final com.aresstack.askai.research.runtime.team.TeamAgentStateView view) {
+        if (!conceptToolsAvailable) {
+            return initial;
+        }
+        return com.aresstack.askai.research.runtime.team.ConceptToolRounds.run(initial,
+                new com.aresstack.askai.research.runtime.team.ConceptToolRounds.FollowUpTurn() {
+                    public com.aresstack.askai.research.runtime.team.TeamAgentResult run(
+                            String feedbackInstruction) {
+                        // Machinery instruction, real conversation context — same seam the
+                        // review turns use; the instruction never enters the history as user text.
+                        return teamAgent.internalTurn(feedbackInstruction, view);
+                    }
+                },
+                new com.aresstack.askai.research.runtime.team.ConceptToolRounds.ConceptTool() {
+                    public String call(com.aresstack.askai.research.runtime.team.ConceptAction action)
+                            throws com.aresstack.askai.research.runtime.loop.ToolInvoker.ToolFailure,
+                            com.aresstack.askai.research.runtime.loop.ToolInvoker.EndpointUnavailable {
+                        return conceptToolCall(action);
+                    }
+                },
+                conceptMaxToolRounds, conceptMaxRepairAttempts,
+                new com.aresstack.askai.research.runtime.team.ConceptToolRounds.Trace() {
+                    public void line(String message) {
+                        ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
+                                .log("concept " + message));
+                    }
+                });
+    }
+
+    /**
+     * One synchronous concept tool call over the research MCP client, with the same error mapping
+     * as {@code SolonToolInvoker}: handler errors / our textual error contract → ToolFailure (the
+     * diagnostic travels IN the message, back to the model); connect/timeout → EndpointUnavailable.
+     */
+    private String conceptToolCall(com.aresstack.askai.research.runtime.team.ConceptAction action)
+            throws com.aresstack.askai.research.runtime.loop.ToolInvoker.ToolFailure,
+            com.aresstack.askai.research.runtime.loop.ToolInvoker.EndpointUnavailable {
+        java.util.Map<String, Object> args = new java.util.LinkedHashMap<String, Object>();
+        String toolName;
+        switch (action.getType()) {
+            case READ:
+                toolName = "concept_read";
+                if (!action.getPath().isEmpty()) {
+                    args.put("path", action.getPath());
+                }
+                if (action.getDepth() > 0) {
+                    args.put("depth", String.valueOf(action.getDepth()));
+                }
+                break;
+            case UPDATE:
+                toolName = "concept_update";
+                args.put("handle", action.getHandle());
+                args.put("branch_json", action.getBranchJson());
+                if (action.isAllowRemovals()) {
+                    args.put("allow_removals", "true");
+                }
+                break;
+            default:
+                toolName = "concept_remove";
+                args.put("handle", action.getHandle());
+        }
+        try {
+            String text = String.valueOf(researchMcp.callTool(toolName, args));
+            if (text.startsWith("Tool failed:") || text.startsWith("Not allowed")) {
+                throw new com.aresstack.askai.research.runtime.loop.ToolInvoker.ToolFailure(text);
+            }
+            return text;
+        } catch (com.aresstack.askai.research.runtime.loop.ToolInvoker.ToolFailure ex) {
+            throw ex;
+        } catch (RuntimeException ex) {
+            String message = ex.getMessage() == null ? ex.toString() : ex.getMessage();
+            if (message.contains("Connection") || message.contains("connect")
+                    || message.contains("Timeout") || message.contains("timeout")) {
+                throw new com.aresstack.askai.research.runtime.loop.ToolInvoker
+                        .EndpointUnavailable(message);
+            }
+            throw new com.aresstack.askai.research.runtime.loop.ToolInvoker.ToolFailure(message);
+        }
+    }
+
+    /** An integer env hand-off: unset/invalid → the documented default (logged, never fatal). */
+    private static int envInt(String name, int fallback) {
+        String value = System.getenv(name);
+        if (value == null || value.trim().isEmpty()) {
+            return fallback;
+        }
+        try {
+            int parsed = Integer.parseInt(value.trim());
+            return parsed > 0 ? parsed : fallback;
+        } catch (NumberFormatException invalid) {
+            System.err.println("[research-agent] ignoring invalid " + name + "=" + value.trim());
+            return fallback;
+        }
+    }
+
     private void emitTeamAgentResult(SyncPromptContext ctx,
             com.aresstack.askai.research.runtime.team.TeamAgentResult result, String phaseId) {
         // A failure line is as visible as an answer: it follows the session language, not a hard-coded one.

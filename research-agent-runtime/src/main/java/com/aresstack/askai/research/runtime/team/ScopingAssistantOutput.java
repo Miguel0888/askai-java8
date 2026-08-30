@@ -29,6 +29,10 @@ public final class ScopingAssistantOutput implements PhaseAssistantOutput {
     private final PhaseAdvice advice;
     /** What this turn proposes to CHANGE about the host-held scope; null when it proposes nothing. */
     private final ScopeUpdateDocument scopeUpdate;
+    /** The ONE concept tool step of this inference (Konzeptpapier), or null. */
+    private final ConceptAction conceptAction;
+    /** Why a present conceptAction was malformed (goes back to the model), or null. */
+    private final String conceptActionError;
 
     public ScopingAssistantOutput(String assistantMessage, String researchBriefMarkdown,
                                   List<SearchSuggestion> searchSuggestions, PhaseAdvice advice) {
@@ -38,6 +42,14 @@ public final class ScopingAssistantOutput implements PhaseAssistantOutput {
     public ScopingAssistantOutput(String assistantMessage, String researchBriefMarkdown,
                                   List<SearchSuggestion> searchSuggestions, PhaseAdvice advice,
                                   ScopeUpdateDocument scopeUpdate) {
+        this(assistantMessage, researchBriefMarkdown, searchSuggestions, advice, scopeUpdate,
+                ConceptAction.Parsed.absent());
+    }
+
+    public ScopingAssistantOutput(String assistantMessage, String researchBriefMarkdown,
+                                  List<SearchSuggestion> searchSuggestions, PhaseAdvice advice,
+                                  ScopeUpdateDocument scopeUpdate,
+                                  ConceptAction.Parsed conceptAction) {
         if (assistantMessage == null || assistantMessage.trim().isEmpty()) {
             throw new IllegalArgumentException("assistantMessage must not be blank");
         }
@@ -53,6 +65,18 @@ public final class ScopingAssistantOutput implements PhaseAssistantOutput {
                 : Collections.unmodifiableList(new ArrayList<SearchSuggestion>(searchSuggestions));
         this.advice = advice == null ? PhaseAdvice.neutral() : advice;
         this.scopeUpdate = scopeUpdate;
+        this.conceptAction = conceptAction == null ? null : conceptAction.getAction();
+        this.conceptActionError = conceptAction == null ? null : conceptAction.getError();
+    }
+
+    /** The ONE concept tool step this inference requests, or {@code null} (a finished turn). */
+    public ConceptAction getConceptAction() {
+        return conceptAction;
+    }
+
+    /** The malformed-action reason (fed back as a rejection), or {@code null}. */
+    public String getConceptActionError() {
+        return conceptActionError;
     }
 
     /** The proposed scope changes, or {@code null} when this turn changes nothing about the scope. */
