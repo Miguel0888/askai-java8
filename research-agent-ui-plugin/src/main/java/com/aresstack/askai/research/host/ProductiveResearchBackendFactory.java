@@ -582,6 +582,24 @@ public final class ProductiveResearchBackendFactory {
                                     : holder[0].controlContext().statusLine();
                         }
 
+                        // The Konzeptpapier service MUST be delegated explicitly: the interface
+                        // default is null, and a null service silently removes every concept tool
+                        // from the published set (the live-gate found exactly this — the runtime
+                        // logged conceptTools=false although host and runtime were both current).
+                        @Override
+                        public com.aresstack.askai.research.concept.ConceptBranchService
+                                conceptBranchService() {
+                            return holder[0] == null ? null
+                                    : holder[0].controlContext().conceptBranchService();
+                        }
+
+                        @Override
+                        public void onConceptChanged(long newWorkingRevision) {
+                            if (holder[0] != null) {
+                                holder[0].controlContext().onConceptChanged(newWorkingRevision);
+                            }
+                        }
+
                         // The review bounds are the USER's settings (this factory carries them); the
                         // delegate's defaults would silently ignore a configured value.
                         @Override
