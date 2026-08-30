@@ -509,6 +509,9 @@ public final class ChatComposerPanel extends JPanel {
     public static JButton createSidebarToggleButton() {
         ComposerButton button = new ComposerButton(new MenuIcon(), null, false);
         configureButton(button, "Chats & tools sidebar");
+        // Latched (menu pinned open) it fills with the DARK "New Chat" accent, not blue — the
+        // same near-black the phase selector and the active ribbon entry speak.
+        button.setAccent(com.aresstack.comiccontrols.theme.ResearchUiPalette.SECONDARY_SURFACE);
         button.setPreferredSize(new Dimension(30, 28));
         return button;
     }
@@ -561,6 +564,8 @@ public final class ChatComposerPanel extends JPanel {
     /** One entry of the unfolding sidebar tab ribbon, in the composer's Java2D button style. */
     public static JButton createRibbonEntryButton(String text, boolean active) {
         ComposerButton button = new ComposerButton(null, text, false);
+        // The ACTIVE entry fills with the dark "New Chat" accent (shared with burger + phase pill).
+        button.setAccent(com.aresstack.comiccontrols.theme.ResearchUiPalette.SECONDARY_SURFACE);
         button.setEmphasized(active);
         configureButton(button, text);
         return button;

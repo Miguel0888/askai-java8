@@ -24,8 +24,9 @@ import java.util.Map;
 
 /**
  * The research PHASE SELECTOR in the workspace top bar (the old Websuche spot): ONE pill control —
- * painted lab-flask glyph, phase text and chevron together — in THE AskAI accent blue of the active
- * navigation ({@link ResearchUiPalette#ACCENT_BLUE}), not the Figma purple. It is deliberately NOT a second state
+ * painted lab-flask glyph, phase text and chevron together — in the DARK "New Chat" accent
+ * ({@link ResearchUiPalette#SECONDARY_SURFACE}), shared with the hamburger and the active ribbon
+ * entry. It is deliberately NOT a second state
  * mechanism: the dropdown renders {@link ResearchStateSnapshot#getPhaseOrder()}, a selectable entry
  * exists exactly where {@link ResearchStateSnapshot#advanceCommandFor} names an allowed USER
  * command, and a click runs that command through {@link ResearchAgentSession#executeCommand} — the
@@ -82,11 +83,12 @@ public final class ResearchPhaseToolbarContribution implements AgentToolbarContr
                 ResearchUiMetrics.PHASE_PILL_PADDING_LEFT,
                 ResearchUiMetrics.PHASE_PILL_PADDING_RIGHT);
         pill.setFont(ResearchUiTypography.regular(14f));
-        // THE existing AskAI navigation blue — hover slightly lighter, pressed/open slightly darker.
-        pill.setFills(ResearchUiPalette.ACCENT_BLUE,
-                ResearchUiPainter.mix(ResearchUiPalette.ACCENT_BLUE, java.awt.Color.WHITE, 0.15f),
-                ResearchUiPainter.mix(ResearchUiPalette.ACCENT_BLUE, java.awt.Color.BLACK, 0.15f));
-        pill.setPillForeground(java.awt.Color.WHITE);
+        // The DARK "New Chat" family (SECONDARY_SURFACE) instead of blue — one near-black accent
+        // shared with the hamburger and the active ribbon entry; hover/open lift it slightly.
+        pill.setFills(ResearchUiPalette.SECONDARY_SURFACE, ResearchUiPalette.SECONDARY_HOVER,
+                ResearchUiPainter.mix(ResearchUiPalette.SECONDARY_HOVER, java.awt.Color.WHITE,
+                        0.06f));
+        pill.setPillForeground(ResearchUiPalette.TEXT_PRIMARY);
         pill.setLeadingIcon(new FlaskIcon());
         pill.setToolTipText("Research-Phase (Wechsel läuft über den regulären Workflow)");
 
@@ -189,7 +191,7 @@ public final class ResearchPhaseToolbarContribution implements AgentToolbarContr
         public void paintIcon(java.awt.Component component, Graphics graphics, int x, int y) {
             Graphics2D g2 = ResearchUiPainter.prepare(graphics);
             try {
-                g2.setColor(java.awt.Color.WHITE);
+                g2.setColor(ResearchUiPalette.TEXT_PRIMARY);
                 g2.setStroke(new BasicStroke(1.7f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
                 // Neck (two verticals), shoulders flaring out, flat bottom — the classic flask.
                 Path2D.Float flask = new Path2D.Float();
