@@ -390,17 +390,25 @@ public final class WebSearchApplicationService {
                 listener.status("[web-search] technical failure stage=SEED_SEARCH cause=" + describe(ex));
                 progress.error();
                 seedFailed = true;
+                // The THROW left initialStatus on its NO_RESULTS initializer — record the truth, or an
+                // empty frontier below reads as an honest "no relevant results": green check, no retry,
+                // although not a single page was ever searched.
+                initialStatus =
+                        com.aresstack.askai.research.runtime.search.InitialSearchStatus.TECHNICAL_PROBLEM;
             } catch (RuntimeException ex) {
                 if (noteIfBrowserClosed(ex)) {
                     return ResearchStopReason.USER_CANCELLED;
                 }
                 // A malformed prepare/apply payload (codec DecodeException) must not crash the loop —
-                // it is a tool-level failure; the run continues with an empty frontier (the error budget
-                // and NO_RELEVANT_PATHS handle it as before).
+                // it is a tool-level failure. Recorded as a TECHNICAL initial status: with an empty
+                // frontier the run then ends as SEARCH_TECHNICAL_PROBLEM (visible failure + retry),
+                // never as a fake "no relevant results" success.
                 listener.status("[web-search] technical failure stage=SEED_SEARCH_PREPARE cause="
                         + describe(ex));
                 progress.error();
                 seedFailed = true;
+                initialStatus =
+                        com.aresstack.askai.research.runtime.search.InitialSearchStatus.TECHNICAL_PROBLEM;
             }
             if (seedFailed || seedStop != null || cancelled.get() || browserClosedByUser
                     || !frontier.isEmpty() || challengedFamilies.isEmpty() || !challengeWaitForUser) {
