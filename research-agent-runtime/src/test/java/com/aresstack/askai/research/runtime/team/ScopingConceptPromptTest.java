@@ -45,8 +45,10 @@ public class ScopingConceptPromptTest {
         assertTrue(with.contains("\"esp32-setup\""));
         assertFalse("the both-channels demand is gone for good",
                 with.contains("BOTH artifacts in the SAME answer"));
-        // Mission is HOST bookkeeping now — the prompt must not beg for setMission anymore.
+        // Mission is HOST bookkeeping now — the contract does not even mention setMission.
         assertTrue(with.contains("recorded AUTOMATICALLY from the user's first message"));
+        assertFalse("gate 5: the model tried 'setMission without mission' although the host had"
+                + " already seeded it", with.contains("setMission"));
         assertTrue(with.contains("Task Notifications"));
         assertTrue(with.contains("{\"type\":\"none\"}"));
         assertTrue("no handle field in the model contract", !with.contains("\"handle\""));
@@ -71,8 +73,9 @@ public class ScopingConceptPromptTest {
         // facetId (gate 2: excludeFacet/addFacet arrived without one and the exclusion never
         // reached the Weidezaun); advisory suggestions must carry a NON-EMPTY label+query
         // (gate 1: an empty label once poisoned a whole scope turn).
-        assertTrue(schema.contains("\"enum\":[\"setMission\",\"addFacet\",\"confirmFacet\","
-                + "\"excludeFacet\""));
+        assertTrue(schema.contains("\"enum\":[\"addFacet\",\"confirmFacet\",\"excludeFacet\""));
+        // Gate 5: mission is host bookkeeping — the model cannot even emit setMission anymore.
+        assertFalse(schema.contains("setMission"));
         // Gate 3: minLength alone let prompt placeholders become canonical facets — the id
         // shape is pinned in the grammar (and re-checked by the runtime for engines that
         // ignore 'pattern').

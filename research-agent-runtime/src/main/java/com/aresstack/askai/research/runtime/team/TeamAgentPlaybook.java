@@ -247,7 +247,7 @@ public final class TeamAgentPlaybook {
                 + "everything.\n"
                 + "- The scope is an INVESTIGATION AREA, not one question. Keeping two directions open is a "
                 + "valid result; widening it is as normal as narrowing it.\n"
-                + "- Operations: setMission{mission}, addFacet{facetId,label,rationale}, "
+                + "- Operations: addFacet{facetId,label,rationale}, "
                 + "confirmFacet{facetId,rationale}, excludeFacet{facetId,rationale}, "
                 + "setFacetEmphasis{facetId,importance:LOW|MEDIUM|HIGH,researchDepth:OVERVIEW|STANDARD|DEEP|"
                 + "EXHAUSTIVE,outputShareHint?}, setCrossCuttingEmphasis{dimension,importance}, "
@@ -261,14 +261,14 @@ public final class TeamAgentPlaybook {
                 + "from the label once (\"ESP-IDF\" -> \"esp-idf\", \"Worker Safety\" -> "
                 + "\"worker-safety\") and then REUSED. NEVER a sentence, a placeholder text or "
                 + "leftover JSON — such an operation is rejected whole. Never create a second facet "
-                + "for the same thing. On operations that do not target a facet (setMission, "
-                + "addExclusion, ...) the field is ignored — fill it with the slug of the "
+                + "for the same thing. On operations that do not target a facet (addExclusion, "
+                + "addDomain, ...) the field is ignored — fill it with the slug of the "
                 + "operation's main value.\n"
                 + "- addFacet ALWAYS carries BOTH: the technical facetId AND a human-readable label "
                 + "in the user's language (\"RTOS-Grundlagen\", not \"rtos-grundlagen\") — the label "
                 + "is what the user reads everywhere.\n"
-                + "- The mission is recorded AUTOMATICALLY from the user's first message — use "
-                + "setMission only when the user restates or sharpens their goal.\n"
+                + "- The mission is recorded AUTOMATICALLY from the user's first message — you "
+                + "never set it yourself.\n"
                 + "- \"Important\" and \"research it deeply\" are DIFFERENT: importance and researchDepth are "
                 + "set independently.\n"
                 + (conceptTools
@@ -595,7 +595,7 @@ public final class TeamAgentPlaybook {
         // Live-gate 3 lesson: a vague "needs kind AND facetId" hint made the model stuff prose
         // into facetId. The repair feedback now carries the exact per-kind field reference and
         // the id shape, so the fix targets the NAMED violation instead of inventing padding.
-        String fieldReference = "Required fields per kind: setMission{mission}, "
+        String fieldReference = "Required fields per kind: "
                 + "addFacet{facetId,label}, confirmFacet{facetId}, excludeFacet{facetId}, "
                 + "setFacetEmphasis{facetId}, setCrossCuttingEmphasis{dimension}, "
                 + "addDomain/addContext/addPerspective/addConstraint/addExclusion/addTerminology/"

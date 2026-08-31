@@ -70,7 +70,7 @@ public final class ScopingPhaseOutputContract implements PhaseOutputContract {
                 + "\"scopePatch\":{\"type\":\"object\",\"properties\":{"
                 + "\"operations\":{\"type\":\"array\",\"maxItems\":8,\"items\":"
                 + "{\"type\":\"object\",\"properties\":{\"kind\":{\"type\":\"string\","
-                + "\"enum\":[\"setMission\",\"addFacet\",\"confirmFacet\",\"excludeFacet\","
+                + "\"enum\":[\"addFacet\",\"confirmFacet\",\"excludeFacet\","
                 + "\"setFacetEmphasis\",\"setCrossCuttingEmphasis\",\"setDeliverable\","
                 + "\"addDomain\",\"addContext\",\"addPerspective\",\"addConstraint\","
                 + "\"addExclusion\",\"addTerminology\",\"setGeographicScope\","

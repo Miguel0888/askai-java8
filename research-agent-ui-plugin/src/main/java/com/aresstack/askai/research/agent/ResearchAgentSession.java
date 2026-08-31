@@ -2760,9 +2760,17 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         reply.addProperty("result", "EXCLUDED");
         reply.addProperty("facetId", facetId);
         reply.addProperty("label", label);
+        // The DETERMINISTIC user-facing sentence (gate 5): the exclusion is a terminal turn
+        // action — the runtime answers from THIS text, no further model inference invents a
+        // contradiction ("keine dauerhaften Änderungen" over a committed blacklist entry).
+        boolean german = playbook.isGerman();
+        StringBuilder userMessage = new StringBuilder(german
+                ? "„" + label + "“ wurde ausgeschlossen und wird bei der Recherche unterdrückt."
+                : "\"" + label + "\" has been excluded and will be suppressed during research.");
         java.util.List<String> conflictPath = conceptConflictPathOf(label);
         if (conflictPath == null) {
             reply.addProperty("requiredResponse", "NONE");
+            reply.addProperty("userMessage", userMessage.toString());
             return reply.toString();
         }
         String conflictId = "conflict-" + conflictIds.incrementAndGet();
@@ -2776,6 +2784,17 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         conflict.add("path", pathArray);
         reply.add("conceptConflict", conflict);
         reply.addProperty("requiredResponse", "INFORM_AND_ASK_REMOVE");
+        String parent = conflictPath.size() >= 2 ? conflictPath.get(conflictPath.size() - 2) : null;
+        userMessage.append(german
+                ? (parent == null
+                        ? " Der Begriff steht außerdem noch auf oberster Ebene im Konzept."
+                        : " Der Begriff steht außerdem noch im Konzept unter „" + parent + "“.")
+                        + " Soll er dort ebenfalls entfernt werden?"
+                : (parent == null
+                        ? " The term also still sits at the top level of the concept."
+                        : " The term also still appears in the concept under \"" + parent + "\".")
+                        + " Should it be removed there as well?");
+        reply.addProperty("userMessage", userMessage.toString());
         technicalLog("exclude_topic -> concept conflict " + conflictId + " at " + conflictPath);
         return reply.toString();
     }
@@ -2788,10 +2807,15 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                     + "reported (it is single-use).";
         }
         com.google.gson.JsonObject reply = new com.google.gson.JsonObject();
+        boolean german = playbook.isGerman();
         if ("KEEP_SUPPRESSED".equalsIgnoreCase(decision)) {
             conceptConflicts.remove(conflictId);
             technicalLog("resolve_concept_conflict " + conflictId + " -> KEPT_SUPPRESSED");
             reply.addProperty("result", "KEPT_SUPPRESSED");
+            reply.addProperty("userMessage", german
+                    ? "Der Eintrag bleibt im Konzept stehen; die Recherche dazu bleibt "
+                            + "unterdrückt."
+                    : "The entry stays in the concept; research on it remains suppressed.");
             return reply.toString();
         }
         if (!"REMOVE".equalsIgnoreCase(decision)) {
@@ -2815,6 +2839,11 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             pathArray.add(segment);
         }
         reply.add("path", pathArray);
+        reply.addProperty("userMessage", german
+                ? "Der Eintrag „" + path.get(path.size() - 1) + "“ wurde aus dem Konzept "
+                        + "entfernt."
+                : "The entry \"" + path.get(path.size() - 1) + "\" has been removed from the "
+                        + "concept.");
         return reply.toString();
     }
 

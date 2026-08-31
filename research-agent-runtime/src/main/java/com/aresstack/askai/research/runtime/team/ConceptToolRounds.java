@@ -127,6 +127,22 @@ public final class ConceptToolRounds {
                 trace.line("round " + rounds + ": " + action.describe());
                 try {
                     String text = tool.call(action);
+                    if (action.getType() == ConceptAction.Type.EXCLUDE
+                            || action.getType() == ConceptAction.Type.RESOLVE) {
+                        // TERMINAL (gate 5): one command, one effect, TURN OVER. The visible
+                        // answer is the platform's deterministic receipt sentence — a further
+                        // inference once contradicted the committed blacklist entry ("keine
+                        // dauerhaften Änderungen" right after EXCLUDED was persisted).
+                        trace.line("round " + rounds + " -> "
+                                + (action.getType() == ConceptAction.Type.EXCLUDE
+                                        ? "EXCLUDED" : "RESOLVED") + " (terminal)");
+                        if (intermediateSink != null) {
+                            // Whatever else the turn proposed (scopePatch, suggestions) is
+                            // emitted before its output is replaced by the receipt answer.
+                            intermediateSink.intermediate(output);
+                        }
+                        return receiptResult(text, result);
+                    }
                     if (action.getType() == ConceptAction.Type.READ) {
                         trace.line("round " + rounds + " -> RESULT");
                         feedback = TeamAgentPlaybook.conceptToolResult(text, germanFeedback);
@@ -187,6 +203,45 @@ public final class ConceptToolRounds {
                     rejected, currentConcept, germanFeedback) + feedback);
         }
         return result;
+    }
+
+    /**
+     * The final result of a terminal EXCLUDE/RESOLVE: a synthetic output whose visible message
+     * is the receipt's {@code userMessage} (host-authored, session language) — never model
+     * prose. When the receipt carries no such field (older host), the previous result stands
+     * unchanged rather than showing raw JSON to the user.
+     */
+    private static TeamAgentResult receiptResult(String receiptJson, TeamAgentResult fallback) {
+        String userMessage = null;
+        try {
+            Object parsed = com.aresstack.askai.agent.model.reranker.MiniJson.parse(receiptJson);
+            if (parsed instanceof java.util.Map) {
+                Object message = ((java.util.Map<?, ?>) parsed).get("userMessage");
+                if (message instanceof String && !((String) message).trim().isEmpty()) {
+                    userMessage = ((String) message).trim();
+                }
+            }
+        } catch (RuntimeException notJson) {
+            userMessage = null;
+        }
+        if (userMessage == null) {
+            return fallback;
+        }
+        StringBuilder json = new StringBuilder("{\"assistantMessage\":\"");
+        for (int index = 0; index < userMessage.length(); index++) {
+            char character = userMessage.charAt(index);
+            if (character == '"' || character == '\\') {
+                json.append('\\').append(character);
+            } else if (character == '\n') {
+                json.append("\\n");
+            } else {
+                json.append(character);
+            }
+        }
+        json.append("\"}");
+        ScopingAssistantOutputParser.Result synthetic =
+                ScopingAssistantOutputParser.parse(json.toString());
+        return synthetic.isOk() ? TeamAgentResult.ok(synthetic.getOutput(), null) : fallback;
     }
 
     /** The whole-concept read used to ground the receipts in the persisted state. */

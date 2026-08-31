@@ -290,32 +290,53 @@ public class ConceptToolRoundsTest {
     }
 
     /**
-     * The ONE-command exclusion facade (live-gate 4): an exclude action is a regular mutation
-     * round — the structured tool reply (with the conflict question) becomes the feedback the
-     * model answers the user from.
+     * The ONE-command exclusion facade is TERMINAL (gate 5): one command, one effect, turn over.
+     * The visible answer is the host's deterministic receipt sentence — no further inference
+     * ever gets the chance to contradict the committed blacklist entry ("keine dauerhaften
+     * Änderungen" right after EXCLUDED was persisted).
      */
     @Test
-    public void anExcludeActionCallsTheFacadeAndFeedsTheStructuredReplyBack() throws Exception {
+    public void anExcludeActionIsTerminalAndAnswersFromTheReceipt() throws Exception {
         ScriptedTurns turns = new ScriptedTurns();
         ScriptedTool tool = new ScriptedTool();
         tool.byDescription.put("exclude topic=\"ESP-IDF\"",
                 "{\"result\":\"EXCLUDED\",\"facetId\":\"esp-idf\",\"label\":\"ESP-IDF\","
                         + "\"conceptConflict\":{\"conflictId\":\"conflict-1\","
                         + "\"path\":[\"ESP32 und FreeRTOS Setup\",\"ESP-IDF\"]},"
-                        + "\"requiredResponse\":\"INFORM_AND_ASK_REMOVE\"}");
-        turns.script.add(turn("ESP-IDF ist jetzt unterdrückt — soll ich es auch aus dem "
-                + "Konzept entfernen?", null));
+                        + "\"requiredResponse\":\"INFORM_AND_ASK_REMOVE\","
+                        + "\"userMessage\":\"„ESP-IDF“ wurde ausgeschlossen und wird bei der "
+                        + "Recherche unterdrückt. Soll der Konzept-Eintrag entfernt werden?\"}");
 
         TeamAgentResult result = ConceptToolRounds.run(
                 turn("schließe aus", "{\"type\":\"exclude\",\"topic\":\"ESP-IDF\"}"),
                 turns, tool, 4, 2, false, null, traceSink);
 
-        assertEquals("the facade call, then the usual grounding re-read",
-                "exclude topic=\"ESP-IDF\"", tool.calls.get(0));
-        assertTrue("the structured reply reaches the model as feedback",
-                turns.feedbackSeen.get(0).contains("INFORM_AND_ASK_REMOVE"));
-        assertTrue(((ScopingAssistantOutput) result.getOutput()).getAssistantMessage()
-                .contains("unterdrückt"));
+        assertEquals("ONE tool call, no grounding re-read, no follow-up inference",
+                1, tool.calls.size());
+        assertTrue("no model turn after the terminal command", turns.feedbackSeen.isEmpty());
+        assertEquals("the visible answer IS the host's receipt sentence",
+                "„ESP-IDF“ wurde ausgeschlossen und wird bei der Recherche unterdrückt. "
+                        + "Soll der Konzept-Eintrag entfernt werden?",
+                ((ScopingAssistantOutput) result.getOutput()).getAssistantMessage());
+        assertTrue(trace.toString(), trace.toString().contains("EXCLUDED (terminal)"));
+    }
+
+    /** An older host without userMessage in the receipt: the previous result stands (no raw JSON). */
+    @Test
+    public void aReceiptWithoutAUserMessageKeepsThePreviousAnswer() throws Exception {
+        ScriptedTurns turns = new ScriptedTurns();
+        ScriptedTool tool = new ScriptedTool();
+        tool.byDescription.put("resolve conflict=\"conflict-1\" decision=REMOVE",
+                "{\"result\":\"REMOVED\"}");
+        TeamAgentResult initial = turn("wird entfernt",
+                "{\"type\":\"resolve\",\"conflictId\":\"conflict-1\",\"decision\":\"REMOVE\"}");
+
+        TeamAgentResult result = ConceptToolRounds.run(initial, turns, tool, 4, 2, false,
+                null, traceSink);
+
+        assertEquals(initial, result);
+        assertTrue(turns.feedbackSeen.isEmpty());
+        assertTrue(trace.toString(), trace.toString().contains("RESOLVED (terminal)"));
     }
 
     /** A zero repair budget never loops: the broken-patch turn passes through unrepaired. */
