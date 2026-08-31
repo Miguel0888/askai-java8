@@ -289,6 +289,66 @@ public class ConceptToolRoundsTest {
         assertTrue(trace.toString(), trace.toString().contains("scope patch REJECTED"));
     }
 
+    /**
+     * Live-gate 4: four clean facets, no setMission — the prompt rule alone did not reach the
+     * model. A substantive scope turn while the draft has no mission earns EXACTLY ONE mission
+     * repair; the original operations are emitted first (they must not vanish), the repair only
+     * asks for the missing mission.
+     */
+    @Test
+    public void aSubstantiveScopeTurnWithoutAMissionEarnsExactlyOneMissionRepair() throws Exception {
+        ScriptedTurns turns = new ScriptedTurns();
+        final List<ScopingAssistantOutput> intermediates = new ArrayList<ScopingAssistantOutput>();
+        ScopingAssistantOutputParser.Result facetsOnly = ScopingAssistantOutputParser.parse(
+                "{\"assistantMessage\":\"vier Facetten\","
+                        + "\"scopePatch\":{\"operations\":[{\"kind\":\"addFacet\","
+                        + "\"facetId\":\"rtos-grundlagen\",\"label\":\"RTOS-Grundlagen\"}]},"
+                        + "\"conceptAction\":{\"type\":\"none\"}}");
+        assertTrue(facetsOnly.isOk());
+        // The repair answer STILL carries no setMission — the single repair is not retried.
+        ScopingAssistantOutputParser.Result stillNoMission = ScopingAssistantOutputParser.parse(
+                "{\"assistantMessage\":\"ohne Mission\","
+                        + "\"scopePatch\":{\"operations\":[{\"kind\":\"addContext\","
+                        + "\"facetId\":\"pad\",\"value\":\"Einsteiger\"}]},"
+                        + "\"conceptAction\":{\"type\":\"none\"}}");
+        assertTrue(stillNoMission.isOk());
+        turns.script.add(TeamAgentResult.ok(stillNoMission.getOutput(), null));
+
+        TeamAgentResult result = ConceptToolRounds.run(
+                TeamAgentResult.ok(facetsOnly.getOutput(), null), turns, new ScriptedTool(),
+                4, 2, false,
+                new ConceptToolRounds.IntermediateSink() {
+                    public void intermediate(ScopingAssistantOutput output) {
+                        intermediates.add(output);
+                    }
+                }, traceSink, true);
+
+        assertTrue(turns.feedbackSeen.get(0).startsWith("SCOPE MISSION MISSING"));
+        assertEquals("exactly one repair — the second missionless answer is accepted",
+                1, turns.feedbackSeen.size());
+        assertEquals("the original facets were emitted before the repair",
+                1, intermediates.size());
+        assertTrue(intermediates.get(0).getScopeUpdate().toJson().contains("rtos-grundlagen"));
+        assertEquals("ohne Mission",
+                ((ScopingAssistantOutput) result.getOutput()).getAssistantMessage());
+    }
+
+    /** With a known mission (or without any scope system) the repair never fires. */
+    @Test
+    public void aKnownMissionNeverTriggersTheMissionRepair() throws Exception {
+        ScriptedTurns turns = new ScriptedTurns();
+        ScopingAssistantOutputParser.Result facetsOnly = ScopingAssistantOutputParser.parse(
+                "{\"assistantMessage\":\"ok\","
+                        + "\"scopePatch\":{\"operations\":[{\"kind\":\"addFacet\","
+                        + "\"facetId\":\"rtos-grundlagen\",\"label\":\"RTOS-Grundlagen\"}]},"
+                        + "\"conceptAction\":{\"type\":\"none\"}}");
+        assertTrue(facetsOnly.isOk());
+        TeamAgentResult initial = TeamAgentResult.ok(facetsOnly.getOutput(), null);
+        assertEquals(initial, ConceptToolRounds.run(initial, turns, new ScriptedTool(),
+                4, 2, false, null, traceSink, false));
+        assertTrue(turns.feedbackSeen.isEmpty());
+    }
+
     /** A zero repair budget never loops: the broken-patch turn passes through unrepaired. */
     @Test
     public void aBrokenScopePatchWithoutRepairBudgetPassesThroughUntouched() throws Exception {

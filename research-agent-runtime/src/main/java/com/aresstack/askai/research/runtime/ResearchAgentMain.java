@@ -1235,7 +1235,20 @@ public final class ResearchAgentMain {
                         ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
                                 .log("concept " + message));
                     }
-                });
+                },
+                scopeMissionMissing());
+    }
+
+    /**
+     * Whether the host's scope draft has NO mission yet — read off the fence's explicit marker
+     * (the fence is the ONE scope truth this process sees). Only meaningful when a fence exists
+     * at all: an old host without the scope system must never trigger mission repairs.
+     */
+    private boolean scopeMissionMissing() {
+        String fence = scopeFence.rendered();
+        return fence != null && !fence.trim().isEmpty()
+                && (fence.contains("(none yet — record the user's goal with setMission)")
+                        || fence.contains("nothing has been scoped yet"));
     }
 
     /**

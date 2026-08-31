@@ -33,6 +33,18 @@ public class ScopingConceptPromptTest {
         assertTrue(with.contains("NEVER a sentence, a placeholder text or "));
         assertTrue(with.contains("addFacet ALWAYS carries BOTH"));
         assertTrue(with.contains("setMission as soon as it is stated"));
+        // Gate 4 DECISION: an exclusion is ONE action on ONE channel — scope only, the concept
+        // is never touched by it (the both-channels demand made the model bend exclusions onto
+        // broader facets and use facet ids as concept paths).
+        assertTrue(with.contains("An EXCLUSION is SCOPE-ONLY"));
+        assertTrue(with.contains("Do NOT bend a newly named term onto a broader existing facet"));
+        assertTrue(with.contains("an exclusion never touches the concept"));
+        // Gate 4: the two identity spaces, pinned with the exact live confusion pair.
+        assertTrue(with.contains("TWO IDENTITY SPACES"));
+        assertTrue(with.contains("[\"ESP32 und FreeRTOS Setup\"]"));
+        assertTrue(with.contains("\"esp32-setup\""));
+        assertFalse("the both-channels demand is gone for good",
+                with.contains("BOTH artifacts in the SAME answer"));
         assertTrue("an exclusion is scope food, not a remove of a card that never existed",
                 with.contains("Do NOT translate an exclusion into a concept remove"));
         assertTrue(with.contains("Task Notifications"));

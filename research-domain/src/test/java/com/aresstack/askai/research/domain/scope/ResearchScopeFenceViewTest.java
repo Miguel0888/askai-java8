@@ -72,6 +72,17 @@ public class ResearchScopeFenceViewTest {
         assertTrue(view, view.contains("PSA"));
     }
 
+    /** Facets without a mission: the gap is SAID, not silently omitted — the runtime keys on it. */
+    @Test
+    public void aMissingMissionIsStatedExplicitly() {
+        ResearchScopeDraft missionless = ResearchScopeDraft.builder()
+                .putFacet(new ScopeFacet("rtos-grundlagen", "RTOS-Grundlagen",
+                        ScopeFacet.Status.PROVISIONAL, ""))
+                .build();
+        String view = ResearchScopeFenceView.render(missionless);
+        assertTrue(view, view.contains("(none yet — record the user's goal with setMission)"));
+    }
+
     @Test
     public void anEmptyScopeSaysSoInsteadOfRenderingEmptyHeadings() {
         String view = ResearchScopeFenceView.render(ResearchScopeDraft.empty());

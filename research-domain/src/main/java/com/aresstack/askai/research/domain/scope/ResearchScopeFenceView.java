@@ -23,7 +23,14 @@ public final class ResearchScopeFenceView {
             sb.append("\n(nothing has been scoped yet — this is the very beginning)\n");
             return sb.toString();
         }
-        section(sb, "MISSION", draft.getMission());
+        // A missing mission is stated EXPLICITLY (never silently omitted): live-gate 4 showed a
+        // draft with four facets and no mission — every scope check stayed WEAK, and neither the
+        // model nor the runtime could see why. This exact line is the runtime's detection marker.
+        if (draft.getMission().isEmpty()) {
+            sb.append("\nMISSION\n(none yet — record the user's goal with setMission)\n");
+        } else {
+            section(sb, "MISSION", draft.getMission());
+        }
         list(sb, "DOMAINS", draft.getDomains());
         list(sb, "CONTEXTS", draft.getContexts());
 

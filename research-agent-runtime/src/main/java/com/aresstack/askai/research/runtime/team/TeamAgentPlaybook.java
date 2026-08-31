@@ -214,7 +214,7 @@ public final class TeamAgentPlaybook {
                         : "\n")
                 + "}\n\n"
                 + (conceptTools ? conceptToolRules() : "")
-                + scopePatchContract(conceptTools)
+                + scopePatchContract()
                 + "Only assistantMessage is required. A turn that simply asks one good question — no brief, "
                 + "no suggestion, no scope change — is a COMPLETE turn.\n\n"
                 + "NEVER claim that something has been saved, stored or recorded. You PROPOSE scope "
@@ -230,10 +230,11 @@ public final class TeamAgentPlaybook {
      * The scope-change contract. The decisive rule is that the model proposes OPERATIONS on the scope the
      * application holds — never a complete scope object, because everything it failed to repeat would be
      * lost. It is also where "I don't know" becomes a legitimate, typed answer. The worked
-     * exclusion example shows the conceptAction half only when the host offers the concept tools —
-     * a flagless (old-host) prompt must not mention a field the contract does not have.
+     * exclusion example is SCOPE-ONLY by decision (live-gate 4): demanding concept AND scope in
+     * the same answer made the model bend exclusions onto broader facets and use facet ids as
+     * concept paths — one channel, one action; concept cleanup is a separate later step.
      */
-    private static String scopePatchContract(boolean conceptTools) {
+    private static String scopePatchContract() {
         return "THE SCOPE (scopePatch):\n"
                 + "- The application OWNS the research scope and shows it to you as \"CURRENT RESEARCH "
                 + "SCOPE\". You never restate it as a whole; you propose the CHANGES this turn makes. "
@@ -268,23 +269,18 @@ public final class TeamAgentPlaybook {
                 + "set independently.\n"
                 + "- An aspect the user drops is excludeFacet (with the reason), never a deletion.\n"
                 + "- FULL EXAMPLE — user says \"ESP-IDF möchte ich doch nicht behandeln, nur "
-                + "Arduino.\" That ONE sentence changes "
-                + (conceptTools ? "BOTH artifacts in the SAME answer" : "the scope") + ":\n"
+                + "Arduino.\" That ONE sentence changes the SCOPE and nothing else:\n"
                 + "    \"scopePatch\": {\"operations\": [\n"
                 + "      {\"kind\": \"excludeFacet\", \"facetId\": \"esp-idf\", "
                 + "\"rationale\": \"explicit user exclusion\"},\n"
                 + "      {\"kind\": \"confirmFacet\", \"facetId\": \"arduino\", "
                 + "\"rationale\": \"user narrowed the focus to Arduino\"}\n"
-                + "    ]}"
-                + (conceptTools
-                        ? ",\n    \"conceptAction\": {\"type\": \"add\", \"parent\": [], "
-                        + "\"name\": \"Arduino\"}\n"
-                        + "  The exclusion goes into the SCOPE (excludeFacet), the positive focus "
-                        + "becomes a concept card. Do NOT translate an exclusion into a concept "
-                        + "remove of a card that does not exist — the scope remembers what is out, "
-                        + "the concept holds what is in.\n\n"
-                        : "\n  The exclusion goes into the SCOPE (excludeFacet), never silently "
-                        + "dropped.\n\n")
+                + "    ]}\n"
+                + "  Both are NEW facets for the terms the USER named — give each its OWN id. "
+                + "Do NOT bend a newly named term onto a broader existing facet (excluding an "
+                + "existing \"esp32-setup\" here would wrongly rule out the Arduino setup too), "
+                + "and Do NOT translate an exclusion into a concept remove — an exclusion never "
+                + "touches the concept.\n\n"
                 + "WHEN YOU DO NOT KNOW (unresolvedIssues / orientationSuggestions):\n"
                 + "- If you lack the domain knowledge to draw a sensible boundary, SAY SO plainly and record "
                 + "an unresolvedIssue instead of guessing a narrow question or inventing facets.\n"
@@ -522,13 +518,17 @@ public final class TeamAgentPlaybook {
                 + "- NEVER claim a card was saved or the concept changed unless the tool answered "
                 + "APPLIED in this turn. A rejected step changed NOTHING — say so honestly or fix "
                 + "it.\n"
-                + "- A decision like \"only Arduino, not ESP-IDF\" changes BOTH artifacts in the "
-                + "SAME answer: persist the positive part as a card via conceptAction (add "
-                + "\"Arduino\" under the fitting parent; remove \"ESP-IDF\" only if it exists) "
-                + "AND record the exclusion in the scope via scopePatch (excludeFacet for an "
-                + "existing facet, else addExclusion). conceptAction and scopePatch are "
-                + "independent channels — one sentence may need both. Never pretend an exclusion "
-                + "or focus is stored when it is not.\n"
+                + "- An EXCLUSION is SCOPE-ONLY (one channel, one action): when the user rules "
+                + "something out, record it via scopePatch (excludeFacet) and leave the concept "
+                + "ALONE — no remove, no add for the excluded term. The exclusion list wins later "
+                + "as the final suppression step; cleaning the concept is a SEPARATE, later step, "
+                + "never this turn's job. Never pretend an exclusion or focus is stored when it "
+                + "is not.\n"
+                + "- TWO IDENTITY SPACES, never mixed: conceptAction path/parent segments are the "
+                + "EXACT card names from CURRENT_CONCEPT (e.g. [\"ESP32 und FreeRTOS Setup\"]); "
+                + "scopePatch facetId is the technical id from CURRENT RESEARCH SCOPE (e.g. "
+                + "\"esp32-setup\"). A facetId is NEVER a concept path segment, and a card name "
+                + "is NEVER a facetId.\n"
                 + "- The concept mirrors the CONVERSATION: add what the user asks for, propose what "
                 + "scope and sources suggest, and remove only what the user excluded.\n\n";
     }
@@ -608,6 +608,28 @@ public final class TeamAgentPlaybook {
                         + "\nFix exactly the named violations and resend the scopePatch. "
                         + "NEVER claim in your assistantMessage that an exclusion or focus is "
                         + "stored while it is not.";
+    }
+
+    /**
+     * Feedback when a substantive scope turn arrived while the draft still has NO mission
+     * (live-gate 4: four clean facets, no setMission — the prompt rule alone did not reach this
+     * model class, so the runtime enforces one repair). The scope operations of the original
+     * turn are already emitted; this asks ONLY for the missing mission.
+     */
+    public static String scopeMissionMissing(boolean german) {
+        return german
+                ? "SCOPE MISSION MISSING — der Rechercheumfang hat noch keine Mission.\n"
+                        + "Deine Scope-Änderungen sind übernommen. Sende jetzt zusätzlich ein "
+                        + "setMission: das Ziel des Nutzers in EINEM Satz, in dessen eigenen "
+                        + "Worten (z.B. {\"kind\": \"setMission\", \"facetId\": \"mission\", "
+                        + "\"mission\": \"Ein praxisnahes Buch über FreeRTOS auf dem ESP32 für "
+                        + "Einsteiger\"}). Ohne Mission bleibt jede Scope-Prüfung schwach."
+                : "SCOPE MISSION MISSING — the research scope has no mission yet.\n"
+                        + "Your scope changes were taken over. Now additionally send a "
+                        + "setMission: the user's goal in ONE sentence, in their own words "
+                        + "(e.g. {\"kind\": \"setMission\", \"facetId\": \"mission\", "
+                        + "\"mission\": \"Ein praxisnahes Buch über FreeRTOS auf dem ESP32 für "
+                        + "Einsteiger\"}). Without a mission every scope check stays weak.";
     }
 
     /**
