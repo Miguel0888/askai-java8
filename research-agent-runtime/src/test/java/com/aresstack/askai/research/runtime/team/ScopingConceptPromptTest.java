@@ -49,6 +49,10 @@ public class ScopingConceptPromptTest {
         assertTrue(with.contains("\"esp32-setup\""));
         assertFalse("the both-channels demand is gone for good",
                 with.contains("BOTH artifacts in the SAME answer"));
+        // The suggestions field starved under the generation-time grammar (optional fields lose
+        // against required ones) — the worked example is the lever this model class follows.
+        assertTrue(with.contains("\"query\": \"FreeRTOS ESP32 Grundlagen Tutorial\""));
+        assertTrue(with.contains("they are HOW the user explores"));
         // Mission is HOST bookkeeping now — the contract does not even mention setMission.
         assertTrue(with.contains("recorded AUTOMATICALLY from the user's first message"));
         assertFalse("gate 5: the model tried 'setMission without mission' although the host had"

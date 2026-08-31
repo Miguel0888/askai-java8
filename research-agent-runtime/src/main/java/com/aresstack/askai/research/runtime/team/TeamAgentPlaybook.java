@@ -177,6 +177,22 @@ public final class TeamAgentPlaybook {
                         : "- Offer a SEARCH SUGGESTION only when a lookup would genuinely help right now. "
                         + "Zero suggestions is a perfectly normal turn — never invent one to fill the "
                         + "field.\n")
+                // Live-gate finding: since the generation-time grammar the model took the shortest
+                // path and stopped filling the OPTIONAL suggestions field entirely — this model
+                // class copies WORKED EXAMPLES, so the contract shows one.
+                + "- FULL EXAMPLE — broad first topic \"FreeRTOS auf dem ESP32\": besides your "
+                + "answer you would offer\n"
+                + "    \"searchSuggestions\": [\n"
+                + "      {\"query\": \"FreeRTOS ESP32 Grundlagen Tutorial\", \"purpose\": "
+                + "\"Einstieg und Grundbegriffe sichten\"},\n"
+                + "      {\"query\": \"FreeRTOS task scheduling ESP32\", \"purpose\": "
+                + "\"Kernmechanik verstehen\"},\n"
+                + "      {\"query\": \"ESP32 Arduino FreeRTOS Praxisprojekte\", \"purpose\": "
+                + "\"Praxisbeispiele sammeln\"}\n"
+                + "    ]\n"
+                + "  Each query opens a DIFFERENT direction of the area; the user clicks one to "
+                + "look around. The application shows them as clickable tags — they are HOW the "
+                + "user explores before deciding.\n"
                 + "- Do NOT produce any diagram, chart or visualization — the research brief and search "
                 + "suggestions are your job; visualization is handled separately.\n"
                 + "- You may add an advisory recommendation to stay or continue, but it is ONLY advice; the "
