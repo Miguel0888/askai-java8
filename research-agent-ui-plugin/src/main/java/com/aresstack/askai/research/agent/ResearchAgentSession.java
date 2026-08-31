@@ -2788,8 +2788,6 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             return reply.toString();
         }
         technicalLog("exclude_topic -> EXCLUDED id=" + facetId + " label=\"" + label + "\"");
-        publishScopeFence();
-        fireStateChanged();
         reply.addProperty("result", "EXCLUDED");
         reply.addProperty("facetId", facetId);
         reply.addProperty("label", label);
@@ -2802,12 +2800,20 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 : "\"" + label + "\" has been excluded and will be suppressed during research.");
         java.util.List<String> conflictPath = conceptConflictPathOf(label);
         if (conflictPath == null) {
+            // Fence republish AFTER the (absent) conflict registration — order matters, see below.
+            publishScopeFence();
+            fireStateChanged();
             reply.addProperty("requiredResponse", "NONE");
             reply.addProperty("userMessage", userMessage.toString());
             return reply.toString();
         }
         String conflictId = "conflict-" + conflictIds.incrementAndGet();
         conceptConflicts.put(conflictId, conflictPath);
+        // Register the conflict BEFORE republishing the fence (gate-6 rerun finding): the old
+        // order published a conflict-free fence in the exclude turn itself, so the OPEN CONCEPT
+        // CONFLICT block only appeared one publish later.
+        publishScopeFence();
+        fireStateChanged();
         com.google.gson.JsonObject conflict = new com.google.gson.JsonObject();
         conflict.addProperty("conflictId", conflictId);
         com.google.gson.JsonArray pathArray = new com.google.gson.JsonArray();
@@ -2899,6 +2905,34 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         fireStateChanged();
         return "handled: conflict " + conflictId
                 + (remove ? " -> removed from the concept" : " -> kept (suppressed)");
+    }
+
+    /**
+     * The fence's OPEN CONCEPT CONFLICT block (empty string without conflicts) — extracted so a
+     * test can PROVE the follow-up turn's prompt carries the conflictId and the exact resolve
+     * operation (GPT's gate-6 pin: the model must find both in its context, never invent them).
+     */
+    static String openConflictBlock(java.util.Map<String, java.util.List<String>> conflicts) {
+        if (conflicts.isEmpty()) {
+            return "";
+        }
+        StringBuilder open = new StringBuilder();
+        open.append("\nOPEN CONCEPT CONFLICT — you already asked the user whether the "
+                + "excluded topic should ALSO be removed from the concept; interpret their "
+                + "next answer against that question:\n");
+        synchronized (conflicts) {
+            for (java.util.Map.Entry<String, java.util.List<String>> conflict
+                    : conflicts.entrySet()) {
+                open.append("- conflictId \"").append(conflict.getKey()).append("\": card \"")
+                        .append(conflict.getValue().get(conflict.getValue().size() - 1))
+                        .append("\" is still in the concept\n");
+            }
+        }
+        open.append("If the user AGREES to the removal, answer with EXACTLY "
+                + "{\"type\": \"resolve\", \"conflictId\": \"<id from above>\", "
+                + "\"decision\": \"REMOVE\"}; if they DECLINE, use decision "
+                + "\"KEEP_SUPPRESSED\". No other action in that turn.\n");
+        return open.toString();
     }
 
     /** The receipt's user-facing sentence, or {@code null} when the reply is no such JSON. */
@@ -3012,23 +3046,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         // Gate-6 fix: the exclude turn is TERMINAL, so the model never saw the tool receipt —
         // without this block it cannot know the conflictId when the user answers the removal
         // question. The fence (the model's per-turn scope truth) carries every open conflict.
-        if (!conceptConflicts.isEmpty()) {
-            StringBuilder open = new StringBuilder(fence);
-            open.append("\nOPEN CONCEPT CONFLICT — you already asked the user whether the "
-                    + "excluded topic should ALSO be removed from the concept; interpret their "
-                    + "next answer against that question:\n");
-            for (java.util.Map.Entry<String, java.util.List<String>> conflict
-                    : conceptConflicts.entrySet()) {
-                open.append("- conflictId \"").append(conflict.getKey()).append("\": card \"")
-                        .append(conflict.getValue().get(conflict.getValue().size() - 1))
-                        .append("\" is still in the concept\n");
-            }
-            open.append("If the user AGREES to the removal, answer with EXACTLY "
-                    + "{\"type\": \"resolve\", \"conflictId\": \"<id from above>\", "
-                    + "\"decision\": \"REMOVE\"}; if they DECLINE, use decision "
-                    + "\"KEEP_SUPPRESSED\". No other action in that turn.\n");
-            fence = open.toString();
-        }
+        // (The host intercepts unambiguous yes/no answers itself; this block guides the model
+        // through everything ELSE said while a conflict is open.)
+        fence = fence + openConflictBlock(conceptConflicts);
         backend.submitServiceCommand(handle,
                 com.aresstack.askai.research.search.ResearchServiceCommandWire.setScope(fence));
     }
