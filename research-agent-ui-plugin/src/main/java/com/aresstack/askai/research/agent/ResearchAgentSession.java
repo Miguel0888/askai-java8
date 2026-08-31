@@ -2416,9 +2416,16 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 com.aresstack.askai.research.scope.ScopeCheckReport report = null;
                 String unexpected = null;
                 try {
-                    report = runScopeCheck(com.aresstack.askai.research.host
-                            .ResearchRuntimeSettings.loadScopeSweepConfiguration(
-                                    getHostStateStore()));
+                    com.aresstack.askai.research.scope.ScopeSweepConfiguration configuration =
+                            com.aresstack.askai.research.host.ResearchRuntimeSettings
+                                    .loadScopeSweepConfiguration(getHostStateStore());
+                    // Gate 8 observability: a running check is visible in the log WITH its knobs —
+                    // "no result line yet" and "which breadth was that" stop being guesswork.
+                    technicalLog("[scope-check] started (breadth="
+                            + configuration.targetBroadProbes + ", controls/anchor="
+                            + configuration.controlsPerAnchor + ", generation timeout="
+                            + configuration.generationTimeoutSeconds + "s)");
+                    report = runScopeCheck(configuration);
                 } catch (RuntimeException broke) {
                     unexpected = String.valueOf(broke);
                 } finally {

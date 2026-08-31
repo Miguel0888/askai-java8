@@ -55,7 +55,10 @@ public final class ScopeSweepConfiguration {
     /** The live-gate values (nomic + gpt-oss measurements), named — the pre-settings baseline. */
     public static ScopeSweepConfiguration defaults() {
         return new ScopeSweepConfiguration(
-                50,      // targetBroadProbes — the live gate delivered 50/50 in one call
+                20,      // targetBroadProbes — the DEFAULT model class (gemma4:e2b) loses count
+                         // at 50 and truncates (gate-8 live failure; measured 10s at 20 in Z-E2E),
+                         // and Zielbild slice 1 adds mindmap-anchor controls on top. Larger
+                         // models raise this in the settings (gpt-oss delivered 50/50).
                 2,       // controlsPerAnchor — 2 local variations per negotiated post
                 0.7d,    // generatorTemperature — breadth needs variety
                 8192,    // generatorMaxOutputTokens — live finding: German answers (longer words,
