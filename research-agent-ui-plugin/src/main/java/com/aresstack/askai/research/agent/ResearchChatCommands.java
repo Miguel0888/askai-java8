@@ -148,7 +148,7 @@ public final class ResearchChatCommands {
     private static final class MapCommand extends Base {
         public ChatCommandDescriptor getDescriptor() {
             return ChatCommandDescriptor.of("map",
-                    "Show the sources mindmap as an overlay (Quellen visualisieren)");
+                    "Show the sources mindmap as an overlay (Visualize sources)");
         }
 
         public CommandExecutionResult execute(CommandInvocation invocation,

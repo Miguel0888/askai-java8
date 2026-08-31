@@ -40,9 +40,10 @@ public final class ResearchOverlayButtonsToolbarContribution implements AgentToo
     @Override
     public JComponent createComponent(final AgentToolbarContext context) {
         final ResearchAgentSession session = (ResearchAgentSession) context.getSession();
+        // The SOURCES variant (red core, <> tag leaves) — visually distinct from the concept map.
         ComicButton mindmap = new ComicButton("",
-                new ResearchWebSearchToolbarContribution.MindmapIcon());
-        mindmap.setToolTipText("Quellen visualisieren");
+                new ResearchWebSearchToolbarContribution.MindmapIcon(true));
+        mindmap.setToolTipText("Visualize sources");
         mindmap.setFocusable(false);
         mindmap.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
         mindmap.setPreferredSize(new Dimension(26, 26));
