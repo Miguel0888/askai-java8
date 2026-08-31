@@ -738,6 +738,11 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             return;
         }
         agentTurnInFlight = inFlight;
+        if (!inFlight) {
+            // The turn is over on ANY path (answer, cancel, error) — the tool-call bubble must
+            // never be left thinking.
+            finishConceptToolBubble();
+        }
         if (sink != null) {
             sink.turnActivityChanged();
         }
@@ -2942,6 +2947,26 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                     + "question; interpret their next answer against it:\n"
                     + lastScopeCheckQuestion + "\n";
         }
+        // Gate-6 fix: the exclude turn is TERMINAL, so the model never saw the tool receipt —
+        // without this block it cannot know the conflictId when the user answers the removal
+        // question. The fence (the model's per-turn scope truth) carries every open conflict.
+        if (!conceptConflicts.isEmpty()) {
+            StringBuilder open = new StringBuilder(fence);
+            open.append("\nOPEN CONCEPT CONFLICT — you already asked the user whether the "
+                    + "excluded topic should ALSO be removed from the concept; interpret their "
+                    + "next answer against that question:\n");
+            for (java.util.Map.Entry<String, java.util.List<String>> conflict
+                    : conceptConflicts.entrySet()) {
+                open.append("- conflictId \"").append(conflict.getKey()).append("\": card \"")
+                        .append(conflict.getValue().get(conflict.getValue().size() - 1))
+                        .append("\" is still in the concept\n");
+            }
+            open.append("If the user AGREES to the removal, answer with EXACTLY "
+                    + "{\"type\": \"resolve\", \"conflictId\": \"<id from above>\", "
+                    + "\"decision\": \"REMOVE\"}; if they DECLINE, use decision "
+                    + "\"KEEP_SUPPRESSED\". No other action in that turn.\n");
+            fence = open.toString();
+        }
         backend.submitServiceCommand(handle,
                 com.aresstack.askai.research.search.ResearchServiceCommandWire.setScope(fence));
     }
@@ -3466,6 +3491,48 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         // Full diagnostics belong EXCLUSIVELY to the host's collapsed "Technical details" area — the
         // visible progress card never carries raw log lines, source ids or redirect URLs.
         technicalLog(event.getText());
+        // EXCEPTION by user decision (gate 6 review): the concept/scope TOOL CALLS of a turn are
+        // deliberately visible — a yellow thought bubble mirrors each round, like the research
+        // phase's activity bubbles. The raw diagnostics still live only in the technical log.
+        updateConceptToolBubble(event.getText());
+    }
+
+    // ------------------------------------------------------ visible concept tool-call bubble
+
+    /** The open yellow bubble mirroring this turn's concept/scope tool rounds, or {@code null}. */
+    private String conceptToolBubbleId;
+    private final java.util.List<String> conceptToolBubbleLines = new java.util.ArrayList<String>();
+    private final java.util.concurrent.atomic.AtomicLong conceptToolBubbleSequence =
+            new java.util.concurrent.atomic.AtomicLong();
+
+    private void updateConceptToolBubble(String logLine) {
+        if (sink == null || logLine == null || !logLine.startsWith("concept ")) {
+            return;
+        }
+        if (conceptToolBubbleId == null) {
+            conceptToolBubbleId = "concept-tools-" + conceptToolBubbleSequence.incrementAndGet();
+            conceptToolBubbleLines.clear();
+            sink.startThinking(conceptToolBubbleId, playbook.isGerman()
+                    ? "Werkzeug-Schritte an Konzept & Themenraum …"
+                    : "Tool steps on concept & scope …");
+        }
+        conceptToolBubbleLines.add(logLine.substring("concept ".length()));
+        StringBuilder body = new StringBuilder();
+        for (String line : conceptToolBubbleLines) {
+            body.append("• ").append(line).append('\n');
+        }
+        sink.updateThinking(conceptToolBubbleId, body.toString());
+    }
+
+    /** Close the bubble with an honest step count — never leave it thinking past the turn. */
+    private void finishConceptToolBubble() {
+        if (conceptToolBubbleId != null && sink != null) {
+            sink.finishThinking(conceptToolBubbleId, playbook.isGerman()
+                    ? conceptToolBubbleLines.size() + " Werkzeug-Schritte"
+                    : conceptToolBubbleLines.size() + " tool steps");
+        }
+        conceptToolBubbleId = null;
+        conceptToolBubbleLines.clear();
     }
 
     private void applyRunProgress(ResearchBackendEvent event) {
