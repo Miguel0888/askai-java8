@@ -383,6 +383,13 @@ public final class ProductiveResearchSessionResources {
         this.conceptChangedListener = listener;
     }
 
+    /** The session's exclusion facade (owns coordinator + conflict registry); wired like the gateway. */
+    private volatile com.aresstack.askai.research.mcp.ScopeCommandPort scopeCommandPort;
+
+    public void setScopeCommandPort(com.aresstack.askai.research.mcp.ScopeCommandPort port) {
+        this.scopeCommandPort = port;
+    }
+
     /** The live-state view the research-control tool handlers authorize against. */
     ResearchControlContext controlContext() {
         return new ResearchControlContext() {
@@ -478,6 +485,18 @@ public final class ProductiveResearchSessionResources {
                 if (listener != null) {
                     listener.run();
                 }
+            }
+
+            @Override
+            public String excludeTopic(String topic) {
+                com.aresstack.askai.research.mcp.ScopeCommandPort port = scopeCommandPort;
+                return port == null ? null : port.excludeTopic(topic);
+            }
+
+            @Override
+            public String resolveConceptConflict(String conflictId, String decision) {
+                com.aresstack.askai.research.mcp.ScopeCommandPort port = scopeCommandPort;
+                return port == null ? null : port.resolveConceptConflict(conflictId, decision);
             }
         };
     }

@@ -58,16 +58,6 @@ public final class ScopeUpdateDocument {
         return operations.isEmpty() && issues.isEmpty() && suggestions.isEmpty();
     }
 
-    /** True when any VALID operation of this turn has the given kind (e.g. "setMission"). */
-    public boolean containsKind(String kind) {
-        for (Map<String, Object> operation : operations) {
-            if (kind.equals(text(operation.get("kind")))) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     /** False when ANY element was malformed — the turn is then a contract violation, not a partial update. */
     public boolean isValid() {
         return rejections.isEmpty();

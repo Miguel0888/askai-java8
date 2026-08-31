@@ -15,20 +15,32 @@ import java.util.Map;
  */
 public final class ConceptAction {
 
-    public enum Type { READ, ADD, REMOVE }
+    /**
+     * READ/ADD/REMOVE work the concept; EXCLUDE and RESOLVE are the ONE-command exclusion facade
+     * (live-gate 4 decision): the model quotes the USER'S term, the platform owns ids, facets
+     * and the concept-conflict check — one command, one effect, one structured reply.
+     */
+    public enum Type { READ, ADD, REMOVE, EXCLUDE, RESOLVE }
 
     private final Type type;
     private final List<String> path;
     private final List<String> parent;
     private final String name;
+    private final String decision;
 
     private ConceptAction(Type type, List<String> path, List<String> parent, String name) {
+        this(type, path, parent, name, null);
+    }
+
+    private ConceptAction(Type type, List<String> path, List<String> parent, String name,
+                          String decision) {
         this.type = type;
         this.path = path == null ? Collections.<String>emptyList()
                 : Collections.unmodifiableList(path);
         this.parent = parent == null ? Collections.<String>emptyList()
                 : Collections.unmodifiableList(parent);
         this.name = name == null ? "" : name.trim();
+        this.decision = decision == null ? "" : decision.trim();
     }
 
     public Type getType() {
@@ -50,6 +62,21 @@ public final class ConceptAction {
         return name;
     }
 
+    /** For EXCLUDE: the topic in the USER'S words (the platform derives everything else). */
+    public String getTopic() {
+        return name;
+    }
+
+    /** For RESOLVE: the opaque conflict id the exclude tool reported. */
+    public String getConflictId() {
+        return name;
+    }
+
+    /** For RESOLVE: REMOVE or KEEP_SUPPRESSED — the user's answer to the conflict question. */
+    public String getDecision() {
+        return decision;
+    }
+
     /** A compact trace label ('add parent=["A","B"] name="C"'). */
     public String describe() {
         switch (type) {
@@ -57,6 +84,10 @@ public final class ConceptAction {
                 return "read path=" + segmentsLabel(path);
             case ADD:
                 return "add parent=" + segmentsLabel(parent) + " name=\"" + name + "\"";
+            case EXCLUDE:
+                return "exclude topic=\"" + name + "\"";
+            case RESOLVE:
+                return "resolve conflict=\"" + name + "\" decision=" + decision;
             default:
                 return "remove path=" + segmentsLabel(path);
         }
@@ -165,8 +196,29 @@ public final class ConceptAction {
             }
             return Parsed.ok(new ConceptAction(Type.REMOVE, path, null, null));
         }
+        if ("exclude".equalsIgnoreCase(type)) {
+            String topic = asString(map.get("topic"));
+            if (topic == null || topic.trim().isEmpty()) {
+                return Parsed.invalid("conceptAction type \"exclude\" requires \"topic\" (the "
+                        + "user's words) — example: {\"type\":\"exclude\",\"topic\":\"ESP-IDF\"}");
+            }
+            return Parsed.ok(new ConceptAction(Type.EXCLUDE, null, null, topic));
+        }
+        if ("resolve".equalsIgnoreCase(type)) {
+            String conflictId = asString(map.get("conflictId"));
+            String decision = asString(map.get("decision"));
+            boolean knownDecision = "REMOVE".equalsIgnoreCase(decision == null ? "" : decision.trim())
+                    || "KEEP_SUPPRESSED".equalsIgnoreCase(decision == null ? "" : decision.trim());
+            if (conflictId == null || conflictId.trim().isEmpty() || !knownDecision) {
+                return Parsed.invalid("conceptAction type \"resolve\" requires \"conflictId\" and "
+                        + "\"decision\" (REMOVE or KEEP_SUPPRESSED) — example: {\"type\":"
+                        + "\"resolve\",\"conflictId\":\"conflict-17\",\"decision\":\"REMOVE\"}");
+            }
+            return Parsed.ok(new ConceptAction(Type.RESOLVE, null, null, conflictId,
+                    decision.trim().toUpperCase(java.util.Locale.ROOT)));
+        }
         return Parsed.invalid("conceptAction has unknown type \"" + type
-                + "\" — allowed: none, read, add, remove");
+                + "\" — allowed: none, read, add, remove, exclude, resolve");
     }
 
     /** First present value wins; array of strings verbatim, a bare string = ONE segment. */

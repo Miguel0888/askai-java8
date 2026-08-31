@@ -1235,20 +1235,7 @@ public final class ResearchAgentMain {
                         ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
                                 .log("concept " + message));
                     }
-                },
-                scopeMissionMissing());
-    }
-
-    /**
-     * Whether the host's scope draft has NO mission yet — read off the fence's explicit marker
-     * (the fence is the ONE scope truth this process sees). Only meaningful when a fence exists
-     * at all: an old host without the scope system must never trigger mission repairs.
-     */
-    private boolean scopeMissionMissing() {
-        String fence = scopeFence.rendered();
-        return fence != null && !fence.trim().isEmpty()
-                && (fence.contains("(none yet — record the user's goal with setMission)")
-                        || fence.contains("nothing has been scoped yet"));
+                });
     }
 
     /**
@@ -1277,6 +1264,17 @@ public final class ResearchAgentMain {
                     args.put("parent_path_json", segmentsJson(action.getParent()));
                 }
                 args.put("name", action.getName());
+                break;
+            case EXCLUDE:
+                // The ONE-command exclusion facade: the model quotes the user's term, the HOST
+                // owns id, facet, blacklist effect and the concept-conflict check.
+                toolName = "exclude_topic";
+                args.put("topic", action.getTopic());
+                break;
+            case RESOLVE:
+                toolName = "resolve_concept_conflict";
+                args.put("conflict_id", action.getConflictId());
+                args.put("decision", action.getDecision());
                 break;
             default:
                 toolName = "concept_remove";

@@ -64,25 +64,10 @@ public final class ConceptToolRounds {
                                       ConceptTool tool, int maxToolRounds,
                                       int maxRepairAttempts, boolean germanFeedback,
                                       IntermediateSink intermediateSink, Trace trace) {
-        return run(initial, turn, tool, maxToolRounds, maxRepairAttempts, germanFeedback,
-                intermediateSink, trace, false);
-    }
-
-    /**
-     * @param missionMissing the caller read "(none yet …setMission)" off the scope fence: the
-     *  draft has no mission, so ONE substantive scope turn without setMission earns a repair —
-     *  live-gate 4 proved the prompt rule alone does not reach this model class.
-     */
-    public static TeamAgentResult run(TeamAgentResult initial, FollowUpTurn turn,
-                                      ConceptTool tool, int maxToolRounds,
-                                      int maxRepairAttempts, boolean germanFeedback,
-                                      IntermediateSink intermediateSink, Trace trace,
-                                      boolean missionMissing) {
         TeamAgentResult result = initial;
         int rounds = 0;
         int repairs = 0;
         boolean budgetExhausted = false;
-        boolean missionRepairSpent = false;
         // The AUTHORITATIVE change receipts, carried across the rounds: every feedback lists
         // WHICH actions were applied and WHICH were rejected (and why), plus the CURRENT
         // persisted concept after any mutation attempt — a lone boolean once let one applied
@@ -121,23 +106,9 @@ public final class ConceptToolRounds {
                             scopeUpdate.describeViolations(), germanFeedback));
                     continue;
                 }
-                // A substantive scope turn while the draft has NO mission: ONE repair asks for
-                // the missing setMission. The original operations are emitted first — the repair
-                // only ADDS the mission, it never risks the facets the turn already negotiated.
-                if (missionMissing && !missionRepairSpent && !budgetExhausted
-                        && repairs < maxRepairAttempts
-                        && scopeUpdate != null && scopeUpdate.isValid() && !scopeUpdate.isEmpty()
-                        && !scopeUpdate.containsKind("setMission")) {
-                    missionRepairSpent = true;
-                    repairs++;
-                    trace.line("scope mission missing — repair turn (repairs=" + repairs + "/"
-                            + maxRepairAttempts + ")");
-                    if (intermediateSink != null) {
-                        intermediateSink.intermediate(output);
-                    }
-                    result = turn.run(TeamAgentPlaybook.scopeMissionMissing(germanFeedback));
-                    continue;
-                }
+                // Mission bookkeeping is the HOST'S job (live-gate 4 decision): it records the
+                // user's first message as the mission mechanically — no repair loop begs the
+                // model for setMission anymore.
                 return result; // the model finished without a further action — the normal end
             }
             if (budgetExhausted) {

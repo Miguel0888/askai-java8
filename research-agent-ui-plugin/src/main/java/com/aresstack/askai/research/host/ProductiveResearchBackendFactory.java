@@ -600,6 +600,21 @@ public final class ProductiveResearchBackendFactory {
                             }
                         }
 
+                        // The exclusion facade rides the same explicit-delegation rule: a missed
+                        // forward would silently answer "no scope system" to every exclude_topic.
+                        @Override
+                        public String excludeTopic(String topic) {
+                            return holder[0] == null ? null
+                                    : holder[0].controlContext().excludeTopic(topic);
+                        }
+
+                        @Override
+                        public String resolveConceptConflict(String conflictId, String decision) {
+                            return holder[0] == null ? null
+                                    : holder[0].controlContext()
+                                            .resolveConceptConflict(conflictId, decision);
+                        }
+
                         // The review bounds are the USER's settings (this factory carries them); the
                         // delegate's defaults would silently ignore a configured value.
                         @Override

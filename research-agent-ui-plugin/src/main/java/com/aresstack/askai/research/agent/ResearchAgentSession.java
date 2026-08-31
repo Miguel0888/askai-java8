@@ -197,6 +197,18 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                         }
                     };
             resources.setSessionGateway(botGateway);
+            // The one-command exclusion facade: exclude_topic/resolve_concept_conflict reach the
+            // session (which owns coordinator, concept service and conflict registry) via this
+            // port — never a second scope instance.
+            resources.setScopeCommandPort(new com.aresstack.askai.research.mcp.ScopeCommandPort() {
+                public String excludeTopic(String topic) {
+                    return excludeTopicCommand(topic);
+                }
+
+                public String resolveConceptConflict(String conflictId, String decision) {
+                    return resolveConceptConflictCommand(conflictId, decision);
+                }
+            });
             resources.setProjectionUpdateListener(new Runnable() {
                 public void run() {
                     uiExecutor.execute(new Runnable() {
@@ -808,6 +820,10 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             // The productive ACP agent cannot echo the user's OWN message back, so show it in the shared chat
             // here (right-aligned, by role) before the agent replies — otherwise the user's turn is invisible.
             echoUserMessage(text);
+            // KISS (live-gate 4): the mission is bookkeeping, not intelligence — the user's
+            // FIRST message IS the mission until they restate it. No model turn ever begs
+            // for setMission again.
+            recordMissionIfAbsent(text);
             publishScopeFence(); // authoritative scope FIRST, then the turn that may change it
             beginAgentTurn(); // busy + preempt visualizer; cleared by the turn's terminal event
             backend.submitPrompt(handle, new ResearchPrompt(text, activeSectionId));
@@ -2691,6 +2707,176 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             fireStateChanged();  // the chips re-render through the ordinary state listener
         }
         return null;
+    }
+
+    // ------------------------------------------------------ one-command exclusion facade (gate 4)
+
+    /** Opaque conflictId → concept card path. The model only ever sees the id. */
+    private final java.util.Map<String, java.util.List<String>> conceptConflicts =
+            new java.util.concurrent.ConcurrentHashMap<String, java.util.List<String>>();
+    private final java.util.concurrent.atomic.AtomicLong conflictIds =
+            new java.util.concurrent.atomic.AtomicLong();
+
+    /**
+     * The whole exclusion in ONE host-owned step: derive the id from the USER'S term, persist the
+     * EXCLUDED facet (immediately effective — the blacklist wins as the final suppression step),
+     * republish the fence, then scan the concept for an EXACT name conflict. The reply is the
+     * structured JSON the tool returns; a conflict obliges the agent to INFORM_AND_ASK_REMOVE —
+     * this method never touches the concept itself.
+     */
+    String excludeTopicCommand(String topic) {
+        com.aresstack.askai.research.scope.ResearchScopeCoordinator coordinator = scopeCoordinator();
+        if (coordinator == null) {
+            return null; // no scope system (fake mode) — the tool reports it honestly
+        }
+        String label = topic == null ? "" : topic.trim();
+        String facetId = slugOf(label);
+        com.google.gson.JsonObject reply = new com.google.gson.JsonObject();
+        if (facetId.isEmpty()) {
+            reply.addProperty("result", "REJECTED");
+            reply.addProperty("reason", "the topic yields no technical id — pass the user's term");
+            return reply.toString();
+        }
+        // addFacet carries the user's wording as the label; excludeFacet flips the membership —
+        // ONE atomic patch, and putFacet's refine semantics keep an existing facet's label.
+        com.aresstack.askai.research.scope.ScopeUpdateResult applied = coordinator.apply(
+                new com.aresstack.askai.research.domain.scope.ScopePatch(java.util.Arrays.asList(
+                        com.aresstack.askai.research.domain.scope.ScopePatchOperations
+                                .addFacet(facetId, label, "explicit user exclusion"),
+                        com.aresstack.askai.research.domain.scope.ScopePatchOperations
+                                .excludeFacet(facetId, "explicit user exclusion"))),
+                java.util.Collections.<com.aresstack.askai.research.domain.scope
+                        .UnresolvedScopeIssue>emptyList());
+        if (applied.getStatus()
+                == com.aresstack.askai.research.scope.ScopeUpdateResult.Status.REJECTED) {
+            technicalLog("exclude_topic -> REJECTED: " + applied.getReason());
+            reply.addProperty("result", "REJECTED");
+            reply.addProperty("reason", applied.getReason());
+            return reply.toString();
+        }
+        technicalLog("exclude_topic -> EXCLUDED id=" + facetId + " label=\"" + label + "\"");
+        publishScopeFence();
+        fireStateChanged();
+        reply.addProperty("result", "EXCLUDED");
+        reply.addProperty("exclusionId", facetId);
+        reply.addProperty("label", label);
+        java.util.List<String> conflictPath = conceptConflictPathOf(label);
+        if (conflictPath == null) {
+            reply.addProperty("requiredResponse", "NONE");
+            return reply.toString();
+        }
+        String conflictId = "conflict-" + conflictIds.incrementAndGet();
+        conceptConflicts.put(conflictId, conflictPath);
+        com.google.gson.JsonObject conflict = new com.google.gson.JsonObject();
+        conflict.addProperty("conflictId", conflictId);
+        com.google.gson.JsonArray pathArray = new com.google.gson.JsonArray();
+        for (String segment : conflictPath) {
+            pathArray.add(segment);
+        }
+        conflict.add("path", pathArray);
+        reply.add("conceptConflict", conflict);
+        reply.addProperty("requiredResponse", "INFORM_AND_ASK_REMOVE");
+        technicalLog("exclude_topic -> concept conflict " + conflictId + " at " + conflictPath);
+        return reply.toString();
+    }
+
+    /** The user's answer arrives as its OWN command — the path stays host-side by conflictId. */
+    String resolveConceptConflictCommand(String conflictId, String decision) {
+        java.util.List<String> path = conceptConflicts.get(conflictId);
+        if (path == null) {
+            return "Unknown conflict_id \"" + conflictId + "\" — use the id exclude_topic "
+                    + "reported (it is single-use).";
+        }
+        com.google.gson.JsonObject reply = new com.google.gson.JsonObject();
+        if ("KEEP_SUPPRESSED".equalsIgnoreCase(decision)) {
+            conceptConflicts.remove(conflictId);
+            technicalLog("resolve_concept_conflict " + conflictId + " -> KEPT_SUPPRESSED");
+            reply.addProperty("result", "KEPT_SUPPRESSED");
+            return reply.toString();
+        }
+        if (!"REMOVE".equalsIgnoreCase(decision)) {
+            return "Unknown decision \"" + decision + "\" — allowed: REMOVE, KEEP_SUPPRESSED.";
+        }
+        com.aresstack.askai.research.concept.ConceptBranchService service = conceptBranchService();
+        if (service == null) {
+            return "This session has no concept service.";
+        }
+        com.aresstack.askai.research.concept.ConceptBranchService.EditResult removed =
+                service.removeNodeAt(path);
+        if (!removed.isApplied()) {
+            return removed.getDiagnostic().describeForModel();
+        }
+        conceptConflicts.remove(conflictId);
+        technicalLog("resolve_concept_conflict " + conflictId + " -> REMOVED " + path
+                + " revision=" + removed.getNewRevision());
+        reply.addProperty("result", "REMOVED");
+        com.google.gson.JsonArray pathArray = new com.google.gson.JsonArray();
+        for (String segment : path) {
+            pathArray.add(segment);
+        }
+        reply.add("path", pathArray);
+        return reply.toString();
+    }
+
+    /** Exact-name concept conflict of an excluded topic, or {@code null} (concept-less/fake ok). */
+    private java.util.List<String> conceptConflictPathOf(String topic) {
+        com.aresstack.askai.research.concept.ConceptBranchService service = conceptBranchService();
+        if (service == null) {
+            return null;
+        }
+        return com.aresstack.askai.research.concept.ConceptTopicScanner.findExactPath(
+                service.snapshot().getDocumentJson(), topic);
+    }
+
+    /**
+     * KISS mission bookkeeping (live-gate 4): the FIRST user message becomes the mission — the
+     * fence calibration needs one, and four gates proved the model will not reliably send
+     * setMission. The user (or the model, on a restated goal) can refine it later.
+     */
+    private void recordMissionIfAbsent(String text) {
+        String mission = text == null ? "" : text.trim();
+        if (mission.isEmpty()) {
+            return;
+        }
+        com.aresstack.askai.research.scope.ResearchScopeCoordinator coordinator = scopeCoordinator();
+        if (coordinator == null || !coordinator.isUsable()
+                || !coordinator.current().getMission().isEmpty()) {
+            return;
+        }
+        if (mission.length() > 300) {
+            mission = mission.substring(0, 300);
+        }
+        com.aresstack.askai.research.scope.ScopeUpdateResult applied = coordinator.apply(
+                new com.aresstack.askai.research.domain.scope.ScopePatch(
+                        java.util.Collections.singletonList(
+                                com.aresstack.askai.research.domain.scope.ScopePatchOperations
+                                        .setMission(mission))),
+                java.util.Collections.<com.aresstack.askai.research.domain.scope
+                        .UnresolvedScopeIssue>emptyList());
+        if (applied.isApplied()) {
+            technicalLog("scope update -> APPLIED: mission recorded from the user's first message");
+        }
+    }
+
+    /** A stable, short, lowercase-ascii id from a human term (runtime keeps its own copy). */
+    private static String slugOf(String label) {
+        String lower = label.toLowerCase(java.util.Locale.ROOT)
+                .replace("ä", "ae").replace("ö", "oe").replace("ü", "ue").replace("ß", "ss");
+        StringBuilder sb = new StringBuilder();
+        boolean gap = false;
+        for (int index = 0; index < lower.length() && sb.length() < 40; index++) {
+            char character = lower.charAt(index);
+            if ((character >= 'a' && character <= 'z') || (character >= '0' && character <= '9')) {
+                if (gap && sb.length() > 0) {
+                    sb.append('-');
+                }
+                sb.append(character);
+                gap = false;
+            } else {
+                gap = true;
+            }
+        }
+        return sb.toString();
     }
 
     private void reportScopeProblem(final String message) {

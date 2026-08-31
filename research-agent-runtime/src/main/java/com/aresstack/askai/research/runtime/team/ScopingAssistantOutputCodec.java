@@ -74,6 +74,17 @@ public final class ScopingAssistantOutputCodec {
                 sb.append(',');
                 writeKey(sb, "name").append(':');
                 writeString(sb, action.getName());
+            } else if (action.getType() == ConceptAction.Type.EXCLUDE) {
+                sb.append(',');
+                writeKey(sb, "topic").append(':');
+                writeString(sb, action.getTopic());
+            } else if (action.getType() == ConceptAction.Type.RESOLVE) {
+                sb.append(',');
+                writeKey(sb, "conflictId").append(':');
+                writeString(sb, action.getConflictId());
+                sb.append(',');
+                writeKey(sb, "decision").append(':');
+                writeString(sb, action.getDecision());
             } else {
                 sb.append(',');
                 writeKey(sb, "path").append(':');

@@ -22,31 +22,31 @@ public class ScopingConceptPromptTest {
         assertTrue(with.contains("Map an explicit user command DIRECTLY"));
         assertTrue(with.contains("Do not read unrelated branches"));
         assertTrue(with.contains("Never pretend an exclusion or focus is stored"));
-        // The live-gate lesson: the both-channels rule needs a CONCRETE worked example — the model
-        // translated "ESP-IDF nicht behandeln" into a concept remove and never fed the scope.
-        assertTrue(with.contains("ESP-IDF möchte ich doch nicht behandeln"));
-        assertTrue(with.contains("\"kind\": \"excludeFacet\""));
-        // Gate 2: the example must MODEL a valid id — the model copied the shape verbatim.
-        assertTrue(with.contains("\"facetId\": \"esp-idf\""));
-        assertTrue(with.contains("\"facetId\": \"arduino\""));
-        // Gate 3: id shape spelled out, addFacet demands a human label, mission feeds the fence.
+        // Gate 3: id shape spelled out, addFacet demands a human label.
         assertTrue(with.contains("NEVER a sentence, a placeholder text or "));
         assertTrue(with.contains("addFacet ALWAYS carries BOTH"));
-        assertTrue(with.contains("setMission as soon as it is stated"));
-        // Gate 4 DECISION: an exclusion is ONE action on ONE channel — scope only, the concept
-        // is never touched by it (the both-channels demand made the model bend exclusions onto
-        // broader facets and use facet ids as concept paths).
-        assertTrue(with.contains("An EXCLUSION is SCOPE-ONLY"));
-        assertTrue(with.contains("Do NOT bend a newly named term onto a broader existing facet"));
-        assertTrue(with.contains("an exclusion never touches the concept"));
+        // Gate 4 KISS: the exclusion is ONE command — the model quotes the user's term, the
+        // platform owns ids, facets and the concept-conflict check ("military drill": one
+        // command, one effect, one reply, then maybe a NEW command in a LATER turn.)
+        assertTrue(with.contains("THE EXCLUSION COMMAND"));
+        assertTrue(with.contains("ESP-IDF möchte ich doch nicht behandeln"));
+        assertTrue(with.contains("{\"type\": \"exclude\", \"topic\": \"ESP-IDF\"}"));
+        assertTrue(with.contains("No id, no scopePatch, no concept edit"));
+        assertTrue(with.contains("INFORM_AND_ASK_REMOVE"));
+        assertTrue("removal only in a LATER user turn",
+                with.contains("You NEVER remove it in the same turn"));
+        assertTrue(with.contains("\"decision\": \"REMOVE\""));
+        assertTrue(with.contains("KEEP_SUPPRESSED"));
+        assertTrue("exclusions left the scopePatch contract",
+                with.contains("EXCLUSIONS never go through scopePatch"));
         // Gate 4: the two identity spaces, pinned with the exact live confusion pair.
         assertTrue(with.contains("TWO IDENTITY SPACES"));
         assertTrue(with.contains("[\"ESP32 und FreeRTOS Setup\"]"));
         assertTrue(with.contains("\"esp32-setup\""));
         assertFalse("the both-channels demand is gone for good",
                 with.contains("BOTH artifacts in the SAME answer"));
-        assertTrue("an exclusion is scope food, not a remove of a card that never existed",
-                with.contains("Do NOT translate an exclusion into a concept remove"));
+        // Mission is HOST bookkeeping now — the prompt must not beg for setMission anymore.
+        assertTrue(with.contains("recorded AUTOMATICALLY from the user's first message"));
         assertTrue(with.contains("Task Notifications"));
         assertTrue(with.contains("{\"type\":\"none\"}"));
         assertTrue("no handle field in the model contract", !with.contains("\"handle\""));
@@ -60,7 +60,10 @@ public class ScopingConceptPromptTest {
     @Test
     public void theConceptContractPublishesTheGenerationTimeSchemaOnlyWithTheFlag() {
         String schema = new ScopingPhaseOutputContract(true).outputSchemaJson();
-        assertTrue(schema.contains("\"enum\":[\"none\",\"read\",\"add\",\"remove\"]"));
+        assertTrue(schema.contains(
+                "\"enum\":[\"none\",\"read\",\"add\",\"remove\",\"exclude\",\"resolve\"]"));
+        assertTrue(schema.contains("\"topic\":{\"type\":\"string\"}"));
+        assertTrue(schema.contains("\"enum\":[\"REMOVE\",\"KEEP_SUPPRESSED\"]"));
         assertTrue("the action decision is always explicit",
                 schema.contains("\"required\":[\"assistantMessage\",\"conceptAction\"]"));
         assertTrue("runaway lists are stopped by the grammar", schema.contains("maxItems"));

@@ -56,6 +56,10 @@ public final class ResearchToolPolicy {
             if (writable(phaseId, stateId, ResearchStateIds.SCOPING)) {
                 tools.add(conceptAddTool(ctx));
                 tools.add(conceptRemoveTool(ctx));
+                // The ONE-command exclusion facade (live-gate 4): the model quotes the user's
+                // term, the host owns id/facet/blacklist and the concept-conflict check.
+                tools.add(excludeTopicTool(ctx));
+                tools.add(resolveConflictTool(ctx));
             }
         }
         // Phase + run-state gated writes. SCOPING has NO document tool anymore: the ResearchBrief is the
@@ -475,6 +479,78 @@ public final class ResearchToolPolicy {
                         "The card's names from the concept root, separated by '/'"),
                 McpToolParameter.string("path_json", false,
                         "The segments as a JSON array of card names — the unambiguous form"));
+    }
+
+    /**
+     * The ONE-command exclusion facade: the model hands over the USER'S term verbatim; the host
+     * derives the id, records the EXCLUDED facet (immediately effective), republishes the fence
+     * and scans the concept for an EXACT name match. A conflict comes back as a structured
+     * {@code conceptConflict} with an opaque conflictId + {@code INFORM_AND_ASK_REMOVE} — the
+     * tool NEVER deletes anything itself.
+     */
+    private static McpToolContribution excludeTopicTool(final ResearchControlContext ctx) {
+        return McpToolContribution.of("exclude_topic",
+                "Record a topic the user ruled out, in the USER'S words. The application derives "
+                        + "the id, suppresses the topic for all research and checks the concept "
+                        + "for a conflicting entry. Example: topic=\"ESP-IDF\".",
+                new McpToolHandler() {
+                    public McpToolResult invoke(McpToolCall call) {
+                        McpToolResult denied = requireWritable(ctx, ResearchStateIds.SCOPING);
+                        if (denied != null) {
+                            return denied;
+                        }
+                        String topic = call.getString("topic");
+                        if (topic == null || topic.trim().isEmpty()) {
+                            return McpToolResult.error(
+                                    "Missing argument: topic — example: topic=\"ESP-IDF\"");
+                        }
+                        String reply = ctx.excludeTopic(topic.trim());
+                        if (reply == null) {
+                            return McpToolResult.error("This session has no scope system.");
+                        }
+                        // A rejected commit is the tool's REJECTION (ToolFailure on the runtime
+                        // side, repair budget) — never a green result.
+                        return reply.contains("\"result\":\"REJECTED\"")
+                                ? McpToolResult.error(reply) : McpToolResult.ok(reply);
+                    }
+                },
+                McpToolParameter.string("topic", true,
+                        "The excluded topic in the user's own words, e.g. \"ESP-IDF\""));
+    }
+
+    /** Resolve a reported concept conflict — only ever AFTER the user answered the question. */
+    private static McpToolContribution resolveConflictTool(final ResearchControlContext ctx) {
+        return McpToolContribution.of("resolve_concept_conflict",
+                "Resolve a concept conflict exclude_topic reported, AFTER the user decided: "
+                        + "decision=REMOVE deletes the concept entry, decision=KEEP_SUPPRESSED "
+                        + "keeps it (research stays suppressed). Example: "
+                        + "conflict_id=\"conflict-1\" decision=\"REMOVE\".",
+                new McpToolHandler() {
+                    public McpToolResult invoke(McpToolCall call) {
+                        McpToolResult denied = requireWritable(ctx, ResearchStateIds.SCOPING);
+                        if (denied != null) {
+                            return denied;
+                        }
+                        String conflictId = call.getString("conflict_id");
+                        String decision = call.getString("decision");
+                        if (conflictId == null || conflictId.trim().isEmpty()
+                                || decision == null || decision.trim().isEmpty()) {
+                            return McpToolResult.error("Missing argument: conflict_id and "
+                                    + "decision are required — example: "
+                                    + "conflict_id=\"conflict-1\" decision=\"REMOVE\"");
+                        }
+                        String reply = ctx.resolveConceptConflict(conflictId.trim(),
+                                decision.trim());
+                        return reply == null
+                                ? McpToolResult.error("This session has no scope system.")
+                                : (reply.startsWith("{") ? McpToolResult.ok(reply)
+                                        : McpToolResult.error(reply));
+                    }
+                },
+                McpToolParameter.string("conflict_id", true,
+                        "The opaque id from exclude_topic's conceptConflict"),
+                McpToolParameter.string("decision", true,
+                        "REMOVE (delete the concept entry) or KEEP_SUPPRESSED (keep it)"));
     }
 
     /**

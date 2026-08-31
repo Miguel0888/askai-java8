@@ -96,6 +96,51 @@ public class ScopingConceptActionTest {
                         && reread.getScopeUpdate().toJson().contains("ESP-IDF"));
     }
 
+    /**
+     * The ONE-command exclusion facade (live-gate 4): exclude carries ONLY the user's term,
+     * resolve carries ONLY the opaque conflictId + decision — no ids, no paths, no choices.
+     */
+    @Test
+    public void excludeAndResolveParseWithoutAnyIdentityDecisions() {
+        ConceptAction exclude = parse("{\"assistantMessage\":\"m\",\"conceptAction\":"
+                + "{\"type\":\"exclude\",\"topic\":\"ESP-IDF\"}}").getConceptAction();
+        assertEquals(ConceptAction.Type.EXCLUDE, exclude.getType());
+        assertEquals("ESP-IDF", exclude.getTopic());
+
+        ConceptAction resolve = parse("{\"assistantMessage\":\"m\",\"conceptAction\":"
+                + "{\"type\":\"resolve\",\"conflictId\":\"conflict-17\","
+                + "\"decision\":\"REMOVE\"}}").getConceptAction();
+        assertEquals(ConceptAction.Type.RESOLVE, resolve.getType());
+        assertEquals("conflict-17", resolve.getConflictId());
+        assertEquals("REMOVE", resolve.getDecision());
+
+        ScopingAssistantOutput missingTopic = parse("{\"assistantMessage\":\"m\","
+                + "\"conceptAction\":{\"type\":\"exclude\"}}");
+        assertNull(missingTopic.getConceptAction());
+        assertTrue(missingTopic.getConceptActionError().contains("requires \"topic\""));
+
+        ScopingAssistantOutput badDecision = parse("{\"assistantMessage\":\"m\","
+                + "\"conceptAction\":{\"type\":\"resolve\",\"conflictId\":\"c\","
+                + "\"decision\":\"DELETE\"}}");
+        assertTrue(badDecision.getConceptActionError().contains("KEEP_SUPPRESSED"));
+    }
+
+    @Test
+    public void theCanonicalHistoryRoundTripsExcludeAndResolve() {
+        ScopingAssistantOutput exclude = parse("{\"assistantMessage\":\"m\",\"conceptAction\":"
+                + "{\"type\":\"exclude\",\"topic\":\"ESP-IDF\"}}");
+        ConceptAction rereadExclude = parse(exclude.canonicalJson()).getConceptAction();
+        assertEquals(ConceptAction.Type.EXCLUDE, rereadExclude.getType());
+        assertEquals("ESP-IDF", rereadExclude.getTopic());
+
+        ScopingAssistantOutput resolve = parse("{\"assistantMessage\":\"m\",\"conceptAction\":"
+                + "{\"type\":\"resolve\",\"conflictId\":\"conflict-2\","
+                + "\"decision\":\"KEEP_SUPPRESSED\"}}");
+        ConceptAction rereadResolve = parse(resolve.canonicalJson()).getConceptAction();
+        assertEquals("conflict-2", rereadResolve.getConflictId());
+        assertEquals("KEEP_SUPPRESSED", rereadResolve.getDecision());
+    }
+
     @Test
     public void theCanonicalHistoryRoundTripsTheSegments() {
         ScopingAssistantOutput add = parse("{\"assistantMessage\":\"m\",\"conceptAction\":"

@@ -290,63 +290,32 @@ public class ConceptToolRoundsTest {
     }
 
     /**
-     * Live-gate 4: four clean facets, no setMission — the prompt rule alone did not reach the
-     * model. A substantive scope turn while the draft has no mission earns EXACTLY ONE mission
-     * repair; the original operations are emitted first (they must not vanish), the repair only
-     * asks for the missing mission.
+     * The ONE-command exclusion facade (live-gate 4): an exclude action is a regular mutation
+     * round — the structured tool reply (with the conflict question) becomes the feedback the
+     * model answers the user from.
      */
     @Test
-    public void aSubstantiveScopeTurnWithoutAMissionEarnsExactlyOneMissionRepair() throws Exception {
+    public void anExcludeActionCallsTheFacadeAndFeedsTheStructuredReplyBack() throws Exception {
         ScriptedTurns turns = new ScriptedTurns();
-        final List<ScopingAssistantOutput> intermediates = new ArrayList<ScopingAssistantOutput>();
-        ScopingAssistantOutputParser.Result facetsOnly = ScopingAssistantOutputParser.parse(
-                "{\"assistantMessage\":\"vier Facetten\","
-                        + "\"scopePatch\":{\"operations\":[{\"kind\":\"addFacet\","
-                        + "\"facetId\":\"rtos-grundlagen\",\"label\":\"RTOS-Grundlagen\"}]},"
-                        + "\"conceptAction\":{\"type\":\"none\"}}");
-        assertTrue(facetsOnly.isOk());
-        // The repair answer STILL carries no setMission — the single repair is not retried.
-        ScopingAssistantOutputParser.Result stillNoMission = ScopingAssistantOutputParser.parse(
-                "{\"assistantMessage\":\"ohne Mission\","
-                        + "\"scopePatch\":{\"operations\":[{\"kind\":\"addContext\","
-                        + "\"facetId\":\"pad\",\"value\":\"Einsteiger\"}]},"
-                        + "\"conceptAction\":{\"type\":\"none\"}}");
-        assertTrue(stillNoMission.isOk());
-        turns.script.add(TeamAgentResult.ok(stillNoMission.getOutput(), null));
+        ScriptedTool tool = new ScriptedTool();
+        tool.byDescription.put("exclude topic=\"ESP-IDF\"",
+                "{\"result\":\"EXCLUDED\",\"exclusionId\":\"esp-idf\",\"label\":\"ESP-IDF\","
+                        + "\"conceptConflict\":{\"conflictId\":\"conflict-1\","
+                        + "\"path\":[\"ESP32 und FreeRTOS Setup\",\"ESP-IDF\"]},"
+                        + "\"requiredResponse\":\"INFORM_AND_ASK_REMOVE\"}");
+        turns.script.add(turn("ESP-IDF ist jetzt unterdrückt — soll ich es auch aus dem "
+                + "Konzept entfernen?", null));
 
         TeamAgentResult result = ConceptToolRounds.run(
-                TeamAgentResult.ok(facetsOnly.getOutput(), null), turns, new ScriptedTool(),
-                4, 2, false,
-                new ConceptToolRounds.IntermediateSink() {
-                    public void intermediate(ScopingAssistantOutput output) {
-                        intermediates.add(output);
-                    }
-                }, traceSink, true);
+                turn("schließe aus", "{\"type\":\"exclude\",\"topic\":\"ESP-IDF\"}"),
+                turns, tool, 4, 2, false, null, traceSink);
 
-        assertTrue(turns.feedbackSeen.get(0).startsWith("SCOPE MISSION MISSING"));
-        assertEquals("exactly one repair — the second missionless answer is accepted",
-                1, turns.feedbackSeen.size());
-        assertEquals("the original facets were emitted before the repair",
-                1, intermediates.size());
-        assertTrue(intermediates.get(0).getScopeUpdate().toJson().contains("rtos-grundlagen"));
-        assertEquals("ohne Mission",
-                ((ScopingAssistantOutput) result.getOutput()).getAssistantMessage());
-    }
-
-    /** With a known mission (or without any scope system) the repair never fires. */
-    @Test
-    public void aKnownMissionNeverTriggersTheMissionRepair() throws Exception {
-        ScriptedTurns turns = new ScriptedTurns();
-        ScopingAssistantOutputParser.Result facetsOnly = ScopingAssistantOutputParser.parse(
-                "{\"assistantMessage\":\"ok\","
-                        + "\"scopePatch\":{\"operations\":[{\"kind\":\"addFacet\","
-                        + "\"facetId\":\"rtos-grundlagen\",\"label\":\"RTOS-Grundlagen\"}]},"
-                        + "\"conceptAction\":{\"type\":\"none\"}}");
-        assertTrue(facetsOnly.isOk());
-        TeamAgentResult initial = TeamAgentResult.ok(facetsOnly.getOutput(), null);
-        assertEquals(initial, ConceptToolRounds.run(initial, turns, new ScriptedTool(),
-                4, 2, false, null, traceSink, false));
-        assertTrue(turns.feedbackSeen.isEmpty());
+        assertEquals("the facade call, then the usual grounding re-read",
+                "exclude topic=\"ESP-IDF\"", tool.calls.get(0));
+        assertTrue("the structured reply reaches the model as feedback",
+                turns.feedbackSeen.get(0).contains("INFORM_AND_ASK_REMOVE"));
+        assertTrue(((ScopingAssistantOutput) result.getOutput()).getAssistantMessage()
+                .contains("unterdrückt"));
     }
 
     /** A zero repair budget never loops: the broken-patch turn passes through unrepaired. */

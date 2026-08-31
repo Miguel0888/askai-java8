@@ -113,4 +113,26 @@ public interface ResearchControlContext {
      */
     default void onConceptChanged(long newWorkingRevision) {
     }
+
+    /**
+     * The ONE-command exclusion facade (live-gate 4 decision): record a user exclusion by the
+     * user's OWN words. The host derives the id, creates the EXCLUDED facet, republishes the
+     * fence and checks the concept for an EXACT name conflict — the structured JSON reply may
+     * carry a {@code conceptConflict} + {@code requiredResponse=INFORM_AND_ASK_REMOVE}. Returns
+     * {@code null} when this session has no scope system (fakes/clickdummy).
+     * DELEGATING WRAPPERS MUST FORWARD THIS (the documented default-method trap).
+     */
+    default String excludeTopic(String topic) {
+        return null;
+    }
+
+    /**
+     * Resolve a previously reported concept conflict: {@code REMOVE} deletes the conflicting
+     * concept node (the host knows the path by the opaque conflictId — the model never
+     * reconstructs it), {@code KEEP_SUPPRESSED} keeps the concept entry while research stays
+     * suppressed. Returns {@code null} when unsupported.
+     */
+    default String resolveConceptConflict(String conflictId, String decision) {
+        return null;
+    }
 }
