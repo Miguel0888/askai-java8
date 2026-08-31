@@ -98,7 +98,7 @@ public class ResearchBotSessionDirectoryTest {
     @Test
     public void thePublicFaceOffersTheMultiSessionTools() {
         assertEquals(Arrays.asList("sessions_list", "session_create", "run_command", "session_state",
-                        "chat_history", "technical_log", "concept_json"),
+                        "chat_history", "technical_log", "concept_json", "scope_snapshot"),
                 registry.listToolNames("public-connector", handle.getToken()));
         // The catalog is STABLE: with nothing running the tools still exist and answer honestly.
         McpToolResult empty = call("sessions_list");

@@ -214,7 +214,7 @@ public final class TeamAgentPlaybook {
                         : "\n")
                 + "}\n\n"
                 + (conceptTools ? conceptToolRules() : "")
-                + scopePatchContract()
+                + scopePatchContract(conceptTools)
                 + "Only assistantMessage is required. A turn that simply asks one good question — no brief, "
                 + "no suggestion, no scope change — is a COMPLETE turn.\n\n"
                 + "NEVER claim that something has been saved, stored or recorded. You PROPOSE scope "
@@ -229,9 +229,11 @@ public final class TeamAgentPlaybook {
     /**
      * The scope-change contract. The decisive rule is that the model proposes OPERATIONS on the scope the
      * application holds — never a complete scope object, because everything it failed to repeat would be
-     * lost. It is also where "I don't know" becomes a legitimate, typed answer.
+     * lost. It is also where "I don't know" becomes a legitimate, typed answer. The worked
+     * exclusion example shows the conceptAction half only when the host offers the concept tools —
+     * a flagless (old-host) prompt must not mention a field the contract does not have.
      */
-    private static String scopePatchContract() {
+    private static String scopePatchContract(boolean conceptTools) {
         return "THE SCOPE (scopePatch):\n"
                 + "- The application OWNS the research scope and shows it to you as \"CURRENT RESEARCH "
                 + "SCOPE\". You never restate it as a whole; you propose the CHANGES this turn makes. "
@@ -254,7 +256,25 @@ public final class TeamAgentPlaybook {
                 + "only the label: the application derives a stable id from it (same label, same id).\n"
                 + "- \"Important\" and \"research it deeply\" are DIFFERENT: importance and researchDepth are "
                 + "set independently.\n"
-                + "- An aspect the user drops is excludeFacet (with the reason), never a deletion.\n\n"
+                + "- An aspect the user drops is excludeFacet (with the reason), never a deletion.\n"
+                + "- FULL EXAMPLE — user says \"ESP-IDF möchte ich doch nicht behandeln, nur "
+                + "Arduino.\" That ONE sentence changes "
+                + (conceptTools ? "BOTH artifacts in the SAME answer" : "the scope") + ":\n"
+                + "    \"scopePatch\": {\"operations\": [\n"
+                + "      {\"kind\": \"excludeFacet\", \"label\": \"ESP-IDF\", "
+                + "\"rationale\": \"explicit user exclusion\"},\n"
+                + "      {\"kind\": \"confirmFacet\", \"label\": \"Arduino\", "
+                + "\"rationale\": \"user narrowed the focus to Arduino\"}\n"
+                + "    ]}"
+                + (conceptTools
+                        ? ",\n    \"conceptAction\": {\"type\": \"add\", \"parent\": [], "
+                        + "\"name\": \"Arduino\"}\n"
+                        + "  The exclusion goes into the SCOPE (excludeFacet), the positive focus "
+                        + "becomes a concept card. Do NOT translate an exclusion into a concept "
+                        + "remove of a card that does not exist — the scope remembers what is out, "
+                        + "the concept holds what is in.\n\n"
+                        : "\n  The exclusion goes into the SCOPE (excludeFacet), never silently "
+                        + "dropped.\n\n")
                 + "WHEN YOU DO NOT KNOW (unresolvedIssues / orientationSuggestions):\n"
                 + "- If you lack the domain knowledge to draw a sensible boundary, SAY SO plainly and record "
                 + "an unresolvedIssue instead of guessing a narrow question or inventing facets.\n"

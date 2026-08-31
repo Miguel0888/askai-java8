@@ -35,13 +35,22 @@ public final class ScopeUpdateDocument {
     private final List<Map<String, Object>> issues;
     private final List<Map<String, Object>> suggestions;
     private final List<String> rejections;
+    /** Advisory elements (issues/suggestions) that were malformed and DROPPED — traced, never fatal. */
+    private final List<String> droppedAdvisories;
 
     private ScopeUpdateDocument(List<Map<String, Object>> operations, List<Map<String, Object>> issues,
-                                List<Map<String, Object>> suggestions, List<String> rejections) {
+                                List<Map<String, Object>> suggestions, List<String> rejections,
+                                List<String> droppedAdvisories) {
         this.operations = operations;
         this.issues = issues;
         this.suggestions = suggestions;
         this.rejections = rejections;
+        this.droppedAdvisories = droppedAdvisories;
+    }
+
+    /** The malformed ADVISORY elements this turn dropped (observability; empty when none). */
+    public List<String> getDroppedAdvisories() {
+        return droppedAdvisories;
     }
 
     /** True when this turn proposes nothing at all — then no wire line is sent. */
@@ -95,9 +104,16 @@ public final class ScopeUpdateDocument {
             }
             operations.add(operation);
         }
+        // SEPARATE ERROR DOMAINS (live-gate lesson): issues and orientation suggestions are
+        // ADVISORY metadata — a malformed one is dropped and traced, it must never poison the
+        // fachliche scope commit. Two broken suggestions once rejected a whole turn's
+        // excludeFacet, and the Weidezaun starved. Only OPERATIONS stay all-or-nothing among
+        // themselves, because a partially applied operation set would make conversation and
+        // stored scope disagree.
+        List<String> droppedAdvisories = new ArrayList<String>();
         for (Map<String, Object> issue : objects(unresolvedIssues)) {
             if (text(issue.get("issueId")).isEmpty() || text(issue.get("description")).isEmpty()) {
-                rejections.add("unresolvedIssue without issueId/description");
+                droppedAdvisories.add("unresolvedIssue without issueId/description");
                 continue;
             }
             issues.add(issue);
@@ -106,12 +122,13 @@ public final class ScopeUpdateDocument {
             // The label is what the user reads and must exist in its own right: falling back to the query
             // would show an engine query (possibly in another language) as UI text.
             if (text(suggestion.get("label")).isEmpty() || text(suggestion.get("query")).isEmpty()) {
-                rejections.add("orientationSuggestion without label/query");
+                droppedAdvisories.add("orientationSuggestion without label/query");
                 continue;
             }
             suggestions.add(suggestion);
         }
-        return new ScopeUpdateDocument(operations, issues, suggestions, rejections);
+        return new ScopeUpdateDocument(operations, issues, suggestions, rejections,
+                droppedAdvisories);
     }
 
     /** The operations as a JSON array — for the canonical-history codec (lossless round-trip). */

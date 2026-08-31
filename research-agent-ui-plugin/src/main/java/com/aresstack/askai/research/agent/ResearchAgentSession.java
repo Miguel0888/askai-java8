@@ -179,6 +179,22 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                             return "revision=" + snapshot.getWorkingRevision() + "\n"
                                     + snapshot.getDocumentJson();
                         }
+
+                        @Override
+                        public String describeScopeSnapshot() {
+                            com.aresstack.askai.research.scope.ResearchScopeCoordinator
+                                    coordinator = scopeCoordinator();
+                            if (coordinator == null || !coordinator.isUsable()) {
+                                return null;
+                            }
+                            com.aresstack.askai.research.domain.scope.ResearchScopeDraft draft =
+                                    coordinator.current();
+                            // The SAME fence rendering the model sees — a driver and the agent
+                            // must never argue over two different projections of one scope.
+                            return "revision=" + draft.getRevision() + "\n"
+                                    + com.aresstack.askai.research.domain.scope
+                                            .ResearchScopeFenceView.render(draft);
+                        }
                     };
             resources.setSessionGateway(botGateway);
             resources.setProjectionUpdateListener(new Runnable() {
@@ -1799,6 +1815,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             case SCOPE_UPDATE_REJECTED:
                 // The answer is fine, the scope proposal was not: say so instead of leaving the user to
                 // believe a change was recorded.
+                technicalLog("scope update -> REJECTED (runtime validation): " + event.getText());
                 reportScopeProblem("Der Rechercheumfang wurde NICHT aktualisiert (fehlerhafter Vorschlag: "
                         + event.getText() + "). Die Antwort selbst bleibt gültig.");
                 break;
@@ -2554,6 +2571,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         com.aresstack.askai.research.scope.ScopeUpdateWireCodec.Result decoded =
                 com.aresstack.askai.research.scope.ScopeUpdateWireCodec.decode(documentJson);
         if (!decoded.isOk()) {
+            technicalLog("scope update -> REJECTED: " + decoded.getError());
             reportScopeProblem("Der Rechercheumfang konnte nicht aktualisiert werden: "
                     + decoded.getError());
             return;
@@ -2562,6 +2580,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 coordinator.apply(decoded.getTurn());
         if (applied.getStatus()
                 == com.aresstack.askai.research.scope.ScopeUpdateResult.Status.REJECTED) {
+            technicalLog("scope update -> REJECTED: " + applied.getReason());
             reportScopeProblem("Der Rechercheumfang konnte nicht gespeichert werden: "
                     + applied.getReason());
             return;
@@ -2569,6 +2588,11 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         for (String change : applied.getChanges()) {
             System.err.println("[research-scope] " + change);
         }
+        // The live gate showed the concept richly traced while the scope stayed mute — a bot
+        // driving via technical_log could not tell whether the Weidezaun was ever fed.
+        technicalLog(applied.isApplied()
+                ? "scope update -> APPLIED: " + applied.getChanges()
+                : "scope update -> NO-OP (nothing changed)");
         if (applied.isApplied()) {
             // The fence must never lag the draft within a multi-round turn — republish NOW,
             // exactly like the manual exclusion chips do.

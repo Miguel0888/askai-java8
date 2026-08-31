@@ -768,6 +768,13 @@ public final class ProductiveResearchBackendFactory {
                                             holder[0] == null ? null : holder[0].getSessionGateway();
                                     return gateway == null ? null : gateway.describeConceptSnapshot();
                                 }
+
+                                @Override
+                                public String describeScopeSnapshot() {
+                                    com.aresstack.askai.research.mcp.ResearchBotSessionGateway gateway =
+                                            holder[0] == null ? null : holder[0].getSessionGateway();
+                                    return gateway == null ? null : gateway.describeScopeSnapshot();
+                                }
                             };
             final com.aresstack.askai.research.mcp.ResearchBotControlEndpoint botControl =
                     !botControlMcpEnabled ? null

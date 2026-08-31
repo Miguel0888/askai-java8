@@ -1335,6 +1335,12 @@ public final class ResearchAgentMain {
         if (scopeUpdate == null) {
             return;
         }
+        // Malformed ADVISORY elements are dropped, not fatal — but silently dropping them would
+        // hide a model weakness, so each drop leaves a log line.
+        for (String dropped : scopeUpdate.getDroppedAdvisories()) {
+            ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
+                    .log("scope advisory dropped: " + dropped));
+        }
         if (scopeUpdate.isValid()) {
             ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
                     .scopeUpdate(phaseId, scopeUpdate.toJson()));

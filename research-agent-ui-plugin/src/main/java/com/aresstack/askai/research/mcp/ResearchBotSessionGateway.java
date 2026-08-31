@@ -37,4 +37,15 @@ public interface ResearchBotSessionGateway {
     default String describeConceptSnapshot() {
         return null;
     }
+
+    /**
+     * The negotiated research scope as ONE atomic snapshot ({@code revision=N} line + the same
+     * fence rendering the model sees: mission, CONFIRMED/PROVISIONAL facets, EXCLUDED aspects,
+     * exclusions). The scope counterpart of {@link #describeConceptSnapshot()} — without it a
+     * driving client cannot verify whether "ESP-IDF ausschließen" ever reached the Weidezaun.
+     * Read-only; {@code null} when the session has no persisted scope.
+     */
+    default String describeScopeSnapshot() {
+        return null;
+    }
 }

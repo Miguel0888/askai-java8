@@ -111,18 +111,42 @@ public class ScopeUpdateDocumentTest {
     }
 
     @Test
-    public void anUnknownOperationKindOrALabellessSuggestionAlsoInvalidatesTheUpdateOnly() {
+    public void anUnknownOperationKindInvalidatesTheUpdateOnly() {
         ScopingAssistantOutputParser.Result unknownKind = parse(
                 "\"scopePatch\":{\"operations\":[{\"kind\":\"invent\",\"facetId\":\"x\"}]}");
         assertTrue(unknownKind.isOk());
         assertFalse(unknownKind.getOutput().getScopeUpdate().isValid());
         assertTrue(unknownKind.getOutput().getScopeUpdate().describeViolations().contains("invent"));
+    }
 
-        ScopingAssistantOutputParser.Result labelless = parse(
-                "\"orientationSuggestions\":[{\"query\":\"only a query\"}]");
-        assertTrue(labelless.isOk());
-        assertFalse(labelless.getOutput().getScopeUpdate().isValid());
-        assertTrue(labelless.getOutput().getScopeUpdate().describeViolations().contains("label"));
+    /**
+     * SEPARATE ERROR DOMAINS (the live-gate lesson): suggestions and issues are advisory metadata.
+     * In the failed acceptance run, two labelless orientationSuggestions rejected the WHOLE turn's
+     * scope update — the excludeFacet the user had just decided never reached the Weidezaun, and
+     * check-scope reported "coverage 0/0". A broken advisory is dropped and traced; the fachliche
+     * operations of the same turn still apply.
+     */
+    @Test
+    public void aBrokenAdvisoryIsDroppedAndTracedButNeverPoisonsTheOperations() {
+        ScopingAssistantOutputParser.Result result = parse(
+                "\"scopePatch\":{\"operations\":[{\"kind\":\"excludeFacet\","
+                        + "\"label\":\"ESP-IDF\",\"rationale\":\"explicit user exclusion\"}]},"
+                        + "\"orientationSuggestions\":[{\"query\":\"only a query\"},"
+                        + "{\"label\":\"\",\"query\":\"\"}],"
+                        + "\"unresolvedIssues\":[{\"description\":\"no issueId\"}]");
+        assertTrue(result.isOk());
+        ScopeUpdateDocument document = result.getOutput().getScopeUpdate();
+        assertTrue("the exclusion the user decided still applies: " + document.describeViolations(),
+                document.isValid());
+        assertTrue(document.toJson(), document.toJson().contains("\"kind\":\"excludeFacet\""));
+        assertEquals("each drop is traced, never silent", 3, document.getDroppedAdvisories().size());
+        // Issues are validated before suggestions — the trace follows the document order.
+        assertTrue(document.getDroppedAdvisories().get(0).contains("issueId"));
+        assertTrue(document.getDroppedAdvisories().get(1).contains("label"));
+        assertTrue(document.getDroppedAdvisories().get(2).contains("label"));
+        // The broken advisories themselves do NOT travel on the wire.
+        assertFalse(document.toJson().contains("only a query"));
+        assertFalse(document.toJson().contains("no issueId"));
     }
 
     @Test

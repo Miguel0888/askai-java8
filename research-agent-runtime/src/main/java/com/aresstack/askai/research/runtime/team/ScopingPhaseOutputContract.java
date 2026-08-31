@@ -38,7 +38,10 @@ public final class ScopingPhaseOutputContract implements PhaseOutputContract {
      * {@code conceptAction} are REQUIRED (the action decision is always explicit — type "none"
      * says "I change nothing"); the concept action types are an enum; list sizes carry maxItems
      * (the Weidezaun lesson: a model that loses count is stopped by the grammar, not by prose);
-     * scope-patch internals stay free-form objects — the runtime validates their semantics.
+     * scope operations pin {@code kind} to the known enum, and advisory suggestions require
+     * NON-EMPTY label+query — the live gate saw {@code "label":""} slip past a presence-only
+     * schema and (before the error domains were separated) reject a whole scope turn. Operation
+     * ARGUMENTS stay free-form — the runtime validates their semantics.
      */
     @Override
     public String outputSchemaJson() {
@@ -49,7 +52,8 @@ public final class ScopingPhaseOutputContract implements PhaseOutputContract {
                 + "\"assistantMessage\":{\"type\":\"string\"},"
                 + "\"researchBriefMarkdown\":{\"type\":\"string\"},"
                 + "\"searchSuggestions\":{\"type\":\"array\",\"maxItems\":5,\"items\":"
-                + "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"},"
+                + "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\","
+                + "\"minLength\":1},"
                 + "\"purpose\":{\"type\":\"string\"},\"priority\":{\"type\":\"integer\"}},"
                 + "\"required\":[\"query\"]}},"
                 + "\"advice\":{\"type\":\"object\",\"properties\":{"
@@ -58,13 +62,21 @@ public final class ScopingPhaseOutputContract implements PhaseOutputContract {
                 + "\"required\":[\"recommendation\"]},"
                 + "\"scopePatch\":{\"type\":\"object\",\"properties\":{"
                 + "\"operations\":{\"type\":\"array\",\"maxItems\":8,\"items\":"
-                + "{\"type\":\"object\"}}}},"
+                + "{\"type\":\"object\",\"properties\":{\"kind\":{\"type\":\"string\","
+                + "\"enum\":[\"setMission\",\"addFacet\",\"confirmFacet\",\"excludeFacet\","
+                + "\"setFacetEmphasis\",\"setCrossCuttingEmphasis\",\"setDeliverable\","
+                + "\"addDomain\",\"addContext\",\"addPerspective\",\"addConstraint\","
+                + "\"addExclusion\",\"addTerminology\",\"setGeographicScope\","
+                + "\"setTemporalScope\",\"addUnresolvedIssue\",\"resolveIssue\"]}},"
+                + "\"required\":[\"kind\"]}}}},"
                 + "\"unresolvedIssues\":{\"type\":\"array\",\"maxItems\":6,\"items\":"
                 + "{\"type\":\"object\"}},"
                 + "\"orientationSuggestions\":{\"type\":\"array\",\"maxItems\":3,\"items\":"
-                + "{\"type\":\"object\",\"properties\":{\"label\":{\"type\":\"string\"},"
-                + "\"query\":{\"type\":\"string\"},\"rationale\":{\"type\":\"string\"}},"
-                + "\"required\":[\"query\"]}},"
+                + "{\"type\":\"object\",\"properties\":{"
+                + "\"label\":{\"type\":\"string\",\"minLength\":1},"
+                + "\"query\":{\"type\":\"string\",\"minLength\":1},"
+                + "\"rationale\":{\"type\":\"string\"}},"
+                + "\"required\":[\"label\",\"query\"]}},"
                 + "\"conceptAction\":{\"type\":\"object\",\"properties\":{"
                 + "\"type\":{\"type\":\"string\",\"enum\":[\"none\",\"read\",\"add\","
                 + "\"remove\"]},"

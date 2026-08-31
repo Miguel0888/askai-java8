@@ -22,10 +22,10 @@ public final class ResearchBotSessionTools {
     private ResearchBotSessionTools() {
     }
 
-    /** The five driving tools bound to one gateway. */
+    /** The six driving tools bound to one gateway. */
     public static List<McpToolContribution> of(ResearchBotSessionGateway gateway) {
         return Arrays.asList(runCommandTool(gateway), sessionStateTool(gateway), chatHistoryTool(gateway),
-                technicalLogTool(gateway), conceptJsonTool(gateway));
+                technicalLogTool(gateway), conceptJsonTool(gateway), scopeSnapshotTool(gateway));
     }
 
     /** The shared command description — the directory face documents the same commands. */
@@ -122,6 +122,26 @@ public final class ResearchBotSessionTools {
                         return snapshot == null
                                 ? McpToolResult.error(
                                         "This session has no concept service (or none is attached yet).")
+                                : McpToolResult.ok(snapshot);
+                    }
+                });
+    }
+
+    static final String SCOPE_SNAPSHOT_DESCRIPTION =
+            "The negotiated research scope as ONE atomic snapshot: a revision=N line followed by "
+            + "the scope fence (mission, CONFIRMED/PROVISIONAL facets, EXCLUDED aspects, "
+            + "exclusions). Read-only observability — verify what the scope actually holds "
+            + "instead of trusting the agent's claims about it.";
+
+    /** The scope counterpart of concept_json: what the Weidezaun actually holds. */
+    private static McpToolContribution scopeSnapshotTool(final ResearchBotSessionGateway gateway) {
+        return McpToolContribution.of("scope_snapshot", SCOPE_SNAPSHOT_DESCRIPTION,
+                new McpToolHandler() {
+                    public McpToolResult invoke(McpToolCall call) {
+                        String snapshot = gateway == null ? null : gateway.describeScopeSnapshot();
+                        return snapshot == null
+                                ? McpToolResult.error(
+                                        "This session has no persisted scope (or none is attached yet).")
                                 : McpToolResult.ok(snapshot);
                     }
                 });
