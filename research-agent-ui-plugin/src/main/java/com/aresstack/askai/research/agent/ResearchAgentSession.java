@@ -2758,7 +2758,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         publishScopeFence();
         fireStateChanged();
         reply.addProperty("result", "EXCLUDED");
-        reply.addProperty("exclusionId", facetId);
+        reply.addProperty("facetId", facetId);
         reply.addProperty("label", label);
         java.util.List<String> conflictPath = conceptConflictPathOf(label);
         if (conflictPath == null) {

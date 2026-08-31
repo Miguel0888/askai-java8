@@ -299,7 +299,7 @@ public class ConceptToolRoundsTest {
         ScriptedTurns turns = new ScriptedTurns();
         ScriptedTool tool = new ScriptedTool();
         tool.byDescription.put("exclude topic=\"ESP-IDF\"",
-                "{\"result\":\"EXCLUDED\",\"exclusionId\":\"esp-idf\",\"label\":\"ESP-IDF\","
+                "{\"result\":\"EXCLUDED\",\"facetId\":\"esp-idf\",\"label\":\"ESP-IDF\","
                         + "\"conceptConflict\":{\"conflictId\":\"conflict-1\","
                         + "\"path\":[\"ESP32 und FreeRTOS Setup\",\"ESP-IDF\"]},"
                         + "\"requiredResponse\":\"INFORM_AND_ASK_REMOVE\"}");

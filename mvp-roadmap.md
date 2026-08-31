@@ -28,6 +28,41 @@ bestehendes Konzeptpapier
 
 Der Benutzer besitzt sämtliche Phasenübergänge; die KI ist prozess-machtlos (RA-P6-Rollenmodell).
 
+## Zielbild Phase 1: ZWEI Artefakte statt drei Wahrheiten (beschlossen nach Abnahme 4)
+
+Die Verhedderung der Scope-Gates hatte eine strukturelle Ursache: drei positive Wahrheiten
+(Concept, positive Scope-Facets, Fence-Posts), die das MODELL synchron halten sollte. Das Zielbild
+reduziert auf zwei fachliche Artefakte — das Modell zitiert Begriffe, die Plattform erledigt
+Identität, Persistenz, Suppression und Konfliktführung:
+
+```text
+Mindmap    → positiver Arbeitsraum (liefert später Suchbegriffe/Forschungsbereiche)
+Blacklist  → harte negative Grenze (gewinnt IMMER als letzter Filter)
+Mission    → Kontext über beiden, kein drittes Inhaltsmodell (host-seitig auto-geseedet)
+
+Weidezaun  = Projektion: IN-Posts ← Mindmap-Knoten/Pfade; OUT-Posts ← Blacklist
+Effective Mindmap = Stored Mindmap − Blacklist   (Suchplanung/Outline/Schreiben nutzen NUR diese)
+```
+
+Invariante: **Physische Konsistenz darf nachlaufen, funktionale Suppression niemals.** Ein
+Blacklist-Eintrag wirkt sofort; der gespeicherte Mindmap-Eintrag darf sichtbar bleiben, bis der
+Benutzer die Entfernung bestätigt ODER der betroffene Zweig ohnehin überarbeitet wird
+(Auto-Bereinigung: ein Zweig-Rewrite bekommt die relevanten Blacklist-Einträge mitgeliefert; der
+Host lehnt Ersatz-Zweige ab, die exakte Blacklist-Begriffe noch enthalten).
+
+Daraus folgende Slices (NACH bestandener Abnahme 5, ersetzt Teile des alten Phase-1-Plans):
+- Fence-Ableitung umstellen: IN-Posts aus der Mindmap statt aus positiven CONFIRMED/PROVISIONAL-
+  Facets (die heutige Facet-Duplikation der Mindmap-Begriffe entfällt);
+- Mindmap-Befehlssatz fürs kleine Modell erweitern: `rename_node`, `rewrite_terminal_branch`
+  (nur terminale Zweige — Knoten ohne verzweigte Unterknoten; von unten nach oben arbeiten),
+  `delete_terminal_branch` (Blätter/terminale Zweige; tiefe Strukturen NIE direkt löschbar);
+  Rewrite darf ausgeschlossene Blätter automatisch weglassen (vorgesehene Bereinigung, kein
+  Umgehen der Löschregel); Embedding-Treffer nur WARNUNG, hart entfernt wird nur exakt/Alias;
+- Strukturierter Mindmap-Editor in der UI (rekursiver Tree-Editor: edit/add/rename/zulässiges
+  Löschen, Unterdrückt-Markierung, Revisionshistorie) + Raw-JSON-Modus; die UI schreibt NIE am
+  Store vorbei — dieselben Concept-Kommandos wie der Agent, gleicher Save-Pfad
+  (parse → validieren → Blacklist-Konflikte anzeigen → Revisions-Check → compile-before-swap).
+
 ## Statusübersicht
 
 | AP | Arbeitspaket | Stand |
