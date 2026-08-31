@@ -281,6 +281,8 @@ public class ConceptToolRoundsTest {
         assertTrue(feedback.startsWith("SCOPE PATCH REJECTED"));
         assertTrue("the violations travel verbatim", feedback.contains("excludeFacet without 'facetId'"));
         assertTrue("the false claim is forbidden explicitly", feedback.contains("NEVER claim"));
+        assertTrue("the repair teaches the per-kind fields, not a vague kind+facetId hint",
+                feedback.contains("Required fields per kind"));
         assertEquals("the invalid attempt still reaches the sink (host logs the rejection)",
                 1, intermediates.size());
         assertTrue(!intermediates.get(0).getScopeUpdate().isValid());

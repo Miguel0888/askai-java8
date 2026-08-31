@@ -102,6 +102,11 @@ public final class ScopeUpdateDocument {
                 rejections.add(kind + " without '" + missing + "'");
                 continue;
             }
+            String malformedId = facetIdShapeProblem(kind, operation);
+            if (malformedId != null) {
+                rejections.add(malformedId);
+                continue;
+            }
             operations.add(operation);
         }
         // SEPARATE ERROR DOMAINS (live-gate lesson): issues and orientation suggestions are
@@ -179,6 +184,34 @@ public final class ScopeUpdateDocument {
             "addFacet", "confirmFacet", "excludeFacet", "setFacetEmphasis");
 
     /**
+     * The SHAPE of a domain identity. Live-gate 3 proved {@code minLength} alone lets prompt
+     * placeholders and JSON fragments become canonical facets ("esp-idf_exclusion_placeholder_
+     * if_exists_or_recreate_logic_…" was persisted and even re-referenced). A facetId is a short
+     * technical id — lowercase letters/digits, hyphens/underscores, max 64 — or the operation is
+     * rejected honestly.
+     */
+    private static final java.util.regex.Pattern FACET_ID_SHAPE =
+            java.util.regex.Pattern.compile("^[a-z0-9][a-z0-9_-]{0,63}$");
+
+    /**
+     * Rejection text for a malformed facet identity, {@code null} when fine. Only FACET operations
+     * are checked: on non-facet kinds the grammar-forced facetId is protocol padding the host
+     * ignores — padding never becomes domain identity, so its shape does not matter.
+     */
+    private static String facetIdShapeProblem(String kind, Map<String, Object> operation) {
+        if (!FACET_OPERATIONS.contains(kind)) {
+            return null;
+        }
+        String facetId = text(operation.get("facetId"));
+        if (facetId.isEmpty() || FACET_ID_SHAPE.matcher(facetId).matches()) {
+            return null; // emptiness is firstMissingField's verdict, not a shape problem
+        }
+        String shown = facetId.length() > 40 ? facetId.substring(0, 40) + "…" : facetId;
+        return kind + " facetId '" + shown + "' is not a technical id (want lowercase "
+                + "letters/digits/hyphens, max 64 chars, e.g. \"esp-idf\" — never a sentence)";
+    }
+
+    /**
      * An id is a MACHINE concern: demanding that the model invent one made small models fail the whole
      * scope update over a bookkeeping field ("addFacet without 'facetId'" on every turn). When a facet
      * operation carries a label but no facetId, the id is DERIVED deterministically from the label — the
@@ -196,7 +229,7 @@ public final class ScopeUpdateDocument {
         if (!text(operation.get("facetId")).isEmpty()) {
             if ("addFacet".equals(kind) && text(operation.get("label")).isEmpty()) {
                 Map<String, Object> labelled = new LinkedHashMap<String, Object>(operation);
-                labelled.put("label", text(operation.get("facetId")));
+                labelled.put("label", humanize(text(operation.get("facetId"))));
                 return labelled;
             }
             return operation;
@@ -208,6 +241,27 @@ public final class ScopeUpdateDocument {
         Map<String, Object> derived = new LinkedHashMap<String, Object>(operation);
         derived.put("facetId", slug);
         return derived;
+    }
+
+    /**
+     * The EMERGENCY label when only an id arrived: "rtos-grundlagen_einsteiger" → "Rtos
+     * Grundlagen Einsteiger". Live-gate 3 showed the id-only path is common enough that raw ids
+     * were leaking into the UI as labels — at least make them read like words. The real label
+     * stays the model's job (the contract demands one on addFacet); this is the floor, not the
+     * norm.
+     */
+    static String humanize(String facetId) {
+        StringBuilder sb = new StringBuilder();
+        for (String token : facetId.split("[-_]+")) {
+            if (token.isEmpty()) {
+                continue;
+            }
+            if (sb.length() > 0) {
+                sb.append(' ');
+            }
+            sb.append(Character.toUpperCase(token.charAt(0))).append(token.substring(1));
+        }
+        return sb.length() == 0 ? facetId : sb.toString();
     }
 
     /** A stable, short, lowercase-ascii id from a human label ("Neue Antriebe" → "neue-antriebe"). */

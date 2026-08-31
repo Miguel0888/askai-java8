@@ -59,9 +59,11 @@ public final class ScopePatchOperations {
 
             public void applyTo(ResearchScopeDraft.Builder builder) {
                 // A label is only needed when the facet is new; for confirm/exclude the existing one wins,
-                // which is exactly what putFacet's refine semantics do.
+                // which is exactly what putFacet's refine semantics do. A NEW facet without a label at
+                // least gets a humanized id ("esp-idf" -> "Esp Idf") — raw ids were leaking into the UI.
                 builder.putFacet(new ScopeFacet(facetId,
-                        label == null || label.trim().isEmpty() ? facetId : label, status, rationale));
+                        label == null || label.trim().isEmpty() ? humanizeId(facetId) : label,
+                        status, rationale));
             }
 
             public String describe() {
@@ -69,6 +71,25 @@ public final class ScopePatchOperations {
                         ? "" : " (" + rationale + ")");
             }
         };
+    }
+
+    /**
+     * The emergency label for a facet created without one: "esp-idf" → "Esp Idf". Readable at
+     * least — the real label remains the caller's job. (The runtime keeps its own copy of this
+     * fallback; the two processes share no code.)
+     */
+    static String humanizeId(String facetId) {
+        StringBuilder sb = new StringBuilder();
+        for (String token : facetId.split("[-_]+")) {
+            if (token.isEmpty()) {
+                continue;
+            }
+            if (sb.length() > 0) {
+                sb.append(' ');
+            }
+            sb.append(Character.toUpperCase(token.charAt(0))).append(token.substring(1));
+        }
+        return sb.length() == 0 ? facetId : sb.toString();
     }
 
     /** Weight ONE facet: how much it matters, how deeply to dig, optionally a share hint. */

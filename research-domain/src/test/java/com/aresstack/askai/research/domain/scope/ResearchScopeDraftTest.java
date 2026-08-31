@@ -59,6 +59,25 @@ public class ResearchScopeDraftTest {
         assertEquals("buying", draft.excludedFacets().get(0).getFacetId());
     }
 
+    /**
+     * Live-gate 3: excludeFacet/confirmFacet of a NEW facet used to persist the raw id as the
+     * visible label ("esp-idf" chips in the sky). The emergency label at least reads like words;
+     * an existing facet's real label still wins through putFacet's refine semantics.
+     */
+    @Test
+    public void aFacetCreatedWithoutALabelGetsAHumanizedIdInsteadOfTheRawId() {
+        ResearchScopeDraft.Builder builder = ResearchScopeDraft.builder();
+        ScopePatchOperations.excludeFacet("esp-idf", "explicit user exclusion").applyTo(builder);
+        ResearchScopeDraft draft = builder.build();
+        assertEquals("Esp Idf", draft.facet("esp-idf").getLabel());
+        assertTrue(draft.facet("esp-idf").isExcluded());
+
+        ResearchScopeDraft.Builder refine = draft.toBuilder();
+        ScopePatchOperations.addFacet("esp-idf", "ESP-IDF", "").applyTo(refine);
+        assertEquals("a real label replaces the emergency one",
+                "ESP-IDF", refine.build().facet("esp-idf").getLabel());
+    }
+
     @Test
     public void importanceAndResearchDepthAreIndependentDimensions() {
         // "Wichtig" and "bitte sehr tief recherchieren" are not the same statement: a marginal aspect can

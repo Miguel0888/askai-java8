@@ -250,12 +250,20 @@ public final class TeamAgentPlaybook {
                 + "addConstraint{value}, addExclusion{value}, addTerminology{value}, "
                 + "setGeographicScope{value}, setTemporalScope{value}, addUnresolvedIssue{...}, "
                 + "resolveIssue{issueId}.\n"
-                + "- EVERY operation carries a facetId (the format requires it): a STABLE, short, "
-                + "lowercase ascii id you derive from the label once (\"ESP-IDF\" -> \"esp-idf\", "
-                + "\"Worker Safety\" -> \"worker-safety\") and then REUSE — never create a second facet "
-                + "for the same thing; the label is the user-facing wording. On operations that do not "
-                + "target a facet (setMission, addExclusion, ...) the field is ignored — fill it with "
-                + "the slug of the operation's main value.\n"
+                + "- EVERY operation carries a facetId (the format requires it): a STABLE, SHORT "
+                + "technical id — lowercase letters/digits/hyphens, at most 64 characters — derived "
+                + "from the label once (\"ESP-IDF\" -> \"esp-idf\", \"Worker Safety\" -> "
+                + "\"worker-safety\") and then REUSED. NEVER a sentence, a placeholder text or "
+                + "leftover JSON — such an operation is rejected whole. Never create a second facet "
+                + "for the same thing. On operations that do not target a facet (setMission, "
+                + "addExclusion, ...) the field is ignored — fill it with the slug of the "
+                + "operation's main value.\n"
+                + "- addFacet ALWAYS carries BOTH: the technical facetId AND a human-readable label "
+                + "in the user's language (\"RTOS-Grundlagen\", not \"rtos-grundlagen\") — the label "
+                + "is what the user reads everywhere.\n"
+                + "- Record the user's goal with setMission as soon as it is stated: every scope "
+                + "check calibrates against the mission, and without one the fence stays WEAK no "
+                + "matter how many facets exist.\n"
                 + "- \"Important\" and \"research it deeply\" are DIFFERENT: importance and researchDepth are "
                 + "set independently.\n"
                 + "- An aspect the user drops is excludeFacet (with the reason), never a deletion.\n"
@@ -578,15 +586,26 @@ public final class TeamAgentPlaybook {
      * let its visible answer claim a recorded exclusion/focus.
      */
     public static String scopePatchRejected(String violations, boolean german) {
+        // Live-gate 3 lesson: a vague "needs kind AND facetId" hint made the model stuff prose
+        // into facetId. The repair feedback now carries the exact per-kind field reference and
+        // the id shape, so the fix targets the NAMED violation instead of inventing padding.
+        String fieldReference = "Required fields per kind: setMission{mission}, "
+                + "addFacet{facetId,label}, confirmFacet{facetId}, excludeFacet{facetId}, "
+                + "setFacetEmphasis{facetId}, setCrossCuttingEmphasis{dimension}, "
+                + "addDomain/addContext/addPerspective/addConstraint/addExclusion/addTerminology/"
+                + "setGeographicScope/setTemporalScope{value}, "
+                + "addUnresolvedIssue{issueId,description}, resolveIssue{issueId}. "
+                + "facetId is a SHORT technical id (lowercase letters/digits/hyphens, e.g. "
+                + "\"esp-idf\") — never a sentence.";
         return german
                 ? "SCOPE PATCH REJECTED — der Rechercheumfang ist UNVERÄNDERT.\n" + violations
-                        + "\nSende den korrigierten scopePatch erneut (jede Operation braucht "
-                        + "kind UND facetId, z.B. {\"kind\": \"excludeFacet\", \"facetId\": "
-                        + "\"esp-idf\"}). Behaupte in deiner assistantMessage NIE, ein Ausschluss "
+                        + "\n" + fieldReference
+                        + "\nKorrigiere GENAU die benannten Verstöße und sende den scopePatch "
+                        + "erneut. Behaupte in deiner assistantMessage NIE, ein Ausschluss "
                         + "oder Fokus sei gespeichert, solange er es nicht ist."
                 : "SCOPE PATCH REJECTED — the research scope is UNCHANGED.\n" + violations
-                        + "\nResend the corrected scopePatch (every operation needs kind AND "
-                        + "facetId, e.g. {\"kind\": \"excludeFacet\", \"facetId\": \"esp-idf\"}). "
+                        + "\n" + fieldReference
+                        + "\nFix exactly the named violations and resend the scopePatch. "
                         + "NEVER claim in your assistantMessage that an exclusion or focus is "
                         + "stored while it is not.";
     }

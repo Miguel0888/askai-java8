@@ -29,6 +29,10 @@ public class ScopingConceptPromptTest {
         // Gate 2: the example must MODEL a valid id — the model copied the shape verbatim.
         assertTrue(with.contains("\"facetId\": \"esp-idf\""));
         assertTrue(with.contains("\"facetId\": \"arduino\""));
+        // Gate 3: id shape spelled out, addFacet demands a human label, mission feeds the fence.
+        assertTrue(with.contains("NEVER a sentence, a placeholder text or "));
+        assertTrue(with.contains("addFacet ALWAYS carries BOTH"));
+        assertTrue(with.contains("setMission as soon as it is stated"));
         assertTrue("an exclusion is scope food, not a remove of a card that never existed",
                 with.contains("Do NOT translate an exclusion into a concept remove"));
         assertTrue(with.contains("Task Notifications"));
@@ -54,7 +58,12 @@ public class ScopingConceptPromptTest {
         // (gate 1: an empty label once poisoned a whole scope turn).
         assertTrue(schema.contains("\"enum\":[\"setMission\",\"addFacet\",\"confirmFacet\","
                 + "\"excludeFacet\""));
-        assertTrue(schema.contains("\"facetId\":{\"type\":\"string\",\"minLength\":1}"));
+        // Gate 3: minLength alone let prompt placeholders become canonical facets — the id
+        // shape is pinned in the grammar (and re-checked by the runtime for engines that
+        // ignore 'pattern').
+        assertTrue(schema.contains(
+                "\"facetId\":{\"type\":\"string\",\"minLength\":1,"
+                        + "\"pattern\":\"^[a-z0-9][a-z0-9_-]{0,63}$\"}"));
         assertTrue(schema.contains("\"required\":[\"kind\",\"facetId\"]"));
         assertTrue(schema.contains("\"required\":[\"label\",\"query\"]"));
         assertEquals("without the tools the long-standing schema-free behaviour stays",

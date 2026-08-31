@@ -1227,7 +1227,7 @@ public final class ResearchAgentMain {
                 new com.aresstack.askai.research.runtime.team.ConceptToolRounds.IntermediateSink() {
                     public void intermediate(
                             com.aresstack.askai.research.runtime.team.ScopingAssistantOutput output) {
-                        emitScopeUpdate(ctx, view.getPhaseId(), output);
+                        emitScopeUpdate(ctx, view.getPhaseId(), output, false);
                     }
                 },
                 new com.aresstack.askai.research.runtime.team.ConceptToolRounds.Trace() {
@@ -1323,13 +1323,18 @@ public final class ResearchAgentMain {
     }
 
     /**
-     * Send one output's scope proposal to the host: valid → scopeUpdate, invalid → the visible
-     * rejection. Shared by the FINAL result and every INTERMEDIATE concept round, so a turn
-     * carrying conceptAction AND scopePatch loses neither — the live "kein ESP-IDF" exclusion
-     * was dropped exactly here before.
+     * Send one output's scope proposal to the host: valid → scopeUpdate; invalid FINAL → the
+     * visible rejection; invalid INTERMEDIATE → a technical log line only. Shared by the FINAL
+     * result and every INTERMEDIATE concept round, so a turn carrying conceptAction AND
+     * scopePatch loses neither — the live "kein ESP-IDF" exclusion was dropped exactly here
+     * before. The intermediate/final split is live-gate 3's contradiction fix: an invalid
+     * attempt that a repair round supersedes must not tell the USER "Der Rechercheumfang wurde
+     * NICHT aktualisiert" right before the repaired patch commits revision N+1 — the rejection
+     * of a superseded attempt is diagnostics, not a user-facing outcome.
      */
     private void emitScopeUpdate(SyncPromptContext ctx, String phaseId,
-            com.aresstack.askai.research.runtime.team.ScopingAssistantOutput output) {
+            com.aresstack.askai.research.runtime.team.ScopingAssistantOutput output,
+            boolean finalTurn) {
         com.aresstack.askai.research.runtime.team.ScopeUpdateDocument scopeUpdate =
                 output.getScopeUpdate();
         if (scopeUpdate == null) {
@@ -1344,10 +1349,14 @@ public final class ResearchAgentMain {
         if (scopeUpdate.isValid()) {
             ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
                     .scopeUpdate(phaseId, scopeUpdate.toJson()));
-        } else {
+        } else if (finalTurn) {
             // The WHOLE update is dropped — never a part of it — and the host says so visibly.
             ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
                     .scopeUpdateRejected(phaseId, scopeUpdate.describeViolations()));
+        } else {
+            ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
+                    .log("scope patch rejected (superseded by a follow-up turn): "
+                            + scopeUpdate.describeViolations()));
         }
     }
 
@@ -1388,7 +1397,7 @@ public final class ResearchAgentMain {
                     .ScopingAssistantOutput) {
                 emitScopeUpdate(ctx, phaseId,
                         (com.aresstack.askai.research.runtime.team.ScopingAssistantOutput)
-                                result.getOutput());
+                                result.getOutput(), true);
             }
             String brief = com.aresstack.askai.research.runtime.team.ScopingBriefSource
                     .briefMarkdown(result.getOutput());

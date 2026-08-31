@@ -104,12 +104,22 @@ public final class ScopeSweepOutcome {
 
     public static ScopeSweepOutcome calibrationWeak(
             ScopeFenceCalibrator.FenceCalibration calibration) {
+        // The old line printed anchorMissionRelevances.size() as "negotiated" — live-gate 3 read
+        // "negotiated 0" over a draft with THREE negotiated posts and hunted the wrong bug. The
+        // count is the number of anchor-vs-mission samples, which is zero exactly when the draft
+        // has no mission/domains/contexts to measure against — say so.
+        int missionSamples = calibration.samples.anchorMissionRelevances.size();
         return new ScopeSweepOutcome(Status.CALIBRATION_WEAK, calibration, null, null, null,
                 null, 0, 0, 0L, "", 0L,
                 "coverage " + calibration.samples.distinctParentAnchorsCovered + "/"
                         + calibration.samples.eligibleAnchorCount + ", neighbor samples "
                         + calibration.samples.anchorNeighborSimilarities.size()
-                        + ", negotiated " + calibration.samples.anchorMissionRelevances.size());
+                        + ", negotiated posts " + calibration.samples.eligibleAnchorCount
+                        + ", mission samples " + missionSamples
+                        + (missionSamples == 0
+                                ? " (no mission/domains/contexts on the draft — setMission feeds"
+                                        + " the fence)"
+                                : ""));
     }
 
     public static ScopeSweepOutcome embeddingFailed(String diagnostics) {

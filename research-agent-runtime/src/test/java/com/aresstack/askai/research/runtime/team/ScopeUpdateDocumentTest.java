@@ -99,11 +99,75 @@ public class ScopeUpdateDocumentTest {
     @Test
     public void anIdOnlyAddFacetGetsItsLabelFromTheIdInsteadOfRejectingTheUpdate() {
         ScopingAssistantOutputParser.Result result = parse(
-                "\"scopePatch\":{\"operations\":[{\"kind\":\"addFacet\",\"facetId\":\"arduino\"}]}");
+                "\"scopePatch\":{\"operations\":[{\"kind\":\"addFacet\","
+                        + "\"facetId\":\"rtos-grundlagen_einsteiger\"}]}");
         assertTrue(result.getError(), result.isOk());
         ScopeUpdateDocument document = result.getOutput().getScopeUpdate();
         assertTrue("the update applies: " + document.describeViolations(), document.isValid());
-        assertTrue(document.toJson(), document.toJson().contains("\"label\":\"arduino\""));
+        // Live-gate 3: raw ids leaked into the UI as labels — the emergency label at least
+        // reads like words. A REAL label stays the contract's demand, this is the floor.
+        assertTrue(document.toJson(),
+                document.toJson().contains("\"label\":\"Rtos Grundlagen Einsteiger\""));
+    }
+
+    /**
+     * Live-gate 3's smoking gun: minLength alone accepted a 100-char prompt placeholder ("esp-
+     * idf_exclusion_placeholder_if_exists_or_recreate_logic_needed_…") and even JSON fragments
+     * ("freertos-kernkonzepte,label:…") as CANONICAL facet identity. A facetId is a short
+     * technical id or the operation is rejected whole.
+     */
+    @Test
+    public void proseOrJsonFragmentsAreNotAFacetIdentity() {
+        ScopingAssistantOutputParser.Result placeholder = parse(
+                "\"scopePatch\":{\"operations\":[{\"kind\":\"excludeFacet\",\"facetId\":"
+                        + "\"esp-idf_exclusion_placeholder_if_exists_or_recreate_logic_needed_"
+                        + "for_future_turns_based_on_context_error_correction\"}]}");
+        assertTrue(placeholder.isOk());
+        ScopeUpdateDocument tooLong = placeholder.getOutput().getScopeUpdate();
+        assertFalse("a 100-char placeholder is no identity", tooLong.isValid());
+        assertTrue(tooLong.describeViolations(),
+                tooLong.describeViolations().contains("not a technical id"));
+
+        ScopingAssistantOutputParser.Result fragment = parse(
+                "\"scopePatch\":{\"operations\":[{\"kind\":\"addFacet\",\"facetId\":"
+                        + "\"freertos-kernkonzepte,label:freertos-kernkonzepte\"}]}");
+        assertTrue(fragment.isOk());
+        assertFalse("leaked JSON fields are no identity",
+                fragment.getOutput().getScopeUpdate().isValid());
+
+        // The padding facetId on NON-facet operations stays protocol-only: the host ignores it,
+        // so its shape never blocks the fachliche operation.
+        ScopingAssistantOutputParser.Result padding = parse(
+                "\"scopePatch\":{\"operations\":[{\"kind\":\"addExclusion\","
+                        + "\"facetId\":\"whatever, even: this\",\"value\":\"Kaufberatung\"}]}");
+        assertTrue(padding.isOk());
+        assertTrue(padding.getOutput().getScopeUpdate().isValid());
+    }
+
+    /**
+     * GPT's completeness demand after live-gate 3: kind+facetId alone is NOT the contract —
+     * every kind's own required fields must stay enforced (addExclusion without value slipped
+     * through the grammar and died only here). setDeliverable is the one kind whose fields are
+     * all optional (every part has a documented default).
+     */
+    @Test
+    public void everyOperationKindEnforcesItsOwnRequiredFields() {
+        String[] kinds = {"setMission", "addFacet", "confirmFacet", "excludeFacet",
+                "setFacetEmphasis", "setCrossCuttingEmphasis", "addDomain", "addContext",
+                "addPerspective", "addConstraint", "addExclusion", "addTerminology",
+                "setGeographicScope", "setTemporalScope", "addUnresolvedIssue", "resolveIssue",
+                "setDeliverable"};
+        for (String kind : kinds) {
+            ScopingAssistantOutputParser.Result result = parse(
+                    "\"scopePatch\":{\"operations\":[{\"kind\":\"" + kind + "\"}]}");
+            assertTrue(kind, result.isOk());
+            boolean valid = result.getOutput().getScopeUpdate().isValid();
+            if ("setDeliverable".equals(kind)) {
+                assertTrue("setDeliverable has only optional fields", valid);
+            } else {
+                assertFalse(kind + " must reject a bare operation", valid);
+            }
+        }
     }
 
     @Test

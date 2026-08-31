@@ -38,14 +38,17 @@ public final class ScopingPhaseOutputContract implements PhaseOutputContract {
      * {@code conceptAction} are REQUIRED (the action decision is always explicit — type "none"
      * says "I change nothing"); the concept action types are an enum; list sizes carry maxItems
      * (the Weidezaun lesson: a model that loses count is stopped by the grammar, not by prose);
-     * scope operations pin {@code kind} to the known enum AND require a NON-EMPTY {@code facetId}
-     * (live-gate 2: the model emitted excludeFacet/addFacet without one, the runtime rejected the
-     * operation, and the exclusion never reached the Weidezaun). The grammar is FLAT on purpose
-     * (the K2c lesson: no oneOf for small models), so {@code facetId} is demanded on EVERY
-     * operation — on non-facet kinds the codec simply ignores the extra field, which is far
-     * cheaper than a branched grammar. Advisory suggestions require NON-EMPTY label+query — the
-     * first live gate saw {@code "label":""} slip past a presence-only schema. The remaining
-     * operation ARGUMENTS stay free-form — the runtime validates their semantics.
+     * scope operations pin {@code kind} to the known enum AND require a {@code facetId} in the
+     * TECHNICAL-ID shape (live-gate 2: missing ids starved the Weidezaun; live-gate 3: minLength
+     * alone let a 100-char prompt placeholder become a canonical facet — the pattern blocks
+     * commas, colons, braces and sentences at generation time, and the runtime re-checks it for
+     * engines that ignore {@code pattern}). The grammar is FLAT on purpose (the K2c lesson: no
+     * oneOf for small models), so {@code facetId} is demanded on EVERY operation — on non-facet
+     * kinds the codec simply ignores the extra field, which is far cheaper than a branched
+     * grammar. Advisory suggestions require NON-EMPTY label+query — the first live gate saw
+     * {@code "label":""} slip past a presence-only schema. Per-kind REQUIRED fields (addExclusion
+     * needs value, setMission needs mission, …) cannot be expressed flatly — that stays the
+     * runtime validator's job, with the field reference travelling in the repair feedback.
      */
     @Override
     public String outputSchemaJson() {
@@ -72,7 +75,9 @@ public final class ScopingPhaseOutputContract implements PhaseOutputContract {
                 + "\"addDomain\",\"addContext\",\"addPerspective\",\"addConstraint\","
                 + "\"addExclusion\",\"addTerminology\",\"setGeographicScope\","
                 + "\"setTemporalScope\",\"addUnresolvedIssue\",\"resolveIssue\"]},"
-                + "\"facetId\":{\"type\":\"string\",\"minLength\":1}},"
+                + "\"facetId\":{\"type\":\"string\",\"minLength\":1,"
+                + "\"pattern\":\"^[a-z0-9][a-z0-9_-]{0,63}$\"},"
+                + "\"label\":{\"type\":\"string\",\"minLength\":1}},"
                 + "\"required\":[\"kind\",\"facetId\"]}}}},"
                 + "\"unresolvedIssues\":{\"type\":\"array\",\"maxItems\":6,\"items\":"
                 + "{\"type\":\"object\"}},"

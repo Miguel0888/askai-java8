@@ -349,8 +349,23 @@ public final class ResearchScopeDraft {
                 return this;
             }
             for (int index = 0; index < facets.size(); index++) {
-                if (facets.get(index).getFacetId().equals(facet.getFacetId())) {
-                    facets.set(index, facets.get(index).with(facet.getStatus(), facet.getRationale()));
+                ScopeFacet existing = facets.get(index);
+                if (existing.getFacetId().equals(facet.getFacetId())) {
+                    // Refine semantics: the EXISTING label wins (the user's wording is not
+                    // overwritten by a later operation) — UNLESS it is only the (humanized) id,
+                    // i.e. an emergency label from a label-less creation: a real label arriving
+                    // later must be able to replace it, or the emergency sticks forever.
+                    boolean emergencyLabel = existing.getLabel().equals(existing.getFacetId())
+                            || existing.getLabel().equals(
+                                    ScopePatchOperations.humanizeId(existing.getFacetId()));
+                    boolean betterLabelArrived = emergencyLabel
+                            && !facet.getLabel().isEmpty()
+                            && !facet.getLabel().equals(existing.getLabel());
+                    ScopeFacet base = betterLabelArrived
+                            ? new ScopeFacet(existing.getFacetId(), facet.getLabel(),
+                                    existing.getStatus(), existing.getRationale())
+                            : existing;
+                    facets.set(index, base.with(facet.getStatus(), facet.getRationale()));
                     return this;
                 }
             }
