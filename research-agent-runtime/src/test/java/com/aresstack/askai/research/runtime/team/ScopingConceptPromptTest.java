@@ -26,6 +26,9 @@ public class ScopingConceptPromptTest {
         // translated "ESP-IDF nicht behandeln" into a concept remove and never fed the scope.
         assertTrue(with.contains("ESP-IDF möchte ich doch nicht behandeln"));
         assertTrue(with.contains("\"kind\": \"excludeFacet\""));
+        // Gate 2: the example must MODEL a valid id — the model copied the shape verbatim.
+        assertTrue(with.contains("\"facetId\": \"esp-idf\""));
+        assertTrue(with.contains("\"facetId\": \"arduino\""));
         assertTrue("an exclusion is scope food, not a remove of a card that never existed",
                 with.contains("Do NOT translate an exclusion into a concept remove"));
         assertTrue(with.contains("Task Notifications"));
@@ -45,13 +48,15 @@ public class ScopingConceptPromptTest {
         assertTrue("the action decision is always explicit",
                 schema.contains("\"required\":[\"assistantMessage\",\"conceptAction\"]"));
         assertTrue("runaway lists are stopped by the grammar", schema.contains("maxItems"));
-        // Scope hardening after the live gate: operations pin their kind, advisory suggestions
-        // must carry a NON-EMPTY label+query (an empty label once poisoned a whole scope turn).
+        // Scope hardening after the live gates: operations pin their kind AND a non-empty
+        // facetId (gate 2: excludeFacet/addFacet arrived without one and the exclusion never
+        // reached the Weidezaun); advisory suggestions must carry a NON-EMPTY label+query
+        // (gate 1: an empty label once poisoned a whole scope turn).
         assertTrue(schema.contains("\"enum\":[\"setMission\",\"addFacet\",\"confirmFacet\","
                 + "\"excludeFacet\""));
-        assertTrue(schema.contains("\"required\":[\"kind\"]"));
+        assertTrue(schema.contains("\"facetId\":{\"type\":\"string\",\"minLength\":1}"));
+        assertTrue(schema.contains("\"required\":[\"kind\",\"facetId\"]"));
         assertTrue(schema.contains("\"required\":[\"label\",\"query\"]"));
-        assertTrue(schema.contains("\"minLength\":1"));
         assertEquals("without the tools the long-standing schema-free behaviour stays",
                 null, new ScopingPhaseOutputContract(false).outputSchemaJson());
         assertEquals(null, new ScopingPhaseOutputContract().outputSchemaJson());

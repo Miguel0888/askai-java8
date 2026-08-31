@@ -87,6 +87,25 @@ public final class ConceptToolRounds {
                     // Observable: the model CHOSE none — distinguishable from an absent field.
                     trace.line("concept action: NONE");
                 }
+                // GROUNDING (live-gate 2): a finished turn whose scopePatch failed validation
+                // would leave the visible answer claiming a change the application refused
+                // ("Das ist notiert" over a rejected excludeFacet). A broken patch is repaired
+                // like a rejected tool call — same error-tolerance budget, one honest retry.
+                ScopeUpdateDocument scopeUpdate = output.getScopeUpdate();
+                if (scopeUpdate != null && !scopeUpdate.isValid() && !budgetExhausted
+                        && repairs < maxRepairAttempts) {
+                    repairs++;
+                    trace.line("scope patch REJECTED (" + scopeUpdate.describeViolations()
+                            + ") — repair turn (repairs=" + repairs + "/" + maxRepairAttempts + ")");
+                    if (intermediateSink != null) {
+                        // The invalid attempt still travels to the host — its rejection line is
+                        // exactly the observability the technical_log gate asked for.
+                        intermediateSink.intermediate(output);
+                    }
+                    result = turn.run(TeamAgentPlaybook.scopePatchRejected(
+                            scopeUpdate.describeViolations(), germanFeedback));
+                    continue;
+                }
                 return result; // the model finished without a further action — the normal end
             }
             if (budgetExhausted) {
@@ -140,6 +159,15 @@ public final class ConceptToolRounds {
                 } catch (ToolInvoker.EndpointUnavailable unavailable) {
                     currentConcept = null;
                 }
+            }
+            ScopeUpdateDocument roundScope = output.getScopeUpdate();
+            if (roundScope != null && !roundScope.isValid()) {
+                // The round continues anyway (concept feedback) — the scope rejection rides the
+                // SAME feedback for free instead of costing an extra repair inference.
+                trace.line("scope patch REJECTED (" + roundScope.describeViolations()
+                        + ") — noted in round feedback");
+                feedback = feedback + "\n\n" + TeamAgentPlaybook.scopePatchRejected(
+                        roundScope.describeViolations(), germanFeedback);
             }
             budgetExhausted = rounds >= maxToolRounds || repairs > maxRepairAttempts;
             if (budgetExhausted) {

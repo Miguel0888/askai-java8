@@ -38,10 +38,14 @@ public final class ScopingPhaseOutputContract implements PhaseOutputContract {
      * {@code conceptAction} are REQUIRED (the action decision is always explicit — type "none"
      * says "I change nothing"); the concept action types are an enum; list sizes carry maxItems
      * (the Weidezaun lesson: a model that loses count is stopped by the grammar, not by prose);
-     * scope operations pin {@code kind} to the known enum, and advisory suggestions require
-     * NON-EMPTY label+query — the live gate saw {@code "label":""} slip past a presence-only
-     * schema and (before the error domains were separated) reject a whole scope turn. Operation
-     * ARGUMENTS stay free-form — the runtime validates their semantics.
+     * scope operations pin {@code kind} to the known enum AND require a NON-EMPTY {@code facetId}
+     * (live-gate 2: the model emitted excludeFacet/addFacet without one, the runtime rejected the
+     * operation, and the exclusion never reached the Weidezaun). The grammar is FLAT on purpose
+     * (the K2c lesson: no oneOf for small models), so {@code facetId} is demanded on EVERY
+     * operation — on non-facet kinds the codec simply ignores the extra field, which is far
+     * cheaper than a branched grammar. Advisory suggestions require NON-EMPTY label+query — the
+     * first live gate saw {@code "label":""} slip past a presence-only schema. The remaining
+     * operation ARGUMENTS stay free-form — the runtime validates their semantics.
      */
     @Override
     public String outputSchemaJson() {
@@ -67,8 +71,9 @@ public final class ScopingPhaseOutputContract implements PhaseOutputContract {
                 + "\"setFacetEmphasis\",\"setCrossCuttingEmphasis\",\"setDeliverable\","
                 + "\"addDomain\",\"addContext\",\"addPerspective\",\"addConstraint\","
                 + "\"addExclusion\",\"addTerminology\",\"setGeographicScope\","
-                + "\"setTemporalScope\",\"addUnresolvedIssue\",\"resolveIssue\"]}},"
-                + "\"required\":[\"kind\"]}}}},"
+                + "\"setTemporalScope\",\"addUnresolvedIssue\",\"resolveIssue\"]},"
+                + "\"facetId\":{\"type\":\"string\",\"minLength\":1}},"
+                + "\"required\":[\"kind\",\"facetId\"]}}}},"
                 + "\"unresolvedIssues\":{\"type\":\"array\",\"maxItems\":6,\"items\":"
                 + "{\"type\":\"object\"}},"
                 + "\"orientationSuggestions\":{\"type\":\"array\",\"maxItems\":3,\"items\":"

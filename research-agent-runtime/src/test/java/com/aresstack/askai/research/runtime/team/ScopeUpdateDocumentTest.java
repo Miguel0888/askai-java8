@@ -91,6 +91,21 @@ public class ScopeUpdateDocumentTest {
                 json.indexOf("\"facetId\":\"neue-antriebstechnologien\"", first + 1) > first);
     }
 
+    /**
+     * The mirror of the label→id derivation (live-gate 2): the grammar now forces facetId on every
+     * operation, so an addFacet may arrive id-only — the label falls back to the id instead of the
+     * update dying over the HUMAN half of the same bookkeeping field.
+     */
+    @Test
+    public void anIdOnlyAddFacetGetsItsLabelFromTheIdInsteadOfRejectingTheUpdate() {
+        ScopingAssistantOutputParser.Result result = parse(
+                "\"scopePatch\":{\"operations\":[{\"kind\":\"addFacet\",\"facetId\":\"arduino\"}]}");
+        assertTrue(result.getError(), result.isOk());
+        ScopeUpdateDocument document = result.getOutput().getScopeUpdate();
+        assertTrue("the update applies: " + document.describeViolations(), document.isValid());
+        assertTrue(document.toJson(), document.toJson().contains("\"label\":\"arduino\""));
+    }
+
     @Test
     public void aFacetOperationWithNeitherIdNorLabelStaysAViolation() {
         ScopingAssistantOutputParser.Result result = parse(

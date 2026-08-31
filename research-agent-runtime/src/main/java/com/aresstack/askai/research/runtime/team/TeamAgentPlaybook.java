@@ -250,10 +250,12 @@ public final class TeamAgentPlaybook {
                 + "addConstraint{value}, addExclusion{value}, addTerminology{value}, "
                 + "setGeographicScope{value}, setTemporalScope{value}, addUnresolvedIssue{...}, "
                 + "resolveIssue{issueId}.\n"
-                + "- facetId is a STABLE, short, lowercase ascii id you invent once (e.g. \"worker-safety\") "
-                + "and then reuse; the label is the user-facing wording. To change an aspect, reuse its id — "
-                + "never create a second facet for the same thing. If you cannot keep ids straight, give "
-                + "only the label: the application derives a stable id from it (same label, same id).\n"
+                + "- EVERY operation carries a facetId (the format requires it): a STABLE, short, "
+                + "lowercase ascii id you derive from the label once (\"ESP-IDF\" -> \"esp-idf\", "
+                + "\"Worker Safety\" -> \"worker-safety\") and then REUSE — never create a second facet "
+                + "for the same thing; the label is the user-facing wording. On operations that do not "
+                + "target a facet (setMission, addExclusion, ...) the field is ignored — fill it with "
+                + "the slug of the operation's main value.\n"
                 + "- \"Important\" and \"research it deeply\" are DIFFERENT: importance and researchDepth are "
                 + "set independently.\n"
                 + "- An aspect the user drops is excludeFacet (with the reason), never a deletion.\n"
@@ -261,9 +263,9 @@ public final class TeamAgentPlaybook {
                 + "Arduino.\" That ONE sentence changes "
                 + (conceptTools ? "BOTH artifacts in the SAME answer" : "the scope") + ":\n"
                 + "    \"scopePatch\": {\"operations\": [\n"
-                + "      {\"kind\": \"excludeFacet\", \"label\": \"ESP-IDF\", "
+                + "      {\"kind\": \"excludeFacet\", \"facetId\": \"esp-idf\", "
                 + "\"rationale\": \"explicit user exclusion\"},\n"
-                + "      {\"kind\": \"confirmFacet\", \"label\": \"Arduino\", "
+                + "      {\"kind\": \"confirmFacet\", \"facetId\": \"arduino\", "
                 + "\"rationale\": \"user narrowed the focus to Arduino\"}\n"
                 + "    ]}"
                 + (conceptTools
@@ -567,6 +569,26 @@ public final class TeamAgentPlaybook {
                         + "\nCorrect exactly what the diagnostic names and try again "
                         + "(concept_read shows the current cards), or finish honestly with type "
                         + "\"none\" — but NEVER claim the change happened.";
+    }
+
+    /**
+     * Feedback when the turn's scopePatch failed validation (live-gate 2: the agent said "Das ist
+     * notiert" while the authoritative commit was rejected). The scope did NOT change; the model
+     * gets the violations verbatim and must resend a corrected patch — and, above all, must not
+     * let its visible answer claim a recorded exclusion/focus.
+     */
+    public static String scopePatchRejected(String violations, boolean german) {
+        return german
+                ? "SCOPE PATCH REJECTED — der Rechercheumfang ist UNVERÄNDERT.\n" + violations
+                        + "\nSende den korrigierten scopePatch erneut (jede Operation braucht "
+                        + "kind UND facetId, z.B. {\"kind\": \"excludeFacet\", \"facetId\": "
+                        + "\"esp-idf\"}). Behaupte in deiner assistantMessage NIE, ein Ausschluss "
+                        + "oder Fokus sei gespeichert, solange er es nicht ist."
+                : "SCOPE PATCH REJECTED — the research scope is UNCHANGED.\n" + violations
+                        + "\nResend the corrected scopePatch (every operation needs kind AND "
+                        + "facetId, e.g. {\"kind\": \"excludeFacet\", \"facetId\": \"esp-idf\"}). "
+                        + "NEVER claim in your assistantMessage that an exclusion or focus is "
+                        + "stored while it is not.";
     }
 
     /**

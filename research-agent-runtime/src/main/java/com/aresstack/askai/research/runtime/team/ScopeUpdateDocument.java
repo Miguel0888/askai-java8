@@ -183,11 +183,22 @@ public final class ScopeUpdateDocument {
      * scope update over a bookkeeping field ("addFacet without 'facetId'" on every turn). When a facet
      * operation carries a label but no facetId, the id is DERIVED deterministically from the label — the
      * same label always yields the same id, so a later confirm/exclude by label references the same facet.
-     * This is normalization BEFORE validation, never partial application: an operation with neither id nor
-     * label still fails the whole update.
+     * The MIRROR direction holds too (live-gate 2 lesson): the grammar now forces {@code facetId} on
+     * every operation, so an {@code addFacet} may arrive id-only — its label then falls back to the id
+     * instead of failing the update over the HUMAN half of the same bookkeeping. This is normalization
+     * BEFORE validation, never partial application: an operation with neither id nor label still fails
+     * the whole update.
      */
     private static Map<String, Object> withDerivedFacetId(String kind, Map<String, Object> operation) {
-        if (!FACET_OPERATIONS.contains(kind) || !text(operation.get("facetId")).isEmpty()) {
+        if (!FACET_OPERATIONS.contains(kind)) {
+            return operation;
+        }
+        if (!text(operation.get("facetId")).isEmpty()) {
+            if ("addFacet".equals(kind) && text(operation.get("label")).isEmpty()) {
+                Map<String, Object> labelled = new LinkedHashMap<String, Object>(operation);
+                labelled.put("label", text(operation.get("facetId")));
+                return labelled;
+            }
             return operation;
         }
         String slug = slugOf(text(operation.get("label")));

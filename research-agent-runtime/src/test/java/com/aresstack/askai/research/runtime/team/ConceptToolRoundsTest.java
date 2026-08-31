@@ -234,6 +234,65 @@ public class ConceptToolRoundsTest {
         assertTrue(trace.get(trace.size() - 1).contains("unavailable"));
     }
 
+    /**
+     * GROUNDING (live-gate 2): a finished turn whose scopePatch failed validation said "Das ist
+     * notiert" while the commit was rejected. The broken patch now costs one repair inference —
+     * the model sees the violations, the sink still receives the invalid attempt (host-side
+     * REJECTED observability), and the corrected answer replaces the false claim.
+     */
+    @Test
+    public void aFinishedTurnWithABrokenScopePatchGetsOneScopeRepairTurn() throws Exception {
+        ScriptedTurns turns = new ScriptedTurns();
+        final List<ScopingAssistantOutput> intermediates = new ArrayList<ScopingAssistantOutput>();
+        ScopingAssistantOutputParser.Result broken = ScopingAssistantOutputParser.parse(
+                "{\"assistantMessage\":\"Das ist notiert.\","
+                        + "\"scopePatch\":{\"operations\":[{\"kind\":\"excludeFacet\"}]},"
+                        + "\"conceptAction\":{\"type\":\"none\"}}");
+        assertTrue(broken.isOk());
+        ScopingAssistantOutputParser.Result corrected = ScopingAssistantOutputParser.parse(
+                "{\"assistantMessage\":\"ESP-IDF ist ausgeschlossen.\","
+                        + "\"scopePatch\":{\"operations\":[{\"kind\":\"excludeFacet\","
+                        + "\"facetId\":\"esp-idf\"}]},"
+                        + "\"conceptAction\":{\"type\":\"none\"}}");
+        assertTrue(corrected.isOk());
+        turns.script.add(TeamAgentResult.ok(corrected.getOutput(), null));
+
+        TeamAgentResult result = ConceptToolRounds.run(
+                TeamAgentResult.ok(broken.getOutput(), null), turns, new ScriptedTool(),
+                4, 2, false,
+                new ConceptToolRounds.IntermediateSink() {
+                    public void intermediate(ScopingAssistantOutput output) {
+                        intermediates.add(output);
+                    }
+                }, traceSink);
+
+        assertEquals("the corrected answer replaces the false claim", "ESP-IDF ist ausgeschlossen.",
+                ((ScopingAssistantOutput) result.getOutput()).getAssistantMessage());
+        String feedback = turns.feedbackSeen.get(0);
+        assertTrue(feedback.startsWith("SCOPE PATCH REJECTED"));
+        assertTrue("the violations travel verbatim", feedback.contains("excludeFacet without 'facetId'"));
+        assertTrue("the false claim is forbidden explicitly", feedback.contains("NEVER claim"));
+        assertEquals("the invalid attempt still reaches the sink (host logs the rejection)",
+                1, intermediates.size());
+        assertTrue(!intermediates.get(0).getScopeUpdate().isValid());
+        assertTrue(trace.toString(), trace.toString().contains("scope patch REJECTED"));
+    }
+
+    /** A zero repair budget never loops: the broken-patch turn passes through unrepaired. */
+    @Test
+    public void aBrokenScopePatchWithoutRepairBudgetPassesThroughUntouched() throws Exception {
+        ScriptedTurns turns = new ScriptedTurns();
+        ScopingAssistantOutputParser.Result broken = ScopingAssistantOutputParser.parse(
+                "{\"assistantMessage\":\"notiert\","
+                        + "\"scopePatch\":{\"operations\":[{\"kind\":\"excludeFacet\"}]},"
+                        + "\"conceptAction\":{\"type\":\"none\"}}");
+        assertTrue(broken.isOk());
+        TeamAgentResult initial = TeamAgentResult.ok(broken.getOutput(), null);
+        assertEquals(initial, ConceptToolRounds.run(initial, turns, new ScriptedTool(),
+                4, 0, false, null, traceSink));
+        assertTrue(turns.feedbackSeen.isEmpty());
+    }
+
     @Test
     public void aTurnWithoutAnActionPassesThroughUntouched() throws Exception {
         ScriptedTurns turns = new ScriptedTurns();
