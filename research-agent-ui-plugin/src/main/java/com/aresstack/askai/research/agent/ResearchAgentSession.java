@@ -3552,7 +3552,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 technicalLogLines.removeFirst();
             }
         }
-        sink.appendTechnicalLog(line);
+        if (sink != null) { // headless/tests: the readable tail above still records everything
+            sink.appendTechnicalLog(line);
+        }
     }
 
     /** The last {@code tailLines} technical lines, oldest first ({@code <= 0} = a sane default). */
