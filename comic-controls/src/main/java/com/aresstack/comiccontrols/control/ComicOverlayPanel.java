@@ -92,7 +92,7 @@ public class ComicOverlayPanel extends JPanel {
 
         public CloseButton(ComicPalette palette, final Runnable closeAction) {
             this.palette = palette;
-            setToolTipText("Schließen");
+            setToolTipText("Close");
             setFocusable(false);
             setContentAreaFilled(false);
             setBorderPainted(false);

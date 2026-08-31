@@ -33,24 +33,36 @@ import java.awt.image.BufferedImage;
 import java.io.File;
 
 /**
- * The EMBEDDABLE Mermaid viewer: the {@link MermaidViewerDialog} feature set — dark canvas,
- * drag-to-pan, cursor-anchored wheel zoom, ➖/➕/fit controls, copy and save-as-PNG, info bar and
+ * The EMBEDDABLE Mermaid viewer: the {@link MermaidViewerDialog} feature set — drag-to-pan,
+ * cursor-anchored wheel zoom, ➖/➕/fit controls, copy and save-as-PNG, info bar and
  * the automatic high-resolution re-render — as a plain panel, so overlays (e.g. the research
  * mindmap over the transcript) get the full viewer instead of a static image. Rendering runs
  * through the SAME production pipeline as chat diagrams ({@link CachingMermaidImageRenderer});
  * a render failure shows the Mermaid source honestly instead of a blank canvas.
+ *
+ * <p>SURFACE: the diagram canvas is WHITE like the surrounding overlay frame by default
+ * ({@link #DEFAULT_SURFACE_COLOR}/{@link #DEFAULT_SURFACE_OPACITY_PERCENT} are the one place to
+ * retheme). At runtime the info bar carries a color swatch and an opacity slider (bottom right):
+ * the swatch recolors canvas AND frame plate TOGETHER (two colors would look broken), the slider
+ * fades the canvas from solid to fully transparent over the frame.</p>
  */
 public final class MermaidViewerPanel extends JPanel {
 
     private static final int BASE_WIDTH = 1200;
     private static final int HIGH_RES_WIDTH = 2600;
 
+    /** The diagram surface color — white like the overlay frame. THE retheme constant. */
+    public static final Color DEFAULT_SURFACE_COLOR = Color.WHITE;
+    /** Surface opacity in percent: 100 = solid, 0 = fully transparent (the frame shines through). */
+    public static final int DEFAULT_SURFACE_OPACITY_PERCENT = 100;
+
     private final String diagramCode;
     private final MermaidImageRenderer renderer;
     private final Canvas canvas = new Canvas();
     private final JLabel info = new JLabel(" ", SwingConstants.CENTER);
     private final JLayeredPane layers = new JLayeredPane();
-    private final JLabel busy = new JLabel("Rendere Diagramm…", SwingConstants.CENTER);
+    private final JLabel busy = new JLabel("Rendering diagram…", SwingConstants.CENTER);
+    private Color surfaceColor = DEFAULT_SURFACE_COLOR;
 
     public MermaidViewerPanel(String diagramCode) {
         this(diagramCode, CachingMermaidImageRenderer.shared());
@@ -61,7 +73,7 @@ public final class MermaidViewerPanel extends JPanel {
         this.diagramCode = diagramCode == null ? "" : diagramCode;
         this.renderer = renderer;
 
-        busy.setForeground(new Color(255, 255, 255, 200));
+        busy.setForeground(new Color(70, 70, 70, 200)); // legible on the (light) default surface
         busy.setFont(busy.getFont().deriveFont(Font.ITALIC, 12f));
 
         final ViewerButton zoomOut = new ViewerButton("➖", 36, "Zoom out (−)");
@@ -111,10 +123,62 @@ public final class MermaidViewerPanel extends JPanel {
 
         info.setFont(info.getFont().deriveFont(Font.ITALIC, 11f));
         info.setBorder(BorderFactory.createEmptyBorder(3, 8, 3, 8));
-        add(info, BorderLayout.SOUTH);
+        add(buildInfoBar(), BorderLayout.SOUTH);
 
         installCanvasInteractions();
         renderAsync();
+    }
+
+    /**
+     * The bottom strip: the info line in the center, the SURFACE controls bottom right — a color
+     * swatch and the opacity slider. The strip itself stays transparent, so it always shows the
+     * frame plate it sits on (one color, never two).
+     */
+    private JComponent buildInfoBar() {
+        JPanel bar = new JPanel(new BorderLayout());
+        bar.setOpaque(false);
+        bar.add(info, BorderLayout.CENTER);
+
+        final javax.swing.JSlider opacity = new javax.swing.JSlider(0, 100,
+                DEFAULT_SURFACE_OPACITY_PERCENT);
+        opacity.setOpaque(false);
+        opacity.setFocusable(false);
+        opacity.setToolTipText("Diagram surface opacity");
+        opacity.setPreferredSize(new Dimension(90, 18));
+        opacity.addChangeListener(e -> canvas.setSurface(surfaceColor, opacity.getValue()));
+
+        final SwatchButton swatch = new SwatchButton();
+        swatch.setToolTipText("Diagram surface color (recolors the frame too)");
+        swatch.onClick(() -> {
+            Color chosen = javax.swing.JColorChooser.showDialog(
+                    MermaidViewerPanel.this, "Diagram surface color", surfaceColor);
+            if (chosen != null) {
+                surfaceColor = chosen;
+                swatch.repaint();
+                canvas.setSurface(surfaceColor, opacity.getValue());
+                applyFrameColor(chosen);
+            }
+        });
+
+        JPanel controls = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.RIGHT, 6, 0));
+        controls.setOpaque(false);
+        controls.add(swatch);
+        controls.add(opacity);
+        bar.add(controls, BorderLayout.EAST);
+        return bar;
+    }
+
+    /**
+     * Surface and frame must never disagree: the swatch recolors the comic overlay plate this
+     * viewer sits on together with the canvas. Outside an overlay (no plate ancestor) the canvas
+     * alone changes — there is no frame to keep in sync.
+     */
+    private void applyFrameColor(Color color) {
+        java.awt.Container plate = javax.swing.SwingUtilities.getAncestorOfClass(
+                com.aresstack.comiccontrols.control.ComicSectionPanel.class, this);
+        if (plate instanceof com.aresstack.comiccontrols.control.ComicSectionPanel) {
+            ((com.aresstack.comiccontrols.control.ComicSectionPanel) plate).setPlateFill(color);
+        }
     }
 
     private void installCanvasInteractions() {
@@ -203,8 +267,8 @@ public final class MermaidViewerPanel extends JPanel {
     private void showFailure() {
         removeAll();
         JTextArea details = new JTextArea(
-                "Das Diagramm konnte nicht gerendert werden (Details im Terminal-Log).\n\n"
-                        + "Mermaid-Quelle:\n" + diagramCode);
+                "The diagram could not be rendered (details in the terminal log).\n\n"
+                        + "Mermaid source:\n" + diagramCode);
         details.setEditable(false);
         details.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
         JScrollPane scroll = new JScrollPane(details);
@@ -259,7 +323,7 @@ public final class MermaidViewerPanel extends JPanel {
 
     // ------------------------------------------------------------------ inner parts
 
-    /** Dark canvas: fit-to-view, cursor-anchored zoom, pan (same behavior as the dialog's). */
+    /** The canvas: fit-to-view, cursor-anchored zoom, pan, and the configurable surface. */
     private static final class Canvas extends JPanel {
         private BufferedImage staticImage;
         private int imgW;
@@ -269,9 +333,13 @@ public final class MermaidViewerPanel extends JPanel {
         double offsetY;
         Point dragStart;
         private boolean fitted;
+        private Color surface = DEFAULT_SURFACE_COLOR;
+        private int opacityPercent = DEFAULT_SURFACE_OPACITY_PERCENT;
 
         Canvas() {
-            setBackground(new Color(30, 30, 30));
+            // The surface paints itself (color + opacity) — never an opaque Swing background,
+            // or the transparency slider would have nothing to reveal.
+            setOpaque(false);
             addComponentListener(new ComponentAdapter() {
                 @Override
                 public void componentResized(ComponentEvent e) {
@@ -280,6 +348,13 @@ public final class MermaidViewerPanel extends JPanel {
                     }
                 }
             });
+        }
+
+        /** Recolor/fade the surface (0 = fully transparent — the frame plate shows through). */
+        void setSurface(Color color, int opacityPercent) {
+            this.surface = color;
+            this.opacityPercent = Math.max(0, Math.min(100, opacityPercent));
+            repaint();
         }
 
         void setStaticImage(BufferedImage img) {
@@ -324,16 +399,58 @@ public final class MermaidViewerPanel extends JPanel {
         @Override
         protected void paintComponent(Graphics g) {
             super.paintComponent(g);
+            Graphics2D g2 = (Graphics2D) g.create();
+            if (opacityPercent > 0) {
+                g2.setColor(new Color(surface.getRed(), surface.getGreen(), surface.getBlue(),
+                        Math.round(opacityPercent * 255 / 100f)));
+                g2.fillRect(0, 0, getWidth(), getHeight());
+            }
             if (staticImage == null) {
+                g2.dispose();
                 return;
             }
-            Graphics2D g2 = (Graphics2D) g.create();
             g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
                     RenderingHints.VALUE_INTERPOLATION_BILINEAR);
             g2.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
             g2.drawImage(staticImage, (int) Math.round(offsetX), (int) Math.round(offsetY),
                     (int) Math.round(imgW * zoom), (int) Math.round(imgH * zoom), null);
             g2.dispose();
+        }
+    }
+
+    /** A small round swatch showing the CURRENT surface color, ink-outlined like the comic chips. */
+    private final class SwatchButton extends JPanel {
+        private Runnable action;
+
+        SwatchButton() {
+            setOpaque(false);
+            setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            setPreferredSize(new Dimension(18, 18));
+            addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseClicked(MouseEvent e) {
+                    if (action != null) {
+                        action.run();
+                    }
+                }
+            });
+        }
+
+        void onClick(Runnable action) {
+            this.action = action;
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.setColor(surfaceColor);
+            g2.fillOval(1, 1, getWidth() - 3, getHeight() - 3);
+            g2.setColor(new Color(37, 37, 37));
+            g2.setStroke(new java.awt.BasicStroke(1.4f));
+            g2.drawOval(1, 1, getWidth() - 3, getHeight() - 3);
+            g2.dispose();
+            super.paintComponent(g);
         }
     }
 
