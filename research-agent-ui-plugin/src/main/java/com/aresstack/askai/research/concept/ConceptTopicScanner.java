@@ -45,6 +45,48 @@ public final class ConceptTopicScanner {
         }
     }
 
+    /**
+     * ALL card-name paths of the concept, in document order (Zielbild slice 1: the mindmap IS
+     * the positive working space — its cards become the fence's IN posts). Unreadable or
+     * concept-less documents yield an empty list, never a crash.
+     */
+    public static List<List<String>> collectCardPaths(String documentJson) {
+        List<List<String>> paths = new ArrayList<List<String>>();
+        if (documentJson == null) {
+            return paths;
+        }
+        try {
+            JsonElement root = JsonParser.parseString(documentJson);
+            if (!root.isJsonObject()) {
+                return paths;
+            }
+            JsonElement concept = root.getAsJsonObject().get("concept");
+            if (concept == null || !concept.isJsonArray()) {
+                return paths;
+            }
+            collect(concept.getAsJsonArray(), new ArrayList<String>(), paths);
+        } catch (RuntimeException unreadable) {
+            paths.clear();
+        }
+        return paths;
+    }
+
+    private static void collect(JsonArray array, List<String> path, List<List<String>> out) {
+        for (JsonElement element : array) {
+            if (!element.isJsonObject()) {
+                continue;
+            }
+            for (Map.Entry<String, JsonElement> card : element.getAsJsonObject().entrySet()) {
+                List<String> here = new ArrayList<String>(path);
+                here.add(card.getKey());
+                out.add(here);
+                if (card.getValue().isJsonArray()) {
+                    collect(card.getValue().getAsJsonArray(), here, out);
+                }
+            }
+        }
+    }
+
     /** Three-node rule: objects in arrays are invisible containers; their KEYS are the cards. */
     private static List<String> walk(JsonArray array, String topic, List<String> path) {
         for (JsonElement element : array) {

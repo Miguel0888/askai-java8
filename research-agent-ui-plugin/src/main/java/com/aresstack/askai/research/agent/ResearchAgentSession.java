@@ -2266,6 +2266,19 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             // ONE immutable draft snapshot + ONE frozen embedding snapshot, pinned here only.
             com.aresstack.askai.research.domain.scope.ResearchScopeDraft draft =
                     coordinator.current();
+            // Zielbild slice 1 — the fence is a PROJECTION of the two artifacts: the draft's own
+            // anchors carry the negotiated OUT side, the EFFECTIVE mindmap (stored concept minus
+            // exact blacklist matches) contributes the IN posts. Snapshotted HERE, together with
+            // the draft, so vectors/request/plan describe one fence.
+            com.aresstack.askai.research.concept.ConceptBranchService conceptService =
+                    conceptBranchService();
+            java.util.List<com.aresstack.askai.research.domain.scope.ScopeAnchor> conceptAnchors =
+                    com.aresstack.askai.research.scope.ConceptAnchorProjection.anchorsOf(
+                            conceptService == null ? null
+                                    : conceptService.snapshot().getDocumentJson(), draft);
+            java.util.List<com.aresstack.askai.research.domain.scope.ScopeAnchor> fenceAnchors =
+                    com.aresstack.askai.research.scope.ScopeSweepPlanAssembler.combinedAnchors(
+                            draft, conceptAnchors);
             com.aresstack.askai.research.scope.EmbeddingSnapshotSweepEmbedder embedder =
                     new com.aresstack.askai.research.scope.EmbeddingSnapshotSweepEmbedder(
                             descriptor);
@@ -2275,7 +2288,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 anchorVectors = new com.aresstack.askai.research.store.ScopeAnchorVectorIndex(
                         new java.io.File(productiveResources.getProjectContext()
                                 .getProjectDirectory(), "scope-anchor-vectors.json"))
-                        .vectorsFor(draft, embedder.modelFingerprint(), embedder);
+                        .vectorsFor(fenceAnchors, embedder.modelFingerprint(), embedder);
             } catch (java.io.IOException indexFailed) {
                 return com.aresstack.askai.research.domain.scope.ScopeSweepOutcome
                         .embeddingFailed("anchor vector index failed: "
@@ -2305,7 +2318,8 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                                 }
                             });
             return service.run(com.aresstack.askai.research.scope.ScopeSweepPlanAssembler.planOf(
-                    draft, embedder.modelFingerprint(), anchorVectors, configuration));
+                    draft, conceptAnchors, embedder.modelFingerprint(), anchorVectors,
+                    configuration));
         } finally {
             activeProbeGenerator = null;
             scopeSweepInFlight.set(false);

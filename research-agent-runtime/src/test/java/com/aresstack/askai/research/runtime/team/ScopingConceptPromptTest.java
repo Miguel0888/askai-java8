@@ -22,9 +22,13 @@ public class ScopingConceptPromptTest {
         assertTrue(with.contains("Map an explicit user command DIRECTLY"));
         assertTrue(with.contains("Do not read unrelated branches"));
         assertTrue(with.contains("Never pretend an exclusion or focus is stored"));
-        // Gate 3: id shape spelled out, addFacet demands a human label.
+        // Gate 3: id shape spelled out.
         assertTrue(with.contains("NEVER a sentence, a placeholder text or "));
-        assertTrue(with.contains("addFacet ALWAYS carries BOTH"));
+        // Zielbild slice 1: the concept IS the positive working space — facet creation left the
+        // model contract entirely (no more mindmap-term duplication as PROVISIONAL facets).
+        assertFalse(with.contains("addFacet"));
+        assertFalse(with.contains("confirmFacet"));
+        assertTrue(with.contains("facet creation is not part of your contract"));
         // Gate 4 KISS: the exclusion is ONE command — the model quotes the user's term, the
         // platform owns ids, facets and the concept-conflict check ("military drill": one
         // command, one effect, one reply, then maybe a NEW command in a LATER turn.)
@@ -73,9 +77,13 @@ public class ScopingConceptPromptTest {
         // facetId (gate 2: excludeFacet/addFacet arrived without one and the exclusion never
         // reached the Weidezaun); advisory suggestions must carry a NON-EMPTY label+query
         // (gate 1: an empty label once poisoned a whole scope turn).
-        assertTrue(schema.contains("\"enum\":[\"addFacet\",\"confirmFacet\",\"excludeFacet\""));
-        // Gate 5: mission is host bookkeeping — the model cannot even emit setMission anymore.
+        assertTrue(schema.contains("\"enum\":[\"setFacetEmphasis\""));
+        // Gate 5 / Zielbild slice 1: mission is host bookkeeping, the concept is the positive
+        // working space, exclusion is the one-command action — none of these is emittable.
         assertFalse(schema.contains("setMission"));
+        assertFalse(schema.contains("addFacet"));
+        assertFalse(schema.contains("confirmFacet"));
+        assertFalse(schema.contains("excludeFacet"));
         // Gate 3: minLength alone let prompt placeholders become canonical facets — the id
         // shape is pinned in the grammar (and re-checked by the runtime for engines that
         // ignore 'pattern').

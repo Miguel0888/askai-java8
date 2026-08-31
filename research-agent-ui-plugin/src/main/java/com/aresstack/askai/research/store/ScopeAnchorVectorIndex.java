@@ -59,9 +59,20 @@ public final class ScopeAnchorVectorIndex {
     public synchronized List<ScopeFenceEvaluator.AnchorVector> vectorsFor(
             ResearchScopeDraft draft, String modelFingerprint, AnchorEmbedder embedder)
             throws IOException {
+        return vectorsFor(draft.getAnchors(), modelFingerprint, embedder);
+    }
+
+    /**
+     * As above, over an EXPLICIT anchor list — Zielbild slice 1 hands in the draft's own anchors
+     * plus the effective mindmap's IN posts; the cache logic (text hash + fingerprint, prune
+     * what left the list) is identical.
+     */
+    public synchronized List<ScopeFenceEvaluator.AnchorVector> vectorsFor(
+            List<ScopeAnchor> anchors, String modelFingerprint, AnchorEmbedder embedder)
+            throws IOException {
         Map<String, Entry> cached = load();
         List<ScopeAnchor> toEmbed = new ArrayList<ScopeAnchor>();
-        for (ScopeAnchor anchor : draft.getAnchors()) {
+        for (ScopeAnchor anchor : anchors) {
             if (anchor.getSemanticText().isEmpty()) {
                 continue;
             }
@@ -90,11 +101,11 @@ public final class ScopeAnchorVectorIndex {
                         modelFingerprint, vectors.get(index)));
             }
         }
-        // Prune orphans (anchors that left the draft) and persist the refreshed projection.
+        // Prune orphans (anchors that left the fence) and persist the refreshed projection.
         Map<String, Entry> pruned = new LinkedHashMap<String, Entry>();
         List<ScopeFenceEvaluator.AnchorVector> result =
                 new ArrayList<ScopeFenceEvaluator.AnchorVector>();
-        for (ScopeAnchor anchor : draft.getAnchors()) {
+        for (ScopeAnchor anchor : anchors) {
             Entry entry = cached.get(anchor.getAnchorId());
             if (entry == null) {
                 continue; // empty semantic text — nothing embeddable

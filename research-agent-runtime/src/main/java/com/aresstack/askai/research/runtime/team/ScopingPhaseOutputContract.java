@@ -69,8 +69,12 @@ public final class ScopingPhaseOutputContract implements PhaseOutputContract {
                 + "\"required\":[\"recommendation\"]},"
                 + "\"scopePatch\":{\"type\":\"object\",\"properties\":{"
                 + "\"operations\":{\"type\":\"array\",\"maxItems\":8,\"items\":"
+                // Zielbild slice 1: the concept (mindmap) IS the positive working space —
+                // addFacet/confirmFacet left the model contract (no more facet duplication of
+                // card names), and excludeFacet has its own one-command action. The runtime
+                // validator still accepts them for host paths and old transcripts.
                 + "{\"type\":\"object\",\"properties\":{\"kind\":{\"type\":\"string\","
-                + "\"enum\":[\"addFacet\",\"confirmFacet\",\"excludeFacet\","
+                + "\"enum\":["
                 + "\"setFacetEmphasis\",\"setCrossCuttingEmphasis\",\"setDeliverable\","
                 + "\"addDomain\",\"addContext\",\"addPerspective\",\"addConstraint\","
                 + "\"addExclusion\",\"addTerminology\",\"setGeographicScope\","
