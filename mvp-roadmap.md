@@ -39,7 +39,7 @@ Der Benutzer besitzt sämtliche Phasenübergänge; die KI ist prozess-machtlos (
 | 5 | Produktive Recherche live abnehmen | Technik weit gebaut, mehrere Live-Gates offen |
 | 6 | Weidezaun → Search-Control | offen (der wirtschaftliche Nutzen von Phase 1) |
 | 7 | Knowledge-Konsolidierung (Quellen → Corpus) | C1–C4 gebaut+getestet, Live-Gate blockiert durch N4; C5–C8 offen |
-| 8 | Inhaltsverzeichnis / Struktur II | Domain-Bausteine existieren, produktive Integration offen |
+| 8 | Inhaltsverzeichnis / Struktur II | Analyse-Kette KOMPLETT implementiert (Sätze→Embeddings→Passagen→HAC-Cluster→Live-Projektion); offen ist nur die Brücke Projektion→freigegebene OutlineRevision |
 | 9 | Schreiben / Inhalt II + Report | größter offener Block; Domain-Bausteine existieren |
 | 10 | K4 — Concept als alleinige Phase-1-Wahrheit | offen, wartet auf AP 1 |
 | 11 | Restart-Restore-Verifikation | teils überholt gegenüber problems.md — **prüfen, nicht neu bauen** |
@@ -135,9 +135,11 @@ akzeptierte Quelle → relevante Passagen → Findings/Claims (mit Herkunft und 
 ```
 
 Stand: C1–C4 gebaut und getestet (SemanticKnowledgeIndex mit Lucene+Cosine, kanonische
-vectors.bin, produktiver Worker); das C4-Live-GUI-Gate ist durch **N4** blockiert (gepinnte
-OpenNLP-1.5-Modellquelle url+sha256 fehlt). Danach C5–C8 (ActiveKnowledgeCorpus + Continuous Topic
-Projection zuerst, bewusst klein: Cluster ohne Labeling/Outline).
+vectors.bin, produktiver Worker); die Live-Outline-/Topic-Projektion (`LiveTopicProjection`,
+`LiveOutlineProjectionBuilder`) ist ebenfalls gebaut und produktiv verdrahtet. Das C4-Live-GUI-Gate
+ist durch **N4** blockiert (gepinnte OpenNLP-1.5-Modellquelle url+sha256 fehlt — bis dahin trägt
+der `RegexSentenceSegmenter`-Fallback). Danach der Rest von C5–C8 (ActiveKnowledgeCorpus,
+Widersprüche/Lücken).
 
 Produktregeln: Quellenprüfung bleibt benutzerinitiiert; kein verstecktes Auto-Outline oder
 Background-Processing; fehlgeschlagene Prüfung wiederholbar; ein Neustart vergisst keine
@@ -146,17 +148,25 @@ Blocker).
 
 ### AP 8 — Inhaltsverzeichnis / Struktur II
 
-Verifiziert: `OutlineRevision`, `OutlineProposal`, `EvidenceReview`, `EvidenceBaseline` existieren
-im Domain-Core (`research-domain`, fachlicher Vertikal-Slice-Test vorhanden) — das AP ist
-INTEGRATION, keine grüne Wiese.
+Der MECHANISMUS ist spezifiziert UND weitgehend implementiert — verifiziert existieren:
+- die volle Analyse-Kette `OpenNlpSentenceSegmenter` (Sätze) → `EmbeddingPort`/`VectorMath`
+  (Embeddings) → `PassageSegmentation` (Absatz-/Themenwechsel über Fenster-Ähnlichkeit) →
+  **`TopicClusterer`** (HAC: Cosine-Distanz, Average Linkage, Merge-Cutoff — das Clustering
+  inhaltsgleicher Passagen) → `OutlineProposalBuilder`/`CoverageAnalyzer`;
+- die kontinuierliche Projektion `LiveOutlineProjectionBuilder`/`LiveOutlineSection`/
+  `LiveOutlineMarkdown` + `FileLiveOutlineProjectionStore`, produktiv verdrahtet
+  (`ProductiveResearchBackendFactory`/`KnowledgeProcessingSessionFactory`);
+- `OutlineRevision`/`OutlineProposal` im Domain-Core (`research-domain`).
 
-Offen für das MVP:
-- outline-Sektion im Buch-Umschlag (eigene View + eigener Tool-Vertrag; Adressierung/Guards pro
-  Sektion — das Konzept adressiert per Namenskette, das Outline bekommt seinen eigenen Vertrag);
-- Erzeugung/Aktualisierung ausschließlich EXPLIZIT durch den Benutzer (keine laufende Neuerzeugung
-  während der Recherche), akkumulativ aus dem Konzept weiterentwickelt (siehe Kette oben);
-- nachvollziehbare Kapitelstruktur, Änderungswünsche des Benutzers, und eine bestimmte Revision
-  wird vor dem Schreiben FREIGEGEBEN/eingefroren (Phasen-Freeze: eingefrorene Artefakte nur lesbar).
+Offen für das MVP ist die LETZTE BRÜCKE, nicht die Analyse:
+- die Cluster-/Live-Outline-PROJEKTION (Anzeige-/Wissensmaterial) in eine benutzer-eigene,
+  persistierte **OutlineRevision im Buch-Umschlag** überführen — akkumulativ aus dem Konzeptpapier
+  weiterentwickelt (siehe Kette oben), die Cluster korrigieren/belegen, sie ersetzen nicht;
+- outline-Sektion mit eigener View + eigenem Tool-Vertrag (das Konzept adressiert per Namenskette,
+  das Outline bekommt seinen eigenen Vertrag/Guards);
+- Erzeugung/Aktualisierung ausschließlich EXPLIZIT durch den Benutzer (die Live-Projektion darf
+  weiterlaufen, erzeugt aber nie von selbst eine Revision), Änderungswünsche des Benutzers, und
+  eine bestimmte Revision wird vor dem Schreiben FREIGEGEBEN/eingefroren (Phasen-Freeze).
 
 ### AP 9 — Schreiben / Inhalt II + Report
 
@@ -248,9 +258,9 @@ AP 12 End-to-End-Abnahme
 ## Ehrlicher Gesamtstand
 
 Die Infrastruktur ist weit: Konzept-Pipeline live bewiesen, Scope-Domäne komplett, Recherche-Technik
-inklusive Stop-Policies und Readiness gebaut, Knowledge-Pipeline bis C4 getestet, Outline-/
-Evidence-Bausteine im Domain-Core vorhanden. Die PRODUKTKETTE endet aber derzeit nach Scoping,
-manueller Suche und Teilen der Quellenverarbeitung. Die beiden größten ungebauten Produktblöcke
-sind Outline-Freigabe (AP 8) und Kapitelproduktion + Report (AP 9); davor stehen die Scope-Abnahme
-(AP 1) als akuter Blocker und die Restart-Restore-Verifikation (AP 11) als wichtigste
-Querschnittsprüfung.
+inklusive Stop-Policies und Readiness gebaut, und die Outline-ANALYSE-Kette (Sätze → Embeddings →
+Passagen → HAC-Cluster → Live-Projektion) ist komplett implementiert und produktiv verdrahtet. Die
+PRODUKTKETTE endet aber derzeit nach Scoping, manueller Suche und Teilen der Quellenverarbeitung.
+Der größte ungebaute Produktblock ist Kapitelproduktion + Report (AP 9); AP 8 ist auf die Brücke
+Projektion → freigegebene OutlineRevision geschrumpft; davor stehen die Scope-Abnahme (AP 1) als
+akuter Blocker und die Restart-Restore-Verifikation (AP 11) als wichtigste Querschnittsprüfung.
