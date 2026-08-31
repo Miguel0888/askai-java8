@@ -507,6 +507,22 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         if (disposed || (productiveResources != null && productiveResources.isClosed())) {
             return tags;
         }
+        // An OPEN concept conflict leads: the pending question gets two visible decision
+        // buttons (like a pending approval — a request-bound decision, never a workflow state).
+        if (!conceptConflicts.isEmpty()) {
+            tags.add(new ResearchActionTag("resolve-conflict-remove",
+                    playbook.isGerman() ? "Aus Konzept entfernen" : "Remove from concept",
+                    playbook.isGerman()
+                            ? "Den ausgeschlossenen Begriff auch aus dem Konzept entfernen"
+                            : "Also remove the excluded term from the concept", true));
+            tags.add(new ResearchActionTag("resolve-conflict-keep",
+                    playbook.isGerman() ? "Unterdrückt stehen lassen" : "Keep (suppressed)",
+                    playbook.isGerman()
+                            ? "Der Eintrag bleibt im Konzept; die Recherche dazu bleibt "
+                                    + "unterdrückt"
+                            : "The entry stays in the concept; research on it remains "
+                                    + "suppressed", true));
+        }
         if (resolveSemanticCommand("submit-scope") != null) {
             String reason = scopingApprovalUnavailableReason();
             tags.add(new ResearchActionTag("submit-scope",
@@ -824,6 +840,17 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             // those stay for FAKE mode and the legacy tests only.
             // The productive ACP agent cannot echo the user's OWN message back, so show it in the shared chat
             // here (right-aligned, by role) before the agent replies — otherwise the user's turn is invisible.
+            // Gate 6 contract: while a concept conflict is PENDING, the host OWNS the next
+            // unambiguous yes/no — "Ja." never reaches the model (which once answered it with
+            // prose and a false "vorgenommen" claim while the card stayed put).
+            if (!conceptConflicts.isEmpty()) {
+                Boolean agrees = ConflictAnswerInterpreter.interpret(text);
+                if (agrees != null) {
+                    echoUserMessage(text);
+                    resolvePendingConflictFromHost(agrees.booleanValue());
+                    return;
+                }
+            }
             echoUserMessage(text);
             // KISS (live-gate 4): the mission is bookkeeping, not intelligence — the user's
             // FIRST message IS the mission until they restate it. No model turn ever begs
@@ -2716,9 +2743,10 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
 
     // ------------------------------------------------------ one-command exclusion facade (gate 4)
 
-    /** Opaque conflictId → concept card path. The model only ever sees the id. */
+    /** Opaque conflictId → concept card path, INSERTION-ordered (the host resolves oldest first). */
     private final java.util.Map<String, java.util.List<String>> conceptConflicts =
-            new java.util.concurrent.ConcurrentHashMap<String, java.util.List<String>>();
+            java.util.Collections.synchronizedMap(
+                    new java.util.LinkedHashMap<String, java.util.List<String>>());
     private final java.util.concurrent.atomic.AtomicLong conflictIds =
             new java.util.concurrent.atomic.AtomicLong();
 
@@ -2850,6 +2878,40 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 : "The entry \"" + path.get(path.size() - 1) + "\" has been removed from the "
                         + "concept.");
         return reply.toString();
+    }
+
+    /**
+     * The HOST resolves the pending conflict deterministically (yes/no answer or decision
+     * button): resolve command, deterministic receipt answer, fence republished so the OPEN
+     * CONCEPT CONFLICT block (and the buttons) disappear at once. Oldest conflict first — in
+     * practice there is exactly one, question and answer alternate.
+     */
+    private String resolvePendingConflictFromHost(boolean remove) {
+        if (conceptConflicts.isEmpty()) {
+            return "rejected: no open concept conflict";
+        }
+        String conflictId = conceptConflicts.keySet().iterator().next();
+        String reply = resolveConceptConflictCommand(conflictId,
+                remove ? "REMOVE" : "KEEP_SUPPRESSED");
+        String userMessage = userMessageOf(reply);
+        sayAsAgent(userMessage != null ? userMessage : reply);
+        publishScopeFence();
+        fireStateChanged();
+        return "handled: conflict " + conflictId
+                + (remove ? " -> removed from the concept" : " -> kept (suppressed)");
+    }
+
+    /** The receipt's user-facing sentence, or {@code null} when the reply is no such JSON. */
+    private static String userMessageOf(String replyJson) {
+        try {
+            com.google.gson.JsonElement parsed = com.google.gson.JsonParser.parseString(replyJson);
+            if (parsed.isJsonObject() && parsed.getAsJsonObject().has("userMessage")) {
+                return parsed.getAsJsonObject().get("userMessage").getAsString();
+            }
+        } catch (RuntimeException notJson) {
+            // fall through — the caller shows the raw reply honestly
+        }
+        return null;
     }
 
     /** Exact-name concept conflict of an excluded topic, or {@code null} (concept-less/fake ok). */
@@ -3140,6 +3202,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         }
         if ("cancel-scope-check".equals(cmd)) {
             return cancelScopeCheck();
+        }
+        if ("resolve-conflict-remove".equals(cmd) || "resolve-conflict-keep".equals(cmd)) {
+            return resolvePendingConflictFromHost("resolve-conflict-remove".equals(cmd));
         }
         // Transient OUTCOME offers (the follow-up choices of a finished run) — same names as the tags.
         String offerId = "accept-limitation".equals(cmd) ? "limit" : cmd;
