@@ -341,9 +341,22 @@ public final class ConceptPaperView extends JPanel {
         }
         browsingRevision = target;
         searchView = false;
-        setEditorText(content, true);
+        // Old revisions were committed COMPACT (only the raw save pretty-prints on write) —
+        // browsing pretty-prints for DISPLAY only; the stored bytes and the restore path
+        // (which reads the store, never this editor text) stay untouched.
+        setEditorText(prettyForDisplay(content), true);
         quietStatus();
         updateControls();
+    }
+
+    /** Pretty-print a JSON document for display; unparseable content comes back raw. */
+    static String prettyForDisplay(String documentJson) {
+        try {
+            return new com.google.gson.GsonBuilder().setPrettyPrinting().disableHtmlEscaping()
+                    .create().toJson(com.google.gson.JsonParser.parseString(documentJson));
+        } catch (RuntimeException notJson) {
+            return documentJson;
+        }
     }
 
     private void applySearch(String query) {

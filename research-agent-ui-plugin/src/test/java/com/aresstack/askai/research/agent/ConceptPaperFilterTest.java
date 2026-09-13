@@ -14,6 +14,16 @@ public class ConceptPaperFilterTest {
             + "{\"RTOS-Grundlagen\":[{\"Task Scheduling\":[],\"Task Notifications\":[]}],"
             + "\"Praxis\":[]}]}";
 
+    /** Browsing pretty-prints COMPACT history revisions for display; broken text stays raw. */
+    @Test
+    public void historyBrowsingPrettyPrintsForDisplayOnly() {
+        String pretty = ConceptPaperView.prettyForDisplay(DOCUMENT);
+        assertTrue("multi-line, indented", pretty.contains("\n  \"concept\": ["));
+        assertTrue(pretty.contains("\"Task Scheduling\""));
+        assertTrue("unparseable history comes back raw, never repaired",
+                ConceptPaperView.prettyForDisplay("{broken").equals("{broken"));
+    }
+
     @Test
     public void matchingCardsAreListedWithTheirFullPath() {
         String text = ConceptPaperView.filterText(DOCUMENT, "task");
