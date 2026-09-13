@@ -7,7 +7,9 @@ import java.util.Locale;
  * withdrawn, the model simply substituted partial adds for a compound restructuring wish — and a
  * concept DELETE wish must never silently become a scope exclusion; those are two different user
  * intents). Deliberately a dumb keyword classifier: deterministic, test-pinned, biased toward
- * safety — a false positive only defers additions with an honest sentence, it never destroys.
+ * safety — a restructure false positive only defers additions with an honest sentence, it never
+ * destroys; the stricter DELETE mode (whose answer the host replaces entirely) therefore
+ * demands verb AND structure noun.
  */
 public final class ConceptTurnPolicy {
 
@@ -23,18 +25,18 @@ public final class ConceptTurnPolicy {
          */
         RESTRUCTURE_READ_ONLY,
         /**
-         * An explicit concept DELETE wish ("lösche die Karte/den Zweig"): no concept mutation
-         * AND no exclude — deleting a card is manual editor work and is NOT the same intent as
-         * ruling a topic out of scope.
+         * An explicit concept DELETE wish ("lösche die Karte/den Zweig"): no concept mutation,
+         * no exclude, and a TERMINAL host-deterministic answer (the model once claimed the
+         * branch was deleted over an unchanged concept). Because the whole visible answer is
+         * replaced, this mode demands verb AND structure noun — a bare "lösche X" stays
+         * conversational, exactly like a bare "entferne X".
          */
         DELETE_READ_ONLY
     }
 
     private static final String[] DELETE_VERBS = {
-            "lösch", "loesch", "delete", "streich"
+            "lösch", "loesch", "delete", "streich", "entfern", "remove"
     };
-    /** "entferne/remove …" alone stays conversational; WITH a structure noun it is a delete wish. */
-    private static final String[] REMOVE_VERB = {"entfern", "remove"};
     private static final String[] STRUCTURE_NOUNS = {
             "zweig", "karte", "knoten", "ast", "branch", "card", "node", "konzept", "concept"
     };
@@ -50,8 +52,7 @@ public final class ConceptTurnPolicy {
     /** Classify one user prompt. Delete wins over restructure (it is the stricter mode). */
     public static Mode modeFor(String userPrompt) {
         String prompt = userPrompt == null ? "" : userPrompt.toLowerCase(Locale.ROOT);
-        if (containsAny(prompt, DELETE_VERBS)
-                || (containsAny(prompt, REMOVE_VERB) && containsAny(prompt, STRUCTURE_NOUNS))) {
+        if (containsAny(prompt, DELETE_VERBS) && containsAny(prompt, STRUCTURE_NOUNS)) {
             return Mode.DELETE_READ_ONLY;
         }
         if (containsAny(prompt, RESTRUCTURE_VERBS)) {

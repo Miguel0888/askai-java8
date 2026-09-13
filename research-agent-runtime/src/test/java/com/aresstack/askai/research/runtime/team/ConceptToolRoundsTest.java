@@ -242,18 +242,24 @@ public class ConceptToolRoundsTest {
         assertTrue(trace.contains("concept mutations READ-ONLY this turn "
                 + "(compound restructuring request)"));
 
+        // A DELETE-classified turn is TERMINAL: no tool call (not even an exclude — a delete
+        // wish never silently becomes a scope exclusion), no follow-up inference, and the
+        // visible answer is the HOST'S deterministic sentence — the gate saw the model claim
+        // "Ich habe den Zweig gelöscht" over an unchanged concept.
         trace.clear();
         ScriptedTurns deleteTurns = new ScriptedTurns();
         ScriptedTool deleteTool = new ScriptedTool();
-        deleteTurns.script.add(turn("ok", null));
-        ConceptToolRounds.run(
+        TeamAgentResult deleteResult = ConceptToolRounds.run(
                 turn("lösche", "{\"type\":\"exclude\",\"topic\":\"FreeRTOS Grundlagen\"}"),
                 deleteTurns, deleteTool, 4, 2, false, null, traceSink, false,
                 ConceptTurnPolicy.Mode.DELETE_READ_ONLY);
-        assertTrue("a delete wish never silently becomes a scope exclusion",
-                deleteTool.calls.isEmpty());
-        assertTrue(deleteTurns.feedbackSeen.get(0)
-                .contains("NOT a scope exclusion"));
+        assertTrue(deleteTool.calls.isEmpty());
+        assertTrue("no follow-up inference — the host owns the close",
+                deleteTurns.feedbackSeen.isEmpty());
+        assertEquals(TeamAgentPlaybook.deleteWishAnswer(false),
+                ((ScopingAssistantOutput) deleteResult.getOutput()).getAssistantMessage());
+        assertTrue(trace.contains("delete wish -> deterministic host answer (terminal, model "
+                + "narration replaced)"));
 
         // Reading stays possible in a read-only turn — the model may inspect and discuss.
         ScriptedTurns readTurns = new ScriptedTurns();

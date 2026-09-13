@@ -35,6 +35,9 @@ public class ConceptTurnPolicyTest {
         assertEquals("a bare 'entferne X' stays conversational — the exclusion drill owns it",
                 ConceptTurnPolicy.Mode.FULL,
                 ConceptTurnPolicy.modeFor("Entferne ESP-IDF."));
+        assertEquals("a bare 'lösche X' too: with the answer now host-replaced, DELETE demands "
+                + "verb AND structure noun", ConceptTurnPolicy.Mode.FULL,
+                ConceptTurnPolicy.modeFor("Lösche PlatformIO."));
         assertEquals(ConceptTurnPolicy.Mode.RESTRUCTURE_READ_ONLY,
                 ConceptTurnPolicy.modeFor("Verschiebe Toolchain unter Grundlagen."));
         assertEquals(ConceptTurnPolicy.Mode.FULL,

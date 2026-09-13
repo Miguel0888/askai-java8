@@ -575,6 +575,24 @@ public final class TeamAgentPlaybook {
                 + "additionally suppress it for research.";
     }
 
+    /**
+     * The DETERMINISTIC visible answer of a delete-classified turn (safety-gate rerun: the data
+     * stayed safe but the model's free-form close claimed "Ich habe den Zweig gelöscht" over an
+     * unchanged concept — on a machine-classified refusal turn the model does not narrate the
+     * outcome at all). Follows the session's language selector like every host receipt.
+     */
+    public static String deleteWishAnswer(boolean german) {
+        return german
+                ? "Am Konzept wurde nichts verändert. Ganze Karten oder Zweige löschst du bis "
+                        + "zum Tree-Editor manuell im Konzept-Editor. Soll ein Thema inhaltlich "
+                        + "nicht behandelt werden, sag es einfach (z. B. „X möchte ich nicht "
+                        + "behandeln“) — dann wird es für die Recherche unterdrückt."
+                : "Nothing in the concept was changed. Until the tree editor ships, you delete "
+                        + "cards or branches manually in the concept editor. If a topic should "
+                        + "not be covered, just say so (e.g. \"I don't want to cover X\") — it "
+                        + "will then be suppressed for research.";
+    }
+
     /** How to use the concept tool: one small step per inference, read before update, no rewrites. */
     private static String conceptToolRules() {
         return "THE CONCEPT (conceptAction):\n"

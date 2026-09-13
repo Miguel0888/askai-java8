@@ -101,6 +101,15 @@ public final class ConceptToolRounds {
                             ? "delete wish — manual editor work"
                             : "compound restructuring request") + ")");
         }
+        if (mode == ConceptTurnPolicy.Mode.DELETE_READ_ONLY) {
+            // TERMINAL like the exclusion receipt (safety-gate rerun: the refusal held, but the
+            // model's free-form close claimed the branch was deleted over an unchanged concept).
+            // The host answers deterministically; the turn's other proposals are DROPPED on
+            // purpose — a delete turn changes neither the concept nor the scope.
+            trace.line("delete wish -> deterministic host answer (terminal, model narration "
+                    + "replaced)");
+            return syntheticAnswer(TeamAgentPlaybook.deleteWishAnswer(germanFeedback), initial);
+        }
         TeamAgentResult result = initial;
         int rounds = 0;
         int repairs = 0;
@@ -343,6 +352,11 @@ public final class ConceptToolRounds {
         if (userMessage == null) {
             return fallback;
         }
+        return syntheticAnswer(userMessage, fallback);
+    }
+
+    /** A host-authored visible answer as a regular parsed output (shared receipt mechanics). */
+    private static TeamAgentResult syntheticAnswer(String userMessage, TeamAgentResult fallback) {
         StringBuilder json = new StringBuilder("{\"assistantMessage\":\"");
         for (int index = 0; index < userMessage.length(); index++) {
             char character = userMessage.charAt(index);
