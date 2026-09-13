@@ -2715,7 +2715,10 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         }
         if (!add) {
             // The chip may project an EXCLUDED facet (not a string exclusion). Removing it means
-            // the user LIFTS the exclusion — the facet returns to the scope as confirmed-in.
+            // the user LIFTS the exclusion. Two-artifact alignment: the facet returns as
+            // PROVISIONAL bookkeeping (kept on record, no longer an OUT post) — NEVER as a
+            // CONFIRMED positive post; the mindmap alone owns the positive space, and a lifted
+            // exclusion must not spawn a negotiated IN anchor beside it.
             for (com.aresstack.askai.research.domain.scope.ScopeFacet facet
                     : coordinator.current().excludedFacets()) {
                 if (facet.getLabel().trim().equalsIgnoreCase(value)) {
@@ -2723,8 +2726,8 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                             new com.aresstack.askai.research.domain.scope.ScopePatch(
                                     java.util.Collections.singletonList(
                                             com.aresstack.askai.research.domain.scope
-                                                    .ScopePatchOperations.confirmFacet(
-                                                            facet.getFacetId(),
+                                                    .ScopePatchOperations.addFacet(
+                                                            facet.getFacetId(), facet.getLabel(),
                                                             "user lifted the exclusion"))),
                             java.util.Collections.<com.aresstack.askai.research.domain.scope
                                     .UnresolvedScopeIssue>emptyList());

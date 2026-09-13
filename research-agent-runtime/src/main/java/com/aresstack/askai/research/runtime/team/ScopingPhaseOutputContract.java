@@ -1,12 +1,10 @@
 package com.aresstack.askai.research.runtime.team;
 
 /**
- * The SCOPING phase contract: {@link ScopingAssistantOutputParser} producing a {@link ScopingAssistantOutput},
- * with the stricter USEFUL-FIRST-TURN rule enforced on top (RA-P6.5): a substantive scoping turn must HELP
- * before it asks — so besides the required research brief it must also carry an exploration map AND at least
- * one search suggestion. A reply that only asks the user to narrow the topic (brief-only, no map, no
- * suggestion) is rejected here, triggering one bounded repair and then an honest failure — it is no longer a
- * valid first scoping turn. The phase-agnostic GREETING is exempt: it uses the generic contract, not this one.
+ * The SCOPING phase contract: {@link ScopingAssistantOutputParser} producing a
+ * {@link ScopingAssistantOutput}. (Historical note: the RA-P6.5 USEFUL-FIRST-TURN rejection —
+ * brief-only first turns failing the parse — is long gone; only a non-blank assistantMessage is
+ * required, and the first-turn HELP pressure lives in the prompt plus the gate-9b offer nudge.)
  *
  * <p>With the concept tools active the contract additionally publishes a GENERATION-TIME schema
  * (Ollama structured outputs): the K2c gate showed gemma emitting well-intentioned turns (good
