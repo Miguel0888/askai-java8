@@ -168,7 +168,7 @@ public final class ConceptTreeView extends JComponent {
 
             @Override
             public void mouseClicked(MouseEvent event) {
-                handleClick();
+                handleClick(event.getX(), event.getY());
             }
         };
         addMouseListener(mouse);
@@ -487,7 +487,14 @@ public final class ConceptTreeView extends JComponent {
         }
     }
 
-    private void handleClick() {
+    private void handleClick(int x, int y) {
+        if (inlineEditor.isVisible()) {
+            // The canvas is NOT focusable, so a click beside the field never triggers the
+            // text field's focusLost — the painted cancel ✕ (and any click outside the
+            // field) must close the editor explicitly here.
+            closeInlineEditor();
+            return;
+        }
         if (suppressNextClick) {
             suppressNextClick = false;
             return;
