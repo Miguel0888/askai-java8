@@ -218,11 +218,6 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 }
 
                 @Override
-                public void conceptNodeRenamed(java.util.List<String> path, String newName) {
-                    conflictPathsAfterRename(path, newName);
-                }
-
-                @Override
                 public void conceptToolLog(String line) {
                     technicalLog(line);
                 }
@@ -527,7 +522,8 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         }
         // An OPEN concept conflict leads: the pending question gets two visible decision
         // buttons (like a pending approval — a request-bound decision, never a workflow state).
-        if (!conceptConflicts.isEmpty()) {
+        // Candidates from reconciliation never arm anything (the candidate/open model).
+        if (hasOpenConflict()) {
             tags.add(new ResearchActionTag("resolve-conflict-remove",
                     playbook.isGerman() ? "Aus Konzept entfernen" : "Remove from concept",
                     playbook.isGerman()
@@ -861,7 +857,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             // Gate 6 contract: while a concept conflict is PENDING, the host OWNS the next
             // unambiguous yes/no — "Ja." never reaches the model (which once answered it with
             // prose and a false "vorgenommen" claim while the card stayed put).
-            if (!conceptConflicts.isEmpty()) {
+            if (hasOpenConflict()) {
                 Boolean agrees = ConflictAnswerInterpreter.interpret(text);
                 if (agrees != null) {
                     echoUserMessage(text);
@@ -1991,8 +1987,107 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
      * and the mindmap overlay render from its atomic snapshots.
      */
     public com.aresstack.askai.research.concept.ConceptBranchService conceptBranchService() {
-        return productiveResources == null || productiveResources.isClosed()
-                ? null : productiveResources.conceptBranchService();
+        com.aresstack.askai.research.concept.ConceptBranchService service =
+                productiveResources == null || productiveResources.isClosed()
+                        ? null : productiveResources.conceptBranchService();
+        wireConceptIdentity(service);
+        return service;
+    }
+
+    /** The service instance the identity observers are already wired to (idempotent wiring). */
+    private volatile com.aresstack.askai.research.concept.ConceptBranchService wiredConceptService;
+
+    /**
+     * Wire the identity observers once per service instance: recovery/migration diagnostics go
+     * to the technical log, and every transient boundary (raw save, restore, degraded restore)
+     * discards conflicts/plans and runs the eager blacklist reconciliation (V3 §8a steps 3-5).
+     */
+    private void wireConceptIdentity(
+            final com.aresstack.askai.research.concept.ConceptBranchService service) {
+        if (service == null || service == wiredConceptService) {
+            return;
+        }
+        wiredConceptService = service;
+        service.setDiagnosticSink(
+                new com.aresstack.askai.research.concept.ConceptBranchService.DiagnosticSink() {
+                    public void line(String line) {
+                        technicalLog(line);
+                    }
+                });
+        service.setLifecycleListener(
+                new com.aresstack.askai.research.concept.ConceptBranchService
+                        .LifecycleListener() {
+                    public void onTransientBoundary(String reason, String newEpoch) {
+                        discardTransientsAndReconcile(reason, newEpoch);
+                    }
+                });
+    }
+
+    /**
+     * V3 §8a steps 3-5, fired INSIDE the service's commit lock: every conflict (open AND
+     * candidate) dies with the boundary — never revived from history; then fence/UI republish;
+     * then the deterministic reconciliation derives fresh CANDIDATES from the new head (silent
+     * bookkeeping — a candidate becomes answerable only through a future visible question).
+     */
+    private void discardTransientsAndReconcile(String reason, String newEpoch) {
+        int discarded;
+        synchronized (conceptConflicts) {
+            discarded = conceptConflicts.size();
+            conceptConflicts.clear();
+        }
+        if (discarded > 0) {
+            technicalLog("concept identity -> " + discarded
+                    + " transient conflict(s) discarded (" + reason + ")");
+        }
+        publishScopeFence();
+        fireStateChanged();
+        reconcileBlacklistAgainstConcept(reason);
+    }
+
+    /**
+     * Eager reconciliation after a boundary: classify every blacklist term against the NEW
+     * document — gone / leaf (a silent candidate) / branch / ambiguous. Deterministic host
+     * bookkeeping, never a question, never an armed intercept.
+     */
+    private void reconcileBlacklistAgainstConcept(String reason) {
+        com.aresstack.askai.research.concept.ConceptBranchService service = wiredConceptService;
+        if (service == null || service.isFailClosed()) {
+            return;
+        }
+        String document = service.snapshot().getDocumentJson();
+        int gone = 0;
+        int leafCandidates = 0;
+        int branches = 0;
+        int ambiguous = 0;
+        for (String term : currentBlacklistTerms()) {
+            java.util.List<java.util.List<String>> matches =
+                    new java.util.ArrayList<java.util.List<String>>();
+            for (java.util.List<String> path : com.aresstack.askai.research.concept
+                    .ConceptTopicScanner.collectCardPaths(document)) {
+                if (path.get(path.size() - 1).trim().equalsIgnoreCase(
+                        term == null ? "" : term.trim())) {
+                    matches.add(path);
+                }
+            }
+            if (matches.isEmpty()) {
+                gone++;
+            } else if (matches.size() > 1) {
+                ambiguous++;
+            } else if (service.isLeafAt(matches.get(0))) {
+                String nodeId = service.nodeIdAtPath(matches.get(0));
+                if (nodeId != null) {
+                    conceptConflicts.put("conflict-" + conflictIds.incrementAndGet(),
+                            new ConceptConflictRef(service.currentEpoch(), nodeId,
+                                    service.snapshot().getWorkingRevision(), term, false));
+                    leafCandidates++;
+                }
+            } else {
+                branches++;
+            }
+        }
+        technicalLog("concept identity -> reconciliation after " + reason + ": " + gone
+                + " gone, " + leafCandidates + " leaf candidate(s), " + branches
+                + " branch(es), " + ambiguous + " ambiguous");
     }
 
     /**
@@ -2785,12 +2880,85 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
 
     // ------------------------------------------------------ one-command exclusion facade (gate 4)
 
-    /** Opaque conflictId → concept card path, INSERTION-ordered (the host resolves oldest first). */
-    private final java.util.Map<String, java.util.List<String>> conceptConflicts =
+    /**
+     * One registered concept conflict (ID-sidecar slice): references are
+     * {@code epoch + nodeId + expectedRevision} — never a stored name path (a rename must not
+     * break them). {@code open} implements the ratified candidate/open model: only a conflict
+     * whose question was VISIBLY asked (the terminal exclude receipt) is answerable — buttons,
+     * fence block and the yes/no intercept all key on it; reconciliation after an epoch
+     * boundary produces silent candidates only.
+     */
+    static final class ConceptConflictRef {
+        final String epoch;
+        final String nodeId;
+        final long expectedRevision;
+        final String label;
+        final boolean open;
+
+        ConceptConflictRef(String epoch, String nodeId, long expectedRevision, String label,
+                           boolean open) {
+            this.epoch = epoch;
+            this.nodeId = nodeId;
+            this.expectedRevision = expectedRevision;
+            this.label = label;
+            this.open = open;
+        }
+    }
+
+    /** Opaque conflictId → reference, INSERTION-ordered (the host resolves oldest first). */
+    private final java.util.Map<String, ConceptConflictRef> conceptConflicts =
             java.util.Collections.synchronizedMap(
-                    new java.util.LinkedHashMap<String, java.util.List<String>>());
+                    new java.util.LinkedHashMap<String, ConceptConflictRef>());
     private final java.util.concurrent.atomic.AtomicLong conflictIds =
             new java.util.concurrent.atomic.AtomicLong();
+
+    /** Whether any ANSWERABLE (open) conflict exists — candidates never arm anything. */
+    private boolean hasOpenConflict() {
+        synchronized (conceptConflicts) {
+            for (ConceptConflictRef ref : conceptConflicts.values()) {
+                if (ref.open) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private String firstOpenConflictId() {
+        synchronized (conceptConflicts) {
+            for (java.util.Map.Entry<String, ConceptConflictRef> entry
+                    : conceptConflicts.entrySet()) {
+                if (entry.getValue().open) {
+                    return entry.getKey();
+                }
+            }
+        }
+        return null;
+    }
+
+    /** The OPEN conflicts' CURRENT name paths (resolved via the ID sidecar at render time). */
+    private java.util.Map<String, java.util.List<String>> openConflictPaths() {
+        java.util.Map<String, java.util.List<String>> paths =
+                new java.util.LinkedHashMap<String, java.util.List<String>>();
+        com.aresstack.askai.research.concept.ConceptBranchService service = conceptBranchService();
+        if (service == null) {
+            return paths;
+        }
+        synchronized (conceptConflicts) {
+            for (java.util.Map.Entry<String, ConceptConflictRef> entry
+                    : conceptConflicts.entrySet()) {
+                if (!entry.getValue().open
+                        || !entry.getValue().epoch.equals(service.currentEpoch())) {
+                    continue;
+                }
+                java.util.List<String> path = service.pathOfNodeId(entry.getValue().nodeId);
+                if (path != null) {
+                    paths.put(entry.getKey(), path);
+                }
+            }
+        }
+        return paths;
+    }
 
     /**
      * The whole exclusion in ONE host-owned step: derive the id from the USER'S term, persist the
@@ -2875,8 +3043,21 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                     + " — no removable conflict registered (manual editor work)");
             return reply.toString();
         }
+        String nodeId = conceptService.nodeIdAtPath(conflictPath);
+        if (nodeId == null) {
+            // No stable identity for the card (recovery edge) — no removable conflict either.
+            publishScopeFence();
+            fireStateChanged();
+            reply.addProperty("requiredResponse", "NONE");
+            reply.addProperty("userMessage", userMessage.toString());
+            technicalLog("exclude_topic -> concept match at " + conflictPath
+                    + " has no identity — no removable conflict registered");
+            return reply.toString();
+        }
         String conflictId = "conflict-" + conflictIds.incrementAndGet();
-        conceptConflicts.put(conflictId, conflictPath);
+        // OPEN directly: the question is part of THIS turn's visible terminal receipt.
+        conceptConflicts.put(conflictId, new ConceptConflictRef(conceptService.currentEpoch(),
+                nodeId, conceptService.snapshot().getWorkingRevision(), label, true));
         // Register the conflict BEFORE republishing the fence (gate-6 rerun finding): the old
         // order published a conflict-free fence in the exclude turn itself, so the OPEN CONCEPT
         // CONFLICT block only appeared one publish later.
@@ -2906,63 +3087,10 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         return reply.toString();
     }
 
-    /**
-     * Interim referential integrity until the ID sidecar (slice-2 gate finding: a rename of the
-     * parent left the registered conflict path stale, and the later "Ja." died on
-     * TARGET_NODE_NOT_FOUND): a rename atomically rewrites every open conflict path that runs
-     * through the renamed node, then republishes the fence so the OPEN CONCEPT CONFLICT block
-     * shows the current names.
-     */
-    void conflictPathsAfterRename(java.util.List<String> renamedPath, String newName) {
-        boolean changed = false;
-        synchronized (conceptConflicts) {
-            for (java.util.Map.Entry<String, java.util.List<String>> conflict
-                    : conceptConflicts.entrySet()) {
-                java.util.List<String> updated =
-                        renamedConflictPath(conflict.getValue(), renamedPath, newName);
-                if (updated != null) {
-                    conflict.setValue(updated);
-                    changed = true;
-                    technicalLog("concept_rename -> conflict " + conflict.getKey()
-                            + " path updated to " + updated);
-                }
-            }
-        }
-        if (changed) {
-            publishScopeFence();
-            fireStateChanged();
-        }
-    }
-
-    /**
-     * The pure path rewrite, static and test-pinned: a conflict path is affected exactly when it
-     * starts with the renamed path; then the renamed segment is replaced. {@code null} = not
-     * affected (also when the "rename" would be a no-op).
-     */
-    static java.util.List<String> renamedConflictPath(java.util.List<String> conflictPath,
-                                                      java.util.List<String> renamedPath,
-                                                      String newName) {
-        if (renamedPath == null || renamedPath.isEmpty() || conflictPath == null
-                || conflictPath.size() < renamedPath.size()) {
-            return null;
-        }
-        for (int i = 0; i < renamedPath.size(); i++) {
-            if (!renamedPath.get(i).equals(conflictPath.get(i))) {
-                return null;
-            }
-        }
-        if (newName.equals(conflictPath.get(renamedPath.size() - 1))) {
-            return null;
-        }
-        java.util.List<String> updated = new java.util.ArrayList<String>(conflictPath);
-        updated.set(renamedPath.size() - 1, newName);
-        return updated;
-    }
-
-    /** The user's answer arrives as its OWN command — the path stays host-side by conflictId. */
+    /** The user's answer arrives as its OWN command — the reference stays host-side by id. */
     String resolveConceptConflictCommand(String conflictId, String decision) {
-        java.util.List<String> path = conceptConflicts.get(conflictId);
-        if (path == null) {
+        ConceptConflictRef ref = conceptConflicts.get(conflictId);
+        if (ref == null || !ref.open) {
             return "Unknown conflict_id \"" + conflictId + "\" — use the id exclude_topic "
                     + "reported (it is single-use).";
         }
@@ -2984,6 +3112,48 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         com.aresstack.askai.research.concept.ConceptBranchService service = conceptBranchService();
         if (service == null) {
             return "This session has no concept service.";
+        }
+        // Full reason re-check IMMEDIATELY before the destructive commit (V3 invariant 6):
+        // the reference's epoch must still be current, the node must still exist, and the
+        // underlying exclusion must still stand — a stale reference is closed, never executed.
+        if (!ref.epoch.equals(service.currentEpoch())) {
+            conceptConflicts.remove(conflictId);
+            technicalLog("resolve_concept_conflict " + conflictId
+                    + " -> REFUSED: identity epoch changed (reference discarded)");
+            return "This conflict belongs to an earlier document state and cannot be executed "
+                    + "anymore — nothing was removed.";
+        }
+        java.util.List<String> path = service.pathOfNodeId(ref.nodeId);
+        if (path == null) {
+            conceptConflicts.remove(conflictId);
+            technicalLog("resolve_concept_conflict " + conflictId
+                    + " -> node gone — nothing to remove");
+            reply.addProperty("result", "KEPT_SUPPRESSED");
+            reply.addProperty("reason", "the entry no longer exists in the concept");
+            reply.addProperty("userMessage", german
+                    ? "Der Eintrag steht nicht mehr im Konzept — es gibt nichts zu entfernen."
+                    : "The entry is no longer in the concept — there is nothing to remove.");
+            return reply.toString();
+        }
+        boolean exclusionStillStands = false;
+        for (String term : currentBlacklistTerms()) {
+            if (term != null && term.trim().equalsIgnoreCase(ref.label.trim())) {
+                exclusionStillStands = true;
+                break;
+            }
+        }
+        if (!exclusionStillStands) {
+            conceptConflicts.remove(conflictId);
+            technicalLog("resolve_concept_conflict " + conflictId
+                    + " -> REFUSED: the exclusion was lifted (conflict reason gone)");
+            reply.addProperty("result", "KEPT_SUPPRESSED");
+            reply.addProperty("reason", "the underlying exclusion no longer exists");
+            reply.addProperty("userMessage", german
+                    ? "Der Ausschluss besteht nicht mehr — der Eintrag bleibt unverändert im "
+                            + "Konzept."
+                    : "The exclusion no longer stands — the entry stays in the concept "
+                            + "unchanged.");
+            return reply.toString();
         }
         if (!service.isLeafAt(path)) {
             // Safety-slice double guard, part 2: re-check IMMEDIATELY before the commit — the
@@ -3035,10 +3205,10 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
      * practice there is exactly one, question and answer alternate.
      */
     private String resolvePendingConflictFromHost(boolean remove) {
-        if (conceptConflicts.isEmpty()) {
+        String conflictId = firstOpenConflictId();
+        if (conflictId == null) {
             return "rejected: no open concept conflict";
         }
-        String conflictId = conceptConflicts.keySet().iterator().next();
         String reply = resolveConceptConflictCommand(conflictId,
                 remove ? "REMOVE" : "KEEP_SUPPRESSED");
         String userMessage = userMessageOf(reply);
@@ -3310,7 +3480,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         // question. The fence (the model's per-turn scope truth) carries every open conflict.
         // (The host intercepts unambiguous yes/no answers itself; this block guides the model
         // through everything ELSE said while a conflict is open.)
-        fence = fence + openConflictBlock(conceptConflicts);
+        fence = fence + openConflictBlock(openConflictPaths());
         backend.submitServiceCommand(handle,
                 com.aresstack.askai.research.search.ResearchServiceCommandWire.setScope(fence));
     }

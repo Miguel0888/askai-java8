@@ -156,15 +156,6 @@ public interface ResearchControlContext {
     }
 
     /**
-     * Called after a concept card was RENAMED so the session can atomically rewrite every open
-     * conflict path that runs through the renamed node (interim referential integrity until the
-     * ID sidecar — the slice-2 gate saw a "Ja." die on a stale pre-rename conflict path).
-     * The default is a no-op (fakes). DELEGATING WRAPPERS MUST FORWARD THIS.
-     */
-    default void conceptNodeRenamed(java.util.List<String> path, String newName) {
-    }
-
-    /**
      * One technical-log line from a concept tool handler (e.g. the read's SUPPRESSED hint) — the
      * gate demands the suppression truth in the OBSERVABLE log, not only in the model-facing
      * tool result. The default is a no-op (fakes). DELEGATING WRAPPERS MUST FORWARD THIS.

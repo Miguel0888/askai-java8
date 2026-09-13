@@ -49,6 +49,16 @@ public final class ConceptPaperView extends JPanel {
         String content(long revision);
     }
 
+    /**
+     * Restore an UNCHANGED browsed revision as the new head (ID-sidecar V3 §5): document and
+     * identity come back as a validated pair — the historical epoch and UUIDs live again. Only
+     * a dirty text goes through {@link SaveHandler} (raw save = a fresh identity epoch).
+     */
+    public interface RestoreHandler {
+        /** @return {@code null} on success, else the honest rejection text. */
+        String restore(long revision);
+    }
+
     private static final String EMPTY =
             "_No concept yet. Describe in the chat what you want to research._";
 
@@ -73,6 +83,7 @@ public final class ConceptPaperView extends JPanel {
 
     private SaveHandler saveHandler;
     private HistoryReader historyReader;
+    private RestoreHandler restoreHandler;
 
     /** How long the comic error overlay stays before fading out on its own. */
     private static final int ERROR_OVERLAY_MILLIS = 4000;
@@ -170,8 +181,14 @@ public final class ConceptPaperView extends JPanel {
 
     /** The owner wires persistence + history (absent in the clickdummy — editor stays view-only). */
     public void setEditActions(SaveHandler save, HistoryReader history) {
+        setEditActions(save, history, null);
+    }
+
+    /** As above, plus the identity-preserving restore path for clean history browsing. */
+    public void setEditActions(SaveHandler save, HistoryReader history, RestoreHandler restore) {
         this.saveHandler = save;
         this.historyReader = history;
+        this.restoreHandler = restore;
         updateControls();
     }
 
@@ -267,6 +284,19 @@ public final class ConceptPaperView extends JPanel {
     private void saveEdits() {
         if (saveHandler == null) {
             showError("This session cannot save the concept (no concept service).");
+            return;
+        }
+        if (browsingRevision >= 0 && !dirty && restoreHandler != null) {
+            // Clean browse + Save = the identity-preserving RESTORE path: document and sidecar
+            // return as the validated historical pair (same epoch, same UUIDs). Only a dirty
+            // text is a raw save and deliberately opens a fresh identity epoch.
+            String restoreError = restoreHandler.restore(browsingRevision);
+            if (restoreError != null) {
+                showError(restoreError);
+                return;
+            }
+            browsingRevision = -1;
+            quietStatus();
             return;
         }
         String error = saveHandler.save(editor.getText(), loadedRevision);

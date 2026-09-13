@@ -56,6 +56,19 @@ public final class ResearchBriefViewContribution implements ArtifactViewContribu
                         research.conceptBranchService();
                 return service == null ? null : service.workingHistoryContent(revision);
             }
+        }, new ConceptPaperView.RestoreHandler() {
+            public String restore(long revision) {
+                // Clean browse + Save = identity-preserving restore (V3 §5): the historical
+                // document/identity pair returns as the new head, epoch and UUIDs included.
+                com.aresstack.askai.research.concept.ConceptBranchService service =
+                        research.conceptBranchService();
+                if (service == null) {
+                    return "This session has no concept service.";
+                }
+                com.aresstack.askai.research.concept.ConceptBranchService.EditResult result =
+                        service.restoreRevision(revision);
+                return result.isApplied() ? null : result.getDiagnostic().describeForModel();
+            }
         });
         final Runnable refresh = new Runnable() {
             public void run() {

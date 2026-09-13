@@ -28,14 +28,6 @@ public interface ScopeCommandPort {
     /** The current blacklist terms (excluded labels/ids + exclusions), for the concept tools. */
     java.util.List<String> blacklistedTerms();
 
-    /**
-     * A concept card at {@code path} was renamed to {@code newName}: the session rewrites every
-     * open conflict path through that node atomically (interim fix until the ID sidecar).
-     * Default no-op so fakes stay source-compatible.
-     */
-    default void conceptNodeRenamed(java.util.List<String> path, String newName) {
-    }
-
     /** One technical-log line from a concept tool handler. Default no-op (fakes). */
     default void conceptToolLog(String line) {
     }

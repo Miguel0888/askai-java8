@@ -629,14 +629,6 @@ public final class ProductiveResearchBackendFactory {
                         }
 
                         @Override
-                        public void conceptNodeRenamed(java.util.List<String> path,
-                                                       String newName) {
-                            if (holder[0] != null) {
-                                holder[0].controlContext().conceptNodeRenamed(path, newName);
-                            }
-                        }
-
-                        @Override
                         public void conceptToolLog(String line) {
                             if (holder[0] != null) {
                                 holder[0].controlContext().conceptToolLog(line);

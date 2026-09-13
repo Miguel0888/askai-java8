@@ -37,7 +37,6 @@ public class ConceptToolsPolicyTest {
     private int changeNotifications;
     private java.util.List<String> blacklist = java.util.Collections.emptyList();
     private final java.util.List<String> toolLog = new java.util.ArrayList<String>();
-    private final java.util.List<String> renames = new java.util.ArrayList<String>();
 
     private final ResearchControlContext ctx = new ResearchControlContext() {
         public String currentPhaseId() {
@@ -84,10 +83,6 @@ public class ConceptToolsPolicyTest {
             toolLog.add(line);
         }
 
-        @Override
-        public void conceptNodeRenamed(java.util.List<String> path, String newName) {
-            renames.add(path + " -> " + newName);
-        }
     };
 
     @Before
@@ -182,8 +177,6 @@ public class ConceptToolsPolicyTest {
         assertFalse(renamed.isError());
         assertTrue(renamed.getText().startsWith("renamed to \"IPC\" revision=4"));
         assertEquals(4, changeNotifications);
-        assertEquals("the rename notified the session for the conflict-path rewrite",
-                "[FreeRTOS, Kommunikation] -> IPC", renames.get(0));
     }
 
     @Test

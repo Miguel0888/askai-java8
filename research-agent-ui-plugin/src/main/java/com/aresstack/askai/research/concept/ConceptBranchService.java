@@ -58,6 +58,32 @@ public final class ConceptBranchService {
     private final FileConceptStore store;
     private final Map<String, Handle> handles = new HashMap<String, Handle>();
     private long handleCounter;
+
+    // ------------------------------------------------------------------ identity state (V3)
+    /** The current identity core — loaded/minted by the staged recovery, advanced per commit. */
+    private ConceptIdentity identity;
+    /** The confirmed document hash (manifest truth, memory-tracked) for the no-op check. */
+    private String confirmedDocumentHash;
+    /** Fail-closed: manifest AND backup invalid — the store is write-protected (V3 §7.4). */
+    private boolean failClosed;
+    private String failClosedReason;
+    private final java.util.List<String> pendingDiagnostics = new java.util.ArrayList<String>();
+    private DiagnosticSink diagnosticSink;
+    private LifecycleListener lifecycleListener;
+
+    /** Technical-log lines from identity recovery/migration (buffered until a sink exists). */
+    public interface DiagnosticSink {
+        void line(String line);
+    }
+
+    /**
+     * Fired INSIDE the mutation lock right after a commit that crossed a transient boundary
+     * (raw save, restore, degraded restore, legacy graft): the session discards conflicts,
+     * plans and UI handles before anything else can observe the new state (V3 §8a).
+     */
+    public interface LifecycleListener {
+        void onTransientBoundary(String reason, String newEpoch);
+    }
     /**
      * Observers of COMMITTED changes. The service is the ONE shared instance per session, so a
      * view that subscribes HERE is in sync by construction — no delegation chain (tool → context
@@ -69,6 +95,208 @@ public final class ConceptBranchService {
 
     public ConceptBranchService(FileConceptStore store) {
         this.store = store;
+        ensureIdentity();
+    }
+
+    /** Buffered recovery/migration diagnostics flush into the sink as soon as one exists. */
+    public synchronized void setDiagnosticSink(DiagnosticSink sink) {
+        this.diagnosticSink = sink;
+        if (sink != null) {
+            for (String line : pendingDiagnostics) {
+                sink.line(line);
+            }
+            pendingDiagnostics.clear();
+        }
+    }
+
+    public synchronized void setLifecycleListener(LifecycleListener listener) {
+        this.lifecycleListener = listener;
+    }
+
+    private void diagnostic(String line) {
+        if (diagnosticSink != null) {
+            diagnosticSink.line(line);
+        } else {
+            pendingDiagnostics.add(line);
+        }
+    }
+
+    private void transientBoundary(String reason, String newEpoch) {
+        diagnostic("concept identity -> transient boundary (" + reason + ", epoch "
+                + newEpoch + ")");
+        if (lifecycleListener != null) {
+            try {
+                lifecycleListener.onTransientBoundary(reason, newEpoch);
+            } catch (RuntimeException broken) {
+                // the boundary observer must never take the commit down
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------ staged recovery (V3 §7)
+
+    /**
+     * Load-or-mint the identity for the store's confirmed state. Stages, never guessing:
+     * (1) working files off the manifest → self-heal from the confirmed history pair;
+     * (2) manifest-confirmed document without valid identity → mint (migration when the
+     * manifest is pre-identity, otherwise an explicit new epoch);
+     * (3) manifest corrupt → validated backup manifest;
+     * (4) both invalid → fail-closed, write-protected, recovery diagnosis.
+     */
+    private void ensureIdentity() {
+        FileConceptStore.Manifest manifest = store.manifest();
+        if (manifest == null) {
+            FileConceptStore.Manifest backup = store.backupManifest();
+            if (backup != null && backup.revision > 0 && confirmedDocumentOf(backup) != null) {
+                store.restoreManifestFromBackup();
+                diagnostic("concept identity -> manifest RESTORED FROM BACKUP (rev "
+                        + backup.revision + "; the last unconfirmed commit is lost by design)");
+                manifest = store.manifest();
+            } else {
+                failClosed = true;
+                failClosedReason = "RECOVERY REQUIRED — manifest and backup are invalid; the "
+                        + "concept store is write-protected (repair the files on disk)";
+                diagnostic("concept identity -> " + failClosedReason);
+                return;
+            }
+        }
+        if (manifest == null) { // backup restore raced/failed to parse — stay safe
+            failClosed = true;
+            failClosedReason = "RECOVERY REQUIRED — manifest unreadable after backup restore";
+            diagnostic("concept identity -> " + failClosedReason);
+            return;
+        }
+        for (Long orphan : store.orphanHistoryRevisions(manifest.revision)) {
+            diagnostic("concept identity -> orphan rev " + orphan + " ignored (uncommitted)");
+        }
+        if (manifest.revision == 0) {
+            // Fresh store: identity lives in memory until the first commit persists the pair.
+            identity = ConceptIdentity.mintFor(parseOrEmpty(store.effectiveContent()));
+            confirmedDocumentHash = null;
+            return;
+        }
+        String confirmedDocument = confirmedDocumentOf(manifest);
+        if (confirmedDocument == null) {
+            FileConceptStore.Manifest backup = store.backupManifest();
+            if (backup != null && backup.revision > 0 && backup.revision != manifest.revision
+                    && confirmedDocumentOf(backup) != null) {
+                store.restoreManifestFromBackup();
+                diagnostic("concept identity -> manifest FELL BACK TO BACKUP (rev "
+                        + backup.revision + "): rev " + manifest.revision
+                        + " has no confirmable document");
+                manifest = store.manifest();
+                confirmedDocument = manifest == null ? null : confirmedDocumentOf(manifest);
+            }
+            if (confirmedDocument == null || manifest == null) {
+                failClosed = true;
+                failClosedReason = "RECOVERY REQUIRED — no manifest-confirmed document exists; "
+                        + "the concept store is write-protected";
+                diagnostic("concept identity -> " + failClosedReason);
+                return;
+            }
+        }
+        if (!confirmedDocument.equals(store.rawWorkingContent())) {
+            store.publishWorking(confirmedDocument, null);
+            diagnostic("concept identity -> SELF-HEALED working document from history rev "
+                    + manifest.revision);
+        }
+        confirmedDocumentHash = manifest.documentHash;
+        com.google.gson.JsonElement documentRoot = parseOrEmpty(confirmedDocument);
+        ConceptIdentity candidate = validIdentity(store.workingIdentityContent(), manifest,
+                documentRoot);
+        if (candidate == null) {
+            String historical = store.identityHistoryContent(manifest.revision);
+            candidate = validIdentity(historical, manifest, documentRoot);
+            if (candidate != null) {
+                store.publishWorking(confirmedDocument, historical);
+                diagnostic("concept identity -> SELF-HEALED identity from history rev "
+                        + manifest.revision);
+            }
+        }
+        if (candidate != null) {
+            identity = candidate;
+            return;
+        }
+        // Mint over the CONFIRMED document only (never over an unconfirmed stand).
+        identity = ConceptIdentity.mintFor(documentRoot);
+        store.adoptIdentityForCurrentRevision(
+                identity.stampedJson(manifest.revision, manifest.documentHash),
+                FileConceptStore.sha256(identity.coreJson()), identity.epoch(),
+                System.currentTimeMillis());
+        diagnostic(manifest.epoch == null
+                ? "concept identity -> MIGRATED (epoch " + identity.epoch() + ", rev "
+                        + manifest.revision + ")"
+                : "concept identity -> NEW EPOCH " + identity.epoch()
+                        + " (reason: identity missing or invalid at rev "
+                        + manifest.revision + ")");
+    }
+
+    /** The manifest-confirmed document text: working file if it hashes right, else history. */
+    private String confirmedDocumentOf(FileConceptStore.Manifest manifest) {
+        String working = store.rawWorkingContent();
+        if (working != null && FileConceptStore.sha256(working).equals(manifest.documentHash)) {
+            return working;
+        }
+        String historical = store.workingHistoryContent(manifest.revision);
+        if (historical != null && FileConceptStore.sha256(historical).equals(manifest.documentHash)) {
+            return historical;
+        }
+        return null;
+    }
+
+    /** Full identity validation against manifest + confirmed document; null when invalid. */
+    private static ConceptIdentity validIdentity(String sidecarJson,
+                                                 FileConceptStore.Manifest manifest,
+                                                 com.google.gson.JsonElement documentRoot) {
+        if (sidecarJson == null) {
+            return null;
+        }
+        ConceptIdentity parsed = ConceptIdentity.parse(sidecarJson);
+        if (parsed == null || parsed.stampedRevision() != manifest.revision
+                || !manifest.documentHash.equals(parsed.stampedDocumentHash())
+                || (manifest.epoch != null && !manifest.epoch.equals(parsed.epoch()))
+                || (manifest.identityCoreHash != null
+                        && !manifest.identityCoreHash.equals(
+                                FileConceptStore.sha256(parsed.coreJson())))
+                || !parsed.matchesShape(documentRoot)) {
+            return null;
+        }
+        return parsed;
+    }
+
+    private static com.google.gson.JsonElement parseOrEmpty(String documentJson) {
+        try {
+            return com.google.gson.JsonParser.parseString(documentJson);
+        } catch (RuntimeException broken) {
+            return com.google.gson.JsonParser.parseString(FileConceptStore.EMPTY_DOCUMENT);
+        }
+    }
+
+    /** The current identity epoch (never null after construction unless fail-closed). */
+    public synchronized String currentEpoch() {
+        return identity == null ? null : identity.epoch();
+    }
+
+    /** The stable node id of the card at {@code names}, or {@code null}. */
+    public synchronized String nodeIdAtPath(List<String> names) {
+        return identity == null ? null
+                : identity.idAtPath(parseOrEmpty(store.effectiveContent()), names);
+    }
+
+    /** The CURRENT name path of the card carrying {@code nodeId}, or {@code null} (gone). */
+    public synchronized List<String> pathOfNodeId(String nodeId) {
+        return identity == null ? null
+                : identity.pathOfId(parseOrEmpty(store.effectiveContent()), nodeId);
+    }
+
+    /** Fail-closed state (manifest and backup invalid): every write is refused. */
+    public synchronized boolean isFailClosed() {
+        return failClosed;
+    }
+
+    private EditResult failClosedError() {
+        return editError(JsonTreeDiagnostic.of(JsonTreeErrorCode.CANDIDATE_DOCUMENT_INVALID,
+                failClosedReason == null ? "RECOVERY REQUIRED" : failClosedReason).build());
     }
 
     /** Subscribe to committed changes (addIfAbsent — re-registering on re-show is safe). */
@@ -196,10 +424,16 @@ public final class ConceptBranchService {
     public static final class DocumentSnapshot {
         private final String documentJson;
         private final long workingRevision;
+        private final String recoveryNotice;
 
         DocumentSnapshot(String documentJson, long workingRevision) {
+            this(documentJson, workingRevision, null);
+        }
+
+        DocumentSnapshot(String documentJson, long workingRevision, String recoveryNotice) {
             this.documentJson = documentJson;
             this.workingRevision = workingRevision;
+            this.recoveryNotice = recoveryNotice;
         }
 
         public String getDocumentJson() {
@@ -209,6 +443,11 @@ public final class ConceptBranchService {
         public long getWorkingRevision() {
             return workingRevision;
         }
+
+        /** Non-null in fail-closed recovery: the document is an UNCONFIRMED preview. */
+        public String getRecoveryNotice() {
+            return recoveryNotice;
+        }
     }
 
     /**
@@ -216,7 +455,8 @@ public final class ConceptBranchService {
      * JSON view, revision label) from one snapshot — never mixing revision N's tree with N+1's text.
      */
     public synchronized DocumentSnapshot snapshot() {
-        return new DocumentSnapshot(store.effectiveContent(), store.workingRevision());
+        return new DocumentSnapshot(store.effectiveContent(), store.workingRevision(),
+                failClosed ? failClosedReason : null);
     }
 
     /**
@@ -226,6 +466,11 @@ public final class ConceptBranchService {
      * read-only orientation handle.
      */
     public synchronized ReadResult readBranch(List<String> names, int depth) {
+        if (failClosed) {
+            // The unconfirmed preview must never GROUND model work (V3 ratification note).
+            return error(JsonTreeDiagnostic.of(JsonTreeErrorCode.CANDIDATE_DOCUMENT_INVALID,
+                    failClosedReason == null ? "RECOVERY REQUIRED" : failClosedReason).build());
+        }
         pruneExpiredHandles();
         String document = store.effectiveContent();
         StrictJsonParseResult parsed = StrictJsonParser.parse(document);
@@ -263,6 +508,9 @@ public final class ConceptBranchService {
      * input never reaches the store.
      */
     public synchronized EditResult replaceDocument(String documentJson, long expectedRevision) {
+        if (failClosed) {
+            return failClosedError();
+        }
         long currentRevision = store.workingRevision();
         if (expectedRevision != currentRevision) {
             return editError(stale(expectedRevision, currentRevision));
@@ -290,7 +538,78 @@ public final class ConceptBranchService {
         }
         String pretty = new com.google.gson.GsonBuilder().setPrettyPrinting()
                 .disableHtmlEscaping().create().toJson(root);
-        long newRevision = store.commitWorking(pretty, System.currentTimeMillis());
+        // V3 §8: a dirty raw save ALWAYS opens a new identity epoch — fresh UUIDs for every
+        // node, never a no-op (even when the user typed their way back to the same JSON), and
+        // the transient boundary fires before anything can observe the new state.
+        ConceptIdentity fresh = ConceptIdentity.mintFor(root);
+        String documentHash = FileConceptStore.sha256(pretty);
+        long newRevision = store.commitPair(pretty,
+                fresh.stampedJson(store.workingRevision() + 1, documentHash),
+                FileConceptStore.sha256(fresh.coreJson()), fresh.epoch(),
+                System.currentTimeMillis());
+        identity = fresh;
+        confirmedDocumentHash = documentHash;
+        transientBoundary("raw-save", fresh.epoch());
+        notifyChanged();
+        return new EditResult(true, newRevision, null);
+    }
+
+    /**
+     * Restore an earlier working revision as the NEW head (V3 §5) — the concept editor's
+     * ◀▶-browse Save on an UNCHANGED historical text. The historical document/identity pair is
+     * validated against each other, the identity CORE (epoch, UUIDs, tree) is taken over, and
+     * the pair is re-stamped as revision N+1 — a historical epoch can become current again.
+     * The historical files stay byte-identical. A pre-identity revision degrades explicitly to
+     * raw-save semantics (fresh epoch), never to silent reconstruction.
+     */
+    public synchronized EditResult restoreRevision(long revision) {
+        if (failClosed) {
+            return failClosedError();
+        }
+        String document = store.workingHistoryContent(revision);
+        if (document == null) {
+            return editError(JsonTreeDiagnostic.of(JsonTreeErrorCode.TARGET_NODE_NOT_FOUND,
+                    "No stored history for working revision " + revision + ".").build());
+        }
+        String documentHash = FileConceptStore.sha256(document);
+        String identityJson = store.identityHistoryContent(revision);
+        JsonElement root = parseOrEmpty(document);
+        if (identityJson == null) {
+            ConceptIdentity fresh = ConceptIdentity.mintFor(root);
+            long newRevision = store.commitPair(document,
+                    fresh.stampedJson(store.workingRevision() + 1, documentHash),
+                    FileConceptStore.sha256(fresh.coreJson()), fresh.epoch(),
+                    System.currentTimeMillis());
+            identity = fresh;
+            confirmedDocumentHash = documentHash;
+            diagnostic("concept identity -> restore rev " + revision
+                    + " DEGRADED to a fresh epoch (pre-identity revision)");
+            transientBoundary("restore-degraded", fresh.epoch());
+            notifyChanged();
+            return new EditResult(true, newRevision, null);
+        }
+        ConceptIdentity restored = ConceptIdentity.parse(identityJson);
+        if (restored == null || restored.stampedRevision() != revision
+                || !documentHash.equals(restored.stampedDocumentHash())
+                || !restored.matchesShape(root)) {
+            return editError(JsonTreeDiagnostic.of(JsonTreeErrorCode.CANDIDATE_DOCUMENT_INVALID,
+                    "The historical document/identity pair of revision " + revision
+                            + " does not validate — restore refused.").build());
+        }
+        if (identity != null && documentHash.equals(confirmedDocumentHash)
+                && restored.epoch().equals(identity.epoch())
+                && restored.coreJson().equals(identity.coreJson())) {
+            return new EditResult(true, store.workingRevision(), null); // restoring the head
+        }
+        long newRevision = store.commitPair(document,
+                restored.stampedJson(store.workingRevision() + 1, documentHash),
+                FileConceptStore.sha256(restored.coreJson()), restored.epoch(),
+                System.currentTimeMillis());
+        identity = restored;
+        confirmedDocumentHash = documentHash;
+        diagnostic("concept identity -> RESTORED rev " + revision + " as head rev "
+                + newRevision + " (epoch " + restored.epoch() + ")");
+        transientBoundary("restore", restored.epoch());
         notifyChanged();
         return new EditResult(true, newRevision, null);
     }
@@ -338,8 +657,24 @@ public final class ConceptBranchService {
         if (!result.isCommitted()) {
             return editError(result.getDiagnostic());
         }
-        long newRevision = store.commitWorking(result.getDocumentJson(),
+        if (failClosed) {
+            return failClosedError();
+        }
+        String documentHash = FileConceptStore.sha256(result.getDocumentJson());
+        if (documentHash.equals(confirmedDocumentHash)) {
+            return new EditResult(true, currentRevision, null); // no-op graft, identity kept
+        }
+        // LEGACY graft: an arbitrary structural rewrite cannot be mapped onto stable identity
+        // per-operation, and V3 forbids heuristic reuse — so a real graft cuts a NEW epoch.
+        // Not model-reachable (no concept_update tool); only old tests and future host paths.
+        ConceptIdentity fresh = ConceptIdentity.mintFor(parseOrEmpty(result.getDocumentJson()));
+        long newRevision = store.commitPair(result.getDocumentJson(),
+                fresh.stampedJson(store.workingRevision() + 1, documentHash),
+                FileConceptStore.sha256(fresh.coreJson()), fresh.epoch(),
                 System.currentTimeMillis());
+        identity = fresh;
+        confirmedDocumentHash = documentHash;
+        transientBoundary("legacy-graft", fresh.epoch());
         notifyChanged();
         return new EditResult(true, newRevision, null);
     }
@@ -354,6 +689,9 @@ public final class ConceptBranchService {
 
     /** Add one new EMPTY card under the parent path (empty parent = the concept root). */
     public synchronized EditResult addNode(List<String> parentNames, String name) {
+        if (failClosed) {
+            return failClosedError();
+        }
         String cardName = name == null ? "" : name.trim();
         if (cardName.isEmpty()) {
             return editError(JsonTreeDiagnostic.of(JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
@@ -400,11 +738,17 @@ public final class ConceptBranchService {
             parentArray.add(container);
         }
         container.add(cardName, new JsonArray());
-        return commitCandidate(candidate);
+        List<String> cardPath = new ArrayList<String>(
+                parentNames == null ? java.util.Collections.<String>emptyList() : parentNames);
+        cardPath.add(cardName);
+        return commitCandidate(candidate, identity.afterAdd(candidate, cardPath), null);
     }
 
     /** Remove the card at the name path with its whole subtree. Deliberately destructive. */
     public synchronized EditResult removeNodeAt(List<String> names) {
+        if (failClosed) {
+            return failClosedError();
+        }
         if (names == null || names.isEmpty()) {
             return editError(JsonTreeDiagnostic.of(JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
                     "The concept's working surface itself cannot be removed — name the card "
@@ -420,11 +764,13 @@ public final class ConceptBranchService {
             return editError(resolution.diagnostic);
         }
         JsonElement candidate = parsed.getElement().deepCopy();
+        // The identity mirror needs the PRE-image ordinals — computed before the removal.
+        ConceptIdentity identityAfter = identity.afterRemove(parsed.getElement(), names);
         JsonTreeDiagnostic removal = removeAt(candidate, resolution.path);
         if (removal != null) {
             return editError(removal);
         }
-        return commitCandidate(candidate);
+        return commitCandidate(candidate, identityAfter, null);
     }
 
     // ------------------------------------------------------------------ Zielbild slice 2 ops
@@ -435,6 +781,9 @@ public final class ConceptBranchService {
      * make name-chain addressing ambiguous).
      */
     public synchronized EditResult renameNode(List<String> names, String newName) {
+        if (failClosed) {
+            return failClosedError();
+        }
         String cardName = newName == null ? "" : newName.trim();
         if (cardName.isEmpty()) {
             return editError(JsonTreeDiagnostic.of(JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
@@ -469,7 +818,8 @@ public final class ConceptBranchService {
         for (Map.Entry<String, JsonElement> entry : renamed.entrySet()) {
             located.owner.add(entry.getKey(), entry.getValue());
         }
-        return commitCandidate(located.candidate);
+        // A rename is identity-NEUTRAL (invariant 1): the sidecar carries no names.
+        return commitCandidate(located.candidate, identity, null);
     }
 
     /**
@@ -480,6 +830,9 @@ public final class ConceptBranchService {
      * replacement against the blacklist before it gets here.
      */
     public synchronized EditResult rewriteTerminalBranch(List<String> names, List<String> leaves) {
+        if (failClosed) {
+            return failClosedError();
+        }
         Located located = locateForEdit(names);
         if (located.error != null) {
             return located.error;
@@ -508,7 +861,10 @@ public final class ConceptBranchService {
             }
             located.children.add(container);
         }
-        return commitCandidate(located.candidate);
+        // Replaced leaves are NEW content — their old IDs die with their cards; the branch's
+        // own ordinals are untouched by the child swap, so the post-image resolves them.
+        return commitCandidate(located.candidate,
+                identity.afterRewrite(located.candidate, names, cleaned.size()), null);
     }
 
     /**
@@ -517,6 +873,9 @@ public final class ConceptBranchService {
      * remain host-authorized paths ({@code removeNodeAt} via the concept-conflict resolution).
      */
     public synchronized EditResult deleteTerminalBranch(List<String> names) {
+        if (failClosed) {
+            return failClosedError();
+        }
         Located located = locateForEdit(names);
         if (located.error != null) {
             return located.error;
@@ -529,12 +888,14 @@ public final class ConceptBranchService {
                             + "the user to remove it in the concept editor.")
                     .build());
         }
+        // Pre-image ordinals for the identity mirror, then the actual removal.
+        ConceptIdentity identityAfter = identity.afterRemove(located.candidate, names);
         JsonTreeDiagnostic removal = removeAt(located.candidate,
                 located.resolutionPath);
         if (removal != null) {
             return editError(removal);
         }
-        return commitCandidate(located.candidate);
+        return commitCandidate(located.candidate, identityAfter, null);
     }
 
     /**
@@ -637,8 +998,17 @@ public final class ConceptBranchService {
         return true;
     }
 
-    /** Full-candidate validation + atomic commit — the shared tail of every atomic operation. */
-    private EditResult commitCandidate(JsonElement candidate) {
+    /**
+     * Full-candidate validation + atomic CO-commit (document + identity as one pair) — the
+     * shared tail of every atomic operation. The no-op rule for normal operations compares
+     * document hash + epoch only: their identity delta is derivative of the document delta, so
+     * an unchanged document means freshly minted no-op UUIDs are DISCARDED, never committed.
+     */
+    private EditResult commitCandidate(JsonElement candidate, ConceptIdentity identityAfter,
+                                       String boundaryReason) {
+        if (failClosed) {
+            return failClosedError();
+        }
         String candidateJson = GSON.toJson(candidate);
         JsonTreeParseResult validated = JsonTreeParser.parse(candidateJson);
         if (!validated.isOk()) {
@@ -647,9 +1017,22 @@ public final class ConceptBranchService {
                             + "problem: " + validated.getDiagnostic().getMessage())
                     .build());
         }
-        long newRevision = store.commitWorking(candidateJson, System.currentTimeMillis());
+        String documentHash = FileConceptStore.sha256(candidateJson);
+        boolean sameEpoch = identity != null && identityAfter.epoch().equals(identity.epoch());
+        if (boundaryReason == null && sameEpoch && documentHash.equals(confirmedDocumentHash)) {
+            return new EditResult(true, store.workingRevision(), null);
+        }
+        long committed = store.commitPair(candidateJson,
+                identityAfter.stampedJson(store.workingRevision() + 1, documentHash),
+                FileConceptStore.sha256(identityAfter.coreJson()), identityAfter.epoch(),
+                System.currentTimeMillis());
+        identity = identityAfter;
+        confirmedDocumentHash = documentHash;
+        if (boundaryReason != null) {
+            transientBoundary(boundaryReason, identityAfter.epoch());
+        }
         notifyChanged();
-        return new EditResult(true, newRevision, null);
+        return new EditResult(true, committed, null);
     }
 
     /** Walk a resolved path to its target ARRAY inside {@code root} (a deep copy), or null. */

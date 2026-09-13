@@ -487,10 +487,6 @@ public final class ResearchToolPolicy {
                         if (!result.isApplied()) {
                             return McpToolResult.error(result.getDiagnostic().describeForModel());
                         }
-                        // Interim referential integrity until the ID sidecar: open conflict
-                        // paths that run through the renamed node are rewritten atomically —
-                        // the slice-2 gate saw a later "Ja." die on the stale pre-rename path.
-                        ctx.conceptNodeRenamed(path, name.trim());
                         ctx.onConceptChanged(result.getNewRevision());
                         String note = isBlacklisted(name.trim(), ctx)
                                 ? " (note: \"" + name.trim() + "\" is blacklisted — the card "
