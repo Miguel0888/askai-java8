@@ -59,6 +59,14 @@ public class ScopingConceptPromptTest {
         // Gate 9: the broad first turn skipped the offer — the drill spells out the sequence.
         assertTrue(with.contains("FIRST-TURN DRILL"));
         assertTrue(with.contains("concept cards first, then EXACTLY ONE offer action"));
+        // K4: the concept is the ONE scoping artifact — the legacy brief is neither requested
+        // nor emittable with the concept tools; the flagless old-host prompt keeps it.
+        assertFalse(with.contains("researchBriefMarkdown"));
+        assertTrue(TeamAgentPlaybook.scopingSystemPrompt(false, false)
+                .contains("researchBriefMarkdown"));
+        assertFalse("the grammar cannot produce the brief field anymore",
+                new ScopingPhaseOutputContract(true).outputSchemaJson()
+                        .contains("researchBriefMarkdown"));
         // Mission is HOST bookkeeping now — the contract does not even mention setMission.
         assertTrue(with.contains("recorded AUTOMATICALLY from the user's first message"));
         assertFalse("gate 5: the model tried 'setMission without mission' although the host had"

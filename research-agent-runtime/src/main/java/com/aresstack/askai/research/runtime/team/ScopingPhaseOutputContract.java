@@ -55,7 +55,8 @@ public final class ScopingPhaseOutputContract implements PhaseOutputContract {
         }
         return "{\"type\":\"object\",\"properties\":{"
                 + "\"assistantMessage\":{\"type\":\"string\"},"
-                + "\"researchBriefMarkdown\":{\"type\":\"string\"},"
+                // K4: the concept is the ONE scoping artifact — the legacy brief field left the
+                // grammar entirely (this schema only exists WITH the concept tools).
                 + "\"searchSuggestions\":{\"type\":\"array\",\"maxItems\":5,\"items\":"
                 + "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\","
                 + "\"minLength\":1},"

@@ -4,7 +4,6 @@ import com.aresstack.askai.plugin.api.agent.AgentSession;
 import com.aresstack.askai.plugin.api.agent.artifact.ArtifactViewContext;
 import com.aresstack.askai.plugin.api.agent.artifact.ArtifactViewContribution;
 import com.aresstack.askai.plugin.api.service.UiExecutor;
-import com.aresstack.askai.research.store.FileResearchBriefStore;
 
 import javax.swing.JComponent;
 
@@ -38,19 +37,19 @@ public final class ResearchBriefViewContribution implements ArtifactViewContribu
         final UiExecutor uiExecutor = context.getUiExecutor();
         final Runnable refresh = new Runnable() {
             public void run() {
-                // ONE atomic snapshot per refresh (mindmap + JSON + revision from the same
-                // state); the store stays the only truth — no event ever carries the JSON.
+                // ONE atomic snapshot per refresh (JSON + revision from the same state); the
+                // store stays the only truth — no event ever carries the JSON. K4: the legacy
+                // brief is no longer read — the concept IS the scoping artifact (persisted old
+                // briefs stay on disk untouched, they just are not a view anymore).
                 com.aresstack.askai.research.concept.ConceptBranchService service =
                         research.conceptBranchService();
                 final com.aresstack.askai.research.concept.ConceptProjection projection =
                         service == null ? null
                                 : com.aresstack.askai.research.concept.ConceptProjection
                                         .of(service.snapshot());
-                FileResearchBriefStore store = research.researchBriefStore();
-                final String brief = store == null ? "" : store.effectiveContent();
                 uiExecutor.execute(new Runnable() {
                     public void run() {
-                        view.render(projection, brief);
+                        view.render(projection);
                     }
                 });
             }

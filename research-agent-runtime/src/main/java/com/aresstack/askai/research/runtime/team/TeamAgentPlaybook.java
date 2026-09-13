@@ -152,9 +152,14 @@ public final class TeamAgentPlaybook {
                 + "offering another set of alternatives. Never re-offer an option the user already chose or "
                 + "explicitly ruled out.\n\n"
                 + "Your job each turn:\n"
-                + "- Interpret the user's input and keep the SCOPE up to date through scopePatch operations "
-                + "— that is the result of this phase. A research brief is optional prose ABOUT that scope; "
-                + "when you write one, never demand a filled-in form and never block on missing sections.\n"
+                + (conceptTools
+                        ? "- Interpret the user's input and keep the CONCEPT (cards) and the "
+                        + "scope up to date — the concept plus the negotiated exclusions ARE the "
+                        + "result of this phase; there is no separate brief document.\n"
+                        : "- Interpret the user's input and keep the SCOPE up to date through "
+                        + "scopePatch operations — that is the result of this phase. A research "
+                        + "brief is optional prose ABOUT that scope; when you write one, never "
+                        + "demand a filled-in form and never block on missing sections.\n")
                 + "- Keep the human RESEARCH QUESTION separate from SEARCH QUERIES: the question is natural "
                 + "language for people; the search suggestions are short, focused engine queries derived from "
                 + "it (key terms, no filler, one sub-aspect each — do not just copy the whole question).\n"
@@ -198,8 +203,10 @@ public final class TeamAgentPlaybook {
                         + "  Each query opens a DIFFERENT direction of the area; the user clicks "
                         + "one to look around. The application shows them as clickable tags — "
                         + "they are HOW the user explores before deciding.\n")
-                + "- Do NOT produce any diagram, chart or visualization — the research brief and search "
-                + "suggestions are your job; visualization is handled separately.\n"
+                + "- Do NOT produce any diagram, chart or visualization — "
+                + (conceptTools ? "concept cards and search suggestions are your job"
+                        : "the research brief and search suggestions are your job")
+                + "; visualization is handled separately.\n"
                 + "- You may add an advisory recommendation to stay or continue, but it is ONLY advice; the "
                 + "user decides with their own buttons.\n\n"
                 + machineryRule()
@@ -207,8 +214,12 @@ public final class TeamAgentPlaybook {
                 + "assistantMessage):\n"
                 + "{\n"
                 + "  \"assistantMessage\": string,        // required: warm, concise, plain language\n"
-                + "  \"researchBriefMarkdown\": string,   // OPTIONAL: the evolving brief, when you have "
-                + "something to write\n"
+                // K4: with the concept tools the CONCEPT is the one scoping artifact — the
+                // legacy brief field is neither requested nor produced anymore; the flagless
+                // old-host prompt keeps it (their hosts still render the brief).
+                + (conceptTools ? ""
+                        : "  \"researchBriefMarkdown\": string,   // OPTIONAL: the evolving "
+                        + "brief, when you have something to write\n")
                 + "  \"searchSuggestions\": [             // OPTIONAL: may be empty; only real, useful "
                 + "queries\n"
                 + "    { \"query\": string, \"purpose\": string, \"priority\": number }\n"
