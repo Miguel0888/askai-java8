@@ -229,10 +229,14 @@ public final class ConceptPaperView extends JPanel {
         });
     }
 
-    /** Switch between the card tree and the raw JSON editor; dirty JSON text is protected. */
+    /** Switch between the card tree and the raw JSON editor; unsaved states are protected. */
     private void setTreeMode(boolean tree) {
-        if (tree && (dirty || browsingRevision >= 0 || searchView)) {
-            showError("Save or discard your JSON edits (or leave search/history) first.");
+        if (browsingRevision >= 0) {
+            showError("Save or discard the previewed revision first.");
+            return;
+        }
+        if (tree && (dirty || searchView)) {
+            showError("Save or discard your JSON edits (or leave the search) first.");
             return;
         }
         treeMode = tree;
@@ -245,10 +249,6 @@ public final class ConceptPaperView extends JPanel {
         editorScroll.setVisible(!treeMode);
         treeButton.setEnabled(!treeMode);
         jsonButton.setEnabled(treeMode);
-        // Save/Discard are JSON-mode business — the tree commits every gesture directly, so
-        // showing them there only raises the question what they would save.
-        saveButton.setVisible(!treeMode);
-        discardButton.setVisible(!treeMode);
     }
 
     /** Wire the manual ⟳ button to the owner's re-read (the same runnable the listeners use). */
@@ -270,19 +270,20 @@ public final class ConceptPaperView extends JPanel {
                 ResearchUiMetrics.FOOTER_PADDING_V, ResearchUiMetrics.FOOTER_PADDING_H,
                 ResearchUiMetrics.FOOTER_PADDING_V, ResearchUiMetrics.FOOTER_PADDING_H));
 
-        JPanel actions = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        JPanel actions = new JPanel(new FlowLayout(FlowLayout.CENTER, 6, 0));
         actions.setOpaque(false);
-        for (ComicButton button : new ComicButton[] {saveButton, discardButton,
-                olderButton, newerButton}) {
+        for (ComicButton button : new ComicButton[] {olderButton, saveButton, discardButton,
+                newerButton}) {
             button.setFocusable(false);
             button.setBorder(BorderFactory.createEmptyBorder(3, 10, 3, 10));
             actions.add(button);
         }
-        saveButton.setToolTipText("Validate, pretty-print and save the edited document");
-        discardButton.setToolTipText("Throw the edits away and show the last saved state");
-        olderButton.setToolTipText("Load the previous working revision into the editor");
-        newerButton.setToolTipText("Load the next working revision into the editor");
-        footer.add(actions, BorderLayout.WEST);
+        saveButton.setToolTipText("Save: apply the edit (JSON) or restore the previewed "
+                + "revision as the new head");
+        discardButton.setToolTipText("Discard the edits / leave the revision preview");
+        olderButton.setToolTipText("Preview the previous working revision");
+        newerButton.setToolTipText("Preview the next working revision");
+        footer.add(actions, BorderLayout.CENTER);
 
         JPanel status = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         status.setOpaque(false);
@@ -305,9 +306,7 @@ public final class ConceptPaperView extends JPanel {
         discardButton.addActionListener(new ActionListener() {
             public void actionPerformed(ActionEvent event) {
                 dirty = false;
-                browsingRevision = -1;
-                quietStatus();
-                renderCurrent();
+                leavePreview();
             }
         });
         olderButton.addActionListener(new ActionListener() {
@@ -366,7 +365,9 @@ public final class ConceptPaperView extends JPanel {
                 return;
             }
             browsingRevision = -1;
+            treeView.setPreview(false);
             quietStatus();
+            // The restore commit notifies the listeners; their refresh re-renders the head.
             return;
         }
         String error = saveHandler.save(editor.getText(), loadedRevision);
@@ -387,9 +388,6 @@ public final class ConceptPaperView extends JPanel {
             showError("This session has no revision history.");
             return;
         }
-        if (treeMode) {
-            setTreeMode(false); // history browsing is the JSON mode's business
-        }
         if (dirty) {
             showError("Save or discard your edits before browsing revisions.");
             return;
@@ -401,9 +399,7 @@ public final class ConceptPaperView extends JPanel {
             return;
         }
         if (target == loadedRevision) {
-            browsingRevision = -1;
-            quietStatus();
-            renderCurrent();
+            leavePreview();
             return;
         }
         String content = historyReader.content(target);
@@ -414,12 +410,38 @@ public final class ConceptPaperView extends JPanel {
         }
         browsingRevision = target;
         searchView = false;
-        // Old revisions were committed COMPACT (only the raw save pretty-prints on write) —
-        // browsing pretty-prints for DISPLAY only; the stored bytes and the restore path
-        // (which reads the store, never this editor text) stay untouched.
-        setEditorText(prettyForDisplay(content), true);
+        if (treeMode) {
+            // The preview stays IN the tree: read-only (its identities belong to another
+            // snapshot), Save = the identity-preserving restore, Discard = back to head.
+            treeView.render(content, java.util.Collections.<String>emptyList(), null);
+            treeView.setPreview(true);
+        } else {
+            // Old revisions were committed COMPACT (only the raw save pretty-prints on
+            // write) — browsing pretty-prints for DISPLAY only; the stored bytes and the
+            // restore path (which reads the store) stay untouched.
+            setEditorText(prettyForDisplay(content), true);
+        }
         quietStatus();
         updateControls();
+    }
+
+    /** Back to the live head in the CURRENT mode (browse-forward past the end, Discard). */
+    private void leavePreview() {
+        browsingRevision = -1;
+        treeView.setPreview(false);
+        quietStatus();
+        renderCurrent();
+        renderTreeHead();
+        updateControls();
+    }
+
+    private void renderTreeHead() {
+        ConceptProjection projection = lastProjection;
+        treeView.render(projection != null && projection.isReadable()
+                        ? projection.getPrettyJson() : "",
+                blacklistSource == null ? java.util.Collections.<String>emptyList()
+                        : blacklistSource.terms(),
+                identityContext);
     }
 
     /** Pretty-print a JSON document for display; unparseable content comes back raw. */
@@ -466,13 +488,12 @@ public final class ConceptPaperView extends JPanel {
      */
     public void render(ConceptProjection projection) {
         lastProjection = projection;
-        // The tree has NO dirty state (every gesture commits) — it always shows the live head,
-        // even while the JSON editor protects unsaved text or browses history.
-        treeView.render(projection != null && projection.isReadable()
-                        ? projection.getPrettyJson() : "",
-                blacklistSource == null ? java.util.Collections.<String>emptyList()
-                        : blacklistSource.terms(),
-                identityContext);
+        // The tree has NO dirty state (every gesture commits) and shows the live head —
+        // except while the user previews a browsed revision, which a background refresh
+        // must not clobber (the revision witness still updates via renderCurrent).
+        if (browsingRevision < 0) {
+            renderTreeHead();
+        }
         renderCurrent();
     }
 
@@ -511,10 +532,15 @@ public final class ConceptPaperView extends JPanel {
 
     private void updateControls() {
         boolean editWired = saveHandler != null;
-        saveButton.setEnabled(!treeMode && editWired && (dirty || browsingRevision >= 0));
-        discardButton.setEnabled(dirty || browsingRevision >= 0 || searchView);
+        boolean previewing = browsingRevision >= 0;
+        // In the tree, Save/Discard exist ONLY while a revision preview is open (Save =
+        // explicit restore of the shown state); the JSON mode keeps them permanently.
+        saveButton.setVisible(!treeMode || previewing);
+        discardButton.setVisible(!treeMode || previewing);
+        saveButton.setEnabled(editWired && (previewing || (!treeMode && dirty)));
+        discardButton.setEnabled(dirty || previewing || searchView);
         olderButton.setEnabled(historyReader != null && !dirty);
-        newerButton.setEnabled(historyReader != null && !dirty && browsingRevision >= 0);
+        newerButton.setEnabled(historyReader != null && !dirty && previewing);
         quietStatus();
     }
 
@@ -522,9 +548,7 @@ public final class ConceptPaperView extends JPanel {
         statusLabel.setForeground(null);
         statusLabel.setEnabled(false); // quiet gray, diagnostic value only
         String text = "rev " + loadedRevision;
-        if (treeMode) {
-            text = "rev " + loadedRevision; // the tree needs no edit-state suffix
-        } else if (browsingRevision >= 0) {
+        if (browsingRevision >= 0) {
             text = "viewing rev " + browsingRevision + " of " + loadedRevision;
         } else if (dirty) {
             text = "rev " + loadedRevision + " — edited";

@@ -200,6 +200,21 @@ public final class ConceptTreeView extends JComponent implements javax.swing.Scr
     /** The epoch the visible rows belong to; gestures carry it for the stale check. */
     private String renderEpoch;
 
+    /** History PREVIEW: a browsed revision renders read-only — no gestures, no ghost plate
+     *  (its identities belong to another snapshot; Save restores, Discard returns to head). */
+    private boolean preview;
+
+    public void setPreview(boolean preview) {
+        this.preview = preview;
+        if (preview) {
+            closeInlineEditor();
+            hoverRow = -1;
+            hoverGlyph = 0;
+            rootAddHovered = false;
+        }
+        repaint();
+    }
+
     /** Re-derive the rows from one atomic snapshot; an epoch change drops ALL transient UI. */
     public void render(String documentJson, List<String> blacklistTerms,
                        IdentityContext identity) {
@@ -389,7 +404,9 @@ public final class ConceptTreeView extends JComponent implements javax.swing.Scr
             for (int index = 0; index < rows.size(); index++) {
                 paintRow(g2, index);
             }
-            paintRootAddPlate(g2);
+            if (!preview) {
+                paintRootAddPlate(g2);
+            }
             if (inlineEditor.isVisible()) {
                 paintInlineEditorPlate(g2);
             }
@@ -449,7 +466,7 @@ public final class ConceptTreeView extends JComponent implements javax.swing.Scr
             g2.setColor(new Color(0x999999));
             g2.drawString("excluded", row.plate.x + row.plate.width + 6, baseline - 1);
         }
-        if (hovered && !editorOpen) {
+        if (hovered && !editorOpen && !preview) {
             paintGlyph(g2, glyphRect(row, 1), 1, hoverGlyph == 1);
             paintGlyph(g2, glyphRect(row, 2), 2, hoverGlyph == 2);
             paintGlyph(g2, glyphRect(row, 3), 3, hoverGlyph == 3);
@@ -527,7 +544,7 @@ public final class ConceptTreeView extends JComponent implements javax.swing.Scr
 
     private void updateHover(int x, int y) {
         suppressNextClick = false; // any mouse travel re-arms normal clicking
-        boolean overRootAdd = rootAddPlate.contains(x, y);
+        boolean overRootAdd = !preview && rootAddPlate.contains(x, y);
         if (overRootAdd != rootAddHovered) {
             rootAddHovered = overRootAdd;
             repaint();
@@ -570,7 +587,7 @@ public final class ConceptTreeView extends JComponent implements javax.swing.Scr
             suppressNextClick = false;
             return;
         }
-        if (actions == null) {
+        if (actions == null || preview) {
             return;
         }
         if (rootAddHovered) {
