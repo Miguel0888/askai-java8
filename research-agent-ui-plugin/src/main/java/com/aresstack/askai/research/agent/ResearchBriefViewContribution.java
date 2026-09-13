@@ -8,11 +8,13 @@ import com.aresstack.askai.plugin.api.service.UiExecutor;
 import javax.swing.JComponent;
 
 /**
- * Contributes the "Konzept" view for the {@code research.brief} artifact — the scoping phase's PRIMARY
- * artifact. Since K3 it shows the {@link ConceptPaperView}: mindmap + read-only JSON of the Konzeptpapier
- * (one atomic snapshot per refresh, rendered straight from the session's ConceptBranchService — no second
- * UI model, no JSON in events) plus the legacy brief markdown until K4 retires it. Re-renders on every
- * session state change; the stores are re-read on restore. Read-only, no approval, no phase transition.
+ * Contributes the "Concept" view for the {@code research.brief} artifact — the scoping phase's
+ * PRIMARY artifact and, since the raw-edit slice, the user's DIRECT editor: manual edits go
+ * through {@code ConceptBranchService.replaceDocument} (strict parse → envelope check → CAS →
+ * pretty-print → atomic commit), history browsing reads the working-revision files. One atomic
+ * snapshot per refresh, rendered straight from the session's ConceptBranchService — no second
+ * UI model, no JSON in events. Re-renders on every session state change; unsaved user edits are
+ * never clobbered (the view keeps them until Save/Discard).
  */
 public final class ResearchBriefViewContribution implements ArtifactViewContribution {
 
@@ -28,13 +30,33 @@ public final class ResearchBriefViewContribution implements ArtifactViewContribu
 
     @Override
     public JComponent createView(ArtifactViewContext context) {
-        final ConceptPaperView view = new ConceptPaperView(context.getMarkdownViewFactory());
+        final ConceptPaperView view = new ConceptPaperView();
         AgentSession session = context.getSession();
         if (!(session instanceof ResearchAgentSession)) {
             return view;
         }
         final ResearchAgentSession research = (ResearchAgentSession) session;
         final UiExecutor uiExecutor = context.getUiExecutor();
+        // The user's manual edit + rollback path — the SAME validating pipeline as every agent
+        // write (strict parse, envelope check, CAS against the shown revision, atomic commit).
+        view.setEditActions(new ConceptPaperView.SaveHandler() {
+            public String save(String documentJson, long expectedRevision) {
+                com.aresstack.askai.research.concept.ConceptBranchService service =
+                        research.conceptBranchService();
+                if (service == null) {
+                    return "This session has no concept service.";
+                }
+                com.aresstack.askai.research.concept.ConceptBranchService.EditResult result =
+                        service.replaceDocument(documentJson, expectedRevision);
+                return result.isApplied() ? null : result.getDiagnostic().describeForModel();
+            }
+        }, new ConceptPaperView.HistoryReader() {
+            public String content(long revision) {
+                com.aresstack.askai.research.concept.ConceptBranchService service =
+                        research.conceptBranchService();
+                return service == null ? null : service.workingHistoryContent(revision);
+            }
+        });
         final Runnable refresh = new Runnable() {
             public void run() {
                 // ONE atomic snapshot per refresh (JSON + revision from the same state); the

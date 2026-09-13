@@ -252,6 +252,54 @@ public final class ConceptBranchService {
                 resolution.parentName, resolution.siblingNames, editable, null);
     }
 
+    // ------------------------------------------------------------------ manual whole-document edit
+
+    /**
+     * Replace the WHOLE working document — the user's raw-JSON edit in the concept tab (the
+     * Zielbild raw mode). The same discipline as every other write: STRICT parse (a diagnostic
+     * names line/column, never creative repair), envelope check ({@code concept} must be an
+     * ARRAY), compare-and-swap against {@code expectedRevision} (a concurrent agent edit wins,
+     * the user reloads), then the text is Gson-pretty-printed and committed atomically. Invalid
+     * input never reaches the store.
+     */
+    public synchronized EditResult replaceDocument(String documentJson, long expectedRevision) {
+        long currentRevision = store.workingRevision();
+        if (expectedRevision != currentRevision) {
+            return editError(stale(expectedRevision, currentRevision));
+        }
+        StrictJsonParseResult parsed = StrictJsonParser.parse(
+                documentJson == null ? "" : documentJson);
+        if (!parsed.isOk()) {
+            return editError(parsed.getDiagnostic());
+        }
+        com.google.gson.JsonElement root;
+        try {
+            root = com.google.gson.JsonParser.parseString(documentJson);
+        } catch (RuntimeException impossible) {
+            // The strict parse above accepted it; Gson is more lenient — this cannot happen.
+            return editError(JsonTreeDiagnostic.of(JsonTreeErrorCode.JSON_SYNTAX_ERROR,
+                    "The document could not be re-read: " + impossible.getMessage()).build());
+        }
+        if (!root.isJsonObject() || !root.getAsJsonObject().has(CONCEPT_PROPERTY)
+                || !root.getAsJsonObject().get(CONCEPT_PROPERTY).isJsonArray()) {
+            return editError(JsonTreeDiagnostic.of(JsonTreeErrorCode.CANDIDATE_DOCUMENT_INVALID,
+                    "The document envelope needs a \"" + CONCEPT_PROPERTY + "\" ARRAY at the "
+                            + "top level ({\"title\":\"\",\"subtitle\":\"\",\"concept\":[...]}).")
+                    .hint("Keep the envelope and edit inside the concept array.")
+                    .build());
+        }
+        String pretty = new com.google.gson.GsonBuilder().setPrettyPrinting()
+                .disableHtmlEscaping().create().toJson(root);
+        long newRevision = store.commitWorking(pretty, System.currentTimeMillis());
+        notifyChanged();
+        return new EditResult(true, newRevision, null);
+    }
+
+    /** The document at an earlier WORKING revision, or {@code null} (pre-history commits). */
+    public synchronized String workingHistoryContent(long revision) {
+        return store.workingHistoryContent(revision);
+    }
+
     // ------------------------------------------------------------------ update
 
     /** Non-destructive refinement — the default the (later) concept_update tool uses. */

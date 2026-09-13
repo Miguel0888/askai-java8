@@ -95,6 +95,10 @@ public final class FileConceptStore {
         long next = revision + 1;
         try {
             StoreIo.atomicWrite(workingJson(), documentJson);
+            // Every committed working state stays readable under its revision number — the
+            // user's manual rollback in the concept editor steps through THESE; the approved
+            // revisions/ dir remains the coarser phase gate. Never pruned (the no-delete rule).
+            StoreIo.atomicWrite(historyJson(next), documentJson);
             StoreIo.atomicWrite(workingPropsFile(),
                     "workingRevision=" + next
                             + "\ncontentHash=" + hash
@@ -103,6 +107,22 @@ public final class FileConceptStore {
             throw new IllegalStateException("Could not persist concept: " + ex.getMessage(), ex);
         }
         return next;
+    }
+
+    /**
+     * The document as it stood at WORKING revision {@code revision}, or {@code null} when no
+     * history file exists (revisions committed before the history feature, or never existed).
+     */
+    public synchronized String workingHistoryContent(long revision) {
+        File file = historyJson(revision);
+        if (!file.isFile()) {
+            return null;
+        }
+        try {
+            return StoreIo.readUtf8(file);
+        } catch (IOException unreadable) {
+            return null;
+        }
     }
 
     /** Freeze the current effective document as the next immutable approved revision. */
@@ -171,6 +191,10 @@ public final class FileConceptStore {
 
     private File revisionJson(int number) {
         return new File(new File(dir, "revisions"), pad(number) + ".json");
+    }
+
+    private File historyJson(long workingRevision) {
+        return new File(new File(dir, "working-history"), workingRevision + ".json");
     }
 
     private File revisionPropsFile(int number) {

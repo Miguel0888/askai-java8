@@ -16,19 +16,17 @@ public class ConceptPaperFilterTest {
 
     @Test
     public void matchingCardsAreListedWithTheirFullPath() {
-        String markdown = ConceptPaperView.filterMarkdown(DOCUMENT, "task");
-        assertTrue(markdown, markdown.contains("2 cards matching \"task\""));
-        assertTrue(markdown, markdown.contains("- RTOS-Grundlagen › Task Scheduling"));
-        assertTrue(markdown, markdown.contains("- RTOS-Grundlagen › Task Notifications"));
-        assertTrue("the way back is explained",
-                markdown.contains("empty search field"));
+        String text = ConceptPaperView.filterText(DOCUMENT, "task");
+        assertTrue(text, text.contains("2 cards matching \"task\""));
+        assertTrue(text, text.contains("RTOS-Grundlagen › Task Scheduling"));
+        assertTrue(text, text.contains("RTOS-Grundlagen › Task Notifications"));
+        assertTrue("the way back is explained", text.contains("empty search field"));
     }
 
     @Test
     public void aMissAndBrokenJsonStayHonest() {
-        assertTrue(ConceptPaperView.filterMarkdown(DOCUMENT, "Zephyr")
+        assertTrue(ConceptPaperView.filterText(DOCUMENT, "Zephyr")
                 .contains("No card matches \"Zephyr\""));
-        assertTrue(ConceptPaperView.filterMarkdown("broken", "x")
-                .contains("No card matches"));
+        assertTrue(ConceptPaperView.filterText("broken", "x").contains("No card matches"));
     }
 }
