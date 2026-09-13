@@ -16,4 +16,12 @@ public interface ScopeCommandPort {
 
     /** @return the structured JSON reply (REMOVED / KEPT_SUPPRESSED) or a plain-text error */
     String resolveConceptConflict(String conflictId, String decision);
+
+    /**
+     * Offer 3-5 AI-authored orientation searches as the user's yellow exploration tags (gate 8b:
+     * the optional in-band field starved under the generation grammar — as a command the model
+     * actually offers). {@code suggestionsJson} = {@code [{"query":..,"purpose":..},..]}.
+     * @return the structured JSON reply (OFFERED + count) or a plain-text error
+     */
+    String offerSearches(String suggestionsJson);
 }

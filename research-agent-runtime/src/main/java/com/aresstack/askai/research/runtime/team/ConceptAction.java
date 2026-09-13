@@ -18,9 +18,12 @@ public final class ConceptAction {
     /**
      * READ/ADD/REMOVE work the concept; EXCLUDE and RESOLVE are the ONE-command exclusion facade
      * (live-gate 4 decision): the model quotes the USER'S term, the platform owns ids, facets
-     * and the concept-conflict check — one command, one effect, one structured reply.
+     * and the concept-conflict check — one command, one effect, one structured reply. OFFER is
+     * the search-suggestion command (gate 8b: the OPTIONAL in-band field starved under the
+     * generation grammar — as an ACTION the model actually uses it, and the platform renders
+     * the yellow tags).
      */
-    public enum Type { READ, ADD, REMOVE, EXCLUDE, RESOLVE }
+    public enum Type { READ, ADD, REMOVE, EXCLUDE, RESOLVE, OFFER }
 
     private final Type type;
     private final List<String> path;
@@ -77,6 +80,11 @@ public final class ConceptAction {
         return decision;
     }
 
+    /** For OFFER: the suggestions as a compact JSON array string {@code [{"query":..,"purpose":..}]}. */
+    public String getSuggestionsJson() {
+        return name;
+    }
+
     /** A compact trace label ('add parent=["A","B"] name="C"'). */
     public String describe() {
         switch (type) {
@@ -88,6 +96,8 @@ public final class ConceptAction {
                 return "exclude topic=\"" + name + "\"";
             case RESOLVE:
                 return "resolve conflict=\"" + name + "\" decision=" + decision;
+            case OFFER:
+                return "offer suggestions=" + countJsonObjects(name);
             default:
                 return "remove path=" + segmentsLabel(path);
         }
@@ -204,6 +214,17 @@ public final class ConceptAction {
             }
             return Parsed.ok(new ConceptAction(Type.EXCLUDE, null, null, topic));
         }
+        if ("offer".equalsIgnoreCase(type)) {
+            List<String[]> suggestions = suggestionPairs(map.get("suggestions"));
+            if (suggestions.isEmpty()) {
+                return Parsed.invalid("conceptAction type \"offer\" requires \"suggestions\" "
+                        + "with at least one non-empty query — example: {\"type\":\"offer\","
+                        + "\"suggestions\":[{\"query\":\"FreeRTOS ESP32 Grundlagen Tutorial\","
+                        + "\"purpose\":\"Einstieg sichten\"}]}");
+            }
+            return Parsed.ok(new ConceptAction(Type.OFFER, null, null,
+                    suggestionsJson(suggestions)));
+        }
         if ("resolve".equalsIgnoreCase(type)) {
             String conflictId = asString(map.get("conflictId"));
             String decision = asString(map.get("decision"));
@@ -218,7 +239,73 @@ public final class ConceptAction {
                     decision.trim().toUpperCase(java.util.Locale.ROOT)));
         }
         return Parsed.invalid("conceptAction has unknown type \"" + type
-                + "\" — allowed: none, read, add, remove, exclude, resolve");
+                + "\" — allowed: none, read, add, remove, exclude, resolve, offer");
+    }
+
+    /** OFFER: {query, purpose} pairs with a non-empty query; malformed entries are dropped. */
+    @SuppressWarnings("unchecked")
+    private static List<String[]> suggestionPairs(Object value) {
+        List<String[]> pairs = new ArrayList<String[]>();
+        if (!(value instanceof List)) {
+            return pairs;
+        }
+        for (Object element : (List<Object>) value) {
+            if (!(element instanceof Map)) {
+                continue;
+            }
+            Map<String, Object> suggestion = (Map<String, Object>) element;
+            String query = asString(suggestion.get("query"));
+            if (query == null || query.trim().isEmpty()) {
+                continue;
+            }
+            String purpose = asString(suggestion.get("purpose"));
+            pairs.add(new String[] {query.trim(), purpose == null ? "" : purpose.trim()});
+        }
+        return pairs;
+    }
+
+    /** Compact canonical JSON for the wire/history — the tool argument travels as ONE string. */
+    private static String suggestionsJson(List<String[]> pairs) {
+        StringBuilder sb = new StringBuilder("[");
+        for (int index = 0; index < pairs.size(); index++) {
+            if (index > 0) {
+                sb.append(',');
+            }
+            sb.append("{\"query\":");
+            appendJsonString(sb, pairs.get(index)[0]);
+            if (!pairs.get(index)[1].isEmpty()) {
+                sb.append(",\"purpose\":");
+                appendJsonString(sb, pairs.get(index)[1]);
+            }
+            sb.append('}');
+        }
+        return sb.append(']').toString();
+    }
+
+    private static void appendJsonString(StringBuilder sb, String value) {
+        sb.append('"');
+        for (int index = 0; index < value.length(); index++) {
+            char character = value.charAt(index);
+            if (character == '"' || character == '\\') {
+                sb.append('\\').append(character);
+            } else if (character == '\n') {
+                sb.append("\\n");
+            } else {
+                sb.append(character);
+            }
+        }
+        sb.append('"');
+    }
+
+    /** A cheap object count for the trace label ('offer suggestions=3'). */
+    private static int countJsonObjects(String json) {
+        int count = 0;
+        for (int index = 0; index < json.length(); index++) {
+            if (json.charAt(index) == '{') {
+                count++;
+            }
+        }
+        return count;
     }
 
     /** First present value wins; array of strings verbatim, a bare string = ONE segment. */

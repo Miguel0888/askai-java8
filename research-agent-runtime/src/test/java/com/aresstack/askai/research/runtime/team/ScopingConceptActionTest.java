@@ -125,6 +125,36 @@ public class ScopingConceptActionTest {
         assertTrue(badDecision.getConceptActionError().contains("KEEP_SUPPRESSED"));
     }
 
+    /** Gate 8b: suggestions travel as a COMMAND — the optional in-band field starved. */
+    @Test
+    public void anOfferActionCarriesItsSuggestionsAsCanonicalJson() {
+        ConceptAction offer = parse("{\"assistantMessage\":\"m\",\"conceptAction\":"
+                + "{\"type\":\"offer\",\"suggestions\":["
+                + "{\"query\":\"FreeRTOS ESP32 Grundlagen Tutorial\",\"purpose\":\"Einstieg\"},"
+                + "{\"query\":\"ESP32 Arduino Praxisprojekte\"},"
+                + "{\"query\":\"   \"}]}}").getConceptAction();
+        assertEquals(ConceptAction.Type.OFFER, offer.getType());
+        assertEquals("blank queries are dropped, the rest is canonical",
+                "[{\"query\":\"FreeRTOS ESP32 Grundlagen Tutorial\",\"purpose\":\"Einstieg\"},"
+                        + "{\"query\":\"ESP32 Arduino Praxisprojekte\"}]",
+                offer.getSuggestionsJson());
+        assertTrue(offer.describe().startsWith("offer suggestions=2"));
+
+        ScopingAssistantOutput empty = parse("{\"assistantMessage\":\"m\","
+                + "\"conceptAction\":{\"type\":\"offer\"}}");
+        assertNull(empty.getConceptAction());
+        assertTrue(empty.getConceptActionError().contains("requires \"suggestions\""));
+    }
+
+    @Test
+    public void theCanonicalHistoryRoundTripsTheOffer() {
+        ScopingAssistantOutput offer = parse("{\"assistantMessage\":\"m\",\"conceptAction\":"
+                + "{\"type\":\"offer\",\"suggestions\":[{\"query\":\"q1\",\"purpose\":\"p\"}]}}");
+        ConceptAction reread = parse(offer.canonicalJson()).getConceptAction();
+        assertEquals(ConceptAction.Type.OFFER, reread.getType());
+        assertEquals("[{\"query\":\"q1\",\"purpose\":\"p\"}]", reread.getSuggestionsJson());
+    }
+
     @Test
     public void theCanonicalHistoryRoundTripsExcludeAndResolve() {
         ScopingAssistantOutput exclude = parse("{\"assistantMessage\":\"m\",\"conceptAction\":"

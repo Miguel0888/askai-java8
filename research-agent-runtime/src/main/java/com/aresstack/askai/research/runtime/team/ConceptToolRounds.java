@@ -143,7 +143,12 @@ public final class ConceptToolRounds {
                         }
                         return receiptResult(text, result);
                     }
-                    if (action.getType() == ConceptAction.Type.READ) {
+                    if (action.getType() == ConceptAction.Type.OFFER) {
+                        // A working step like READ: the tags are display state, not the concept —
+                        // no revision, no grounding re-read, the loop simply continues.
+                        trace.line("round " + rounds + " -> OFFERED");
+                        feedback = TeamAgentPlaybook.conceptToolResult(text, germanFeedback);
+                    } else if (action.getType() == ConceptAction.Type.READ) {
                         trace.line("round " + rounds + " -> RESULT");
                         feedback = TeamAgentPlaybook.conceptToolResult(text, germanFeedback);
                     } else {

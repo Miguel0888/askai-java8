@@ -60,6 +60,9 @@ public final class ResearchToolPolicy {
                 // term, the host owns id/facet/blacklist and the concept-conflict check.
                 tools.add(excludeTopicTool(ctx));
                 tools.add(resolveConflictTool(ctx));
+                // The search-offer command (gate 8b): AI-authored orientation searches become
+                // the user's yellow exploration tags.
+                tools.add(offerSearchesTool(ctx));
             }
         }
         // Phase + run-state gated writes. SCOPING has NO document tool anymore: the ResearchBrief is the
@@ -516,6 +519,37 @@ public final class ResearchToolPolicy {
                 },
                 McpToolParameter.string("topic", true,
                         "The excluded topic in the user's own words, e.g. \"ESP-IDF\""));
+    }
+
+    /** The search-offer command: 3-5 AI-authored lookups rendered as clickable exploration tags. */
+    private static McpToolContribution offerSearchesTool(final ResearchControlContext ctx) {
+        return McpToolContribution.of("offer_searches",
+                "Offer 3-5 orientation searches the user can run with one click (yellow tags). "
+                        + "Nothing runs by itself. Example: suggestions_json="
+                        + "[{\"query\":\"FreeRTOS ESP32 Grundlagen Tutorial\","
+                        + "\"purpose\":\"Einstieg sichten\"}]",
+                new McpToolHandler() {
+                    public McpToolResult invoke(McpToolCall call) {
+                        McpToolResult denied = requireWritable(ctx, ResearchStateIds.SCOPING);
+                        if (denied != null) {
+                            return denied;
+                        }
+                        String suggestionsJson = call.getString("suggestions_json");
+                        if (suggestionsJson == null || suggestionsJson.trim().isEmpty()) {
+                            return McpToolResult.error("Missing argument: suggestions_json — "
+                                    + "example: [{\"query\":\"FreeRTOS ESP32 Grundlagen "
+                                    + "Tutorial\",\"purpose\":\"Einstieg sichten\"}]");
+                        }
+                        String reply = ctx.offerSearches(suggestionsJson.trim());
+                        if (reply == null) {
+                            return McpToolResult.error("This session has no scoping surface.");
+                        }
+                        return reply.startsWith("{") ? McpToolResult.ok(reply)
+                                : McpToolResult.error(reply);
+                    }
+                },
+                McpToolParameter.string("suggestions_json", true,
+                        "JSON array of {query, purpose} objects — the user's exploration tags"));
     }
 
     /** Resolve a reported concept conflict — only ever AFTER the user answered the question. */

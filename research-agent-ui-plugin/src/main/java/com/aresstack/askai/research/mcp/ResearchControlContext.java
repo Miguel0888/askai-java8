@@ -135,4 +135,13 @@ public interface ResearchControlContext {
     default String resolveConceptConflict(String conflictId, String decision) {
         return null;
     }
+
+    /**
+     * The search-offer command: the model hands over 3-5 AI-authored orientation searches, the
+     * host renders them as the user's yellow exploration tags. Returns {@code null} when this
+     * session has no scoping surface. DELEGATING WRAPPERS MUST FORWARD THIS.
+     */
+    default String offerSearches(String suggestionsJson) {
+        return null;
+    }
 }

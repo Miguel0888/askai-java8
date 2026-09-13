@@ -49,10 +49,13 @@ public class ScopingConceptPromptTest {
         assertTrue(with.contains("\"esp32-setup\""));
         assertFalse("the both-channels demand is gone for good",
                 with.contains("BOTH artifacts in the SAME answer"));
-        // The suggestions field starved under the generation-time grammar (optional fields lose
-        // against required ones) — the worked example is the lever this model class follows.
+        // Gate 8b: the in-band suggestions field starved under the grammar — with the action
+        // channel the suggestions are a COMMAND, shown with a worked example.
+        assertTrue(with.contains("THE SEARCH OFFER COMMAND"));
+        assertTrue(with.contains("{\"type\": \"offer\", \"suggestions\": ["));
         assertTrue(with.contains("\"query\": \"FreeRTOS ESP32 Grundlagen Tutorial\""));
         assertTrue(with.contains("they are HOW the user explores"));
+        assertTrue(with.contains("leave the searchSuggestions field empty"));
         // Mission is HOST bookkeeping now — the contract does not even mention setMission.
         assertTrue(with.contains("recorded AUTOMATICALLY from the user's first message"));
         assertFalse("gate 5: the model tried 'setMission without mission' although the host had"
@@ -71,7 +74,8 @@ public class ScopingConceptPromptTest {
     public void theConceptContractPublishesTheGenerationTimeSchemaOnlyWithTheFlag() {
         String schema = new ScopingPhaseOutputContract(true).outputSchemaJson();
         assertTrue(schema.contains(
-                "\"enum\":[\"none\",\"read\",\"add\",\"remove\",\"exclude\",\"resolve\"]"));
+                "\"enum\":[\"none\",\"read\",\"add\",\"remove\",\"exclude\",\"resolve\","
+                        + "\"offer\"]"));
         assertTrue(schema.contains("\"topic\":{\"type\":\"string\"}"));
         assertTrue(schema.contains("\"enum\":[\"REMOVE\",\"KEEP_SUPPRESSED\"]"));
         assertTrue("the action decision is always explicit",

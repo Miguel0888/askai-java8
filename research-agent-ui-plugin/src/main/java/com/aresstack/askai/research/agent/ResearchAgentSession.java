@@ -208,6 +208,10 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 public String resolveConceptConflict(String conflictId, String decision) {
                     return resolveConceptConflictCommand(conflictId, decision);
                 }
+
+                public String offerSearches(String suggestionsJson) {
+                    return offerSearchesCommand(suggestionsJson);
+                }
             });
             resources.setProjectionUpdateListener(new Runnable() {
                 public void run() {
@@ -2967,6 +2971,70 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             // fall through — the caller shows the raw reply honestly
         }
         return null;
+    }
+
+    /** How many exploration tags one offer may carry — the accessory row stays readable. */
+    private static final int MAX_OFFERED_SEARCHES = 5;
+
+    /**
+     * The search-offer command (gate 8b): the model authored the suggestions, the HOST renders
+     * them — the same yellow tags the in-band field used to feed, now set as the current scoping
+     * projection (display state; a later projection replaces it, exactly like a model turn's).
+     */
+    String offerSearchesCommand(String suggestionsJson) {
+        java.util.List<com.aresstack.askai.research.backend.ScopingAssistantUpdate.Suggestion>
+                suggestions = parseOfferedSearches(suggestionsJson);
+        if (suggestions.isEmpty()) {
+            return "No usable suggestion — every entry needs a non-empty \"query\". Example: "
+                    + "[{\"query\":\"FreeRTOS ESP32 Grundlagen Tutorial\","
+                    + "\"purpose\":\"Einstieg sichten\"}]";
+        }
+        latestScopingProjection = new com.aresstack.askai.research.backend.ScopingAssistantUpdate(
+                state.getPhaseId(), suggestions, "", "");
+        persistScopingProjection(latestScopingProjection);
+        technicalLog("offer_searches -> OFFERED " + suggestions.size() + " tags");
+        fireStateChanged();
+        com.google.gson.JsonObject reply = new com.google.gson.JsonObject();
+        reply.addProperty("result", "OFFERED");
+        reply.addProperty("count", suggestions.size());
+        return reply.toString();
+    }
+
+    /** Lenient parse of {@code [{"query":..,"purpose":..},..]}; broken entries are dropped. */
+    static java.util.List<com.aresstack.askai.research.backend.ScopingAssistantUpdate.Suggestion>
+            parseOfferedSearches(String suggestionsJson) {
+        java.util.List<com.aresstack.askai.research.backend.ScopingAssistantUpdate.Suggestion>
+                suggestions = new java.util.ArrayList<com.aresstack.askai.research.backend
+                        .ScopingAssistantUpdate.Suggestion>();
+        if (suggestionsJson == null) {
+            return suggestions;
+        }
+        try {
+            com.google.gson.JsonElement parsed =
+                    com.google.gson.JsonParser.parseString(suggestionsJson);
+            if (!parsed.isJsonArray()) {
+                return suggestions;
+            }
+            for (com.google.gson.JsonElement element : parsed.getAsJsonArray()) {
+                if (!element.isJsonObject() || suggestions.size() >= MAX_OFFERED_SEARCHES) {
+                    continue;
+                }
+                com.google.gson.JsonObject suggestion = element.getAsJsonObject();
+                String query = suggestion.has("query") && suggestion.get("query").isJsonPrimitive()
+                        ? suggestion.get("query").getAsString().trim() : "";
+                if (query.isEmpty()) {
+                    continue;
+                }
+                String purpose = suggestion.has("purpose")
+                        && suggestion.get("purpose").isJsonPrimitive()
+                        ? suggestion.get("purpose").getAsString().trim() : "";
+                suggestions.add(new com.aresstack.askai.research.backend.ScopingAssistantUpdate
+                        .Suggestion(query, purpose, suggestions.size() + 1));
+            }
+        } catch (RuntimeException notJson) {
+            suggestions.clear();
+        }
+        return suggestions;
     }
 
     /** Exact-name concept conflict of an excluded topic, or {@code null} (concept-less/fake ok). */

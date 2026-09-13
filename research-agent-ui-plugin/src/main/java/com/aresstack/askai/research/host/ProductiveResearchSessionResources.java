@@ -498,6 +498,12 @@ public final class ProductiveResearchSessionResources {
                 com.aresstack.askai.research.mcp.ScopeCommandPort port = scopeCommandPort;
                 return port == null ? null : port.resolveConceptConflict(conflictId, decision);
             }
+
+            @Override
+            public String offerSearches(String suggestionsJson) {
+                com.aresstack.askai.research.mcp.ScopeCommandPort port = scopeCommandPort;
+                return port == null ? null : port.offerSearches(suggestionsJson);
+            }
         };
     }
 

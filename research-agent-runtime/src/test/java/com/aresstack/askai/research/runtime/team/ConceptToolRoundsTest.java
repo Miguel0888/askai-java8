@@ -321,6 +321,27 @@ public class ConceptToolRoundsTest {
         assertTrue(trace.toString(), trace.toString().contains("EXCLUDED (terminal)"));
     }
 
+    /** An OFFER is a working step like READ: tool reply as feedback, loop continues, not terminal. */
+    @Test
+    public void anOfferActionFeedsTheToolReplyBackAndContinues() throws Exception {
+        ScriptedTurns turns = new ScriptedTurns();
+        ScriptedTool tool = new ScriptedTool();
+        tool.byDescription.put("offer suggestions=1", "{\"result\":\"OFFERED\",\"count\":1}");
+        turns.script.add(turn("Schau dir gern die Vorschläge an.", null));
+
+        TeamAgentResult result = ConceptToolRounds.run(
+                turn("ich biete an", "{\"type\":\"offer\",\"suggestions\":["
+                        + "{\"query\":\"FreeRTOS Grundlagen\"}]}"),
+                turns, tool, 4, 2, false, null, traceSink);
+
+        assertEquals("one tool call, no grounding re-read", 1, tool.calls.size());
+        assertTrue("the reply reaches the model as a regular working-step result",
+                turns.feedbackSeen.get(0).contains("\"result\":\"OFFERED\""));
+        assertEquals("Schau dir gern die Vorschläge an.",
+                ((ScopingAssistantOutput) result.getOutput()).getAssistantMessage());
+        assertTrue(trace.toString(), trace.toString().contains("OFFERED"));
+    }
+
     /** An older host without userMessage in the receipt: the previous result stands (no raw JSON). */
     @Test
     public void aReceiptWithoutAUserMessageKeepsThePreviousAnswer() throws Exception {

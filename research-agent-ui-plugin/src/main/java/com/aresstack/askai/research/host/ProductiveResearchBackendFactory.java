@@ -615,6 +615,12 @@ public final class ProductiveResearchBackendFactory {
                                             .resolveConceptConflict(conflictId, decision);
                         }
 
+                        @Override
+                        public String offerSearches(String suggestionsJson) {
+                            return holder[0] == null ? null
+                                    : holder[0].controlContext().offerSearches(suggestionsJson);
+                        }
+
                         // The review bounds are the USER's settings (this factory carries them); the
                         // delegate's defaults would silently ignore a configured value.
                         @Override

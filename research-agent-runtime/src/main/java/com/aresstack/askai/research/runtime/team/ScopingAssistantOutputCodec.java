@@ -85,6 +85,10 @@ public final class ScopingAssistantOutputCodec {
                 sb.append(',');
                 writeKey(sb, "decision").append(':');
                 writeString(sb, action.getDecision());
+            } else if (action.getType() == ConceptAction.Type.OFFER) {
+                sb.append(',');
+                // Already canonical JSON (built by the parser) — travels raw, parses back.
+                writeKey(sb, "suggestions").append(':').append(action.getSuggestionsJson());
             } else {
                 sb.append(',');
                 writeKey(sb, "path").append(':');

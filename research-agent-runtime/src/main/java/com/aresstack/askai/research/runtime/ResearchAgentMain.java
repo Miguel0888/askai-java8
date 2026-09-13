@@ -1276,6 +1276,12 @@ public final class ResearchAgentMain {
                 args.put("conflict_id", action.getConflictId());
                 args.put("decision", action.getDecision());
                 break;
+            case OFFER:
+                // Gate 8b: the OPTIONAL in-band suggestions field starved under the grammar —
+                // as a COMMAND the model actually offers; the host renders the yellow tags.
+                toolName = "offer_searches";
+                args.put("suggestions_json", action.getSuggestionsJson());
+                break;
             default:
                 toolName = "concept_remove";
                 args.put("path_json", segmentsJson(action.getPath()));
