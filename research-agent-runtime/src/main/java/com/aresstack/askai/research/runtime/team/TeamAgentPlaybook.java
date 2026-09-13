@@ -608,6 +608,12 @@ public final class TeamAgentPlaybook {
                     ? " Die Karte liegt bereits am gewünschten Ziel."
                     : " The card already sits at the requested target.");
         }
+        if ("unclear".equals(outcome)) {
+            // The dedicated generator declined to guess — the host asks back, deterministic.
+            return base + (german
+                    ? " Bitte nenne Karte und Ziel eindeutig, z. B. „Verschiebe X unter Y“."
+                    : " Please name card and target clearly, e.g. \"Move X under Y\".");
+        }
         if (outcome != null && !outcome.trim().isEmpty()) {
             return base + (german ? " Grund: " : " Reason: ") + outcome.trim();
         }

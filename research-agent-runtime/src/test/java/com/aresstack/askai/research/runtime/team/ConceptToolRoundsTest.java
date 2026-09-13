@@ -382,6 +382,32 @@ public class ConceptToolRoundsTest {
                 "move-truth guard stands down — other mutations were APPLIED this turn"));
     }
 
+    /**
+     * The dedicated pre-loop move (two-field schema) seeds the truth guard: an APPLIED seed
+     * keeps the model's narration, an "unclear" seed closes with the deterministic ask-back.
+     */
+    @Test
+    public void seededMoveReceiptsSteerTheTruthGuard() throws Exception {
+        ScriptedTurns moved = new ScriptedTurns();
+        TeamAgentResult kept = ConceptToolRounds.run(
+                turn("Scheduling liegt jetzt unter FreeRTOS.", "{\"type\":\"none\"}"),
+                moved, new ScriptedTool(), 4, 2, false, null, traceSink, false,
+                ConceptTurnPolicy.Mode.MOVE_TRUTH, true, null);
+        assertEquals("the pre-executed APPLIED move licenses the narration",
+                "Scheduling liegt jetzt unter FreeRTOS.",
+                ((ScopingAssistantOutput) kept.getOutput()).getAssistantMessage());
+
+        ScriptedTurns unclear = new ScriptedTurns();
+        TeamAgentResult askedBack = ConceptToolRounds.run(
+                turn("Ich habe es verschoben.", "{\"type\":\"none\"}"),
+                unclear, new ScriptedTool(), 4, 2, false, null, traceSink, false,
+                ConceptTurnPolicy.Mode.MOVE_TRUTH, false, "unclear");
+        assertEquals(TeamAgentPlaybook.moveTruthAnswer(false, "unclear"),
+                ((ScopingAssistantOutput) askedBack.getOutput()).getAssistantMessage());
+        assertTrue(TeamAgentPlaybook.moveTruthAnswer(false, "unclear")
+                .contains("name card and target clearly"));
+    }
+
     /** move_leaf, gate test 13: a READ-ONLY turn blocks the move — no substitute mutation. */
     @Test
     public void aReadOnlyTurnRefusesAMoveLikeEveryMutation() throws Exception {

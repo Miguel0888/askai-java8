@@ -95,6 +95,23 @@ public final class ConceptToolRounds {
                                       IntermediateSink intermediateSink, Trace trace,
                                       boolean nudgeOfferWhenMissing,
                                       ConceptTurnPolicy.Mode mode) {
+        return run(initial, turn, tool, maxToolRounds, maxRepairAttempts, germanFeedback,
+                intermediateSink, trace, nudgeOfferWhenMissing, mode, false, null);
+    }
+
+    /**
+     * @param seededMovedReceipt / @param seededMoveOutcome the DEDICATED move generation ran
+     *  BEFORE this loop (move-gate ruling: the universal grammar starved source/parent) and
+     *  already holds the authoritative receipt state — the truth guard judges the whole turn
+     *  including that pre-executed move.
+     */
+    public static TeamAgentResult run(TeamAgentResult initial, FollowUpTurn turn,
+                                      ConceptTool tool, int maxToolRounds,
+                                      int maxRepairAttempts, boolean germanFeedback,
+                                      IntermediateSink intermediateSink, Trace trace,
+                                      boolean nudgeOfferWhenMissing,
+                                      ConceptTurnPolicy.Mode mode,
+                                      boolean seededMovedReceipt, String seededMoveOutcome) {
         boolean readOnly = mode == ConceptTurnPolicy.Mode.RESTRUCTURE_READ_ONLY
                 || mode == ConceptTurnPolicy.Mode.DELETE_READ_ONLY;
         if (readOnly) {
@@ -120,8 +137,8 @@ public final class ConceptToolRounds {
         int repairs = 0;
         // Receipt truth (move_leaf slice): "verschoben" may only close a turn when a MOVED
         // receipt of THIS turn covers it — otherwise the host owns the closing sentence.
-        boolean movedReceipt = false;
-        String moveOutcome = null;
+        boolean movedReceipt = seededMovedReceipt;
+        String moveOutcome = seededMoveOutcome;
         boolean budgetExhausted = false;
         boolean offeredThisTurn = false;
         boolean offerNudgeSpent = false;

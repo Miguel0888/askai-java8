@@ -668,14 +668,12 @@ public final class ResearchAgentMain {
                 // A greeting bootstrap carries no user text; if this first turn DID carry a real message,
                 // answer it in the same turn so nothing the user typed is dropped.
                 if (!text.trim().isEmpty()) {
-                    emitTeamAgentResult(ctx,
-                            runConceptToolRounds(ctx, teamAgent.respond(text, view), view, text),
+                    emitTeamAgentResult(ctx, conceptAwareRespond(ctx, view, text),
                             view.getPhaseId());
                 }
             }
         } else {
-            emitTeamAgentResult(ctx,
-                    runConceptToolRounds(ctx, teamAgent.respond(text, view), view, text),
+            emitTeamAgentResult(ctx, conceptAwareRespond(ctx, view, text),
                     view.getPhaseId());
         }
         return cancelled.get()
@@ -1199,11 +1197,74 @@ public final class ResearchAgentMain {
      * FINAL result reaches {@code emitTeamAgentResult}; every loop step leaves a technical log
      * line. Without concept tools (older host) the initial result passes through untouched.
      */
+    /**
+     * One user turn with concept tools: the machine classifies the intent FIRST — an explicit
+     * move order runs the DEDICATED move generation (move-gate ruling: source/parent starved
+     * inside the universal grammar) and executes it through the ordinary tool funnel BEFORE
+     * the conversational inference, which then already sees the moved tree; the loop receives
+     * the authoritative receipt state as its truth-guard seed.
+     */
+    private com.aresstack.askai.research.runtime.team.TeamAgentResult conceptAwareRespond(
+            final SyncPromptContext ctx,
+            final com.aresstack.askai.research.runtime.team.TeamAgentStateView view,
+            String text) {
+        boolean preMoved = false;
+        String preOutcome = null;
+        if (conceptToolsAvailable
+                && com.aresstack.askai.research.runtime.team.ConceptTurnPolicy.modeFor(text)
+                        == com.aresstack.askai.research.runtime.team.ConceptTurnPolicy.Mode
+                                .MOVE_TRUTH) {
+            conceptLog(ctx, "dedicated move generation (two-field schema)");
+            String conceptContext;
+            try {
+                conceptContext = conceptToolCall(wholeConceptRead());
+            } catch (Exception unavailable) {
+                conceptContext = "";
+            }
+            com.aresstack.askai.research.runtime.team.ConceptAction move =
+                    com.aresstack.askai.research.runtime.team.MoveActionGenerator.generate(
+                            mainModelChat, text, conceptContext);
+            if (move == null) {
+                preOutcome = "unclear";
+                conceptLog(ctx, "dedicated move generation -> unclear (no guess, no mutation)");
+            } else {
+                conceptLog(ctx, "dedicated move: " + move.describe());
+                try {
+                    String receipt = conceptToolCall(move);
+                    if (receipt.startsWith("NO_CHANGE")) {
+                        preOutcome = "already-at-target";
+                        conceptLog(ctx, "dedicated move -> NO_CHANGE (already at target)");
+                    } else {
+                        preMoved = true;
+                        conceptLog(ctx, "dedicated move -> APPLIED");
+                    }
+                } catch (com.aresstack.askai.research.runtime.loop.ToolInvoker
+                        .ToolFailure rejected) {
+                    String reason = rejected.getMessage() == null ? "rejected"
+                            : rejected.getMessage().replace("\r", "").replace('\n', ' ');
+                    preOutcome = reason;
+                    conceptLog(ctx, "dedicated move -> REJECTED " + reason);
+                } catch (com.aresstack.askai.research.runtime.loop.ToolInvoker
+                        .EndpointUnavailable dead) {
+                    preOutcome = "concept endpoint unavailable";
+                    conceptLog(ctx, "dedicated move lost — endpoint unavailable");
+                }
+            }
+        }
+        return runConceptToolRounds(ctx, teamAgent.respond(text, view), view, text,
+                preMoved, preOutcome);
+    }
+
+    private static void conceptLog(SyncPromptContext ctx, String message) {
+        ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
+                .log("concept " + message));
+    }
+
     private com.aresstack.askai.research.runtime.team.TeamAgentResult runConceptToolRounds(
             final SyncPromptContext ctx,
             com.aresstack.askai.research.runtime.team.TeamAgentResult initial,
             final com.aresstack.askai.research.runtime.team.TeamAgentStateView view,
-            String userText) {
+            String userText, boolean seededMovedReceipt, String seededMoveOutcome) {
         if (!conceptToolsAvailable) {
             return initial;
         }
@@ -1241,7 +1302,8 @@ public final class ResearchAgentMain {
                 // Machine-side intent separation (safety-slice gate 2): a compound
                 // restructuring or delete wish closes the concept mutation channel for the
                 // WHOLE turn — capability withdrawal per action was not enough.
-                com.aresstack.askai.research.runtime.team.ConceptTurnPolicy.modeFor(userText));
+                com.aresstack.askai.research.runtime.team.ConceptTurnPolicy.modeFor(userText),
+                seededMovedReceipt, seededMoveOutcome);
     }
 
     /** Whether THIS session ever offered exploration tags — ends the one-shot offer nudge. */
