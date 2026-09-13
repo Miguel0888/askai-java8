@@ -69,6 +69,13 @@ public final class ConceptPaperView extends JPanel {
     private final ComicButton olderButton = new ComicButton("◀");
     private final ComicButton newerButton = new ComicButton("▶");
     private final ComicButton refreshButton = new ComicButton("⟳");
+    private final ComicButton treeButton = new ComicButton("Tree");
+    private final ComicButton jsonButton = new ComicButton("JSON");
+    private final ConceptTreeView treeView = new ConceptTreeView();
+    private final JScrollPane treeScroll = new JScrollPane(treeView);
+    /** Tree first — the pretty surface; JSON stays the power/recovery mode. */
+    private boolean treeMode = true;
+    private ConceptTreeView.BlacklistSource blacklistSource;
     private final ComicSearchBar searchBar =
             new ComicSearchBar("Search concept…", "Filter the concept cards by name (Enter; "
                     + "empty Enter shows the document again)");
@@ -125,6 +132,16 @@ public final class ConceptPaperView extends JPanel {
                 ResearchUiMetrics.FOOTER_PADDING_V, ResearchUiMetrics.FOOTER_PADDING_H,
                 ResearchUiMetrics.FOOTER_PADDING_V, ResearchUiMetrics.FOOTER_PADDING_H));
         searchRow.add(searchBar, BorderLayout.CENTER);
+        JPanel modeToggle = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+        modeToggle.setOpaque(false);
+        for (ComicButton button : new ComicButton[] {treeButton, jsonButton}) {
+            button.setFocusable(false);
+            button.setBorder(BorderFactory.createEmptyBorder(3, 10, 3, 10));
+            modeToggle.add(button);
+        }
+        treeButton.setToolTipText("Show the concept as an editable card tree");
+        jsonButton.setToolTipText("Show and edit the raw JSON document");
+        searchRow.add(modeToggle, BorderLayout.EAST);
         add(searchRow, BorderLayout.NORTH);
 
         // Editor + the comic error overlay share the center: a rejected save POPS over the text
@@ -132,6 +149,7 @@ public final class ConceptPaperView extends JPanel {
         buildErrorOverlay();
         layers.setLayout(null);
         layers.add(editorScroll, javax.swing.JLayeredPane.DEFAULT_LAYER);
+        layers.add(treeScroll, javax.swing.JLayeredPane.DEFAULT_LAYER);
         layers.add(errorOverlay, javax.swing.JLayeredPane.PALETTE_LAYER);
         layers.addComponentListener(new java.awt.event.ComponentAdapter() {
             @Override
@@ -173,6 +191,7 @@ public final class ConceptPaperView extends JPanel {
         int width = layers.getWidth();
         int height = layers.getHeight();
         editorScroll.setBounds(0, 0, width, height);
+        treeScroll.setBounds(0, 0, width, height);
         int overlayWidth = Math.max(120, width - 32);
         int overlayHeight = Math.min(Math.max(60, errorText.getPreferredSize().height + 28),
                 Math.max(60, height - 24));
@@ -190,6 +209,39 @@ public final class ConceptPaperView extends JPanel {
         this.historyReader = history;
         this.restoreHandler = restore;
         updateControls();
+    }
+
+    /**
+     * Wire the tree editor's gestures (tree-editor slice 1+2): every hover action is ONE
+     * ConceptBranchService call through the SAME seams the agent tools use — never past the
+     * store. Errors pop in the shared comic overlay.
+     */
+    public void setTreeActions(ConceptTreeView.Actions actions,
+                               ConceptTreeView.BlacklistSource blacklist) {
+        this.blacklistSource = blacklist;
+        treeView.setActions(actions, new ConceptTreeView.ErrorSink() {
+            public void error(String message) {
+                showError(message);
+            }
+        });
+    }
+
+    /** Switch between the card tree and the raw JSON editor; dirty JSON text is protected. */
+    private void setTreeMode(boolean tree) {
+        if (tree && (dirty || browsingRevision >= 0 || searchView)) {
+            showError("Save or discard your JSON edits (or leave search/history) first.");
+            return;
+        }
+        treeMode = tree;
+        applyModeVisibility();
+        updateControls();
+    }
+
+    private void applyModeVisibility() {
+        treeScroll.setVisible(treeMode);
+        editorScroll.setVisible(!treeMode);
+        treeButton.setEnabled(!treeMode);
+        jsonButton.setEnabled(treeMode);
     }
 
     /** Wire the manual ⟳ button to the owner's re-read (the same runnable the listeners use). */
@@ -266,6 +318,17 @@ public final class ConceptPaperView extends JPanel {
                 applySearch(searchBar.getText().trim());
             }
         });
+        treeButton.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent event) {
+                setTreeMode(true);
+            }
+        });
+        jsonButton.addActionListener(new ActionListener() {
+            public void actionPerformed(ActionEvent event) {
+                setTreeMode(false);
+            }
+        });
+        applyModeVisibility();
     }
 
     // ------------------------------------------------------------------ editing
@@ -316,6 +379,9 @@ public final class ConceptPaperView extends JPanel {
         if (historyReader == null) {
             showError("This session has no revision history.");
             return;
+        }
+        if (treeMode) {
+            setTreeMode(false); // history browsing is the JSON mode's business
         }
         if (dirty) {
             showError("Save or discard your edits before browsing revisions.");
@@ -376,6 +442,10 @@ public final class ConceptPaperView extends JPanel {
             showError("Nothing searchable yet.");
             return;
         }
+        if (treeMode) {
+            treeMode = false; // the filter list renders in the editor surface
+            applyModeVisibility();
+        }
         searchView = true;
         setEditorText(filterText(projection.getPrettyJson(), query), false);
         updateControls();
@@ -389,6 +459,12 @@ public final class ConceptPaperView extends JPanel {
      */
     public void render(ConceptProjection projection) {
         lastProjection = projection;
+        // The tree has NO dirty state (every gesture commits) — it always shows the live head,
+        // even while the JSON editor protects unsaved text or browses history.
+        treeView.render(projection != null && projection.isReadable()
+                        ? projection.getPrettyJson() : "",
+                blacklistSource == null ? java.util.Collections.<String>emptyList()
+                        : blacklistSource.terms());
         renderCurrent();
     }
 
@@ -427,7 +503,7 @@ public final class ConceptPaperView extends JPanel {
 
     private void updateControls() {
         boolean editWired = saveHandler != null;
-        saveButton.setEnabled(editWired && (dirty || browsingRevision >= 0));
+        saveButton.setEnabled(!treeMode && editWired && (dirty || browsingRevision >= 0));
         discardButton.setEnabled(dirty || browsingRevision >= 0 || searchView);
         olderButton.setEnabled(historyReader != null && !dirty);
         newerButton.setEnabled(historyReader != null && !dirty && browsingRevision >= 0);
@@ -438,7 +514,9 @@ public final class ConceptPaperView extends JPanel {
         statusLabel.setForeground(null);
         statusLabel.setEnabled(false); // quiet gray, diagnostic value only
         String text = "rev " + loadedRevision;
-        if (browsingRevision >= 0) {
+        if (treeMode) {
+            text = "rev " + loadedRevision + " — every tree edit saves directly";
+        } else if (browsingRevision >= 0) {
             text = "viewing rev " + browsingRevision + " of " + loadedRevision;
         } else if (dirty) {
             text = "rev " + loadedRevision + " — edited";

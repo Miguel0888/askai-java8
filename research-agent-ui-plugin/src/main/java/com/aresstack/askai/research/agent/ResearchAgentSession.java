@@ -2007,6 +2007,11 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         return researchBriefStore;
     }
 
+    /** The blacklist truth for DISPLAY (tree editor dims suppressed cards subtree-deep). */
+    public java.util.List<String> blacklistTermsForDisplay() {
+        return currentBlacklistTerms();
+    }
+
     /**
      * The session's ONE Konzeptpapier branch-edit service (shared with the agent MCP tools — the
      * handle registry lives in it), or {@code null} in the in-memory clickdummy. The Konzept tab
