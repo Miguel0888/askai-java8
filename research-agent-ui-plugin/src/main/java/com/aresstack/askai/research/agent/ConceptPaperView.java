@@ -242,6 +242,10 @@ public final class ConceptPaperView extends JPanel {
         editorScroll.setVisible(!treeMode);
         treeButton.setEnabled(!treeMode);
         jsonButton.setEnabled(treeMode);
+        // Save/Discard are JSON-mode business — the tree commits every gesture directly, so
+        // showing them there only raises the question what they would save.
+        saveButton.setVisible(!treeMode);
+        discardButton.setVisible(!treeMode);
     }
 
     /** Wire the manual ⟳ button to the owner's re-read (the same runnable the listeners use). */
@@ -515,7 +519,7 @@ public final class ConceptPaperView extends JPanel {
         statusLabel.setEnabled(false); // quiet gray, diagnostic value only
         String text = "rev " + loadedRevision;
         if (treeMode) {
-            text = "rev " + loadedRevision + " — every tree edit saves directly";
+            text = "rev " + loadedRevision; // the tree needs no edit-state suffix
         } else if (browsingRevision >= 0) {
             text = "viewing rev " + browsingRevision + " of " + loadedRevision;
         } else if (dirty) {
