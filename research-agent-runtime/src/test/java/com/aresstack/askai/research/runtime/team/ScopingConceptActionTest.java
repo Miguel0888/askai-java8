@@ -125,6 +125,26 @@ public class ScopingConceptActionTest {
         assertTrue(badDecision.getConceptActionError().contains("KEEP_SUPPRESSED"));
     }
 
+    /** add_cards: ALL user-named areas as ONE typed list — a single card is a 1-element list. */
+    @Test
+    public void addCardsParsesRoundTripsAndTeachesOnMissingNames() {
+        ScopingAssistantOutput output = parse("{\"assistantMessage\":\"m\",\"conceptAction\":"
+                + "{\"type\":\"add_cards\",\"parent\":[],\"names\":[\"Grundlagen\","
+                + "\"Computer Science\",\"Debugging\"]}}");
+        ConceptAction action = output.getConceptAction();
+        assertEquals(ConceptAction.Type.ADD_CARDS, action.getType());
+        assertTrue(action.getParent().isEmpty());
+        assertEquals("multi-word names stay ONE name in the typed list",
+                "[\"Grundlagen\",\"Computer Science\",\"Debugging\"]", action.getNamesJson());
+        ConceptAction reread = parse(output.canonicalJson()).getConceptAction();
+        assertEquals(action.getNamesJson(), reread.getNamesJson());
+
+        ScopingAssistantOutput missing = parse("{\"assistantMessage\":\"m\","
+                + "\"conceptAction\":{\"type\":\"add_cards\",\"parent\":[]}}");
+        assertNull(missing.getConceptAction());
+        assertTrue(missing.getConceptActionError().contains("one-element list"));
+    }
+
     /**
      * rename is in the contract; rewrite is PARSED only as legacy tolerance (safety slice: the
      * grammar cannot emit it anymore and the loop refuses execution — old transcripts must

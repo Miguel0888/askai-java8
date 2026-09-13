@@ -23,7 +23,7 @@ public final class ConceptAction {
      * generation grammar — as an ACTION the model actually uses it, and the platform renders
      * the yellow tags).
      */
-    public enum Type { READ, ADD, REMOVE, EXCLUDE, RESOLVE, OFFER, RENAME, REWRITE }
+    public enum Type { READ, ADD, ADD_CARDS, REMOVE, EXCLUDE, RESOLVE, OFFER, RENAME, REWRITE }
 
     private final Type type;
     private final List<String> path;
@@ -90,6 +90,11 @@ public final class ConceptAction {
         return decision;
     }
 
+    /** For ADD_CARDS: the new card names as a compact JSON array string (typed, never split). */
+    public String getNamesJson() {
+        return decision;
+    }
+
     /** A compact trace label ('add parent=["A","B"] name="C"'). */
     public String describe() {
         switch (type) {
@@ -97,6 +102,8 @@ public final class ConceptAction {
                 return "read path=" + segmentsLabel(path);
             case ADD:
                 return "add parent=" + segmentsLabel(parent) + " name=\"" + name + "\"";
+            case ADD_CARDS:
+                return "add_cards parent=" + segmentsLabel(parent) + " names=" + decision;
             case EXCLUDE:
                 return "exclude topic=\"" + name + "\"";
             case RESOLVE:
@@ -206,6 +213,28 @@ public final class ConceptAction {
             return Parsed.ok(new ConceptAction(Type.ADD, null,
                     segments(map.get("parent"), map.get("parent_path"), map.get("path")), name));
         }
+        if ("add_cards".equalsIgnoreCase(type)) {
+            Object namesValue = map.get("names");
+            List<String> names = namesValue instanceof List
+                    ? segments(namesValue) : Collections.<String>emptyList();
+            if (names.isEmpty()) {
+                return Parsed.invalid("conceptAction type \"add_cards\" requires \"names\" — "
+                        + "ALL card names as one array (a single card is a one-element list); "
+                        + "example: {\"type\":\"add_cards\",\"parent\":[],\"names\":"
+                        + "[\"Grundlagen\",\"Architektur\",\"Debugging\"]}");
+            }
+            StringBuilder json = new StringBuilder("[");
+            for (int index = 0; index < names.size(); index++) {
+                if (index > 0) {
+                    json.append(',');
+                }
+                appendJsonString(json, names.get(index));
+            }
+            json.append(']');
+            return Parsed.ok(new ConceptAction(Type.ADD_CARDS, null,
+                    segments(map.get("parent"), map.get("parent_path")), "",
+                    json.toString()));
+        }
         if ("remove".equalsIgnoreCase(type)) {
             List<String> path = segments(map.get("path"), map.get("parent"));
             if (path.isEmpty()) {
@@ -278,7 +307,7 @@ public final class ConceptAction {
                     decision.trim().toUpperCase(java.util.Locale.ROOT)));
         }
         return Parsed.invalid("conceptAction has unknown type \"" + type
-                + "\" — allowed: none, read, add, remove, exclude, resolve, offer");
+                + "\" — allowed: none, read, add_cards, exclude, resolve, offer, rename");
     }
 
     /** OFFER: {query, purpose} pairs with a non-empty query; malformed entries are dropped. */

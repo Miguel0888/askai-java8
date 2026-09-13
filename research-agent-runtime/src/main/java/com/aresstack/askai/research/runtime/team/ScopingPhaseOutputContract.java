@@ -93,14 +93,20 @@ public final class ScopingPhaseOutputContract implements PhaseOutputContract {
                 // Safety slice after the slice-2 gate: remove/rewrite left the grammar — a
                 // small model must not be able to EMIT a destructive concept edit (the parser
                 // stays tolerant for legacy transcripts; the loop refuses execution).
+                // add_cards slice: the single add left the ACTIVE contract (the live gate lost
+                // a user-named card to the four-round budget of one-by-one adds) — the model
+                // captures ALL named areas as ONE typed list; the parser stays tolerant of
+                // legacy "add" transcripts, the loop refuses their execution.
                 + "\"conceptAction\":{\"type\":\"object\",\"properties\":{"
-                + "\"type\":{\"type\":\"string\",\"enum\":[\"none\",\"read\",\"add\","
+                + "\"type\":{\"type\":\"string\",\"enum\":[\"none\",\"read\",\"add_cards\","
                 + "\"exclude\",\"resolve\",\"offer\",\"rename\"]},"
                 + "\"path\":{\"type\":\"array\",\"maxItems\":6,\"items\":"
                 + "{\"type\":\"string\"}},"
                 + "\"parent\":{\"type\":\"array\",\"maxItems\":6,\"items\":"
                 + "{\"type\":\"string\"}},"
                 + "\"name\":{\"type\":\"string\"},"
+                + "\"names\":{\"type\":\"array\",\"maxItems\":16,\"items\":"
+                + "{\"type\":\"string\",\"minLength\":1}},"
                 + "\"topic\":{\"type\":\"string\"},"
                 + "\"conflictId\":{\"type\":\"string\"},"
                 + "\"decision\":{\"type\":\"string\",\"enum\":[\"REMOVE\","

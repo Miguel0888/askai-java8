@@ -1268,11 +1268,20 @@ public final class ResearchAgentMain {
                 }
                 break;
             case ADD:
+                // Legacy transcripts only — the loop refuses model ADDs before this funnel.
                 toolName = "concept_add";
                 if (!action.getParent().isEmpty()) {
                     args.put("parent_path_json", segmentsJson(action.getParent()));
                 }
                 args.put("name", action.getName());
+                break;
+            case ADD_CARDS:
+                // The atomic list capture: ALL user-named areas in one call, one revision.
+                toolName = "concept_add_cards";
+                if (!action.getParent().isEmpty()) {
+                    args.put("parent_path_json", segmentsJson(action.getParent()));
+                }
+                args.put("names_json", action.getNamesJson());
                 break;
             case EXCLUDE:
                 // The ONE-command exclusion facade: the model quotes the user's term, the HOST

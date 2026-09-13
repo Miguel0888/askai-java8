@@ -16,7 +16,22 @@ public class ScopingConceptPromptTest {
         assertTrue(with.contains("WE ARE BUILDING A BOOK"));
         assertTrue(with.contains("THE CONCEPT (conceptAction):"));
         // The MainframeMate lesson, pinned: concrete examples live IN the contract text.
-        assertTrue(with.contains("{\"type\":\"add\",\"parent\":"));
+        // add_cards slice: the single add left the ACTIVE contract — the model captures ALL
+        // user-named areas as ONE typed list (four one-by-one rounds once cost "Debugging"
+        // its place in the budget).
+        assertTrue(with.contains("{\"type\":\"add_cards\",\"parent\":[],\"names\":"
+                + "[\"Grundlagen\","));
+        assertFalse("the single add is no longer taught",
+                with.contains("{\"type\":\"add\","));
+        assertTrue("named areas outrank offers and own ideas",
+                with.contains("FIRST one add_cards capturing EVERY area the user explicitly "
+                        + "named"));
+        assertTrue("a plain list stays flat",
+                with.contains("never invent a hierarchy the user did not state"));
+        assertTrue("multi-word terms stay one name",
+                with.contains("\"Computer Science\" is one card"));
+        assertTrue("claims only per receipt",
+                with.contains("SUPPRESSED_BY_SCOPE"));
         assertTrue("segments, never slash paths", with.contains("NAME SEGMENTS"));
         // K2e: explicit user-command examples + read discipline + scope-decisions-into-workpiece.
         assertTrue(with.contains("Map an explicit user command DIRECTLY"));
@@ -79,9 +94,10 @@ public class ScopingConceptPromptTest {
         assertTrue(with.contains("\"query\": \"FreeRTOS ESP32 Grundlagen Tutorial\""));
         assertTrue(with.contains("they are HOW the user explores"));
         assertTrue(with.contains("leave the searchSuggestions field empty"));
-        // Gate 9: the broad first turn skipped the offer — the drill spells out the sequence.
+        // Gate 9: the broad first turn skipped the offer — the drill spells out the sequence
+        // (add_cards slice: the named-area capture comes FIRST, the offer second).
         assertTrue(with.contains("FIRST-TURN DRILL"));
-        assertTrue(with.contains("concept cards first, then EXACTLY ONE offer action"));
+        assertTrue(with.contains("THEN exactly one offer action"));
         // K4: the concept is the ONE scoping artifact — the legacy brief is neither requested
         // nor emittable with the concept tools; the flagless old-host prompt keeps it.
         assertFalse(with.contains("researchBriefMarkdown"));
@@ -111,8 +127,10 @@ public class ScopingConceptPromptTest {
         // carries neither remove nor rewrite (the parser stays tolerant for old transcripts,
         // the loop refuses execution).
         assertTrue(schema.contains(
-                "\"enum\":[\"none\",\"read\",\"add\",\"exclude\",\"resolve\","
+                "\"enum\":[\"none\",\"read\",\"add_cards\",\"exclude\",\"resolve\","
                         + "\"offer\",\"rename\"]"));
+        assertTrue("the names list is grammar-bounded and typed",
+                schema.contains("\"names\":{\"type\":\"array\",\"maxItems\":16"));
         assertFalse(schema.contains("\"rewrite\""));
         assertFalse(schema.contains("\"leaves\""));
         assertTrue(schema.contains("\"topic\":{\"type\":\"string\"}"));

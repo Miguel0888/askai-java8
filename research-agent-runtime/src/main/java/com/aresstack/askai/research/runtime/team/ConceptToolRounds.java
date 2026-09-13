@@ -199,8 +199,21 @@ public final class ConceptToolRounds {
                 rejected.add("(invalid) " + firstLine(actionError));
                 trace.line("round " + rounds + ": invalid conceptAction (" + actionError + ")");
                 feedback = TeamAgentPlaybook.conceptToolRejected(actionError, germanFeedback);
+            } else if (action.getType() == ConceptAction.Type.ADD) {
+                // add_cards slice: the single add left the active contract — a legacy
+                // transcript's "add" is read but never executed (four one-by-one rounds once
+                // cost a user-named card its place in the budget).
+                repairs++;
+                rejected.add(action.describe() + " — single add left the contract");
+                trace.line("round " + rounds + ": " + action.describe());
+                trace.line("round " + rounds + " -> REFUSED (send ONE add_cards with ALL "
+                        + "names)");
+                feedback = TeamAgentPlaybook.conceptToolRejected(
+                        "The single \"add\" action is not part of your contract anymore. Send "
+                                + "ONE add_cards action carrying ALL card names as one list — "
+                                + "a single card is a one-element list.", germanFeedback);
             } else if (mode != ConceptTurnPolicy.Mode.FULL
-                    && (action.getType() == ConceptAction.Type.ADD
+                    && (action.getType() == ConceptAction.Type.ADD_CARDS
                             || action.getType() == ConceptAction.Type.RENAME
                             || (mode == ConceptTurnPolicy.Mode.DELETE_READ_ONLY
                                     && action.getType() == ConceptAction.Type.EXCLUDE))) {

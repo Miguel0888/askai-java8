@@ -54,6 +54,11 @@ public final class ResearchToolPolicy {
         if (ctx.conceptBranchService() != null) {
             tools.add(conceptReadTool(ctx));
             if (writable(phaseId, stateId, ResearchStateIds.SCOPING)) {
+                // add_cards slice: the ATOMIC list add is the model's capture instrument (the
+                // live gate lost "Debugging" to the four-round budget of single adds).
+                // concept_add stays registered for OLD runtimes only — the active contract
+                // sends add_cards even for a single card.
+                tools.add(conceptAddCardsTool(ctx));
                 tools.add(conceptAddTool(ctx));
                 // Safety slice after the slice-2 gate: NO destructive model tools. remove and
                 // rewrite left the offer entirely — the only concept removal is the host-owned
@@ -424,6 +429,131 @@ public final class ResearchToolPolicy {
                         "Node names from the concept root, separated by '/'. Empty = whole concept."),
                 McpToolParameter.string("path_json", false,
                         "The segments as a JSON array of card names — the unambiguous form"));
+    }
+
+    /**
+     * The ATOMIC list add: all genuinely new cards of one call appear under ONE parent in ONE
+     * revision — or none at all. Blacklisted names are skipped as {@code SUPPRESSED_BY_SCOPE}
+     * (the blacklist stays authoritative), existing siblings come back {@code ALREADY_PRESENT}
+     * (idempotent repeats bump nothing). The receipt names every input's fate — the model may
+     * only claim what the receipt confirms.
+     */
+    private static McpToolContribution conceptAddCardsTool(final ResearchControlContext ctx) {
+        return McpToolContribution.of("concept_add_cards",
+                "Add ALL named topic cards in ONE atomic step under one parent (empty parent = "
+                        + "top level; a plain topic list stays FLAT). Example: parent_path=\"\", "
+                        + "names_json=[\"Grundlagen\",\"Architektur\",\"Debugging\"].",
+                new McpToolHandler() {
+                    public McpToolResult invoke(McpToolCall call) {
+                        McpToolResult denied = requireWritable(ctx, ResearchStateIds.SCOPING);
+                        if (denied != null) {
+                            return denied;
+                        }
+                        java.util.List<String> names = namesOf(call.getString("names_json"));
+                        if (names == null || names.isEmpty()) {
+                            return McpToolResult.error("Missing argument: names_json — a JSON "
+                                    + "array of card names, e.g. names_json=[\"Grundlagen\","
+                                    + "\"Computer Science\"] (multi-word names stay ONE name)");
+                        }
+                        java.util.List<String> allowed = new java.util.ArrayList<String>();
+                        java.util.List<String> suppressed = new java.util.ArrayList<String>();
+                        for (String name : names) {
+                            if (isBlacklisted(name, ctx)) {
+                                suppressed.add(name);
+                            } else {
+                                allowed.add(name);
+                            }
+                        }
+                        long revision;
+                        java.util.List<String> added;
+                        java.util.List<String> alreadyPresent;
+                        if (allowed.isEmpty()) {
+                            added = java.util.Collections.emptyList();
+                            alreadyPresent = java.util.Collections.emptyList();
+                            revision = ctx.conceptBranchService().snapshot()
+                                    .getWorkingRevision();
+                        } else {
+                            com.aresstack.askai.research.concept.ConceptBranchService
+                                    .AddCardsResult result = ctx.conceptBranchService()
+                                    .addCards(segmentsOf(call, "parent_path"), allowed);
+                            if (!result.isApplied()) {
+                                // The parent gate failed → the WHOLE call fails, no mutation.
+                                return McpToolResult.error(
+                                        result.getDiagnostic().describeForModel());
+                            }
+                            added = result.getAdded();
+                            alreadyPresent = result.getAlreadyPresent();
+                            revision = result.getNewRevision();
+                            if (!added.isEmpty()) {
+                                ctx.onConceptChanged(revision);
+                            }
+                        }
+                        StringBuilder receipt = new StringBuilder("APPLIED revision=")
+                                .append(revision);
+                        for (String name : added) {
+                            receipt.append("\nADDED: ").append(name);
+                        }
+                        for (String name : alreadyPresent) {
+                            receipt.append("\nALREADY_PRESENT: ").append(name);
+                        }
+                        for (String name : suppressed) {
+                            receipt.append("\nSUPPRESSED_BY_SCOPE: ").append(name);
+                        }
+                        return McpToolResult.ok(receipt.toString());
+                    }
+                },
+                McpToolParameter.string("parent_path", false,
+                        "The parent card's names from the concept root, separated by '/'. "
+                                + "Empty = top-level cards."),
+                McpToolParameter.string("parent_path_json", false,
+                        "The parent segments as a JSON array of card names — the unambiguous "
+                                + "form"),
+                McpToolParameter.string("names_json", true,
+                        "The card names as a JSON array (preferred). Comma-, semicolon-, "
+                                + "newline- or bullet-separated lists are tolerated; bare "
+                                + "spaces are NEVER split."));
+    }
+
+    /**
+     * Permissive technical list parse: a JSON array is canonical; otherwise newline-, bullet-,
+     * semicolon- and comma-separated entries are accepted, with double quotes protecting
+     * multi-word segments. Bare spaces are NEVER a separator ("Computer Science" is one name).
+     */
+    static java.util.List<String> namesOf(String raw) {
+        if (raw == null || raw.trim().isEmpty()) {
+            return null;
+        }
+        String text = raw.trim();
+        try {
+            com.google.gson.JsonElement parsed = com.google.gson.JsonParser.parseString(text);
+            if (parsed.isJsonArray()) {
+                java.util.List<String> names = new java.util.ArrayList<String>();
+                for (com.google.gson.JsonElement element : parsed.getAsJsonArray()) {
+                    if (element.isJsonPrimitive()) {
+                        names.add(element.getAsString());
+                    }
+                }
+                return names;
+            }
+        } catch (RuntimeException notJson) {
+            // fall through to the permissive separators
+        }
+        java.util.List<String> names = new java.util.ArrayList<String>();
+        for (String line : text.split("\\r?\\n")) {
+            String entry = line.trim();
+            // Strip bullet markers ("- ", "* ", "• ", "3. ") — one per line.
+            entry = entry.replaceFirst("^([-*•]|\\d+[.)])\\s+", "");
+            for (String part : entry.split("[;,]")) {
+                String name = part.trim();
+                if (name.length() >= 2 && name.startsWith("\"") && name.endsWith("\"")) {
+                    name = name.substring(1, name.length() - 1).trim();
+                }
+                if (!name.isEmpty()) {
+                    names.add(name);
+                }
+            }
+        }
+        return names;
     }
 
     private static McpToolContribution conceptAddTool(final ResearchControlContext ctx) {

@@ -74,6 +74,13 @@ public final class ScopingAssistantOutputCodec {
                 sb.append(',');
                 writeKey(sb, "name").append(':');
                 writeString(sb, action.getName());
+            } else if (action.getType() == ConceptAction.Type.ADD_CARDS) {
+                sb.append(',');
+                writeKey(sb, "parent").append(':');
+                writeSegments(sb, action.getParent());
+                sb.append(',');
+                // Already canonical JSON (built by the parser) — travels raw, parses back.
+                writeKey(sb, "names").append(':').append(action.getNamesJson());
             } else if (action.getType() == ConceptAction.Type.EXCLUDE) {
                 sb.append(',');
                 writeKey(sb, "topic").append(':');

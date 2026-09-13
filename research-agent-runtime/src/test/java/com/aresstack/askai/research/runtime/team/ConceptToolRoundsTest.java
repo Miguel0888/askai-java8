@@ -79,12 +79,12 @@ public class ConceptToolRoundsTest {
         ScriptedTurns turns = new ScriptedTurns();
         ScriptedTool tool = new ScriptedTool();
         tool.byDescription.put("read path=[\"X\"]", "{\"X\":[]}");
-        tool.byDescription.put("add parent=[] name=\"FreeRTOS\"",
+        tool.byDescription.put("add_cards parent=[] names=[\"FreeRTOS\"]",
                 "added \"FreeRTOS\" revision=1");
         tool.byDescription.put("read path=[]",
                 "{\"concept\":[{\"FreeRTOS\":[]}]}");
         turns.script.add(turn("lege an",
-                "{\"type\":\"add\",\"parent\":[],\"name\":\"FreeRTOS\"}"));
+                "{\"type\":\"add_cards\",\"parent\":[],\"names\":[\"FreeRTOS\"]}"));
         turns.script.add(turn("Angelegt.", null));
 
         TeamAgentResult result = ConceptToolRounds.run(
@@ -98,7 +98,7 @@ public class ConceptToolRoundsTest {
         assertTrue("nothing applied yet", readFeedback.contains("APPLIED_ACTIONS\n- (none)"));
         String addFeedback = turns.feedbackSeen.get(1);
         assertTrue("the receipt names the ONE applied action",
-                addFeedback.contains("APPLIED_ACTIONS\n- add parent=[] name=\"FreeRTOS\" "
+                addFeedback.contains("APPLIED_ACTIONS\n- add_cards parent=[] names=[\"FreeRTOS\"] "
                         + "(revision 1)"));
         assertTrue(addFeedback.contains("REJECTED_ACTIONS\n- (none)"));
         assertTrue("the receipts are grounded in the persisted concept",
@@ -113,19 +113,19 @@ public class ConceptToolRoundsTest {
     public void anIntermediateRoundsScopePatchReachesTheSinkInsteadOfVanishing() throws Exception {
         ScriptedTurns turns = new ScriptedTurns();
         ScriptedTool tool = new ScriptedTool();
-        tool.byDescription.put("add parent=[] name=\"Arduino\"", "added \"Arduino\" revision=1");
+        tool.byDescription.put("add_cards parent=[] names=[\"Arduino\"]", "added \"Arduino\" revision=1");
         turns.script.add(turn("fertig", null));
         final List<ScopingAssistantOutput> intermediates = new ArrayList<ScopingAssistantOutput>();
 
         // ONE answer, BOTH channels: conceptAction (add Arduino) AND scopePatch (exclude ESP-IDF).
         TeamAgentResult initial = turn("nur Arduino",
-                "{\"type\":\"add\",\"parent\":[],\"name\":\"Arduino\"}");
+                "{\"type\":\"add_cards\",\"parent\":[],\"names\":[\"Arduino\"]}");
         ScopingAssistantOutputParser.Result withPatch = ScopingAssistantOutputParser.parse(
                 "{\"assistantMessage\":\"nur Arduino\","
                         + "\"scopePatch\":{\"operations\":[{\"kind\":\"addExclusion\","
                         + "\"value\":\"ESP-IDF\"}]},"
-                        + "\"conceptAction\":{\"type\":\"add\",\"parent\":[],"
-                        + "\"name\":\"Arduino\"}}");
+                        + "\"conceptAction\":{\"type\":\"add_cards\",\"parent\":[],"
+                        + "\"names\":[\"Arduino\"]}}");
         assertTrue(withPatch.isOk());
         initial = TeamAgentResult.ok(withPatch.getOutput(), null);
 
@@ -146,19 +146,19 @@ public class ConceptToolRoundsTest {
     public void aRejectedAddIsAReceiptARepairAndATraceOutcome() throws Exception {
         ScriptedTurns turns = new ScriptedTurns();
         ScriptedTool tool = new ScriptedTool();
-        tool.byDescription.put("add parent=[\"FreeRTOS\",\"ESP32\"] name=\"Grundlagen\"",
+        tool.byDescription.put("add_cards parent=[\"FreeRTOS\",\"ESP32\"] names=[\"Grundlagen\"]",
                 new ToolInvoker.ToolFailure(
                         "TARGET_NODE_NOT_FOUND\nConcept node \"ESP32\" does not exist."));
         turns.script.add(turn("verstanden", null));
 
         ConceptToolRounds.run(
-                turn("try", "{\"type\":\"add\",\"parent\":[\"FreeRTOS\",\"ESP32\"],"
-                        + "\"name\":\"Grundlagen\"}"),
+                turn("try", "{\"type\":\"add_cards\",\"parent\":[\"FreeRTOS\",\"ESP32\"],"
+                        + "\"names\":[\"Grundlagen\"]}"),
                 turns, tool, 4, 2, false, null, traceSink);
 
         String feedback = turns.feedbackSeen.get(0);
-        assertTrue(feedback.contains("REJECTED_ACTIONS\n- add parent=[\"FreeRTOS\",\"ESP32\"] "
-                + "name=\"Grundlagen\" — TARGET_NODE_NOT_FOUND"));
+        assertTrue(feedback.contains("REJECTED_ACTIONS\n- add_cards parent=[\"FreeRTOS\","
+                + "\"ESP32\"] names=[\"Grundlagen\"] — TARGET_NODE_NOT_FOUND"));
         assertTrue(feedback.contains("APPLIED_ACTIONS\n- (none)"));
         assertTrue("even a rejection grounds the receipts in the persisted (unchanged) state",
                 feedback.contains("CURRENT_CONCEPT"));
@@ -172,13 +172,13 @@ public class ConceptToolRoundsTest {
     public void rejectionsExhaustTheRepairBudgetSeparately() throws Exception {
         ScriptedTurns turns = new ScriptedTurns();
         ScriptedTool tool = new ScriptedTool();
-        tool.byDescription.put("add parent=[] name=\"X\"",
+        tool.byDescription.put("add_cards parent=[] names=[\"X\"]",
                 new ToolInvoker.ToolFailure("BRANCH_GRAFT_FAILED\nboom"));
-        turns.script.add(turn("retry", "{\"type\":\"add\",\"parent\":[],\"name\":\"X\"}"));
+        turns.script.add(turn("retry", "{\"type\":\"add_cards\",\"parent\":[],\"names\":[\"X\"]}"));
         turns.script.add(turn("aufgeben", null));
 
         TeamAgentResult result = ConceptToolRounds.run(
-                turn("try", "{\"type\":\"add\",\"parent\":[],\"name\":\"X\"}"),
+                turn("try", "{\"type\":\"add_cards\",\"parent\":[],\"names\":[\"X\"]}"),
                 turns, tool, 10, 1, false, null, traceSink);
 
         assertEquals("aufgeben",
@@ -186,8 +186,8 @@ public class ConceptToolRoundsTest {
         assertTrue("the second rejection exhausts the repair budget (work budget untouched)",
                 turns.feedbackSeen.get(1).contains("TOOL BUDGET EXHAUSTED"));
         assertTrue(turns.feedbackSeen.get(1).contains(
-                "REJECTED_ACTIONS\n- add parent=[] name=\"X\" — BRANCH_GRAFT_FAILED boom\n"
-                        + "- add parent=[] name=\"X\" — BRANCH_GRAFT_FAILED boom"));
+                "REJECTED_ACTIONS\n- add_cards parent=[] names=[\"X\"] — BRANCH_GRAFT_FAILED boom\n"
+                        + "- add_cards parent=[] names=[\"X\"] — BRANCH_GRAFT_FAILED boom"));
     }
 
     /**
@@ -234,7 +234,7 @@ public class ConceptToolRoundsTest {
         ScriptedTool tool = new ScriptedTool();
         turns.script.add(turn("verstanden", null));
         ConceptToolRounds.run(
-                turn("bau um", "{\"type\":\"add\",\"parent\":[],\"name\":\"Tasks\"}"),
+                turn("bau um", "{\"type\":\"add_cards\",\"parent\":[],\"names\":[\"Tasks\"]}"),
                 turns, tool, 4, 2, false, null, traceSink, false,
                 ConceptTurnPolicy.Mode.RESTRUCTURE_READ_ONLY);
         assertTrue("the substitute add never reaches the host", tool.calls.isEmpty());
@@ -283,15 +283,15 @@ public class ConceptToolRoundsTest {
     public void aBudgetExhaustedFirstTurnStillGetsItsOfferViaTheWrapUp() throws Exception {
         ScriptedTurns turns = new ScriptedTurns();
         ScriptedTool tool = new ScriptedTool();
-        tool.byDescription.put("add parent=[] name=\"A\"", "added \"A\" revision=1");
-        tool.byDescription.put("add parent=[] name=\"B\"", "added \"B\" revision=2");
+        tool.byDescription.put("add_cards parent=[] names=[\"A\"]", "added \"A\" revision=1");
+        tool.byDescription.put("add_cards parent=[] names=[\"B\"]", "added \"B\" revision=2");
         tool.byDescription.put("offer suggestions=1", "OFFERED 1 tags");
-        turns.script.add(turn("weiter", "{\"type\":\"add\",\"parent\":[],\"name\":\"B\"}"));
+        turns.script.add(turn("weiter", "{\"type\":\"add_cards\",\"parent\":[],\"names\":[\"B\"]}"));
         turns.script.add(turn("fertig", "{\"type\":\"offer\",\"suggestions\":"
                 + "[{\"query\":\"FreeRTOS Grundlagen Tutorial\"}]}"));
 
         ConceptToolRounds.run(
-                turn("start", "{\"type\":\"add\",\"parent\":[],\"name\":\"A\"}"),
+                turn("start", "{\"type\":\"add_cards\",\"parent\":[],\"names\":[\"A\"]}"),
                 turns, tool, 2, 2, false, null, traceSink, true,
                 ConceptTurnPolicy.Mode.FULL);
 
@@ -302,6 +302,21 @@ public class ConceptToolRoundsTest {
                 tool.calls.contains("offer suggestions=1"));
         assertTrue(trace.contains(
                 "wrap-up offer executed (tags are display state, not a concept edit)"));
+    }
+
+    /** add_cards slice, test 11: a legacy transcript's single add is read but never executed. */
+    @Test
+    public void aLegacySingleAddIsRefusedBeforeTheHost() throws Exception {
+        ScriptedTurns turns = new ScriptedTurns();
+        ScriptedTool tool = new ScriptedTool();
+        turns.script.add(turn("verstanden", null));
+        ConceptToolRounds.run(
+                turn("alt", "{\"type\":\"add\",\"parent\":[],\"name\":\"FreeRTOS\"}"),
+                turns, tool, 4, 2, false, null, traceSink);
+        assertTrue("the host never sees a single add", tool.calls.isEmpty());
+        assertTrue(turns.feedbackSeen.get(0)
+                .contains("Send ONE add_cards action carrying ALL card names"));
+        assertTrue(trace.contains("round 1 -> REFUSED (send ONE add_cards with ALL names)"));
     }
 
     @Test
@@ -447,7 +462,7 @@ public class ConceptToolRoundsTest {
     public void aCardBuildingTurnWithoutTagsGetsExactlyOneOfferNudge() throws Exception {
         ScriptedTurns turns = new ScriptedTurns();
         ScriptedTool tool = new ScriptedTool();
-        tool.byDescription.put("add parent=[] name=\"FreeRTOS\"", "added \"FreeRTOS\" revision=1");
+        tool.byDescription.put("add_cards parent=[] names=[\"FreeRTOS\"]", "added \"FreeRTOS\" revision=1");
         tool.byDescription.put("offer suggestions=1", "{\"result\":\"OFFERED\",\"count\":1}");
         turns.script.add(turn("fertig", null)); // ends the turn WITHOUT an offer -> nudge
         turns.script.add(turn("hier sind Vorschläge", "{\"type\":\"offer\",\"suggestions\":["
@@ -455,7 +470,7 @@ public class ConceptToolRoundsTest {
         turns.script.add(turn("Schau sie dir an.", null));
 
         TeamAgentResult result = ConceptToolRounds.run(
-                turn("lege an", "{\"type\":\"add\",\"parent\":[],\"name\":\"FreeRTOS\"}"),
+                turn("lege an", "{\"type\":\"add_cards\",\"parent\":[],\"names\":[\"FreeRTOS\"]}"),
                 turns, tool, 6, 2, false, null, traceSink, true);
 
         assertTrue("the nudge asks for exactly the missing step",
@@ -471,10 +486,10 @@ public class ConceptToolRoundsTest {
         // Disabled flag (session already offered): a card-building none-turn passes through.
         ScriptedTurns turns = new ScriptedTurns();
         ScriptedTool tool = new ScriptedTool();
-        tool.byDescription.put("add parent=[] name=\"X\"", "added \"X\" revision=1");
+        tool.byDescription.put("add_cards parent=[] names=[\"X\"]", "added \"X\" revision=1");
         turns.script.add(turn("fertig", null));
         ConceptToolRounds.run(turn("lege an",
-                "{\"type\":\"add\",\"parent\":[],\"name\":\"X\"}"),
+                "{\"type\":\"add_cards\",\"parent\":[],\"names\":[\"X\"]}"),
                 turns, tool, 4, 2, false, null, traceSink, false);
         assertEquals("only the ARTIFACT_STATE feedback of the add — no nudge",
                 1, turns.feedbackSeen.size());

@@ -114,12 +114,53 @@ public class ConceptToolsPolicyTest {
     @Test
     public void writingIsOfferedOnlyInScopingRunningButReadingEverywhere() {
         assertTrue(tool("concept_read") != null);
-        assertTrue(tool("concept_add") != null);
+        assertTrue(tool("concept_add_cards") != null);
+        assertTrue("concept_add stays for OLD runtimes only", tool("concept_add") != null);
         assertTrue(tool("concept_rename") != null);
         phaseId = ResearchStateIds.RESEARCH; // later phase: the concept is frozen but readable
         assertTrue(tool("concept_read") != null);
+        assertNull(tool("concept_add_cards"));
         assertNull(tool("concept_add"));
         assertNull(tool("concept_rename"));
+    }
+
+    // ------------------------------------------------------------------ add_cards (atomic list)
+
+    @Test
+    public void addCardsAppliesAtomicallyAndTheReceiptNamesEveryInputsFate() {
+        invoke(tool("concept_add_cards"), "names_json", "[\"Architektur\"]");
+        blacklist = java.util.Collections.singletonList("platformio");
+        McpToolResult result = invoke(tool("concept_add_cards"),
+                "names_json", "[\"Grundlagen\",\"Entwicklungsumgebung\",\"Architektur\","
+                        + "\"PlatformIO\"]");
+        assertFalse(result.isError());
+        String receipt = result.getText();
+        assertTrue(receipt, receipt.startsWith("APPLIED revision=2"));
+        assertTrue(receipt.contains("\nADDED: Grundlagen"));
+        assertTrue(receipt.contains("\nADDED: Entwicklungsumgebung"));
+        assertTrue(receipt.contains("\nALREADY_PRESENT: Architektur"));
+        assertTrue("the blacklist stays authoritative — no visible card",
+                receipt.contains("\nSUPPRESSED_BY_SCOPE: PlatformIO"));
+        assertFalse(invoke(tool("concept_read")).getText().contains("PlatformIO"));
+        assertEquals("one revision for the whole list", 2, changeNotifications);
+    }
+
+    @Test
+    public void addCardsToleratesTechnicalListsButNeverSplitsBareSpaces() {
+        // Newlines, bullets, semicolons and quotes are tolerated for technical lists …
+        McpToolResult result = invoke(tool("concept_add_cards"),
+                "names_json", "- Grundlagen\n* \"Computer Science\"\nTasks; Debugging");
+        assertFalse(result.isError());
+        assertTrue(result.getText().contains("ADDED: Computer Science"));
+        assertTrue(result.getText().contains("ADDED: Tasks"));
+        assertTrue(result.getText().contains("ADDED: Debugging"));
+        // … and a multi-word name is ONE card, never split on spaces.
+        String read = invoke(tool("concept_read")).getText();
+        assertTrue(read, read.contains("\"Computer Science\""));
+        assertFalse("never split on bare spaces", read.contains("\"Computer\""));
+        McpToolResult missing = invoke(tool("concept_add_cards"));
+        assertTrue(missing.isError());
+        assertTrue(missing.getText().contains("multi-word names stay ONE name"));
     }
 
     /**

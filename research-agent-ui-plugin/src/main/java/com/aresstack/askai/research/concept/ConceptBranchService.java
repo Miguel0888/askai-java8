@@ -744,6 +744,143 @@ public final class ConceptBranchService {
         return commitCandidate(candidate, identity.afterAdd(candidate, cardPath), null);
     }
 
+    /** Outcome of the atomic list add: what was added, what already sat there, one revision. */
+    public static final class AddCardsResult {
+        private final boolean applied;
+        private final long newRevision;
+        private final List<String> added;
+        private final List<String> alreadyPresent;
+        private final JsonTreeDiagnostic diagnostic;
+
+        private AddCardsResult(boolean applied, long newRevision, List<String> added,
+                               List<String> alreadyPresent, JsonTreeDiagnostic diagnostic) {
+            this.applied = applied;
+            this.newRevision = newRevision;
+            this.added = added;
+            this.alreadyPresent = alreadyPresent;
+            this.diagnostic = diagnostic;
+        }
+
+        public boolean isApplied() {
+            return applied;
+        }
+
+        public long getNewRevision() {
+            return newRevision;
+        }
+
+        public List<String> getAdded() {
+            return added;
+        }
+
+        public List<String> getAlreadyPresent() {
+            return alreadyPresent;
+        }
+
+        public JsonTreeDiagnostic getDiagnostic() {
+            return diagnostic;
+        }
+    }
+
+    /**
+     * The ATOMIC list add (add_cards slice): every genuinely new card of {@code names} appears
+     * under the ONE resolved parent in a single commit — all together or none at all. In-list
+     * duplicates collapse (order kept), existing siblings come back as ALREADY_PRESENT
+     * (idempotent: repeating the same list is a no-op without a revision bump), a missing or
+     * unresolvable parent rejects the WHOLE operation without any mutation. Multi-word names
+     * ("Computer Science") are single names by construction — the list is typed, the host
+     * never splits on spaces. Each new card mints one UUID in the shared identity candidate.
+     */
+    public synchronized AddCardsResult addCards(List<String> parentNames, List<String> names) {
+        if (failClosed) {
+            EditResult refused = failClosedError();
+            return new AddCardsResult(false, -1L, java.util.Collections.<String>emptyList(),
+                    java.util.Collections.<String>emptyList(), refused.getDiagnostic());
+        }
+        java.util.LinkedHashSet<String> cleaned = new java.util.LinkedHashSet<String>();
+        for (String name : names == null ? java.util.Collections.<String>emptyList() : names) {
+            String card = name == null ? "" : name.trim();
+            if (!card.isEmpty()) {
+                cleaned.add(card);
+            }
+        }
+        if (cleaned.isEmpty()) {
+            return new AddCardsResult(false, -1L, java.util.Collections.<String>emptyList(),
+                    java.util.Collections.<String>emptyList(),
+                    JsonTreeDiagnostic.of(JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
+                            "add_cards needs at least one non-empty card name.").build());
+        }
+        String document = store.effectiveContent();
+        StrictJsonParseResult parsed = StrictJsonParser.parse(document);
+        if (!parsed.isOk()) {
+            return new AddCardsResult(false, -1L, java.util.Collections.<String>emptyList(),
+                    java.util.Collections.<String>emptyList(), parsed.getDiagnostic());
+        }
+        Resolution resolution = resolve(parsed.getElement(), parentNames);
+        if (resolution.diagnostic != null) {
+            // The parent gate rejects the WHOLE list — never a partial mutation.
+            return new AddCardsResult(false, -1L, java.util.Collections.<String>emptyList(),
+                    java.util.Collections.<String>emptyList(), resolution.diagnostic);
+        }
+        JsonElement candidate = parsed.getElement().deepCopy();
+        JsonArray parentArray = arrayAt(candidate, resolution.path);
+        if (parentArray == null) {
+            return new AddCardsResult(false, -1L, java.util.Collections.<String>emptyList(),
+                    java.util.Collections.<String>emptyList(),
+                    JsonTreeDiagnostic.of(JsonTreeErrorCode.TARGET_NODE_NOT_FOUND,
+                            "The parent no longer exists.").path(resolution.path.describe())
+                            .build());
+        }
+        List<String> added = new ArrayList<String>();
+        List<String> alreadyPresent = new ArrayList<String>();
+        JsonObject container = null;
+        for (JsonElement element : parentArray) {
+            if (element.isJsonObject()) {
+                if (container == null) {
+                    container = element.getAsJsonObject();
+                }
+            }
+        }
+        for (String card : cleaned) {
+            boolean exists = false;
+            for (JsonElement element : parentArray) {
+                if (element.isJsonObject() && element.getAsJsonObject().has(card)) {
+                    exists = true;
+                    break;
+                }
+            }
+            if (exists) {
+                alreadyPresent.add(card);
+                continue;
+            }
+            if (container == null) {
+                container = new JsonObject();
+                parentArray.add(container);
+            }
+            container.add(card, new JsonArray());
+            added.add(card);
+        }
+        if (added.isEmpty()) {
+            // Idempotent repeat: nothing new, no commit, no revision bump.
+            return new AddCardsResult(true, store.workingRevision(), added, alreadyPresent,
+                    null);
+        }
+        ConceptIdentity identityAfter = identity;
+        List<String> parentPath = parentNames == null
+                ? java.util.Collections.<String>emptyList() : parentNames;
+        for (String card : added) {
+            List<String> cardPath = new ArrayList<String>(parentPath);
+            cardPath.add(card);
+            identityAfter = identityAfter.afterAdd(candidate, cardPath);
+        }
+        EditResult committed = commitCandidate(candidate, identityAfter, null);
+        if (!committed.isApplied()) {
+            return new AddCardsResult(false, -1L, java.util.Collections.<String>emptyList(),
+                    java.util.Collections.<String>emptyList(), committed.getDiagnostic());
+        }
+        return new AddCardsResult(true, committed.getNewRevision(), added, alreadyPresent, null);
+    }
+
     /** Remove the card at the name path with its whole subtree. Deliberately destructive. */
     public synchronized EditResult removeNodeAt(List<String> names) {
         if (failClosed) {
