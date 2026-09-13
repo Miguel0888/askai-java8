@@ -83,6 +83,8 @@ public final class ResearchBriefViewContribution implements ArtifactViewContribu
                 }
                 com.aresstack.askai.research.concept.ConceptBranchService.EditResult result =
                         service.renameNodeById(epoch, nodeId, newName);
+                research.logConceptUiAction("rename -> " + (result.isApplied()
+                        ? "applied revision=" + result.getNewRevision() : "refused"));
                 return result.isApplied() ? null : result.getDiagnostic().describeForModel();
             }
 
@@ -94,6 +96,8 @@ public final class ResearchBriefViewContribution implements ArtifactViewContribu
                 }
                 com.aresstack.askai.research.concept.ConceptBranchService.EditResult result =
                         service.deleteTerminalBranchById(epoch, nodeId);
+                research.logConceptUiAction("delete leaf/terminal -> " + (result.isApplied()
+                        ? "applied revision=" + result.getNewRevision() : "refused"));
                 return result.isApplied() ? null : result.getDiagnostic().describeForModel();
             }
 
@@ -105,10 +109,14 @@ public final class ResearchBriefViewContribution implements ArtifactViewContribu
                 }
                 com.aresstack.askai.research.concept.ConceptBranchService.EditResult result =
                         service.removeNodeById(epoch, nodeId);
+                research.logConceptUiAction("delete branch (confirmed) -> "
+                        + (result.isApplied()
+                                ? "applied revision=" + result.getNewRevision() : "refused"));
                 return result.isApplied() ? null : result.getDiagnostic().describeForModel();
             }
 
-            public String addChild(String epoch, String parentNodeId, String name) {
+            public String addChild(String epoch, String parentNodeId,
+                                   String insertBeforeNodeId, String name) {
                 com.aresstack.askai.research.concept.ConceptBranchService service =
                         research.conceptBranchService();
                 if (service == null) {
@@ -116,7 +124,12 @@ public final class ResearchBriefViewContribution implements ArtifactViewContribu
                 }
                 com.aresstack.askai.research.concept.ConceptBranchService.AddCardsResult result =
                         service.addCardsUnderId(epoch, parentNodeId,
-                                java.util.Collections.singletonList(name));
+                                java.util.Collections.singletonList(name),
+                                insertBeforeNodeId);
+                research.logConceptUiAction("add \"" + name + "\""
+                        + (insertBeforeNodeId == null ? " (end)" : " (before anchor)")
+                        + (result.isApplied() ? " -> applied revision="
+                                + result.getNewRevision() : " -> refused"));
                 return result.isApplied() ? null : result.getDiagnostic().describeForModel();
             }
         }, new ConceptTreeView.BlacklistSource() {

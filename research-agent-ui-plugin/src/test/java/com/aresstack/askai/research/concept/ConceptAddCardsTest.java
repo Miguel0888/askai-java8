@@ -225,6 +225,67 @@ public class ConceptAddCardsTest {
                 service.snapshot().getWorkingRevision());
     }
 
+    /**
+     * The RATIFIED position semantics (slice A): insertBeforeNodeId is the stable neighbour,
+     * the insert lands at the exact FLAT position, containers are storage and never order,
+     * null = the true flat end, and a stale/foreign anchor rejects the whole call.
+     */
+    @Test
+    public void insertBeforeAnchorHitsTheExactFlatPositionEvenAcrossContainers()
+            throws Exception {
+        ConceptBranchService service = fresh();
+        // TWO containers at one level — only a raw save can build this shape.
+        assertTrue(service.replaceDocument("{\"title\":\"\",\"subtitle\":\"\",\"concept\":["
+                + "{\"A\":[],\"B\":[]},{\"C\":[]}]}", 0).isApplied());
+        String epoch = service.currentEpoch();
+        String idC = service.nodeIdAtPath(Collections.singletonList("C"));
+        String idA = service.nodeIdAtPath(Collections.singletonList("A"));
+
+        // Insert before C (second container): flat order A, B, NEU, C.
+        ConceptBranchService.AddCardsResult before = service.addCardsUnderId(epoch, null,
+                Collections.singletonList("NEU"), idC);
+        assertTrue(before.isApplied());
+        assertEquals(Arrays.asList(Arrays.asList("A"), Arrays.asList("B"),
+                        Arrays.asList("NEU"), Arrays.asList("C")),
+                com.aresstack.askai.research.concept.ConceptTopicScanner
+                        .collectCardPaths(service.snapshot().getDocumentJson()));
+
+        // Position 0: before A.
+        assertTrue(service.addCardsUnderId(epoch, null,
+                Collections.singletonList("ERSTE"), idA).isApplied());
+        assertEquals(Arrays.asList("ERSTE"),
+                com.aresstack.askai.research.concept.ConceptTopicScanner
+                        .collectCardPaths(service.snapshot().getDocumentJson()).get(0));
+
+        // null anchor = the TRUE flat end — after C, not the first container's end.
+        assertTrue(service.addCardsUnderId(epoch, null,
+                Collections.singletonList("LETZTE"), null).isApplied());
+        java.util.List<java.util.List<String>> paths =
+                com.aresstack.askai.research.concept.ConceptTopicScanner
+                        .collectCardPaths(service.snapshot().getDocumentJson());
+        assertEquals(Arrays.asList("LETZTE"), paths.get(paths.size() - 1));
+
+        // Identity ordinals stayed exact through every mid-insert.
+        assertEquals(idC, service.nodeIdAtPath(Collections.singletonList("C")));
+        assertEquals(idA, service.nodeIdAtPath(Collections.singletonList("A")));
+
+        // A vanished anchor and an anchor outside the target reject WITHOUT mutation.
+        long revision = service.snapshot().getWorkingRevision();
+        ConceptBranchService.AddCardsResult goneAnchor = service.addCardsUnderId(epoch, null,
+                Collections.singletonList("X"), "no-such-id");
+        assertFalse(goneAnchor.isApplied());
+        assertTrue(goneAnchor.getDiagnostic().describeForModel()
+                .contains("INSERT_ANCHOR_NOT_FOUND"));
+        String idNeu = service.nodeIdAtPath(Collections.singletonList("NEU"));
+        ConceptBranchService.AddCardsResult foreignAnchor = service.addCardsUnderId(epoch,
+                idC, Collections.singletonList("X"), idNeu);
+        assertFalse(foreignAnchor.isApplied());
+        assertTrue(foreignAnchor.getDiagnostic().describeForModel()
+                .contains("ANCHOR_NOT_IN_TARGET"));
+        assertEquals("rejections never mutate", revision,
+                service.snapshot().getWorkingRevision());
+    }
+
     @Test
     public void renameAndIdentityKeepWorkingAfterAListAdd() throws Exception {
         ConceptBranchService service = fresh();

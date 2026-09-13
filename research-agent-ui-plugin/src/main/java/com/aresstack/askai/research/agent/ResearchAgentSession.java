@@ -2013,6 +2013,14 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     }
 
     /**
+     * One technical-log line for a TREE-EDITOR gesture (ratified D4): the USER_UI origin
+     * stays distinguishable — a mouse gesture must never read like an agent tool call.
+     */
+    public void logConceptUiAction(String line) {
+        technicalLog("concept USER_UI -> " + line);
+    }
+
+    /**
      * The session's ONE Konzeptpapier branch-edit service (shared with the agent MCP tools — the
      * handle registry lives in it), or {@code null} in the in-memory clickdummy. The Konzept tab
      * and the mindmap overlay render from its atomic snapshots.

@@ -57,8 +57,13 @@ public final class ConceptTreeView extends JComponent implements javax.swing.Scr
         /** A DEEP branch — the host-authorized removal behind the confirmation dialog. */
         String deleteBranch(String epoch, String nodeId);
 
-        /** {@code parentNodeId == null} adds a TOP-LEVEL card. */
-        String addChild(String epoch, String parentNodeId, String name);
+        /**
+         * {@code parentNodeId == null} adds a TOP-LEVEL card; {@code insertBeforeNodeId}
+         * places it immediately before that sibling ({@code null} = flat end) — the ratified
+         * position semantics.
+         */
+        String addChild(String epoch, String parentNodeId, String insertBeforeNodeId,
+                        String name);
     }
 
     /** The ID sidecar's view of the CURRENT snapshot — epoch + per-path node ids. */
@@ -130,7 +135,10 @@ public final class ConceptTreeView extends JComponent implements javax.swing.Scr
     /** The open inline edit travels on IDs too — a background refresh can reorder rows. */
     private String editingRenameNodeId;
     private String editingAddParentNodeId;
+    private String editingAnchorNodeId;
     private boolean editingAddRoot;
+    /** The gap row currently showing the insertion caret (insert BEFORE this row), or -1. */
+    private int caretRow = -1;
     private boolean editorOpen;
     /** The click that closed the editor via focus loss must not trigger a row action too. */
     private boolean suppressNextClick;
@@ -407,6 +415,15 @@ public final class ConceptTreeView extends JComponent implements javax.swing.Scr
             if (!preview) {
                 paintRootAddPlate(g2);
             }
+            if (caretRow >= 0 && caretRow < rows.size() && !preview && !editorOpen) {
+                Row below = rows.get(caretRow);
+                int y = below.plate.y - 4;
+                g2.setColor(palette.getInk());
+                g2.setStroke(new BasicStroke(2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                g2.drawLine(below.plate.x, y, below.plate.x + Math.max(140, below.plate.width), y);
+                paintGlyph(g2, new Rectangle(below.plate.x - GLYPH_SIZE - 4,
+                        y - GLYPH_SIZE / 2, GLYPH_SIZE, GLYPH_SIZE), 3, true);
+            }
             if (inlineEditor.isVisible()) {
                 paintInlineEditorPlate(g2);
             }
@@ -551,8 +568,16 @@ public final class ConceptTreeView extends JComponent implements javax.swing.Scr
         }
         int newRow = -1;
         int newGlyph = 0;
+        int newCaret = -1;
         for (int index = 0; index < rows.size(); index++) {
             Row row = rows.get(index);
+            // The top sliver of each band is the INSERTION GAP: "add before this card".
+            Rectangle gap = new Rectangle(0, row.plate.y - (ROW_HEIGHT - PLATE_HEIGHT) / 2,
+                    getWidth(), (ROW_HEIGHT - PLATE_HEIGHT) / 2 + 2);
+            if (!preview && editorOpen == false && gap.contains(x, y)) {
+                newCaret = index;
+                break;
+            }
             Rectangle band = new Rectangle(0, row.plate.y - (ROW_HEIGHT - PLATE_HEIGHT) / 2,
                     getWidth(), ROW_HEIGHT);
             if (band.contains(x, y)) {
@@ -565,10 +590,12 @@ public final class ConceptTreeView extends JComponent implements javax.swing.Scr
                 break;
             }
         }
-        if (newRow != hoverRow || newGlyph != hoverGlyph) {
+        if (newRow != hoverRow || newGlyph != hoverGlyph || newCaret != caretRow) {
             hoverRow = newRow;
             hoverGlyph = newGlyph;
-            setToolTipText(newGlyph == 1 ? "Rename card"
+            caretRow = newCaret;
+            setToolTipText(newCaret >= 0 ? "Insert a card here"
+                    : newGlyph == 1 ? "Rename card"
                     : newGlyph == 2 ? "Delete card"
                     : newGlyph == 3 ? "Add a child card" : null);
             repaint();
@@ -596,6 +623,23 @@ public final class ConceptTreeView extends JComponent implements javax.swing.Scr
                     "");
             return;
         }
+        if (caretRow >= 0 && caretRow < rows.size()) {
+            Row below = rows.get(caretRow);
+            if (below.nodeId == null) {
+                if (errorSink != null) {
+                    errorSink.error("This position has no stable identity right now — edit "
+                            + "in the JSON mode instead.");
+                }
+                return;
+            }
+            // Insert BEFORE the row under the caret: parent = its parent (null = top level).
+            editingAnchorNodeId = below.nodeId;
+            editingAddParentNodeId = parentNodeIdOf(below);
+            editingAddRoot = below.depth == 0;
+            openInlineEditor(new Rectangle(below.plate.x, below.plate.y - PLATE_HEIGHT / 2,
+                    Math.max(160, below.plate.width), PLATE_HEIGHT), "");
+            return;
+        }
         if (hoverRow < 0 || hoverRow >= rows.size() || hoverGlyph == 0) {
             return;
         }
@@ -615,10 +659,25 @@ public final class ConceptTreeView extends JComponent implements javax.swing.Scr
             deleteRow(row);
         } else if (hoverGlyph == 3) {
             editingAddParentNodeId = row.nodeId;
+            editingAnchorNodeId = null; // child + appends at the flat end
             Rectangle below = new Rectangle(row.plate.x + INDENT,
                     row.plate.y + ROW_HEIGHT - 2, Math.max(160, row.plate.width), PLATE_HEIGHT);
             openInlineEditor(below, "");
         }
+    }
+
+    /** The nodeId of the row's PARENT row (null = the top level). */
+    private String parentNodeIdOf(Row row) {
+        if (row.depth == 0) {
+            return null;
+        }
+        List<String> parentPath = row.path.subList(0, row.path.size() - 1);
+        for (Row candidate : rows) {
+            if (candidate.path.equals(parentPath)) {
+                return candidate.nodeId;
+            }
+        }
+        return null;
     }
 
     private void deleteRow(Row row) {
@@ -672,10 +731,10 @@ public final class ConceptTreeView extends JComponent implements javax.swing.Scr
         String error = null;
         if (editingRenameNodeId != null) {
             error = actions.rename(renderEpoch, editingRenameNodeId, value);
-        } else if (editingAddParentNodeId != null) {
-            error = actions.addChild(renderEpoch, editingAddParentNodeId, value);
-        } else if (editingAddRoot) {
-            error = actions.addChild(renderEpoch, null, value);
+        } else if (editingAddParentNodeId != null || editingAnchorNodeId != null
+                || editingAddRoot) {
+            error = actions.addChild(renderEpoch, editingAddParentNodeId,
+                    editingAnchorNodeId, value);
         }
         if (error != null) {
             if (errorSink != null) {
@@ -694,6 +753,7 @@ public final class ConceptTreeView extends JComponent implements javax.swing.Scr
         editorOpen = false;
         editingRenameNodeId = null;
         editingAddParentNodeId = null;
+        editingAnchorNodeId = null;
         editingAddRoot = false;
         inlineEditor.setVisible(false);
         repaint();

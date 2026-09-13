@@ -302,6 +302,56 @@ public final class ConceptBranchService {
     // resolves HERE, inside the same synchronized call that executes the operation — id
     // resolution and mutation are one atomic step.
 
+    /**
+     * Insert {@code names} (empty leaves, list order kept) into the parent level's FLAT card
+     * sequence: before {@code anchorName}'s property inside ITS container (order-preserving
+     * container rebuild, the renameNode technique), or at the TRUE flat end ({@code null}
+     * anchor = the LAST container; containers stay invisible storage, never order).
+     */
+    private static void insertCards(JsonArray parentArray, List<String> names,
+                                    String anchorName) {
+        if (anchorName == null) {
+            JsonObject last = null;
+            for (JsonElement element : parentArray) {
+                if (element.isJsonObject()) {
+                    last = element.getAsJsonObject();
+                }
+            }
+            if (last == null) {
+                last = new JsonObject();
+                parentArray.add(last);
+            }
+            for (String card : names) {
+                last.add(card, new JsonArray());
+            }
+            return;
+        }
+        for (JsonElement element : parentArray) {
+            if (!element.isJsonObject() || !element.getAsJsonObject().has(anchorName)) {
+                continue;
+            }
+            JsonObject owner = element.getAsJsonObject();
+            List<String> keys = new ArrayList<String>();
+            List<JsonElement> values = new ArrayList<JsonElement>();
+            for (Map.Entry<String, JsonElement> entry : owner.entrySet()) {
+                keys.add(entry.getKey());
+                values.add(entry.getValue());
+            }
+            for (String key : keys) {
+                owner.remove(key);
+            }
+            for (int index = 0; index < keys.size(); index++) {
+                if (keys.get(index).equals(anchorName)) {
+                    for (String card : names) {
+                        owner.add(card, new JsonArray());
+                    }
+                }
+                owner.add(keys.get(index), values.get(index));
+            }
+            return;
+        }
+    }
+
     /** Resolve an (epoch, nodeId) reference to the CURRENT path, or set a refusal. */
     private List<String> resolveById(String epoch, String nodeId) {
         idResolveError = null;
@@ -346,6 +396,13 @@ public final class ConceptBranchService {
     /** The atomic list add under an identity ({@code parentNodeId == null} = the top level). */
     public synchronized AddCardsResult addCardsUnderId(String epoch, String parentNodeId,
                                                        List<String> names) {
+        return addCardsUnderId(epoch, parentNodeId, names, null);
+    }
+
+    /** As above with the ratified {@code insertBeforeNodeId} position (null = flat end). */
+    public synchronized AddCardsResult addCardsUnderId(String epoch, String parentNodeId,
+                                                       List<String> names,
+                                                       String insertBeforeNodeId) {
         List<String> parentPath;
         if (parentNodeId == null) {
             // Root has no node id; the epoch check alone guards the state.
@@ -365,7 +422,7 @@ public final class ConceptBranchService {
                         java.util.Collections.<String>emptyList(), null, idResolveError);
             }
         }
-        return addCards(parentPath, names);
+        return addCards(parentPath, names, insertBeforeNodeId);
     }
 
     private EditResult failClosedError() {
@@ -874,6 +931,20 @@ public final class ConceptBranchService {
      * never splits on spaces. Each new card mints one UUID in the shared identity candidate.
      */
     public synchronized AddCardsResult addCards(List<String> parentNames, List<String> names) {
+        return addCards(parentNames, names, null);
+    }
+
+    /**
+     * As {@link #addCards(List, List)} with the RATIFIED position semantics:
+     * {@code insertBeforeNodeId} is the stable neighbour reference — the new cards land
+     * immediately BEFORE that card in the parent's FLAT card sequence (containers are storage,
+     * never order); {@code null} appends at the TRUE flat end (deliberate correction: appends
+     * used to land at the end of the FIRST container, which is not the flat end on
+     * multi-container levels). The anchor resolves under THIS lock and must be a direct child
+     * of the target parent — otherwise the WHOLE call rejects without mutation.
+     */
+    public synchronized AddCardsResult addCards(List<String> parentNames, List<String> names,
+                                                String insertBeforeNodeId) {
         if (failClosed) {
             EditResult refused = failClosedError();
             return new AddCardsResult(false, -1L, java.util.Collections.<String>emptyList(),
@@ -1001,16 +1072,35 @@ public final class ConceptBranchService {
                             : JsonTreeDiagnostic.of(JsonTreeErrorCode.TARGET_NODE_NOT_FOUND,
                                     "The parent no longer exists.").build());
         }
+        // Resolve the ratified anchor BEFORE any mutation: it must be a DIRECT child of the
+        // target parent right now, or the whole call rejects.
+        String anchorName = null;
+        if (insertBeforeNodeId != null) {
+            List<String> anchorPath = identity == null ? null
+                    : identity.pathOfId(parsed.getElement(), insertBeforeNodeId);
+            if (anchorPath == null) {
+                return new AddCardsResult(false, -1L,
+                        java.util.Collections.<String>emptyList(),
+                        java.util.Collections.<String>emptyList(), null,
+                        JsonTreeDiagnostic.of(JsonTreeErrorCode.TARGET_NODE_NOT_FOUND,
+                                "INSERT_ANCHOR_NOT_FOUND — the neighbour card no longer "
+                                        + "exists; nothing was inserted.").build());
+            }
+            List<String> anchorParent = anchorPath.subList(0, anchorPath.size() - 1);
+            if (createdParent != null || !anchorParent.equals(effectiveParent)) {
+                return new AddCardsResult(false, -1L,
+                        java.util.Collections.<String>emptyList(),
+                        java.util.Collections.<String>emptyList(), null,
+                        JsonTreeDiagnostic.of(JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
+                                "ANCHOR_NOT_IN_TARGET — the neighbour card is not a direct "
+                                        + "child of the target parent anymore; nothing was "
+                                        + "inserted.").build());
+            }
+            anchorName = anchorPath.get(anchorPath.size() - 1);
+        }
         List<String> added = new ArrayList<String>();
         List<String> alreadyPresent = new ArrayList<String>();
-        JsonObject container = null;
-        for (JsonElement element : parentArray) {
-            if (element.isJsonObject()) {
-                if (container == null) {
-                    container = element.getAsJsonObject();
-                }
-            }
-        }
+        List<String> toInsert = new ArrayList<String>();
         for (String card : cleaned) {
             boolean exists = false;
             for (JsonElement element : parentArray) {
@@ -1021,14 +1111,13 @@ public final class ConceptBranchService {
             }
             if (exists) {
                 alreadyPresent.add(card);
-                continue;
+            } else {
+                toInsert.add(card);
             }
-            if (container == null) {
-                container = new JsonObject();
-                parentArray.add(container);
-            }
-            container.add(card, new JsonArray());
-            added.add(card);
+        }
+        if (!toInsert.isEmpty()) {
+            insertCards(parentArray, toInsert, anchorName);
+            added.addAll(toInsert);
         }
         if (added.isEmpty() && createdParent == null) {
             // Idempotent repeat: nothing new, no commit, no revision bump (receipt: NO_CHANGE).
