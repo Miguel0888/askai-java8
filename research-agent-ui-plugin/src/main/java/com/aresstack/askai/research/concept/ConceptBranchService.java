@@ -750,15 +750,23 @@ public final class ConceptBranchService {
         private final long newRevision;
         private final List<String> added;
         private final List<String> alreadyPresent;
+        private final String createdParent;
         private final JsonTreeDiagnostic diagnostic;
 
         private AddCardsResult(boolean applied, long newRevision, List<String> added,
-                               List<String> alreadyPresent, JsonTreeDiagnostic diagnostic) {
+                               List<String> alreadyPresent, String createdParent,
+                               JsonTreeDiagnostic diagnostic) {
             this.applied = applied;
             this.newRevision = newRevision;
             this.added = added;
             this.alreadyPresent = alreadyPresent;
+            this.createdParent = createdParent;
             this.diagnostic = diagnostic;
+        }
+
+        /** The ONE missing terminal parent created with its cards, or {@code null}. */
+        public String getCreatedParent() {
+            return createdParent;
         }
 
         public boolean isApplied() {
@@ -795,7 +803,7 @@ public final class ConceptBranchService {
         if (failClosed) {
             EditResult refused = failClosedError();
             return new AddCardsResult(false, -1L, java.util.Collections.<String>emptyList(),
-                    java.util.Collections.<String>emptyList(), refused.getDiagnostic());
+                    java.util.Collections.<String>emptyList(), null, refused.getDiagnostic());
         }
         java.util.LinkedHashSet<String> cleaned = new java.util.LinkedHashSet<String>();
         for (String name : names == null ? java.util.Collections.<String>emptyList() : names) {
@@ -806,7 +814,7 @@ public final class ConceptBranchService {
         }
         if (cleaned.isEmpty()) {
             return new AddCardsResult(false, -1L, java.util.Collections.<String>emptyList(),
-                    java.util.Collections.<String>emptyList(),
+                    java.util.Collections.<String>emptyList(), null,
                     JsonTreeDiagnostic.of(JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
                             "add_cards needs at least one non-empty card name.").build());
         }
@@ -814,22 +822,110 @@ public final class ConceptBranchService {
         StrictJsonParseResult parsed = StrictJsonParser.parse(document);
         if (!parsed.isOk()) {
             return new AddCardsResult(false, -1L, java.util.Collections.<String>emptyList(),
-                    java.util.Collections.<String>emptyList(), parsed.getDiagnostic());
+                    java.util.Collections.<String>emptyList(), null, parsed.getDiagnostic());
         }
-        Resolution resolution = resolve(parsed.getElement(), parentNames);
-        if (resolution.diagnostic != null) {
-            // The parent gate rejects the WHOLE list — never a partial mutation.
-            return new AddCardsResult(false, -1L, java.util.Collections.<String>emptyList(),
-                    java.util.Collections.<String>emptyList(), resolution.diagnostic);
-        }
+        // Parent semantics (add_cards gate corrections): a full path resolves as always; a
+        // SINGLE segment additionally resolves as a globally UNIQUE exact card name (the small
+        // model addresses "Architektur", not a path chain); and the ONE missing TERMINAL
+        // parent — explicitly asked for or plausibly derived, like the book's core topic on
+        // the first turn — is created together with its cards in the SAME atomic revision.
+        // Deeper missing chains and ambiguous names reject the WHOLE call without mutation.
         JsonElement candidate = parsed.getElement().deepCopy();
-        JsonArray parentArray = arrayAt(candidate, resolution.path);
+        List<String> trimmedParent = new ArrayList<String>();
+        for (String segment : parentNames == null
+                ? java.util.Collections.<String>emptyList() : parentNames) {
+            String value = segment == null ? "" : segment.trim();
+            if (!value.isEmpty()) {
+                trimmedParent.add(value);
+            }
+        }
+        List<String> effectiveParent = trimmedParent;
+        String createdParent = null;
+        JsonArray parentArray = null;
+        Resolution resolution = resolve(parsed.getElement(), effectiveParent);
+        if (resolution.diagnostic == null) {
+            parentArray = arrayAt(candidate, resolution.path);
+        } else if (effectiveParent.size() == 1) {
+            String shortName = effectiveParent.get(0);
+            List<List<String>> matches = new ArrayList<List<String>>();
+            for (List<String> path : ConceptTopicScanner.collectCardPaths(document)) {
+                if (path.get(path.size() - 1).equals(shortName)) {
+                    matches.add(path);
+                }
+            }
+            if (matches.size() > 1) {
+                StringBuilder candidates = new StringBuilder();
+                for (List<String> match : matches) {
+                    candidates.append(candidates.length() > 0 ? ", " : "").append(match);
+                }
+                return new AddCardsResult(false, -1L,
+                        java.util.Collections.<String>emptyList(),
+                        java.util.Collections.<String>emptyList(), null,
+                        JsonTreeDiagnostic.of(JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
+                                "AMBIGUOUS_PARENT \"" + shortName + "\" — candidates: "
+                                        + candidates + ".")
+                                .hint("Use the full path to the intended parent.")
+                                .build());
+            }
+            if (matches.size() == 1) {
+                effectiveParent = matches.get(0);
+                Resolution unique = resolve(parsed.getElement(), effectiveParent);
+                parentArray = unique.diagnostic == null
+                        ? arrayAt(candidate, unique.path) : null;
+            } else {
+                // No such card anywhere: create the ONE missing terminal parent at the root.
+                JsonArray root = candidate.getAsJsonObject()
+                        .get(CONCEPT_PROPERTY).getAsJsonArray();
+                JsonObject rootContainer = null;
+                for (JsonElement element : root) {
+                    if (element.isJsonObject()) {
+                        rootContainer = element.getAsJsonObject();
+                        break;
+                    }
+                }
+                if (rootContainer == null) {
+                    rootContainer = new JsonObject();
+                    root.add(rootContainer);
+                }
+                parentArray = new JsonArray();
+                rootContainer.add(shortName, parentArray);
+                createdParent = shortName;
+            }
+        } else if (effectiveParent.size() > 1) {
+            List<String> prefix = effectiveParent.subList(0, effectiveParent.size() - 1);
+            String terminal = effectiveParent.get(effectiveParent.size() - 1);
+            Resolution prefixResolution = resolve(parsed.getElement(), prefix);
+            if (prefixResolution.diagnostic != null) {
+                // Never silently create a deep chain — only the ONE terminal parent may.
+                return new AddCardsResult(false, -1L,
+                        java.util.Collections.<String>emptyList(),
+                        java.util.Collections.<String>emptyList(), null,
+                        resolution.diagnostic);
+            }
+            JsonArray prefixArray = arrayAt(candidate, prefixResolution.path);
+            if (prefixArray != null) {
+                JsonObject prefixContainer = null;
+                for (JsonElement element : prefixArray) {
+                    if (element.isJsonObject()) {
+                        prefixContainer = element.getAsJsonObject();
+                        break;
+                    }
+                }
+                if (prefixContainer == null) {
+                    prefixContainer = new JsonObject();
+                    prefixArray.add(prefixContainer);
+                }
+                parentArray = new JsonArray();
+                prefixContainer.add(terminal, parentArray);
+                createdParent = terminal;
+            }
+        }
         if (parentArray == null) {
             return new AddCardsResult(false, -1L, java.util.Collections.<String>emptyList(),
-                    java.util.Collections.<String>emptyList(),
-                    JsonTreeDiagnostic.of(JsonTreeErrorCode.TARGET_NODE_NOT_FOUND,
-                            "The parent no longer exists.").path(resolution.path.describe())
-                            .build());
+                    java.util.Collections.<String>emptyList(), null,
+                    resolution.diagnostic != null ? resolution.diagnostic
+                            : JsonTreeDiagnostic.of(JsonTreeErrorCode.TARGET_NODE_NOT_FOUND,
+                                    "The parent no longer exists.").build());
         }
         List<String> added = new ArrayList<String>();
         List<String> alreadyPresent = new ArrayList<String>();
@@ -860,25 +956,29 @@ public final class ConceptBranchService {
             container.add(card, new JsonArray());
             added.add(card);
         }
-        if (added.isEmpty()) {
-            // Idempotent repeat: nothing new, no commit, no revision bump.
+        if (added.isEmpty() && createdParent == null) {
+            // Idempotent repeat: nothing new, no commit, no revision bump (receipt: NO_CHANGE).
             return new AddCardsResult(true, store.workingRevision(), added, alreadyPresent,
-                    null);
+                    null, null);
         }
         ConceptIdentity identityAfter = identity;
-        List<String> parentPath = parentNames == null
-                ? java.util.Collections.<String>emptyList() : parentNames;
+        if (createdParent != null) {
+            // The created parent mints its identity node first; the children hang below it.
+            identityAfter = identityAfter.afterAdd(candidate, effectiveParent);
+        }
         for (String card : added) {
-            List<String> cardPath = new ArrayList<String>(parentPath);
+            List<String> cardPath = new ArrayList<String>(effectiveParent);
             cardPath.add(card);
             identityAfter = identityAfter.afterAdd(candidate, cardPath);
         }
         EditResult committed = commitCandidate(candidate, identityAfter, null);
         if (!committed.isApplied()) {
             return new AddCardsResult(false, -1L, java.util.Collections.<String>emptyList(),
-                    java.util.Collections.<String>emptyList(), committed.getDiagnostic());
+                    java.util.Collections.<String>emptyList(), null,
+                    committed.getDiagnostic());
         }
-        return new AddCardsResult(true, committed.getNewRevision(), added, alreadyPresent, null);
+        return new AddCardsResult(true, committed.getNewRevision(), added, alreadyPresent,
+                createdParent, null);
     }
 
     /** Remove the card at the name path with its whole subtree. Deliberately destructive. */

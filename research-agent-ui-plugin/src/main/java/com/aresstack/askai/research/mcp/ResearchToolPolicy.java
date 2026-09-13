@@ -465,6 +465,7 @@ public final class ResearchToolPolicy {
                             }
                         }
                         long revision;
+                        String createdParent = null;
                         java.util.List<String> added;
                         java.util.List<String> alreadyPresent;
                         if (allowed.isEmpty()) {
@@ -483,21 +484,39 @@ public final class ResearchToolPolicy {
                             }
                             added = result.getAdded();
                             alreadyPresent = result.getAlreadyPresent();
+                            createdParent = result.getCreatedParent();
                             revision = result.getNewRevision();
-                            if (!added.isEmpty()) {
+                            if (!added.isEmpty() || createdParent != null) {
                                 ctx.onConceptChanged(revision);
                             }
                         }
-                        StringBuilder receipt = new StringBuilder("APPLIED revision=")
-                                .append(revision);
+                        // NO_CHANGE is honest bookkeeping (the gate saw a misleading APPLIED
+                        // on a batch that changed nothing); every single receipt line is
+                        // mirrored into the technical log — the live observer must see the
+                        // same fates the model sees.
+                        boolean changed = !added.isEmpty() || createdParent != null;
+                        StringBuilder receipt = new StringBuilder(
+                                changed ? "APPLIED" : "NO_CHANGE")
+                                .append(" revision=").append(revision);
+                        java.util.List<String> lines = new java.util.ArrayList<String>();
+                        if (createdParent != null) {
+                            lines.add("CREATED_PARENT: " + createdParent);
+                        }
                         for (String name : added) {
-                            receipt.append("\nADDED: ").append(name);
+                            lines.add("ADDED: " + name);
                         }
                         for (String name : alreadyPresent) {
-                            receipt.append("\nALREADY_PRESENT: ").append(name);
+                            lines.add("ALREADY_PRESENT: " + name);
                         }
                         for (String name : suppressed) {
-                            receipt.append("\nSUPPRESSED_BY_SCOPE: ").append(name);
+                            lines.add("SUPPRESSED_BY_SCOPE: " + name);
+                        }
+                        ctx.conceptToolLog("concept_add_cards -> "
+                                + (changed ? "APPLIED" : "NO_CHANGE")
+                                + " revision=" + revision);
+                        for (String line : lines) {
+                            receipt.append('\n').append(line);
+                            ctx.conceptToolLog("concept_add_cards -> " + line);
                         }
                         return McpToolResult.ok(receipt.toString());
                     }

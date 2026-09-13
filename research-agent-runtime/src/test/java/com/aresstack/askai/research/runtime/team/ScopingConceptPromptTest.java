@@ -26,8 +26,15 @@ public class ScopingConceptPromptTest {
         assertTrue("named areas outrank offers and own ideas",
                 with.contains("FIRST one add_cards capturing EVERY area the user explicitly "
                         + "named"));
-        assertTrue("a plain list stays flat",
-                with.contains("never invent a hierarchy the user did not state"));
+        // add_cards gate corrections: a plausibly derived parent is LEGAL and created WITH its
+        // cards in one atomic call; short unique parent names resolve host-side.
+        assertTrue("one plausible parent at most, created in the same call",
+                with.contains("the SAME call creates it together with the cards"));
+        assertTrue(with.contains("CREATED_PARENT"));
+        assertTrue("no deep invented chains",
+                with.contains("never any deeper invented hierarchy"));
+        assertTrue("short unique parent names are enough",
+                with.contains("the application resolves the full path itself"));
         assertTrue("multi-word terms stay one name",
                 with.contains("\"Computer Science\" is one card"));
         assertTrue("claims only per receipt",
@@ -142,7 +149,15 @@ public class ScopingConceptPromptTest {
         // facetId (gate 2: excludeFacet/addFacet arrived without one and the exclusion never
         // reached the Weidezaun); advisory suggestions must carry a NON-EMPTY label+query
         // (gate 1: an empty label once poisoned a whole scope turn).
-        assertTrue(schema.contains("\"enum\":[\"setFacetEmphasis\""));
+        // Enum AUDIT (add_cards gate): only flat-expressible kinds are EMITTABLE — every
+        // {value}/{dimension}/{issueId} kind was an advertised trap ("addExclusion/
+        // addConstraint without 'value'" noise); the runtime validator keeps accepting the
+        // full set for host paths and legacy transcripts (see ScopeUpdateDocumentTest).
+        assertTrue(schema.contains("\"enum\":[\"setFacetEmphasis\",\"setDeliverable\"]"));
+        assertFalse(schema.contains("addExclusion"));
+        assertFalse(schema.contains("addConstraint"));
+        assertFalse(schema.contains("addUnresolvedIssue"));
+        assertFalse(schema.contains("setCrossCuttingEmphasis"));
         // Gate 5 / Zielbild slice 1: mission is host bookkeeping, the concept is the positive
         // working space, exclusion is the one-command action — none of these is emittable.
         assertFalse(schema.contains("setMission"));

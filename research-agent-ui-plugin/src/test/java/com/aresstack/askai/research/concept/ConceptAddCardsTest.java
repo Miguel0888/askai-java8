@@ -107,13 +107,72 @@ public class ConceptAddCardsTest {
         assertNotNull(service.nodeIdAtPath(
                 Collections.singletonList("Computer Science")));
         long revision = service.snapshot().getWorkingRevision();
-        // Test 8: an unresolvable parent rejects the WHOLE list — no partial mutation.
+        // Test 8: an unresolvable parent PREFIX rejects the WHOLE list — no partial mutation
+        // (a missing single-segment parent is the legal created-parent case instead).
         ConceptBranchService.AddCardsResult refused = service.addCards(
-                Collections.singletonList("Gibtsnicht"),
+                Arrays.asList("Gibtsnicht", "Tiefer"),
                 Arrays.asList("A", "B"));
         assertFalse(refused.isApplied());
         assertEquals("nothing moved", revision, service.snapshot().getWorkingRevision());
         assertFalse(service.snapshot().getDocumentJson().contains("\"A\""));
+    }
+
+    /** Gate correction: the ONE missing terminal parent is created WITH its cards, atomically. */
+    @Test
+    public void aMissingParentIsCreatedTogetherWithItsCardsInOneRevision() throws Exception {
+        ConceptBranchService service = fresh();
+        ConceptBranchService.AddCardsResult result = service.addCards(
+                Collections.singletonList("FreeRTOS"),
+                Arrays.asList("Grundlagen", "Tasks"));
+        assertTrue(result.isApplied());
+        assertEquals("FreeRTOS", result.getCreatedParent());
+        assertEquals("parent AND children in ONE revision", 1L, result.getNewRevision());
+        assertEquals(2, result.getAdded().size());
+        assertNotNull(service.nodeIdAtPath(Collections.singletonList("FreeRTOS")));
+        assertNotNull(service.nodeIdAtPath(Arrays.asList("FreeRTOS", "Tasks")));
+
+        // Multi-segment: only the TERMINAL parent may appear; a missing prefix refuses whole.
+        ConceptBranchService.AddCardsResult terminal = service.addCards(
+                Arrays.asList("FreeRTOS", "Praxis"), Collections.singletonList("Beispiele"));
+        assertTrue(terminal.isApplied());
+        assertEquals("Praxis", terminal.getCreatedParent());
+        ConceptBranchService.AddCardsResult deep = service.addCards(
+                Arrays.asList("Gibtsnicht", "Tiefer"), Collections.singletonList("X"));
+        assertFalse("no silent deep chains", deep.isApplied());
+    }
+
+    /** Gate correction: a single-segment parent resolves as a globally UNIQUE card name. */
+    @Test
+    public void aShortParentNameResolvesGloballyAndAmbiguityRejectsWholeCall() throws Exception {
+        ConceptBranchService service = fresh();
+        service.addCards(Collections.singletonList("FreeRTOS"),
+                Collections.singletonList("Architektur"));
+        ConceptBranchService.AddCardsResult resolved = service.addCards(
+                Collections.singletonList("Architektur"),
+                Arrays.asList("Scheduler", "Speicherverwaltung"));
+        assertTrue("the short name found [FreeRTOS, Architektur]", resolved.isApplied());
+        assertEquals(null, resolved.getCreatedParent());
+        assertNotNull(service.nodeIdAtPath(
+                Arrays.asList("FreeRTOS", "Architektur", "Scheduler")));
+
+        // A second "Architektur" elsewhere makes the short name ambiguous → whole refusal.
+        service.addCards(Collections.singletonList("Praxis"),
+                Collections.singletonList("Architektur"));
+        long revision = freshRevision(service);
+        ConceptBranchService.AddCardsResult ambiguous = service.addCards(
+                Collections.singletonList("Architektur"),
+                Collections.singletonList("Interrupts"));
+        assertFalse(ambiguous.isApplied());
+        String diagnostic = ambiguous.getDiagnostic().describeForModel();
+        assertTrue(diagnostic, diagnostic.contains("AMBIGUOUS_PARENT"));
+        assertTrue("the candidates carry FULL paths",
+                diagnostic.contains("[FreeRTOS, Architektur]")
+                        && diagnostic.contains("[Praxis, Architektur]"));
+        assertEquals("no mutation on ambiguity", revision, freshRevision(service));
+    }
+
+    private static long freshRevision(ConceptBranchService service) {
+        return service.snapshot().getWorkingRevision();
     }
 
     @Test

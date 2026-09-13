@@ -145,6 +145,32 @@ public class ConceptToolsPolicyTest {
         assertEquals("one revision for the whole list", 2, changeNotifications);
     }
 
+    /** Gate corrections: CREATED_PARENT + NO_CHANGE receipts, all lines in the technical log. */
+    @Test
+    public void addCardsReceiptsAreHonestAndFullyLogged() {
+        McpToolResult created = invoke(tool("concept_add_cards"),
+                "parent_path", "FreeRTOS", "names_json", "[\"Grundlagen\",\"Tasks\"]");
+        assertFalse(created.isError());
+        assertTrue(created.getText().startsWith("APPLIED revision=1"));
+        assertTrue("the plausible parent is created WITH its cards, atomically",
+                created.getText().contains("\nCREATED_PARENT: FreeRTOS"));
+        assertTrue(toolLog.contains("concept_add_cards -> APPLIED revision=1"));
+        assertTrue(toolLog.contains("concept_add_cards -> CREATED_PARENT: FreeRTOS"));
+        assertTrue(toolLog.contains("concept_add_cards -> ADDED: Grundlagen"));
+        assertTrue(toolLog.contains("concept_add_cards -> ADDED: Tasks"));
+
+        toolLog.clear();
+        McpToolResult repeat = invoke(tool("concept_add_cards"),
+                "parent_path", "FreeRTOS", "names_json", "[\"Grundlagen\"]");
+        assertFalse(repeat.isError());
+        assertTrue("a batch without any new card is honest NO_CHANGE, never APPLIED",
+                repeat.getText().startsWith("NO_CHANGE revision=1"));
+        assertTrue(repeat.getText().contains("ALREADY_PRESENT: Grundlagen"));
+        assertTrue(toolLog.contains("concept_add_cards -> NO_CHANGE revision=1"));
+        assertTrue(toolLog.contains("concept_add_cards -> ALREADY_PRESENT: Grundlagen"));
+        assertEquals("no change notification for a no-op", 1, changeNotifications);
+    }
+
     @Test
     public void addCardsToleratesTechnicalListsButNeverSplitsBareSpaces() {
         // Newlines, bullets, semicolons and quotes are tolerated for technical lists …

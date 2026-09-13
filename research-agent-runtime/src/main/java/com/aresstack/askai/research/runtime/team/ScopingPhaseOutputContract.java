@@ -72,12 +72,15 @@ public final class ScopingPhaseOutputContract implements PhaseOutputContract {
                 // addFacet/confirmFacet left the model contract (no more facet duplication of
                 // card names), and excludeFacet has its own one-command action. The runtime
                 // validator still accepts them for host paths and old transcripts.
+                // Enum AUDIT (add_cards gate): the flat grammar can only carry kind+facetId+
+                // label, so every kind whose REQUIRED fields exceed that (the {value} family,
+                // setCrossCuttingEmphasis{dimension}, the issue ops) was an advertised trap —
+                // the model kept emitting them, the runtime validator kept rejecting them
+                // ("addExclusion/addConstraint without 'value'" noise). Only the two
+                // flat-expressible kinds remain emittable; the validator still ACCEPTS the
+                // full set for host paths and legacy transcripts.
                 + "{\"type\":\"object\",\"properties\":{\"kind\":{\"type\":\"string\","
-                + "\"enum\":["
-                + "\"setFacetEmphasis\",\"setCrossCuttingEmphasis\",\"setDeliverable\","
-                + "\"addDomain\",\"addContext\",\"addPerspective\",\"addConstraint\","
-                + "\"addExclusion\",\"addTerminology\",\"setGeographicScope\","
-                + "\"setTemporalScope\",\"addUnresolvedIssue\",\"resolveIssue\"]},"
+                + "\"enum\":[\"setFacetEmphasis\",\"setDeliverable\"]},"
                 + "\"facetId\":{\"type\":\"string\",\"minLength\":1,"
                 + "\"pattern\":\"^[a-z0-9][a-z0-9_-]{0,63}$\"},"
                 + "\"label\":{\"type\":\"string\",\"minLength\":1}},"
