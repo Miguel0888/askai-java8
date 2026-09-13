@@ -1283,6 +1283,12 @@ public final class ResearchAgentMain {
                 }
                 args.put("names_json", action.getNamesJson());
                 break;
+            case MOVE:
+                // One leaf, one existing target, one atomic revision — UUID unchanged.
+                toolName = "concept_move_leaf";
+                args.put("source_json", segmentsJson(action.getPath()));
+                args.put("parent_path_json", segmentsJson(action.getParent()));
+                break;
             case EXCLUDE:
                 // The ONE-command exclusion facade: the model quotes the user's term, the HOST
                 // owns id, facet, blacklist effect and the concept-conflict check.

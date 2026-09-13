@@ -95,11 +95,16 @@ public final class ConceptToolRounds {
                                       IntermediateSink intermediateSink, Trace trace,
                                       boolean nudgeOfferWhenMissing,
                                       ConceptTurnPolicy.Mode mode) {
-        if (mode != ConceptTurnPolicy.Mode.FULL) {
+        boolean readOnly = mode == ConceptTurnPolicy.Mode.RESTRUCTURE_READ_ONLY
+                || mode == ConceptTurnPolicy.Mode.DELETE_READ_ONLY;
+        if (readOnly) {
             trace.line("concept mutations READ-ONLY this turn ("
                     + (mode == ConceptTurnPolicy.Mode.DELETE_READ_ONLY
                             ? "delete wish — manual editor work"
                             : "compound restructuring request") + ")");
+        }
+        if (mode == ConceptTurnPolicy.Mode.MOVE_TRUTH) {
+            trace.line("move-truth guard armed (explicit move order)");
         }
         if (mode == ConceptTurnPolicy.Mode.DELETE_READ_ONLY) {
             // TERMINAL like the exclusion receipt (safety-gate rerun: the refusal held, but the
@@ -113,6 +118,10 @@ public final class ConceptToolRounds {
         TeamAgentResult result = initial;
         int rounds = 0;
         int repairs = 0;
+        // Receipt truth (move_leaf slice): "verschoben" may only close a turn when a MOVED
+        // receipt of THIS turn covers it — otherwise the host owns the closing sentence.
+        boolean movedReceipt = false;
+        String moveOutcome = null;
         boolean budgetExhausted = false;
         boolean offeredThisTurn = false;
         boolean offerNudgeSpent = false;
@@ -167,7 +176,9 @@ public final class ConceptToolRounds {
                     result = turn.run(TeamAgentPlaybook.offerSearchesMissing(germanFeedback));
                     continue;
                 }
-                return result; // the model finished without a further action — the normal end
+                // The model finished without a further action — the normal end.
+                return withMoveTruth(result, mode, movedReceipt, moveOutcome, germanFeedback,
+                        trace);
             }
             if (budgetExhausted) {
                 if (action != null && action.getType() == ConceptAction.Type.OFFER
@@ -186,10 +197,12 @@ public final class ConceptToolRounds {
                     } catch (ToolInvoker.EndpointUnavailable dead) {
                         trace.line("wrap-up offer lost — endpoint unavailable");
                     }
-                    return result;
+                    return withMoveTruth(result, mode, movedReceipt, moveOutcome,
+                            germanFeedback, trace);
                 }
                 trace.line("tool budget exhausted — dropping the further conceptAction");
-                return result;
+                return withMoveTruth(result, mode, movedReceipt, moveOutcome, germanFeedback,
+                        trace);
             }
             rounds++;
             String feedback;
@@ -212,8 +225,9 @@ public final class ConceptToolRounds {
                         "The single \"add\" action is not part of your contract anymore. Send "
                                 + "ONE add_cards action carrying ALL card names as one list — "
                                 + "a single card is a one-element list.", germanFeedback);
-            } else if (mode != ConceptTurnPolicy.Mode.FULL
+            } else if (readOnly
                     && (action.getType() == ConceptAction.Type.ADD_CARDS
+                            || action.getType() == ConceptAction.Type.MOVE
                             || action.getType() == ConceptAction.Type.RENAME
                             || (mode == ConceptTurnPolicy.Mode.DELETE_READ_ONLY
                                     && action.getType() == ConceptAction.Type.EXCLUDE))) {
@@ -262,7 +276,14 @@ public final class ConceptToolRounds {
                         }
                         return receiptResult(text, result);
                     }
-                    if (action.getType() == ConceptAction.Type.OFFER) {
+                    if (action.getType() == ConceptAction.Type.MOVE
+                            && text.startsWith("NO_CHANGE")) {
+                        // The honest idempotent outcome: a receipt, not a mutation — the turn
+                        // must not claim a move, and the receipts feedback carries the truth.
+                        moveOutcome = "already-at-target";
+                        trace.line("round " + rounds + " -> NO_CHANGE (already at target)");
+                        feedback = TeamAgentPlaybook.conceptToolResult(text, germanFeedback);
+                    } else if (action.getType() == ConceptAction.Type.OFFER) {
                         // A working step like READ: the tags are display state, not the concept —
                         // no revision, no grounding re-read, the loop simply continues.
                         offeredThisTurn = true;
@@ -275,11 +296,17 @@ public final class ConceptToolRounds {
                         conceptRevision = revisionIn(text, conceptRevision);
                         applied.add(action.describe() + " (revision " + conceptRevision + ")");
                         refetchConcept = true;
+                        if (action.getType() == ConceptAction.Type.MOVE) {
+                            movedReceipt = true; // ONLY an APPLIED move licenses "verschoben"
+                        }
                         trace.line("round " + rounds + " -> APPLIED revision=" + conceptRevision);
                         feedback = TeamAgentPlaybook.conceptToolApplied(text, germanFeedback);
                     }
                 } catch (ToolInvoker.ToolFailure toolRejected) {
                     repairs++;
+                    if (action.getType() == ConceptAction.Type.MOVE) {
+                        moveOutcome = firstLine(toolRejected.getMessage());
+                    }
                     // The WHOLE reason, flattened (slice-2 gate finding: the log showed only
                     // "Error: BRANCH_GRAFT_FAILED" while the teaching bottom-up diagnostic
                     // reached the model alone — the observer must see the same truth).
@@ -408,6 +435,23 @@ public final class ConceptToolRounds {
             }
         }
         return fallback;
+    }
+
+    /**
+     * The move-truth close: a MOVE_TRUTH turn without an APPLIED move receipt never keeps the
+     * model's narration — the host states deterministically that nothing changed (optionally
+     * why). Grounded in the same synthetic-answer mechanics as every host receipt.
+     */
+    private static TeamAgentResult withMoveTruth(TeamAgentResult result,
+                                                 ConceptTurnPolicy.Mode mode,
+                                                 boolean movedReceipt, String moveOutcome,
+                                                 boolean german, Trace trace) {
+        if (mode != ConceptTurnPolicy.Mode.MOVE_TRUTH || movedReceipt) {
+            return result;
+        }
+        trace.line("move-truth guard -> deterministic host answer (no MOVED receipt this "
+                + "turn)");
+        return syntheticAnswer(TeamAgentPlaybook.moveTruthAnswer(german, moveOutcome), result);
     }
 
     private static String firstLine(String text) {

@@ -171,6 +171,47 @@ public class ConceptToolsPolicyTest {
         assertEquals("no change notification for a no-op", 1, changeNotifications);
     }
 
+    /** move_leaf: receipts and refusals are fully mirrored into the technical log. */
+    @Test
+    public void moveLeafReceiptsAndRefusalsAreLoggedAndAtomic() {
+        invoke(tool("concept_add_cards"), "parent_path", "Betriebssysteme",
+                "names_json", "[\"Linux\",\"FreeRTOS\"]");
+        invoke(tool("concept_add_cards"), "parent_path", "Linux",
+                "names_json", "[\"Scheduling\"]");
+        toolLog.clear();
+
+        McpToolResult moved = invoke(tool("concept_move_leaf"),
+                "source_json", "[\"Scheduling\"]", "parent_path_json", "[\"FreeRTOS\"]");
+        assertFalse(moved.isError());
+        assertTrue(moved.getText().startsWith("APPLIED revision=3"));
+        assertTrue(moved.getText().contains("\nMOVED: Scheduling"));
+        assertTrue(moved.getText().contains(
+                "\nFROM: [Betriebssysteme, Linux, Scheduling]"));
+        assertTrue(moved.getText().contains(
+                "\nTO: [Betriebssysteme, FreeRTOS, Scheduling]"));
+        assertTrue(moved.getText().contains("\nID: "));
+        assertTrue(toolLog.contains("concept_move_leaf -> APPLIED revision=3"));
+        assertTrue(toolLog.contains("concept_move_leaf -> MOVED: Scheduling"));
+        assertEquals(3, changeNotifications);
+
+        toolLog.clear();
+        McpToolResult repeat = invoke(tool("concept_move_leaf"),
+                "source_json", "[\"Scheduling\"]", "parent_path_json", "[\"FreeRTOS\"]");
+        assertFalse(repeat.isError());
+        assertTrue(repeat.getText().startsWith("NO_CHANGE revision=3"));
+        assertTrue(repeat.getText().contains("\nALREADY_AT_TARGET: Scheduling"));
+        assertTrue(toolLog.contains("concept_move_leaf -> NO_CHANGE revision=3"));
+        assertEquals("a no-op move notifies nothing", 3, changeNotifications);
+
+        // "Linux" became a leaf when Scheduling moved out — the BRANCH here is the root card.
+        McpToolResult branch = invoke(tool("concept_move_leaf"),
+                "source_json", "[\"Betriebssysteme\"]", "parent_path_json", "[]");
+        assertTrue(branch.isError());
+        assertTrue(branch.getText().contains("SOURCE_NOT_LEAF"));
+        assertTrue(toolLog.toString().contains("concept_move_leaf -> REFUSED"));
+        assertEquals("a refusal creates no revision", 3, changeNotifications);
+    }
+
     @Test
     public void addCardsToleratesTechnicalListsButNeverSplitsBareSpaces() {
         // Newlines, bullets, semicolons and quotes are tolerated for technical lists …

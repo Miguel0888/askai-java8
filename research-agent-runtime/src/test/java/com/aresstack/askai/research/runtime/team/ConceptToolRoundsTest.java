@@ -304,6 +304,75 @@ public class ConceptToolRoundsTest {
                 "wrap-up offer executed (tags are display state, not a concept edit)"));
     }
 
+    /**
+     * move_leaf receipt truth: a MOVE_TRUTH turn without an APPLIED move receipt closes with
+     * the deterministic host sentence — never the model's narration (the add_cards gate saw a
+     * NONE turn claim an executed change). An APPLIED move keeps the model's wrap-up.
+     */
+    @Test
+    public void aMoveTurnWithoutAMovedReceiptClosesWithTheHostSentence() throws Exception {
+        // Case 1: the model answers with action NONE — no tool ran, the claim gets replaced.
+        ScriptedTurns turns = new ScriptedTurns();
+        ScriptedTool tool = new ScriptedTool();
+        TeamAgentResult result = ConceptToolRounds.run(
+                turn("Ich habe die Karte verschoben.", "{\"type\":\"none\"}"),
+                turns, tool, 4, 2, false, null, traceSink, false,
+                ConceptTurnPolicy.Mode.MOVE_TRUTH);
+        assertTrue(tool.calls.isEmpty());
+        assertEquals(TeamAgentPlaybook.moveTruthAnswer(false, null),
+                ((ScopingAssistantOutput) result.getOutput()).getAssistantMessage());
+        assertTrue(trace.contains("move-truth guard -> deterministic host answer (no MOVED "
+                + "receipt this turn)"));
+
+        // Case 2: NO_CHANGE — the honest already-at-target close, still host-authored.
+        trace.clear();
+        ScriptedTurns idempotent = new ScriptedTurns();
+        ScriptedTool idempotentTool = new ScriptedTool();
+        idempotentTool.byDescription.put(
+                "move source=[\"Scheduling\"] parent=[\"FreeRTOS\"]",
+                "NO_CHANGE revision=3\nALREADY_AT_TARGET: Scheduling\nID: u-1");
+        idempotent.script.add(turn("schon da", null));
+        TeamAgentResult noChange = ConceptToolRounds.run(
+                turn("verschiebe", "{\"type\":\"move\",\"source\":[\"Scheduling\"],"
+                        + "\"parent\":[\"FreeRTOS\"]}"),
+                idempotent, idempotentTool, 4, 2, false, null, traceSink, false,
+                ConceptTurnPolicy.Mode.MOVE_TRUTH);
+        assertTrue(trace.contains("round 1 -> NO_CHANGE (already at target)"));
+        assertEquals(TeamAgentPlaybook.moveTruthAnswer(false, "already-at-target"),
+                ((ScopingAssistantOutput) noChange.getOutput()).getAssistantMessage());
+
+        // Case 3: an APPLIED move licenses the model's own wrap-up.
+        trace.clear();
+        ScriptedTurns moved = new ScriptedTurns();
+        ScriptedTool movedTool = new ScriptedTool();
+        movedTool.byDescription.put(
+                "move source=[\"Scheduling\"] parent=[\"FreeRTOS\"]",
+                "APPLIED revision=4\nMOVED: Scheduling\nID: u-1");
+        moved.script.add(turn("Verschoben.", null));
+        TeamAgentResult applied = ConceptToolRounds.run(
+                turn("verschiebe", "{\"type\":\"move\",\"source\":[\"Scheduling\"],"
+                        + "\"parent\":[\"FreeRTOS\"]}"),
+                moved, movedTool, 4, 2, false, null, traceSink, false,
+                ConceptTurnPolicy.Mode.MOVE_TRUTH);
+        assertEquals("Verschoben.",
+                ((ScopingAssistantOutput) applied.getOutput()).getAssistantMessage());
+    }
+
+    /** move_leaf, gate test 13: a READ-ONLY turn blocks the move — no substitute mutation. */
+    @Test
+    public void aReadOnlyTurnRefusesAMoveLikeEveryMutation() throws Exception {
+        ScriptedTurns turns = new ScriptedTurns();
+        ScriptedTool tool = new ScriptedTool();
+        turns.script.add(turn("ok", null));
+        ConceptToolRounds.run(
+                turn("bau um", "{\"type\":\"move\",\"source\":[\"Scheduling\"],"
+                        + "\"parent\":[]}"),
+                turns, tool, 4, 2, false, null, traceSink, false,
+                ConceptTurnPolicy.Mode.RESTRUCTURE_READ_ONLY);
+        assertTrue("the move never reaches the host", tool.calls.isEmpty());
+        assertTrue(turns.feedbackSeen.get(0).contains("READ-ONLY for the whole turn"));
+    }
+
     /** add_cards slice, test 11: a legacy transcript's single add is read but never executed. */
     @Test
     public void aLegacySingleAddIsRefusedBeforeTheHost() throws Exception {

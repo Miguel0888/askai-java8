@@ -38,8 +38,16 @@ public class ConceptTurnPolicyTest {
         assertEquals("a bare 'lösche X' too: with the answer now host-replaced, DELETE demands "
                 + "verb AND structure noun", ConceptTurnPolicy.Mode.FULL,
                 ConceptTurnPolicy.modeFor("Lösche PlatformIO."));
-        assertEquals(ConceptTurnPolicy.Mode.RESTRUCTURE_READ_ONLY,
+        // move_leaf slice: a move order is a REAL capability now — full permissions, but the
+        // receipt-truth guard arms ("verschoben" only with a MOVED receipt of the turn).
+        assertEquals(ConceptTurnPolicy.Mode.MOVE_TRUTH,
                 ConceptTurnPolicy.modeFor("Verschiebe Toolchain unter Grundlagen."));
+        assertEquals(ConceptTurnPolicy.Mode.MOVE_TRUTH,
+                ConceptTurnPolicy.modeFor("Please move Scheduling under FreeRTOS."));
+        assertEquals("'remove' must never arm the move guard", ConceptTurnPolicy.Mode.FULL,
+                ConceptTurnPolicy.modeFor("Entferne ESP-IDF."));
+        assertEquals("'movement' is not 'move'", ConceptTurnPolicy.Mode.FULL,
+                ConceptTurnPolicy.modeFor("Describe the movement of data between tasks."));
         assertEquals(ConceptTurnPolicy.Mode.FULL,
                 ConceptTurnPolicy.modeFor("Füge unter FreeRTOS bitte Tasks hinzu."));
         assertEquals(ConceptTurnPolicy.Mode.FULL,

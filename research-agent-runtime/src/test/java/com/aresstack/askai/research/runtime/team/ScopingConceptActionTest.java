@@ -125,6 +125,33 @@ public class ScopingConceptActionTest {
         assertTrue(badDecision.getConceptActionError().contains("KEEP_SUPPRESSED"));
     }
 
+    /** move_leaf: one leaf, one target ([] = root), source may be one unique card name. */
+    @Test
+    public void moveParsesRoundTripsAndTeachesOnMissingParts() {
+        ScopingAssistantOutput output = parse("{\"assistantMessage\":\"m\",\"conceptAction\":"
+                + "{\"type\":\"move\",\"source\":[\"Scheduling\"],\"parent\":"
+                + "[\"FreeRTOS\"]}}");
+        ConceptAction action = output.getConceptAction();
+        assertEquals(ConceptAction.Type.MOVE, action.getType());
+        assertEquals(Collections.singletonList("Scheduling"), action.getPath());
+        assertEquals(Collections.singletonList("FreeRTOS"), action.getParent());
+        ConceptAction reread = parse(output.canonicalJson()).getConceptAction();
+        assertEquals(action.getPath(), reread.getPath());
+        assertEquals(action.getParent(), reread.getParent());
+
+        ConceptAction toRoot = parse("{\"assistantMessage\":\"m\",\"conceptAction\":"
+                + "{\"type\":\"move\",\"source\":[\"Scheduling\"],\"parent\":[]}}")
+                .getConceptAction();
+        assertEquals("an explicit [] parent means the top level",
+                Collections.<String>emptyList(), toRoot.getParent());
+
+        ScopingAssistantOutput missing = parse("{\"assistantMessage\":\"m\","
+                + "\"conceptAction\":{\"type\":\"move\",\"source\":[\"Scheduling\"]}}");
+        assertNull("the parent must be EXPLICIT — an accidental omission must not silently "
+                + "move to the root", missing.getConceptAction());
+        assertTrue(missing.getConceptActionError().contains("[] = top level"));
+    }
+
     /** add_cards: ALL user-named areas as ONE typed list — a single card is a 1-element list. */
     @Test
     public void addCardsParsesRoundTripsAndTeachesOnMissingNames() {

@@ -240,8 +240,10 @@ public final class TeamAgentPlaybook {
                 + (conceptTools
                         ? ",\n  \"conceptAction\": {              // your ONE action THIS "
                         + "inference; use type none when you change nothing\n"
-                        + "    \"type\": \"none\"|\"read\"|\"add_cards\"|\"exclude\"|\"resolve\""
-                        + "|\"offer\"|\"rename\",\n"
+                        + "    \"type\": \"none\"|\"read\"|\"add_cards\"|\"move\"|\"exclude\""
+                        + "|\"resolve\"|\"offer\"|\"rename\",\n"
+                        + "    \"source\": [string],              // move: the ONE leaf (a "
+                        + "unique card name is enough); parent = the target ([] = top level)\n"
                         + "    \"path\": [string],                // read/rename: card names as "
                         + "SEGMENTS from the concept root\n"
                         + "    \"parent\": [string], \"names\": [string],  // add_cards: where "
@@ -592,6 +594,26 @@ public final class TeamAgentPlaybook {
                         + "will then be suppressed for research.";
     }
 
+    /**
+     * The move-truth close (move_leaf slice): a MOVE-classified turn without an APPLIED move
+     * receipt ends with this deterministic host sentence — the add_cards gate saw a NONE turn
+     * claim an executed change; "verschoben" is only ever receipt-covered.
+     */
+    public static String moveTruthAnswer(boolean german, String outcome) {
+        String base = german
+                ? "Am Konzept wurde nichts verändert."
+                : "Nothing in the concept was changed.";
+        if ("already-at-target".equals(outcome)) {
+            return base + (german
+                    ? " Die Karte liegt bereits am gewünschten Ziel."
+                    : " The card already sits at the requested target.");
+        }
+        if (outcome != null && !outcome.trim().isEmpty()) {
+            return base + (german ? " Grund: " : " Reason: ") + outcome.trim();
+        }
+        return base;
+    }
+
     /** How to use the concept tool: one small step per inference, read before update, no rewrites. */
     private static String conceptToolRules() {
         return "THE CONCEPT (conceptAction):\n"
@@ -693,6 +715,20 @@ public final class TeamAgentPlaybook {
                 + "NEVER concept path segments, and a card name is NEVER a facetId.\n"
                 + "- The concept mirrors the CONVERSATION: add what the user asks for, propose "
                 + "what scope and sources suggest.\n"
+                + "THE MOVE COMMAND (move — one leaf, one target, one atomic effect):\n"
+                + "- move relocates ONE existing LEAF card under an existing parent (or the "
+                + "top level): {\"type\":\"move\",\"source\":[\"Scheduling\"],\"parent\":"
+                + "[\"FreeRTOS\"]} — source may be ONE globally unique card name, parent may "
+                + "be a unique name, a full path, or [] for the top level. The card keeps its "
+                + "name and identity; only its place changes.\n"
+                + "- The target must already exist — move never creates parents, never moves "
+                + "branches, never renames, never merges. One leaf per action; several moves "
+                + "are several actions.\n"
+                + "- An EXPLICIT move order runs the move action even when you believe the "
+                + "card is already there — the honest receipt is then NO_CHANGE/"
+                + "ALREADY_AT_TARGET. Say \"verschoben\"/\"moved\" ONLY when THIS turn carries "
+                + "a MOVED receipt; after REFUSED or NO_CHANGE say honestly that nothing "
+                + "changed. Never substitute a refused move with add_cards.\n"
                 + "RENAMING (rename):\n"
                 + "- rename changes ONE card's name at any depth; children and position stay: "
                 + "{\"type\": \"rename\", \"path\": [\"FreeRTOS\", \"Setup\"], \"name\": "

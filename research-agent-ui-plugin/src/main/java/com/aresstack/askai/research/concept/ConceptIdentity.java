@@ -285,6 +285,28 @@ public final class ConceptIdentity {
         return new ConceptIdentity(epoch, copy, -1L, null);
     }
 
+    /**
+     * After a LEAF move (move_leaf slice): the node — WITH ITS UUID — leaves its old ordinal
+     * slot and lands at the moved card's ordinal in the post-image document. Invariant 1 made
+     * mechanical: a move relocates the identity node, it never re-mints. The leaf has no
+     * children, so removal only shifts the SOURCE level; every ordinal of the post-image walk
+     * matches the intermediate copy except the target level, where the insert index fills the
+     * moved card's final position.
+     */
+    public ConceptIdentity afterMoveLeaf(JsonElement oldDocumentRoot, List<String> oldPath,
+                                         JsonElement newDocumentRoot, List<String> newPath) {
+        List<Integer> from = ordinalPath(oldDocumentRoot, oldPath);
+        List<Integer> to = ordinalPath(newDocumentRoot, newPath);
+        if (from == null || to == null) {
+            throw new IllegalStateException("moved leaf not found for identity: " + oldPath
+                    + " -> " + newPath);
+        }
+        List<Node> copy = deepCopy(nodes);
+        Node moved = levelOf(copy, from).remove((int) from.get(from.size() - 1));
+        levelOf(copy, to).add(to.get(to.size() - 1), moved);
+        return new ConceptIdentity(epoch, copy, -1L, null);
+    }
+
     private static List<Node> deepCopy(List<Node> nodes) {
         List<Node> copy = new ArrayList<Node>();
         for (Node node : nodes) {

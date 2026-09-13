@@ -31,7 +31,14 @@ public final class ConceptTurnPolicy {
          * replaced, this mode demands verb AND structure noun — a bare "lösche X" stays
          * conversational, exactly like a bare "entferne X".
          */
-        DELETE_READ_ONLY
+        DELETE_READ_ONLY,
+        /**
+         * An explicit MOVE order (move_leaf slice): FULL permissions, but the receipt-truth
+         * guard arms — a turn without a MOVED receipt closes with the deterministic host
+         * sentence instead of the model's narration ("verschoben" only when a receipt of the
+         * CURRENT turn covers it; the add_cards gate saw a NONE turn claim an executed change).
+         */
+        MOVE_TRUTH
     }
 
     private static final String[] DELETE_VERBS = {
@@ -43,8 +50,10 @@ public final class ConceptTurnPolicy {
     private static final String[] RESTRUCTURE_VERBS = {
             "überarbeit", "ueberarbeit", "ersetz", "umstrukturier", "restrukturier",
             "strukturiere", "gliedere", "reorganis", "reorganiz", "rewrite", "restructur",
-            "umbau", "verschieb"
+            "umbau"
     };
+    /** "verschieb" left the restructure blockers with the real move_leaf tool. */
+    private static final String[] MOVE_VERBS = {"verschieb"};
 
     private ConceptTurnPolicy() {
     }
@@ -57,6 +66,11 @@ public final class ConceptTurnPolicy {
         }
         if (containsAny(prompt, RESTRUCTURE_VERBS)) {
             return Mode.RESTRUCTURE_READ_ONLY;
+        }
+        // "move" as a WORD only — "remove"/"movement" must not arm the truth guard.
+        if (containsAny(prompt, MOVE_VERBS) || java.util.regex.Pattern
+                .compile("(?<![a-zäöüß])move(?![a-zäöüß])").matcher(prompt).find()) {
+            return Mode.MOVE_TRUTH;
         }
         return Mode.FULL;
     }

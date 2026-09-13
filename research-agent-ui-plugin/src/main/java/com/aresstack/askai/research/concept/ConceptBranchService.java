@@ -981,6 +981,257 @@ public final class ConceptBranchService {
                 createdParent, null);
     }
 
+    /** Outcome of a leaf move: the receipt facts, or NO_CHANGE, or a diagnostic. */
+    public static final class MoveLeafResult {
+        private final boolean applied;
+        private final boolean noChange;
+        private final long newRevision;
+        private final String label;
+        private final List<String> fromPath;
+        private final List<String> toPath;
+        private final String nodeId;
+        private final JsonTreeDiagnostic diagnostic;
+
+        private MoveLeafResult(boolean applied, boolean noChange, long newRevision, String label,
+                               List<String> fromPath, List<String> toPath, String nodeId,
+                               JsonTreeDiagnostic diagnostic) {
+            this.applied = applied;
+            this.noChange = noChange;
+            this.newRevision = newRevision;
+            this.label = label;
+            this.fromPath = fromPath;
+            this.toPath = toPath;
+            this.nodeId = nodeId;
+            this.diagnostic = diagnostic;
+        }
+
+        public boolean isApplied() {
+            return applied;
+        }
+
+        /** {@code true}: the leaf already sat under the target — nothing was committed. */
+        public boolean isNoChange() {
+            return noChange;
+        }
+
+        public long getNewRevision() {
+            return newRevision;
+        }
+
+        public String getLabel() {
+            return label;
+        }
+
+        public List<String> getFromPath() {
+            return fromPath;
+        }
+
+        public List<String> getToPath() {
+            return toPath;
+        }
+
+        public String getNodeId() {
+            return nodeId;
+        }
+
+        public JsonTreeDiagnostic getDiagnostic() {
+            return diagnostic;
+        }
+    }
+
+    /**
+     * The ATOMIC leaf move (move_leaf slice): exactly one existing LEAF changes its parent —
+     * UUID, label and card data stay, only the path changes, document and sidecar commit as
+     * one pair in exactly one revision. Resolution happens COMPLETELY before the mutation:
+     * source and target accept a full path or a globally unique exact short name; ambiguity
+     * ({@code AMBIGUOUS_SOURCE}/{@code AMBIGUOUS_PARENT}), a branch source
+     * ({@code SOURCE_NOT_LEAF}), a missing target ({@code TARGET_PARENT_NOT_FOUND} — never
+     * auto-created) and a same-name card at the target ({@code TARGET_NAME_COLLISION} — never
+     * merged or overwritten) all reject the WHOLE call with zero mutation. Moving a leaf onto
+     * its current parent is the honest idempotent {@code NO_CHANGE}.
+     */
+    public synchronized MoveLeafResult moveLeaf(List<String> sourceNames,
+                                                List<String> targetParentNames) {
+        if (failClosed) {
+            return moveError(failClosedError().getDiagnostic());
+        }
+        String document = store.effectiveContent();
+        StrictJsonParseResult parsed = StrictJsonParser.parse(document);
+        if (!parsed.isOk()) {
+            return moveError(parsed.getDiagnostic());
+        }
+        // ---- source resolution (full path, or globally unique exact short name)
+        List<String> sourcePath = resolveUnique(document, parsed.getElement(), sourceNames,
+                "AMBIGUOUS_SOURCE");
+        if (sourcePath == null) {
+            return moveError(lastResolveDiagnostic);
+        }
+        // ---- target resolution ([] = root; full path; globally unique short name; NO create)
+        List<String> targetPath;
+        if (targetParentNames == null || trimmedSegments(targetParentNames).isEmpty()) {
+            targetPath = java.util.Collections.emptyList();
+        } else {
+            targetPath = resolveUnique(document, parsed.getElement(),
+                    trimmedSegments(targetParentNames), "AMBIGUOUS_PARENT");
+            if (targetPath == null) {
+                // Ambiguity keeps its candidate-path diagnostic; anything else is the honest
+                // "no such parent — and this tool NEVER creates one" refusal.
+                return moveError(lastResolveDiagnostic != null
+                        && lastResolveDiagnostic.describeForModel().contains("AMBIGUOUS")
+                        ? lastResolveDiagnostic
+                        : JsonTreeDiagnostic.of(JsonTreeErrorCode.TARGET_NODE_NOT_FOUND,
+                                "TARGET_PARENT_NOT_FOUND " + trimmedSegments(targetParentNames)
+                                        + " — the target parent must already exist; "
+                                        + "move_leaf never creates it.").build());
+            }
+        }
+        String label = sourcePath.get(sourcePath.size() - 1);
+        String nodeId = identity == null ? null
+                : identity.idAtPath(parsed.getElement(), sourcePath);
+        // ---- leaf-only + same-parent + collision checks, all BEFORE any mutation
+        if (!isLeafShape(parsed.getElement(), sourcePath)) {
+            return moveError(JsonTreeDiagnostic.of(JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
+                    "SOURCE_NOT_LEAF \"" + label + "\" — only a LEAF moves with this tool; "
+                            + "branches stay manual editor work.").build());
+        }
+        List<String> currentParent = sourcePath.subList(0, sourcePath.size() - 1);
+        if (currentParent.equals(targetPath)) {
+            return new MoveLeafResult(true, true, store.workingRevision(), label,
+                    new ArrayList<String>(sourcePath), new ArrayList<String>(sourcePath),
+                    nodeId, null);
+        }
+        // ---- mutate ONE candidate: detach at the source, attach under the target
+        Resolution sourceResolution = resolve(parsed.getElement(), sourcePath);
+        if (sourceResolution.diagnostic != null) {
+            return moveError(sourceResolution.diagnostic);
+        }
+        JsonElement candidate = parsed.getElement().deepCopy();
+        JsonArray targetArray;
+        if (targetPath.isEmpty()) {
+            targetArray = candidate.getAsJsonObject().get(CONCEPT_PROPERTY).getAsJsonArray();
+        } else {
+            Resolution targetResolution = resolve(parsed.getElement(), targetPath);
+            if (targetResolution.diagnostic != null) {
+                return moveError(targetResolution.diagnostic);
+            }
+            targetArray = arrayAt(candidate, targetResolution.path);
+            if (targetArray == null) {
+                return moveError(JsonTreeDiagnostic.of(JsonTreeErrorCode.TARGET_NODE_NOT_FOUND,
+                        "TARGET_PARENT_NOT_FOUND " + targetPath + ".").build());
+            }
+        }
+        for (JsonElement element : targetArray) {
+            if (element.isJsonObject() && element.getAsJsonObject().has(label)) {
+                return moveError(JsonTreeDiagnostic.of(JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
+                        "TARGET_NAME_COLLISION \"" + label + "\" — a different card with this "
+                                + "name already sits at the target; nothing was merged or "
+                                + "overwritten.").build());
+            }
+        }
+        JsonElement leafValue = valueAt(candidate, sourceResolution.path);
+        JsonTreeDiagnostic removal = removeAt(candidate, sourceResolution.path);
+        if (removal != null) {
+            return moveError(removal);
+        }
+        JsonObject targetContainer = null;
+        for (JsonElement element : targetArray) {
+            if (element.isJsonObject()) {
+                targetContainer = element.getAsJsonObject();
+                break;
+            }
+        }
+        if (targetContainer == null) {
+            targetContainer = new JsonObject();
+            targetArray.add(targetContainer);
+        }
+        targetContainer.add(label, leafValue == null ? new JsonArray() : leafValue);
+        List<String> newPath = new ArrayList<String>(targetPath);
+        newPath.add(label);
+        ConceptIdentity identityAfter = identity.afterMoveLeaf(parsed.getElement(), sourcePath,
+                candidate, newPath);
+        EditResult committed = commitCandidate(candidate, identityAfter, null);
+        if (!committed.isApplied()) {
+            return moveError(committed.getDiagnostic());
+        }
+        return new MoveLeafResult(true, false, committed.getNewRevision(), label,
+                new ArrayList<String>(sourcePath), newPath, nodeId, null);
+    }
+
+    /** Set by {@link #resolveUnique} when it returns {@code null}. */
+    private JsonTreeDiagnostic lastResolveDiagnostic;
+
+    /** Full path or globally unique exact short name → full path; {@code null} + diagnostic. */
+    private List<String> resolveUnique(String document, JsonElement documentRoot,
+                                       List<String> names, String ambiguityMarker) {
+        List<String> trimmed = trimmedSegments(names);
+        lastResolveDiagnostic = null;
+        if (trimmed.isEmpty()) {
+            lastResolveDiagnostic = JsonTreeDiagnostic.of(JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
+                    "Name the card (a full path, or one globally unique card name).").build();
+            return null;
+        }
+        Resolution direct = resolve(documentRoot, trimmed);
+        if (direct.diagnostic == null) {
+            return trimmed;
+        }
+        if (trimmed.size() == 1) {
+            List<List<String>> matches = new ArrayList<List<String>>();
+            for (List<String> path : ConceptTopicScanner.collectCardPaths(document)) {
+                if (path.get(path.size() - 1).equals(trimmed.get(0))) {
+                    matches.add(path);
+                }
+            }
+            if (matches.size() == 1) {
+                return matches.get(0);
+            }
+            if (matches.size() > 1) {
+                StringBuilder candidates = new StringBuilder();
+                for (List<String> match : matches) {
+                    candidates.append(candidates.length() > 0 ? ", " : "").append(match);
+                }
+                lastResolveDiagnostic = JsonTreeDiagnostic.of(
+                        JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
+                        ambiguityMarker + " \"" + trimmed.get(0) + "\" — candidates: "
+                                + candidates + ".")
+                        .hint("Use the full path.").build();
+                return null;
+            }
+        }
+        lastResolveDiagnostic = direct.diagnostic;
+        return null;
+    }
+
+    private static List<String> trimmedSegments(List<String> names) {
+        List<String> trimmed = new ArrayList<String>();
+        for (String name : names == null ? java.util.Collections.<String>emptyList() : names) {
+            String value = name == null ? "" : name.trim();
+            if (!value.isEmpty()) {
+                trimmed.add(value);
+            }
+        }
+        return trimmed;
+    }
+
+    /** Whether the card at {@code names} has NO children (leaf) in {@code documentRoot}. */
+    private boolean isLeafShape(JsonElement documentRoot, List<String> names) {
+        Resolution resolution = resolve(documentRoot, names);
+        if (resolution.diagnostic != null) {
+            return false;
+        }
+        JsonArray value = arrayAt(documentRoot, resolution.path);
+        return value != null && value.size() == 0;
+    }
+
+    /** The card's own array value at a resolved path (deep-copied candidate), or null. */
+    private static JsonElement valueAt(JsonElement documentRoot, JsonBranchPath path) {
+        JsonArray value = arrayAt(documentRoot, path);
+        return value;
+    }
+
+    private static MoveLeafResult moveError(JsonTreeDiagnostic diagnostic) {
+        return new MoveLeafResult(false, false, -1L, null, null, null, null, diagnostic);
+    }
+
     /** Remove the card at the name path with its whole subtree. Deliberately destructive. */
     public synchronized EditResult removeNodeAt(List<String> names) {
         if (failClosed) {

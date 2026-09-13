@@ -23,7 +23,8 @@ public final class ConceptAction {
      * generation grammar — as an ACTION the model actually uses it, and the platform renders
      * the yellow tags).
      */
-    public enum Type { READ, ADD, ADD_CARDS, REMOVE, EXCLUDE, RESOLVE, OFFER, RENAME, REWRITE }
+    public enum Type { READ, ADD, ADD_CARDS, MOVE, REMOVE, EXCLUDE, RESOLVE, OFFER, RENAME,
+        REWRITE }
 
     private final Type type;
     private final List<String> path;
@@ -104,6 +105,9 @@ public final class ConceptAction {
                 return "add parent=" + segmentsLabel(parent) + " name=\"" + name + "\"";
             case ADD_CARDS:
                 return "add_cards parent=" + segmentsLabel(parent) + " names=" + decision;
+            case MOVE:
+                return "move source=" + segmentsLabel(path) + " parent="
+                        + segmentsLabel(parent);
             case EXCLUDE:
                 return "exclude topic=\"" + name + "\"";
             case RESOLVE:
@@ -234,6 +238,17 @@ public final class ConceptAction {
             return Parsed.ok(new ConceptAction(Type.ADD_CARDS, null,
                     segments(map.get("parent"), map.get("parent_path")), "",
                     json.toString()));
+        }
+        if ("move".equalsIgnoreCase(type)) {
+            List<String> source = segments(map.get("source"), map.get("path"));
+            if (source.isEmpty() || !map.containsKey("parent")) {
+                return Parsed.invalid("conceptAction type \"move\" requires \"source\" (the "
+                        + "leaf — one globally unique card name is enough) and \"parent\" "
+                        + "([] = top level) — example: {\"type\":\"move\",\"source\":"
+                        + "[\"Scheduling\"],\"parent\":[\"FreeRTOS\"]}");
+            }
+            return Parsed.ok(new ConceptAction(Type.MOVE, source,
+                    segments(map.get("parent"), map.get("parent_path")), ""));
         }
         if ("remove".equalsIgnoreCase(type)) {
             List<String> path = segments(map.get("path"), map.get("parent"));

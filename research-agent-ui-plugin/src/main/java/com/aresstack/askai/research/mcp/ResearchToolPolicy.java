@@ -66,6 +66,9 @@ public final class ResearchToolPolicy {
                 // deeper restructuring stays manual until the tree editor. An old runtime still
                 // calling concept_remove/concept_rewrite gets an honest "not offered" error.
                 tools.add(conceptRenameTool(ctx));
+                // move_leaf slice: exactly ONE existing leaf changes its parent — UUID, label
+                // and card data stay; the tool never creates targets, never moves branches.
+                tools.add(conceptMoveLeafTool(ctx));
                 // The ONE-command exclusion facade (live-gate 4): the model quotes the user's
                 // term, the host owns id/facet/blacklist and the concept-conflict check.
                 tools.add(excludeTopicTool(ctx));
@@ -650,6 +653,76 @@ public final class ResearchToolPolicy {
                 McpToolParameter.string("path_json", false,
                         "The segments as a JSON array of card names — the unambiguous form"),
                 McpToolParameter.string("name", true, "The new card name — ONE label"));
+    }
+
+    /**
+     * The atomic leaf move: one leaf, one target parent, one revision, UNCHANGED UUID. Every
+     * receipt line mirrors into the technical log; every refusal ({@code SOURCE_NOT_LEAF},
+     * {@code TARGET_PARENT_NOT_FOUND}, {@code AMBIGUOUS_*}, {@code TARGET_NAME_COLLISION})
+     * leaves document and sidecar byte-identical.
+     */
+    private static McpToolContribution conceptMoveLeafTool(final ResearchControlContext ctx) {
+        return McpToolContribution.of("concept_move_leaf",
+                "Move ONE existing LEAF card under an existing parent (or the top level). "
+                        + "Never a branch, never creates the target. Example: "
+                        + "source_json=[\"Scheduling\"], parent_path_json=[\"FreeRTOS\"]; "
+                        + "parent_path_json=[] moves to the top level.",
+                new McpToolHandler() {
+                    public McpToolResult invoke(McpToolCall call) {
+                        McpToolResult denied = requireWritable(ctx, ResearchStateIds.SCOPING);
+                        if (denied != null) {
+                            return denied;
+                        }
+                        java.util.List<String> source = segmentsOf(call, "source");
+                        if (source.isEmpty()) {
+                            return McpToolResult.error("Missing argument: source_json — the "
+                                    + "leaf as a JSON array of card names (a globally unique "
+                                    + "single name is enough), e.g. "
+                                    + "source_json=[\"Scheduling\"]");
+                        }
+                        com.aresstack.askai.research.concept.ConceptBranchService
+                                .MoveLeafResult result = ctx.conceptBranchService()
+                                .moveLeaf(source, segmentsOf(call, "parent_path"));
+                        if (!result.isApplied()) {
+                            String diagnostic = result.getDiagnostic().describeForModel();
+                            ctx.conceptToolLog("concept_move_leaf -> REFUSED "
+                                    + diagnostic.replace("\r", "").replace('\n', ' '));
+                            return McpToolResult.error(diagnostic);
+                        }
+                        java.util.List<String> lines = new java.util.ArrayList<String>();
+                        StringBuilder receipt;
+                        if (result.isNoChange()) {
+                            receipt = new StringBuilder("NO_CHANGE revision=")
+                                    .append(result.getNewRevision());
+                            lines.add("ALREADY_AT_TARGET: " + result.getLabel());
+                        } else {
+                            receipt = new StringBuilder("APPLIED revision=")
+                                    .append(result.getNewRevision());
+                            lines.add("MOVED: " + result.getLabel());
+                            lines.add("FROM: " + result.getFromPath());
+                            lines.add("TO: " + result.getToPath());
+                            ctx.onConceptChanged(result.getNewRevision());
+                        }
+                        lines.add("ID: " + result.getNodeId());
+                        ctx.conceptToolLog("concept_move_leaf -> "
+                                + (result.isNoChange() ? "NO_CHANGE" : "APPLIED")
+                                + " revision=" + result.getNewRevision());
+                        for (String line : lines) {
+                            receipt.append('\n').append(line);
+                            ctx.conceptToolLog("concept_move_leaf -> " + line);
+                        }
+                        return McpToolResult.ok(receipt.toString());
+                    }
+                },
+                McpToolParameter.string("source", false,
+                        "The leaf's names from the concept root, separated by '/' (or ONE "
+                                + "globally unique card name)"),
+                McpToolParameter.string("source_json", false,
+                        "The leaf as a JSON array of card names — the unambiguous form"),
+                McpToolParameter.string("parent_path", false,
+                        "The target parent's names separated by '/'. Empty = top level."),
+                McpToolParameter.string("parent_path_json", false,
+                        "The target parent segments as a JSON array ([] = top level)"));
     }
 
     /** Case-insensitive exact match against the session's blacklist terms. */

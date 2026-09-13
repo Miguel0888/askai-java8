@@ -35,6 +35,16 @@ public class ScopingConceptPromptTest {
                 with.contains("never any deeper invented hierarchy"));
         assertTrue("short unique parent names are enough",
                 with.contains("the application resolves the full path itself"));
+        // move_leaf slice: one leaf, one existing target, receipt-covered claims only.
+        assertTrue(with.contains("THE MOVE COMMAND"));
+        assertTrue(with.contains("{\"type\":\"move\",\"source\":[\"Scheduling\"],\"parent\":"
+                + "[\"FreeRTOS\"]}"));
+        assertTrue("move never creates parents or moves branches",
+                with.contains("move never creates parents, never moves branches"));
+        assertTrue("explicit orders run the tool even at the target",
+                with.contains("even when you believe the card is already there"));
+        assertTrue("'verschoben' only with a MOVED receipt of THIS turn",
+                with.contains("ONLY when THIS turn carries a MOVED receipt"));
         assertTrue("multi-word terms stay one name",
                 with.contains("\"Computer Science\" is one card"));
         assertTrue("claims only per receipt",
@@ -134,10 +144,12 @@ public class ScopingConceptPromptTest {
         // carries neither remove nor rewrite (the parser stays tolerant for old transcripts,
         // the loop refuses execution).
         assertTrue(schema.contains(
-                "\"enum\":[\"none\",\"read\",\"add_cards\",\"exclude\",\"resolve\","
+                "\"enum\":[\"none\",\"read\",\"add_cards\",\"move\",\"exclude\",\"resolve\","
                         + "\"offer\",\"rename\"]"));
         assertTrue("the names list is grammar-bounded and typed",
                 schema.contains("\"names\":{\"type\":\"array\",\"maxItems\":16"));
+        assertTrue("the move source is grammar-bounded and typed",
+                schema.contains("\"source\":{\"type\":\"array\",\"maxItems\":6"));
         assertFalse(schema.contains("\"rewrite\""));
         assertFalse(schema.contains("\"leaves\""));
         assertTrue(schema.contains("\"topic\":{\"type\":\"string\"}"));
