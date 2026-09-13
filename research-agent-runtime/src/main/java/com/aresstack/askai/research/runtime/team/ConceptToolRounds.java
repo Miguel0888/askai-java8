@@ -64,10 +64,26 @@ public final class ConceptToolRounds {
                                       ConceptTool tool, int maxToolRounds,
                                       int maxRepairAttempts, boolean germanFeedback,
                                       IntermediateSink intermediateSink, Trace trace) {
+        return run(initial, turn, tool, maxToolRounds, maxRepairAttempts, germanFeedback,
+                intermediateSink, trace, false);
+    }
+
+    /**
+     * @param nudgeOfferWhenMissing gate 9b: the session has never offered exploration tags —
+     *  a turn that BUILT concept cards but ends without an offer gets ONE machinery nudge for
+     *  exactly the missing step (the FIRST-TURN DRILL prose alone did not move the model).
+     */
+    public static TeamAgentResult run(TeamAgentResult initial, FollowUpTurn turn,
+                                      ConceptTool tool, int maxToolRounds,
+                                      int maxRepairAttempts, boolean germanFeedback,
+                                      IntermediateSink intermediateSink, Trace trace,
+                                      boolean nudgeOfferWhenMissing) {
         TeamAgentResult result = initial;
         int rounds = 0;
         int repairs = 0;
         boolean budgetExhausted = false;
+        boolean offeredThisTurn = false;
+        boolean offerNudgeSpent = false;
         // The AUTHORITATIVE change receipts, carried across the rounds: every feedback lists
         // WHICH actions were applied and WHICH were rejected (and why), plus the CURRENT
         // persisted concept after any mutation attempt — a lone boolean once let one applied
@@ -106,9 +122,19 @@ public final class ConceptToolRounds {
                             scopeUpdate.describeViolations(), germanFeedback));
                     continue;
                 }
-                // Mission bookkeeping is the HOST'S job (live-gate 4 decision): it records the
-                // user's first message as the mission mechanically — no repair loop begs the
-                // model for setMission anymore.
+                // Gate 9b: the session's FIRST substantive card-building turn must not end
+                // without exploration tags — ONE machinery nudge asks for exactly the offer.
+                // Never spent twice, never on turns that built nothing, never over budget.
+                if (nudgeOfferWhenMissing && !offerNudgeSpent && !offeredThisTurn
+                        && !applied.isEmpty() && !budgetExhausted) {
+                    offerNudgeSpent = true;
+                    trace.line("search tags missing — offer nudge turn");
+                    if (intermediateSink != null) {
+                        intermediateSink.intermediate(output);
+                    }
+                    result = turn.run(TeamAgentPlaybook.offerSearchesMissing(germanFeedback));
+                    continue;
+                }
                 return result; // the model finished without a further action — the normal end
             }
             if (budgetExhausted) {
@@ -146,6 +172,7 @@ public final class ConceptToolRounds {
                     if (action.getType() == ConceptAction.Type.OFFER) {
                         // A working step like READ: the tags are display state, not the concept —
                         // no revision, no grounding re-read, the loop simply continues.
+                        offeredThisTurn = true;
                         trace.line("round " + rounds + " -> OFFERED");
                         feedback = TeamAgentPlaybook.conceptToolResult(text, germanFeedback);
                     } else if (action.getType() == ConceptAction.Type.READ) {

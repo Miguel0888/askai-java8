@@ -681,6 +681,27 @@ public final class TeamAgentPlaybook {
     }
 
     /**
+     * The one-shot offer nudge (gate 9b: the FIRST-TURN DRILL alone did not move the model —
+     * machinery instructions do). Sent when a turn built concept cards but the session still
+     * has no exploration tags; asks for EXACTLY the missing step and nothing else.
+     */
+    public static String offerSearchesMissing(boolean german) {
+        return german
+                ? "SEARCH TAGS MISSING — der Nutzer hat noch keine gelben Erkundungs-Tags.\n"
+                        + "Sende jetzt GENAU EINE offer-Aktion mit 3-5 Queries, die je eine "
+                        + "ANDERE Richtung des Themas öffnen: {\"type\": \"offer\", "
+                        + "\"suggestions\": [{\"query\": \"...\", \"purpose\": \"...\"}]}. "
+                        + "Keine Konzept-Änderung in diesem Schritt; danach schließe mit type "
+                        + "\"none\" ab."
+                : "SEARCH TAGS MISSING — the user has no yellow exploration tags yet.\n"
+                        + "Now send EXACTLY ONE offer action with 3-5 queries, each opening a "
+                        + "DIFFERENT direction of the area: {\"type\": \"offer\", "
+                        + "\"suggestions\": [{\"query\": \"...\", \"purpose\": \"...\"}]}. "
+                        + "No concept change in this step; afterwards finish with type "
+                        + "\"none\".";
+    }
+
+    /**
      * The AUTHORITATIVE artifact state, prepended to every concept feedback as a machine-like
      * block — small models follow a regular state block better than prose, and it removes any
      * room for the "the conversation is the state" fiction: only an APPLIED tool call changes

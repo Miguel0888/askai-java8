@@ -321,6 +321,55 @@ public class ConceptToolRoundsTest {
         assertTrue(trace.toString(), trace.toString().contains("EXCLUDED (terminal)"));
     }
 
+    /**
+     * Gate 9b: a card-building turn that ends without exploration tags earns ONE machinery
+     * nudge for exactly the offer — and only while the session never offered (the caller's
+     * flag). A second refusal is accepted; turns that built nothing are never nudged.
+     */
+    @Test
+    public void aCardBuildingTurnWithoutTagsGetsExactlyOneOfferNudge() throws Exception {
+        ScriptedTurns turns = new ScriptedTurns();
+        ScriptedTool tool = new ScriptedTool();
+        tool.byDescription.put("add parent=[] name=\"FreeRTOS\"", "added \"FreeRTOS\" revision=1");
+        tool.byDescription.put("offer suggestions=1", "{\"result\":\"OFFERED\",\"count\":1}");
+        turns.script.add(turn("fertig", null)); // ends the turn WITHOUT an offer -> nudge
+        turns.script.add(turn("hier sind Vorschläge", "{\"type\":\"offer\",\"suggestions\":["
+                + "{\"query\":\"FreeRTOS Grundlagen\"}]}"));
+        turns.script.add(turn("Schau sie dir an.", null));
+
+        TeamAgentResult result = ConceptToolRounds.run(
+                turn("lege an", "{\"type\":\"add\",\"parent\":[],\"name\":\"FreeRTOS\"}"),
+                turns, tool, 6, 2, false, null, traceSink, true);
+
+        assertTrue("the nudge asks for exactly the missing step",
+                turns.feedbackSeen.get(1).startsWith("SEARCH TAGS MISSING"));
+        assertTrue("the model then offered", tool.calls.toString().contains("offer suggestions=1"));
+        assertEquals("Schau sie dir an.",
+                ((ScopingAssistantOutput) result.getOutput()).getAssistantMessage());
+        assertTrue(trace.toString(), trace.toString().contains("offer nudge turn"));
+    }
+
+    @Test
+    public void theOfferNudgeNeverFiresWithoutCardsOrWhenDisabled() throws Exception {
+        // Disabled flag (session already offered): a card-building none-turn passes through.
+        ScriptedTurns turns = new ScriptedTurns();
+        ScriptedTool tool = new ScriptedTool();
+        tool.byDescription.put("add parent=[] name=\"X\"", "added \"X\" revision=1");
+        turns.script.add(turn("fertig", null));
+        ConceptToolRounds.run(turn("lege an",
+                "{\"type\":\"add\",\"parent\":[],\"name\":\"X\"}"),
+                turns, tool, 4, 2, false, null, traceSink, false);
+        assertEquals("only the ARTIFACT_STATE feedback of the add — no nudge",
+                1, turns.feedbackSeen.size());
+
+        // Enabled flag but the turn built NOTHING: a pure answer stays untouched.
+        ScriptedTurns quiet = new ScriptedTurns();
+        TeamAgentResult initial = turn("nur eine Antwort", null);
+        assertEquals(initial, ConceptToolRounds.run(initial, quiet, new ScriptedTool(),
+                4, 2, false, null, traceSink, true));
+        assertTrue(quiet.feedbackSeen.isEmpty());
+    }
+
     /** An OFFER is a working step like READ: tool reply as feedback, loop continues, not terminal. */
     @Test
     public void anOfferActionFeedsTheToolReplyBackAndContinues() throws Exception {

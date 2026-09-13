@@ -1235,8 +1235,12 @@ public final class ResearchAgentMain {
                         ctx.sendMessage(com.aresstack.askai.research.runtime.loop.ResearchRunWire
                                 .log("concept " + message));
                     }
-                });
+                },
+                !searchTagsOffered); // nudge until the session offered its first tags (gate 9b)
     }
+
+    /** Whether THIS session ever offered exploration tags — ends the one-shot offer nudge. */
+    private volatile boolean searchTagsOffered;
 
     /**
      * One synchronous concept tool call over the research MCP client, with the same error mapping
@@ -1297,6 +1301,10 @@ public final class ResearchAgentMain {
             }
             if (text.startsWith("Tool failed:") || text.startsWith("Not allowed")) {
                 throw new com.aresstack.askai.research.runtime.loop.ToolInvoker.ToolFailure(text);
+            }
+            if (action.getType()
+                    == com.aresstack.askai.research.runtime.team.ConceptAction.Type.OFFER) {
+                searchTagsOffered = true; // the session has its tags — the nudge retires
             }
             return text;
         } catch (com.aresstack.askai.research.runtime.loop.ToolInvoker.ToolFailure ex) {
