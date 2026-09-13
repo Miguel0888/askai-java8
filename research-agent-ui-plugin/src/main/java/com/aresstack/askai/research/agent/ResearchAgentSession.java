@@ -1875,7 +1875,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 // Display-only support content for the scoping workspace: keep only the LATEST projection
                 // (a later turn replaces it — the chat keeps every turn, this panel shows the current state).
                 // It moves nothing and writes no artifact; fireStateChanged() lets the workspace re-read it.
-                latestScopingProjection = event.getScopingProjection();
+                latestScopingProjection = mergeOfferedTags(event.getScopingProjection());
                 persistScopingProjection(latestScopingProjection); // survive a restart (display-only working state)
                 finishPostSearchThinking(""); // refreshed suggestions are the last step of the summary
                 break;
@@ -2976,6 +2976,44 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     /** How many exploration tags one offer may carry — the accessory row stays readable. */
     private static final int MAX_OFFERED_SEARCHES = 5;
 
+    /** True while the CURRENT projection's tags came from offer_searches, not the in-band field. */
+    private volatile boolean offerAuthoredProjection;
+
+    /**
+     * Gate 9 lifetime rule: with the action channel active the in-band suggestions field is
+     * DELIBERATELY empty — so the turn's closing (suggestion-free) projection must not wipe the
+     * tags offer_searches just set. An EMPTY incoming list keeps the offered tags (the rest of
+     * the projection updates normally); a NON-empty one is a real replacement and wins.
+     */
+    private com.aresstack.askai.research.backend.ScopingAssistantUpdate mergeOfferedTags(
+            com.aresstack.askai.research.backend.ScopingAssistantUpdate incoming) {
+        com.aresstack.askai.research.backend.ScopingAssistantUpdate merged = mergedProjection(
+                incoming, latestScopingProjection, offerAuthoredProjection);
+        if (incoming != null && !incoming.getSearchSuggestions().isEmpty()) {
+            offerAuthoredProjection = false; // a real in-band replacement ends the offer's reign
+        }
+        return merged;
+    }
+
+    /** The pure merge rule (see above) — static so the lifetime semantics stay test-pinned. */
+    static com.aresstack.askai.research.backend.ScopingAssistantUpdate mergedProjection(
+            com.aresstack.askai.research.backend.ScopingAssistantUpdate incoming,
+            com.aresstack.askai.research.backend.ScopingAssistantUpdate current,
+            boolean offerAuthored) {
+        if (incoming == null) {
+            return current;
+        }
+        if (!incoming.getSearchSuggestions().isEmpty()) {
+            return incoming;
+        }
+        if (offerAuthored && current != null && !current.getSearchSuggestions().isEmpty()) {
+            return new com.aresstack.askai.research.backend.ScopingAssistantUpdate(
+                    incoming.getPhaseId(), current.getSearchSuggestions(),
+                    incoming.getAdviceRecommendation(), incoming.getAdviceReason());
+        }
+        return incoming;
+    }
+
     /**
      * The search-offer command (gate 8b): the model authored the suggestions, the HOST renders
      * them — the same yellow tags the in-band field used to feed, now set as the current scoping
@@ -2991,6 +3029,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         }
         latestScopingProjection = new com.aresstack.askai.research.backend.ScopingAssistantUpdate(
                 state.getPhaseId(), suggestions, "", "");
+        offerAuthoredProjection = true; // the closing empty projection must not wipe these tags
         persistScopingProjection(latestScopingProjection);
         technicalLog("offer_searches -> OFFERED " + suggestions.size() + " tags");
         fireStateChanged();

@@ -56,6 +56,9 @@ public class ScopingConceptPromptTest {
         assertTrue(with.contains("\"query\": \"FreeRTOS ESP32 Grundlagen Tutorial\""));
         assertTrue(with.contains("they are HOW the user explores"));
         assertTrue(with.contains("leave the searchSuggestions field empty"));
+        // Gate 9: the broad first turn skipped the offer — the drill spells out the sequence.
+        assertTrue(with.contains("FIRST-TURN DRILL"));
+        assertTrue(with.contains("concept cards first, then EXACTLY ONE offer action"));
         // Mission is HOST bookkeeping now — the contract does not even mention setMission.
         assertTrue(with.contains("recorded AUTOMATICALLY from the user's first message"));
         assertFalse("gate 5: the model tried 'setMission without mission' although the host had"

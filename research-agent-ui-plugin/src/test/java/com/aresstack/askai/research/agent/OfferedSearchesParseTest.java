@@ -28,6 +28,38 @@ public class OfferedSearchesParseTest {
         assertEquals(2, suggestions.get(1).getPriority());
     }
 
+    /**
+     * Gate 9 lifetime rule: the turn's CLOSING projection carries an (intentionally) empty
+     * in-band suggestions list — it must never wipe the tags offer_searches just set. A real,
+     * non-empty in-band list still replaces them.
+     */
+    @Test
+    public void anEmptyClosingProjectionKeepsTheOfferedTags() {
+        ScopingAssistantUpdate offered = new ScopingAssistantUpdate("scoping",
+                java.util.Arrays.asList(new ScopingAssistantUpdate.Suggestion("q1", "p1", 1)),
+                "", "");
+        ScopingAssistantUpdate closingEmpty = new ScopingAssistantUpdate("scoping",
+                java.util.Collections.<ScopingAssistantUpdate.Suggestion>emptyList(),
+                "STAY", "advice");
+
+        ScopingAssistantUpdate merged =
+                ResearchAgentSession.mergedProjection(closingEmpty, offered, true);
+        assertEquals("the offered tags survive the empty closing projection",
+                "q1", merged.getSearchSuggestions().get(0).getQuery());
+        assertEquals("the projection's other fields still update",
+                "STAY", merged.getAdviceRecommendation());
+
+        ScopingAssistantUpdate inBand = new ScopingAssistantUpdate("scoping",
+                java.util.Arrays.asList(new ScopingAssistantUpdate.Suggestion("q2", "", 1)),
+                "", "");
+        assertEquals("a real in-band list replaces the offer", "q2",
+                ResearchAgentSession.mergedProjection(inBand, offered, true)
+                        .getSearchSuggestions().get(0).getQuery());
+        assertEquals("without an offer the empty projection passes through untouched",
+                0, ResearchAgentSession.mergedProjection(closingEmpty, offered, false)
+                        .getSearchSuggestions().size());
+    }
+
     @Test
     public void brokenEntriesAreDroppedAndTheListIsBounded() {
         assertEquals("blank query dropped", 1, ResearchAgentSession.parseOfferedSearches(
