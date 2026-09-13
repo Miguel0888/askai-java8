@@ -30,7 +30,7 @@ import java.awt.geom.RoundRectangle2D;
  * magnifying-glass icon, placeholder text, flat "go" button and a focus highlight. The DEFAULT look
  * is the design language's NAVIGATION role — calm neutral surface, blue border while focused.
  * Subclasses restyle it through the protected constructor: {@link ComicFindBar} (amber, in-content
- * find) and {@link ComicSearchTag} (the amber-rimmed web-search tag).
+ * find) and {@link ComicSearchTag} (the web-search tag: ink rim at rest, amber magnifier).
  *
  * <pre>
  *   +----------------------------------------------+
