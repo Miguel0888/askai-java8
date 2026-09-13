@@ -22,8 +22,8 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 
 /**
- * The "Websuche" tag in the workspace top bar: the {@link ComicSearchTag} (yellow chip look, ink
- * magnifier), TRAILING at the far right of the top bar (the old centered spot now belongs to the
+ * The "Websuche" tag in the workspace top bar: the {@link ComicSearchTag} (calm surface with the
+ * amber rim), TRAILING at the far right of the top bar (the old centered spot now belongs to the
  * phase selector). Firing runs {@link ResearchAgentSession#requestManualWebSearch}
  * — the SAME phase-independent /search path as a suggestion click, so the captured sources flow
  * into the corpus and the bot can review them afterwards. Never a chat turn, never a state command.

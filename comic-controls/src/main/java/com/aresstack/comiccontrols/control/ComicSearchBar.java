@@ -30,7 +30,7 @@ import java.awt.geom.RoundRectangle2D;
  * magnifying-glass icon, placeholder text, flat "go" button and a focus highlight. The DEFAULT look
  * is the design language's NAVIGATION role — calm neutral surface, blue border while focused.
  * Subclasses restyle it through the protected constructor: {@link ComicFindBar} (amber, in-content
- * find) and {@link ComicSearchTag} (the yellow suggestion-tag look).
+ * find) and {@link ComicSearchTag} (the amber-rimmed web-search tag).
  *
  * <pre>
  *   +----------------------------------------------+
@@ -66,7 +66,7 @@ public class ComicSearchBar extends JPanel {
                 new Color(0x888888), new Color(0xAAAAAA), 10, 1.5f);
     }
 
-    /** The full styling seam for the variants (amber find bar, yellow search tag). */
+    /** The full styling seam for the variants (amber find bar, amber-rimmed search tag). */
     protected ComicSearchBar(String placeholder, String tooltip,
                              Color normalBackground, Color focusedBackground,
                              Color normalBorder, Color focusedBorder,
