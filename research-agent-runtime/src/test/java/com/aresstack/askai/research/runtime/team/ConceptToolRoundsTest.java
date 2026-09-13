@@ -162,7 +162,10 @@ public class ConceptToolRoundsTest {
         assertTrue(feedback.contains("APPLIED_ACTIONS\n- (none)"));
         assertTrue("even a rejection grounds the receipts in the persisted (unchanged) state",
                 feedback.contains("CURRENT_CONCEPT"));
-        assertTrue(trace.contains("round 1 -> REJECTED TARGET_NODE_NOT_FOUND"));
+        // Slice-2 gate observability fix: the trace carries the WHOLE flattened reason — the
+        // log once showed only the error code while the teaching text reached the model alone.
+        assertTrue(trace.contains("round 1 -> REJECTED TARGET_NODE_NOT_FOUND Concept node "
+                + "\"ESP32\" does not exist."));
     }
 
     @Test
@@ -183,8 +186,40 @@ public class ConceptToolRoundsTest {
         assertTrue("the second rejection exhausts the repair budget (work budget untouched)",
                 turns.feedbackSeen.get(1).contains("TOOL BUDGET EXHAUSTED"));
         assertTrue(turns.feedbackSeen.get(1).contains(
-                "REJECTED_ACTIONS\n- add parent=[] name=\"X\" — BRANCH_GRAFT_FAILED\n"
-                        + "- add parent=[] name=\"X\" — BRANCH_GRAFT_FAILED"));
+                "REJECTED_ACTIONS\n- add parent=[] name=\"X\" — BRANCH_GRAFT_FAILED boom\n"
+                        + "- add parent=[] name=\"X\" — BRANCH_GRAFT_FAILED boom"));
+    }
+
+    /**
+     * Safety slice after the slice-2 gate: a destructive action from a legacy transcript (the
+     * grammar cannot emit them anymore) is REFUSED before the host — no tool call, honest
+     * teaching feedback, and the wrap-up receipt names the refusal.
+     */
+    @Test
+    public void destructiveActionsAreRefusedWithoutEverReachingTheHost() throws Exception {
+        ScriptedTurns turns = new ScriptedTurns();
+        ScriptedTool tool = new ScriptedTool();
+        turns.script.add(turn("verstanden", null));
+        ConceptToolRounds.run(
+                turn("räume auf", "{\"type\":\"remove\",\"path\":[\"Buch\",\"Setup\"]}"),
+                turns, tool, 4, 2, false, null, traceSink);
+        assertTrue("the host never sees a model remove", tool.calls.isEmpty());
+        assertTrue(turns.feedbackSeen.get(0)
+                .contains("Destructive concept edits (remove/rewrite) are not part of your "
+                        + "contract"));
+        assertTrue("the refusal is a visible outcome", trace.contains(
+                "round 1 -> REFUSED (destructive concept edits are user-owned)"));
+
+        trace.clear();
+        ScriptedTurns rewriteTurns = new ScriptedTurns();
+        ScriptedTool rewriteTool = new ScriptedTool();
+        rewriteTurns.script.add(turn("ok", null));
+        ConceptToolRounds.run(
+                turn("überarbeite", "{\"type\":\"rewrite\",\"path\":[\"Setup\"],"
+                        + "\"leaves\":[\"Arduino\"]}"),
+                rewriteTurns, rewriteTool, 4, 2, false, null, traceSink);
+        assertTrue(rewriteTool.calls.isEmpty());
+        assertTrue(rewriteTurns.feedbackSeen.get(0).contains("manual work in the concept editor"));
     }
 
     @Test

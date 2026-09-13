@@ -240,20 +240,18 @@ public final class TeamAgentPlaybook {
                 + (conceptTools
                         ? ",\n  \"conceptAction\": {              // your ONE action THIS "
                         + "inference; use type none when you change nothing\n"
-                        + "    \"type\": \"none\"|\"read\"|\"add\"|\"remove\"|\"exclude\"|\"resolve\""
-                        + "|\"offer\"|\"rename\"|\"rewrite\",\n"
-                        + "    \"path\": [string],                // read/remove: card names as "
+                        + "    \"type\": \"none\"|\"read\"|\"add\"|\"exclude\"|\"resolve\""
+                        + "|\"offer\"|\"rename\",\n"
+                        + "    \"path\": [string],                // read/rename: card names as "
                         + "SEGMENTS from the concept root\n"
                         + "    \"parent\": [string], \"name\": string,       // add: where (segments) "
-                        + "and what (ONE label)\n"
+                        + "and what (ONE label); rename: path + the new name\n"
                         + "    \"topic\": string,                 // exclude: the term in the USER'S "
                         + "words, nothing else\n"
                         + "    \"conflictId\": string, \"decision\": \"REMOVE\"|\"KEEP_SUPPRESSED\","
                         + "  // resolve: answer a reported concept conflict\n"
-                        + "    \"suggestions\": [{\"query\": string, \"purpose\": string}],  "
+                        + "    \"suggestions\": [{\"query\": string, \"purpose\": string}]  "
                         + "// offer: 3-5 orientation searches as clickable tags\n"
-                        + "    \"leaves\": [string]               // rewrite: the terminal "
-                        + "branch's NEW leaf names (rename uses path+name)\n"
                         + "  }\n"
                         : "\n")
                 + "}\n\n"
@@ -537,6 +535,20 @@ public final class TeamAgentPlaybook {
                 + "that will steer the research.\n\n";
     }
 
+    /**
+     * The loop's refusal text for a destructive action from a legacy transcript (safety slice:
+     * remove/rewrite left the model contract — a natural rewrite wish once became a remove that
+     * vaporised the branch, and "PlatformIO möchte ich nicht behandeln" became a remove instead
+     * of the exclusion). The text teaches the two honest alternatives instead.
+     */
+    public static String destructiveEditRefusal() {
+        return "Destructive concept edits (remove/rewrite) are not part of your contract. If the "
+                + "user ruled a topic out, send the exclude command — the application asks about "
+                + "a matching concept entry and removes it ITSELF after the user's yes. For any "
+                + "other deletion or restructuring, tell the user honestly that it is manual work "
+                + "in the concept editor for now. Do NOT improvise a substitute action.";
+    }
+
     /** How to use the concept tool: one small step per inference, read before update, no rewrites. */
     private static String conceptToolRules() {
         return "THE CONCEPT (conceptAction):\n"
@@ -552,17 +564,17 @@ public final class TeamAgentPlaybook {
                 + "\"name\":\"FreeRTOS\"}\n"
                 + "    add a subtopic:       {\"type\":\"add\",\"parent\":"
                 + "[\"FreeRTOS\",\"Kommunikation\"],\"name\":\"Task Notifications\"}\n"
-                + "    remove a card:        {\"type\":\"remove\",\"path\":"
-                + "[\"FreeRTOS\",\"Praxis\",\"ESP-IDF\"]}\n"
+                + "    rename a card:        {\"type\":\"rename\",\"path\":"
+                + "[\"FreeRTOS\",\"Setup\"],\"name\":\"ESP32-Entwicklung\"}\n"
                 + "    change nothing:       {\"type\":\"none\"}\n"
                 + "- Map an explicit user command DIRECTLY to its one action:\n"
                 + "    \"Speichere ausschlie\u00dflich die Karte FreeRTOS.\"  ->  "
                 + "{\"type\":\"add\",\"parent\":[],\"name\":\"FreeRTOS\"}\n"
                 + "    \"F\u00fcge unter FreeRTOS Tasks hinzu.\"           ->  "
                 + "{\"type\":\"add\",\"parent\":[\"FreeRTOS\"],\"name\":\"Tasks\"}\n"
-                + "    \"Entferne ESP-IDF unter Praxis.\"               ->  "
-                + "{\"type\":\"remove\",\"path\":[\"Praxis\",\"ESP-IDF\"]}\n"
-                + "- Do not read unrelated branches before an explicit atomic add/remove. Read "
+                + "    \"Entferne ESP-IDF.\" / \"ESP-IDF raus.\"          ->  "
+                + "{\"type\":\"exclude\",\"topic\":\"ESP-IDF\"} (see THE EXCLUSION COMMAND)\n"
+                + "- Do not read unrelated branches before an explicit atomic add. Read "
                 + "only when the current path or structure is genuinely unknown.\n"
                 + "- If you are unsure whether a parent exists: 1) read it, 2) look at the result, "
                 + "3) add. Adding an already-existing card is rejected with the reason.\n"
@@ -612,24 +624,27 @@ public final class TeamAgentPlaybook {
                 + "EXACT card names from CURRENT_CONCEPT (e.g. [\"ESP32 und FreeRTOS Setup\"]); "
                 + "scope facet ids from CURRENT RESEARCH SCOPE (e.g. \"esp32-setup\") are "
                 + "NEVER concept path segments, and a card name is NEVER a facetId.\n"
-                + "- The concept mirrors the CONVERSATION: add what the user asks for, propose what "
-                + "scope and sources suggest, and remove only what the user excluded.\n"
-                + "BITE-WISE RESTRUCTURING (rename / rewrite / remove):\n"
+                + "- The concept mirrors the CONVERSATION: add what the user asks for, propose "
+                + "what scope and sources suggest.\n"
+                + "RENAMING (rename):\n"
                 + "- rename changes ONE card's name at any depth; children and position stay: "
                 + "{\"type\": \"rename\", \"path\": [\"FreeRTOS\", \"Setup\"], \"name\": "
-                + "\"ESP32-Entwicklung mit Arduino\"}.\n"
-                + "- A TERMINAL branch is a card whose children have no own children. Only such "
-                + "a branch can be rewritten in ONE step — its leaves become exactly what you "
-                + "send: {\"type\": \"rewrite\", \"path\": [\"FreeRTOS\", \"Setup\"], "
-                + "\"leaves\": [\"Arduino\", \"Debugging\"]}. For deeper structure work BOTTOM-UP:"
-                + " rewrite or remove the deepest branches first — NEVER try to rebuild the "
-                + "whole book in one action.\n"
-                + "- remove deletes ONE leaf or ONE terminal branch; anything deeper is refused "
-                + "— that protection is deliberate, not an error to fight.\n"
-                + "- BLACKLIST CLEANUP: a read names the SUPPRESSED cards of a branch; a rewrite "
-                + "of that branch must OMIT them (that is how excluded topics leave the stored "
-                + "concept). A rewrite still containing one is rejected; the suppression holds "
-                + "either way.\n\n";
+                + "\"ESP32-Entwicklung mit Arduino\"}. A rename is NEVER a deletion.\n"
+                + "YOU CANNOT DELETE OR REBUILD — deliberate, not an error to fight:\n"
+                + "- You have NO delete and NO rewrite action. The ONLY way content leaves the "
+                + "concept: the user rules a topic out -> your exclude command -> the "
+                + "application asks the user -> the APPLICATION removes the entry after their "
+                + "yes.\n"
+                + "- \"X möchte ich nicht behandeln\", \"X raus\", \"entferne X\" is ALWAYS the "
+                + "exclude command — never a concept edit, never rebuilding the branch without "
+                + "X.\n"
+                + "- When the user wants a whole branch deleted, moved, merged or rebuilt, say "
+                + "honestly that this is manual work in the concept editor for now — do NOT "
+                + "improvise a substitute (no re-adding neighbours, no emptying cards one by "
+                + "one).\n"
+                + "- A read names the SUPPRESSED cards of a branch — excluded topics stay "
+                + "suppressed for research either way; the physical cleanup is the user's "
+                + "editor work for now.\n\n";
     }
 
     /**

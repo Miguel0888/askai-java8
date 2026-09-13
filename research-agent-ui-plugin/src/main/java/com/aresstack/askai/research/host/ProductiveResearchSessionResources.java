@@ -511,6 +511,22 @@ public final class ProductiveResearchSessionResources {
                 return port == null ? java.util.Collections.<String>emptyList()
                         : port.blacklistedTerms();
             }
+
+            @Override
+            public void conceptNodeRenamed(java.util.List<String> path, String newName) {
+                com.aresstack.askai.research.mcp.ScopeCommandPort port = scopeCommandPort;
+                if (port != null) {
+                    port.conceptNodeRenamed(path, newName);
+                }
+            }
+
+            @Override
+            public void conceptToolLog(String line) {
+                com.aresstack.askai.research.mcp.ScopeCommandPort port = scopeCommandPort;
+                if (port != null) {
+                    port.conceptToolLog(line);
+                }
+            }
         };
     }
 

@@ -90,9 +90,12 @@ public final class ScopingPhaseOutputContract implements PhaseOutputContract {
                 + "\"query\":{\"type\":\"string\",\"minLength\":1},"
                 + "\"rationale\":{\"type\":\"string\"}},"
                 + "\"required\":[\"label\",\"query\"]}},"
+                // Safety slice after the slice-2 gate: remove/rewrite left the grammar — a
+                // small model must not be able to EMIT a destructive concept edit (the parser
+                // stays tolerant for legacy transcripts; the loop refuses execution).
                 + "\"conceptAction\":{\"type\":\"object\",\"properties\":{"
                 + "\"type\":{\"type\":\"string\",\"enum\":[\"none\",\"read\",\"add\","
-                + "\"remove\",\"exclude\",\"resolve\",\"offer\",\"rename\",\"rewrite\"]},"
+                + "\"exclude\",\"resolve\",\"offer\",\"rename\"]},"
                 + "\"path\":{\"type\":\"array\",\"maxItems\":6,\"items\":"
                 + "{\"type\":\"string\"}},"
                 + "\"parent\":{\"type\":\"array\",\"maxItems\":6,\"items\":"
@@ -106,9 +109,7 @@ public final class ScopingPhaseOutputContract implements PhaseOutputContract {
                 + "{\"type\":\"object\",\"properties\":{"
                 + "\"query\":{\"type\":\"string\",\"minLength\":1},"
                 + "\"purpose\":{\"type\":\"string\"}},"
-                + "\"required\":[\"query\"]}},"
-                + "\"leaves\":{\"type\":\"array\",\"maxItems\":12,\"items\":"
-                + "{\"type\":\"string\",\"minLength\":1}}},"
+                + "\"required\":[\"query\"]}}},"
                 + "\"required\":[\"type\"]}"
                 + "},\"required\":[\"assistantMessage\",\"conceptAction\"]}";
     }

@@ -1291,14 +1291,13 @@ public final class ResearchAgentMain {
                 args.put("path_json", segmentsJson(action.getPath()));
                 args.put("name", action.getName());
                 break;
-            case REWRITE:
-                toolName = "concept_rewrite";
-                args.put("path_json", segmentsJson(action.getPath()));
-                args.put("leaves_json", action.getLeavesJson());
-                break;
             default:
-                toolName = "concept_remove";
-                args.put("path_json", segmentsJson(action.getPath()));
+                // Safety slice: destructive edits (REMOVE/REWRITE) left the model contract.
+                // ConceptToolRounds refuses them before this funnel — this is defense in depth
+                // for any future action type that was not wired deliberately.
+                throw new com.aresstack.askai.research.runtime.loop.ToolInvoker.ToolFailure(
+                        com.aresstack.askai.research.runtime.team.TeamAgentPlaybook
+                                .destructiveEditRefusal());
         }
         try {
             org.noear.solon.ai.chat.tool.ToolResult result = researchMcp.callTool(toolName, args);

@@ -125,7 +125,11 @@ public class ScopingConceptActionTest {
         assertTrue(badDecision.getConceptActionError().contains("KEEP_SUPPRESSED"));
     }
 
-    /** Zielbild slice 2: bite-wise restructuring — rename any card, rewrite terminal leaves. */
+    /**
+     * rename is in the contract; rewrite is PARSED only as legacy tolerance (safety slice: the
+     * grammar cannot emit it anymore and the loop refuses execution — old transcripts must
+     * still round-trip instead of crashing the turn).
+     */
     @Test
     public void renameAndRewriteParseAndRoundTrip() {
         ConceptAction rename = parse("{\"assistantMessage\":\"m\",\"conceptAction\":"

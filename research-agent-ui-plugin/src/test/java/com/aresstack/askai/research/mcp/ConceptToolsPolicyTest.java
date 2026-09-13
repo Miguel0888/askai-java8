@@ -35,6 +35,9 @@ public class ConceptToolsPolicyTest {
     private String phaseId = ResearchStateIds.SCOPING;
     private String stateId = ResearchStateIds.RUNNING;
     private int changeNotifications;
+    private java.util.List<String> blacklist = java.util.Collections.emptyList();
+    private final java.util.List<String> toolLog = new java.util.ArrayList<String>();
+    private final java.util.List<String> renames = new java.util.ArrayList<String>();
 
     private final ResearchControlContext ctx = new ResearchControlContext() {
         public String currentPhaseId() {
@@ -70,6 +73,21 @@ public class ConceptToolsPolicyTest {
         public void onConceptChanged(long newWorkingRevision) {
             changeNotifications++;
         }
+
+        @Override
+        public java.util.List<String> blacklistedTerms() {
+            return blacklist;
+        }
+
+        @Override
+        public void conceptToolLog(String line) {
+            toolLog.add(line);
+        }
+
+        @Override
+        public void conceptNodeRenamed(java.util.List<String> path, String newName) {
+            renames.add(path + " -> " + newName);
+        }
     };
 
     @Before
@@ -102,11 +120,24 @@ public class ConceptToolsPolicyTest {
     public void writingIsOfferedOnlyInScopingRunningButReadingEverywhere() {
         assertTrue(tool("concept_read") != null);
         assertTrue(tool("concept_add") != null);
-        assertTrue(tool("concept_remove") != null);
+        assertTrue(tool("concept_rename") != null);
         phaseId = ResearchStateIds.RESEARCH; // later phase: the concept is frozen but readable
         assertTrue(tool("concept_read") != null);
         assertNull(tool("concept_add"));
+        assertNull(tool("concept_rename"));
+    }
+
+    /**
+     * The safety slice's core pin: NO destructive model tool exists in ANY phase — removal is
+     * the host-owned conflict flow only, rewrites wait for the plan workflow.
+     */
+    @Test
+    public void destructiveToolsAreNeverOfferedAnywhere() {
         assertNull(tool("concept_remove"));
+        assertNull(tool("concept_rewrite"));
+        phaseId = ResearchStateIds.RESEARCH;
+        assertNull(tool("concept_remove"));
+        assertNull(tool("concept_rewrite"));
     }
 
     @Test
@@ -114,20 +145,20 @@ public class ConceptToolsPolicyTest {
         service = null;
         assertNull(tool("concept_read"));
         assertNull(tool("concept_add"));
-        assertNull(tool("concept_remove"));
+        assertNull(tool("concept_rename"));
     }
 
     @Test
     public void theDescriptionsCarryConcreteExamplesTheMainframeMateWay() {
         assertTrue(tool("concept_add").getDescription().contains("Task Notifications"));
-        assertTrue(tool("concept_remove").getDescription().contains("ESP-IDF"));
+        assertTrue(tool("concept_rename").getDescription().contains("ESP32-Entwicklung"));
         assertTrue(tool("concept_read").getDescription().contains("FreeRTOS"));
     }
 
     // ------------------------------------------------------------------ the atomic flow
 
     @Test
-    public void addReadRemoveWorkByNamePathsWithoutAnyCeremony() {
+    public void addReadRenameWorkByNamePathsWithoutAnyCeremony() {
         McpToolResult first = invoke(tool("concept_add"), "name", "FreeRTOS");
         assertFalse(first.isError());
         assertEquals("added \"FreeRTOS\" revision=1", first.getText());
@@ -146,12 +177,13 @@ public class ConceptToolsPolicyTest {
         assertTrue(read.getText().contains("{\"Kommunikation\":[{\"Task Notifications\":[]}]}"));
         assertTrue("no handle line anywhere", !read.getText().contains("handle"));
 
-        McpToolResult removed = invoke(tool("concept_remove"),
-                "path", "FreeRTOS/Kommunikation/Task Notifications");
-        assertFalse(removed.isError());
-        assertEquals("removed \"FreeRTOS/Kommunikation/Task Notifications\" revision=4",
-                removed.getText());
+        McpToolResult renamed = invoke(tool("concept_rename"),
+                "path", "FreeRTOS/Kommunikation", "name", "IPC");
+        assertFalse(renamed.isError());
+        assertTrue(renamed.getText().startsWith("renamed to \"IPC\" revision=4"));
         assertEquals(4, changeNotifications);
+        assertEquals("the rename notified the session for the conflict-path rewrite",
+                "[FreeRTOS, Kommunikation] -> IPC", renames.get(0));
     }
 
     @Test
@@ -165,11 +197,12 @@ public class ConceptToolsPolicyTest {
         McpToolResult read = invoke(tool("concept_read"), "path_json", "[\"Netzwerk\"]");
         assertTrue(read.getText().contains("{\"Netzwerk\":[{\"TCP/IP\":[]}]}"));
         // …and the segments form wins over the slash convenience when both are present.
-        McpToolResult removed = invoke(tool("concept_remove"),
-                "path", "falsch/weg", "path_json", "[\"Netzwerk\",\"TCP/IP\"]");
-        assertFalse(removed.isError());
+        McpToolResult renamed = invoke(tool("concept_rename"),
+                "path", "falsch/weg", "path_json", "[\"Netzwerk\",\"TCP/IP\"]",
+                "name", "Netzwerkstack");
+        assertFalse(renamed.isError());
         assertTrue(invoke(tool("concept_read"), "path_json", "[\"Netzwerk\"]")
-                .getText().contains("{\"Netzwerk\":[]}"));
+                .getText().contains("{\"Netzwerk\":[{\"Netzwerkstack\":[]}]}"));
     }
 
     @Test
@@ -178,10 +211,27 @@ public class ConceptToolsPolicyTest {
         assertTrue(noName.isError());
         assertTrue(noName.getText().contains("Missing argument: name"));
         assertTrue("the error teaches by example", noName.getText().contains("Synchronisation"));
-        McpToolResult noPath = invoke(tool("concept_remove"));
-        assertTrue(noPath.isError());
-        assertTrue(noPath.getText().contains("Missing argument: path"));
+        McpToolResult renameNoName = invoke(tool("concept_rename"), "path", "FreeRTOS");
+        assertTrue(renameNoName.isError());
+        assertTrue(renameNoName.getText().contains("Missing argument: name"));
         assertEquals(0, changeNotifications);
+    }
+
+    /** Slice-2 gate observability finding: the SUPPRESSED truth must reach the technical log. */
+    @Test
+    public void aReadOfABranchWithBlacklistedCardsLogsTheSuppressedLine() {
+        invoke(tool("concept_add"), "name", "Setup");
+        invoke(tool("concept_add"), "parent_path", "Setup", "name", "ESP-IDF");
+        invoke(tool("concept_add"), "parent_path", "Setup", "name", "Toolchain");
+        blacklist = java.util.Collections.singletonList("esp-idf");
+        McpToolResult read = invoke(tool("concept_read"), "path", "Setup");
+        assertTrue(read.getText().contains("SUPPRESSED IN THIS BRANCH"));
+        assertTrue(read.getText().contains("ESP-IDF"));
+        assertEquals("concept_read -> SUPPRESSED IN THIS BRANCH: ESP-IDF", toolLog.get(0));
+        toolLog.clear();
+        blacklist = java.util.Collections.emptyList();
+        invoke(tool("concept_read"), "path", "Setup");
+        assertTrue("no suppression, no log noise", toolLog.isEmpty());
     }
 
     @Test

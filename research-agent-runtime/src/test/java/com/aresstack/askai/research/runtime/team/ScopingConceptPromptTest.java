@@ -43,13 +43,22 @@ public class ScopingConceptPromptTest {
         assertTrue(with.contains("KEEP_SUPPRESSED"));
         assertTrue("exclusions left the scopePatch contract",
                 with.contains("EXCLUSIONS never go through scopePatch"));
-        // Zielbild slice 2: the bite-wise restructuring drill with worked examples.
-        assertTrue(with.contains("BITE-WISE RESTRUCTURING"));
+        // Safety slice after the slice-2 gate: rename stays; remove/rewrite left the contract
+        // (a natural rewrite wish became a branch-vaporising remove, and "PlatformIO möchte
+        // ich nicht behandeln" became a remove instead of the exclusion).
         assertTrue(with.contains("{\"type\": \"rename\", \"path\": [\"FreeRTOS\", \"Setup\"]"));
-        assertTrue(with.contains("{\"type\": \"rewrite\", \"path\": [\"FreeRTOS\", \"Setup\"]"));
-        assertTrue("bottom-up, never the whole book", with.contains("work BOTTOM-UP"));
-        assertTrue("the blacklist cleanup rides the rewrite",
-                with.contains("a rewrite of that branch must OMIT them"));
+        assertTrue("a rename is pinned as non-destructive",
+                with.contains("A rename is NEVER a deletion"));
+        assertFalse("the model cannot be TAUGHT a remove action",
+                with.contains("{\"type\":\"remove\""));
+        assertFalse(with.contains("\"rewrite\""));
+        assertTrue(with.contains("YOU CANNOT DELETE OR REBUILD"));
+        assertTrue("removal wishes map to the exclusion, uncontested",
+                with.contains("is ALWAYS the exclude command"));
+        assertTrue("branch surgery is honestly manual until the tree editor",
+                with.contains("manual work in the concept editor"));
+        assertTrue("no improvised substitute actions",
+                with.contains("do NOT improvise a substitute"));
         // Gate 4: the two identity spaces, pinned with the exact live confusion pair.
         assertTrue(with.contains("TWO IDENTITY SPACES"));
         assertTrue(with.contains("[\"ESP32 und FreeRTOS Setup\"]"));
@@ -91,11 +100,14 @@ public class ScopingConceptPromptTest {
     @Test
     public void theConceptContractPublishesTheGenerationTimeSchemaOnlyWithTheFlag() {
         String schema = new ScopingPhaseOutputContract(true).outputSchemaJson();
+        // Safety slice: the grammar can no longer EMIT a destructive concept edit — the enum
+        // carries neither remove nor rewrite (the parser stays tolerant for old transcripts,
+        // the loop refuses execution).
         assertTrue(schema.contains(
-                "\"enum\":[\"none\",\"read\",\"add\",\"remove\",\"exclude\",\"resolve\","
-                        + "\"offer\",\"rename\",\"rewrite\"]"));
-        assertTrue("the rewrite leaves are grammar-bounded",
-                schema.contains("\"leaves\":{\"type\":\"array\",\"maxItems\":12"));
+                "\"enum\":[\"none\",\"read\",\"add\",\"exclude\",\"resolve\","
+                        + "\"offer\",\"rename\"]"));
+        assertFalse(schema.contains("\"rewrite\""));
+        assertFalse(schema.contains("\"leaves\""));
         assertTrue(schema.contains("\"topic\":{\"type\":\"string\"}"));
         assertTrue(schema.contains("\"enum\":[\"REMOVE\",\"KEEP_SUPPRESSED\"]"));
         assertTrue("the action decision is always explicit",

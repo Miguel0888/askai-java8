@@ -216,6 +216,16 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 public java.util.List<String> blacklistedTerms() {
                     return currentBlacklistTerms();
                 }
+
+                @Override
+                public void conceptNodeRenamed(java.util.List<String> path, String newName) {
+                    conflictPathsAfterRename(path, newName);
+                }
+
+                @Override
+                public void conceptToolLog(String line) {
+                    technicalLog(line);
+                }
             });
             resources.setProjectionUpdateListener(new Runnable() {
                 public void run() {
@@ -2868,6 +2878,59 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         reply.addProperty("userMessage", userMessage.toString());
         technicalLog("exclude_topic -> concept conflict " + conflictId + " at " + conflictPath);
         return reply.toString();
+    }
+
+    /**
+     * Interim referential integrity until the ID sidecar (slice-2 gate finding: a rename of the
+     * parent left the registered conflict path stale, and the later "Ja." died on
+     * TARGET_NODE_NOT_FOUND): a rename atomically rewrites every open conflict path that runs
+     * through the renamed node, then republishes the fence so the OPEN CONCEPT CONFLICT block
+     * shows the current names.
+     */
+    void conflictPathsAfterRename(java.util.List<String> renamedPath, String newName) {
+        boolean changed = false;
+        synchronized (conceptConflicts) {
+            for (java.util.Map.Entry<String, java.util.List<String>> conflict
+                    : conceptConflicts.entrySet()) {
+                java.util.List<String> updated =
+                        renamedConflictPath(conflict.getValue(), renamedPath, newName);
+                if (updated != null) {
+                    conflict.setValue(updated);
+                    changed = true;
+                    technicalLog("concept_rename -> conflict " + conflict.getKey()
+                            + " path updated to " + updated);
+                }
+            }
+        }
+        if (changed) {
+            publishScopeFence();
+            fireStateChanged();
+        }
+    }
+
+    /**
+     * The pure path rewrite, static and test-pinned: a conflict path is affected exactly when it
+     * starts with the renamed path; then the renamed segment is replaced. {@code null} = not
+     * affected (also when the "rename" would be a no-op).
+     */
+    static java.util.List<String> renamedConflictPath(java.util.List<String> conflictPath,
+                                                      java.util.List<String> renamedPath,
+                                                      String newName) {
+        if (renamedPath == null || renamedPath.isEmpty() || conflictPath == null
+                || conflictPath.size() < renamedPath.size()) {
+            return null;
+        }
+        for (int i = 0; i < renamedPath.size(); i++) {
+            if (!renamedPath.get(i).equals(conflictPath.get(i))) {
+                return null;
+            }
+        }
+        if (newName.equals(conflictPath.get(renamedPath.size() - 1))) {
+            return null;
+        }
+        java.util.List<String> updated = new java.util.ArrayList<String>(conflictPath);
+        updated.set(renamedPath.size() - 1, newName);
+        return updated;
     }
 
     /** The user's answer arrives as its OWN command — the path stays host-side by conflictId. */

@@ -149,6 +149,19 @@ public final class ConceptToolRounds {
                 rejected.add("(invalid) " + firstLine(actionError));
                 trace.line("round " + rounds + ": invalid conceptAction (" + actionError + ")");
                 feedback = TeamAgentPlaybook.conceptToolRejected(actionError, germanFeedback);
+            } else if (action.getType() == ConceptAction.Type.REMOVE
+                    || action.getType() == ConceptAction.Type.REWRITE) {
+                // Safety slice after the slice-2 gate: destructive edits left the model contract
+                // (a natural "ESP-IDF raus, Toolchain bleibt" once became a remove that vaporised
+                // the branch). The parser stays tolerant for legacy transcripts, but the action
+                // NEVER reaches the host — the model gets the honest alternative instead.
+                repairs++;
+                rejected.add(action.describe() + " — destructive edits left the contract");
+                trace.line("round " + rounds + ": " + action.describe());
+                trace.line("round " + rounds
+                        + " -> REFUSED (destructive concept edits are user-owned)");
+                feedback = TeamAgentPlaybook.conceptToolRejected(
+                        TeamAgentPlaybook.destructiveEditRefusal(), germanFeedback);
             } else {
                 trace.line("round " + rounds + ": " + action.describe());
                 try {
@@ -187,7 +200,10 @@ public final class ConceptToolRounds {
                     }
                 } catch (ToolInvoker.ToolFailure toolRejected) {
                     repairs++;
-                    String reason = firstLine(toolRejected.getMessage());
+                    // The WHOLE reason, flattened (slice-2 gate finding: the log showed only
+                    // "Error: BRANCH_GRAFT_FAILED" while the teaching bottom-up diagnostic
+                    // reached the model alone — the observer must see the same truth).
+                    String reason = compactReason(toolRejected.getMessage());
                     rejected.add(action.describe() + " — " + reason);
                     refetchConcept = true; // prove to the model that NOTHING changed
                     trace.line("round " + rounds + " -> REJECTED " + reason);
@@ -305,5 +321,14 @@ public final class ConceptToolRounds {
         }
         int newline = text.indexOf('\n');
         return newline < 0 ? text : text.substring(0, newline);
+    }
+
+    /** A rejection reason as ONE readable log line: newlines flattened, length capped. */
+    private static String compactReason(String text) {
+        if (text == null) {
+            return "";
+        }
+        String flat = text.replace("\r", "").replace('\n', ' ').trim();
+        return flat.length() <= 220 ? flat : flat.substring(0, 217) + "...";
     }
 }
