@@ -864,6 +864,32 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                     resolvePendingConflictFromHost(agrees.booleanValue());
                     return;
                 }
+            } else if (staleDecisionTombstone != null) {
+                // The transcript's last decision question is STALE (its conflict died with a
+                // raw save/restore). A bare yes/no gets the deterministic host answer; any
+                // substantive turn supersedes the tombstone silently.
+                String stale = staleDecisionTombstone;
+                staleDecisionTombstone = null;
+                Boolean agrees = ConflictAnswerInterpreter.interpret(text);
+                if (agrees != null) {
+                    echoUserMessage(text);
+                    technicalLog("stale conflict confirmation -> deterministic host answer "
+                            + "(no concept mutation)");
+                    boolean plural = stale.contains(", ");
+                    sayAsAgent(playbook.isGerman()
+                            ? "Die vorherige Rückfrage ist durch die manuelle Änderung "
+                                    + "veraltet. Am Konzept wurde nichts verändert. „" + stale
+                                    + "“ " + (plural ? "bleiben" : "bleibt")
+                                    + " ausgeschlossen und wird in der Konzeptprojektion "
+                                    + "unterdrückt."
+                            : "The earlier question is outdated after the manual change. "
+                                    + "Nothing in the concept was changed. \"" + stale + "\" "
+                                    + (plural ? "remain" : "remains") + " excluded and "
+                                    + "suppressed in the concept projection.");
+                    fireStateChanged();
+                    return;
+                }
+                technicalLog("stale decision tombstone superseded by a substantive turn");
             }
             echoUserMessage(text);
             // KISS (live-gate 4): the mission is bookkeeping, not intelligence — the user's
@@ -2031,13 +2057,27 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
      */
     private void discardTransientsAndReconcile(String reason, String newEpoch) {
         int discarded;
+        java.util.List<String> discardedOpenLabels = new java.util.ArrayList<String>();
         synchronized (conceptConflicts) {
             discarded = conceptConflicts.size();
+            for (ConceptConflictRef ref : conceptConflicts.values()) {
+                if (ref.open) {
+                    discardedOpenLabels.add(ref.label);
+                }
+            }
             conceptConflicts.clear();
         }
         if (discarded > 0) {
             technicalLog("concept identity -> " + discarded
                     + " transient conflict(s) discarded (" + reason + ")");
+        }
+        if (!discardedOpenLabels.isEmpty()) {
+            // The transcript still shows the old removal question — a bare "Ja." afterwards
+            // must never reach the model (which once claimed a deletion over an unchanged
+            // concept). The tombstone arms exactly ONE deterministic host answer.
+            staleDecisionTombstone = joined(discardedOpenLabels);
+            technicalLog("concept identity -> stale decision tombstone armed for \""
+                    + staleDecisionTombstone + "\"");
         }
         publishScopeFence();
         fireStateChanged();
@@ -2045,49 +2085,77 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     }
 
     /**
-     * Eager reconciliation after a boundary: classify every blacklist term against the NEW
-     * document — gone / leaf (a silent candidate) / branch / ambiguous. Deterministic host
-     * bookkeeping, never a question, never an armed intercept.
+     * Eager reconciliation after a boundary: every EXCLUSION IDENTITY lands in exactly one
+     * category (the live gate saw label AND facet id counted separately — "2 gone, 2 leaf
+     * candidates" for one gone term and one present leaf, with a DUPLICATE candidate
+     * registered). Deterministic host bookkeeping, never a question, never an armed intercept.
      */
     private void reconcileBlacklistAgainstConcept(String reason) {
-        com.aresstack.askai.research.concept.ConceptBranchService service = wiredConceptService;
+        final com.aresstack.askai.research.concept.ConceptBranchService service =
+                wiredConceptService;
         if (service == null || service.isFailClosed()) {
             return;
         }
-        String document = service.snapshot().getDocumentJson();
-        int gone = 0;
-        int leafCandidates = 0;
-        int branches = 0;
-        int ambiguous = 0;
-        for (String term : currentBlacklistTerms()) {
-            java.util.List<java.util.List<String>> matches =
-                    new java.util.ArrayList<java.util.List<String>>();
-            for (java.util.List<String> path : com.aresstack.askai.research.concept
-                    .ConceptTopicScanner.collectCardPaths(document)) {
-                if (path.get(path.size() - 1).trim().equalsIgnoreCase(
-                        term == null ? "" : term.trim())) {
-                    matches.add(path);
+        String summary = com.aresstack.askai.research.concept.ConceptBlacklistReconciler
+                .reconcile(service, exclusionIdentities(),
+                        new com.aresstack.askai.research.concept.ConceptBlacklistReconciler
+                                .CandidateRegistrar() {
+                            public void candidate(String exclusionId, String label,
+                                                  String nodeId) {
+                                conceptConflicts.put(
+                                        "conflict-" + conflictIds.incrementAndGet(),
+                                        new ConceptConflictRef(service.currentEpoch(), nodeId,
+                                                service.snapshot().getWorkingRevision(),
+                                                label, false));
+                            }
+                        });
+        technicalLog("concept identity -> reconciliation after " + reason + ": " + summary);
+    }
+
+    /**
+     * One entry per exclusion IDENTITY: every excluded facet contributes id→label (both match
+     * the same entry during reconciliation), plain exclusion strings only when no facet
+     * already covers them case-insensitively.
+     */
+    private java.util.LinkedHashMap<String, String> exclusionIdentities() {
+        java.util.LinkedHashMap<String, String> exclusions =
+                new java.util.LinkedHashMap<String, String>();
+        com.aresstack.askai.research.scope.ResearchScopeCoordinator coordinator =
+                scopeCoordinator();
+        if (coordinator == null || !coordinator.isUsable()) {
+            return exclusions;
+        }
+        com.aresstack.askai.research.domain.scope.ResearchScopeDraft draft = coordinator.current();
+        for (com.aresstack.askai.research.domain.scope.ScopeFacet facet
+                : draft.excludedFacets()) {
+            exclusions.put(facet.getFacetId(), facet.getLabel());
+        }
+        for (String term : draft.getExclusions()) {
+            String candidate = term == null ? "" : term.trim();
+            if (candidate.isEmpty()) {
+                continue;
+            }
+            boolean covered = false;
+            for (java.util.Map.Entry<String, String> known : exclusions.entrySet()) {
+                if (candidate.equalsIgnoreCase(known.getKey())
+                        || candidate.equalsIgnoreCase(known.getValue())) {
+                    covered = true;
+                    break;
                 }
             }
-            if (matches.isEmpty()) {
-                gone++;
-            } else if (matches.size() > 1) {
-                ambiguous++;
-            } else if (service.isLeafAt(matches.get(0))) {
-                String nodeId = service.nodeIdAtPath(matches.get(0));
-                if (nodeId != null) {
-                    conceptConflicts.put("conflict-" + conflictIds.incrementAndGet(),
-                            new ConceptConflictRef(service.currentEpoch(), nodeId,
-                                    service.snapshot().getWorkingRevision(), term, false));
-                    leafCandidates++;
-                }
-            } else {
-                branches++;
+            if (!covered) {
+                exclusions.put(candidate, candidate);
             }
         }
-        technicalLog("concept identity -> reconciliation after " + reason + ": " + gone
-                + " gone, " + leafCandidates + " leaf candidate(s), " + branches
-                + " branch(es), " + ambiguous + " ambiguous");
+        return exclusions;
+    }
+
+    private static String joined(java.util.List<String> labels) {
+        StringBuilder sb = new StringBuilder();
+        for (String label : labels) {
+            sb.append(sb.length() > 0 ? ", " : "").append(label);
+        }
+        return sb.toString();
     }
 
     /**
@@ -2905,6 +2973,16 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         }
     }
 
+    /**
+     * The DiscardedDecisionTombstone (ID-sidecar gate finding): when a raw save/restore
+     * discards an OPEN conflict, the transcript still shows the old removal question — a bare
+     * "Ja." afterwards must get a deterministic HOST answer ("the question is stale, nothing
+     * changed, the topic stays suppressed"), never a model inference. Consumed on the first
+     * answer, superseded silently by any substantive turn, replaced by any new OPEN conflict.
+     * Value = the comma-joined labels of the discarded open question(s).
+     */
+    private volatile String staleDecisionTombstone;
+
     /** Opaque conflictId → reference, INSERTION-ordered (the host resolves oldest first). */
     private final java.util.Map<String, ConceptConflictRef> conceptConflicts =
             java.util.Collections.synchronizedMap(
@@ -3055,7 +3133,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             return reply.toString();
         }
         String conflictId = "conflict-" + conflictIds.incrementAndGet();
-        // OPEN directly: the question is part of THIS turn's visible terminal receipt.
+        // OPEN directly: the question is part of THIS turn's visible terminal receipt — and a
+        // NEW visible question always replaces a stale tombstone.
+        staleDecisionTombstone = null;
         conceptConflicts.put(conflictId, new ConceptConflictRef(conceptService.currentEpoch(),
                 nodeId, conceptService.snapshot().getWorkingRevision(), label, true));
         // Register the conflict BEFORE republishing the fence (gate-6 rerun finding): the old
