@@ -68,6 +68,21 @@ public class ConceptRestructureTest {
                 deep.getDiagnostic().describeForModel().contains("bottom-up"));
     }
 
+    /** The conflict flow's double guard (safety slice): only a LEAF is ever host-removable. */
+    @Test
+    public void isLeafAtTellsLeavesFromBranchesAndHonestlyDeniesUnknownPaths() throws Exception {
+        ConceptBranchService service = seeded();
+        assertTrue(service.isLeafAt(Arrays.asList("Buch", "Setup", "ESP-IDF")));
+        assertTrue(service.isLeafAt(Arrays.asList("Buch", "Praxis")));
+        assertFalse("a terminal branch is NOT a leaf — the resolver must refuse it",
+                service.isLeafAt(Arrays.asList("Buch", "Setup")));
+        assertFalse("a deep branch is NOT a leaf", service.isLeafAt(
+                Collections.singletonList("Buch")));
+        assertFalse("unknown paths are not removable", service.isLeafAt(
+                Arrays.asList("Buch", "Gibtsnicht")));
+        assertFalse(service.isLeafAt(Collections.<String>emptyList()));
+    }
+
     @Test
     public void deleteAcceptsLeavesAndTerminalBranchesOnly() throws Exception {
         ConceptBranchService service = seeded();

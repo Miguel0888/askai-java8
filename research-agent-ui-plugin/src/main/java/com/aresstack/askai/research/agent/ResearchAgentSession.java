@@ -2849,6 +2849,32 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             reply.addProperty("userMessage", userMessage.toString());
             return reply.toString();
         }
+        com.aresstack.askai.research.concept.ConceptBranchService conceptService =
+                conceptBranchService();
+        if (conceptService == null || !conceptService.isLeafAt(conflictPath)) {
+            // Safety-slice double guard, part 1: a BRANCH conflict is never offered for
+            // removal — the gate saw the host vaporise a non-terminal root after a "Ja.".
+            // Until the three-way tree-editor UI the only honest offers are "keep suppressed"
+            // and the manual editor; the suppression itself is already in effect.
+            publishScopeFence();
+            fireStateChanged();
+            reply.addProperty("requiredResponse", "NONE");
+            reply.addProperty("conceptBranchNote",
+                    "the term matches a concept BRANCH with sub-cards — removal is manual "
+                            + "editor work, no conflict question is asked");
+            userMessage.append(german
+                    ? " Der Begriff steht außerdem als Zweig mit Unterkarten im Konzept —"
+                            + " dort entfernen ist bis zum Tree-Editor Handarbeit im"
+                            + " Konzept-Editor; die Recherche dazu bleibt unabhängig davon"
+                            + " unterdrückt."
+                    : " The term also matches a concept BRANCH with sub-cards — removing it"
+                            + " there is manual concept-editor work until the tree editor"
+                            + " ships; research on it stays suppressed either way.");
+            reply.addProperty("userMessage", userMessage.toString());
+            technicalLog("exclude_topic -> concept BRANCH at " + conflictPath
+                    + " — no removable conflict registered (manual editor work)");
+            return reply.toString();
+        }
         String conflictId = "conflict-" + conflictIds.incrementAndGet();
         conceptConflicts.put(conflictId, conflictPath);
         // Register the conflict BEFORE republishing the fence (gate-6 rerun finding): the old
@@ -2958,6 +2984,27 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         com.aresstack.askai.research.concept.ConceptBranchService service = conceptBranchService();
         if (service == null) {
             return "This session has no concept service.";
+        }
+        if (!service.isLeafAt(path)) {
+            // Safety-slice double guard, part 2: re-check IMMEDIATELY before the commit — the
+            // card may have grown children between the question and the user's answer. The
+            // entry stays, the suppression stands, the conflict is closed honestly.
+            conceptConflicts.remove(conflictId);
+            technicalLog("resolve_concept_conflict " + conflictId
+                    + " -> REFUSED: no longer a leaf at " + path
+                    + " (kept suppressed, removal is manual editor work)");
+            reply.addProperty("result", "KEPT_SUPPRESSED");
+            reply.addProperty("reason", "the entry grew into a branch — a non-leaf is never "
+                    + "removed by the host; use the concept editor");
+            reply.addProperty("userMessage", german
+                    ? "Der Eintrag „" + path.get(path.size() - 1) + "“ hat inzwischen "
+                            + "Unterkarten und wird deshalb nicht automatisch entfernt — das "
+                            + "geht bis zum Tree-Editor nur im Konzept-Editor. Die Recherche "
+                            + "dazu bleibt unterdrückt."
+                    : "The entry \"" + path.get(path.size() - 1) + "\" now has sub-cards and "
+                            + "is therefore not removed automatically — until the tree editor "
+                            + "that is concept-editor work. Research on it stays suppressed.");
+            return reply.toString();
         }
         com.aresstack.askai.research.concept.ConceptBranchService.EditResult removed =
                 service.removeNodeAt(path);

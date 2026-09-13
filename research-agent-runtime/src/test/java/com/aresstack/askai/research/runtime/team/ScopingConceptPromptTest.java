@@ -53,12 +53,19 @@ public class ScopingConceptPromptTest {
                 with.contains("{\"type\":\"remove\""));
         assertFalse(with.contains("\"rewrite\""));
         assertTrue(with.contains("YOU CANNOT DELETE OR REBUILD"));
-        assertTrue("removal wishes map to the exclusion, uncontested",
-                with.contains("is ALWAYS the exclude command"));
+        // Safety-slice gate 2: an explicit concept-delete order is NOT the same intent as
+        // ruling a topic out — the drill separates them, and a delete maps to NO action.
+        assertTrue(with.contains("TWO DIFFERENT INTENTS, never merged"));
+        assertTrue("out-of-topic wishes stay the exclusion",
+                with.contains("is the exclude command"));
+        assertTrue("a delete order never silently becomes a scope exclusion",
+                with.contains("deleting a card does not rule the topic out"));
         assertTrue("branch surgery is honestly manual until the tree editor",
                 with.contains("manual work in the concept editor"));
         assertTrue("no improvised substitute actions",
                 with.contains("do NOT improvise a substitute"));
+        assertTrue("the partial-add substitute is named explicitly",
+                with.contains("no partial adds standing in for a rewrite"));
         // Gate 4: the two identity spaces, pinned with the exact live confusion pair.
         assertTrue(with.contains("TWO IDENTITY SPACES"));
         assertTrue(with.contains("[\"ESP32 und FreeRTOS Setup\"]"));

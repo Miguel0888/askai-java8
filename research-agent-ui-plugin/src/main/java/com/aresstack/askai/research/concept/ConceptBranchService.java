@@ -537,6 +537,18 @@ public final class ConceptBranchService {
         return commitCandidate(located.candidate);
     }
 
+    /**
+     * Whether the card at {@code names} is a LEAF (no children at all). The conflict flow's
+     * double guard (safety-slice gate: the host itself deleted a non-terminal root through
+     * {@code removeNodeAt}): only a leaf conflict may be offered for removal, and the resolver
+     * re-checks IMMEDIATELY before the commit — the card may have grown children between
+     * question and answer. Unresolvable paths report {@code false} (nothing removable there).
+     */
+    public synchronized boolean isLeafAt(List<String> names) {
+        Located located = locateForEdit(names);
+        return located.error == null && located.children.size() == 0;
+    }
+
     /** One located, edit-ready node inside a deep-copied candidate document. */
     private static final class Located {
         JsonElement candidate;

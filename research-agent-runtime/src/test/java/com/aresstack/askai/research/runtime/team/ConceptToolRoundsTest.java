@@ -222,6 +222,82 @@ public class ConceptToolRoundsTest {
         assertTrue(rewriteTurns.feedbackSeen.get(0).contains("manual work in the concept editor"));
     }
 
+    /**
+     * Gate 2 of the safety slice: in a read-only-classified turn the WHOLE mutation channel is
+     * closed — the model once substituted partial adds for the withdrawn rewrite; in a
+     * delete-classified turn even the exclude is refused (a concept deletion is not a scope
+     * exclusion). Reads stay possible.
+     */
+    @Test
+    public void aReadOnlyTurnRefusesEveryMutationIncludingSubstituteAdds() throws Exception {
+        ScriptedTurns turns = new ScriptedTurns();
+        ScriptedTool tool = new ScriptedTool();
+        turns.script.add(turn("verstanden", null));
+        ConceptToolRounds.run(
+                turn("bau um", "{\"type\":\"add\",\"parent\":[],\"name\":\"Tasks\"}"),
+                turns, tool, 4, 2, false, null, traceSink, false,
+                ConceptTurnPolicy.Mode.RESTRUCTURE_READ_ONLY);
+        assertTrue("the substitute add never reaches the host", tool.calls.isEmpty());
+        assertTrue(turns.feedbackSeen.get(0).contains("READ-ONLY for the whole turn"));
+        assertTrue(trace.contains("concept mutations READ-ONLY this turn "
+                + "(compound restructuring request)"));
+
+        trace.clear();
+        ScriptedTurns deleteTurns = new ScriptedTurns();
+        ScriptedTool deleteTool = new ScriptedTool();
+        deleteTurns.script.add(turn("ok", null));
+        ConceptToolRounds.run(
+                turn("lösche", "{\"type\":\"exclude\",\"topic\":\"FreeRTOS Grundlagen\"}"),
+                deleteTurns, deleteTool, 4, 2, false, null, traceSink, false,
+                ConceptTurnPolicy.Mode.DELETE_READ_ONLY);
+        assertTrue("a delete wish never silently becomes a scope exclusion",
+                deleteTool.calls.isEmpty());
+        assertTrue(deleteTurns.feedbackSeen.get(0)
+                .contains("NOT a scope exclusion"));
+
+        // Reading stays possible in a read-only turn — the model may inspect and discuss.
+        ScriptedTurns readTurns = new ScriptedTurns();
+        ScriptedTool readTool = new ScriptedTool();
+        readTool.byDescription.put("read path=[\"X\"]", "{\"X\":[]}");
+        readTurns.script.add(turn("gelesen", null));
+        ConceptToolRounds.run(
+                turn("zeig mal", "{\"type\":\"read\",\"path\":[\"X\"]}"),
+                readTurns, readTool, 4, 2, false, null, traceSink, false,
+                ConceptTurnPolicy.Mode.RESTRUCTURE_READ_ONLY);
+        assertEquals("read path=[\"X\"]", readTool.calls.get(0));
+    }
+
+    /**
+     * Gate regression: the broad first turn EXHAUSTS its budget building cards, so the offer
+     * nudge (normal-end only) never fired and a wrap-up offer was dropped. Now the wrap-up
+     * feedback carries the nudge and a wrap-up OFFER executes despite the budget — tags are
+     * display state, not a concept edit.
+     */
+    @Test
+    public void aBudgetExhaustedFirstTurnStillGetsItsOfferViaTheWrapUp() throws Exception {
+        ScriptedTurns turns = new ScriptedTurns();
+        ScriptedTool tool = new ScriptedTool();
+        tool.byDescription.put("add parent=[] name=\"A\"", "added \"A\" revision=1");
+        tool.byDescription.put("add parent=[] name=\"B\"", "added \"B\" revision=2");
+        tool.byDescription.put("offer suggestions=1", "OFFERED 1 tags");
+        turns.script.add(turn("weiter", "{\"type\":\"add\",\"parent\":[],\"name\":\"B\"}"));
+        turns.script.add(turn("fertig", "{\"type\":\"offer\",\"suggestions\":"
+                + "[{\"query\":\"FreeRTOS Grundlagen Tutorial\"}]}"));
+
+        ConceptToolRounds.run(
+                turn("start", "{\"type\":\"add\",\"parent\":[],\"name\":\"A\"}"),
+                turns, tool, 2, 2, false, null, traceSink, true,
+                ConceptTurnPolicy.Mode.FULL);
+
+        assertTrue("the wrap-up asks for the missing offer",
+                turns.feedbackSeen.get(1).contains("SEARCH TAGS MISSING"));
+        assertTrue(trace.contains("search tags missing — offer nudge in wrap-up"));
+        assertTrue("the wrap-up offer executes despite the exhausted budget",
+                tool.calls.contains("offer suggestions=1"));
+        assertTrue(trace.contains(
+                "wrap-up offer executed (tags are display state, not a concept edit)"));
+    }
+
     @Test
     public void anInvalidActionNeverReachesTheToolButBecomesAReceipt() throws Exception {
         ScriptedTurns turns = new ScriptedTurns();

@@ -78,6 +78,29 @@ public final class ConceptToolRounds {
                                       int maxRepairAttempts, boolean germanFeedback,
                                       IntermediateSink intermediateSink, Trace trace,
                                       boolean nudgeOfferWhenMissing) {
+        return run(initial, turn, tool, maxToolRounds, maxRepairAttempts, germanFeedback,
+                intermediateSink, trace, nudgeOfferWhenMissing, ConceptTurnPolicy.Mode.FULL);
+    }
+
+    /**
+     * @param mode the turn's machine-classified mutation policy (safety-slice gate 2): in a
+     *  read-only turn concept MUTATIONS are refused for the WHOLE turn — capability withdrawal
+     *  per action was not enough, the model substituted partial adds for the forbidden rewrite;
+     *  a DELETE-classified turn additionally refuses the exclude (a concept deletion is not a
+     *  scope exclusion).
+     */
+    public static TeamAgentResult run(TeamAgentResult initial, FollowUpTurn turn,
+                                      ConceptTool tool, int maxToolRounds,
+                                      int maxRepairAttempts, boolean germanFeedback,
+                                      IntermediateSink intermediateSink, Trace trace,
+                                      boolean nudgeOfferWhenMissing,
+                                      ConceptTurnPolicy.Mode mode) {
+        if (mode != ConceptTurnPolicy.Mode.FULL) {
+            trace.line("concept mutations READ-ONLY this turn ("
+                    + (mode == ConceptTurnPolicy.Mode.DELETE_READ_ONLY
+                            ? "delete wish — manual editor work"
+                            : "compound restructuring request") + ")");
+        }
         TeamAgentResult result = initial;
         int rounds = 0;
         int repairs = 0;
@@ -138,6 +161,24 @@ public final class ConceptToolRounds {
                 return result; // the model finished without a further action — the normal end
             }
             if (budgetExhausted) {
+                if (action != null && action.getType() == ConceptAction.Type.OFFER
+                        && !offeredThisTurn) {
+                    // Gate finding: the first broad turn regularly EXHAUSTS the budget building
+                    // cards, so the wrap-up's offer landed exactly here and was dropped — tags
+                    // are display state, not a concept edit; executing them over budget is safe
+                    // and costs no further inference.
+                    try {
+                        tool.call(action);
+                        trace.line("wrap-up offer executed (tags are display state, not a "
+                                + "concept edit)");
+                    } catch (ToolInvoker.ToolFailure rejectedOffer) {
+                        trace.line("wrap-up offer REJECTED "
+                                + compactReason(rejectedOffer.getMessage()));
+                    } catch (ToolInvoker.EndpointUnavailable dead) {
+                        trace.line("wrap-up offer lost — endpoint unavailable");
+                    }
+                    return result;
+                }
                 trace.line("tool budget exhausted — dropping the further conceptAction");
                 return result;
             }
@@ -149,6 +190,23 @@ public final class ConceptToolRounds {
                 rejected.add("(invalid) " + firstLine(actionError));
                 trace.line("round " + rounds + ": invalid conceptAction (" + actionError + ")");
                 feedback = TeamAgentPlaybook.conceptToolRejected(actionError, germanFeedback);
+            } else if (mode != ConceptTurnPolicy.Mode.FULL
+                    && (action.getType() == ConceptAction.Type.ADD
+                            || action.getType() == ConceptAction.Type.RENAME
+                            || (mode == ConceptTurnPolicy.Mode.DELETE_READ_ONLY
+                                    && action.getType() == ConceptAction.Type.EXCLUDE))) {
+                // Gate 2 of the safety slice: in a read-only turn EVERY mutation is refused —
+                // the model once replaced the withdrawn rewrite with partial adds and claimed
+                // success; a delete wish must not silently become a scope exclusion either.
+                repairs++;
+                String refusal = mode == ConceptTurnPolicy.Mode.DELETE_READ_ONLY
+                        ? TeamAgentPlaybook.deleteReadOnlyRefusal()
+                        : TeamAgentPlaybook.restructureReadOnlyRefusal();
+                rejected.add(action.describe() + " — refused (read-only turn)");
+                trace.line("round " + rounds + ": " + action.describe());
+                trace.line("round " + rounds + " -> REFUSED (read-only turn: no substitute "
+                        + "edits)");
+                feedback = TeamAgentPlaybook.conceptToolRejected(refusal, germanFeedback);
             } else if (action.getType() == ConceptAction.Type.REMOVE
                     || action.getType() == ConceptAction.Type.REWRITE) {
                 // Safety slice after the slice-2 gate: destructive edits left the model contract
@@ -241,6 +299,16 @@ public final class ConceptToolRounds {
                 trace.line("budget reached (rounds=" + rounds + "/" + maxToolRounds
                         + " repairs=" + repairs + "/" + maxRepairAttempts + ") — wrap-up turn");
                 feedback = feedback + "\n\n" + TeamAgentPlaybook.conceptToolBudgetExhausted(germanFeedback);
+                if (nudgeOfferWhenMissing && !offerNudgeSpent && !offeredThisTurn
+                        && !applied.isEmpty()) {
+                    // Gate finding: broad first turns exhaust the budget on cards, so the
+                    // normal-end nudge never ran and the first-turn offer stayed red — the
+                    // wrap-up turn asks for the offer too (executed above despite the budget).
+                    offerNudgeSpent = true;
+                    trace.line("search tags missing — offer nudge in wrap-up");
+                    feedback = feedback + "\n\n"
+                            + TeamAgentPlaybook.offerSearchesMissing(germanFeedback);
+                }
             }
             if (intermediateSink != null) {
                 // This output is about to be REPLACED by the follow-up inference — whatever it

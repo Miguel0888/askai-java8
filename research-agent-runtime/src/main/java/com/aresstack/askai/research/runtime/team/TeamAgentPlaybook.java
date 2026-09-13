@@ -549,6 +549,32 @@ public final class TeamAgentPlaybook {
                 + "in the concept editor for now. Do NOT improvise a substitute action.";
     }
 
+    /**
+     * The refusal for concept MUTATIONS in a restructure-classified turn (safety-slice gate 2:
+     * with rewrite withdrawn the model substituted partial adds and then claimed all three
+     * areas existed while only one did — the whole mutation channel must close for the turn).
+     */
+    public static String restructureReadOnlyRefusal() {
+        return "This turn is a compound restructuring request — your concept channel is "
+                + "READ-ONLY for the whole turn. Do NOT attempt partial edits (no adds, no "
+                + "renames as a substitute). Explain honestly that reworking a branch is manual "
+                + "work in the concept editor until the plan workflow ships; you may read the "
+                + "concept and discuss the target structure.";
+    }
+
+    /**
+     * The refusal for a concept DELETE wish: manual editor work, and NEVER a scope exclusion —
+     * the gate saw an explicit delete order silently turn into an exclude + conflict.
+     */
+    public static String deleteReadOnlyRefusal() {
+        return "This turn asks for a concept DELETION — that is manual work in the concept "
+                + "editor, not a model action, and it is NOT a scope exclusion (two different "
+                + "intents: deleting a card does not rule the topic out of the research). Make "
+                + "no concept edit and no exclude. Tell the user honestly to delete the card in "
+                + "the concept editor, and that saying the topic should not be COVERED would "
+                + "additionally suppress it for research.";
+    }
+
     /** How to use the concept tool: one small step per inference, read before update, no rewrites. */
     private static String conceptToolRules() {
         return "THE CONCEPT (conceptAction):\n"
@@ -572,8 +598,11 @@ public final class TeamAgentPlaybook {
                 + "{\"type\":\"add\",\"parent\":[],\"name\":\"FreeRTOS\"}\n"
                 + "    \"F\u00fcge unter FreeRTOS Tasks hinzu.\"           ->  "
                 + "{\"type\":\"add\",\"parent\":[\"FreeRTOS\"],\"name\":\"Tasks\"}\n"
-                + "    \"Entferne ESP-IDF.\" / \"ESP-IDF raus.\"          ->  "
+                + "    \"ESP-IDF möchte ich nicht behandeln.\"          ->  "
                 + "{\"type\":\"exclude\",\"topic\":\"ESP-IDF\"} (see THE EXCLUSION COMMAND)\n"
+                + "    \"Lösche die Karte/den Zweig X.\"                ->  {\"type\":\"none\"} "
+                + "— deleting concept cards is the USER'S manual editor work, never a scope "
+                + "exclusion\n"
                 + "- Do not read unrelated branches before an explicit atomic add. Read "
                 + "only when the current path or structure is genuinely unknown.\n"
                 + "- If you are unsure whether a parent exists: 1) read it, 2) look at the result, "
@@ -635,13 +664,15 @@ public final class TeamAgentPlaybook {
                 + "concept: the user rules a topic out -> your exclude command -> the "
                 + "application asks the user -> the APPLICATION removes the entry after their "
                 + "yes.\n"
-                + "- \"X möchte ich nicht behandeln\", \"X raus\", \"entferne X\" is ALWAYS the "
-                + "exclude command — never a concept edit, never rebuilding the branch without "
-                + "X.\n"
+                + "- TWO DIFFERENT INTENTS, never merged: \"X möchte ich nicht behandeln\" / "
+                + "\"X raus (aus dem Thema)\" is the exclude command — never a concept edit, "
+                + "never rebuilding the branch without X. \"Lösche die Karte/den Zweig X\" is a "
+                + "CONCEPT deletion: manual editor work, NO exclude, NO edit — deleting a card "
+                + "does not rule the topic out of the research.\n"
                 + "- When the user wants a whole branch deleted, moved, merged or rebuilt, say "
                 + "honestly that this is manual work in the concept editor for now — do NOT "
                 + "improvise a substitute (no re-adding neighbours, no emptying cards one by "
-                + "one).\n"
+                + "one, no partial adds standing in for a rewrite).\n"
                 + "- A read names the SUPPRESSED cards of a branch — excluded topics stay "
                 + "suppressed for research either way; the physical cleanup is the user's "
                 + "editor work for now.\n\n";

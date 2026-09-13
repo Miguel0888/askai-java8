@@ -669,13 +669,13 @@ public final class ResearchAgentMain {
                 // answer it in the same turn so nothing the user typed is dropped.
                 if (!text.trim().isEmpty()) {
                     emitTeamAgentResult(ctx,
-                            runConceptToolRounds(ctx, teamAgent.respond(text, view), view),
+                            runConceptToolRounds(ctx, teamAgent.respond(text, view), view, text),
                             view.getPhaseId());
                 }
             }
         } else {
             emitTeamAgentResult(ctx,
-                    runConceptToolRounds(ctx, teamAgent.respond(text, view), view),
+                    runConceptToolRounds(ctx, teamAgent.respond(text, view), view, text),
                     view.getPhaseId());
         }
         return cancelled.get()
@@ -1202,7 +1202,8 @@ public final class ResearchAgentMain {
     private com.aresstack.askai.research.runtime.team.TeamAgentResult runConceptToolRounds(
             final SyncPromptContext ctx,
             com.aresstack.askai.research.runtime.team.TeamAgentResult initial,
-            final com.aresstack.askai.research.runtime.team.TeamAgentStateView view) {
+            final com.aresstack.askai.research.runtime.team.TeamAgentStateView view,
+            String userText) {
         if (!conceptToolsAvailable) {
             return initial;
         }
@@ -1236,7 +1237,11 @@ public final class ResearchAgentMain {
                                 .log("concept " + message));
                     }
                 },
-                !searchTagsOffered); // nudge until the session offered its first tags (gate 9b)
+                !searchTagsOffered, // nudge until the session offered its first tags (gate 9b)
+                // Machine-side intent separation (safety-slice gate 2): a compound
+                // restructuring or delete wish closes the concept mutation channel for the
+                // WHOLE turn — capability withdrawal per action was not enough.
+                com.aresstack.askai.research.runtime.team.ConceptTurnPolicy.modeFor(userText));
     }
 
     /** Whether THIS session ever offered exploration tags — ends the one-shot offer nudge. */
