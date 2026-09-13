@@ -136,6 +136,7 @@ public final class AskAiFrame extends JFrame {
 
     public AskAiFrame(AppConfigurationRepository configurationRepository, final AskAiService askAiService) {
         super("AskAI");
+        AppIcon.apply(this); // the AskAI robot everywhere the Java cup used to be
         this.configurationRepository = configurationRepository;
         this.askAiService = askAiService;
         this.model = new AskAiModel(configurationRepository);
