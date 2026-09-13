@@ -175,6 +175,56 @@ public class ConceptAddCardsTest {
         return service.snapshot().getWorkingRevision();
     }
 
+    /**
+     * The tree editor's ID adapters (GPT's hardening ruling): gestures travel as
+     * (epoch, nodeId); the path resolves INSIDE the atomic operation — a stale epoch or a
+     * vanished id aborts honestly, and a rename between render and click can never make the
+     * gesture hit a different card.
+     */
+    @Test
+    public void idAdaptersResolveInsideTheAtomicOperationAndAbortOnStaleState() throws Exception {
+        ConceptBranchService service = fresh();
+        service.addCards(Collections.<String>emptyList(),
+                Arrays.asList("Grundlagen", "Debugging"));
+        String epoch = service.currentEpoch();
+        String debuggingId = service.nodeIdAtPath(Collections.singletonList("Debugging"));
+
+        // The stale-path bug class, killed: rename FIRST, then act via the OLD id — the
+        // adapter resolves the CURRENT path and hits the renamed card, never a neighbour.
+        assertTrue(service.renameNodeById(epoch, debuggingId, "Fehlersuche").isApplied());
+        assertTrue(service.deleteTerminalBranchById(epoch, debuggingId).isApplied());
+        assertFalse(service.snapshot().getDocumentJson().contains("Fehlersuche"));
+
+        // Add under an identity + deep removal by identity.
+        String grundlagenId = service.nodeIdAtPath(Collections.singletonList("Grundlagen"));
+        ConceptBranchService.AddCardsResult added = service.addCardsUnderId(epoch,
+                grundlagenId, Arrays.asList("Setup", "Praxis"));
+        assertTrue(added.isApplied());
+        assertEquals(2, added.getAdded().size());
+        assertTrue(service.addCardsUnderId(epoch, null,
+                Collections.singletonList("Anhang")).isApplied());
+        assertTrue(service.removeNodeById(epoch, grundlagenId).isApplied());
+        assertFalse(service.snapshot().getDocumentJson().contains("Setup"));
+
+        // Stale epoch (raw save cut a fresh one) and vanished ids abort without mutation.
+        ConceptBranchService.DocumentSnapshot head = service.snapshot();
+        assertTrue(service.replaceDocument(head.getDocumentJson(),
+                head.getWorkingRevision()).isApplied());
+        long revision = service.snapshot().getWorkingRevision();
+        ConceptBranchService.EditResult stale =
+                service.renameNodeById(epoch, debuggingId, "X");
+        assertFalse(stale.isApplied());
+        assertTrue(stale.getDiagnostic().describeForModel().contains("epoch"));
+        assertFalse(service.addCardsUnderId(epoch, null,
+                Collections.singletonList("Y")).isApplied());
+        ConceptBranchService.EditResult gone = service.deleteTerminalBranchById(
+                service.currentEpoch(), debuggingId);
+        assertFalse(gone.isApplied());
+        assertTrue(gone.getDiagnostic().describeForModel().contains("no longer exists"));
+        assertEquals("aborts never mutate", revision,
+                service.snapshot().getWorkingRevision());
+    }
+
     @Test
     public void renameAndIdentityKeepWorkingAfterAListAdd() throws Exception {
         ConceptBranchService service = fresh();

@@ -76,6 +76,7 @@ public final class ConceptPaperView extends JPanel {
     /** Tree first — the pretty surface; JSON stays the power/recovery mode. */
     private boolean treeMode = true;
     private ConceptTreeView.BlacklistSource blacklistSource;
+    private ConceptTreeView.IdentityContext identityContext;
     private final ComicSearchBar searchBar =
             new ComicSearchBar("Search concept…", "Filter the concept cards by name (Enter; "
                     + "empty Enter shows the document again)");
@@ -217,8 +218,10 @@ public final class ConceptPaperView extends JPanel {
      * store. Errors pop in the shared comic overlay.
      */
     public void setTreeActions(ConceptTreeView.Actions actions,
-                               ConceptTreeView.BlacklistSource blacklist) {
+                               ConceptTreeView.BlacklistSource blacklist,
+                               ConceptTreeView.IdentityContext identity) {
         this.blacklistSource = blacklist;
+        this.identityContext = identity;
         treeView.setActions(actions, new ConceptTreeView.ErrorSink() {
             public void error(String message) {
                 showError(message);
@@ -468,7 +471,8 @@ public final class ConceptPaperView extends JPanel {
         treeView.render(projection != null && projection.isReadable()
                         ? projection.getPrettyJson() : "",
                 blacklistSource == null ? java.util.Collections.<String>emptyList()
-                        : blacklistSource.terms());
+                        : blacklistSource.terms(),
+                identityContext);
         renderCurrent();
     }
 

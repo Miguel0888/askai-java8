@@ -294,6 +294,80 @@ public final class ConceptBranchService {
         return failClosed;
     }
 
+    // --------------------------------------------------- ID-based adapters (tree-editor UI)
+    //
+    // The tree editor's writing gestures carry (epoch, nodeId) — never a render-time path
+    // (GPT's tree-editor ruling: an agent commit between render and click must not make an
+    // old path hit a DIFFERENT card, and a stale epoch aborts instead of guessing). The path
+    // resolves HERE, inside the same synchronized call that executes the operation — id
+    // resolution and mutation are one atomic step.
+
+    /** Resolve an (epoch, nodeId) reference to the CURRENT path, or set a refusal. */
+    private List<String> resolveById(String epoch, String nodeId) {
+        idResolveError = null;
+        if (failClosed) {
+            idResolveError = failClosedError().getDiagnostic();
+            return null;
+        }
+        if (identity == null || epoch == null || !epoch.equals(identity.epoch())) {
+            idResolveError = JsonTreeDiagnostic.of(JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
+                    "The document state changed (identity epoch differs) — the action was "
+                            + "aborted; nothing was modified. Reload the view and retry.")
+                    .build();
+            return null;
+        }
+        List<String> path = identity.pathOfId(parseOrEmpty(store.effectiveContent()), nodeId);
+        if (path == null) {
+            idResolveError = JsonTreeDiagnostic.of(JsonTreeErrorCode.TARGET_NODE_NOT_FOUND,
+                    "The card no longer exists — nothing was modified.").build();
+        }
+        return path;
+    }
+
+    private JsonTreeDiagnostic idResolveError;
+
+    public synchronized EditResult renameNodeById(String epoch, String nodeId, String newName) {
+        List<String> path = resolveById(epoch, nodeId);
+        return path == null ? editError(idResolveError) : renameNode(path, newName);
+    }
+
+    /** The guarded delete (leaf/terminal) by identity. */
+    public synchronized EditResult deleteTerminalBranchById(String epoch, String nodeId) {
+        List<String> path = resolveById(epoch, nodeId);
+        return path == null ? editError(idResolveError) : deleteTerminalBranch(path);
+    }
+
+    /** The DEEP removal by identity — the confirmed tree-editor branch delete. */
+    public synchronized EditResult removeNodeById(String epoch, String nodeId) {
+        List<String> path = resolveById(epoch, nodeId);
+        return path == null ? editError(idResolveError) : removeNodeAt(path);
+    }
+
+    /** The atomic list add under an identity ({@code parentNodeId == null} = the top level). */
+    public synchronized AddCardsResult addCardsUnderId(String epoch, String parentNodeId,
+                                                       List<String> names) {
+        List<String> parentPath;
+        if (parentNodeId == null) {
+            // Root has no node id; the epoch check alone guards the state.
+            if (failClosed || identity == null || epoch == null
+                    || !epoch.equals(identity.epoch())) {
+                resolveById(epoch, "-"); // sets the honest refusal
+                return new AddCardsResult(false, -1L,
+                        java.util.Collections.<String>emptyList(),
+                        java.util.Collections.<String>emptyList(), null, idResolveError);
+            }
+            parentPath = java.util.Collections.emptyList();
+        } else {
+            parentPath = resolveById(epoch, parentNodeId);
+            if (parentPath == null) {
+                return new AddCardsResult(false, -1L,
+                        java.util.Collections.<String>emptyList(),
+                        java.util.Collections.<String>emptyList(), null, idResolveError);
+            }
+        }
+        return addCards(parentPath, names);
+    }
+
     private EditResult failClosedError() {
         return editError(JsonTreeDiagnostic.of(JsonTreeErrorCode.CANDIDATE_DOCUMENT_INVALID,
                 failClosedReason == null ? "RECOVERY REQUIRED" : failClosedReason).build());

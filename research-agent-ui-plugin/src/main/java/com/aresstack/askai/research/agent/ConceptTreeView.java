@@ -42,17 +42,30 @@ import java.util.Map;
  */
 public final class ConceptTreeView extends JComponent implements javax.swing.Scrollable {
 
-    /** The owner's bridge into ConceptBranchService; every method returns null or the error. */
+    /**
+     * The owner's bridge into ConceptBranchService — ID-BASED (tree-editor hardening): every
+     * gesture carries the render epoch and the card's stable nodeId, never a render-time
+     * path; the service resolves the CURRENT path inside the same atomic operation and aborts
+     * honestly on a stale epoch or a vanished id. Every method returns null or the error.
+     */
     public interface Actions {
-        String rename(List<String> path, String newName);
+        String rename(String epoch, String nodeId, String newName);
 
         /** Leaf or terminal branch — the guarded delete. */
-        String deleteLeafOrTerminal(List<String> path);
+        String deleteLeafOrTerminal(String epoch, String nodeId);
 
         /** A DEEP branch — the host-authorized removal behind the confirmation dialog. */
-        String deleteBranch(List<String> path);
+        String deleteBranch(String epoch, String nodeId);
 
-        String addChild(List<String> parentPath, String name);
+        /** {@code parentNodeId == null} adds a TOP-LEVEL card. */
+        String addChild(String epoch, String parentNodeId, String name);
+    }
+
+    /** The ID sidecar's view of the CURRENT snapshot — epoch + per-path node ids. */
+    public interface IdentityContext {
+        String epoch();
+
+        String idAt(List<String> path);
     }
 
     /** Errors surface in the owner's comic overlay — the tree paints, it does not toast. */
@@ -69,6 +82,8 @@ public final class ConceptTreeView extends JComponent implements javax.swing.Scr
     static final class Row {
         final List<String> path;
         final String name;
+        /** The stable identity captured at render time; gestures travel on THIS, not the path. */
+        String nodeId;
         final int depth;
         final boolean leaf;
         final boolean terminal;
@@ -112,9 +127,11 @@ public final class ConceptTreeView extends JComponent implements javax.swing.Scr
     private int hoverRow = -1;
     /** 0 = none, 1 = rename, 2 = delete, 3 = add child. */
     private int hoverGlyph;
-    /** While the inline editor is open: the edited row (-1 with editingParent = add child). */
-    private int editingRow = -1;
-    private List<String> editingParentPath;
+    /** The open inline edit travels on IDs too — a background refresh can reorder rows. */
+    private String editingRenameNodeId;
+    private String editingAddParentNodeId;
+    private boolean editingAddRoot;
+    private boolean editorOpen;
     /** The click that closed the editor via focus loss must not trigger a row action too. */
     private boolean suppressNextClick;
 
@@ -180,12 +197,30 @@ public final class ConceptTreeView extends JComponent implements javax.swing.Scr
         this.errorSink = errorSink;
     }
 
-    /** Re-derive the rows from one atomic snapshot; an open inline edit survives the refresh. */
-    public void render(String documentJson, List<String> blacklistTerms) {
+    /** The epoch the visible rows belong to; gestures carry it for the stale check. */
+    private String renderEpoch;
+
+    /** Re-derive the rows from one atomic snapshot; an epoch change drops ALL transient UI. */
+    public void render(String documentJson, List<String> blacklistTerms,
+                       IdentityContext identity) {
         this.documentJson = documentJson == null ? "" : documentJson;
         this.rows = rowsOf(this.documentJson,
                 blacklistTerms == null ? java.util.Collections.<String>emptyList()
                         : blacklistTerms);
+        String epoch = identity == null ? null : identity.epoch();
+        if (identity != null) {
+            for (Row row : rows) {
+                row.nodeId = identity.idAt(row.path);
+            }
+        }
+        if (renderEpoch != null && !renderEpoch.equals(epoch)) {
+            // Raw save / restore cut the identity: selection, hover and the open inline
+            // editor die with the old epoch — hitboxes rebuild from the new snapshot only.
+            closeInlineEditor();
+            hoverRow = -1;
+            hoverGlyph = 0;
+        }
+        renderEpoch = epoch;
         layoutRows();
         revalidate();
         repaint();
@@ -409,8 +444,12 @@ public final class ConceptTreeView extends JComponent implements javax.swing.Scr
             int mid = row.plate.y + row.plate.height / 2;
             g2.drawLine(row.plate.x + PLATE_PAD_H, mid,
                     row.plate.x + row.plate.width - PLATE_PAD_H, mid);
+            // An explicit badge: dimming alone reads like a disabled row (GPT's #5 note).
+            g2.setFont(ResearchUiTypography.regular(10f));
+            g2.setColor(new Color(0x999999));
+            g2.drawString("excluded", row.plate.x + row.plate.width + 6, baseline - 1);
         }
-        if (hovered && editingRow < 0 && editingParentPath == null) {
+        if (hovered && !editorOpen) {
             paintGlyph(g2, glyphRect(row, 1), 1, hoverGlyph == 1);
             paintGlyph(g2, glyphRect(row, 2), 2, hoverGlyph == 2);
             paintGlyph(g2, glyphRect(row, 3), 3, hoverGlyph == 3);
@@ -475,7 +514,10 @@ public final class ConceptTreeView extends JComponent implements javax.swing.Scr
     }
 
     private Rectangle glyphRect(Row row, int slot) {
-        int x = row.plate.x + row.plate.width + GLYPH_GAP
+        int badge = row.suppressed
+                ? getFontMetrics(ResearchUiTypography.regular(10f)).stringWidth("excluded") + 10
+                : 0;
+        int x = row.plate.x + row.plate.width + badge + GLYPH_GAP
                 + (slot - 1) * (GLYPH_SIZE + GLYPH_GAP);
         int y = row.plate.y + (row.plate.height - GLYPH_SIZE) / 2;
         return new Rectangle(x, y, GLYPH_SIZE, GLYPH_SIZE);
@@ -532,32 +574,44 @@ public final class ConceptTreeView extends JComponent implements javax.swing.Scr
             return;
         }
         if (rootAddHovered) {
+            editingAddRoot = true;
             openInlineEditor(new Rectangle(rootAddPlate.x, rootAddPlate.y, 200, PLATE_HEIGHT),
-                    "", -1, new ArrayList<String>());
+                    "");
             return;
         }
         if (hoverRow < 0 || hoverRow >= rows.size() || hoverGlyph == 0) {
             return;
         }
         Row row = rows.get(hoverRow);
+        if (row.nodeId == null) {
+            // No stable identity (recovery edge): a gesture must never guess by label.
+            if (errorSink != null) {
+                errorSink.error("This card has no stable identity right now — edit in the "
+                        + "JSON mode instead.");
+            }
+            return;
+        }
         if (hoverGlyph == 1) {
-            openInlineEditor(row.plate, row.name, hoverRow, null);
+            editingRenameNodeId = row.nodeId;
+            openInlineEditor(row.plate, row.name);
         } else if (hoverGlyph == 2) {
             deleteRow(row);
         } else if (hoverGlyph == 3) {
+            editingAddParentNodeId = row.nodeId;
             Rectangle below = new Rectangle(row.plate.x + INDENT,
                     row.plate.y + ROW_HEIGHT - 2, Math.max(160, row.plate.width), PLATE_HEIGHT);
-            openInlineEditor(below, "", -1, row.path);
+            openInlineEditor(below, "");
         }
     }
 
     private void deleteRow(Row row) {
         String error;
         if (row.leaf) {
-            error = actions.deleteLeafOrTerminal(row.path);
+            error = actions.deleteLeafOrTerminal(renderEpoch, row.nodeId);
         } else {
             // Anything WITH children is a deliberate, confirmed user decision — never a
-            // silent subtree wipe (the safety-slice promise, now as the user's own control).
+            // silent subtree wipe. Between dialog and confirmation the state may change:
+            // the ID adapter re-resolves epoch + nodeId INSIDE the atomic operation.
             int choice = JOptionPane.showConfirmDialog(this,
                     "Delete \"" + row.name + "\" with " + row.subtreeCards + " sub-card"
                             + (row.subtreeCards == 1 ? "" : "s") + "?\n"
@@ -567,18 +621,16 @@ public final class ConceptTreeView extends JComponent implements javax.swing.Scr
             if (choice != JOptionPane.OK_OPTION) {
                 return;
             }
-            error = row.terminal ? actions.deleteLeafOrTerminal(row.path)
-                    : actions.deleteBranch(row.path);
+            error = row.terminal ? actions.deleteLeafOrTerminal(renderEpoch, row.nodeId)
+                    : actions.deleteBranch(renderEpoch, row.nodeId);
         }
         if (error != null && errorSink != null) {
             errorSink.error(error);
         }
     }
 
-    private void openInlineEditor(Rectangle where, String initialText, int renameRow,
-                                  List<String> addChildParent) {
-        editingRow = renameRow;
-        editingParentPath = addChildParent;
+    private void openInlineEditor(Rectangle where, String initialText) {
+        editorOpen = true;
         inlineEditor.setText(initialText);
         inlineEditor.setBounds(where.x, where.y, Math.max(160, where.width + 40),
                 where.height);
@@ -601,13 +653,12 @@ public final class ConceptTreeView extends JComponent implements javax.swing.Scr
             return; // the field stays open, the user decides
         }
         String error = null;
-        if (editingRow >= 0 && editingRow < rows.size()) {
-            Row row = rows.get(editingRow);
-            if (!value.equals(row.name)) {
-                error = actions.rename(row.path, value);
-            }
-        } else if (editingParentPath != null) {
-            error = actions.addChild(editingParentPath, value);
+        if (editingRenameNodeId != null) {
+            error = actions.rename(renderEpoch, editingRenameNodeId, value);
+        } else if (editingAddParentNodeId != null) {
+            error = actions.addChild(renderEpoch, editingAddParentNodeId, value);
+        } else if (editingAddRoot) {
+            error = actions.addChild(renderEpoch, null, value);
         }
         if (error != null) {
             if (errorSink != null) {
@@ -623,8 +674,10 @@ public final class ConceptTreeView extends JComponent implements javax.swing.Scr
         if (inlineEditor.isVisible()) {
             suppressNextClick = true; // a focus-loss click lands right after this close
         }
-        editingRow = -1;
-        editingParentPath = null;
+        editorOpen = false;
+        editingRenameNodeId = null;
+        editingAddParentNodeId = null;
+        editingAddRoot = false;
         inlineEditor.setVisible(false);
         repaint();
     }

@@ -70,56 +70,70 @@ public final class ResearchBriefViewContribution implements ArtifactViewContribu
                 return result.isApplied() ? null : result.getDiagnostic().describeForModel();
             }
         });
-        // Tree-editor slice 1+2: every hover gesture is ONE service call — the SAME atomic,
-        // ID-sidecar-committing operations the agent tools use, never past the store. The deep
-        // branch delete is the deliberate, confirmed USER action the safety slice reserved.
+        // Tree-editor gestures, ID-HARDENED: every action travels as (epoch, nodeId) and the
+        // service resolves the CURRENT path inside the same atomic operation — a stale epoch
+        // or a vanished id aborts honestly, never a label-guessed edit on another card. The
+        // deep branch delete stays the deliberate, confirmed USER action.
         view.setTreeActions(new ConceptTreeView.Actions() {
-            public String rename(java.util.List<String> path, String newName) {
+            public String rename(String epoch, String nodeId, String newName) {
                 com.aresstack.askai.research.concept.ConceptBranchService service =
                         research.conceptBranchService();
                 if (service == null) {
                     return "This session has no concept service.";
                 }
                 com.aresstack.askai.research.concept.ConceptBranchService.EditResult result =
-                        service.renameNode(path, newName);
+                        service.renameNodeById(epoch, nodeId, newName);
                 return result.isApplied() ? null : result.getDiagnostic().describeForModel();
             }
 
-            public String deleteLeafOrTerminal(java.util.List<String> path) {
+            public String deleteLeafOrTerminal(String epoch, String nodeId) {
                 com.aresstack.askai.research.concept.ConceptBranchService service =
                         research.conceptBranchService();
                 if (service == null) {
                     return "This session has no concept service.";
                 }
                 com.aresstack.askai.research.concept.ConceptBranchService.EditResult result =
-                        service.deleteTerminalBranch(path);
+                        service.deleteTerminalBranchById(epoch, nodeId);
                 return result.isApplied() ? null : result.getDiagnostic().describeForModel();
             }
 
-            public String deleteBranch(java.util.List<String> path) {
+            public String deleteBranch(String epoch, String nodeId) {
                 com.aresstack.askai.research.concept.ConceptBranchService service =
                         research.conceptBranchService();
                 if (service == null) {
                     return "This session has no concept service.";
                 }
                 com.aresstack.askai.research.concept.ConceptBranchService.EditResult result =
-                        service.removeNodeAt(path);
+                        service.removeNodeById(epoch, nodeId);
                 return result.isApplied() ? null : result.getDiagnostic().describeForModel();
             }
 
-            public String addChild(java.util.List<String> parentPath, String name) {
+            public String addChild(String epoch, String parentNodeId, String name) {
                 com.aresstack.askai.research.concept.ConceptBranchService service =
                         research.conceptBranchService();
                 if (service == null) {
                     return "This session has no concept service.";
                 }
                 com.aresstack.askai.research.concept.ConceptBranchService.AddCardsResult result =
-                        service.addCards(parentPath, java.util.Collections.singletonList(name));
+                        service.addCardsUnderId(epoch, parentNodeId,
+                                java.util.Collections.singletonList(name));
                 return result.isApplied() ? null : result.getDiagnostic().describeForModel();
             }
         }, new ConceptTreeView.BlacklistSource() {
             public java.util.List<String> terms() {
                 return research.blacklistTermsForDisplay();
+            }
+        }, new ConceptTreeView.IdentityContext() {
+            public String epoch() {
+                com.aresstack.askai.research.concept.ConceptBranchService service =
+                        research.conceptBranchService();
+                return service == null ? null : service.currentEpoch();
+            }
+
+            public String idAt(java.util.List<String> path) {
+                com.aresstack.askai.research.concept.ConceptBranchService service =
+                        research.conceptBranchService();
+                return service == null ? null : service.nodeIdAtPath(path);
             }
         });
         final Runnable refresh = new Runnable() {
