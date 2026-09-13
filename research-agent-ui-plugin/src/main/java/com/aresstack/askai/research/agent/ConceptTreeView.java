@@ -64,6 +64,11 @@ public final class ConceptTreeView extends JComponent implements javax.swing.Scr
          */
         String addChild(String epoch, String parentNodeId, String insertBeforeNodeId,
                         String name);
+
+        /** The ratified positional leaf move (slice B): D&D commits exactly what the
+         *  indicator announced — target parent ({@code null} = top level) + anchor. */
+        String moveLeaf(String epoch, String sourceNodeId, String targetParentNodeId,
+                        String insertBeforeNodeId);
     }
 
     /** The ID sidecar's view of the CURRENT snapshot — epoch + per-path node ids. */
@@ -139,6 +144,16 @@ public final class ConceptTreeView extends JComponent implements javax.swing.Scr
     private boolean editingAddRoot;
     /** The gap row currently showing the insertion caret (insert BEFORE this row), or -1. */
     private int caretRow = -1;
+
+    // ---- drag & drop state (leaf-only; zones per the ratified drop rules)
+    private int pressRow = -1;
+    private java.awt.Point pressPoint;
+    private boolean dragging;
+    private int dragRow = -1;
+    private java.awt.Point dragPoint;
+    /** 0 = none/invalid, 1 = ON_CARD (last child of zoneRow), 2 = BEFORE zoneRow, 3 = root end. */
+    private int dropZone;
+    private int zoneRow = -1;
     private boolean editorOpen;
     /** The click that closed the editor via focus loss must not trigger a row action too. */
     private boolean suppressNextClick;
@@ -194,6 +209,21 @@ public final class ConceptTreeView extends JComponent implements javax.swing.Scr
             @Override
             public void mouseClicked(MouseEvent event) {
                 handleClick(event.getX(), event.getY());
+            }
+
+            @Override
+            public void mousePressed(MouseEvent event) {
+                armDrag(event.getX(), event.getY());
+            }
+
+            @Override
+            public void mouseDragged(MouseEvent event) {
+                updateDrag(event.getX(), event.getY());
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent event) {
+                finishDrag();
             }
         };
         addMouseListener(mouse);
@@ -415,7 +445,12 @@ public final class ConceptTreeView extends JComponent implements javax.swing.Scr
             if (!preview) {
                 paintRootAddPlate(g2);
             }
-            if (caretRow >= 0 && caretRow < rows.size() && !preview && !editorOpen) {
+            if (dragging) {
+                paintDropIndicator(g2);
+                paintDragGhost(g2);
+            }
+            if (!dragging && caretRow >= 0 && caretRow < rows.size() && !preview
+                    && !editorOpen) {
                 Row below = rows.get(caretRow);
                 int y = below.plate.y - 4;
                 g2.setColor(palette.getInk());
@@ -664,6 +699,185 @@ public final class ConceptTreeView extends JComponent implements javax.swing.Scr
                     row.plate.y + ROW_HEIGHT - 2, Math.max(160, row.plate.width), PLATE_HEIGHT);
             openInlineEditor(below, "");
         }
+    }
+
+    // ------------------------------------------------------------------ drag & drop
+
+    private void armDrag(int x, int y) {
+        pressRow = -1;
+        if (preview || editorOpen || actions == null) {
+            return;
+        }
+        for (int index = 0; index < rows.size(); index++) {
+            if (rows.get(index).plate.contains(x, y)) {
+                pressRow = index;
+                pressPoint = new java.awt.Point(x, y);
+                break;
+            }
+        }
+    }
+
+    private void updateDrag(int x, int y) {
+        if (pressRow < 0 || pressRow >= rows.size()) {
+            return;
+        }
+        Row source = rows.get(pressRow);
+        if (!dragging) {
+            if (pressPoint == null || pressPoint.distance(x, y) < 5) {
+                return;
+            }
+            if (!source.leaf || source.nodeId == null) {
+                // The ratified boundary: a branch drag never STARTS; the tooltip explains.
+                setToolTipText(source.leaf
+                        ? "This card has no stable identity right now"
+                        : "Only leaf cards can be moved — branch moves come later");
+                return;
+            }
+            dragging = true;
+            dragRow = pressRow;
+        }
+        dragPoint = new java.awt.Point(x, y);
+        computeDropZone(x, y);
+        repaint();
+    }
+
+    /** The ratified zones: card body → last child; gap → before that row; below all → root. */
+    private void computeDropZone(int x, int y) {
+        dropZone = 0;
+        zoneRow = -1;
+        for (int index = 0; index < rows.size(); index++) {
+            Row row = rows.get(index);
+            Rectangle gap = new Rectangle(0, row.plate.y - (ROW_HEIGHT - PLATE_HEIGHT) / 2,
+                    getWidth(), (ROW_HEIGHT - PLATE_HEIGHT) / 2 + 2);
+            if (gap.contains(x, y)) {
+                dropZone = 2; // BEFORE this row (its parent, anchor = this row)
+                zoneRow = index;
+                return;
+            }
+            Rectangle band = new Rectangle(0, row.plate.y, getWidth(), PLATE_HEIGHT);
+            if (band.contains(x, y)) {
+                if (index == dragRow) {
+                    dropZone = 0; // ON the source itself: INVALID_TARGET, visibly blocked
+                    zoneRow = index;
+                    return;
+                }
+                dropZone = 1; // ON this card → its last child
+                zoneRow = index;
+                return;
+            }
+        }
+        Row last = rows.isEmpty() ? null : rows.get(rows.size() - 1);
+        if (last == null || y > last.plate.y + last.plate.height) {
+            dropZone = 3; // root end
+        }
+    }
+
+    private void finishDrag() {
+        int source = dragRow;
+        int zone = dropZone;
+        int target = zoneRow;
+        boolean wasDragging = dragging;
+        dragging = false;
+        dragRow = -1;
+        pressRow = -1;
+        dropZone = 0;
+        zoneRow = -1;
+        if (!wasDragging) {
+            return;
+        }
+        suppressNextClick = true; // the release click must not fire a hover action
+        repaint();
+        if (actions == null || source < 0 || source >= rows.size() || zone == 0) {
+            return;
+        }
+        Row moved = rows.get(source);
+        String error;
+        if (zone == 1 && target >= 0 && target < rows.size()) {
+            error = actions.moveLeaf(renderEpoch, moved.nodeId,
+                    rows.get(target).nodeId, null);
+        } else if (zone == 2 && target >= 0 && target < rows.size()) {
+            Row anchor = rows.get(target);
+            error = actions.moveLeaf(renderEpoch, moved.nodeId,
+                    parentNodeIdOf(anchor), anchor.nodeId);
+        } else if (zone == 3) {
+            error = actions.moveLeaf(renderEpoch, moved.nodeId, null, null);
+        } else {
+            return;
+        }
+        if (error != null && errorSink != null) {
+            errorSink.error(error);
+        }
+    }
+
+    /** The indicator NAMES the commit: target parent and position, never anything else. */
+    private void paintDropIndicator(Graphics2D g2) {
+        if (dropZone == 1 && zoneRow >= 0 && zoneRow < rows.size()) {
+            Row target = rows.get(zoneRow);
+            g2.setColor(palette.getAccentOrange());
+            g2.setStroke(new BasicStroke(2.2f));
+            g2.drawRoundRect(target.plate.x - 2, target.plate.y - 2,
+                    target.plate.width + 4, target.plate.height + 4, PLATE_ARC, PLATE_ARC);
+            paintDropLabel(g2, target.plate.x, target.plate.y + target.plate.height + 12,
+                    "→ \"" + target.name + "\", end");
+        } else if (dropZone == 2 && zoneRow >= 0 && zoneRow < rows.size()) {
+            Row below = rows.get(zoneRow);
+            int y = below.plate.y - 4;
+            g2.setColor(palette.getAccentOrange());
+            g2.setStroke(new BasicStroke(2.2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            g2.drawLine(below.plate.x, y, below.plate.x + Math.max(140, below.plate.width), y);
+            String parent = below.depth == 0 ? "top level"
+                    : "\"" + below.path.get(below.path.size() - 2) + "\"";
+            paintDropLabel(g2, below.plate.x, y - 6,
+                    "→ " + parent + ", before \"" + below.name + "\"");
+        } else if (dropZone == 3) {
+            int y = rootAddPlate.y - 4;
+            g2.setColor(palette.getAccentOrange());
+            g2.setStroke(new BasicStroke(2.2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            g2.drawLine(MARGIN, y, MARGIN + 220, y);
+            paintDropLabel(g2, MARGIN, y - 6, "→ top level, end");
+        } else if (zoneRow >= 0 && zoneRow == dragRow) {
+            Row self = rows.get(zoneRow);
+            g2.setColor(new Color(0xBBBBBB));
+            g2.setStroke(new BasicStroke(2.2f));
+            g2.drawRoundRect(self.plate.x - 2, self.plate.y - 2,
+                    self.plate.width + 4, self.plate.height + 4, PLATE_ARC, PLATE_ARC);
+            paintDropLabel(g2, self.plate.x, self.plate.y + self.plate.height + 12,
+                    "a card cannot become its own parent");
+        }
+    }
+
+    private void paintDropLabel(Graphics2D g2, int x, int y, String text) {
+        g2.setFont(ResearchUiTypography.semiBold(11f));
+        FontMetrics metrics = g2.getFontMetrics();
+        int width = metrics.stringWidth(text) + 12;
+        g2.setColor(Color.WHITE);
+        g2.fillRoundRect(x, y - metrics.getAscent() - 3, width, metrics.getHeight() + 6, 8, 8);
+        g2.setColor(palette.getInk());
+        g2.setStroke(new BasicStroke(1f));
+        g2.drawRoundRect(x, y - metrics.getAscent() - 3, width, metrics.getHeight() + 6, 8, 8);
+        g2.drawString(text, x + 6, y);
+    }
+
+    private void paintDragGhost(Graphics2D g2) {
+        if (dragRow < 0 || dragRow >= rows.size() || dragPoint == null) {
+            return;
+        }
+        Row source = rows.get(dragRow);
+        java.awt.Composite original = g2.getComposite();
+        g2.setComposite(java.awt.AlphaComposite.getInstance(
+                java.awt.AlphaComposite.SRC_OVER, 0.65f));
+        int x = dragPoint.x + 10;
+        int y = dragPoint.y - PLATE_HEIGHT / 2;
+        g2.setColor(Color.WHITE);
+        g2.fillRoundRect(x, y, source.plate.width, PLATE_HEIGHT, PLATE_ARC, PLATE_ARC);
+        g2.setColor(palette.getInk());
+        g2.setStroke(new BasicStroke(1.4f));
+        g2.drawRoundRect(x, y, source.plate.width, PLATE_HEIGHT, PLATE_ARC, PLATE_ARC);
+        g2.setFont(ResearchUiTypography.semiBold(13f));
+        FontMetrics metrics = g2.getFontMetrics();
+        g2.drawString(source.name, x + PLATE_PAD_H,
+                y + (PLATE_HEIGHT + metrics.getAscent() - metrics.getDescent()) / 2);
+        g2.setComposite(original);
     }
 
     /** The nodeId of the row's PARENT row (null = the top level). */

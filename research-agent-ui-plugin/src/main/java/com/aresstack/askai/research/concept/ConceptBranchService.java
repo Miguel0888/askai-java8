@@ -310,6 +310,17 @@ public final class ConceptBranchService {
      */
     private static void insertCards(JsonArray parentArray, List<String> names,
                                     String anchorName) {
+        List<JsonElement> values = new ArrayList<JsonElement>();
+        for (int index = 0; index < names.size(); index++) {
+            values.add(new JsonArray());
+        }
+        insertCardValues(parentArray, names, values, anchorName);
+    }
+
+    /** The one positional writer: named cards WITH their values land before the anchor's
+     *  property (order-preserving container rebuild) or at the TRUE flat end (last container). */
+    private static void insertCardValues(JsonArray parentArray, List<String> names,
+                                         List<JsonElement> cardValues, String anchorName) {
         if (anchorName == null) {
             JsonObject last = null;
             for (JsonElement element : parentArray) {
@@ -321,8 +332,8 @@ public final class ConceptBranchService {
                 last = new JsonObject();
                 parentArray.add(last);
             }
-            for (String card : names) {
-                last.add(card, new JsonArray());
+            for (int index = 0; index < names.size(); index++) {
+                last.add(names.get(index), cardValues.get(index));
             }
             return;
         }
@@ -342,14 +353,30 @@ public final class ConceptBranchService {
             }
             for (int index = 0; index < keys.size(); index++) {
                 if (keys.get(index).equals(anchorName)) {
-                    for (String card : names) {
-                        owner.add(card, new JsonArray());
+                    for (int card = 0; card < names.size(); card++) {
+                        owner.add(names.get(card), cardValues.get(card));
                     }
                 }
                 owner.add(keys.get(index), values.get(index));
             }
             return;
         }
+    }
+
+    /** The parent level's FLAT card-name sequence (containers are storage, never order). */
+    private static List<String> flatCardNames(JsonArray parentArray) {
+        List<String> names = new ArrayList<String>();
+        for (JsonElement element : parentArray) {
+            if (!element.isJsonObject()) {
+                continue;
+            }
+            for (Map.Entry<String, JsonElement> entry : element.getAsJsonObject().entrySet()) {
+                if (entry.getValue().isJsonArray()) {
+                    names.add(entry.getKey());
+                }
+            }
+        }
+        return names;
     }
 
     /** Resolve an (epoch, nodeId) reference to the CURRENT path, or set a refusal. */
@@ -372,6 +399,140 @@ public final class ConceptBranchService {
                     "The card no longer exists — nothing was modified.").build();
         }
         return path;
+    }
+
+    /**
+     * The RATIFIED positional leaf move (slice B, UI path): everything resolves by
+     * (epoch, nodeId) under THIS lock, and {@code insertBeforeNodeId} targets the POST-IMAGE —
+     * the source leaves the sibling sequence first, then the anchor is located in the
+     * remaining sequence and the source lands immediately before it ({@code null} = the true
+     * flat end). Same-parent reorders are legal single-revision moves; the ratified NO_CHANGE
+     * cases (source==anchor, already directly before the anchor, already last with a null
+     * anchor) commit nothing. {@code targetParent == source} is INVALID_TARGET. The MODEL path
+     * ({@link #moveLeaf}) deliberately keeps its accepted PRESENCE semantics — a spoken
+     * "verschiebe X unter Y" names no position, so "already under Y" stays ALREADY_AT_TARGET.
+     */
+    public synchronized MoveLeafResult moveLeafById(String epoch, String sourceNodeId,
+                                                    String targetParentNodeId,
+                                                    String insertBeforeNodeId) {
+        List<String> sourcePath = resolveById(epoch, sourceNodeId);
+        if (sourcePath == null) {
+            return moveError(idResolveError);
+        }
+        if (sourceNodeId.equals(targetParentNodeId)) {
+            return moveError(JsonTreeDiagnostic.of(JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
+                    "INVALID_TARGET — a card cannot become its own parent; nothing was "
+                            + "moved.").build());
+        }
+        String document = store.effectiveContent();
+        StrictJsonParseResult parsed = StrictJsonParser.parse(document);
+        if (!parsed.isOk()) {
+            return moveError(parsed.getDiagnostic());
+        }
+        String label = sourcePath.get(sourcePath.size() - 1);
+        if (!isLeafShape(parsed.getElement(), sourcePath)) {
+            return moveError(JsonTreeDiagnostic.of(JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
+                    "SOURCE_NOT_LEAF \"" + label + "\" — only a LEAF moves with this tool; "
+                            + "branches stay manual editor work.").build());
+        }
+        List<String> targetPath;
+        if (targetParentNodeId == null) {
+            targetPath = java.util.Collections.emptyList();
+        } else {
+            targetPath = identity.pathOfId(parsed.getElement(), targetParentNodeId);
+            if (targetPath == null) {
+                return moveError(JsonTreeDiagnostic.of(JsonTreeErrorCode.TARGET_NODE_NOT_FOUND,
+                        "TARGET_PARENT_NOT_FOUND — the target parent no longer exists; "
+                                + "nothing was moved.").build());
+            }
+        }
+        String anchorName = null;
+        if (insertBeforeNodeId != null) {
+            if (insertBeforeNodeId.equals(sourceNodeId)) {
+                // Ratified: moving before yourself is the position you already occupy.
+                return new MoveLeafResult(true, true, store.workingRevision(), label,
+                        new ArrayList<String>(sourcePath), new ArrayList<String>(sourcePath),
+                        sourceNodeId, null);
+            }
+            List<String> anchorPath =
+                    identity.pathOfId(parsed.getElement(), insertBeforeNodeId);
+            if (anchorPath == null) {
+                return moveError(JsonTreeDiagnostic.of(JsonTreeErrorCode.TARGET_NODE_NOT_FOUND,
+                        "INSERT_ANCHOR_NOT_FOUND — the neighbour card no longer exists; "
+                                + "nothing was moved.").build());
+            }
+            if (!anchorPath.subList(0, anchorPath.size() - 1).equals(targetPath)) {
+                return moveError(JsonTreeDiagnostic.of(JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
+                        "ANCHOR_NOT_IN_TARGET — the neighbour card is not a direct child of "
+                                + "the target parent anymore; nothing was moved.").build());
+            }
+            anchorName = anchorPath.get(anchorPath.size() - 1);
+        }
+        List<String> currentParent = sourcePath.subList(0, sourcePath.size() - 1);
+        boolean sameParent = currentParent.equals(targetPath);
+        Resolution sourceResolution = resolve(parsed.getElement(), sourcePath);
+        if (sourceResolution.diagnostic != null) {
+            return moveError(sourceResolution.diagnostic);
+        }
+        JsonElement candidate = parsed.getElement().deepCopy();
+        JsonArray targetArray;
+        if (targetPath.isEmpty()) {
+            targetArray = candidate.getAsJsonObject().get(CONCEPT_PROPERTY).getAsJsonArray();
+        } else {
+            Resolution targetResolution = resolve(parsed.getElement(), targetPath);
+            if (targetResolution.diagnostic != null) {
+                return moveError(targetResolution.diagnostic);
+            }
+            targetArray = arrayAt(candidate, targetResolution.path);
+            if (targetArray == null) {
+                return moveError(JsonTreeDiagnostic.of(JsonTreeErrorCode.TARGET_NODE_NOT_FOUND,
+                        "TARGET_PARENT_NOT_FOUND " + targetPath + ".").build());
+            }
+        }
+        if (sameParent) {
+            // The ratified NO_CHANGE pins, judged on the POST-IMAGE outcome.
+            List<String> sequence = flatCardNames(targetArray);
+            int at = sequence.indexOf(label);
+            boolean unchanged = anchorName == null
+                    ? at == sequence.size() - 1
+                    : at >= 0 && at + 1 < sequence.size()
+                            && sequence.get(at + 1).equals(anchorName);
+            if (unchanged) {
+                return new MoveLeafResult(true, true, store.workingRevision(), label,
+                        new ArrayList<String>(sourcePath), new ArrayList<String>(sourcePath),
+                        sourceNodeId, null);
+            }
+        } else {
+            for (JsonElement element : targetArray) {
+                if (element.isJsonObject() && element.getAsJsonObject().has(label)) {
+                    return moveError(JsonTreeDiagnostic.of(
+                            JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
+                            "TARGET_NAME_COLLISION \"" + label + "\" — a different card "
+                                    + "with this name already sits at the target; nothing "
+                                    + "was merged or overwritten.").build());
+                }
+            }
+        }
+        // POST-IMAGE algorithm: detach first, then place before the anchor in what remains.
+        JsonElement leafValue = valueAt(candidate, sourceResolution.path);
+        JsonTreeDiagnostic removal = removeAt(candidate, sourceResolution.path);
+        if (removal != null) {
+            return moveError(removal);
+        }
+        insertCardValues(targetArray, java.util.Collections.singletonList(label),
+                java.util.Collections.singletonList(
+                        leafValue == null ? (JsonElement) new JsonArray() : leafValue),
+                anchorName);
+        List<String> newPath = new ArrayList<String>(targetPath);
+        newPath.add(label);
+        ConceptIdentity identityAfter = identity.afterMoveLeaf(parsed.getElement(), sourcePath,
+                candidate, newPath);
+        EditResult committed = commitCandidate(candidate, identityAfter, null);
+        if (!committed.isApplied()) {
+            return moveError(committed.getDiagnostic());
+        }
+        return new MoveLeafResult(true, false, committed.getNewRevision(), label,
+                new ArrayList<String>(sourcePath), newPath, sourceNodeId, null);
     }
 
     private JsonTreeDiagnostic idResolveError;

@@ -132,6 +132,27 @@ public final class ResearchBriefViewContribution implements ArtifactViewContribu
                                 + result.getNewRevision() : " -> refused"));
                 return result.isApplied() ? null : result.getDiagnostic().describeForModel();
             }
+
+            public String moveLeaf(String epoch, String sourceNodeId,
+                                   String targetParentNodeId, String insertBeforeNodeId) {
+                com.aresstack.askai.research.concept.ConceptBranchService service =
+                        research.conceptBranchService();
+                if (service == null) {
+                    return "This session has no concept service.";
+                }
+                com.aresstack.askai.research.concept.ConceptBranchService.MoveLeafResult result =
+                        service.moveLeafById(epoch, sourceNodeId, targetParentNodeId,
+                                insertBeforeNodeId);
+                String position = insertBeforeNodeId == null ? "end" : "before anchor";
+                research.logConceptUiAction("move (" + position + ") -> "
+                        + (!result.isApplied() ? "refused"
+                                : result.isNoChange() ? "no change (already in place)"
+                                        : "applied revision=" + result.getNewRevision()
+                                                + " \"" + result.getLabel() + "\" "
+                                                + result.getFromPath() + " -> "
+                                                + result.getToPath()));
+                return result.isApplied() ? null : result.getDiagnostic().describeForModel();
+            }
         }, new ConceptTreeView.BlacklistSource() {
             public java.util.List<String> terms() {
                 return research.blacklistTermsForDisplay();
