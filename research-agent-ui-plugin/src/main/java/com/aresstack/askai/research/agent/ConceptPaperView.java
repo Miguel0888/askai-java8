@@ -270,20 +270,27 @@ public final class ConceptPaperView extends JPanel {
                 ResearchUiMetrics.FOOTER_PADDING_V, ResearchUiMetrics.FOOTER_PADDING_H,
                 ResearchUiMetrics.FOOTER_PADDING_V, ResearchUiMetrics.FOOTER_PADDING_H));
 
-        JPanel actions = new JPanel(new FlowLayout(FlowLayout.CENTER, 6, 0));
-        actions.setOpaque(false);
-        for (ComicButton button : new ComicButton[] {olderButton, saveButton, discardButton,
-                newerButton}) {
+        // Layout ruling: the history arrows sit LEFT in both modes, Save/Discard CENTERED.
+        JPanel arrows = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        arrows.setOpaque(false);
+        JPanel saveActions = new JPanel(new FlowLayout(FlowLayout.CENTER, 6, 0));
+        saveActions.setOpaque(false);
+        for (ComicButton button : new ComicButton[] {olderButton, newerButton,
+                saveButton, discardButton}) {
             button.setFocusable(false);
             button.setBorder(BorderFactory.createEmptyBorder(3, 10, 3, 10));
-            actions.add(button);
         }
+        arrows.add(olderButton);
+        arrows.add(newerButton);
+        saveActions.add(saveButton);
+        saveActions.add(discardButton);
         saveButton.setToolTipText("Save: apply the edit (JSON) or restore the previewed "
                 + "revision as the new head");
         discardButton.setToolTipText("Discard the edits / leave the revision preview");
         olderButton.setToolTipText("Preview the previous working revision");
         newerButton.setToolTipText("Preview the next working revision");
-        footer.add(actions, BorderLayout.CENTER);
+        footer.add(arrows, BorderLayout.WEST);
+        footer.add(saveActions, BorderLayout.CENTER);
 
         JPanel status = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         status.setOpaque(false);
