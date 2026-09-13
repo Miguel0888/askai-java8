@@ -177,8 +177,8 @@ public final class ConceptToolRounds {
                     continue;
                 }
                 // The model finished without a further action — the normal end.
-                return withMoveTruth(result, mode, movedReceipt, moveOutcome, germanFeedback,
-                        trace);
+                return withMoveTruth(result, mode, movedReceipt, !applied.isEmpty(),
+                        moveOutcome, germanFeedback, trace);
             }
             if (budgetExhausted) {
                 if (action != null && action.getType() == ConceptAction.Type.OFFER
@@ -197,12 +197,12 @@ public final class ConceptToolRounds {
                     } catch (ToolInvoker.EndpointUnavailable dead) {
                         trace.line("wrap-up offer lost — endpoint unavailable");
                     }
-                    return withMoveTruth(result, mode, movedReceipt, moveOutcome,
-                            germanFeedback, trace);
+                    return withMoveTruth(result, mode, movedReceipt, !applied.isEmpty(),
+                            moveOutcome, germanFeedback, trace);
                 }
                 trace.line("tool budget exhausted — dropping the further conceptAction");
-                return withMoveTruth(result, mode, movedReceipt, moveOutcome, germanFeedback,
-                        trace);
+                return withMoveTruth(result, mode, movedReceipt, !applied.isEmpty(),
+                        moveOutcome, germanFeedback, trace);
             }
             rounds++;
             String feedback;
@@ -444,9 +444,17 @@ public final class ConceptToolRounds {
      */
     private static TeamAgentResult withMoveTruth(TeamAgentResult result,
                                                  ConceptTurnPolicy.Mode mode,
-                                                 boolean movedReceipt, String moveOutcome,
+                                                 boolean movedReceipt, boolean appliedAny,
+                                                 String moveOutcome,
                                                  boolean german, Trace trace) {
         if (mode != ConceptTurnPolicy.Mode.MOVE_TRUTH || movedReceipt) {
+            return result;
+        }
+        if (appliedAny) {
+            // The gate's negation finding, generalized: NEVER state 'nothing changed' over ANY
+            // authoritative APPLIED receipt of this turn — the receipts feedback already
+            // grounds the model's own narration for what DID happen.
+            trace.line("move-truth guard stands down — other mutations were APPLIED this turn");
             return result;
         }
         trace.line("move-truth guard -> deterministic host answer (no MOVED receipt this "

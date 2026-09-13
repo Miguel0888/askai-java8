@@ -150,6 +150,13 @@ public class ScopingConceptActionTest {
         assertNull("the parent must be EXPLICIT — an accidental omission must not silently "
                 + "move to the root", missing.getConceptAction());
         assertTrue(missing.getConceptActionError().contains("[] = top level"));
+
+        // Small-model tolerance: the rename/add habit ("name", "parent_path") still parses.
+        ConceptAction habitual = parse("{\"assistantMessage\":\"m\",\"conceptAction\":"
+                + "{\"type\":\"move\",\"name\":\"Scheduling\",\"parent_path\":"
+                + "[\"FreeRTOS\"]}}").getConceptAction();
+        assertEquals(Collections.singletonList("Scheduling"), habitual.getPath());
+        assertEquals(Collections.singletonList("FreeRTOS"), habitual.getParent());
     }
 
     /** add_cards: ALL user-named areas as ONE typed list — a single card is a 1-element list. */

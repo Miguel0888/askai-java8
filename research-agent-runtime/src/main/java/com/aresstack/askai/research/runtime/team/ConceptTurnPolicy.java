@@ -52,8 +52,8 @@ public final class ConceptTurnPolicy {
             "strukturiere", "gliedere", "reorganis", "reorganiz", "rewrite", "restructur",
             "umbau"
     };
-    /** "verschieb" left the restructure blockers with the real move_leaf tool. */
-    private static final String[] MOVE_VERBS = {"verschieb"};
+    // "verschieb" left the restructure blockers with the real move_leaf tool; its detection
+    // lives in hasUnnegatedMoveMention (word-bounded, negation-aware).
 
     private ConceptTurnPolicy() {
     }
@@ -67,12 +67,59 @@ public final class ConceptTurnPolicy {
         if (containsAny(prompt, RESTRUCTURE_VERBS)) {
             return Mode.RESTRUCTURE_READ_ONLY;
         }
-        // "move" as a WORD only — "remove"/"movement" must not arm the truth guard.
-        if (containsAny(prompt, MOVE_VERBS) || java.util.regex.Pattern
-                .compile("(?<![a-zäöüß])move(?![a-zäöüß])").matcher(prompt).find()) {
+        // "move" as a WORD only — "remove"/"movement" must not arm the truth guard; and a
+        // NEGATED mention never arms it ("kein Verschieben" once flipped a successful add
+        // turn into a false host 'nothing changed' answer).
+        if (hasUnnegatedMoveMention(prompt)) {
             return Mode.MOVE_TRUTH;
         }
         return Mode.FULL;
+    }
+
+    /** Negation tokens that, right before a move verb, mark it as NOT an order. */
+    private static final String[] NEGATIONS = {
+            "kein", "nicht", "ohne", "statt", "anstatt", "not ", "no ", "never", "without",
+            "don't", "dont"
+    };
+
+    private static boolean hasUnnegatedMoveMention(String prompt) {
+        java.util.List<Integer> hits = new java.util.ArrayList<Integer>();
+        int from = 0;
+        while (true) {
+            int index = prompt.indexOf("verschieb", from);
+            if (index < 0) {
+                break;
+            }
+            hits.add(index);
+            from = index + 1;
+        }
+        java.util.regex.Matcher move = java.util.regex.Pattern
+                .compile("(?<![a-zäöüß])move(?![a-zäöüß])").matcher(prompt);
+        while (move.find()) {
+            hits.add(move.start());
+        }
+        for (int index : hits) {
+            String window = prompt.substring(Math.max(0, index - 28), index);
+            // A negation only counts within the SAME clause — "Nicht löschen! Verschiebe …"
+            // is an order, "… kein Verschieben." is not.
+            for (char delimiter : new char[] {'.', '!', '?', ';'}) {
+                int cut = window.lastIndexOf(delimiter);
+                if (cut >= 0) {
+                    window = window.substring(cut + 1);
+                }
+            }
+            boolean negated = false;
+            for (String negation : NEGATIONS) {
+                if (window.contains(negation)) {
+                    negated = true;
+                    break;
+                }
+            }
+            if (!negated) {
+                return true; // ONE unnegated mention is an order
+            }
+        }
+        return false;
     }
 
     private static boolean containsAny(String prompt, String[] needles) {

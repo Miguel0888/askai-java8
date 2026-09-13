@@ -241,7 +241,15 @@ public final class ConceptAction {
         }
         if ("move".equalsIgnoreCase(type)) {
             List<String> source = segments(map.get("source"), map.get("path"));
-            if (source.isEmpty() || !map.containsKey("parent")) {
+            if (source.isEmpty()) {
+                // Small-model tolerance: the rename/add habit sends the card as "name".
+                String named = asString(map.get("name"));
+                if (named != null && !named.trim().isEmpty()) {
+                    source = java.util.Collections.singletonList(named.trim());
+                }
+            }
+            boolean hasParent = map.containsKey("parent") || map.containsKey("parent_path");
+            if (source.isEmpty() || !hasParent) {
                 return Parsed.invalid("conceptAction type \"move\" requires \"source\" (the "
                         + "leaf — one globally unique card name is enough) and \"parent\" "
                         + "([] = top level) — example: {\"type\":\"move\",\"source\":"

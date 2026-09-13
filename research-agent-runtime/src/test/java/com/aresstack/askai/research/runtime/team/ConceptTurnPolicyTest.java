@@ -48,6 +48,19 @@ public class ConceptTurnPolicyTest {
                 ConceptTurnPolicy.modeFor("Entferne ESP-IDF."));
         assertEquals("'movement' is not 'move'", ConceptTurnPolicy.Mode.FULL,
                 ConceptTurnPolicy.modeFor("Describe the movement of data between tasks."));
+        // The gate's negation finding: a DENIED move mention must never arm the guard — it
+        // once flipped a successful add turn into a false 'nothing changed' host answer.
+        assertEquals(ConceptTurnPolicy.Mode.FULL, ConceptTurnPolicy.modeFor(
+                "Die Karte „Scheduling“ existiert noch nicht. Lege sie neu unter dem "
+                        + "vorhandenen Parent „Linux“ an. Das ist ein Hinzufügen, kein "
+                        + "Verschieben."));
+        assertEquals(ConceptTurnPolicy.Mode.FULL,
+                ConceptTurnPolicy.modeFor("Bitte nicht verschieben, nur lesen."));
+        assertEquals(ConceptTurnPolicy.Mode.FULL,
+                ConceptTurnPolicy.modeFor("Ergänze Tasks, ohne etwas zu verschieben."));
+        assertEquals("one UNNEGATED mention still arms the guard",
+                ConceptTurnPolicy.Mode.MOVE_TRUTH, ConceptTurnPolicy.modeFor(
+                        "Nicht löschen! Verschiebe Scheduling unter FreeRTOS."));
         assertEquals(ConceptTurnPolicy.Mode.FULL,
                 ConceptTurnPolicy.modeFor("Füge unter FreeRTOS bitte Tasks hinzu."));
         assertEquals(ConceptTurnPolicy.Mode.FULL,

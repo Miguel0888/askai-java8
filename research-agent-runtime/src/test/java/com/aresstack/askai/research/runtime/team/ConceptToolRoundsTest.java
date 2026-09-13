@@ -358,6 +358,30 @@ public class ConceptToolRoundsTest {
                 ((ScopingAssistantOutput) applied.getOutput()).getAssistantMessage());
     }
 
+    /**
+     * The gate's negation finding, generalized: the deterministic 'nothing changed' sentence
+     * NEVER overrides a turn that carries an authoritative APPLIED receipt — the honest add
+     * narration stays even when a (mis)armed MOVE_TRUTH guard finds no MOVED receipt.
+     */
+    @Test
+    public void anAppliedMutationKeepsItsHonestNarrationDespiteTheMoveGuard() throws Exception {
+        ScriptedTurns turns = new ScriptedTurns();
+        ScriptedTool tool = new ScriptedTool();
+        tool.byDescription.put("add_cards parent=[\"Linux\"] names=[\"Scheduling\"]",
+                "APPLIED revision=3\nADDED: Scheduling");
+        tool.byDescription.put("read path=[]", "{\"concept\":[{\"Linux\":[]}]}");
+        turns.script.add(turn("Scheduling wurde unter Linux angelegt.", null));
+        TeamAgentResult result = ConceptToolRounds.run(
+                turn("lege an", "{\"type\":\"add_cards\",\"parent\":[\"Linux\"],"
+                        + "\"names\":[\"Scheduling\"]}"),
+                turns, tool, 4, 2, false, null, traceSink, false,
+                ConceptTurnPolicy.Mode.MOVE_TRUTH);
+        assertEquals("Scheduling wurde unter Linux angelegt.",
+                ((ScopingAssistantOutput) result.getOutput()).getAssistantMessage());
+        assertTrue(trace.contains(
+                "move-truth guard stands down — other mutations were APPLIED this turn"));
+    }
+
     /** move_leaf, gate test 13: a READ-ONLY turn blocks the move — no substitute mutation. */
     @Test
     public void aReadOnlyTurnRefusesAMoveLikeEveryMutation() throws Exception {

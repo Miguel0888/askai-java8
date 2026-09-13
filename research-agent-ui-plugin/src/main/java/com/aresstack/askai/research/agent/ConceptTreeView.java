@@ -115,11 +115,20 @@ public final class ConceptTreeView extends JComponent {
     /** While the inline editor is open: the edited row (-1 with editingParent = add child). */
     private int editingRow = -1;
     private List<String> editingParentPath;
+    /** The click that closed the editor via focus loss must not trigger a row action too. */
+    private boolean suppressNextClick;
+
+    /** The painted cancel affordance beside the open inline editor. */
+    private final Rectangle inlineCancelRect = new Rectangle();
 
     public ConceptTreeView() {
         setLayout(null); // the inline editor is the only child, placed by hand
         setOpaque(false);
         inlineEditor.setFont(ResearchUiTypography.semiBold(13f));
+        inlineEditor.setOpaque(false);
+        inlineEditor.setBorder(javax.swing.BorderFactory.createEmptyBorder(2, 10, 2, 10));
+        inlineEditor.setForeground(palette.getInk());
+        inlineEditor.setCaretColor(palette.getInk());
         inlineEditor.setVisible(false);
         add(inlineEditor);
         inlineEditor.addActionListener(new ActionListener() {
@@ -138,7 +147,8 @@ public final class ConceptTreeView extends JComponent {
         inlineEditor.addFocusListener(new FocusAdapter() {
             @Override
             public void focusLost(FocusEvent event) {
-                closeInlineEditor(); // leaving the field cancels — commits are Enter only
+                // Leaving the field CANCELS (never a silent commit); Enter is the only commit.
+                closeInlineEditor();
             }
         });
         MouseAdapter mouse = new MouseAdapter() {
@@ -316,6 +326,9 @@ public final class ConceptTreeView extends JComponent {
                 paintRow(g2, index);
             }
             paintRootAddPlate(g2);
+            if (inlineEditor.isVisible()) {
+                paintInlineEditorPlate(g2);
+            }
         } finally {
             g2.dispose();
         }
@@ -369,10 +382,23 @@ public final class ConceptTreeView extends JComponent {
                     row.plate.x + row.plate.width - PLATE_PAD_H, mid);
         }
         if (hovered && editingRow < 0 && editingParentPath == null) {
-            paintGlyph(g2, glyphRect(row, 1), "✏", hoverGlyph == 1);
-            paintGlyph(g2, glyphRect(row, 2), "✕", hoverGlyph == 2);
-            paintGlyph(g2, glyphRect(row, 3), "+", hoverGlyph == 3);
+            paintGlyph(g2, glyphRect(row, 1), 1, hoverGlyph == 1);
+            paintGlyph(g2, glyphRect(row, 2), 2, hoverGlyph == 2);
+            paintGlyph(g2, glyphRect(row, 3), 3, hoverGlyph == 3);
         }
+    }
+
+    /** The open inline editor rides a comic plate of its own, with a painted cancel ✕. */
+    private void paintInlineEditorPlate(Graphics2D g2) {
+        Rectangle b = inlineEditor.getBounds();
+        g2.setColor(Color.WHITE);
+        g2.fillRoundRect(b.x - 2, b.y - 2, b.width + 4, b.height + 4, PLATE_ARC, PLATE_ARC);
+        g2.setColor(palette.getInk());
+        g2.setStroke(new BasicStroke(1.4f));
+        g2.drawRoundRect(b.x - 2, b.y - 2, b.width + 4, b.height + 4, PLATE_ARC, PLATE_ARC);
+        inlineCancelRect.setBounds(b.x + b.width + GLYPH_GAP + 2,
+                b.y + (b.height - GLYPH_SIZE) / 2, GLYPH_SIZE, GLYPH_SIZE);
+        paintGlyph(g2, inlineCancelRect, 2, false);
     }
 
     /** The dashed ghost plate: click → inline field → a new TOP-LEVEL card (addChild([])). */
@@ -393,16 +419,30 @@ public final class ConceptTreeView extends JComponent {
                         - metrics.getDescent()) / 2);
     }
 
-    private void paintGlyph(Graphics2D g2, Rectangle rect, String symbol, boolean hot) {
+    /**
+     * Hand-drawn Java2D ink icons (1 = pencil, 2 = cross, 3 = plus) — never OS font glyphs,
+     * whose shape and metrics vary per platform (the live screenshot showed tofu boxes).
+     */
+    private void paintGlyph(Graphics2D g2, Rectangle rect, int icon, boolean hot) {
         g2.setColor(hot ? palette.getAccentYellow() : Color.WHITE);
         g2.fillOval(rect.x, rect.y, rect.width, rect.height);
         g2.setColor(palette.getInk());
         g2.setStroke(new BasicStroke(1.2f));
         g2.drawOval(rect.x, rect.y, rect.width, rect.height);
-        g2.setFont(ResearchUiTypography.semiBold(12f));
-        FontMetrics metrics = g2.getFontMetrics();
-        g2.drawString(symbol, rect.x + (rect.width - metrics.stringWidth(symbol)) / 2,
-                rect.y + (rect.height + metrics.getAscent() - metrics.getDescent()) / 2);
+        int cx = rect.x + rect.width / 2;
+        int cy = rect.y + rect.height / 2;
+        g2.setStroke(new BasicStroke(1.6f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+        if (icon == 1) { // pencil: shaft + tip
+            g2.drawLine(cx + 3, cy - 4, cx - 2, cy + 1);
+            g2.drawLine(cx - 2, cy + 1, cx - 4, cy + 4);
+            g2.drawLine(cx - 4, cy + 4, cx - 1, cy + 2);
+        } else if (icon == 2) { // cross
+            g2.drawLine(cx - 3, cy - 3, cx + 3, cy + 3);
+            g2.drawLine(cx + 3, cy - 3, cx - 3, cy + 3);
+        } else { // plus
+            g2.drawLine(cx - 4, cy, cx + 4, cy);
+            g2.drawLine(cx, cy - 4, cx, cy + 4);
+        }
     }
 
     private Rectangle glyphRect(Row row, int slot) {
@@ -415,6 +455,7 @@ public final class ConceptTreeView extends JComponent {
     // ------------------------------------------------------------------ interaction
 
     private void updateHover(int x, int y) {
+        suppressNextClick = false; // any mouse travel re-arms normal clicking
         boolean overRootAdd = rootAddPlate.contains(x, y);
         if (overRootAdd != rootAddHovered) {
             rootAddHovered = overRootAdd;
@@ -447,6 +488,10 @@ public final class ConceptTreeView extends JComponent {
     }
 
     private void handleClick() {
+        if (suppressNextClick) {
+            suppressNextClick = false;
+            return;
+        }
         if (actions == null) {
             return;
         }
@@ -509,27 +554,39 @@ public final class ConceptTreeView extends JComponent {
 
     private void commitInlineEdit() {
         String value = inlineEditor.getText().trim();
-        int renameRow = editingRow;
-        List<String> addParent = editingParentPath;
-        closeInlineEditor();
-        if (value.isEmpty() || actions == null) {
+        if (actions == null) {
+            closeInlineEditor();
             return;
         }
+        if (value.isEmpty()) {
+            if (errorSink != null) {
+                errorSink.error("A card name must not be empty — Escape cancels.");
+            }
+            return; // the field stays open, the user decides
+        }
         String error = null;
-        if (renameRow >= 0 && renameRow < rows.size()) {
-            Row row = rows.get(renameRow);
+        if (editingRow >= 0 && editingRow < rows.size()) {
+            Row row = rows.get(editingRow);
             if (!value.equals(row.name)) {
                 error = actions.rename(row.path, value);
             }
-        } else if (addParent != null) {
-            error = actions.addChild(addParent, value);
+        } else if (editingParentPath != null) {
+            error = actions.addChild(editingParentPath, value);
         }
-        if (error != null && errorSink != null) {
-            errorSink.error(error);
+        if (error != null) {
+            if (errorSink != null) {
+                errorSink.error(error); // the typed text survives a service rejection
+            }
+            inlineEditor.requestFocusInWindow();
+            return;
         }
+        closeInlineEditor();
     }
 
     private void closeInlineEditor() {
+        if (inlineEditor.isVisible()) {
+            suppressNextClick = true; // a focus-loss click lands right after this close
+        }
         editingRow = -1;
         editingParentPath = null;
         inlineEditor.setVisible(false);

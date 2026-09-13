@@ -45,6 +45,10 @@ public class ScopingConceptPromptTest {
                 with.contains("even when you believe the card is already there"));
         assertTrue("'verschoben' only with a MOVED receipt of THIS turn",
                 with.contains("ONLY when THIS turn carries a MOVED receipt"));
+        // The move gate's fix: the MAPPING list (the drill gemma follows verbatim) carries
+        // the move example with BOTH fields — the shape/prose alone left them starved.
+        assertTrue(with.contains("\"Verschiebe Scheduling unter FreeRTOS.\""));
+        assertTrue(with.contains("BOTH fields, always"));
         assertTrue("multi-word terms stay one name",
                 with.contains("\"Computer Science\" is one card"));
         assertTrue("claims only per receipt",
@@ -187,6 +191,30 @@ public class ScopingConceptPromptTest {
         assertEquals("without the tools the long-standing schema-free behaviour stays",
                 null, new ScopingPhaseOutputContract(false).outputSchemaJson());
         assertEquals(null, new ScopingPhaseOutputContract().outputSchemaJson());
+    }
+
+    /**
+     * The move gate's blocker check, PROVEN on the delivered contract (not a substring): the
+     * generation schema is valid JSON and its conceptAction really carries "source" and
+     * "parent" as expressible array fields — the model failed to emit them live, so the
+     * serialization itself is pinned here.
+     */
+    @Test
+    public void theDeliveredMoveGrammarCarriesSourceAndParentAsParsableFields() {
+        String schema = new ScopingPhaseOutputContract(true).outputSchemaJson();
+        Object parsed = com.aresstack.askai.agent.model.reranker.MiniJson.parse(schema);
+        assertTrue("the schema itself parses as JSON", parsed instanceof java.util.Map);
+        java.util.Map<?, ?> conceptAction = (java.util.Map<?, ?>)
+                ((java.util.Map<?, ?>) ((java.util.Map<?, ?>) parsed).get("properties"))
+                        .get("conceptAction");
+        java.util.Map<?, ?> properties =
+                (java.util.Map<?, ?>) conceptAction.get("properties");
+        java.util.Map<?, ?> source = (java.util.Map<?, ?>) properties.get("source");
+        java.util.Map<?, ?> parent = (java.util.Map<?, ?>) properties.get("parent");
+        assertEquals("array", ((java.util.Map<?, ?>) source).get("type"));
+        assertEquals("array", ((java.util.Map<?, ?>) parent).get("type"));
+        assertTrue("move is an emittable type", String.valueOf(
+                ((java.util.Map<?, ?>) properties.get("type")).get("enum")).contains("move"));
     }
 
     @Test
