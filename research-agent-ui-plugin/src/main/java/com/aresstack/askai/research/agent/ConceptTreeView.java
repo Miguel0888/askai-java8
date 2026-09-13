@@ -40,7 +40,7 @@ import java.util.Map;
  * the JSON mode covers missteps. Selection-free by design: rows re-derive from every snapshot,
  * hit-testing runs over the freshly laid-out rectangles. All methods EDT.</p>
  */
-public final class ConceptTreeView extends JComponent {
+public final class ConceptTreeView extends JComponent implements javax.swing.Scrollable {
 
     /** The owner's bridge into ConceptBranchService; every method returns null or the error. */
     public interface Actions {
@@ -305,6 +305,35 @@ public final class ConceptTreeView extends JComponent {
         }
         return new Dimension(width,
                 2 * MARGIN + Math.max(1, rows.size()) * ROW_HEIGHT + ROW_HEIGHT);
+    }
+
+    // ------------------------------------------------------------------ scrolling
+    // The owner wraps this canvas in a JScrollPane (AS_NEEDED policy: bars only when the tree
+    // outgrows the tab). Scrollable makes the wheel step one ROW instead of one pixel and lets
+    // the canvas fill a LARGER viewport (no dead strip beside/below a small tree).
+
+    public Dimension getPreferredScrollableViewportSize() {
+        return getPreferredSize();
+    }
+
+    public int getScrollableUnitIncrement(Rectangle visible, int orientation, int direction) {
+        return ROW_HEIGHT;
+    }
+
+    public int getScrollableBlockIncrement(Rectangle visible, int orientation, int direction) {
+        return orientation == javax.swing.SwingConstants.VERTICAL
+                ? Math.max(ROW_HEIGHT, visible.height - ROW_HEIGHT)
+                : Math.max(INDENT, visible.width - INDENT);
+    }
+
+    public boolean getScrollableTracksViewportWidth() {
+        return getParent() instanceof javax.swing.JViewport
+                && getParent().getWidth() > getPreferredSize().width;
+    }
+
+    public boolean getScrollableTracksViewportHeight() {
+        return getParent() instanceof javax.swing.JViewport
+                && getParent().getHeight() > getPreferredSize().height;
     }
 
     @Override
