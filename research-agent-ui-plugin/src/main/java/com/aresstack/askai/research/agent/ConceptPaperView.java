@@ -74,6 +74,21 @@ public final class ConceptPaperView extends JPanel {
     private SaveHandler saveHandler;
     private HistoryReader historyReader;
 
+    /** How long the comic error overlay stays before fading out on its own. */
+    private static final int ERROR_OVERLAY_MILLIS = 4000;
+
+    private final javax.swing.JLayeredPane layers = new javax.swing.JLayeredPane();
+    private final JScrollPane editorScroll = new JScrollPane(editor);
+    private final com.aresstack.comiccontrols.control.ComicSectionPanel errorOverlay =
+            new com.aresstack.comiccontrols.control.ComicSectionPanel();
+    private final JTextArea errorText = new JTextArea();
+    private final javax.swing.Timer errorHideTimer =
+            new javax.swing.Timer(ERROR_OVERLAY_MILLIS, new ActionListener() {
+                public void actionPerformed(ActionEvent event) {
+                    hideError();
+                }
+            });
+
     public ConceptPaperView() {
         super(new BorderLayout());
         setOpaque(false);
@@ -92,10 +107,65 @@ public final class ConceptPaperView extends JPanel {
                 userTyped();
             }
         });
-        add(new JScrollPane(editor), BorderLayout.CENTER);
+        // The search sits ON TOP like the chats drawer's "Chats durchsuchen…" — never below.
+        JPanel searchRow = new JPanel(new BorderLayout());
+        searchRow.setOpaque(false);
+        searchRow.setBorder(BorderFactory.createEmptyBorder(
+                ResearchUiMetrics.FOOTER_PADDING_V, ResearchUiMetrics.FOOTER_PADDING_H,
+                ResearchUiMetrics.FOOTER_PADDING_V, ResearchUiMetrics.FOOTER_PADDING_H));
+        searchRow.add(searchBar, BorderLayout.CENTER);
+        add(searchRow, BorderLayout.NORTH);
+
+        // Editor + the comic error overlay share the center: a rejected save POPS over the text
+        // in a comic plate (bigger type, red stripe) and fades out by itself.
+        buildErrorOverlay();
+        layers.setLayout(null);
+        layers.add(editorScroll, javax.swing.JLayeredPane.DEFAULT_LAYER);
+        layers.add(errorOverlay, javax.swing.JLayeredPane.PALETTE_LAYER);
+        layers.addComponentListener(new java.awt.event.ComponentAdapter() {
+            @Override
+            public void componentResized(java.awt.event.ComponentEvent event) {
+                layoutLayers();
+            }
+        });
+        add(layers, BorderLayout.CENTER);
         add(buildFooter(), BorderLayout.SOUTH);
         wireActions();
         updateControls();
+    }
+
+    private void buildErrorOverlay() {
+        errorOverlay.setPlateFill(java.awt.Color.WHITE);
+        errorOverlay.setAccentStripe(ComicPalette.defaultPalette().getAccentRed());
+        errorOverlay.setLayout(new BorderLayout());
+        errorText.setEditable(false);
+        errorText.setOpaque(false);
+        errorText.setLineWrap(true);
+        errorText.setWrapStyleWord(true);
+        errorText.setFont(ResearchUiTypography.semiBold(14.5f));
+        errorText.setForeground(ComicPalette.defaultPalette().getInk());
+        errorOverlay.add(errorText, BorderLayout.CENTER);
+        errorOverlay.setVisible(false);
+        errorHideTimer.setRepeats(false);
+        // A click dismisses it immediately — nobody waits out a timer they have already read.
+        java.awt.event.MouseAdapter dismiss = new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent event) {
+                hideError();
+            }
+        };
+        errorOverlay.addMouseListener(dismiss);
+        errorText.addMouseListener(dismiss);
+    }
+
+    private void layoutLayers() {
+        int width = layers.getWidth();
+        int height = layers.getHeight();
+        editorScroll.setBounds(0, 0, width, height);
+        int overlayWidth = Math.max(120, width - 32);
+        int overlayHeight = Math.min(Math.max(60, errorText.getPreferredSize().height + 28),
+                Math.max(60, height - 24));
+        errorOverlay.setBounds((width - overlayWidth) / 2, 12, overlayWidth, overlayHeight);
     }
 
     /** The owner wires persistence + history (absent in the clickdummy — editor stays view-only). */
@@ -137,8 +207,6 @@ public final class ConceptPaperView extends JPanel {
         olderButton.setToolTipText("Load the previous working revision into the editor");
         newerButton.setToolTipText("Load the next working revision into the editor");
         footer.add(actions, BorderLayout.WEST);
-
-        footer.add(searchBar, BorderLayout.CENTER);
 
         JPanel status = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         status.setOpaque(false);
@@ -320,9 +388,7 @@ public final class ConceptPaperView extends JPanel {
         discardButton.setEnabled(dirty || browsingRevision >= 0 || searchView);
         olderButton.setEnabled(historyReader != null && !dirty);
         newerButton.setEnabled(historyReader != null && !dirty && browsingRevision >= 0);
-        if (!isErrorShowing()) {
-            quietStatus();
-        }
+        quietStatus();
     }
 
     private void quietStatus() {
@@ -339,20 +405,18 @@ public final class ConceptPaperView extends JPanel {
         statusLabel.setText(text);
     }
 
+    /** The comic error overlay: pops over the text, fades out on its own, click dismisses. */
     private void showError(String message) {
-        statusLabel.setEnabled(true);
-        statusLabel.setForeground(ComicPalette.defaultPalette().getAccentRed());
-        statusLabel.setText(firstLine(message));
-        statusLabel.setToolTipText(message);
+        errorText.setText(message);
+        errorOverlay.setVisible(true);
+        layoutLayers();
+        errorOverlay.repaint();
+        errorHideTimer.restart();
     }
 
-    private boolean isErrorShowing() {
-        return statusLabel.isEnabled();
-    }
-
-    private static String firstLine(String text) {
-        int newline = text.indexOf('\n');
-        return newline < 0 ? text : text.substring(0, newline);
+    private void hideError() {
+        errorHideTimer.stop();
+        errorOverlay.setVisible(false);
     }
 
     /** The filter result: every card path whose NAME contains the query, case-insensitive. */
@@ -382,6 +446,6 @@ public final class ConceptPaperView extends JPanel {
     }
 
     public void dispose() {
-        // The plain-text editor holds no external resources.
+        errorHideTimer.stop(); // the plain-text editor itself holds no external resources
     }
 }
