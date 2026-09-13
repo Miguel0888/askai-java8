@@ -92,7 +92,7 @@ public final class ScopingPhaseOutputContract implements PhaseOutputContract {
                 + "\"required\":[\"label\",\"query\"]}},"
                 + "\"conceptAction\":{\"type\":\"object\",\"properties\":{"
                 + "\"type\":{\"type\":\"string\",\"enum\":[\"none\",\"read\",\"add\","
-                + "\"remove\",\"exclude\",\"resolve\",\"offer\"]},"
+                + "\"remove\",\"exclude\",\"resolve\",\"offer\",\"rename\",\"rewrite\"]},"
                 + "\"path\":{\"type\":\"array\",\"maxItems\":6,\"items\":"
                 + "{\"type\":\"string\"}},"
                 + "\"parent\":{\"type\":\"array\",\"maxItems\":6,\"items\":"
@@ -106,7 +106,9 @@ public final class ScopingPhaseOutputContract implements PhaseOutputContract {
                 + "{\"type\":\"object\",\"properties\":{"
                 + "\"query\":{\"type\":\"string\",\"minLength\":1},"
                 + "\"purpose\":{\"type\":\"string\"}},"
-                + "\"required\":[\"query\"]}}},"
+                + "\"required\":[\"query\"]}},"
+                + "\"leaves\":{\"type\":\"array\",\"maxItems\":12,\"items\":"
+                + "{\"type\":\"string\",\"minLength\":1}}},"
                 + "\"required\":[\"type\"]}"
                 + "},\"required\":[\"assistantMessage\",\"conceptAction\"]}";
     }

@@ -1286,6 +1286,16 @@ public final class ResearchAgentMain {
                 toolName = "offer_searches";
                 args.put("suggestions_json", action.getSuggestionsJson());
                 break;
+            case RENAME:
+                toolName = "concept_rename";
+                args.put("path_json", segmentsJson(action.getPath()));
+                args.put("name", action.getName());
+                break;
+            case REWRITE:
+                toolName = "concept_rewrite";
+                args.put("path_json", segmentsJson(action.getPath()));
+                args.put("leaves_json", action.getLeavesJson());
+                break;
             default:
                 toolName = "concept_remove";
                 args.put("path_json", segmentsJson(action.getPath()));

@@ -241,7 +241,7 @@ public final class TeamAgentPlaybook {
                         ? ",\n  \"conceptAction\": {              // your ONE action THIS "
                         + "inference; use type none when you change nothing\n"
                         + "    \"type\": \"none\"|\"read\"|\"add\"|\"remove\"|\"exclude\"|\"resolve\""
-                        + "|\"offer\",\n"
+                        + "|\"offer\"|\"rename\"|\"rewrite\",\n"
                         + "    \"path\": [string],                // read/remove: card names as "
                         + "SEGMENTS from the concept root\n"
                         + "    \"parent\": [string], \"name\": string,       // add: where (segments) "
@@ -250,8 +250,10 @@ public final class TeamAgentPlaybook {
                         + "words, nothing else\n"
                         + "    \"conflictId\": string, \"decision\": \"REMOVE\"|\"KEEP_SUPPRESSED\","
                         + "  // resolve: answer a reported concept conflict\n"
-                        + "    \"suggestions\": [{\"query\": string, \"purpose\": string}]  "
+                        + "    \"suggestions\": [{\"query\": string, \"purpose\": string}],  "
                         + "// offer: 3-5 orientation searches as clickable tags\n"
+                        + "    \"leaves\": [string]               // rewrite: the terminal "
+                        + "branch's NEW leaf names (rename uses path+name)\n"
                         + "  }\n"
                         : "\n")
                 + "}\n\n"
@@ -611,7 +613,23 @@ public final class TeamAgentPlaybook {
                 + "scope facet ids from CURRENT RESEARCH SCOPE (e.g. \"esp32-setup\") are "
                 + "NEVER concept path segments, and a card name is NEVER a facetId.\n"
                 + "- The concept mirrors the CONVERSATION: add what the user asks for, propose what "
-                + "scope and sources suggest, and remove only what the user excluded.\n\n";
+                + "scope and sources suggest, and remove only what the user excluded.\n"
+                + "BITE-WISE RESTRUCTURING (rename / rewrite / remove):\n"
+                + "- rename changes ONE card's name at any depth; children and position stay: "
+                + "{\"type\": \"rename\", \"path\": [\"FreeRTOS\", \"Setup\"], \"name\": "
+                + "\"ESP32-Entwicklung mit Arduino\"}.\n"
+                + "- A TERMINAL branch is a card whose children have no own children. Only such "
+                + "a branch can be rewritten in ONE step — its leaves become exactly what you "
+                + "send: {\"type\": \"rewrite\", \"path\": [\"FreeRTOS\", \"Setup\"], "
+                + "\"leaves\": [\"Arduino\", \"Debugging\"]}. For deeper structure work BOTTOM-UP:"
+                + " rewrite or remove the deepest branches first — NEVER try to rebuild the "
+                + "whole book in one action.\n"
+                + "- remove deletes ONE leaf or ONE terminal branch; anything deeper is refused "
+                + "— that protection is deliberate, not an error to fight.\n"
+                + "- BLACKLIST CLEANUP: a read names the SUPPRESSED cards of a branch; a rewrite "
+                + "of that branch must OMIT them (that is how excluded topics leave the stored "
+                + "concept). A rewrite still containing one is rejected; the suppression holds "
+                + "either way.\n\n";
     }
 
     /**

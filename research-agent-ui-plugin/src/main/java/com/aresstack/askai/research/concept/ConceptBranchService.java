@@ -427,6 +427,204 @@ public final class ConceptBranchService {
         return commitCandidate(candidate);
     }
 
+    // ------------------------------------------------------------------ Zielbild slice 2 ops
+
+    /**
+     * Rename ONE card, any depth — never a deletion, children and order stay untouched. The
+     * duplicate guard spans all containers of the parent (a second card with the new name would
+     * make name-chain addressing ambiguous).
+     */
+    public synchronized EditResult renameNode(List<String> names, String newName) {
+        String cardName = newName == null ? "" : newName.trim();
+        if (cardName.isEmpty()) {
+            return editError(JsonTreeDiagnostic.of(JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
+                    "The new card name must not be empty.").build());
+        }
+        Located located = locateForEdit(names);
+        if (located.error != null) {
+            return located.error;
+        }
+        if (cardName.equals(located.property)) {
+            return editError(JsonTreeDiagnostic.of(JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
+                    "The card is already named \"" + cardName + "\".").build());
+        }
+        for (JsonElement element : located.parentArray) {
+            if (element.isJsonObject() && element.getAsJsonObject().has(cardName)) {
+                return editError(JsonTreeDiagnostic.of(JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
+                        "A sibling card named \"" + cardName + "\" already exists — renaming "
+                                + "would make the name ambiguous.").build());
+            }
+        }
+        // Rebuild the owner object so the card keeps its POSITION (order is structure).
+        JsonObject renamed = new JsonObject();
+        List<String> keys = new ArrayList<String>();
+        for (Map.Entry<String, JsonElement> entry : located.owner.entrySet()) {
+            keys.add(entry.getKey());
+            renamed.add(entry.getKey().equals(located.property) ? cardName : entry.getKey(),
+                    entry.getValue());
+        }
+        for (String key : keys) {
+            located.owner.remove(key);
+        }
+        for (Map.Entry<String, JsonElement> entry : renamed.entrySet()) {
+            located.owner.add(entry.getKey(), entry.getValue());
+        }
+        return commitCandidate(located.candidate);
+    }
+
+    /**
+     * Replace a TERMINAL branch's leaves in one atomic step — the "häppchenweise" rewrite: the
+     * node keeps its name and position, its children become exactly the given leaf names. A
+     * branch with deeper structure is refused (work bottom-up); this is also the designed spot
+     * where blacklisted leaves silently LEAVE the stored mindmap — the caller checks the
+     * replacement against the blacklist before it gets here.
+     */
+    public synchronized EditResult rewriteTerminalBranch(List<String> names, List<String> leaves) {
+        Located located = locateForEdit(names);
+        if (located.error != null) {
+            return located.error;
+        }
+        if (!allChildrenAreLeaves(located.children)) {
+            return editError(JsonTreeDiagnostic.of(JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
+                    "\"" + located.property + "\" has deeper structure — only a TERMINAL branch "
+                            + "(children without own children) can be rewritten in one step.")
+                    .hint("Work bottom-up: rewrite or delete the deeper branches first.")
+                    .build());
+        }
+        java.util.LinkedHashSet<String> cleaned = new java.util.LinkedHashSet<String>();
+        for (String leaf : leaves == null ? java.util.Collections.<String>emptyList() : leaves) {
+            String name = leaf == null ? "" : leaf.trim();
+            if (!name.isEmpty()) {
+                cleaned.add(name); // duplicates collapse — the same leaf twice is never intent
+            }
+        }
+        while (located.children.size() > 0) {
+            located.children.remove(0);
+        }
+        if (!cleaned.isEmpty()) {
+            JsonObject container = new JsonObject();
+            for (String leaf : cleaned) {
+                container.add(leaf, new JsonArray());
+            }
+            located.children.add(container);
+        }
+        return commitCandidate(located.candidate);
+    }
+
+    /**
+     * The GUARDED delete for the model contract: leaves and terminal branches only — a small
+     * model must never be able to vaporise a deep part of the book in one call. Deep removals
+     * remain host-authorized paths ({@code removeNodeAt} via the concept-conflict resolution).
+     */
+    public synchronized EditResult deleteTerminalBranch(List<String> names) {
+        Located located = locateForEdit(names);
+        if (located.error != null) {
+            return located.error;
+        }
+        if (!allChildrenAreLeaves(located.children)) {
+            return editError(JsonTreeDiagnostic.of(JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
+                    "\"" + located.property + "\" has deeper structure — deep branches are "
+                            + "never deleted in one step.")
+                    .hint("Work bottom-up: rewrite or delete the deeper branches first, or ask "
+                            + "the user to remove it in the concept editor.")
+                    .build());
+        }
+        JsonTreeDiagnostic removal = removeAt(located.candidate,
+                located.resolutionPath);
+        if (removal != null) {
+            return editError(removal);
+        }
+        return commitCandidate(located.candidate);
+    }
+
+    /** One located, edit-ready node inside a deep-copied candidate document. */
+    private static final class Located {
+        JsonElement candidate;
+        JsonBranchPath resolutionPath;
+        JsonArray parentArray;
+        JsonObject owner;
+        String property;
+        JsonArray children;
+        EditResult error;
+    }
+
+    private Located locateForEdit(List<String> names) {
+        Located located = new Located();
+        if (names == null || names.isEmpty()) {
+            located.error = editError(JsonTreeDiagnostic.of(JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
+                    "Name the card to edit (e.g. [\"FreeRTOS\",\"Praxis\"]).").build());
+            return located;
+        }
+        String document = store.effectiveContent();
+        StrictJsonParseResult parsed = StrictJsonParser.parse(document);
+        if (!parsed.isOk()) {
+            located.error = editError(parsed.getDiagnostic());
+            return located;
+        }
+        Resolution resolution = resolve(parsed.getElement(), names);
+        if (resolution.diagnostic != null) {
+            located.error = editError(resolution.diagnostic);
+            return located;
+        }
+        located.candidate = parsed.getElement().deepCopy();
+        located.resolutionPath = resolution.path;
+        JsonObject container = located.candidate.getAsJsonObject();
+        JsonArray parentArray = null;
+        List<JsonBranchPath.Step> steps = resolution.path.getSteps();
+        for (int i = 0; i < steps.size(); i++) {
+            JsonBranchPath.Step step = steps.get(i);
+            JsonElement value = container.get(step.getProperty());
+            if (value == null || !value.isJsonArray()) {
+                located.error = editError(JsonTreeDiagnostic.of(
+                        JsonTreeErrorCode.TARGET_NODE_NOT_FOUND,
+                        "Concept node \"" + step.getProperty() + "\" no longer exists.").build());
+                return located;
+            }
+            if (i == steps.size() - 1) {
+                located.parentArray = parentArray;
+                located.owner = container;
+                located.property = step.getProperty();
+                located.children = value.getAsJsonArray();
+                if (located.parentArray == null) {
+                    // The target is the concept surface itself — never editable this way.
+                    located.error = editError(JsonTreeDiagnostic.of(
+                            JsonTreeErrorCode.BRANCH_GRAFT_FAILED,
+                            "The concept's working surface itself cannot be edited — name a "
+                                    + "card.").build());
+                }
+                return located;
+            }
+            JsonArray array = value.getAsJsonArray();
+            if (step.getElementIndex() < 0 || step.getElementIndex() >= array.size()
+                    || !array.get(step.getElementIndex()).isJsonObject()) {
+                located.error = editError(JsonTreeDiagnostic.of(
+                        JsonTreeErrorCode.TARGET_NODE_NOT_FOUND,
+                        "The path into \"" + step.getProperty() + "\" no longer matches.")
+                        .build());
+                return located;
+            }
+            parentArray = array;
+            container = array.get(step.getElementIndex()).getAsJsonObject();
+        }
+        throw new IllegalStateException("unreachable: loop returns on the last step");
+    }
+
+    /** TERMINAL test (three-node rule): every child of every container is an EMPTY array. */
+    private static boolean allChildrenAreLeaves(JsonArray children) {
+        for (JsonElement element : children) {
+            if (!element.isJsonObject()) {
+                continue; // sealed/value leaves are not structure — they never block
+            }
+            for (Map.Entry<String, JsonElement> child : element.getAsJsonObject().entrySet()) {
+                JsonElement value = child.getValue();
+                if (value.isJsonArray() && value.getAsJsonArray().size() > 0) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
     /** Full-candidate validation + atomic commit — the shared tail of every atomic operation. */
     private EditResult commitCandidate(JsonElement candidate) {
         String candidateJson = GSON.toJson(candidate);

@@ -144,4 +144,14 @@ public interface ResearchControlContext {
     default String offerSearches(String suggestionsJson) {
         return null;
     }
+
+    /**
+     * The current blacklist terms (excluded facet labels/ids + plain exclusions) — the concept
+     * tools use them for the Zielbild auto-cleanup: a branch READ names suppressed cards, a
+     * REWRITE that still contains one is rejected. Empty without a scope system.
+     * DELEGATING WRAPPERS MUST FORWARD THIS.
+     */
+    default java.util.List<String> blacklistedTerms() {
+        return java.util.Collections.emptyList();
+    }
 }

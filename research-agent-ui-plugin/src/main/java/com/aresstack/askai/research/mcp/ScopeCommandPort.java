@@ -24,4 +24,7 @@ public interface ScopeCommandPort {
      * @return the structured JSON reply (OFFERED + count) or a plain-text error
      */
     String offerSearches(String suggestionsJson);
+
+    /** The current blacklist terms (excluded labels/ids + exclusions), for the concept tools. */
+    java.util.List<String> blacklistedTerms();
 }

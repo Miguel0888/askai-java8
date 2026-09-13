@@ -23,7 +23,7 @@ public final class ConceptAction {
      * generation grammar — as an ACTION the model actually uses it, and the platform renders
      * the yellow tags).
      */
-    public enum Type { READ, ADD, REMOVE, EXCLUDE, RESOLVE, OFFER }
+    public enum Type { READ, ADD, REMOVE, EXCLUDE, RESOLVE, OFFER, RENAME, REWRITE }
 
     private final Type type;
     private final List<String> path;
@@ -85,6 +85,11 @@ public final class ConceptAction {
         return name;
     }
 
+    /** For REWRITE: the branch's new leaf names as a compact JSON array string. */
+    public String getLeavesJson() {
+        return decision;
+    }
+
     /** A compact trace label ('add parent=["A","B"] name="C"'). */
     public String describe() {
         switch (type) {
@@ -98,6 +103,10 @@ public final class ConceptAction {
                 return "resolve conflict=\"" + name + "\" decision=" + decision;
             case OFFER:
                 return "offer suggestions=" + countJsonObjects(name);
+            case RENAME:
+                return "rename path=" + segmentsLabel(path) + " name=\"" + name + "\"";
+            case REWRITE:
+                return "rewrite path=" + segmentsLabel(path) + " leaves=" + decision;
             default:
                 return "remove path=" + segmentsLabel(path);
         }
@@ -213,6 +222,36 @@ public final class ConceptAction {
                         + "user's words) — example: {\"type\":\"exclude\",\"topic\":\"ESP-IDF\"}");
             }
             return Parsed.ok(new ConceptAction(Type.EXCLUDE, null, null, topic));
+        }
+        if ("rename".equalsIgnoreCase(type)) {
+            List<String> path = segments(map.get("path"));
+            String newName = asString(map.get("name"));
+            if (path.isEmpty() || newName == null || newName.trim().isEmpty()) {
+                return Parsed.invalid("conceptAction type \"rename\" requires \"path\" and "
+                        + "\"name\" — example: {\"type\":\"rename\",\"path\":[\"FreeRTOS\","
+                        + "\"Setup\"],\"name\":\"ESP32-Entwicklung mit Arduino\"}");
+            }
+            return Parsed.ok(new ConceptAction(Type.RENAME, path, null, newName));
+        }
+        if ("rewrite".equalsIgnoreCase(type)) {
+            List<String> path = segments(map.get("path"));
+            Object leavesValue = map.get("leaves");
+            if (path.isEmpty() || !(leavesValue instanceof List)) {
+                return Parsed.invalid("conceptAction type \"rewrite\" requires \"path\" and "
+                        + "\"leaves\" (the branch's NEW leaf names; may be []) — example: "
+                        + "{\"type\":\"rewrite\",\"path\":[\"FreeRTOS\",\"Setup\"],"
+                        + "\"leaves\":[\"Arduino\",\"Debugging\"]}");
+            }
+            List<String> leaves = segments(leavesValue);
+            StringBuilder json = new StringBuilder("[");
+            for (int index = 0; index < leaves.size(); index++) {
+                if (index > 0) {
+                    json.append(',');
+                }
+                appendJsonString(json, leaves.get(index));
+            }
+            json.append(']');
+            return Parsed.ok(new ConceptAction(Type.REWRITE, path, null, "", json.toString()));
         }
         if ("offer".equalsIgnoreCase(type)) {
             List<String[]> suggestions = suggestionPairs(map.get("suggestions"));

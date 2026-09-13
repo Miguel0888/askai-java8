@@ -212,6 +212,10 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 public String offerSearches(String suggestionsJson) {
                     return offerSearchesCommand(suggestionsJson);
                 }
+
+                public java.util.List<String> blacklistedTerms() {
+                    return currentBlacklistTerms();
+                }
             });
             resources.setProjectionUpdateListener(new Runnable() {
                 public void run() {
@@ -3079,6 +3083,23 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         return suggestions;
     }
 
+    /** The blacklist truth for the concept tools: excluded labels/ids + plain exclusions. */
+    java.util.List<String> currentBlacklistTerms() {
+        com.aresstack.askai.research.scope.ResearchScopeCoordinator coordinator = scopeCoordinator();
+        if (coordinator == null || !coordinator.isUsable()) {
+            return java.util.Collections.emptyList();
+        }
+        com.aresstack.askai.research.domain.scope.ResearchScopeDraft draft = coordinator.current();
+        java.util.LinkedHashSet<String> terms = new java.util.LinkedHashSet<String>();
+        for (com.aresstack.askai.research.domain.scope.ScopeFacet facet : draft.excludedFacets()) {
+            terms.add(facet.getLabel());
+            terms.add(facet.getFacetId());
+        }
+        terms.addAll(draft.getExclusions());
+        terms.remove("");
+        return new java.util.ArrayList<String>(terms);
+    }
+
     /** Exact-name concept conflict of an excluded topic, or {@code null} (concept-less/fake ok). */
     private java.util.List<String> conceptConflictPathOf(String topic) {
         com.aresstack.askai.research.concept.ConceptBranchService service = conceptBranchService();
@@ -3379,7 +3400,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         if (type == ResearchCommandType.SUBMIT_SCOPE && productiveResources != null) {
             ScopingApprovalOutcome outcome = approveScopingBriefAndContinue();
             return outcome == ScopingApprovalOutcome.SUCCESS
-                    ? "handled: brief approved, research started"
+                    ? "handled: scope approved, research started"
                     : "rejected: " + scopingApprovalUnavailableReasonFor(outcome);
         }
         if ("approve".equals(cmd) && hasPendingApproval()) {

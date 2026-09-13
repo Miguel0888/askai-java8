@@ -89,6 +89,19 @@ public final class ScopingAssistantOutputCodec {
                 sb.append(',');
                 // Already canonical JSON (built by the parser) — travels raw, parses back.
                 writeKey(sb, "suggestions").append(':').append(action.getSuggestionsJson());
+            } else if (action.getType() == ConceptAction.Type.RENAME) {
+                sb.append(',');
+                writeKey(sb, "path").append(':');
+                writeSegments(sb, action.getPath());
+                sb.append(',');
+                writeKey(sb, "name").append(':');
+                writeString(sb, action.getName());
+            } else if (action.getType() == ConceptAction.Type.REWRITE) {
+                sb.append(',');
+                writeKey(sb, "path").append(':');
+                writeSegments(sb, action.getPath());
+                sb.append(',');
+                writeKey(sb, "leaves").append(':').append(action.getLeavesJson());
             } else {
                 sb.append(',');
                 writeKey(sb, "path").append(':');

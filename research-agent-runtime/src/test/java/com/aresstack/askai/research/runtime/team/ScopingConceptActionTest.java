@@ -125,6 +125,37 @@ public class ScopingConceptActionTest {
         assertTrue(badDecision.getConceptActionError().contains("KEEP_SUPPRESSED"));
     }
 
+    /** Zielbild slice 2: bite-wise restructuring — rename any card, rewrite terminal leaves. */
+    @Test
+    public void renameAndRewriteParseAndRoundTrip() {
+        ConceptAction rename = parse("{\"assistantMessage\":\"m\",\"conceptAction\":"
+                + "{\"type\":\"rename\",\"path\":[\"FreeRTOS\",\"Setup\"],"
+                + "\"name\":\"ESP32-Entwicklung\"}}").getConceptAction();
+        assertEquals(ConceptAction.Type.RENAME, rename.getType());
+        assertEquals(Arrays.asList("FreeRTOS", "Setup"), rename.getPath());
+        assertEquals("ESP32-Entwicklung", rename.getName());
+
+        ScopingAssistantOutput rewriteOutput = parse("{\"assistantMessage\":\"m\","
+                + "\"conceptAction\":{\"type\":\"rewrite\",\"path\":[\"FreeRTOS\",\"Setup\"],"
+                + "\"leaves\":[\"Arduino\",\"Debugging\"]}}");
+        ConceptAction rewrite = rewriteOutput.getConceptAction();
+        assertEquals(ConceptAction.Type.REWRITE, rewrite.getType());
+        assertEquals("[\"Arduino\",\"Debugging\"]", rewrite.getLeavesJson());
+        ConceptAction reread = parse(rewriteOutput.canonicalJson()).getConceptAction();
+        assertEquals("[\"Arduino\",\"Debugging\"]", reread.getLeavesJson());
+        assertEquals(Arrays.asList("FreeRTOS", "Setup"), reread.getPath());
+
+        assertTrue("an empty leaves list is a deliberate clear, not an error",
+                parse("{\"assistantMessage\":\"m\",\"conceptAction\":{\"type\":\"rewrite\","
+                        + "\"path\":[\"A\"],\"leaves\":[]}}").getConceptAction()
+                        .getLeavesJson().equals("[]"));
+
+        ScopingAssistantOutput missing = parse("{\"assistantMessage\":\"m\","
+                + "\"conceptAction\":{\"type\":\"rewrite\",\"path\":[\"A\"]}}");
+        assertNull(missing.getConceptAction());
+        assertTrue(missing.getConceptActionError().contains("requires \"path\" and \"leaves\""));
+    }
+
     /** Gate 8b: suggestions travel as a COMMAND — the optional in-band field starved. */
     @Test
     public void anOfferActionCarriesItsSuggestionsAsCanonicalJson() {

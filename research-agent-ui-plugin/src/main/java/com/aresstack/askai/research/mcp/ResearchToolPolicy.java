@@ -56,6 +56,10 @@ public final class ResearchToolPolicy {
             if (writable(phaseId, stateId, ResearchStateIds.SCOPING)) {
                 tools.add(conceptAddTool(ctx));
                 tools.add(conceptRemoveTool(ctx));
+                // Zielbild slice 2: rename any card; rewrite a TERMINAL branch in one atomic
+                // step (the "häppchenweise" bottom-up editing rule for small models).
+                tools.add(conceptRenameTool(ctx));
+                tools.add(conceptRewriteTool(ctx));
                 // The ONE-command exclusion facade (live-gate 4): the model quotes the user's
                 // term, the host owns id/facet/blacklist and the concept-conflict check.
                 tools.add(excludeTopicTool(ctx));
@@ -401,6 +405,13 @@ public final class ResearchToolPolicy {
                             sb.append('\n');
                         }
                         sb.append(result.getBranchJson());
+                        // Zielbild auto-cleanup: a read hands the model the branch AND the
+                        // relevant blacklist truth — a later rewrite must omit these names.
+                        String suppressed = suppressedNamesIn(result.getBranchJson(), ctx);
+                        if (!suppressed.isEmpty()) {
+                            sb.append("\nSUPPRESSED IN THIS BRANCH (blacklisted; a rewrite must "
+                                    + "OMIT them): ").append(suppressed);
+                        }
                         return McpToolResult.ok(sb.toString());
                     }
                 },
@@ -450,8 +461,9 @@ public final class ResearchToolPolicy {
 
     private static McpToolContribution conceptRemoveTool(final ResearchControlContext ctx) {
         return McpToolContribution.of("concept_remove",
-                "Remove ONE topic card (and everything under it) from the concept. Deliberately "
-                        + "destructive. Example: path=\"FreeRTOS/Praxis/ESP-IDF\".",
+                "Remove ONE leaf card or one TERMINAL branch (children without own children) "
+                        + "from the concept. Deep structures are refused — work bottom-up. "
+                        + "Example: path=\"FreeRTOS/Praxis/ESP-IDF\".",
                 new McpToolHandler() {
                     public McpToolResult invoke(McpToolCall call) {
                         McpToolResult denied = requireWritable(ctx, ResearchStateIds.SCOPING);
@@ -466,8 +478,12 @@ public final class ResearchToolPolicy {
                                     + "path=\"FreeRTOS/Praxis/ESP-IDF\" or "
                                     + "path_json=[\"FreeRTOS\",\"Praxis\",\"ESP-IDF\"]");
                         }
+                        // Zielbild slice 2: the MODEL's delete is guarded — leaves and terminal
+                        // branches only, a small model must never vaporise a deep subtree in
+                        // one call (deep removals stay host-authorized: the conflict RESOLVE).
                         com.aresstack.askai.research.concept.ConceptBranchService.EditResult result =
-                                ctx.conceptBranchService().removeNodeAt(segmentsOf(call, "path"));
+                                ctx.conceptBranchService()
+                                        .deleteTerminalBranch(segmentsOf(call, "path"));
                         if (!result.isApplied()) {
                             return McpToolResult.error(result.getDiagnostic().describeForModel());
                         }
@@ -482,6 +498,152 @@ public final class ResearchToolPolicy {
                         "The card's names from the concept root, separated by '/'"),
                 McpToolParameter.string("path_json", false,
                         "The segments as a JSON array of card names — the unambiguous form"));
+    }
+
+    /** Rename ONE card, any depth — never a deletion; children and position stay untouched. */
+    private static McpToolContribution conceptRenameTool(final ResearchControlContext ctx) {
+        return McpToolContribution.of("concept_rename",
+                "Rename ONE concept card; its children and position stay untouched. "
+                        + "Example: path=\"FreeRTOS/Setup\", name=\"ESP32-Entwicklung mit "
+                        + "Arduino\".",
+                new McpToolHandler() {
+                    public McpToolResult invoke(McpToolCall call) {
+                        McpToolResult denied = requireWritable(ctx, ResearchStateIds.SCOPING);
+                        if (denied != null) {
+                            return denied;
+                        }
+                        String name = call.getString("name");
+                        if (name == null || name.trim().isEmpty()) {
+                            return McpToolResult.error("Missing argument: name — example: "
+                                    + "path=\"FreeRTOS/Setup\", name=\"ESP32-Entwicklung\"");
+                        }
+                        com.aresstack.askai.research.concept.ConceptBranchService.EditResult result =
+                                ctx.conceptBranchService()
+                                        .renameNode(segmentsOf(call, "path"), name.trim());
+                        if (!result.isApplied()) {
+                            return McpToolResult.error(result.getDiagnostic().describeForModel());
+                        }
+                        ctx.onConceptChanged(result.getNewRevision());
+                        String note = isBlacklisted(name.trim(), ctx)
+                                ? " (note: \"" + name.trim() + "\" is blacklisted — the card "
+                                        + "will stay suppressed for research)"
+                                : "";
+                        return McpToolResult.ok("renamed to \"" + name.trim() + "\" revision="
+                                + result.getNewRevision() + note);
+                    }
+                },
+                McpToolParameter.string("path", false,
+                        "The card's names from the concept root, separated by '/'"),
+                McpToolParameter.string("path_json", false,
+                        "The segments as a JSON array of card names — the unambiguous form"),
+                McpToolParameter.string("name", true, "The new card name — ONE label"));
+    }
+
+    /**
+     * Rewrite a TERMINAL branch in one atomic step — the designed spot where blacklisted leaves
+     * leave the STORED mindmap: a replacement still containing one is rejected (the suppression
+     * stands either way; this is about physical cleanup catching up).
+     */
+    private static McpToolContribution conceptRewriteTool(final ResearchControlContext ctx) {
+        return McpToolContribution.of("concept_rewrite",
+                "Rewrite ONE terminal branch (a card whose children have no own children): its "
+                        + "leaves become exactly the given names. Blacklisted names must be "
+                        + "OMITTED. Example: path=\"FreeRTOS/Setup\", "
+                        + "leaves_json=[\"Arduino\",\"Debugging\"].",
+                new McpToolHandler() {
+                    public McpToolResult invoke(McpToolCall call) {
+                        McpToolResult denied = requireWritable(ctx, ResearchStateIds.SCOPING);
+                        if (denied != null) {
+                            return denied;
+                        }
+                        String leavesJson = call.getString("leaves_json");
+                        if (leavesJson == null || leavesJson.trim().isEmpty()) {
+                            return McpToolResult.error("Missing argument: leaves_json — example: "
+                                    + "leaves_json=[\"Arduino\",\"Debugging\"] (may be [] to "
+                                    + "clear the branch)");
+                        }
+                        java.util.List<String> leaves = stringArray(leavesJson.trim());
+                        if (leaves == null) {
+                            return McpToolResult.error("leaves_json must be a JSON array of "
+                                    + "card names — example: [\"Arduino\",\"Debugging\"]");
+                        }
+                        for (String leaf : leaves) {
+                            if (isBlacklisted(leaf, ctx)) {
+                                return McpToolResult.error("The replacement still contains the "
+                                        + "blacklisted \"" + leaf + "\" — OMIT it; the "
+                                        + "suppression stands regardless.");
+                            }
+                        }
+                        com.aresstack.askai.research.concept.ConceptBranchService.EditResult result =
+                                ctx.conceptBranchService()
+                                        .rewriteTerminalBranch(segmentsOf(call, "path"), leaves);
+                        if (!result.isApplied()) {
+                            return McpToolResult.error(result.getDiagnostic().describeForModel());
+                        }
+                        ctx.onConceptChanged(result.getNewRevision());
+                        return McpToolResult.ok("rewritten with " + leaves.size()
+                                + " leaves revision=" + result.getNewRevision());
+                    }
+                },
+                McpToolParameter.string("path", false,
+                        "The branch's names from the concept root, separated by '/'"),
+                McpToolParameter.string("path_json", false,
+                        "The segments as a JSON array of card names — the unambiguous form"),
+                McpToolParameter.string("leaves_json", true,
+                        "The branch's NEW leaves as a JSON array of names (order kept)"));
+    }
+
+    /** Case-insensitive exact match against the session's blacklist terms. */
+    private static boolean isBlacklisted(String name, ResearchControlContext ctx) {
+        String normalized = name == null ? "" : name.trim().toLowerCase(java.util.Locale.ROOT);
+        for (String term : ctx.blacklistedTerms()) {
+            if (normalized.equals(term == null ? ""
+                    : term.trim().toLowerCase(java.util.Locale.ROOT))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** The blacklisted card names present in a branch JSON, comma-joined ("" when none). */
+    private static String suppressedNamesIn(String branchJson, ResearchControlContext ctx) {
+        java.util.List<String> terms = ctx.blacklistedTerms();
+        if (terms.isEmpty()) {
+            return "";
+        }
+        java.util.LinkedHashSet<String> hits = new java.util.LinkedHashSet<String>();
+        for (java.util.List<String> path : com.aresstack.askai.research.concept
+                .ConceptTopicScanner.collectCardPaths(
+                        "{\"concept\":[" + branchJson + "]}")) {
+            String card = path.get(path.size() - 1);
+            if (isBlacklisted(card, ctx)) {
+                hits.add(card);
+            }
+        }
+        StringBuilder sb = new StringBuilder();
+        for (String hit : hits) {
+            sb.append(sb.length() > 0 ? ", " : "").append(hit);
+        }
+        return sb.toString();
+    }
+
+    /** A lenient JSON string-array parse; {@code null} when the text is no such array. */
+    private static java.util.List<String> stringArray(String json) {
+        try {
+            com.google.gson.JsonElement parsed = com.google.gson.JsonParser.parseString(json);
+            if (!parsed.isJsonArray()) {
+                return null;
+            }
+            java.util.List<String> values = new java.util.ArrayList<String>();
+            for (com.google.gson.JsonElement element : parsed.getAsJsonArray()) {
+                if (element.isJsonPrimitive()) {
+                    values.add(element.getAsString());
+                }
+            }
+            return values;
+        } catch (RuntimeException notJson) {
+            return null;
+        }
     }
 
     /**

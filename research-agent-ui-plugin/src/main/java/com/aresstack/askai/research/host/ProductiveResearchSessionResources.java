@@ -504,6 +504,13 @@ public final class ProductiveResearchSessionResources {
                 com.aresstack.askai.research.mcp.ScopeCommandPort port = scopeCommandPort;
                 return port == null ? null : port.offerSearches(suggestionsJson);
             }
+
+            @Override
+            public java.util.List<String> blacklistedTerms() {
+                com.aresstack.askai.research.mcp.ScopeCommandPort port = scopeCommandPort;
+                return port == null ? java.util.Collections.<String>emptyList()
+                        : port.blacklistedTerms();
+            }
         };
     }
 

@@ -621,6 +621,13 @@ public final class ProductiveResearchBackendFactory {
                                     : holder[0].controlContext().offerSearches(suggestionsJson);
                         }
 
+                        @Override
+                        public java.util.List<String> blacklistedTerms() {
+                            return holder[0] == null
+                                    ? java.util.Collections.<String>emptyList()
+                                    : holder[0].controlContext().blacklistedTerms();
+                        }
+
                         // The review bounds are the USER's settings (this factory carries them); the
                         // delegate's defaults would silently ignore a configured value.
                         @Override

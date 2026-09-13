@@ -43,6 +43,13 @@ public class ScopingConceptPromptTest {
         assertTrue(with.contains("KEEP_SUPPRESSED"));
         assertTrue("exclusions left the scopePatch contract",
                 with.contains("EXCLUSIONS never go through scopePatch"));
+        // Zielbild slice 2: the bite-wise restructuring drill with worked examples.
+        assertTrue(with.contains("BITE-WISE RESTRUCTURING"));
+        assertTrue(with.contains("{\"type\": \"rename\", \"path\": [\"FreeRTOS\", \"Setup\"]"));
+        assertTrue(with.contains("{\"type\": \"rewrite\", \"path\": [\"FreeRTOS\", \"Setup\"]"));
+        assertTrue("bottom-up, never the whole book", with.contains("work BOTTOM-UP"));
+        assertTrue("the blacklist cleanup rides the rewrite",
+                with.contains("a rewrite of that branch must OMIT them"));
         // Gate 4: the two identity spaces, pinned with the exact live confusion pair.
         assertTrue(with.contains("TWO IDENTITY SPACES"));
         assertTrue(with.contains("[\"ESP32 und FreeRTOS Setup\"]"));
@@ -86,7 +93,9 @@ public class ScopingConceptPromptTest {
         String schema = new ScopingPhaseOutputContract(true).outputSchemaJson();
         assertTrue(schema.contains(
                 "\"enum\":[\"none\",\"read\",\"add\",\"remove\",\"exclude\",\"resolve\","
-                        + "\"offer\"]"));
+                        + "\"offer\",\"rename\",\"rewrite\"]"));
+        assertTrue("the rewrite leaves are grammar-bounded",
+                schema.contains("\"leaves\":{\"type\":\"array\",\"maxItems\":12"));
         assertTrue(schema.contains("\"topic\":{\"type\":\"string\"}"));
         assertTrue(schema.contains("\"enum\":[\"REMOVE\",\"KEEP_SUPPRESSED\"]"));
         assertTrue("the action decision is always explicit",
