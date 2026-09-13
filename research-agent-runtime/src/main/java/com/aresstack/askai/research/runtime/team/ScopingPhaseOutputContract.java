@@ -101,8 +101,11 @@ public final class ScopingPhaseOutputContract implements PhaseOutputContract {
                 // captures ALL named areas as ONE typed list; the parser stays tolerant of
                 // legacy "add" transcripts, the loop refuses their execution.
                 + "\"conceptAction\":{\"type\":\"object\",\"properties\":{"
+                // The dedicated move generator owns the model side of moves EXCLUSIVELY
+                // (gate ruling): the universal enum advertises no move, so no starving
+                // invalid rounds compete with the pre-executed dedicated path.
                 + "\"type\":{\"type\":\"string\",\"enum\":[\"none\",\"read\",\"add_cards\","
-                + "\"move\",\"exclude\",\"resolve\",\"offer\",\"rename\"]},"
+                + "\"exclude\",\"resolve\",\"offer\",\"rename\"]},"
                 + "\"path\":{\"type\":\"array\",\"maxItems\":6,\"items\":"
                 + "{\"type\":\"string\"}},"
                 + "\"parent\":{\"type\":\"array\",\"maxItems\":6,\"items\":"
@@ -110,8 +113,7 @@ public final class ScopingPhaseOutputContract implements PhaseOutputContract {
                 + "\"name\":{\"type\":\"string\"},"
                 + "\"names\":{\"type\":\"array\",\"maxItems\":16,\"items\":"
                 + "{\"type\":\"string\",\"minLength\":1}},"
-                + "\"source\":{\"type\":\"array\",\"maxItems\":6,\"items\":"
-                + "{\"type\":\"string\",\"minLength\":1}},"
+
                 + "\"topic\":{\"type\":\"string\"},"
                 + "\"conflictId\":{\"type\":\"string\"},"
                 + "\"decision\":{\"type\":\"string\",\"enum\":[\"REMOVE\","

@@ -305,81 +305,27 @@ public class ConceptToolRoundsTest {
     }
 
     /**
-     * move_leaf receipt truth: a MOVE_TRUTH turn without an APPLIED move receipt closes with
-     * the deterministic host sentence — never the model's narration (the add_cards gate saw a
-     * NONE turn claim an executed change). An APPLIED move keeps the model's wrap-up.
+     * Gate ruling: the dedicated generator owns moves EXCLUSIVELY — a model-emitted move
+     * (legacy transcript / misrouted) is REFUSED before the host, and a MOVE_TRUTH turn
+     * without any receipt still closes with the deterministic host sentence.
      */
     @Test
-    public void aMoveTurnWithoutAMovedReceiptClosesWithTheHostSentence() throws Exception {
-        // Case 1: the model answers with action NONE — no tool ran, the claim gets replaced.
+    public void anInLoopMoveIsRefusedAndTheGuardStillClosesHonestly() throws Exception {
         ScriptedTurns turns = new ScriptedTurns();
         ScriptedTool tool = new ScriptedTool();
+        turns.script.add(turn("Ich habe die Karte verschoben.", null));
         TeamAgentResult result = ConceptToolRounds.run(
-                turn("Ich habe die Karte verschoben.", "{\"type\":\"none\"}"),
-                turns, tool, 4, 2, false, null, traceSink, false,
-                ConceptTurnPolicy.Mode.MOVE_TRUTH);
-        assertTrue(tool.calls.isEmpty());
-        assertEquals(TeamAgentPlaybook.moveTruthAnswer(false, null),
-                ((ScopingAssistantOutput) result.getOutput()).getAssistantMessage());
-        assertTrue(trace.contains("move-truth guard -> deterministic host answer (no MOVED "
-                + "receipt this turn)"));
-
-        // Case 2: NO_CHANGE — the honest already-at-target close, still host-authored.
-        trace.clear();
-        ScriptedTurns idempotent = new ScriptedTurns();
-        ScriptedTool idempotentTool = new ScriptedTool();
-        idempotentTool.byDescription.put(
-                "move source=[\"Scheduling\"] parent=[\"FreeRTOS\"]",
-                "NO_CHANGE revision=3\nALREADY_AT_TARGET: Scheduling\nID: u-1");
-        idempotent.script.add(turn("schon da", null));
-        TeamAgentResult noChange = ConceptToolRounds.run(
                 turn("verschiebe", "{\"type\":\"move\",\"source\":[\"Scheduling\"],"
                         + "\"parent\":[\"FreeRTOS\"]}"),
-                idempotent, idempotentTool, 4, 2, false, null, traceSink, false,
-                ConceptTurnPolicy.Mode.MOVE_TRUTH);
-        assertTrue(trace.contains("round 1 -> NO_CHANGE (already at target)"));
-        assertEquals(TeamAgentPlaybook.moveTruthAnswer(false, "already-at-target"),
-                ((ScopingAssistantOutput) noChange.getOutput()).getAssistantMessage());
-
-        // Case 3: an APPLIED move licenses the model's own wrap-up.
-        trace.clear();
-        ScriptedTurns moved = new ScriptedTurns();
-        ScriptedTool movedTool = new ScriptedTool();
-        movedTool.byDescription.put(
-                "move source=[\"Scheduling\"] parent=[\"FreeRTOS\"]",
-                "APPLIED revision=4\nMOVED: Scheduling\nID: u-1");
-        moved.script.add(turn("Verschoben.", null));
-        TeamAgentResult applied = ConceptToolRounds.run(
-                turn("verschiebe", "{\"type\":\"move\",\"source\":[\"Scheduling\"],"
-                        + "\"parent\":[\"FreeRTOS\"]}"),
-                moved, movedTool, 4, 2, false, null, traceSink, false,
-                ConceptTurnPolicy.Mode.MOVE_TRUTH);
-        assertEquals("Verschoben.",
-                ((ScopingAssistantOutput) applied.getOutput()).getAssistantMessage());
-    }
-
-    /**
-     * The gate's negation finding, generalized: the deterministic 'nothing changed' sentence
-     * NEVER overrides a turn that carries an authoritative APPLIED receipt — the honest add
-     * narration stays even when a (mis)armed MOVE_TRUTH guard finds no MOVED receipt.
-     */
-    @Test
-    public void anAppliedMutationKeepsItsHonestNarrationDespiteTheMoveGuard() throws Exception {
-        ScriptedTurns turns = new ScriptedTurns();
-        ScriptedTool tool = new ScriptedTool();
-        tool.byDescription.put("add_cards parent=[\"Linux\"] names=[\"Scheduling\"]",
-                "APPLIED revision=3\nADDED: Scheduling");
-        tool.byDescription.put("read path=[]", "{\"concept\":[{\"Linux\":[]}]}");
-        turns.script.add(turn("Scheduling wurde unter Linux angelegt.", null));
-        TeamAgentResult result = ConceptToolRounds.run(
-                turn("lege an", "{\"type\":\"add_cards\",\"parent\":[\"Linux\"],"
-                        + "\"names\":[\"Scheduling\"]}"),
                 turns, tool, 4, 2, false, null, traceSink, false,
                 ConceptTurnPolicy.Mode.MOVE_TRUTH);
-        assertEquals("Scheduling wurde unter Linux angelegt.",
+        assertTrue("the host never sees an in-loop move", tool.calls.isEmpty());
+        assertTrue(turns.feedbackSeen.get(0).contains("You never emit a move action"));
+        assertTrue(trace.contains("round 1 -> REFUSED (the application executes moves itself "
+                + "on an explicit user order)"));
+        assertEquals("no receipt, no narration — the host closes",
+                TeamAgentPlaybook.moveTruthAnswer(false, null),
                 ((ScopingAssistantOutput) result.getOutput()).getAssistantMessage());
-        assertTrue(trace.contains(
-                "move-truth guard stands down — other mutations were APPLIED this turn"));
     }
 
     /**
@@ -408,7 +354,7 @@ public class ConceptToolRoundsTest {
                 .contains("name card and target clearly"));
     }
 
-    /** move_leaf, gate test 13: a READ-ONLY turn blocks the move — no substitute mutation. */
+    /** Gate test 13, updated: in a READ-ONLY turn a move never reaches the host either. */
     @Test
     public void aReadOnlyTurnRefusesAMoveLikeEveryMutation() throws Exception {
         ScriptedTurns turns = new ScriptedTurns();
@@ -420,7 +366,8 @@ public class ConceptToolRoundsTest {
                 turns, tool, 4, 2, false, null, traceSink, false,
                 ConceptTurnPolicy.Mode.RESTRUCTURE_READ_ONLY);
         assertTrue("the move never reaches the host", tool.calls.isEmpty());
-        assertTrue(turns.feedbackSeen.get(0).contains("READ-ONLY for the whole turn"));
+        assertTrue("the dedicated-path refusal owns in-loop moves in EVERY mode",
+                turns.feedbackSeen.get(0).contains("You never emit a move action"));
     }
 
     /** add_cards slice, test 11: a legacy transcript's single add is read but never executed. */

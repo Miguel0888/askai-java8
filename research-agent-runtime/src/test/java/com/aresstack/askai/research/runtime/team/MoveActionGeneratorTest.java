@@ -82,6 +82,40 @@ public class MoveActionGeneratorTest {
         assertNull(MoveActionGenerator.generate(chat, "verschiebe irgendwas", ""));
     }
 
+    /** Gate ruling #3: visible answers derive from the receipt — no internal markers ever. */
+    @Test
+    public void receiptAnswersAreLocalizedProductSentencesWithoutInternalMarkers() {
+        String receipt = "APPLIED revision=6\nMOVED: Scheduling\n"
+                + "FROM: [Betriebssysteme, Linux, Scheduling]\n"
+                + "TO: [Betriebssysteme, FreeRTOS, Scheduling]\nID: 8069a696";
+        assertEquals("„Scheduling“ wurde von „Linux“ nach „FreeRTOS“ verschoben.",
+                TeamAgentPlaybook.moveAppliedAnswer(true, receipt));
+        assertEquals("\"Scheduling\" was moved from \"Linux\" to \"FreeRTOS\".",
+                TeamAgentPlaybook.moveAppliedAnswer(false, receipt));
+        String rootReceipt = "APPLIED revision=7\nMOVED: Scheduling\n"
+                + "FROM: [Linux, Scheduling]\nTO: [Scheduling]\nID: x";
+        assertTrue(TeamAgentPlaybook.moveAppliedAnswer(true, rootReceipt)
+                .contains("nach der obersten Ebene"));
+
+        String branch = TeamAgentPlaybook.moveRejectedAnswer(true,
+                "Error: BRANCH_GRAFT_FAILED SOURCE_NOT_LEAF \"Betriebssysteme\" — only a "
+                        + "LEAF moves with this tool");
+        assertTrue(branch, branch.contains("„Betriebssysteme“ ist ein Zweig"));
+        for (String marker : new String[] {"Error", "BRANCH_GRAFT_FAILED", "SOURCE_NOT_LEAF"}) {
+            assertTrue("no internal marker leaks: " + marker, !branch.contains(marker));
+        }
+        assertTrue(TeamAgentPlaybook.moveRejectedAnswer(true,
+                "TARGET_PARENT_NOT_FOUND [Gibtsnicht]").contains("existiert nicht"));
+        assertTrue(TeamAgentPlaybook.moveRejectedAnswer(true,
+                "AMBIGUOUS_PARENT \"Linux\" — candidates: [A, Linux], [B, Linux]")
+                .contains("mehrdeutig"));
+        assertTrue(TeamAgentPlaybook.moveRejectedAnswer(true,
+                "TARGET_NAME_COLLISION \"Scheduling\"").contains("bereits eine Karte"));
+        assertTrue("unknown reasons stay a clean product sentence",
+                TeamAgentPlaybook.moveRejectedAnswer(true, "whatever internal text")
+                        .startsWith("Am Konzept wurde nichts verändert."));
+    }
+
     @Test
     public void aRootTargetParsesAsTheEmptyParent() {
         ConceptAction action = MoveActionGenerator.parseReply(

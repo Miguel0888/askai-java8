@@ -229,6 +229,19 @@ public final class ConceptToolRounds {
                 rejected.add("(invalid) " + firstLine(actionError));
                 trace.line("round " + rounds + ": invalid conceptAction (" + actionError + ")");
                 feedback = TeamAgentPlaybook.conceptToolRejected(actionError, germanFeedback);
+            } else if (action.getType() == ConceptAction.Type.MOVE) {
+                // The dedicated generator owns the model side of moves exclusively (gate
+                // ruling: two competing paths produced invalid rounds and a false close) —
+                // a legacy/misrouted in-loop move never reaches the host.
+                repairs++;
+                rejected.add(action.describe() + " — moves run through the dedicated path");
+                trace.line("round " + rounds + ": " + action.describe());
+                trace.line("round " + rounds + " -> REFUSED (the application executes moves "
+                        + "itself on an explicit user order)");
+                feedback = TeamAgentPlaybook.conceptToolRejected(
+                        "You never emit a move action: when the user orders a move, the "
+                                + "application executes it itself and reports the receipt. "
+                                + "Do not retry.", germanFeedback);
             } else if (action.getType() == ConceptAction.Type.ADD) {
                 // add_cards slice: the single add left the active contract — a legacy
                 // transcript's "add" is read but never executed (four one-by-one rounds once
@@ -409,6 +422,15 @@ public final class ConceptToolRounds {
         if (userMessage == null) {
             return fallback;
         }
+        return syntheticAnswer(userMessage, fallback);
+    }
+
+    /**
+     * A host-authored visible answer for a TERMINAL turn (the dedicated move path): the exact
+     * mechanics every deterministic receipt answer uses. {@code fallback} may be null when the
+     * message is host-built plain text (the synthetic parse cannot fail on it).
+     */
+    public static TeamAgentResult hostAnswer(String userMessage, TeamAgentResult fallback) {
         return syntheticAnswer(userMessage, fallback);
     }
 

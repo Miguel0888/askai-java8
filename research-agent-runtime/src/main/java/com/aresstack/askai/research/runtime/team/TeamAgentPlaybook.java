@@ -240,10 +240,8 @@ public final class TeamAgentPlaybook {
                 + (conceptTools
                         ? ",\n  \"conceptAction\": {              // your ONE action THIS "
                         + "inference; use type none when you change nothing\n"
-                        + "    \"type\": \"none\"|\"read\"|\"add_cards\"|\"move\"|\"exclude\""
+                        + "    \"type\": \"none\"|\"read\"|\"add_cards\"|\"exclude\""
                         + "|\"resolve\"|\"offer\"|\"rename\",\n"
-                        + "    \"source\": [string],              // move: the ONE leaf (a "
-                        + "unique card name is enough); parent = the target ([] = top level)\n"
                         + "    \"path\": [string],                // read/rename: card names as "
                         + "SEGMENTS from the concept root\n"
                         + "    \"parent\": [string], \"names\": [string],  // add_cards: where "
@@ -620,6 +618,101 @@ public final class TeamAgentPlaybook {
         return base;
     }
 
+    /**
+     * The DETERMINISTIC visible answer of a successful dedicated move, derived from the
+     * authoritative receipt (gate ruling: free narration once claimed failure over an APPLIED
+     * move). Parses the receipt's MOVED/FROM/TO lines; display-only, so an exotic card name
+     * containing ", " merely shortens the sentence, never the data.
+     */
+    public static String moveAppliedAnswer(boolean german, String receiptText) {
+        String label = receiptLine(receiptText, "MOVED: ");
+        java.util.List<String> from = receiptPath(receiptText, "FROM: ");
+        java.util.List<String> to = receiptPath(receiptText, "TO: ");
+        String fromParent = from.size() >= 2 ? from.get(from.size() - 2) : null;
+        String toParent = to.size() >= 2 ? to.get(to.size() - 2) : null;
+        if (german) {
+            return "„" + label + "“ wurde von "
+                    + (fromParent == null ? "der obersten Ebene" : "„" + fromParent + "“")
+                    + " nach "
+                    + (toParent == null ? "der obersten Ebene" : "„" + toParent + "“")
+                    + " verschoben.";
+        }
+        return "\"" + label + "\" was moved from "
+                + (fromParent == null ? "the top level" : "\"" + fromParent + "\"") + " to "
+                + (toParent == null ? "the top level" : "\"" + toParent + "\"") + ".";
+    }
+
+    /**
+     * The DETERMINISTIC visible answer of a refused dedicated move: the internal diagnostic
+     * (Error/BRANCH_GRAFT_FAILED/SOURCE_NOT_LEAF/…) is mapped to a product sentence in the
+     * session language and NEVER leaks into the chat.
+     */
+    public static String moveRejectedAnswer(boolean german, String diagnostic) {
+        String base = german ? "Am Konzept wurde nichts verändert."
+                : "Nothing in the concept was changed.";
+        String text = diagnostic == null ? "" : diagnostic;
+        String quoted = quotedNameIn(text);
+        if (text.contains("SOURCE_NOT_LEAF")) {
+            return base + (german
+                    ? " " + (quoted == null ? "Die Karte" : "„" + quoted + "“")
+                            + " ist ein Zweig — mit dieser Aktion können nur Blattkarten "
+                            + "verschoben werden."
+                    : " " + (quoted == null ? "The card" : "\"" + quoted + "\"")
+                            + " is a branch — only leaf cards can be moved with this action.");
+        }
+        if (text.contains("TARGET_PARENT_NOT_FOUND")) {
+            return base + (german
+                    ? " Das angegebene Ziel existiert nicht im Konzept."
+                    : " The requested target does not exist in the concept.");
+        }
+        if (text.contains("AMBIGUOUS_SOURCE") || text.contains("AMBIGUOUS_PARENT")) {
+            return base + (german
+                    ? " " + (quoted == null ? "Der Name" : "„" + quoted + "“")
+                            + " ist mehrdeutig — bitte gib den vollständigen Pfad an."
+                    : " " + (quoted == null ? "The name" : "\"" + quoted + "\"")
+                            + " is ambiguous — please give the full path.");
+        }
+        if (text.contains("TARGET_NAME_COLLISION")) {
+            return base + (german
+                    ? " Am Ziel existiert bereits eine Karte mit diesem Namen — es wurde "
+                            + "nichts zusammengeführt oder überschrieben."
+                    : " A card with this name already exists at the target — nothing was "
+                            + "merged or overwritten.");
+        }
+        return base + (german
+                ? " Die Verschiebung wurde abgelehnt."
+                : " The move was refused.");
+    }
+
+    private static String receiptLine(String receiptText, String prefix) {
+        for (String line : (receiptText == null ? "" : receiptText).split("\\r?\\n")) {
+            if (line.startsWith(prefix)) {
+                return line.substring(prefix.length()).trim();
+            }
+        }
+        return "";
+    }
+
+    private static java.util.List<String> receiptPath(String receiptText, String prefix) {
+        String raw = receiptLine(receiptText, prefix);
+        java.util.List<String> names = new java.util.ArrayList<String>();
+        if (raw.startsWith("[") && raw.endsWith("]")) {
+            for (String part : raw.substring(1, raw.length() - 1).split(", ")) {
+                if (!part.trim().isEmpty()) {
+                    names.add(part.trim());
+                }
+            }
+        }
+        return names;
+    }
+
+    /** The first "double-quoted" name inside a diagnostic, or null. */
+    private static String quotedNameIn(String text) {
+        int start = text.indexOf('"');
+        int end = start < 0 ? -1 : text.indexOf('"', start + 1);
+        return end < 0 ? null : text.substring(start + 1, end);
+    }
+
     /** How to use the concept tool: one small step per inference, read before update, no rewrites. */
     private static String conceptToolRules() {
         return "THE CONCEPT (conceptAction):\n"
@@ -648,9 +741,7 @@ public final class TeamAgentPlaybook {
                 + "[\"Tasks\"]}\n"
                 + "    \"ESP-IDF möchte ich nicht behandeln.\"          ->  "
                 + "{\"type\":\"exclude\",\"topic\":\"ESP-IDF\"} (see THE EXCLUSION COMMAND)\n"
-                + "    \"Verschiebe Scheduling unter FreeRTOS.\"        ->  "
-                + "{\"type\":\"move\",\"source\":[\"Scheduling\"],\"parent\":"
-                + "[\"FreeRTOS\"]}  — BOTH fields, always\n"
+
                 + "    \"Lösche die Karte/den Zweig X.\"                ->  {\"type\":\"none\"} "
                 + "— deleting concept cards is the USER'S manual editor work, never a scope "
                 + "exclusion\n"
@@ -724,20 +815,10 @@ public final class TeamAgentPlaybook {
                 + "NEVER concept path segments, and a card name is NEVER a facetId.\n"
                 + "- The concept mirrors the CONVERSATION: add what the user asks for, propose "
                 + "what scope and sources suggest.\n"
-                + "THE MOVE COMMAND (move — one leaf, one target, one atomic effect):\n"
-                + "- move relocates ONE existing LEAF card under an existing parent (or the "
-                + "top level): {\"type\":\"move\",\"source\":[\"Scheduling\"],\"parent\":"
-                + "[\"FreeRTOS\"]} — source may be ONE globally unique card name, parent may "
-                + "be a unique name, a full path, or [] for the top level. The card keeps its "
-                + "name and identity; only its place changes.\n"
-                + "- The target must already exist — move never creates parents, never moves "
-                + "branches, never renames, never merges. One leaf per action; several moves "
-                + "are several actions.\n"
-                + "- An EXPLICIT move order runs the move action even when you believe the "
-                + "card is already there — the honest receipt is then NO_CHANGE/"
-                + "ALREADY_AT_TARGET. Say \"verschoben\"/\"moved\" ONLY when THIS turn carries "
-                + "a MOVED receipt; after REFUSED or NO_CHANGE say honestly that nothing "
-                + "changed. Never substitute a refused move with add_cards.\n"
+                + "MOVING CARDS:\n"
+                + "- You never emit a move action. When the user orders a move, the "
+                + "APPLICATION executes it itself and answers with the receipt — do not "
+                + "attempt it, do not substitute it with add_cards, do not claim it.\n"
                 + "RENAMING (rename):\n"
                 + "- rename changes ONE card's name at any depth; children and position stay: "
                 + "{\"type\": \"rename\", \"path\": [\"FreeRTOS\", \"Setup\"], \"name\": "

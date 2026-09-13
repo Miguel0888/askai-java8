@@ -1208,12 +1208,15 @@ public final class ResearchAgentMain {
             final SyncPromptContext ctx,
             final com.aresstack.askai.research.runtime.team.TeamAgentStateView view,
             String text) {
-        boolean preMoved = false;
-        String preOutcome = null;
         if (conceptToolsAvailable
                 && com.aresstack.askai.research.runtime.team.ConceptTurnPolicy.modeFor(text)
                         == com.aresstack.askai.research.runtime.team.ConceptTurnPolicy.Mode
                                 .MOVE_TRUTH) {
+            // TERMINAL (gate ruling): the dedicated path is the turn's ONE authoritative
+            // concept decision — no general loop afterwards (two competing paths once
+            // produced invalid rounds and a false 'could not execute' close over an APPLIED
+            // receipt), and the visible answer derives deterministically from the receipt.
+            boolean german = "de".equalsIgnoreCase(sessionLanguage.code());
             conceptLog(ctx, "dedicated move generation (two-field schema)");
             String conceptContext;
             try {
@@ -1224,35 +1227,48 @@ public final class ResearchAgentMain {
             com.aresstack.askai.research.runtime.team.ConceptAction move =
                     com.aresstack.askai.research.runtime.team.MoveActionGenerator.generate(
                             mainModelChat, text, conceptContext);
+            String answer;
             if (move == null) {
-                preOutcome = "unclear";
                 conceptLog(ctx, "dedicated move generation -> unclear (no guess, no mutation)");
+                answer = com.aresstack.askai.research.runtime.team.TeamAgentPlaybook
+                        .moveTruthAnswer(german, "unclear");
             } else {
                 conceptLog(ctx, "dedicated move: " + move.describe());
                 try {
                     String receipt = conceptToolCall(move);
                     if (receipt.startsWith("NO_CHANGE")) {
-                        preOutcome = "already-at-target";
                         conceptLog(ctx, "dedicated move -> NO_CHANGE (already at target)");
+                        answer = com.aresstack.askai.research.runtime.team.TeamAgentPlaybook
+                                .moveTruthAnswer(german, "already-at-target");
                     } else {
-                        preMoved = true;
-                        conceptLog(ctx, "dedicated move -> APPLIED");
+                        conceptLog(ctx, "dedicated move -> APPLIED (terminal)");
+                        answer = com.aresstack.askai.research.runtime.team.TeamAgentPlaybook
+                                .moveAppliedAnswer(german, receipt);
                     }
                 } catch (com.aresstack.askai.research.runtime.loop.ToolInvoker
                         .ToolFailure rejected) {
                     String reason = rejected.getMessage() == null ? "rejected"
                             : rejected.getMessage().replace("\r", "").replace('\n', ' ');
-                    preOutcome = reason;
                     conceptLog(ctx, "dedicated move -> REJECTED " + reason);
+                    // The product sentence — internal markers never leak into the chat.
+                    answer = com.aresstack.askai.research.runtime.team.TeamAgentPlaybook
+                            .moveRejectedAnswer(german, reason);
                 } catch (com.aresstack.askai.research.runtime.loop.ToolInvoker
                         .EndpointUnavailable dead) {
-                    preOutcome = "concept endpoint unavailable";
                     conceptLog(ctx, "dedicated move lost — endpoint unavailable");
+                    answer = com.aresstack.askai.research.runtime.team.TeamAgentPlaybook
+                            .moveTruthAnswer(german, null);
                 }
+            }
+            com.aresstack.askai.research.runtime.team.TeamAgentResult terminal =
+                    com.aresstack.askai.research.runtime.team.ConceptToolRounds
+                            .hostAnswer(answer, null);
+            if (terminal != null) {
+                return terminal;
             }
         }
         return runConceptToolRounds(ctx, teamAgent.respond(text, view), view, text,
-                preMoved, preOutcome);
+                false, null);
     }
 
     private static void conceptLog(SyncPromptContext ctx, String message) {

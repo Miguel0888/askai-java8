@@ -4,6 +4,7 @@ import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 /** The concept block rides the capability flag — and ONLY the flag (old hosts stay byte-identical). */
@@ -35,20 +36,12 @@ public class ScopingConceptPromptTest {
                 with.contains("never any deeper invented hierarchy"));
         assertTrue("short unique parent names are enough",
                 with.contains("the application resolves the full path itself"));
-        // move_leaf slice: one leaf, one existing target, receipt-covered claims only.
-        assertTrue(with.contains("THE MOVE COMMAND"));
-        assertTrue(with.contains("{\"type\":\"move\",\"source\":[\"Scheduling\"],\"parent\":"
-                + "[\"FreeRTOS\"]}"));
-        assertTrue("move never creates parents or moves branches",
-                with.contains("move never creates parents, never moves branches"));
-        assertTrue("explicit orders run the tool even at the target",
-                with.contains("even when you believe the card is already there"));
-        assertTrue("'verschoben' only with a MOVED receipt of THIS turn",
-                with.contains("ONLY when THIS turn carries a MOVED receipt"));
-        // The move gate's fix: the MAPPING list (the drill gemma follows verbatim) carries
-        // the move example with BOTH fields — the shape/prose alone left them starved.
-        assertTrue(with.contains("\"Verschiebe Scheduling unter FreeRTOS.\""));
-        assertTrue(with.contains("BOTH fields, always"));
+        // Gate ruling: the prompt no longer teaches ANY move emission — the application
+        // executes moves itself; the model is told exactly that and nothing more.
+        assertTrue(with.contains("MOVING CARDS"));
+        assertTrue(with.contains("You never emit a move action"));
+        assertFalse("no move example baits the model anymore",
+                with.contains("{\"type\":\"move\""));
         assertTrue("multi-word terms stay one name",
                 with.contains("\"Computer Science\" is one card"));
         assertTrue("claims only per receipt",
@@ -147,13 +140,16 @@ public class ScopingConceptPromptTest {
         // Safety slice: the grammar can no longer EMIT a destructive concept edit — the enum
         // carries neither remove nor rewrite (the parser stays tolerant for old transcripts,
         // the loop refuses execution).
+        // Gate ruling: the dedicated generator owns the model side of moves EXCLUSIVELY —
+        // the universal enum advertises no move (its starving invalid rounds once competed
+        // with the pre-executed dedicated path and produced a false close).
         assertTrue(schema.contains(
-                "\"enum\":[\"none\",\"read\",\"add_cards\",\"move\",\"exclude\",\"resolve\","
+                "\"enum\":[\"none\",\"read\",\"add_cards\",\"exclude\",\"resolve\","
                         + "\"offer\",\"rename\"]"));
+        assertFalse(schema.contains("\"move\""));
+        assertFalse(schema.contains("\"source\""));
         assertTrue("the names list is grammar-bounded and typed",
                 schema.contains("\"names\":{\"type\":\"array\",\"maxItems\":16"));
-        assertTrue("the move source is grammar-bounded and typed",
-                schema.contains("\"source\":{\"type\":\"array\",\"maxItems\":6"));
         assertFalse(schema.contains("\"rewrite\""));
         assertFalse(schema.contains("\"leaves\""));
         assertTrue(schema.contains("\"topic\":{\"type\":\"string\"}"));
@@ -194,13 +190,12 @@ public class ScopingConceptPromptTest {
     }
 
     /**
-     * The move gate's blocker check, PROVEN on the delivered contract (not a substring): the
-     * generation schema is valid JSON and its conceptAction really carries "source" and
-     * "parent" as expressible array fields — the model failed to emit them live, so the
-     * serialization itself is pinned here.
+     * Gate ruling: the UNIVERSAL contract knows no move anymore — the dedicated two-field
+     * schema (MoveActionGeneratorTest) is the only delivered move grammar. Proven on the
+     * parsed schema, not a substring.
      */
     @Test
-    public void theDeliveredMoveGrammarCarriesSourceAndParentAsParsableFields() {
+    public void theUniversalGrammarKnowsNoMoveAnymore() {
         String schema = new ScopingPhaseOutputContract(true).outputSchemaJson();
         Object parsed = com.aresstack.askai.agent.model.reranker.MiniJson.parse(schema);
         assertTrue("the schema itself parses as JSON", parsed instanceof java.util.Map);
@@ -209,11 +204,8 @@ public class ScopingConceptPromptTest {
                         .get("conceptAction");
         java.util.Map<?, ?> properties =
                 (java.util.Map<?, ?>) conceptAction.get("properties");
-        java.util.Map<?, ?> source = (java.util.Map<?, ?>) properties.get("source");
-        java.util.Map<?, ?> parent = (java.util.Map<?, ?>) properties.get("parent");
-        assertEquals("array", ((java.util.Map<?, ?>) source).get("type"));
-        assertEquals("array", ((java.util.Map<?, ?>) parent).get("type"));
-        assertTrue("move is an emittable type", String.valueOf(
+        assertNull("no source field left in the universal grammar", properties.get("source"));
+        assertFalse("move is NOT an emittable type here", String.valueOf(
                 ((java.util.Map<?, ?>) properties.get("type")).get("enum")).contains("move"));
     }
 
