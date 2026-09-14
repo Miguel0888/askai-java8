@@ -65,17 +65,26 @@ final class KnowledgeProcessingSessionFactory {
         final com.aresstack.askai.research.knowledge.processing.live.LiveKnowledgeProjectionRunner projection;
         final com.aresstack.askai.research.knowledge.processing.live.KnowledgeProjectionInvalidator invalidator;
         final OutlineStalenessCheck staleness;
+        /** #42: the SHARED phase-neutral topic discovery (phase 1 + outline consume it). */
+        final com.aresstack.askai.research.knowledge.processing.live.SharedTopicDiscovery topics;
+        /** #42: the OPTIONAL debounced background topics refresher; null when disabled. */
+        final com.aresstack.askai.research.knowledge.processing.live.LiveKnowledgeProjectionRunner topicsRunner;
 
         KnowledgeSession(KnowledgeProcessingRunner worker,
                          com.aresstack.askai.research.knowledge.processing.live.LiveKnowledgeProjectionRunner
                                  projection,
                          com.aresstack.askai.research.knowledge.processing.live.KnowledgeProjectionInvalidator
                                  invalidator,
-                         OutlineStalenessCheck staleness) {
+                         OutlineStalenessCheck staleness,
+                         com.aresstack.askai.research.knowledge.processing.live.SharedTopicDiscovery topics,
+                         com.aresstack.askai.research.knowledge.processing.live.LiveKnowledgeProjectionRunner
+                                 topicsRunner) {
             this.worker = worker;
             this.projection = projection;
             this.invalidator = invalidator;
             this.staleness = staleness;
+            this.topics = topics;
+            this.topicsRunner = topicsRunner;
         }
     }
 
@@ -198,6 +207,20 @@ final class KnowledgeProcessingSessionFactory {
                         .FileLiveOutlineProjectionStore(projectDir);
         final com.aresstack.askai.research.knowledge.live.LiveOutlineProjectionBuilder projectionBuilder =
                 new com.aresstack.askai.research.knowledge.live.LiveOutlineProjectionBuilder();
+        // #42: the shared, phase-neutral topic discovery over the SAME corpus/filter/builder.
+        final com.aresstack.askai.research.knowledge.processing.live.SharedTopicDiscovery sharedTopics =
+                new com.aresstack.askai.research.knowledge.processing.live.SharedTopicDiscovery(
+                        new com.aresstack.askai.research.knowledge.processing.live
+                                .SharedTopicDiscovery.CorpusSource() {
+                            public com.aresstack.askai.research.knowledge.processing.live
+                                    .ActiveKnowledgeCorpusReader.Corpus read() {
+                                return corpusReader.read(sourceFilter);
+                            }
+                        },
+                        projectionBuilder,
+                        new com.aresstack.askai.research.knowledge.processing.live
+                                .FileTopicSnapshotStore(projectDir),
+                        descriptor.embeddingFingerprint());
         final String fingerprint = descriptor.embeddingFingerprint();
         final com.aresstack.askai.research.knowledge.processing.live.LiveKnowledgeProjectionRunner projection =
                 new com.aresstack.askai.research.knowledge.processing.live.LiveKnowledgeProjectionRunner(
@@ -209,15 +232,20 @@ final class KnowledgeProcessingSessionFactory {
                                 // hides an implicit cluster run. This step only runs after the user's
                                 // explicit "Inhaltsverzeichnis erzeugen" action (nothing invalidates it
                                 // automatically anymore).
+                                // #42: BOTH consumers (this outline build and phase 1's
+                                // concept ideas) run through the ONE shared discovery — the
+                                // snapshot is persisted here, then the outline builds on it.
+                                com.aresstack.askai.research.knowledge.processing.live
+                                        .FileTopicSnapshotStore.TopicSnapshot topicSnapshot =
+                                        sharedTopics.refresh(System.currentTimeMillis());
                                 com.aresstack.askai.research.knowledge.processing.live
                                         .ActiveKnowledgeCorpusReader.Corpus corpus =
                                         corpusReader.read(sourceFilter);
                                 java.util.List<com.aresstack.askai.research.knowledge.live
-                                        .LiveTopicProjection> topics =
-                                        projectionBuilder.discoverTopics(corpus.getPassages(),
-                                                corpus.getVectors());
+                                        .LiveTopicProjection> topics = topicSnapshot.topics;
                                 System.err.println("[research-knowledge] topics discovered passages="
-                                        + corpus.getPassages().size() + " topics=" + topics.size());
+                                        + corpus.getPassages().size() + " topics=" + topics.size()
+                                        + " snapshotRevision=" + topicSnapshot.revision);
                                 com.aresstack.askai.research.knowledge.live.LiveOutlineProjection previous =
                                         projectionStore.load();
                                 long nextRevision = (previous == null ? 0L
@@ -238,10 +266,26 @@ final class KnowledgeProcessingSessionFactory {
 
         // Issue #29: a COMPLETED job no longer rebuilds the projection. It only NOTIFIES (cheap staleness
         // metadata for the open Outline tab); recalculation is an explicit user action.
+        // (the topics runner is created below; the COMPLETED notification wiring reaches it
+        // through this one-element holder so worker construction stays before it)
+        final com.aresstack.askai.research.knowledge.processing.live
+                .LiveKnowledgeProjectionRunner[] topicsRunnerRef =
+                new com.aresstack.askai.research.knowledge.processing.live
+                        .LiveKnowledgeProjectionRunner[1];
         final SourceProcessingWorker worker = new SourceProcessingWorker(queue, reader, segmentationFactory,
                 passageStore, index, generations, projectId, settings.maxProcessingAttempts,
                 descriptor.embeddingFingerprint(),
-                notifying(diagnosticListener(projectId, descriptionByLanguage), knowledgeChangedNotifier));
+                notifying(diagnosticListener(projectId, descriptionByLanguage), new Runnable() {
+                    public void run() {
+                        if (knowledgeChangedNotifier != null) {
+                            knowledgeChangedNotifier.run();
+                        }
+                        // #42: a corpus change marks the background topics stale too.
+                        if (topicsRunnerRef[0] != null) {
+                            topicsRunnerRef[0].knowledgeChanged();
+                        }
+                    }
+                }));
 
         KnowledgeProcessingRunner workerRunner = new KnowledgeProcessingRunner(
                 new KnowledgeProcessingRunner.ProcessingStep() {
@@ -272,7 +316,28 @@ final class KnowledgeProcessingSessionFactory {
                 return projectionStore.load() != null;
             }
         };
-        return new KnowledgeSession(workerRunner, projection, projection, staleness);
+        // #42: OPTIONAL background topic discovery — debounced, serial, pure CPU (persisted
+        // vectors only; no embedding calls, so the foreground GPU/LLM path is untouched by
+        // construction). Topics ONLY: no outline build, no concept change, no phase change.
+        com.aresstack.askai.research.knowledge.processing.live.LiveKnowledgeProjectionRunner topicsRunner =
+                null;
+        if (ResearchRuntimeSettings.backgroundTopicDiscovery()) {
+            topicsRunnerRef[0] = topicsRunner = new com.aresstack.askai.research.knowledge.processing.live
+                    .LiveKnowledgeProjectionRunner(
+                    new com.aresstack.askai.research.knowledge.processing.live
+                            .LiveKnowledgeProjectionRunner.RebuildStep() {
+                        public void rebuild() {
+                            com.aresstack.askai.research.knowledge.processing.live
+                                    .FileTopicSnapshotStore.TopicSnapshot snapshot =
+                                    sharedTopics.refresh(System.currentTimeMillis());
+                            System.err.println("[research-knowledge] background topics refreshed"
+                                    + " revision=" + snapshot.revision
+                                    + " topics=" + snapshot.topics.size());
+                        }
+                    }, "topic-discovery-" + projectId, settings.projectionDebounceMillis);
+        }
+        return new KnowledgeSession(workerRunner, projection, projection, staleness,
+                sharedTopics, topicsRunner);
     }
 
     /** Wrap the diagnostics listener so a COMPLETED job NOTIFIES the UI (staleness re-check) — no rebuild. */

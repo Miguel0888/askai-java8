@@ -447,6 +447,8 @@ public final class ProductiveResearchBackendFactory {
                 {null};
         final com.aresstack.askai.research.knowledge.processing.live.LiveKnowledgeProjectionRunner[]
                 projectionRunner = {null};
+        final com.aresstack.askai.research.knowledge.processing.live.LiveKnowledgeProjectionRunner[]
+                topicsRunner = {null};
         final com.aresstack.askai.research.knowledge.processing.live.KnowledgeProjectionInvalidator[]
                 projectionInvalidator = {null};
         final KnowledgeProcessingSessionFactory.OutlineStalenessCheck[] outlineStaleness = {null};
@@ -518,6 +520,7 @@ public final class ProductiveResearchBackendFactory {
                     });
             knowledgeRunner[0] = knowledgeSession.worker;
             projectionRunner[0] = knowledgeSession.projection;
+            topicsRunner[0] = knowledgeSession.topicsRunner;
             projectionInvalidator[0] = knowledgeSession.invalidator;
             outlineStaleness[0] = knowledgeSession.staleness;
             final com.aresstack.askai.research.knowledge.processing.KnowledgeProcessingScheduler base =
@@ -905,6 +908,10 @@ public final class ProductiveResearchBackendFactory {
             if (knowledgeRunner[0] != null) {
                 knowledgeRunner[0].start();
                 resources.setKnowledgeRunner(knowledgeRunner[0]);
+                if (topicsRunner[0] != null) {
+                    topicsRunner[0].start();
+                    resources.setTopicsRunner(topicsRunner[0]);
+                }
                 if (projectionRunner[0] != null) {
                     // The projection runner thread only WAITS for an explicit trigger — session open never
                     // invalidates or rebuilds the outline anymore (issue #29). The persisted projection is
