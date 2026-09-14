@@ -18,16 +18,30 @@ import java.util.List;
  */
 public interface SearchScopeControlPort {
 
-    /** The pinned run snapshot. {@code active=false} = no OUT anchors → true no-op fast path. */
+    /**
+     * The pinned run snapshot. SC2a splits the capabilities: {@code outFilter} carries SC1's
+     * fail-closed boundary; {@code inAffinity} is the shadow measurement, which also works
+     * with an EMPTY blacklist and degrades to baseline on failure. {@code active} stays the
+     * union (any capability → evaluate calls happen).
+     */
     final class Session {
         public final boolean active;
         public final String handle;
         public final String summary;
+        public final boolean outFilter;
+        public final boolean inAffinity;
 
         public Session(boolean active, String handle, String summary) {
+            this(active, handle, summary, active, false);
+        }
+
+        public Session(boolean active, String handle, String summary, boolean outFilter,
+                       boolean inAffinity) {
             this.active = active;
             this.handle = handle;
             this.summary = summary == null ? "" : summary;
+            this.outFilter = outFilter;
+            this.inAffinity = inAffinity;
         }
     }
 
@@ -42,18 +56,31 @@ public interface SearchScopeControlPort {
         }
     }
 
-    /** One verdict. OUT = clear canonical out (hard reject); UNCLASSIFIED = no usable text. */
+    /**
+     * One verdict. OUT = clear canonical out (hard reject); UNCLASSIFIED = no usable text.
+     * SC2a: {@code nearIn}/{@code nearestInLabel} = the IN side of the same reading — shadow
+     * observation, never an acquisition decision.
+     */
     final class Decision {
         public final String id;
         public final boolean out;
         public final boolean unclassified;
         public final String nearestOutLabel;
+        public final boolean nearIn;
+        public final String nearestInLabel;
 
         public Decision(String id, boolean out, boolean unclassified, String nearestOutLabel) {
+            this(id, out, unclassified, nearestOutLabel, false, "");
+        }
+
+        public Decision(String id, boolean out, boolean unclassified, String nearestOutLabel,
+                        boolean nearIn, String nearestInLabel) {
             this.id = id;
             this.out = out;
             this.unclassified = unclassified;
             this.nearestOutLabel = nearestOutLabel == null ? "" : nearestOutLabel;
+            this.nearIn = nearIn;
+            this.nearestInLabel = nearestInLabel == null ? "" : nearestInLabel;
         }
     }
 

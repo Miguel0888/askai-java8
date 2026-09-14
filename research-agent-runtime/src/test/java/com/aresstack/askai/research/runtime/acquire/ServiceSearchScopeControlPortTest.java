@@ -45,6 +45,16 @@ public class ServiceSearchScopeControlPortTest {
         assertTrue(active.active);
         assertEquals("ss-1", active.handle);
         assertTrue(active.summary.startsWith("handle=ss-1 scopeRev=4"));
+        assertTrue("an SC1-era host without flags reads as out-only", active.outFilter);
+        assertFalse(active.inAffinity);
+
+        // SC2a capability split: IN affinity works with an EMPTY blacklist.
+        invoker.reply = "ACTIVE handle=ss-2 scopeRev=4 concept=e-1#2 embedding=fp "
+                + "inAnchors=6 outAnchors=0 outFilter=false inAffinity=true";
+        SearchScopeControlPort.Session inOnly = port.begin();
+        assertTrue(inOnly.active);
+        assertFalse("no OUT anchors -> the fail-closed boundary is OFF", inOnly.outFilter);
+        assertTrue(inOnly.inAffinity);
 
         invoker.reply = "INACTIVE outAnchors=0";
         SearchScopeControlPort.Session inactive = port.begin();
@@ -66,7 +76,7 @@ public class ServiceSearchScopeControlPortTest {
         ServiceSearchScopeControlPort port = new ServiceSearchScopeControlPort(invoker);
         invoker.reply = "EVALUATED items=3\n"
                 + "OUT nearest=\"GUI\" id=https://a.example/gui\n"
-                + "KEEP id=https://b.example/scheduling\n"
+                + "KEEP in=NEAR nearest_in=\"Scheduling\" id=https://b.example/scheduling\n"
                 + "UNCLASSIFIED id=https://c.example/empty";
 
         List<SearchScopeControlPort.Decision> decisions = port.evaluate("ss-1", "serp",
@@ -86,6 +96,9 @@ public class ServiceSearchScopeControlPortTest {
         assertEquals("GUI", decisions.get(0).nearestOutLabel);
         assertFalse(decisions.get(1).out);
         assertFalse(decisions.get(1).unclassified);
+        assertTrue("the shadow affinity travels on the KEEP line", decisions.get(1).nearIn);
+        assertEquals("Scheduling", decisions.get(1).nearestInLabel);
+        assertFalse(decisions.get(0).nearIn);
         assertTrue(decisions.get(2).unclassified);
     }
 

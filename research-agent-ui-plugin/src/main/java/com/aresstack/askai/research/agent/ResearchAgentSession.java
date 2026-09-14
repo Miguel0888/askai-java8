@@ -3724,16 +3724,26 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 inAnchors++;
             }
         }
-        if (outAnchors == 0) {
-            technicalLog("search-scope INACTIVE (outAnchors=0)");
+        // SC2a capability split: the OUT filter and the IN affinity are SEPARATE truths —
+        // positive concept steering must work with an EMPTY blacklist, and SC1's fail-closed
+        // guarantee must never soften because SC2 is a comfort heuristic.
+        boolean outFilter = outAnchors > 0;
+        boolean inAffinity = inAnchors > 0;
+        if (!outFilter && !inAffinity) {
+            technicalLog("search-scope INACTIVE (no anchors)");
             return "INACTIVE outAnchors=0";
         }
         com.aresstack.askai.agent.model.embedding.EmbeddingEndpointDescriptor descriptor =
                 productiveResources.getEmbeddingDescriptor();
         if (descriptor == null) {
-            technicalLog("search-scope UNAVAILABLE (no embedding model, outAnchors="
-                    + outAnchors + ")");
-            return "UNAVAILABLE no embedding model";
+            if (outFilter) {
+                technicalLog("search-scope UNAVAILABLE (no embedding model, outAnchors="
+                        + outAnchors + ")");
+                return "UNAVAILABLE no embedding model";
+            }
+            // Pure IN affinity is a measurement, never a boundary: degrade to baseline.
+            technicalLog("search-scope INACTIVE (inAffinity unavailable: no embedding model)");
+            return "INACTIVE inAffinity unavailable";
         }
         com.aresstack.askai.research.scope.EmbeddingSnapshotSweepEmbedder embedder =
                 new com.aresstack.askai.research.scope.EmbeddingSnapshotSweepEmbedder(
@@ -3746,12 +3756,23 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                             .getProjectDirectory(), "scope-anchor-vectors.json"))
                     .vectorsFor(fenceAnchors, embedder.modelFingerprint(), embedder);
         } catch (java.io.IOException indexFailed) {
-            technicalLog("search-scope UNAVAILABLE (anchor index: "
+            if (outFilter) {
+                technicalLog("search-scope UNAVAILABLE (anchor index: "
+                        + indexFailed.getMessage() + ")");
+                return "UNAVAILABLE anchor index failed";
+            }
+            technicalLog("search-scope INACTIVE (inAffinity unavailable: anchor index "
                     + indexFailed.getMessage() + ")");
-            return "UNAVAILABLE anchor index failed";
+            return "INACTIVE inAffinity unavailable";
         } catch (RuntimeException embeddingBroke) {
-            technicalLog("search-scope UNAVAILABLE (anchor embedding: " + embeddingBroke + ")");
-            return "UNAVAILABLE anchor embedding failed";
+            if (outFilter) {
+                technicalLog("search-scope UNAVAILABLE (anchor embedding: "
+                        + embeddingBroke + ")");
+                return "UNAVAILABLE anchor embedding failed";
+            }
+            technicalLog("search-scope INACTIVE (inAffinity unavailable: anchor embedding "
+                    + embeddingBroke + ")");
+            return "INACTIVE inAffinity unavailable";
         }
         String handle = "ss-" + java.util.UUID.randomUUID();
         searchScopeSnapshots.put(handle, new SearchScopeSnapshot(anchorVectors, labels,
@@ -3760,7 +3781,8 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                         .loadScopeSweepConfiguration(getHostStateStore()).fenceThresholds));
         String description = "scopeRev=" + draft.getRevision() + " concept=" + conceptStamp()
                 + " embedding=" + embedder.modelFingerprint()
-                + " inAnchors=" + inAnchors + " outAnchors=" + outAnchors;
+                + " inAnchors=" + inAnchors + " outAnchors=" + outAnchors
+                + " outFilter=" + outFilter + " inAffinity=" + inAffinity;
         technicalLog("search-scope snapshot " + description);
         return "ACTIVE handle=" + handle + " " + description;
     }
@@ -3799,6 +3821,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         }
         int out = 0;
         int unclassified = 0;
+        int nearIn = 0;
         StringBuilder reply = new StringBuilder();
         for (com.aresstack.askai.research.scope.SearchScopeGate.Decision decision : decisions) {
             reply.append('\n').append(decision.verdict.name());
@@ -3812,11 +3835,20 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                     == com.aresstack.askai.research.scope.SearchScopeGate.Verdict
                             .UNCLASSIFIED) {
                 unclassified++;
+            } else if (decision.nearIn) {
+                // SC2a shadow: the IN side of the same reading, observation only.
+                nearIn++;
+                reply.append(" in=NEAR");
+                if (decision.nearestInLabel != null) {
+                    reply.append(" nearest_in=\"").append(decision.nearestInLabel)
+                            .append('"');
+                }
             }
             reply.append(" id=").append(decision.id);
         }
         technicalLog("search-scope " + lane + " items=" + decisions.size()
                 + " kept=" + (decisions.size() - out - unclassified) + " out=" + out
+                + " nearIn=" + nearIn
                 + (unclassified > 0 ? " unclassified=" + unclassified : ""));
         return "EVALUATED items=" + decisions.size() + reply;
     }

@@ -98,6 +98,12 @@ public class SearchScopeGateTest {
                 decisions.get(2).verdict);
         assertEquals("NOVEL passes", SearchScopeGate.Verdict.KEEP, decisions.get(3).verdict);
         assertNull(decisions.get(1).nearestOutLabel);
+        // SC2a shadow: the IN side of the SAME reading — LIKELY_IN only, no new threshold.
+        assertTrue("the clear IN keep reports its affinity", decisions.get(1).nearIn);
+        assertEquals("Scheduling", decisions.get(1).nearestInLabel);
+        assertTrue("BOUNDARY claims no affinity", !decisions.get(2).nearIn);
+        assertTrue("NOVEL claims no affinity", !decisions.get(3).nearIn);
+        assertTrue("OUT claims no affinity", !decisions.get(0).nearIn);
     }
 
     @Test

@@ -44,6 +44,8 @@ public class SearchScopeControlFunnelTest {
         boolean inactive;
         boolean failBegin;
         boolean ended;
+        boolean inAffinityOnly; // SC2a: outFilter=false, every KEEP reports nearIn
+        boolean failEvaluate;
 
         void out(String lane, String id) {
             java.util.Set<String> ids = outIdsByLane.get(lane);
@@ -58,17 +60,27 @@ public class SearchScopeControlFunnelTest {
             if (failBegin) {
                 throw new ToolInvoker.ToolFailure("UNAVAILABLE no embedding model");
             }
-            return inactive ? new Session(false, null, "INACTIVE outAnchors=0")
+            if (inactive) {
+                return new Session(false, null, "INACTIVE outAnchors=0");
+            }
+            return inAffinityOnly
+                    ? new Session(true, "ss-test", "handle=ss-test outAnchors=0 "
+                            + "outFilter=false inAffinity=true", false, true)
                     : new Session(true, "ss-test", "handle=ss-test outAnchors=1");
         }
 
-        public List<Decision> evaluate(String handle, String lane, List<Item> items) {
+        public List<Decision> evaluate(String handle, String lane, List<Item> items)
+                throws ToolInvoker.ToolFailure {
+            if (failEvaluate) {
+                throw new ToolInvoker.ToolFailure("UNAVAILABLE embedding broke");
+            }
             lanes.add(lane);
             java.util.Set<String> outIds = outIdsByLane.get(lane);
             List<Decision> decisions = new ArrayList<Decision>();
             for (Item item : items) {
-                decisions.add(new Decision(item.id,
-                        outIds != null && outIds.contains(item.id), false, "GUI"));
+                boolean out = outIds != null && outIds.contains(item.id);
+                decisions.add(new Decision(item.id, out, false, "GUI",
+                        inAffinityOnly && !out, "Scheduling"));
             }
             return decisions;
         }
@@ -255,6 +267,79 @@ public class SearchScopeControlFunnelTest {
         assertEquals(ResearchStopReason.SCOPE_CONTROL_UNAVAILABLE, reason);
         assertEquals("no engine call after a fail-closed begin", 0, calls[0]);
         assertTrue(browser.openedUrls.isEmpty());
+    }
+
+    /**
+     * SC2a: with an EMPTY blacklist the IN affinity still measures (evaluate calls happen,
+     * nearIn appears in the diagnosis) but NOTHING is filtered — park/open/accept identical
+     * to the baseline. Positive concept steering is not a by-product of a blacklist.
+     */
+    @Test
+    public void inAffinityOnlyMeasuresWithoutFilteringAnything() {
+        int[] calls = {0};
+        RecordingBrowser browser = new RecordingBrowser();
+        browser.pageReply = "capture_id=c1 final_url=https://kept.example/scheduling "
+                + "title=\"irrelevant page\"\nnothing about the query here";
+        RecordingAcceptance acceptance = new RecordingAcceptance();
+        List<String> status = new ArrayList<String>();
+        WebSearchApplicationService service =
+                service(browser, twoHitStrategy(calls), acceptance, status);
+        ScriptedScope scope = new ScriptedScope();
+        scope.inAffinityOnly = true;
+        service.setScopeControl(scope);
+
+        service.execute("freertos scheduling");
+
+        assertTrue("the shadow DID measure", scope.lanes.contains("serp"));
+        assertEquals("nothing filtered: ALL hits parked", 3, acceptance.parked.size());
+        assertEquals("nothing filtered: ALL hits opened", 3, browser.openedUrls.size());
+        assertTrue("the shadow count is observable",
+                status.toString().contains("nearIn=3"));
+    }
+
+    /** SC2a failure split: a PURE IN-affinity failure degrades to baseline — never a stop. */
+    @Test
+    public void aPureInAffinityFailureDegradesToBaseline() {
+        int[] calls = {0};
+        RecordingBrowser browser = new RecordingBrowser();
+        browser.pageReply = "capture_id=c1 final_url=https://kept.example/scheduling "
+                + "title=\"irrelevant page\"\nnothing about the query here";
+        RecordingAcceptance acceptance = new RecordingAcceptance();
+        List<String> status = new ArrayList<String>();
+        WebSearchApplicationService service =
+                service(browser, twoHitStrategy(calls), acceptance, status);
+        ScriptedScope scope = new ScriptedScope();
+        scope.inAffinityOnly = true;
+        scope.failEvaluate = true;
+        service.setScopeControl(scope);
+
+        ResearchStopReason reason = service.execute("freertos scheduling");
+
+        assertFalse("never a fail-closed stop without an OUT boundary",
+                ResearchStopReason.SCOPE_CONTROL_UNAVAILABLE == reason);
+        assertEquals("baseline behaviour after the degrade", 3, browser.openedUrls.size());
+        assertTrue(status.toString().contains(
+                "search-scope inAffinity degraded to baseline at serp"));
+    }
+
+    /** SC1 regression: with the OUT filter active an evaluate failure stays FAIL-CLOSED. */
+    @Test
+    public void anOutFilterEvaluateFailureStaysFailClosed() {
+        int[] calls = {0};
+        RecordingBrowser browser = new RecordingBrowser();
+        RecordingAcceptance acceptance = new RecordingAcceptance();
+        List<String> status = new ArrayList<String>();
+        WebSearchApplicationService service =
+                service(browser, twoHitStrategy(calls), acceptance, status);
+        ScriptedScope scope = new ScriptedScope();
+        scope.failEvaluate = true; // outFilter=true (default ACTIVE session)
+        service.setScopeControl(scope);
+
+        ResearchStopReason reason = service.execute("freertos scheduling");
+
+        assertEquals(ResearchStopReason.SCOPE_CONTROL_UNAVAILABLE, reason);
+        assertTrue("no page ever opened after the fail-closed stop",
+                browser.openedUrls.isEmpty());
     }
 
     @Test

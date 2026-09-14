@@ -166,6 +166,8 @@ public final class WebSearchApplicationService {
     private SearchScopeControlPort scopeControl;
     private String scopeHandle;
     private boolean scopeActive;
+    /** SC2a capability split: only the OUT filter is fail-closed; IN affinity degrades. */
+    private boolean scopeOutFilter;
     /** Set when an evaluate failed inside a helper that cannot return a stop reason itself. */
     private boolean scopeControlBroken;
 
@@ -721,9 +723,15 @@ public final class WebSearchApplicationService {
                     }
                 }
                 if (!serpVerdicts.isEmpty()) {
+                    int serpNearIn = 0;
+                    for (SearchScopeControlPort.Decision decision : serpVerdicts.values()) {
+                        if (decision.nearIn) {
+                            serpNearIn++;
+                        }
+                    }
                     listener.status("search-scope SERP items=" + scopeItems.size()
                             + " kept=" + (scopeItems.size() - scopedOut)
-                            + " out=" + scopedOut);
+                            + " out=" + scopedOut + " nearIn=" + serpNearIn);
                 }
                 return null;
             case NO_CANDIDATES:
@@ -759,6 +767,7 @@ public final class WebSearchApplicationService {
             SearchScopeControlPort.Session scope = scopeControl.begin();
             scopeActive = scope.active;
             scopeHandle = scope.handle;
+            scopeOutFilter = scope.outFilter;
             listener.status("search-scope " + (scope.active ? scope.summary
                     : scope.summary.isEmpty() ? "INACTIVE" : scope.summary));
             return null;
@@ -791,14 +800,29 @@ public final class WebSearchApplicationService {
             }
             return byId;
         } catch (ToolInvoker.ToolFailure broken) {
-            listener.status("search-scope UNAVAILABLE at " + lane + " — fail-closed: "
-                    + describe(broken));
-            return null;
+            return scopeEvaluateFailed(lane, describe(broken));
         } catch (ToolInvoker.EndpointUnavailable dead) {
-            listener.status("search-scope UNAVAILABLE at " + lane
-                    + " (endpoint) — fail-closed");
+            return scopeEvaluateFailed(lane, "endpoint unavailable");
+        }
+    }
+
+    /**
+     * SC2a failure split: with the OUT filter active the run stays FAIL-CLOSED (null → typed
+     * stop, SC1's guarantee). A pure IN-affinity failure is a broken measurement, never a
+     * boundary — the run degrades to today's baseline and stops asking.
+     */
+    private java.util.Map<String, SearchScopeControlPort.Decision> scopeEvaluateFailed(
+            String lane, String cause) {
+        if (scopeOutFilter) {
+            listener.status("search-scope UNAVAILABLE at " + lane + " — fail-closed: "
+                    + cause);
             return null;
         }
+        listener.status("search-scope inAffinity degraded to baseline at " + lane + " ("
+                + cause + ")");
+        scopeActive = false;
+        scopeHandle = null;
+        return java.util.Collections.emptyMap();
     }
 
     /** OUT is the hard reject; UNCLASSIFIED (no usable text) is conservatively not visited. */

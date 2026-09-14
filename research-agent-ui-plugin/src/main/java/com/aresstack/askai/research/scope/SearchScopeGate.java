@@ -38,16 +38,25 @@ public final class SearchScopeGate {
         }
     }
 
-    /** One verdict; {@code nearestOutLabel} names the OUT post only for OUT (observability). */
+    /**
+     * One verdict; {@code nearestOutLabel} names the OUT post only for OUT (observability).
+     * SC2a: {@code nearIn} is the IN side of the SAME reading ({@code hint == LIKELY_IN},
+     * no new threshold, no new mathematics) — shadow measurement only, never a filter.
+     */
     public static final class Decision {
         public final String id;
         public final Verdict verdict;
         public final String nearestOutLabel;
+        public final boolean nearIn;
+        public final String nearestInLabel;
 
-        Decision(String id, Verdict verdict, String nearestOutLabel) {
+        Decision(String id, Verdict verdict, String nearestOutLabel, boolean nearIn,
+                 String nearestInLabel) {
             this.id = id;
             this.verdict = verdict;
             this.nearestOutLabel = nearestOutLabel;
+            this.nearIn = nearIn;
+            this.nearestInLabel = nearestInLabel;
         }
     }
 
@@ -92,7 +101,7 @@ public final class SearchScopeGate {
         for (Item item : items) {
             if (item.text.trim().isEmpty()) {
                 // Conservative: nothing to judge → never auto-visited, never a run abort.
-                decisions.add(new Decision(item.id, Verdict.UNCLASSIFIED, null));
+                decisions.add(new Decision(item.id, Verdict.UNCLASSIFIED, null, false, null));
                 continue;
             }
             ScopeFenceEvaluator.Reading reading =
@@ -101,11 +110,18 @@ public final class SearchScopeGate {
                 String label = labelsById.get(reading.nearestOutAnchorId);
                 decisions.add(new Decision(item.id, Verdict.OUT,
                         label == null || label.trim().isEmpty()
-                                ? reading.nearestOutAnchorId : label));
+                                ? reading.nearestOutAnchorId : label, false, null));
+            } else if (reading.hint == ScopeFenceEvaluator.Hint.LIKELY_IN) {
+                // SC2a shadow: the KEEP additionally reports its IN affinity — observation
+                // only, the acquisition decision stays untouched.
+                String inLabel = labelsById.get(reading.nearestInAnchorId);
+                decisions.add(new Decision(item.id, Verdict.KEEP, null, true,
+                        inLabel == null || inLabel.trim().isEmpty()
+                                ? reading.nearestInAnchorId : inLabel));
             } else {
-                // LIKELY_IN, BOUNDARY and NOVEL all pass — SC1 keeps everything the user has
-                // not clearly ruled out; positive steering is SC2, later, with measurements.
-                decisions.add(new Decision(item.id, Verdict.KEEP, null));
+                // BOUNDARY and NOVEL pass without an affinity claim — SC1 keeps everything
+                // the user has not clearly ruled out; steering is SC2b, after measurement.
+                decisions.add(new Decision(item.id, Verdict.KEEP, null, false, null));
             }
         }
         return decisions;

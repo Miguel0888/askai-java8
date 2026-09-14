@@ -30,7 +30,11 @@ public final class ServiceSearchScopeControlPort implements SearchScopeControlPo
             int space = line.indexOf(' ', "ACTIVE handle=".length());
             String handle = space < 0 ? line.substring("ACTIVE handle=".length())
                     : line.substring("ACTIVE handle=".length(), space);
-            return new Session(true, handle, line.substring("ACTIVE ".length()));
+            // SC2a capability split; an older host without the flags reads as SC1 (out only).
+            boolean outFilter = !line.contains(" outFilter=false");
+            boolean inAffinity = line.contains(" inAffinity=true");
+            return new Session(true, handle, line.substring("ACTIVE ".length()),
+                    outFilter, inAffinity);
         }
         if (line.startsWith("INACTIVE")) {
             return new Session(false, null, line);
@@ -83,7 +87,16 @@ public final class ServiceSearchScopeControlPort implements SearchScopeControlPo
                     nearest = head.substring(nearestMark + "nearest=\"".length(), close);
                 }
             }
-            decisions.add(new Decision(id, out, unclassified, nearest));
+            boolean nearIn = head.contains(" in=NEAR");
+            String nearestIn = "";
+            int inMark = head.indexOf("nearest_in=\"");
+            if (inMark >= 0) {
+                int close = head.indexOf('"', inMark + "nearest_in=\"".length());
+                if (close > 0) {
+                    nearestIn = head.substring(inMark + "nearest_in=\"".length(), close);
+                }
+            }
+            decisions.add(new Decision(id, out, unclassified, nearest, nearIn, nearestIn));
         }
         return decisions;
     }
