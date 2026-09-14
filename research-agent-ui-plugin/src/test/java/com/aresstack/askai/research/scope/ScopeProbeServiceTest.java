@@ -123,6 +123,15 @@ public class ScopeProbeServiceTest {
                 + "nearest=\"Tasks und Scheduling\" authority=CANONICAL_IN"));
         assertTrue("no cosine ever reaches the receipt", !receipt.contains("0.9"));
         assertTrue(receipt.contains("This is an OBSERVATION only — nothing was changed."));
+        // AP3 retest: the hard meaning rules ride ON the receipt, derived from the readings.
+        assertTrue(receipt.contains("MEANING — hard rules for your reply:"));
+        assertTrue(receipt.contains("NEVER call it relevant"));
+        assertTrue(receipt.contains("Never reopen it, never call it a possible remaining "
+                + "area, ask nothing about it."));
+        assertTrue("with a BOUNDARY present the ONE question is the boundary question",
+                receipt.contains("Ask AT MOST ONE boundary question"));
+        assertTrue("never two question directives at once",
+                !receipt.contains("whether ONE of the NOVEL areas"));
 
         List<String> log = result.logLines();
         assertEquals("scope_probe terms=4 -> LIKELY_IN=1 LIKELY_OUT=1 BOUNDARY=1 NOVEL=1",
@@ -130,6 +139,24 @@ public class ScopeProbeServiceTest {
         assertTrue(log.contains(
                 "scope_probe \"Grenzfall\" -> BOUNDARY nearest=\"Tasks und Scheduling\""));
         assertTrue(log.contains("scope_probe \"Neuland\" -> NOVEL"));
+    }
+
+    /** The question directive is case-derived: NOVEL-only asks membership, clear-only asks nothing. */
+    @Test
+    public void theQuestionDirectiveFollowsTheRatifiedPriority() {
+        ScopeProbeService.Result novelOnly = ScopeProbeService.run(
+                Arrays.asList("Neuland"), 8, fence(), labels(), embedder(),
+                THRESHOLDS, "5|e-1#7", STEADY);
+        assertTrue(novelOnly.receipt().contains(
+                "Ask AT MOST ONE question whether ONE of the NOVEL areas"));
+
+        ScopeProbeService.Result clearOnly = ScopeProbeService.run(
+                Arrays.asList("Priority Inversion", "Desktop GUI"), 8, fence(), labels(),
+                embedder(), THRESHOLDS, "5|e-1#7", STEADY);
+        assertTrue("settled readings close without a question",
+                clearOnly.receipt().contains("Ask NO question"));
+        assertTrue("the CANONICAL_OUT stays settled",
+                clearOnly.receipt().contains("ask nothing about it."));
     }
 
     @Test

@@ -103,6 +103,46 @@ public final class ScopeProbeService {
                 sb.append("\nDROPPED_OVER_LIMIT: ").append(droppedOverLimit)
                         .append(" (max ").append(maxTerms).append(" terms per probe)");
             }
+            // AP3 retest finding: the sensor measured correctly, the NARRATION inverted the
+            // semantics afterwards ("NOVEL = besonders relevant", a CANONICAL_OUT reopened as
+            // "potenzieller Restbereich"). Drill prose did not bind — the hard meaning rules
+            // ride ON the receipt, derived per case from the ACTUAL readings.
+            boolean hasNovel = false;
+            boolean hasBoundary = false;
+            boolean hasCanonicalOut = false;
+            for (TermReading reading : readings) {
+                hasNovel |= reading.relation == ScopeFenceEvaluator.Hint.NOVEL;
+                hasBoundary |= reading.relation == ScopeFenceEvaluator.Hint.BOUNDARY;
+                hasCanonicalOut |= "CANONICAL_OUT".equals(reading.authority);
+            }
+            if (!readings.isEmpty()) {
+                sb.append("\nMEANING — hard rules for your reply:");
+                if (hasNovel) {
+                    sb.append("\n- NOVEL means: not anchored in the negotiated scope yet — "
+                            + "neither in nor out. NEVER call it relevant, important or "
+                            + "recommended.");
+                }
+                if (hasBoundary) {
+                    sb.append("\n- BOUNDARY means: genuinely unclear which side it belongs "
+                            + "to.");
+                }
+                if (hasCanonicalOut) {
+                    sb.append("\n- LIKELY_OUT with authority=CANONICAL_OUT means: the USER "
+                            + "already ruled this out. State it as settled. Never reopen it, "
+                            + "never call it a possible remaining area, ask nothing about "
+                            + "it.");
+                }
+                if (hasBoundary) {
+                    sb.append("\n- Ask AT MOST ONE boundary question about ONE BOUNDARY "
+                            + "term; otherwise only summarize.");
+                } else if (hasNovel) {
+                    sb.append("\n- Ask AT MOST ONE question whether ONE of the NOVEL areas "
+                            + "should belong to the concept; otherwise only summarize.");
+                } else {
+                    sb.append("\n- Ask NO question — summarize briefly; the USER decides "
+                            + "whether to continue or close.");
+                }
+            }
             sb.append("\nThis is an OBSERVATION only — nothing was changed.");
             return sb.toString();
         }
