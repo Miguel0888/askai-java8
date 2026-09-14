@@ -163,7 +163,12 @@ public final class ConceptToolRounds {
         // add be claimed as four.
         long conceptRevision = -1L;
         java.util.List<String> applied = new java.util.ArrayList<String>();
+        java.util.List<String> noChange = new java.util.ArrayList<String>();
         java.util.List<String> rejected = new java.util.ArrayList<String>();
+        // Fix B (first-turn derail): a mutation that already reached the host THIS turn
+        // (APPLIED or NO_CHANGE) is never executed again on an identical signature —
+        // turn-local, gone after the close.
+        java.util.Set<String> executedMutationSignatures = new java.util.HashSet<String>();
         String currentConcept = null;
         boolean refetchConcept = false;
         while (result != null && result.isOk()
@@ -276,6 +281,19 @@ public final class ConceptToolRounds {
                         + "observation-only turn)");
                 feedback = TeamAgentPlaybook.conceptToolRejected(
                         TeamAgentPlaybook.probeSensorLock(), germanFeedback);
+            } else if (isMutatingAction(action.getType())
+                    && executedMutationSignatures.contains(action.describe())) {
+                // Fix B: the derailed first turn re-sent the SAME add_cards until round 4 —
+                // an exact repetition of an executed mutation ends before the host.
+                repairs++;
+                rejected.add(action.describe() + " — already executed this turn");
+                trace.line("round " + rounds + ": " + action.describe());
+                trace.line("round " + rounds + " -> REFUSED (exact repetition of an "
+                        + "executed mutation)");
+                feedback = TeamAgentPlaybook.conceptToolRejected(
+                        "You already executed exactly this action in this turn — do not "
+                                + "repeat it. Finish with your final answer, or perform a "
+                                + "genuinely different REQUESTED action.", germanFeedback);
             } else if (action.getType() == ConceptAction.Type.MOVE) {
                 // The dedicated generator owns the model side of moves exclusively (gate
                 // ruling: two competing paths produced invalid rounds and a false close) —
@@ -353,12 +371,19 @@ public final class ConceptToolRounds {
                         }
                         return receiptResult(text, result);
                     }
-                    if (action.getType() == ConceptAction.Type.MOVE
-                            && text.startsWith("NO_CHANGE")) {
-                        // The honest idempotent outcome: a receipt, not a mutation — the turn
-                        // must not claim a move, and the receipts feedback carries the truth.
-                        moveOutcome = "already-at-target";
-                        trace.line("round " + rounds + " -> NO_CHANGE (already at target)");
+                    if (text != null && text.startsWith("NO_CHANGE")) {
+                        // Fix A (generalizing the move special case — ONE truth for
+                        // NO_CHANGE): the honest idempotent outcome is a receipt, never a
+                        // mutation. It was once booked as APPLIED, so every wirkungslose
+                        // repetition read as accomplished work.
+                        if (action.getType() == ConceptAction.Type.MOVE) {
+                            moveOutcome = "already-at-target"; // the truth guard's seed
+                        }
+                        conceptRevision = revisionIn(text, conceptRevision);
+                        noChange.add(action.describe() + " — already unchanged");
+                        executedMutationSignatures.add(action.describe());
+                        refetchConcept = true; // prove to the model that NOTHING changed
+                        trace.line("round " + rounds + " -> NO_CHANGE");
                         feedback = TeamAgentPlaybook.conceptToolResult(text, germanFeedback);
                     } else if (action.getType() == ConceptAction.Type.OFFER) {
                         // A working step like READ: the tags are display state, not the concept —
@@ -388,6 +413,7 @@ public final class ConceptToolRounds {
                     } else {
                         conceptRevision = revisionIn(text, conceptRevision);
                         applied.add(action.describe() + " (revision " + conceptRevision + ")");
+                        executedMutationSignatures.add(action.describe());
                         refetchConcept = true;
                         if (action.getType() == ConceptAction.Type.MOVE) {
                             movedReceipt = true; // ONLY an APPLIED move licenses "verschoben"
@@ -464,8 +490,8 @@ public final class ConceptToolRounds {
                 }
             }
             result = turn.run(withProbeMeaning(TeamAgentPlaybook.conceptReceipts(
-                    conceptRevision, applied, rejected, currentConcept, germanFeedback)
-                    + feedback, probeMeaningReminder));
+                    conceptRevision, applied, noChange, rejected, currentConcept,
+                    germanFeedback) + feedback, probeMeaningReminder));
         }
         return result;
     }
@@ -580,6 +606,13 @@ public final class ConceptToolRounds {
         trace.line("move-truth guard -> deterministic host answer (no MOVED receipt this "
                 + "turn)");
         return syntheticAnswer(TeamAgentPlaybook.moveTruthAnswer(german, moveOutcome), result);
+    }
+
+    /** The guard's scope (ratified): mutating actions only — READ/PROBE/OFFER repeat freely. */
+    private static boolean isMutatingAction(ConceptAction.Type type) {
+        return type == ConceptAction.Type.ADD_CARDS || type == ConceptAction.Type.RENAME
+                || type == ConceptAction.Type.MOVE || type == ConceptAction.Type.EXCLUDE
+                || type == ConceptAction.Type.RESOLVE;
     }
 
     /** A valid scope patch with real operations — the kind the host would commit. */

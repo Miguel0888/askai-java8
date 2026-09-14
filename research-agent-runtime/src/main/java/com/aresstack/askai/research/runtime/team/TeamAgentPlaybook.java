@@ -1054,6 +1054,19 @@ public final class TeamAgentPlaybook {
     public static String conceptReceipts(long conceptRevision, java.util.List<String> applied,
                                          java.util.List<String> rejected, String currentConcept,
                                          boolean german) {
+        return conceptReceipts(conceptRevision, applied,
+                java.util.Collections.<String>emptyList(), rejected, currentConcept, german);
+    }
+
+    /**
+     * As above, with the HONEST third truth (first-turn derail finding): a NO_CHANGE receipt
+     * was booked as APPLIED, so every wirkungslose repetition read as accomplished work and
+     * the model kept working. Three receipt categories now — applied, no-change, rejected.
+     */
+    public static String conceptReceipts(long conceptRevision, java.util.List<String> applied,
+                                         java.util.List<String> noChange,
+                                         java.util.List<String> rejected, String currentConcept,
+                                         boolean german) {
         StringBuilder sb = new StringBuilder("ARTIFACT_STATE\n");
         sb.append("conceptRevision: ")
           .append(conceptRevision < 0 ? "unknown" : String.valueOf(conceptRevision)).append('\n');
@@ -1064,6 +1077,12 @@ public final class TeamAgentPlaybook {
             sb.append("- (none)\n");
         } else {
             for (String line : applied) {
+                sb.append("- ").append(line).append('\n');
+            }
+        }
+        if (!noChange.isEmpty()) {
+            sb.append("NO_CHANGE_ACTIONS\n");
+            for (String line : noChange) {
                 sb.append("- ").append(line).append('\n');
             }
         }
@@ -1079,10 +1098,14 @@ public final class TeamAgentPlaybook {
             sb.append("CURRENT_CONCEPT\n").append(currentConcept.trim()).append('\n');
         }
         sb.append(german
-                ? "Behaupte nur Änderungen, die unter APPLIED_ACTIONS stehen. Eine abgelehnte "
-                        + "Aktion hat NICHTS am Konzept verändert.\n\n"
-                : "Only claim changes listed under APPLIED_ACTIONS. A rejected action changed "
-                        + "NOTHING about the concept.\n\n");
+                ? "Behaupte nur Änderungen, die unter APPLIED_ACTIONS stehen. "
+                        + "NO_CHANGE_ACTIONS waren gültige Aufträge, deren Ergebnis bereits "
+                        + "unverändert vorlag — wiederhole sie nicht. Eine abgelehnte Aktion "
+                        + "hat NICHTS am Konzept verändert.\n\n"
+                : "Only claim changes listed under APPLIED_ACTIONS. NO_CHANGE_ACTIONS were "
+                        + "valid requests whose resulting artifact was already unchanged — do "
+                        + "not repeat them. A rejected action changed NOTHING about the "
+                        + "concept.\n\n");
         return sb.toString();
     }
 

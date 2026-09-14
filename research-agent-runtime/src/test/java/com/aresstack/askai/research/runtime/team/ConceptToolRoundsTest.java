@@ -888,6 +888,111 @@ public class ConceptToolRoundsTest {
                 ((ScopingAssistantOutput) result.getOutput()).getAssistantMessage());
     }
 
+    /** THE derailed first turn, pinned: the identical add_cards never reaches the host again. */
+    @Test
+    public void anExactRepetitionOfAnExecutedMutationEndsBeforeTheHost() throws Exception {
+        ScriptedTurns turns = new ScriptedTurns();
+        ScriptedTool tool = new ScriptedTool();
+        tool.byDescription.put("add_cards parent=[] names=[\"A\",\"B\",\"C\"]",
+                "APPLIED revision=1\nADDED: A\nADDED: B\nADDED: C");
+        turns.script.add(turn("nochmal",
+                "{\"type\":\"add_cards\",\"parent\":[],\"names\":[\"A\",\"B\",\"C\"]}"));
+        turns.script.add(turn("Fertig angelegt.", null));
+
+        TeamAgentResult result = ConceptToolRounds.run(
+                turn("lege an",
+                        "{\"type\":\"add_cards\",\"parent\":[],\"names\":[\"A\",\"B\",\"C\"]}"),
+                turns, tool, 6, 2, false, null, traceSink);
+
+        int hostCalls = 0;
+        for (String call : tool.calls) {
+            if (call.startsWith("add_cards")) {
+                hostCalls++;
+            }
+        }
+        assertEquals("host invocation count stays 1", 1, hostCalls);
+        assertTrue(trace.contains("round 2 -> REFUSED (exact repetition of an executed "
+                + "mutation)"));
+        assertTrue("the refusal is booked honestly", turns.feedbackSeen.get(1)
+                .contains("add_cards parent=[] names=[\"A\",\"B\",\"C\"] — already executed "
+                        + "this turn"));
+        assertEquals("Fertig angelegt.",
+                ((ScopingAssistantOutput) result.getOutput()).getAssistantMessage());
+    }
+
+    /** NO_CHANGE is the third truth: never APPLIED, and it arms the repetition guard too. */
+    @Test
+    public void aNoChangeAddIsBookedHonestlyAndItsRepetitionIsRefused() throws Exception {
+        ScriptedTurns turns = new ScriptedTurns();
+        ScriptedTool tool = new ScriptedTool();
+        tool.byDescription.put("add_cards parent=[] names=[\"A\",\"B\"]",
+                "NO_CHANGE revision=3\nALREADY_PRESENT: A\nALREADY_PRESENT: B");
+        turns.script.add(turn("nochmal",
+                "{\"type\":\"add_cards\",\"parent\":[],\"names\":[\"A\",\"B\"]}"));
+        turns.script.add(turn("Schon vorhanden.", null));
+
+        ConceptToolRounds.run(
+                turn("lege an",
+                        "{\"type\":\"add_cards\",\"parent\":[],\"names\":[\"A\",\"B\"]}"),
+                turns, tool, 6, 2, false, null, traceSink);
+
+        String receipts = turns.feedbackSeen.get(0);
+        assertTrue("the no-op is its own category", receipts.contains(
+                "NO_CHANGE_ACTIONS\n- add_cards parent=[] names=[\"A\",\"B\"] — already "
+                        + "unchanged"));
+        assertTrue("APPLIED stays empty", receipts.contains("APPLIED_ACTIONS\n- (none)"));
+        assertTrue("the binding rule names the third truth", receipts.contains(
+                "NO_CHANGE_ACTIONS were valid requests whose resulting artifact was already "
+                        + "unchanged"));
+        assertTrue(trace.contains("round 1 -> NO_CHANGE"));
+        int hostCalls = 0;
+        for (String call : tool.calls) {
+            if (call.startsWith("add_cards")) {
+                hostCalls++;
+            }
+        }
+        assertEquals("the repetition after NO_CHANGE never reaches the host", 1, hostCalls);
+        assertTrue(trace.contains("round 2 -> REFUSED (exact repetition of an executed "
+                + "mutation)"));
+    }
+
+    /** Negative pins: reads and probes repeat freely; a DIFFERENT add_cards stays allowed. */
+    @Test
+    public void theRepetitionGuardNeverTouchesReadsProbesOrDifferentMutations()
+            throws Exception {
+        ScriptedTurns turns = new ScriptedTurns();
+        ScriptedTool tool = new ScriptedTool();
+        tool.byDescription.put("add_cards parent=[] names=[\"A\"]",
+                "APPLIED revision=1\nADDED: A");
+        tool.byDescription.put("add_cards parent=[] names=[\"B\"]",
+                "APPLIED revision=2\nADDED: B");
+        turns.script.add(turn("lese", "{\"type\":\"read\",\"path\":[]}"));
+        turns.script.add(turn("lese wieder", "{\"type\":\"read\",\"path\":[]}"));
+        turns.script.add(turn("anderes add",
+                "{\"type\":\"add_cards\",\"parent\":[],\"names\":[\"B\"]}"));
+        turns.script.add(turn("Fertig.", null));
+
+        ConceptToolRounds.run(
+                turn("lege an",
+                        "{\"type\":\"add_cards\",\"parent\":[],\"names\":[\"A\"]}"),
+                turns, tool, 8, 2, false, null, traceSink);
+
+        int reads = 0;
+        int adds = 0;
+        for (String call : tool.calls) {
+            if (call.startsWith("read")) {
+                reads++;
+            }
+            if (call.startsWith("add_cards")) {
+                adds++;
+            }
+        }
+        assertTrue("reads repeat freely", reads >= 2);
+        assertEquals("two DIFFERENT adds both reach the host", 2, adds);
+        assertTrue("no repetition refusal in this turn", !trace.toString().contains(
+                "exact repetition of an executed mutation"));
+    }
+
     /** A committed exclusion is terminal with the receipt answer — the guard never fires. */
     @Test
     public void aCommittedExclusionSatisfiesTheExcludeTruthGuard() throws Exception {
