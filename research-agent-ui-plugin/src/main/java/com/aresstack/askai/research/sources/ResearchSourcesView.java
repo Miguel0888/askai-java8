@@ -212,8 +212,12 @@ public final class ResearchSourcesView extends JPanel {
         addRow(identity, row++, "Abschnitte", sectionsField);
 
         // Status/Relevanz/Verlässlichkeit/Stern/Score belong together — ONE readable block.
+        // #43: WrapRowLayout instead of plain FlowLayout — a narrow splitter WRAPS the
+        // controls onto further rows (the plate grows vertically) instead of clipping the
+        // right-hand fields out of view.
         com.aresstack.comiccontrols.control.ComicSectionPanel ratingPlate = detailPlate();
-        ratingPlate.setLayout(new java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 0, 2));
+        ratingPlate.setLayout(new com.aresstack.comiccontrols.control.WrapRowLayout(
+                java.awt.FlowLayout.LEFT, 0, 2));
         ratingPlate.add(mutedLabel("Status "));
         ratingPlate.add(statusCombo);
         ratingPlate.add(javax.swing.Box.createHorizontalStrut(10));
