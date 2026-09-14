@@ -37,6 +37,9 @@ public final class HumanInteractionPolicy {
         public final int scrollStepPx;
         public final long scrollStepPauseMinMillis;
         public final long scrollStepPauseMaxMillis;
+        /** Sporadic small reading-time mouse movements — off by default, never a click. */
+        public final boolean idleWiggleEnabled;
+        public final int idleWiggleRadiusPx;
 
         Config(int minWaypoints, int maxWaypoints, int jitterPx,
                long moveStepMinMillis, long moveStepMaxMillis,
@@ -45,7 +48,8 @@ public final class HumanInteractionPolicy {
                long perCharDelayMinMillis, long perCharDelayMaxMillis,
                long wordPauseMinMillis, long wordPauseMaxMillis,
                long preSubmitPauseMinMillis, long preSubmitPauseMaxMillis,
-               int scrollStepPx, long scrollStepPauseMinMillis, long scrollStepPauseMaxMillis) {
+               int scrollStepPx, long scrollStepPauseMinMillis, long scrollStepPauseMaxMillis,
+               boolean idleWiggleEnabled, int idleWiggleRadiusPx) {
             this.minWaypoints = minWaypoints;
             this.maxWaypoints = maxWaypoints;
             this.jitterPx = jitterPx;
@@ -64,6 +68,8 @@ public final class HumanInteractionPolicy {
             this.scrollStepPx = scrollStepPx;
             this.scrollStepPauseMinMillis = scrollStepPauseMinMillis;
             this.scrollStepPauseMaxMillis = scrollStepPauseMaxMillis;
+            this.idleWiggleEnabled = idleWiggleEnabled;
+            this.idleWiggleRadiusPx = idleWiggleRadiusPx;
         }
 
         /** Documented defaults; every knob overridable via env — never a hidden constant. */
@@ -86,7 +92,10 @@ public final class HumanInteractionPolicy {
                     longOf(env, "ASKAI_HUMAN_PRE_SUBMIT_MAX_MS", 900),
                     intOf(env, "ASKAI_HUMAN_SCROLL_STEP_PX", 260),
                     longOf(env, "ASKAI_HUMAN_SCROLL_PAUSE_MIN_MS", 60),
-                    longOf(env, "ASKAI_HUMAN_SCROLL_PAUSE_MAX_MS", 240));
+                    longOf(env, "ASKAI_HUMAN_SCROLL_PAUSE_MAX_MS", 240),
+                    "true".equalsIgnoreCase(env == null ? null
+                            : env.get("ASKAI_HUMAN_IDLE_WIGGLE")),
+                    intOf(env, "ASKAI_HUMAN_IDLE_WIGGLE_RADIUS_PX", 14));
         }
 
         private static int intOf(Map<String, String> env, String key, int fallback) {
@@ -218,6 +227,29 @@ public final class HumanInteractionPolicy {
             remaining -= step;
         }
         return steps;
+    }
+
+    /**
+     * A sporadic reading-time wiggle NEAR the current position: a few small timed moves that
+     * end back where they started — never a click, never a travel onto a control (the caller
+     * passes a position it knows is safe). Empty when disabled.
+     */
+    public List<TimedPoint> idleWiggle(int currentX, int currentY) {
+        if (!config.idleWiggleEnabled) {
+            return new ArrayList<TimedPoint>();
+        }
+        List<TimedPoint> moves = new ArrayList<TimedPoint>();
+        int radius = Math.max(1, config.idleWiggleRadiusPx);
+        int hops = 2 + random.nextInt(3);
+        for (int hop = 0; hop < hops; hop++) {
+            moves.add(new TimedPoint(
+                    currentX + random.nextInt(radius * 2 + 1) - radius,
+                    currentY + random.nextInt(radius * 2 + 1) - radius,
+                    between(config.moveStepMinMillis * 4, config.moveStepMaxMillis * 8)));
+        }
+        moves.add(new TimedPoint(currentX, currentY,
+                between(config.moveStepMinMillis, config.moveStepMaxMillis)));
+        return moves;
     }
 
     private int jitter() {

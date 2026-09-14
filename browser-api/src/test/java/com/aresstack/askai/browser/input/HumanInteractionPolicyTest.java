@@ -127,6 +127,26 @@ public class HumanInteractionPolicyTest {
                 clickIndex + 1 < events.size() && events.get(clickIndex + 1).equals("sleep"));
     }
 
+    @Test
+    public void idleWiggleIsOffByDefaultBoundedWhenEnabledAndNeverAClick() {
+        assertTrue("off by default — no surprise pointer noise",
+                policy(1L).idleWiggle(100, 100).isEmpty());
+
+        java.util.Map<String, String> env = new java.util.HashMap<String, String>();
+        env.put("ASKAI_HUMAN_IDLE_WIGGLE", "true");
+        HumanInteractionPolicy enabled = new HumanInteractionPolicy(
+                HumanInteractionPolicy.Config.fromEnvironment(env), new Random(4L));
+        List<HumanInteractionPolicy.TimedPoint> wiggle = enabled.idleWiggle(200, 300);
+        assertTrue(wiggle.size() >= 3);
+        for (HumanInteractionPolicy.TimedPoint point : wiggle) {
+            assertTrue("stays NEAR the safe position (never travels onto a control)",
+                    Math.abs(point.x - 200) <= 14 && Math.abs(point.y - 300) <= 14);
+        }
+        HumanInteractionPolicy.TimedPoint last = wiggle.get(wiggle.size() - 1);
+        assertEquals("ends back where it started", 200, last.x);
+        assertEquals(300, last.y);
+    }
+
     private static boolean sameCurve(List<HumanInteractionPolicy.TimedPoint> a,
                                      List<HumanInteractionPolicy.TimedPoint> b) {
         if (a.size() != b.size()) {
