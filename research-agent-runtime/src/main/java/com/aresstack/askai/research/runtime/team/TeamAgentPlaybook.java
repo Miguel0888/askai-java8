@@ -599,10 +599,45 @@ public final class TeamAgentPlaybook {
      */
     public static String probeSensorLock() {
         return "scope_probe is a SENSOR — this turn is now OBSERVATION-ONLY. No further "
-                + "concept or scope actions except read. Summarize what the probe showed, or "
-                + "ask AT MOST ONE question (one BOUNDARY question, or whether ONE plausible "
-                + "NOVEL area belongs). The USER decides; never write the answer into the "
-                + "concept yourself.";
+                + "concept or scope actions except read. Summarize what the probe showed — "
+                + "do not ask the follow-up question yourself, the application appends it. "
+                + "The USER decides; never write the answer into the concept yourself.";
+    }
+
+    /**
+     * The HOST-owned probe follow-up (AP3 retest 3: the model skipped the membership
+     * question even with the directive as its immediate input): exactly ONE question,
+     * mechanically derived from the readings — BOUNDARY outranks NOVEL, clear-only asks
+     * nothing ({@code null}). Localized: this sentence is user-visible.
+     */
+    public static String probeFollowUpQuestion(boolean german,
+                                               java.util.List<String> boundaryTerms,
+                                               java.util.List<String> novelTerms) {
+        if (boundaryTerms != null && !boundaryTerms.isEmpty()) {
+            String term = boundaryTerms.get(0);
+            return german
+                    ? "Grenzfrage: Gehört „" + term + "“ zum Themenrahmen, oder soll es "
+                            + "außen bleiben?"
+                    : "Boundary question: Does \"" + term + "\" belong to the topic, or "
+                            + "should it stay out?";
+        }
+        if (novelTerms != null && !novelTerms.isEmpty()) {
+            StringBuilder list = new StringBuilder();
+            for (int index = 0; index < novelTerms.size(); index++) {
+                if (index > 0) {
+                    list.append(index == novelTerms.size() - 1
+                            ? (german ? " oder " : " or ") : ", ");
+                }
+                list.append(german ? "„" : "\"")
+                        .append(novelTerms.get(index)).append(german ? "“" : "\"");
+            }
+            return german
+                    ? "Soll einer der noch nicht verankerten Bereiche — " + list
+                            + " — zum Konzept gehören?"
+                    : "Should one of the not-yet-anchored areas — " + list
+                            + " — belong to the concept?";
+        }
+        return null;
     }
 
     /**
@@ -864,7 +899,8 @@ public final class TeamAgentPlaybook {
                 + "- MEANING: NOVEL = unanchored, NEVER \"relevant\"; CANONICAL_OUT = "
                 + "settled by the user, never a \"possible remaining area\". The tool "
                 + "result carries the binding rules for your reply — follow them "
-                + "literally.\n"
+                + "literally. You never ask the follow-up question yourself; the "
+                + "application appends it.\n"
                 + "- After a probe the turn is observation-only: the application refuses "
                 + "every further concept action except read. A NOVEL result is a QUESTION "
                 + "for the user, never your own add_cards.\n"

@@ -93,7 +93,13 @@ public final class ScopeUpdateDocument {
         for (Map<String, Object> operation : objects(rawOperations)) {
             String kind = text(operation.get("kind"));
             if (!KNOWN_KINDS.contains(kind)) {
-                rejections.add("unknown operation kind '" + kind + "'");
+                // Multi-action routing finding: a connector model once sent the probe as a
+                // scopePatch operation — the rejection teaches the correct channel.
+                rejections.add("unknown operation kind '" + kind + "'"
+                        + ("probe".equalsIgnoreCase(kind)
+                                ? " — scope_probe is a conceptAction: {\"type\":\"probe\","
+                                        + "\"terms\":[...]}"
+                                : ""));
                 continue;
             }
             operation = withDerivedFacetId(kind, operation);

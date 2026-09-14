@@ -761,9 +761,48 @@ public class ConceptToolRoundsTest {
                 turns.feedbackSeen.get(1).contains("scope_probe is a SENSOR"));
         assertTrue("the receipts book the refusal honestly",
                 turns.feedbackSeen.get(1).contains("refused (post-probe sensor lock)"));
-        assertEquals("the close is the model's question, not a success claim",
-                "Soll Wi-Fi Stack dazugehören?",
+        String close = ((ScopingAssistantOutput) result.getOutput()).getAssistantMessage();
+        assertTrue("the model's summary stays", close.startsWith(
+                "Soll Wi-Fi Stack dazugehören?"));
+        assertTrue("the HOST appends the mechanical membership question", close.contains(
+                "Should one of the not-yet-anchored areas — \"Priority Inversion\" or "
+                        + "\"Wi-Fi Stack\" — belong to the concept?"));
+        assertTrue(trace.contains(
+                "post-probe host question appended (NOVEL membership)"));
+    }
+
+    /** The host question follows the ratified priority mechanically — never model obedience. */
+    @Test
+    public void theHostAppendsExactlyTheRatifiedFollowUpQuestion() throws Exception {
+        // BOUNDARY outranks NOVEL: the one question is the boundary question.
+        assertEquals("Grenzfrage: Gehört „SMP Scheduling“ zum Themenrahmen, oder soll es "
+                        + "außen bleiben?",
+                TeamAgentPlaybook.probeFollowUpQuestion(true,
+                        java.util.Arrays.asList("SMP Scheduling"),
+                        java.util.Arrays.asList("Neuland")));
+        assertEquals("Soll einer der noch nicht verankerten Bereiche — „A“, „B“ oder „C“ — "
+                        + "zum Konzept gehören?",
+                TeamAgentPlaybook.probeFollowUpQuestion(true,
+                        java.util.Collections.<String>emptyList(),
+                        java.util.Arrays.asList("A", "B", "C")));
+        assertEquals("clear-only asks nothing", null,
+                TeamAgentPlaybook.probeFollowUpQuestion(true,
+                        java.util.Collections.<String>emptyList(),
+                        java.util.Collections.<String>emptyList()));
+
+        // End-to-end: a clear-only probe closes WITHOUT any appended question.
+        ScriptedTurns turns = new ScriptedTurns();
+        ScriptedTool tool = new ScriptedTool();
+        tool.byDescription.put("probe terms=[\"Tasks\"]",
+                "PROBED terms=1\n\"Tasks\" -> LIKELY_IN band=CLEAR authority=CANONICAL_IN");
+        turns.script.add(turn("Tasks ist fest verankert.", null));
+        TeamAgentResult result = ConceptToolRounds.run(
+                turn("ich messe", "{\"type\":\"probe\",\"terms\":[\"Tasks\"]}"),
+                turns, tool, 4, 2, false, null, traceSink);
+        assertEquals("Tasks ist fest verankert.",
                 ((ScopingAssistantOutput) result.getOutput()).getAssistantMessage());
+        assertTrue("no question line in the trace", !trace.toString().contains(
+                "post-probe host question appended"));
     }
 
     /** Reads stay available after a probe — they ground the summary, they change nothing. */

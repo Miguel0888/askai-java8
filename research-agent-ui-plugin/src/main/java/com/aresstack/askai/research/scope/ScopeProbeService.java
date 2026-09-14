@@ -132,16 +132,13 @@ public final class ScopeProbeService {
                             + "never call it a possible remaining area, ask nothing about "
                             + "it.");
                 }
-                if (hasBoundary) {
-                    sb.append("\n- Ask AT MOST ONE boundary question about ONE BOUNDARY "
-                            + "term; otherwise only summarize.");
-                } else if (hasNovel) {
-                    sb.append("\n- Ask AT MOST ONE question whether ONE of the NOVEL areas "
-                            + "should belong to the concept; otherwise only summarize.");
-                } else {
-                    sb.append("\n- Ask NO question — summarize briefly; the USER decides "
-                            + "whether to continue or close.");
-                }
+                // AP3 retest 3: the model summarized correctly but skipped the required
+                // membership question even with the directive as its immediate input — the
+                // ONE follow-up question is HOST-appended now (mechanical, derived from the
+                // readings), so it no longer depends on the small model's obedience.
+                sb.append("\n- Do not ask any follow-up question yourself — the application "
+                        + "appends the single question (or none) derived from this "
+                        + "measurement. You only summarize.");
             }
             sb.append("\nThis is an OBSERVATION only — nothing was changed.");
             return sb.toString();

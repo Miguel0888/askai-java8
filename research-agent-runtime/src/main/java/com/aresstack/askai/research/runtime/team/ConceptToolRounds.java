@@ -152,6 +152,7 @@ public final class ConceptToolRounds {
         // probe ended in "Möchten Sie mit der Recherche beginnen?"). The directive is
         // STICKY for the rest of the turn — turn-local only, never persisted.
         String probeMeaningReminder = null;
+        String probeReceiptText = null;
         boolean budgetExhausted = false;
         boolean offeredThisTurn = false;
         boolean offerNudgeSpent = false;
@@ -225,8 +226,9 @@ public final class ConceptToolRounds {
                     continue;
                 }
                 // The model finished without a further action — the normal end.
-                return withMoveTruth(result, mode, movedReceipt, !applied.isEmpty(),
-                        moveOutcome, germanFeedback, trace);
+                return closeProbeTurn(withMoveTruth(result, mode, movedReceipt,
+                        !applied.isEmpty(), moveOutcome, germanFeedback, trace),
+                        probeReceiptText, germanFeedback, trace);
             }
             if (budgetExhausted) {
                 if (action != null && action.getType() == ConceptAction.Type.OFFER
@@ -245,12 +247,14 @@ public final class ConceptToolRounds {
                     } catch (ToolInvoker.EndpointUnavailable dead) {
                         trace.line("wrap-up offer lost — endpoint unavailable");
                     }
-                    return withMoveTruth(result, mode, movedReceipt, !applied.isEmpty(),
-                            moveOutcome, germanFeedback, trace);
+                    return closeProbeTurn(withMoveTruth(result, mode, movedReceipt,
+                            !applied.isEmpty(), moveOutcome, germanFeedback, trace),
+                            probeReceiptText, germanFeedback, trace);
                 }
                 trace.line("tool budget exhausted — dropping the further conceptAction");
-                return withMoveTruth(result, mode, movedReceipt, !applied.isEmpty(),
-                        moveOutcome, germanFeedback, trace);
+                return closeProbeTurn(withMoveTruth(result, mode, movedReceipt,
+                        !applied.isEmpty(), moveOutcome, germanFeedback, trace),
+                        probeReceiptText, germanFeedback, trace);
             }
             rounds++;
             String feedback;
@@ -371,6 +375,7 @@ public final class ConceptToolRounds {
                         // can summarize or ask its one question — the sensor lock above
                         // refuses everything else for the rest of the turn.
                         probedThisTurn = true;
+                        probeReceiptText = text;
                         int meaning = text == null ? -1
                                 : text.indexOf("MEANING — hard rules");
                         probeMeaningReminder = meaning >= 0 ? text.substring(meaning)
@@ -450,7 +455,13 @@ public final class ConceptToolRounds {
             if (intermediateSink != null) {
                 // This output is about to be REPLACED by the follow-up inference — whatever it
                 // proposed beyond the concept action (scopePatch!) must not vanish with it.
-                intermediateSink.intermediate(output);
+                // EXCEPT after a probe: the sensor lock covers EVERY scope mutation, and the
+                // host applies valid intermediate patches — a post-probe patch is suppressed.
+                if (probedThisTurn && hasCommittableScopePatch(output)) {
+                    trace.line("post-probe sensor lock: intermediate scope patch suppressed");
+                } else {
+                    intermediateSink.intermediate(output);
+                }
             }
             result = turn.run(withProbeMeaning(TeamAgentPlaybook.conceptReceipts(
                     conceptRevision, applied, rejected, currentConcept, germanFeedback)
@@ -569,6 +580,55 @@ public final class ConceptToolRounds {
         trace.line("move-truth guard -> deterministic host answer (no MOVED receipt this "
                 + "turn)");
         return syntheticAnswer(TeamAgentPlaybook.moveTruthAnswer(german, moveOutcome), result);
+    }
+
+    /** A valid scope patch with real operations — the kind the host would commit. */
+    private static boolean hasCommittableScopePatch(ScopingAssistantOutput output) {
+        ScopeUpdateDocument patch = output.getScopeUpdate();
+        return patch != null && patch.isValid() && !"[]".equals(patch.operationsJson());
+    }
+
+    /**
+     * The deterministic probe close (AP3 retest 3): the ONE follow-up question no longer
+     * depends on the small model's obedience — the host derives it from the receipt's
+     * readings (BOUNDARY outranks NOVEL; clear-only asks nothing) and appends it to the
+     * summary. A final output still carrying a committable scope patch is stripped here:
+     * the sensor lock covers the WHOLE turn, patches included.
+     */
+    private static TeamAgentResult closeProbeTurn(TeamAgentResult result, String receipt,
+                                                  boolean german, Trace trace) {
+        if (receipt == null || result == null || !result.isOk()
+                || !(result.getOutput() instanceof ScopingAssistantOutput)) {
+            return result;
+        }
+        ScopingAssistantOutput output = (ScopingAssistantOutput) result.getOutput();
+        java.util.List<String> boundary = probeTermsWithHint(receipt, "BOUNDARY");
+        java.util.List<String> novel = probeTermsWithHint(receipt, "NOVEL");
+        String question = TeamAgentPlaybook.probeFollowUpQuestion(german, boundary, novel);
+        boolean dropPatch = hasCommittableScopePatch(output);
+        if (question == null && !dropPatch) {
+            return result;
+        }
+        if (question != null) {
+            trace.line("post-probe host question appended ("
+                    + (!boundary.isEmpty() ? "BOUNDARY" : "NOVEL membership") + ")");
+        }
+        if (dropPatch) {
+            trace.line("post-probe sensor lock: final scope patch dropped");
+        }
+        return syntheticAnswer(output.getAssistantMessage()
+                + (question == null ? "" : "\n\n" + question), result);
+    }
+
+    /** The receipt's terms carrying one hint, in reading order ('"term" -> HINT'). */
+    private static java.util.List<String> probeTermsWithHint(String receipt, String hint) {
+        java.util.List<String> terms = new java.util.ArrayList<String>();
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("\"([^\"]+)\" -> " + hint).matcher(receipt);
+        while (matcher.find()) {
+            terms.add(matcher.group(1));
+        }
+        return terms;
     }
 
     /**
