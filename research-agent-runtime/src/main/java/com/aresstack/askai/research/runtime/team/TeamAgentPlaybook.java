@@ -593,6 +593,19 @@ public final class TeamAgentPlaybook {
     }
 
     /**
+     * The post-probe machinery rule (AP3 gate: three NOVEL terms were written straight into
+     * the concept). The LOOP enforces the lock; this text only explains the refusal and the
+     * expected close to the model.
+     */
+    public static String probeSensorLock() {
+        return "scope_probe is a SENSOR — this turn is now OBSERVATION-ONLY. No further "
+                + "concept or scope actions except read. Summarize what the probe showed, or "
+                + "ask AT MOST ONE question (one BOUNDARY question, or whether ONE plausible "
+                + "NOVEL area belongs). The USER decides; never write the answer into the "
+                + "concept yourself.";
+    }
+
+    /**
      * The exclude-truth close (connector gate): an EXCLUSION-classified turn without a
      * terminal EXCLUDED receipt never keeps the model's narration — REJECTED must never be
      * narrated as success. Mentions other APPLIED work honestly instead of hiding it.
@@ -848,6 +861,9 @@ public final class TeamAgentPlaybook {
                 + "-> ask at most ONE relevant boundary question. Otherwise a plausible NOVEL "
                 + "-> ask at most ONE question whether that area belongs.\n"
                 + "- Never reopen a LIKELY_OUT — the blacklist already settled it.\n"
+                + "- After a probe the turn is observation-only: the application refuses "
+                + "every further concept action except read. A NOVEL result is a QUESTION "
+                + "for the user, never your own add_cards.\n"
                 + "MOVING CARDS:\n"
                 + "- You never emit a move action. When the user orders a move, the "
                 + "APPLICATION executes it itself and answers with the receipt — do not "

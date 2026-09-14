@@ -692,6 +692,64 @@ public class ConceptToolRoundsTest {
                 feedback.contains("APPLIED_ACTIONS\n- (none)"));
     }
 
+    /**
+     * The AP3 gate's live failure verbatim: probe saw three NOVEL terms and the next round
+     * tried to add them. The sensor lock refuses the mutation BEFORE the host — the probe's
+     * observation never becomes the model's own decision.
+     */
+    @Test
+    public void aPostProbeMutationIsRefusedBeforeTheHost() throws Exception {
+        ScriptedTurns turns = new ScriptedTurns();
+        ScriptedTool tool = new ScriptedTool();
+        tool.byDescription.put("probe terms=[\"Priority Inversion\",\"Wi-Fi Stack\"]",
+                "PROBED terms=2\n\"Priority Inversion\" -> NOVEL band=UNANCHORED"
+                        + "\n\"Wi-Fi Stack\" -> NOVEL band=UNANCHORED");
+        turns.script.add(turn("ich ergänze die Themen",
+                "{\"type\":\"add_cards\",\"parent\":[],\"names\":"
+                        + "[\"Priority Inversion\",\"Wi-Fi Stack\"]}"));
+        turns.script.add(turn("Soll Wi-Fi Stack dazugehören?", null));
+
+        TeamAgentResult result = ConceptToolRounds.run(
+                turn("ich messe", "{\"type\":\"probe\",\"terms\":"
+                        + "[\"Priority Inversion\",\"Wi-Fi Stack\"]}"),
+                turns, tool, 4, 2, false, null, traceSink);
+
+        assertEquals("the add NEVER reached the host", 1, tool.calls.size());
+        assertTrue(tool.calls.get(0).startsWith("probe "));
+        assertTrue(trace.contains("post-probe sensor lock armed (observation-only for the "
+                + "rest of the turn)"));
+        assertTrue(trace.contains("round 2 -> REFUSED (post-probe sensor lock: "
+                + "observation-only turn)"));
+        assertTrue("the refusal teaches the sensor rule",
+                turns.feedbackSeen.get(1).contains("scope_probe is a SENSOR"));
+        assertTrue("the receipts book the refusal honestly",
+                turns.feedbackSeen.get(1).contains("refused (post-probe sensor lock)"));
+        assertEquals("the close is the model's question, not a success claim",
+                "Soll Wi-Fi Stack dazugehören?",
+                ((ScopingAssistantOutput) result.getOutput()).getAssistantMessage());
+    }
+
+    /** Reads stay available after a probe — they ground the summary, they change nothing. */
+    @Test
+    public void aPostProbeReadStillGroundsTheSummary() throws Exception {
+        ScriptedTurns turns = new ScriptedTurns();
+        ScriptedTool tool = new ScriptedTool();
+        tool.byDescription.put("probe terms=[\"GUI\"]",
+                "PROBED terms=1\n\"GUI\" -> LIKELY_OUT band=CLEAR authority=CANONICAL_OUT");
+        turns.script.add(turn("ich lese nach", "{\"type\":\"read\",\"path\":[]}"));
+        turns.script.add(turn("GUI bleibt draußen.", null));
+
+        TeamAgentResult result = ConceptToolRounds.run(
+                turn("ich messe", "{\"type\":\"probe\",\"terms\":[\"GUI\"]}"),
+                turns, tool, 4, 2, false, null, traceSink);
+
+        assertEquals(2, tool.calls.size());
+        assertEquals("read path=[]", tool.calls.get(1));
+        assertTrue(trace.contains("round 2 -> RESULT"));
+        assertEquals("GUI bleibt draußen.",
+                ((ScopingAssistantOutput) result.getOutput()).getAssistantMessage());
+    }
+
     /** A committed exclusion is terminal with the receipt answer — the guard never fires. */
     @Test
     public void aCommittedExclusionSatisfiesTheExcludeTruthGuard() throws Exception {

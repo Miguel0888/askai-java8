@@ -142,6 +142,11 @@ public final class ConceptToolRounds {
         // receipt of THIS turn covers it — otherwise the host owns the closing sentence.
         boolean movedReceipt = seededMovedReceipt;
         String moveOutcome = seededMoveOutcome;
+        // AP3 gate finding: after a probe the SAME loop kept FULL permission and the model
+        // wrote all three NOVEL terms straight into the concept. "Sensor, never author" is
+        // MACHINERY now: once a probe ran, the remainder of the turn is structurally
+        // observation-only — prompt text alone never held.
+        boolean probedThisTurn = false;
         boolean budgetExhausted = false;
         boolean offeredThisTurn = false;
         boolean offerNudgeSpent = false;
@@ -232,6 +237,18 @@ public final class ConceptToolRounds {
                 rejected.add("(invalid) " + firstLine(actionError));
                 trace.line("round " + rounds + ": invalid conceptAction (" + actionError + ")");
                 feedback = TeamAgentPlaybook.conceptToolRejected(actionError, germanFeedback);
+            } else if (probedThisTurn && action.getType() != ConceptAction.Type.READ
+                    && action.getType() != ConceptAction.Type.PROBE) {
+                // The post-probe sensor lock: reads may still ground the summary, every
+                // mutation and scope command is refused BEFORE the host — the probe's
+                // observation must never become the model's own decision in the same turn.
+                repairs++;
+                rejected.add(action.describe() + " — refused (post-probe sensor lock)");
+                trace.line("round " + rounds + ": " + action.describe());
+                trace.line("round " + rounds + " -> REFUSED (post-probe sensor lock: "
+                        + "observation-only turn)");
+                feedback = TeamAgentPlaybook.conceptToolRejected(
+                        TeamAgentPlaybook.probeSensorLock(), germanFeedback);
             } else if (action.getType() == ConceptAction.Type.MOVE) {
                 // The dedicated generator owns the model side of moves exclusively (gate
                 // ruling: two competing paths produced invalid rounds and a false close) —
@@ -327,10 +344,15 @@ public final class ConceptToolRounds {
                         feedback = TeamAgentPlaybook.conceptToolResult(text, germanFeedback);
                     } else if (action.getType() == ConceptAction.Type.PROBE) {
                         // scope_probe (AP3): a read-only MEASUREMENT — a working step like
-                        // READ, never a mutation receipt; the loop continues so the model can
-                        // summarize or ask its one question from the observation.
+                        // READ, never a mutation receipt; the loop continues ONLY so the model
+                        // can summarize or ask its one question — the sensor lock above
+                        // refuses everything else for the rest of the turn.
+                        probedThisTurn = true;
                         trace.line("round " + rounds + " -> PROBED");
-                        feedback = TeamAgentPlaybook.conceptToolResult(text, germanFeedback);
+                        trace.line("post-probe sensor lock armed (observation-only for the "
+                                + "rest of the turn)");
+                        feedback = TeamAgentPlaybook.conceptToolResult(text, germanFeedback)
+                                + "\n\n" + TeamAgentPlaybook.probeSensorLock();
                     } else {
                         conceptRevision = revisionIn(text, conceptRevision);
                         applied.add(action.describe() + " (revision " + conceptRevision + ")");
