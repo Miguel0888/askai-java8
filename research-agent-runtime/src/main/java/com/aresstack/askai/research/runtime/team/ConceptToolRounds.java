@@ -123,6 +123,9 @@ public final class ConceptToolRounds {
         if (mode == ConceptTurnPolicy.Mode.MOVE_TRUTH) {
             trace.line("move-truth guard armed (explicit move order)");
         }
+        if (mode == ConceptTurnPolicy.Mode.EXCLUDE_TRUTH) {
+            trace.line("exclude-truth guard armed (explicit exclusion order)");
+        }
         if (mode == ConceptTurnPolicy.Mode.DELETE_READ_ONLY) {
             // TERMINAL like the exclusion receipt (safety-gate rerun: the refusal held, but the
             // model's free-form close claimed the branch was deleted over an unchanged concept).
@@ -486,6 +489,17 @@ public final class ConceptToolRounds {
                                                  boolean movedReceipt, boolean appliedAny,
                                                  String moveOutcome,
                                                  boolean german, Trace trace) {
+        if (mode == ConceptTurnPolicy.Mode.EXCLUDE_TRUTH) {
+            // The connector gate's finding: a rejected scopePatch detour ('exclude' as an
+            // operation kind) closed with "the card is excluded" over an unchanged scope.
+            // A COMMITTED exclusion never reaches this close — the EXCLUDE action returns
+            // terminally with the host's receipt answer — so reaching it means the ordered
+            // exclusion did not happen, whatever the narration claims.
+            trace.line("exclude-truth guard -> deterministic host answer (no EXCLUDED "
+                    + "receipt this turn)");
+            return syntheticAnswer(
+                    TeamAgentPlaybook.excludeTruthAnswer(german, appliedAny), result);
+        }
         if (mode != ConceptTurnPolicy.Mode.MOVE_TRUTH || movedReceipt) {
             return result;
         }

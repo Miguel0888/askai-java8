@@ -67,4 +67,35 @@ public class ConceptTurnPolicyTest {
                 ConceptTurnPolicy.modeFor("Schreibe ein Buch über FreeRTOS auf dem ESP32."));
         assertEquals(ConceptTurnPolicy.Mode.FULL, ConceptTurnPolicy.modeFor(null));
     }
+
+    /** The connector gate's live sentence: an explicit exclusion order arms the truth guard. */
+    @Test
+    public void anExplicitExclusionOrderArmsTheExcludeTruthGuard() {
+        assertEquals(ConceptTurnPolicy.Mode.EXCLUDE_TRUTH, ConceptTurnPolicy.modeFor(
+                "Schließe bitte „FreeRTOS Architektur“ ausdrücklich aus der Recherche aus. "
+                        + "Ändere sonst nichts."));
+        assertEquals(ConceptTurnPolicy.Mode.EXCLUDE_TRUTH,
+                ConceptTurnPolicy.modeFor("Bitte ESP-IDF ausschließen."));
+        assertEquals(ConceptTurnPolicy.Mode.EXCLUDE_TRUTH,
+                ConceptTurnPolicy.modeFor("Exclude the architecture card from research."));
+    }
+
+    /** A false positive would replace a legitimate answer — every non-order stays FULL. */
+    @Test
+    public void exclusionMentionsThatAreNoOrderNeverArm() {
+        assertEquals("'ausschließlich' is an adverb, not an order", ConceptTurnPolicy.Mode.FULL,
+                ConceptTurnPolicy.modeFor("Betrachte ausschließlich die Doku aus dem Wiki."));
+        assertEquals("questions never order", ConceptTurnPolicy.Mode.FULL,
+                ConceptTurnPolicy.modeFor("Was schließen wir eigentlich aus?"));
+        assertEquals("a negated mention never arms", ConceptTurnPolicy.Mode.FULL,
+                ConceptTurnPolicy.modeFor("Bitte nichts ausschließen, nur sammeln."));
+        assertEquals("'schließen' without 'aus' is closing, not excluding",
+                ConceptTurnPolicy.Mode.FULL,
+                ConceptTurnPolicy.modeFor("Schließe die Sitzung."));
+        assertEquals("a past-tense report is no order", ConceptTurnPolicy.Mode.FULL,
+                ConceptTurnPolicy.modeFor("Wir haben ESP-IDF bereits ausgeschlossen."));
+        assertEquals("the drill's own wording stays FULL — the facade keeps working",
+                ConceptTurnPolicy.Mode.FULL,
+                ConceptTurnPolicy.modeFor("PlatformIO möchte ich nicht behandeln."));
+    }
 }

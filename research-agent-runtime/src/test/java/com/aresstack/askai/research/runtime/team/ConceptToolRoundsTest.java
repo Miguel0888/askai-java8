@@ -642,4 +642,45 @@ public class ConceptToolRoundsTest {
         assertTrue("the model CHOSE none — distinguishable from an absent field",
                 trace.contains("concept action: NONE"));
     }
+
+    /**
+     * The connector gate's success lie: an EXCLUDE_TRUTH turn whose narration claims the
+     * exclusion over an unchanged scope is closed by the host, deterministically.
+     */
+    @Test
+    public void anExcludeTruthTurnWithoutAnExcludedReceiptClosesDeterministically()
+            throws Exception {
+        ScriptedTurns turns = new ScriptedTurns();
+        ScriptedTool tool = new ScriptedTool();
+
+        TeamAgentResult result = ConceptToolRounds.run(
+                turn("Die Karte ist jetzt ausgeschlossen.", "{\"type\":\"none\"}"),
+                turns, tool, 4, 2, false, null, traceSink, false,
+                ConceptTurnPolicy.Mode.EXCLUDE_TRUTH);
+
+        String answer = ((ScopingAssistantOutput) result.getOutput()).getAssistantMessage();
+        assertTrue("the host owns the close: " + answer,
+                answer.contains("The requested exclusion was NOT applied this turn"));
+        assertTrue(trace.contains("exclude-truth guard armed (explicit exclusion order)"));
+        assertTrue(trace.toString(), trace.toString().contains(
+                "exclude-truth guard -> deterministic host answer"));
+    }
+
+    /** A committed exclusion is terminal with the receipt answer — the guard never fires. */
+    @Test
+    public void aCommittedExclusionSatisfiesTheExcludeTruthGuard() throws Exception {
+        ScriptedTurns turns = new ScriptedTurns();
+        ScriptedTool tool = new ScriptedTool();
+        tool.byDescription.put("exclude topic=\"ESP-IDF\"",
+                "{\"result\":\"EXCLUDED\",\"userMessage\":\"„ESP-IDF“ wurde ausgeschlossen.\"}");
+
+        TeamAgentResult result = ConceptToolRounds.run(
+                turn("schließe aus", "{\"type\":\"exclude\",\"topic\":\"ESP-IDF\"}"),
+                turns, tool, 4, 2, false, null, traceSink, false,
+                ConceptTurnPolicy.Mode.EXCLUDE_TRUTH);
+
+        assertEquals("„ESP-IDF“ wurde ausgeschlossen.",
+                ((ScopingAssistantOutput) result.getOutput()).getAssistantMessage());
+        assertTrue(trace.toString(), trace.toString().contains("EXCLUDED (terminal)"));
+    }
 }

@@ -38,7 +38,16 @@ public final class ConceptTurnPolicy {
          * sentence instead of the model's narration ("verschoben" only when a receipt of the
          * CURRENT turn covers it; the add_cards gate saw a NONE turn claim an executed change).
          */
-        MOVE_TRUTH
+        MOVE_TRUTH,
+        /**
+         * An explicit EXCLUSION order ("Schließe X aus der Recherche aus"): FULL permissions,
+         * but the receipt-truth guard arms. The connector gate saw the model detour into a
+         * scopePatch operation kind 'exclude' (REJECTED) and then claim the card was excluded
+         * over an unchanged scope — a turn without a terminal EXCLUDED receipt closes with the
+         * deterministic host sentence instead. A committed exclusion never reaches that close:
+         * the EXCLUDE action is terminal with the host's receipt answer.
+         */
+        EXCLUDE_TRUTH
     }
 
     private static final String[] DELETE_VERBS = {
@@ -72,6 +81,9 @@ public final class ConceptTurnPolicy {
         // turn into a false host 'nothing changed' answer).
         if (hasUnnegatedMoveMention(prompt)) {
             return Mode.MOVE_TRUTH;
+        }
+        if (hasUnnegatedExcludeMention(prompt)) {
+            return Mode.EXCLUDE_TRUTH;
         }
         return Mode.FULL;
     }
@@ -117,6 +129,77 @@ public final class ConceptTurnPolicy {
             }
             if (!negated) {
                 return true; // ONE unnegated mention is an order
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Exclusion-ORDER detection: verb forms only ("ausschließen"/"exclude" and the separable
+     * "schließe … aus"), never "ausschließlich", never past-tense reports ("ausgeschlossen"),
+     * never questions (a clause ending in '?'), never negated mentions — a false positive
+     * would replace a legitimate answer with the deterministic sentence.
+     */
+    private static boolean hasUnnegatedExcludeMention(String prompt) {
+        java.util.List<Integer> hits = new java.util.ArrayList<Integer>();
+        java.util.regex.Matcher compound = java.util.regex.Pattern
+                .compile("ausschlie(?:ß|ss)(?!lich)").matcher(prompt);
+        while (compound.find()) {
+            hits.add(compound.start());
+        }
+        java.util.regex.Matcher english = java.util.regex.Pattern
+                .compile("(?<![a-z])exclude").matcher(prompt);
+        while (english.find()) {
+            hits.add(english.start());
+        }
+        java.util.regex.Matcher separable = java.util.regex.Pattern
+                .compile("schlie(?:ß|ss)").matcher(prompt);
+        while (separable.find()) {
+            int index = separable.start();
+            if (index >= 3 && prompt.startsWith("aus", index - 3)) {
+                continue; // part of the compound form, decided above (incl. "ausschließlich")
+            }
+            // The separable verb is an exclusion only with a word-bounded "aus" later in the
+            // SAME clause — "Schließe die Sitzung." stays conversational.
+            if (java.util.regex.Pattern.compile("(?<![a-zäöüß])aus(?![a-zäöüß])")
+                    .matcher(clauseAfter(prompt, separable.end())).find()) {
+                hits.add(index);
+            }
+        }
+        for (int index : hits) {
+            if (clauseAfter(prompt, index).endsWith("?")) {
+                continue; // "Was schließen wir aus?" asks, it never orders
+            }
+            if (!negatedInClause(prompt, index)) {
+                return true; // ONE unnegated mention is an order
+            }
+        }
+        return false;
+    }
+
+    /** The rest of the hit's clause INCLUDING its terminator (or the prompt end). */
+    private static String clauseAfter(String prompt, int from) {
+        for (int i = from; i < prompt.length(); i++) {
+            char c = prompt.charAt(i);
+            if (c == '.' || c == '!' || c == '?' || c == ';') {
+                return prompt.substring(from, i + 1);
+            }
+        }
+        return prompt.substring(from);
+    }
+
+    /** The move guard's clause-bounded negation window, shared verbatim by the exclude guard. */
+    private static boolean negatedInClause(String prompt, int index) {
+        String window = prompt.substring(Math.max(0, index - 28), index);
+        for (char delimiter : new char[] {'.', '!', '?', ';'}) {
+            int cut = window.lastIndexOf(delimiter);
+            if (cut >= 0) {
+                window = window.substring(cut + 1);
+            }
+        }
+        for (String negation : NEGATIONS) {
+            if (window.contains(negation)) {
+                return true;
             }
         }
         return false;

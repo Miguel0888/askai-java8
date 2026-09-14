@@ -898,6 +898,13 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             recordMissionIfAbsent(text);
             refreshConversationPolicy(); // once per user turn, before the fence carries it
             publishScopeFence(); // authoritative scope FIRST, then the turn that may change it
+            if (boundaryQuestionPending) {
+                // Fix 1: the fence just carried the question one last time — THIS user turn is
+                // its answer. From the next turn on it is no longer open boundary work.
+                boundaryQuestionPending = false;
+                lastScopeCheckQuestion = "";
+                technicalLog("[scope-check] boundary question consumed by this user turn");
+            }
             beginAgentTurn(); // busy + preempt visualizer; cleared by the turn's terminal event
             backend.submitPrompt(handle, new ResearchPrompt(text, activeSectionId));
             return;
@@ -2606,6 +2613,10 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             }
         });
         fireStateChanged(); // the tag flips to "Prüfung abbrechen"
+        // Fence fingerprint (connector-gate fix 2): the check judges the EFFECTIVE fence
+        // including the concept — stamp what the sweep is about to see, not what exists when
+        // the report happens to arrive.
+        final String conceptStampAtStart = conceptStamp();
         scopeCheckExecutor.execute(new Runnable() {
             public void run() {
                 com.aresstack.askai.research.scope.ScopeCheckReport report = null;
@@ -2630,7 +2641,8 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 final String finishedUnexpected = unexpected;
                 uiExecutor.execute(new Runnable() {
                     public void run() {
-                        presentScopeCheck(checkId, finishedReport, finishedUnexpected);
+                        presentScopeCheck(checkId, finishedReport, finishedUnexpected,
+                                conceptStampAtStart);
                         fireStateChanged();
                     }
                 });
@@ -2671,7 +2683,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     /** Presentation of one finished check — every gate keeps its own honest face (UI thread). */
     private void presentScopeCheck(String checkId,
                                    com.aresstack.askai.research.scope.ScopeCheckReport report,
-                                   String unexpected) {
+                                   String unexpected, String conceptStampAtStart) {
         try {
             sink.finishThinking(checkId, "");
         } catch (RuntimeException ignored) {
@@ -2694,6 +2706,17 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         }
         appendScopeCheckTechnicalLog(report);
         latestScopeCheckReport = report; // the policy consumes it while its revision is current
+        // Fix 2 (connector gate): a concept mutation AFTER the check makes the report stale —
+        // the fence is Mindmap + Blacklist, so currency is the PAIR (scope revision, concept
+        // stamp), never the scope-draft revision alone.
+        latestScopeCheckConceptStamp = conceptStampAtStart;
+        // Fix 1 (connector gate): ASKED is pending-until-ANSWERED — the next user turn
+        // consumes it; it must never linger as open boundary work until a report replaces it.
+        boundaryQuestionPending = report.getKind()
+                == com.aresstack.askai.research.scope.ScopeCheckReport.Kind.ASKED;
+        if (!boundaryQuestionPending) {
+            lastScopeCheckQuestion = "";
+        }
         switch (report.getKind()) {
             case ASKED:
                 // The deliverable: the agent asks its ONE question. The user's answer flows
@@ -3008,12 +3031,30 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
     // ------------------------------------------------ conversation policy (ratified slice)
     /** The latest finished scope check; the policy IGNORES it once its revision is stale. */
     private volatile com.aresstack.askai.research.scope.ScopeCheckReport latestScopeCheckReport;
+    /** The concept stamp (epoch#revision) the latest check judged — half the fence fingerprint. */
+    private volatile String latestScopeCheckConceptStamp = "";
+    /** An ASKED question is pending until the user's next turn answers it (fix 1). */
+    private volatile boolean boundaryQuestionPending;
     /** The node-ID novelty window: renames/moves mint no ids and are correctly no novelty. */
     private java.util.Set<String> noveltyPreviousIds = new java.util.HashSet<String>();
     private String noveltyEpoch;
     private int turnsWithoutNewCards;
     /** The ephemeral fence block, recomputed once per user turn — NEVER persisted state. */
     private volatile String conversationPolicyBlock = "";
+
+    /** The concept side of the fence fingerprint: epoch + working revision (or a marker). */
+    private String conceptStamp() {
+        com.aresstack.askai.research.concept.ConceptBranchService service =
+                conceptBranchService();
+        if (service == null) {
+            return "none";
+        }
+        try {
+            return service.currentEpoch() + "#" + service.snapshot().getWorkingRevision();
+        } catch (RuntimeException unreadable) {
+            return "unreadable";
+        }
+    }
 
     /**
      * Recompute the ratified conversation policy for the upcoming turn: pure projection over
@@ -3063,7 +3104,8 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         }
         com.aresstack.askai.research.scope.ScopeCheckReport report = latestScopeCheckReport;
         boolean reportCurrent = report != null
-                && report.getOutcome().getScopeRevision() == draft.getRevision();
+                && report.getOutcome().getScopeRevision() == draft.getRevision()
+                && conceptStamp().equals(latestScopeCheckConceptStamp);
         com.aresstack.askai.research.scope.ScopeCheckReport.Kind kind =
                 reportCurrent ? report.getKind() : null;
         boolean calibrationWeak = reportCurrent && report.getOutcome().getStatus()
@@ -3072,7 +3114,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         int driftGuards = reportCurrent && report.getOutcome().getAdviceSet() != null
                 ? report.getOutcome().getAdviceSet().getDriftGuards().size() : 0;
         boolean openBoundaryWork = openConflict || candidates > 0 || driftGuards > 0
-                || kind == com.aresstack.askai.research.scope.ScopeCheckReport.Kind.ASKED;
+                || (boundaryQuestionPending
+                        && kind == com.aresstack.askai.research.scope.ScopeCheckReport.Kind
+                                .ASKED);
         ConversationPolicyProjection.Inputs inputs = new ConversationPolicyProjection.Inputs(
                 missionPresent, ids.size(), turnsWithoutNewCards, openBoundaryWork,
                 openConflict, reportCurrent, kind, calibrationWeak, driftGuards,

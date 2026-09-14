@@ -593,6 +593,27 @@ public final class TeamAgentPlaybook {
     }
 
     /**
+     * The exclude-truth close (connector gate): an EXCLUSION-classified turn without a
+     * terminal EXCLUDED receipt never keeps the model's narration — REJECTED must never be
+     * narrated as success. Mentions other APPLIED work honestly instead of hiding it.
+     */
+    public static String excludeTruthAnswer(boolean german, boolean appliedAny) {
+        String core = german
+                ? "Der gewünschte Ausschluss wurde in diesem Zug NICHT übernommen — der "
+                        + "Themenzuschnitt ist unverändert."
+                : "The requested exclusion was NOT applied this turn — the research scope "
+                        + "is unchanged.";
+        String applied = german
+                ? " Andere Änderungen dieses Zugs wurden übernommen (siehe Konzept)."
+                : " Other changes of this turn were applied (see the concept).";
+        String hint = german
+                ? " Bitte formuliere den Ausschluss noch einmal, z. B. „Ich möchte X nicht "
+                        + "behandeln.“"
+                : " Please state the exclusion once more, e.g. \"I don't want to cover X.\"";
+        return core + (appliedAny ? applied : "") + hint;
+    }
+
+    /**
      * The move-truth close (move_leaf slice): a MOVE-classified turn without an APPLIED move
      * receipt ends with this deterministic host sentence — the add_cards gate saw a NONE turn
      * claim an executed change; "verschoben" is only ever receipt-covered.
