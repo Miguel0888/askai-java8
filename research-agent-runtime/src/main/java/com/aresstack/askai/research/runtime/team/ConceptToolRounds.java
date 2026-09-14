@@ -147,6 +147,11 @@ public final class ConceptToolRounds {
         // MACHINERY now: once a probe ran, the remainder of the turn is structurally
         // observation-only — prompt text alone never held.
         boolean probedThisTurn = false;
+        // AP3 retest 2: the MEANING directive sat on the probe receipt, but later READ
+        // feedbacks displaced it as the LAST grounding before the narration (clear-only
+        // probe ended in "Möchten Sie mit der Recherche beginnen?"). The directive is
+        // STICKY for the rest of the turn — turn-local only, never persisted.
+        String probeMeaningReminder = null;
         boolean budgetExhausted = false;
         boolean offeredThisTurn = false;
         boolean offerNudgeSpent = false;
@@ -185,15 +190,16 @@ public final class ConceptToolRounds {
                         // exactly the observability the technical_log gate asked for.
                         intermediateSink.intermediate(output);
                     }
-                    result = turn.run(TeamAgentPlaybook.scopePatchRejected(
-                            scopeUpdate.describeViolations(), germanFeedback));
+                    result = turn.run(withProbeMeaning(TeamAgentPlaybook.scopePatchRejected(
+                            scopeUpdate.describeViolations(), germanFeedback),
+                            probeMeaningReminder));
                     continue;
                 }
                 // Gate 9b: the session's FIRST substantive card-building turn must not end
                 // without exploration tags — ONE machinery nudge asks for exactly the offer.
                 // Never spent twice, never on turns that built nothing, never over budget.
                 if (nudgeOfferWhenMissing && !offerNudgeSpent && !offeredThisTurn
-                        && !applied.isEmpty() && !budgetExhausted) {
+                        && !applied.isEmpty() && !budgetExhausted && !probedThisTurn) {
                     offerNudgeSpent = true;
                     trace.line("search tags missing — offer nudge turn");
                     if (intermediateSink != null) {
@@ -365,6 +371,10 @@ public final class ConceptToolRounds {
                         // can summarize or ask its one question — the sensor lock above
                         // refuses everything else for the rest of the turn.
                         probedThisTurn = true;
+                        int meaning = text == null ? -1
+                                : text.indexOf("MEANING — hard rules");
+                        probeMeaningReminder = meaning >= 0 ? text.substring(meaning)
+                                : TeamAgentPlaybook.probeSensorLock();
                         trace.line("round " + rounds + " -> PROBED");
                         trace.line("post-probe sensor lock armed (observation-only for the "
                                 + "rest of the turn)");
@@ -427,7 +437,7 @@ public final class ConceptToolRounds {
                         + " repairs=" + repairs + "/" + maxRepairAttempts + ") — wrap-up turn");
                 feedback = feedback + "\n\n" + TeamAgentPlaybook.conceptToolBudgetExhausted(germanFeedback);
                 if (nudgeOfferWhenMissing && !offerNudgeSpent && !offeredThisTurn
-                        && !applied.isEmpty()) {
+                        && !applied.isEmpty() && !probedThisTurn) {
                     // Gate finding: broad first turns exhaust the budget on cards, so the
                     // normal-end nudge never ran and the first-turn offer stayed red — the
                     // wrap-up turn asks for the offer too (executed above despite the budget).
@@ -442,8 +452,9 @@ public final class ConceptToolRounds {
                 // proposed beyond the concept action (scopePatch!) must not vanish with it.
                 intermediateSink.intermediate(output);
             }
-            result = turn.run(TeamAgentPlaybook.conceptReceipts(conceptRevision, applied,
-                    rejected, currentConcept, germanFeedback) + feedback);
+            result = turn.run(withProbeMeaning(TeamAgentPlaybook.conceptReceipts(
+                    conceptRevision, applied, rejected, currentConcept, germanFeedback)
+                    + feedback, probeMeaningReminder));
         }
         return result;
     }
@@ -558,6 +569,19 @@ public final class ConceptToolRounds {
         trace.line("move-truth guard -> deterministic host answer (no MOVED receipt this "
                 + "turn)");
         return syntheticAnswer(TeamAgentPlaybook.moveTruthAnswer(german, moveOutcome), result);
+    }
+
+    /**
+     * The sticky probe directive: every later feedback of the SAME turn re-carries the
+     * receipt's MEANING rules, so the final narration still sees them after reads — a
+     * feedback that already contains them (the probe round itself, a fresh re-probe)
+     * travels unchanged.
+     */
+    private static String withProbeMeaning(String feedback, String meaning) {
+        if (meaning == null || feedback.contains("MEANING — hard rules")) {
+            return feedback;
+        }
+        return feedback + "\n\nSTILL BINDING — this turn's probe:\n" + meaning;
     }
 
     private static String firstLine(String text) {

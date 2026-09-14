@@ -785,6 +785,68 @@ public class ConceptToolRoundsTest {
         assertTrue(trace.contains("round 2 -> RESULT"));
         assertEquals("GUI bleibt draußen.",
                 ((ScopingAssistantOutput) result.getOutput()).getAssistantMessage());
+        assertTrue("the read feedback re-carries the probe directive (fallback form)",
+                turns.feedbackSeen.get(1).contains("STILL BINDING — this turn's probe:"));
+    }
+
+    /**
+     * AP3 retest 2 (clear-only red): reads after the probe displaced the MEANING rules as
+     * the last grounding before the narration — the directive is sticky now, every later
+     * feedback of the turn carries it verbatim.
+     */
+    @Test
+    public void theProbeMeaningDirectiveStaysStickyThroughLaterReads() throws Exception {
+        ScriptedTurns turns = new ScriptedTurns();
+        ScriptedTool tool = new ScriptedTool();
+        tool.byDescription.put("probe terms=[\"Tasks\",\"Scheduling\"]",
+                "PROBED terms=2\n\"Tasks\" -> LIKELY_IN band=CLEAR authority=CANONICAL_IN"
+                        + "\n\"Scheduling\" -> LIKELY_IN band=CLEAR authority=CANONICAL_IN"
+                        + "\nMEANING — hard rules for your reply:"
+                        + "\n- Ask NO question — summarize briefly; the USER decides "
+                        + "whether to continue or close."
+                        + "\nThis is an OBSERVATION only — nothing was changed.");
+        turns.script.add(turn("ich lese", "{\"type\":\"read\",\"path\":[]}"));
+        turns.script.add(turn("ich lese noch mal", "{\"type\":\"read\",\"path\":[]}"));
+        turns.script.add(turn("Beide Bereiche sind verankert.", null));
+
+        ConceptToolRounds.run(
+                turn("ich messe", "{\"type\":\"probe\",\"terms\":"
+                        + "[\"Tasks\",\"Scheduling\"]}"),
+                turns, tool, 6, 2, false, null, traceSink);
+
+        for (int index = 1; index < turns.feedbackSeen.size(); index++) {
+            String feedback = turns.feedbackSeen.get(index);
+            assertTrue("feedback " + index + " keeps the directive present",
+                    feedback.contains("MEANING — hard rules"));
+            assertTrue("the clear-only rule survives every read",
+                    feedback.contains("Ask NO question"));
+        }
+        assertTrue(turns.feedbackSeen.get(1)
+                .contains("STILL BINDING — this turn's probe:"));
+    }
+
+    /** An observation-only turn never gets the offer nudge — it would demand a refused action. */
+    @Test
+    public void theOfferNudgeStandsDownAfterAProbe() throws Exception {
+        ScriptedTurns turns = new ScriptedTurns();
+        ScriptedTool tool = new ScriptedTool();
+        tool.byDescription.put("add_cards parent=[] names=[\"FreeRTOS\"]",
+                "added \"FreeRTOS\" revision=1");
+        tool.byDescription.put("probe terms=[\"GUI\"]",
+                "PROBED terms=1\n\"GUI\" -> LIKELY_OUT band=CLEAR authority=CANONICAL_OUT");
+        turns.script.add(turn("ich messe noch",
+                "{\"type\":\"probe\",\"terms\":[\"GUI\"]}"));
+        turns.script.add(turn("GUI bleibt draußen.", null));
+
+        TeamAgentResult result = ConceptToolRounds.run(
+                turn("lege an", "{\"type\":\"add_cards\",\"parent\":[],"
+                        + "\"names\":[\"FreeRTOS\"]}"),
+                turns, tool, 6, 2, false, null, traceSink, true);
+
+        assertTrue("no nudge in an observation-only turn",
+                !trace.toString().contains("offer nudge"));
+        assertEquals("GUI bleibt draußen.",
+                ((ScopingAssistantOutput) result.getOutput()).getAssistantMessage());
     }
 
     /** A committed exclusion is terminal with the receipt answer — the guard never fires. */
