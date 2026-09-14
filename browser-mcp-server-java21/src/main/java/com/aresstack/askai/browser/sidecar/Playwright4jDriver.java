@@ -219,6 +219,41 @@ final class Playwright4jDriver implements PlaywrightDriver {
 
     // ------------------------------------------------------------------ SERP guards
 
+    // #44: the ONE human-input policy of this driver — every pointer path/pause comes from it.
+    private final com.aresstack.askai.browser.input.HumanInteractionPolicy humanPolicy =
+            new com.aresstack.askai.browser.input.HumanInteractionPolicy(
+                    com.aresstack.askai.browser.input.HumanInteractionPolicy.Config
+                            .fromEnvironment(System.getenv()),
+                    new java.util.Random());
+    private int lastPointerX = 8;
+    private int lastPointerY = 8;
+
+    /** Human-paced pointer click via Playwright's mouse (many timed moves, exact target). */
+    private void humanPointerClick(final int targetX, final int targetY) {
+        com.aresstack.askai.browser.input.HumanPointer pointer =
+                new com.aresstack.askai.browser.input.HumanPointer(humanPolicy,
+                        new com.aresstack.askai.browser.input.HumanPointer.PointerDevice() {
+                            public void moveTo(int x, int y) {
+                                page.mouse().move(x, y);
+                            }
+
+                            public void click(int x, int y) {
+                                page.mouse().click(x, y);
+                            }
+
+                            public void wheel(int deltaY) {
+                                page.mouse().wheel(0, deltaY);
+                            }
+
+                            public void sleep(long millis) {
+                                page.waitForTimeout(millis);
+                            }
+                        });
+        pointer.moveAndClick(lastPointerX, lastPointerY, targetX, targetY);
+        lastPointerX = targetX;
+        lastPointerY = targetY;
+    }
+
     @Override
     public String tryDismissConsent() {
         owner.check(); // BEFORE the guard-try: an ownership violation must never be swallowed as "none"
@@ -228,8 +263,34 @@ final class Playwright4jDriver implements PlaywrightDriver {
         try {
             // Up to maximumDismissAttempts stacked banners; each successful click settles before the
             // next probe, and the caller re-reads the page when anything was clicked at all.
+            // #44: POINTER-FIRST — the control is located (same priority chains) and clicked
+            // with the human-paced mouse; the injected JS click stays the fallback when the
+            // pointer click did not land (animated overlays, moved controls).
             String lastClicked = "none";
             for (int attempt = 0; attempt < consent.maximumDismissAttempts; attempt++) {
+                String located = String.valueOf(
+                        page.evaluate(SearchPageGuards.consentLocateScript(consent)));
+                if (located.startsWith("locate:")) {
+                    int comma = located.lastIndexOf(',');
+                    int colon = located.lastIndexOf(':');
+                    try {
+                        int x = Integer.parseInt(located.substring(colon + 1, comma).trim());
+                        int y = Integer.parseInt(located.substring(comma + 1).trim());
+                        humanPointerClick(x, y);
+                        page.waitForTimeout(consent.postClickSettleMillis);
+                        String again = String.valueOf(
+                                page.evaluate(SearchPageGuards.consentLocateScript(consent)));
+                        if (!again.equals(located)) {
+                            lastClicked = "clicked:"
+                                    + located.substring("locate:".length(), colon)
+                                    + ":pointer";
+                            continue; // the banner moved on — probe for a stacked one
+                        }
+                        // fall through: the pointer click did not land — JS fallback below
+                    } catch (NumberFormatException malformedCoordinates) {
+                        // fall through to the JS fallback
+                    }
+                }
                 String result = String.valueOf(
                         page.evaluate(SearchPageGuards.consentDismissScript(consent)));
                 if (!result.startsWith("clicked")) {

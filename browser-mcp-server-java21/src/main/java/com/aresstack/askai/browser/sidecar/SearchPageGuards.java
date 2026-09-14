@@ -91,6 +91,44 @@ final class SearchPageGuards {
     }
 
     /**
+     * #44: the consent-LOCATE script — the SAME priority chains as the resolve script, but it
+     * returns the matched control's viewport CENTER instead of clicking:
+     * {@code 'locate:<ACTION>:<cx>,<cy>'} or {@code 'none'}. The human-paced pointer then
+     * travels there and clicks like a person would; the JS click stays the fallback.
+     */
+    static String consentLocateScript(ConsentHandlingSettings consent) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("() => {\n");
+        sb.append("  const pickEl = (el) => { if (el && el.offsetParent !== null) { "
+                + "const r = el.getBoundingClientRect(); if (r.width > 0 && r.height > 0) "
+                + "return Math.round(r.left + r.width / 2) + ',' + "
+                + "Math.round(r.top + r.height / 2); } return null; };\n");
+        sb.append("  const bySelector = (arr, action) => { for (const s of arr) { try { "
+                + "const c = pickEl(document.querySelector(s)); "
+                + "if (c) return 'locate:' + action + ':' + c; } catch(e){} } return null; };\n");
+        sb.append("  const buttons = document.querySelectorAll(\"button, a[role='button'], [class*='btn'], "
+                + "[role='button'], input[type='button'], input[type='submit']\");\n");
+        sb.append("  const byText = (arr, action) => { for (let i = 0; i < buttons.length && i < 120; i++) { "
+                + "const b = buttons[i]; const txt = (b.innerText || b.value || '').toLowerCase().trim(); "
+                + "if (!txt || b.offsetParent === null) continue; "
+                + "if (arr.some(p => txt === p || txt.startsWith(p))) { const c = pickEl(b); "
+                + "if (c) return 'locate:' + action + ':' + c; } } return null; };\n");
+        sb.append("  let r;\n");
+        sb.append("  r = bySelector(").append(jsArray(REJECT_SELECTORS)).append(", 'REJECT_ALL'); if (r) return r;\n");
+        sb.append("  r = byText(").append(jsArray(REJECT_TEXTS)).append(", 'REJECT_ALL'); if (r) return r;\n");
+        sb.append("  r = byText(").append(jsArray(ONLY_NECESSARY_TEXTS))
+                .append(", 'ONLY_NECESSARY'); if (r) return r;\n");
+        sb.append("  r = bySelector(").append(jsArray(consent.positiveButtonSelectors))
+                .append(", 'ACCEPT_ALL'); if (r) return r;\n");
+        sb.append("  r = byText(").append(jsArray(consent.positiveButtonTexts))
+                .append(", 'ACCEPT_ALL'); if (r) return r;\n");
+        sb.append("  r = bySelector(").append(jsArray(CLOSE_SELECTORS)).append(", 'CLOSE'); if (r) return r;\n");
+        sb.append("  return 'none';\n");
+        sb.append("}");
+        return sb.toString();
+    }
+
+    /**
      * The consent-REPORT script: detects an unambiguous consent control WITHOUT clicking (reject, only-necessary,
      * accept, or a scoped close), so a banner is flagged even when it offers ONLY a reject/close control. Returns
      * {@code 'candidate:<selector>'} / {@code 'candidate-text:<label>'} or {@code 'none'}.
