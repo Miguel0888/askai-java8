@@ -145,7 +145,9 @@ public class ScopingConceptPromptTest {
         // with the pre-executed dedicated path and produced a false close).
         assertTrue(schema.contains(
                 "\"enum\":[\"none\",\"read\",\"add_cards\",\"exclude\",\"resolve\","
-                        + "\"offer\",\"rename\"]"));
+                        + "\"offer\",\"rename\",\"probe\"]"));
+        // scope_probe (AP3): ONE field, a bounded list of terms — no ids, no thresholds.
+        assertTrue(schema.contains("\"terms\":{\"type\":\"array\",\"maxItems\":12"));
         assertFalse(schema.contains("\"move\""));
         assertFalse(schema.contains("\"source\""));
         assertTrue("the names list is grammar-bounded and typed",

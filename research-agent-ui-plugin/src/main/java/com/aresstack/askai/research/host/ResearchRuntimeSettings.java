@@ -35,6 +35,13 @@ public final class ResearchRuntimeSettings {
         return envOverride("ASKAI_POLICY_NOVELTY_TURNS", DEFAULT_POLICY_NOVELTY_TURNS);
     }
 
+    /** scope_probe (AP3): the max terms one probe judges — a bound, never hidden magic. */
+    public static final int DEFAULT_SCOPE_PROBE_MAX_TERMS = 8;
+
+    public static int scopeProbeMaxTerms() {
+        return envOverride("ASKAI_SCOPE_PROBE_MAX_TERMS", DEFAULT_SCOPE_PROBE_MAX_TERMS);
+    }
+
     private static int envOverride(String name, int fallback) {
         try {
             String value = System.getenv(name);

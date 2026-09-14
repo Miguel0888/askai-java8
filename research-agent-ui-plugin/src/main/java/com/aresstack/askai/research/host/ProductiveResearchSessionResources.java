@@ -506,6 +506,12 @@ public final class ProductiveResearchSessionResources {
             }
 
             @Override
+            public String scopeProbe(java.util.List<String> terms) {
+                com.aresstack.askai.research.mcp.ScopeCommandPort port = scopeCommandPort;
+                return port == null ? null : port.scopeProbe(terms);
+            }
+
+            @Override
             public java.util.List<String> blacklistedTerms() {
                 com.aresstack.askai.research.mcp.ScopeCommandPort port = scopeCommandPort;
                 return port == null ? java.util.Collections.<String>emptyList()

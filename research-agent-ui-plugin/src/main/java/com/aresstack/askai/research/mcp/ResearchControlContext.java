@@ -162,4 +162,13 @@ public interface ResearchControlContext {
      */
     default void conceptToolLog(String line) {
     }
+
+    /**
+     * scope_probe (AP3): read-only semantic measurement of terms against the negotiated fence.
+     * Returns {@code null} when this session has no scope system.
+     * DELEGATING WRAPPERS MUST FORWARD THIS.
+     */
+    default String scopeProbe(java.util.List<String> terms) {
+        return null;
+    }
 }

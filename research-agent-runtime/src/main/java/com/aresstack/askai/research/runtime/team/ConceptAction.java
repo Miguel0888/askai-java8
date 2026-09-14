@@ -24,7 +24,7 @@ public final class ConceptAction {
      * the yellow tags).
      */
     public enum Type { READ, ADD, ADD_CARDS, MOVE, REMOVE, EXCLUDE, RESOLVE, OFFER, RENAME,
-        REWRITE }
+        REWRITE, PROBE }
 
     private final Type type;
     private final List<String> path;
@@ -96,6 +96,11 @@ public final class ConceptAction {
         return decision;
     }
 
+    /** For PROBE: the terms as a compact JSON array string (scope_probe's ONE field). */
+    public String getTermsJson() {
+        return decision;
+    }
+
     /** A compact trace label ('add parent=["A","B"] name="C"'). */
     public String describe() {
         switch (type) {
@@ -114,6 +119,8 @@ public final class ConceptAction {
                 return "resolve conflict=\"" + name + "\" decision=" + decision;
             case OFFER:
                 return "offer suggestions=" + countJsonObjects(name);
+            case PROBE:
+                return "probe terms=" + decision;
             case RENAME:
                 return "rename path=" + segmentsLabel(path) + " name=\"" + name + "\"";
             case REWRITE:
@@ -305,6 +312,27 @@ public final class ConceptAction {
             json.append(']');
             return Parsed.ok(new ConceptAction(Type.REWRITE, path, null, "", json.toString()));
         }
+        if ("probe".equalsIgnoreCase(type)) {
+            // scope_probe (AP3): ONE field, a list of terms — the host owns everything else.
+            Object termsValue = map.get("terms");
+            List<String> terms = termsValue instanceof List
+                    ? segments(termsValue) : Collections.<String>emptyList();
+            if (terms.isEmpty()) {
+                return Parsed.invalid("conceptAction type \"probe\" requires \"terms\" — "
+                        + "several plausible remaining concepts as ONE array; example: "
+                        + "{\"type\":\"probe\",\"terms\":[\"Priority Inversion\","
+                        + "\"SMP Scheduling\"]}");
+            }
+            StringBuilder json = new StringBuilder("[");
+            for (int index = 0; index < terms.size(); index++) {
+                if (index > 0) {
+                    json.append(',');
+                }
+                appendJsonString(json, terms.get(index));
+            }
+            json.append(']');
+            return Parsed.ok(new ConceptAction(Type.PROBE, null, null, "", json.toString()));
+        }
         if ("offer".equalsIgnoreCase(type)) {
             List<String[]> suggestions = suggestionPairs(map.get("suggestions"));
             if (suggestions.isEmpty()) {
@@ -330,7 +358,8 @@ public final class ConceptAction {
                     decision.trim().toUpperCase(java.util.Locale.ROOT)));
         }
         return Parsed.invalid("conceptAction has unknown type \"" + type
-                + "\" — allowed: none, read, add_cards, exclude, resolve, offer, rename");
+                + "\" — allowed: none, read, add_cards, exclude, resolve, offer, rename, "
+                + "probe");
     }
 
     /** OFFER: {query, purpose} pairs with a non-empty query; malformed entries are dropped. */

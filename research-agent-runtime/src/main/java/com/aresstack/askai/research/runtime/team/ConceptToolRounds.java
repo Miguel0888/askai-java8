@@ -325,6 +325,12 @@ public final class ConceptToolRounds {
                     } else if (action.getType() == ConceptAction.Type.READ) {
                         trace.line("round " + rounds + " -> RESULT");
                         feedback = TeamAgentPlaybook.conceptToolResult(text, germanFeedback);
+                    } else if (action.getType() == ConceptAction.Type.PROBE) {
+                        // scope_probe (AP3): a read-only MEASUREMENT — a working step like
+                        // READ, never a mutation receipt; the loop continues so the model can
+                        // summarize or ask its one question from the observation.
+                        trace.line("round " + rounds + " -> PROBED");
+                        feedback = TeamAgentPlaybook.conceptToolResult(text, germanFeedback);
                     } else {
                         conceptRevision = revisionIn(text, conceptRevision);
                         applied.add(action.describe() + " (revision " + conceptRevision + ")");

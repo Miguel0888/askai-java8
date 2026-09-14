@@ -1384,6 +1384,12 @@ public final class ResearchAgentMain {
                 toolName = "offer_searches";
                 args.put("suggestions_json", action.getSuggestionsJson());
                 break;
+            case PROBE:
+                // scope_probe (AP3): the read-only closure sensor — one list of terms, the
+                // host owns embedding, fence geometry and the stale gate.
+                toolName = "scope_probe";
+                args.put("terms_json", action.getTermsJson());
+                break;
             case RENAME:
                 toolName = "concept_rename";
                 args.put("path_json", segmentsJson(action.getPath()));

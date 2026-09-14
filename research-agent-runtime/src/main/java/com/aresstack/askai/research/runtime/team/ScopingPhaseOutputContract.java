@@ -105,13 +105,17 @@ public final class ScopingPhaseOutputContract implements PhaseOutputContract {
                 // (gate ruling): the universal enum advertises no move, so no starving
                 // invalid rounds compete with the pre-executed dedicated path.
                 + "\"type\":{\"type\":\"string\",\"enum\":[\"none\",\"read\",\"add_cards\","
-                + "\"exclude\",\"resolve\",\"offer\",\"rename\"]},"
+                + "\"exclude\",\"resolve\",\"offer\",\"rename\",\"probe\"]},"
                 + "\"path\":{\"type\":\"array\",\"maxItems\":6,\"items\":"
                 + "{\"type\":\"string\"}},"
                 + "\"parent\":{\"type\":\"array\",\"maxItems\":6,\"items\":"
                 + "{\"type\":\"string\"}},"
                 + "\"name\":{\"type\":\"string\"},"
                 + "\"names\":{\"type\":\"array\",\"maxItems\":16,\"items\":"
+                + "{\"type\":\"string\",\"minLength\":1}},"
+                // scope_probe (AP3): ONE list of terms — no ids, no thresholds, no cosines;
+                // the host owns the complexity, the grammar bounds the list.
+                + "\"terms\":{\"type\":\"array\",\"maxItems\":12,\"items\":"
                 + "{\"type\":\"string\",\"minLength\":1}},"
 
                 + "\"topic\":{\"type\":\"string\"},"

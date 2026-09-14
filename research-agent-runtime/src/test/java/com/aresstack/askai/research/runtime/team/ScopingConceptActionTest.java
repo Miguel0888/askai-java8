@@ -273,4 +273,26 @@ public class ScopingConceptActionTest {
         assertEquals(Arrays.asList("A", "B"),
                 parse(remove.canonicalJson()).getConceptAction().getPath());
     }
+
+    /** scope_probe (AP3): ONE field with a term list — as simple as add_cards, on purpose. */
+    @Test
+    public void probeCarriesItsTermsAsOneTypedList() {
+        ScopingAssistantOutput probe = parse("{\"assistantMessage\":\"m\",\"conceptAction\":"
+                + "{\"type\":\"probe\",\"terms\":[\"Priority Inversion\","
+                + "\"SMP Scheduling\"]}}");
+        ConceptAction action = probe.getConceptAction();
+        assertEquals(ConceptAction.Type.PROBE, action.getType());
+        assertEquals("[\"Priority Inversion\",\"SMP Scheduling\"]", action.getTermsJson());
+        assertEquals("probe terms=[\"Priority Inversion\",\"SMP Scheduling\"]",
+                action.describe());
+
+        ScopingAssistantOutput missing = parse("{\"assistantMessage\":\"m\","
+                + "\"conceptAction\":{\"type\":\"probe\"}}");
+        assertTrue(missing.getConceptActionError().contains("requires \"terms\""));
+
+        // A history replay must not lose the ONE field the action has.
+        ConceptAction reread = parse(probe.canonicalJson()).getConceptAction();
+        assertEquals(ConceptAction.Type.PROBE, reread.getType());
+        assertEquals("[\"Priority Inversion\",\"SMP Scheduling\"]", reread.getTermsJson());
+    }
 }

@@ -666,6 +666,32 @@ public class ConceptToolRoundsTest {
                 "exclude-truth guard -> deterministic host answer"));
     }
 
+    /** scope_probe (AP3): a PROBE is a read-only working step — result feedback, no receipt. */
+    @Test
+    public void aProbeIsAWorkingStepLikeReadNeverAMutationReceipt() throws Exception {
+        ScriptedTurns turns = new ScriptedTurns();
+        ScriptedTool tool = new ScriptedTool();
+        tool.byDescription.put("probe terms=[\"Priority Inversion\"]",
+                "PROBED terms=1\n\"Priority Inversion\" -> LIKELY_IN band=CLEAR "
+                        + "nearest=\"Tasks und Scheduling\" authority=CANONICAL_IN");
+        turns.script.add(turn("Zusammenfassung.", null));
+
+        TeamAgentResult result = ConceptToolRounds.run(
+                turn("ich messe", "{\"type\":\"probe\",\"terms\":"
+                        + "[\"Priority Inversion\"]}"),
+                turns, tool, 4, 2, false, null, traceSink);
+
+        assertEquals("Zusammenfassung.",
+                ((ScopingAssistantOutput) result.getOutput()).getAssistantMessage());
+        assertTrue("a working step, never a mutation", trace.contains("round 1 -> PROBED"));
+        String feedback = turns.feedbackSeen.get(0);
+        assertTrue(feedback.contains("LIKELY_IN"));
+        assertTrue("the observation is a RESULT, not an APPLIED receipt",
+                feedback.contains("CONCEPT TOOL RESULT"));
+        assertTrue("no applied action was booked",
+                feedback.contains("APPLIED_ACTIONS\n- (none)"));
+    }
+
     /** A committed exclusion is terminal with the receipt answer — the guard never fires. */
     @Test
     public void aCommittedExclusionSatisfiesTheExcludeTruthGuard() throws Exception {

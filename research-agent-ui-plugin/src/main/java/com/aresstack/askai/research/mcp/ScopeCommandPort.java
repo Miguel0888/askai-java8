@@ -31,4 +31,13 @@ public interface ScopeCommandPort {
     /** One technical-log line from a concept tool handler. Default no-op (fakes). */
     default void conceptToolLog(String line) {
     }
+
+    /**
+     * scope_probe (AP3): the READ-ONLY semantic sensor — where do the given terms sit relative
+     * to the negotiated fence? Decides nothing, mutates nothing. Returns the receipt text, or
+     * {@code null} when this session has no scope system.
+     */
+    default String scopeProbe(java.util.List<String> terms) {
+        return null;
+    }
 }

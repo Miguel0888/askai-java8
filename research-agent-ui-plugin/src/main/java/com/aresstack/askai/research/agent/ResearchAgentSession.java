@@ -221,6 +221,11 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                 public void conceptToolLog(String line) {
                     technicalLog(line);
                 }
+
+                @Override
+                public String scopeProbe(java.util.List<String> terms) {
+                    return scopeProbeCommand(terms);
+                }
             });
             resources.setProjectionUpdateListener(new Runnable() {
                 public void run() {
@@ -3543,6 +3548,106 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         reply.addProperty("result", "OFFERED");
         reply.addProperty("count", suggestions.size());
         return reply.toString();
+    }
+
+    /**
+     * scope_probe (AP3): the READ-ONLY closure sensor. Pins the effective-fence fingerprint
+     * (scope revision + concept epoch#revision — the SAME pair the conversation policy trusts),
+     * snapshots the anchors, embeds every term with the current embedding snapshot and lets
+     * {@link com.aresstack.askai.research.scope.ScopeProbeService} judge them. It mutates
+     * NOTHING: no concept card, no blacklist, no mission, no ScopeCheckReport, no workflow
+     * state. Shares the sweep's single-flight flag so probe and sweep never race the anchor
+     * vector cache.
+     */
+    String scopeProbeCommand(java.util.List<String> terms) {
+        final com.aresstack.askai.research.scope.ResearchScopeCoordinator coordinator =
+                scopeCoordinator();
+        if (coordinator == null || !coordinator.isUsable() || handle == null
+                || productiveResources == null || productiveResources.isClosed()) {
+            return null; // no scope system — the tool answers honestly
+        }
+        com.aresstack.askai.agent.model.embedding.EmbeddingEndpointDescriptor descriptor =
+                productiveResources.getEmbeddingDescriptor();
+        if (descriptor == null) {
+            technicalLog("scope_probe -> PROBE_UNAVAILABLE (no embedding model)");
+            return "PROBE_UNAVAILABLE: no embedding model is configured — tell the user the "
+                    + "measurement is unavailable; do not guess.";
+        }
+        if (!scopeSweepInFlight.compareAndSet(false, true)) {
+            technicalLog("scope_probe -> PROBE_UNAVAILABLE (a scope check is running)");
+            return "PROBE_UNAVAILABLE: a scope check is running — probe again after it "
+                    + "finished.";
+        }
+        try {
+            // Pin the fingerprint FIRST, then snapshot — a mutation after the pin fails the
+            // final recheck, so a mixed snapshot can never read as current.
+            final String pinned = fenceFingerprintNow();
+            com.aresstack.askai.research.domain.scope.ResearchScopeDraft draft =
+                    coordinator.current();
+            com.aresstack.askai.research.concept.ConceptBranchService conceptService =
+                    conceptBranchService();
+            java.util.List<com.aresstack.askai.research.domain.scope.ScopeAnchor> conceptAnchors =
+                    com.aresstack.askai.research.scope.ConceptAnchorProjection.anchorsOf(
+                            conceptService == null ? null
+                                    : conceptService.snapshot().getDocumentJson(), draft);
+            java.util.List<com.aresstack.askai.research.domain.scope.ScopeAnchor> fenceAnchors =
+                    com.aresstack.askai.research.scope.ScopeSweepPlanAssembler.combinedAnchors(
+                            draft, conceptAnchors);
+            java.util.Map<String, String> labels = new java.util.LinkedHashMap<String, String>();
+            for (com.aresstack.askai.research.domain.scope.ScopeAnchor anchor : fenceAnchors) {
+                labels.put(anchor.getAnchorId(), anchor.getSemanticText());
+            }
+            com.aresstack.askai.research.scope.EmbeddingSnapshotSweepEmbedder embedder =
+                    new com.aresstack.askai.research.scope.EmbeddingSnapshotSweepEmbedder(
+                            descriptor);
+            java.util.List<com.aresstack.askai.research.domain.scope
+                    .ScopeFenceEvaluator.AnchorVector> anchorVectors;
+            try {
+                anchorVectors = new com.aresstack.askai.research.store.ScopeAnchorVectorIndex(
+                        new java.io.File(productiveResources.getProjectContext()
+                                .getProjectDirectory(), "scope-anchor-vectors.json"))
+                        .vectorsFor(fenceAnchors, embedder.modelFingerprint(), embedder);
+            } catch (java.io.IOException indexFailed) {
+                technicalLog("scope_probe -> PROBE_FAILED anchor index: "
+                        + indexFailed.getMessage());
+                return "PROBE_FAILED: anchor vector index failed — the measurement is "
+                        + "unavailable right now.";
+            } catch (RuntimeException embeddingBroke) {
+                technicalLog("scope_probe -> PROBE_FAILED anchor index: " + embeddingBroke);
+                return "PROBE_FAILED: anchor embedding failed — the measurement is "
+                        + "unavailable right now.";
+            }
+            com.aresstack.askai.research.scope.ScopeProbeService.Result result =
+                    com.aresstack.askai.research.scope.ScopeProbeService.run(terms,
+                            com.aresstack.askai.research.host.ResearchRuntimeSettings
+                                    .scopeProbeMaxTerms(),
+                            anchorVectors, labels, embedder,
+                            com.aresstack.askai.research.host.ResearchRuntimeSettings
+                                    .loadScopeSweepConfiguration(getHostStateStore())
+                                    .fenceThresholds,
+                            pinned,
+                            new com.aresstack.askai.research.scope.ScopeProbeService
+                                    .FenceFingerprint() {
+                                public String current() {
+                                    return fenceFingerprintNow();
+                                }
+                            });
+            for (String line : result.logLines()) {
+                technicalLog(line);
+            }
+            return result.receipt();
+        } finally {
+            scopeSweepInFlight.set(false);
+        }
+    }
+
+    /** The effective-fence fingerprint: scope revision + concept epoch#revision. */
+    private String fenceFingerprintNow() {
+        com.aresstack.askai.research.scope.ResearchScopeCoordinator coordinator =
+                scopeCoordinator();
+        String scopePart = coordinator == null || !coordinator.isUsable()
+                ? "gone" : String.valueOf(coordinator.current().getRevision());
+        return scopePart + "|" + conceptStamp();
     }
 
     /** Lenient parse of {@code [{"query":..,"purpose":..},..]}; broken entries are dropped. */

@@ -76,6 +76,9 @@ public final class ResearchToolPolicy {
                 // The search-offer command (gate 8b): AI-authored orientation searches become
                 // the user's yellow exploration tags.
                 tools.add(offerSearchesTool(ctx));
+                // scope_probe (AP3): the read-only closure sensor — SCOPING only, like every
+                // scope command; it measures, it never edits.
+                tools.add(scopeProbeTool(ctx));
             }
         }
         // Phase + run-state gated writes. SCOPING has NO document tool anymore: the ResearchBrief is the
@@ -825,6 +828,39 @@ public final class ResearchToolPolicy {
                 },
                 McpToolParameter.string("suggestions_json", true,
                         "JSON array of {query, purpose} objects — the user's exploration tags"));
+    }
+
+    /** scope_probe (AP3): read-only semantic measurement — a sensor, never an author. */
+    private static McpToolContribution scopeProbeTool(final ResearchControlContext ctx) {
+        return McpToolContribution.of("scope_probe",
+                "READ-ONLY: measure where the given terms sit relative to the negotiated "
+                        + "research scope (LIKELY_IN / LIKELY_OUT / BOUNDARY / NOVEL). Changes "
+                        + "nothing. Use it only for the late closure check. Example: "
+                        + "terms_json=[\"Priority Inversion\",\"SMP Scheduling\"].",
+                new McpToolHandler() {
+                    public McpToolResult invoke(McpToolCall call) {
+                        McpToolResult denied = requireWritable(ctx, ResearchStateIds.SCOPING);
+                        if (denied != null) {
+                            return denied;
+                        }
+                        java.util.List<String> terms = namesOf(call.getString("terms_json"));
+                        if (terms == null || terms.isEmpty()) {
+                            return McpToolResult.error("Missing argument: terms_json — a JSON "
+                                    + "array of terms, e.g. terms_json=[\"Priority Inversion\","
+                                    + "\"SMP Scheduling\"]");
+                        }
+                        String reply = ctx.scopeProbe(terms);
+                        if (reply == null) {
+                            return McpToolResult.error("This session has no scope system.");
+                        }
+                        // STALE_FENCE / PROBE_FAILED / PROBE_UNAVAILABLE are honest sensor
+                        // rejections — never a green result over discarded readings.
+                        return reply.startsWith("PROBED")
+                                ? McpToolResult.ok(reply) : McpToolResult.error(reply);
+                    }
+                },
+                McpToolParameter.string("terms_json", true,
+                        "The terms to probe as a JSON array of strings"));
     }
 
     /** Resolve a reported concept conflict — only ever AFTER the user answered the question. */

@@ -622,6 +622,12 @@ public final class ProductiveResearchBackendFactory {
                         }
 
                         @Override
+                        public String scopeProbe(java.util.List<String> terms) {
+                            return holder[0] == null ? null
+                                    : holder[0].controlContext().scopeProbe(terms);
+                        }
+
+                        @Override
                         public java.util.List<String> blacklistedTerms() {
                             return holder[0] == null
                                     ? java.util.Collections.<String>emptyList()

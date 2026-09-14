@@ -103,6 +103,11 @@ public final class ScopingAssistantOutputCodec {
                 sb.append(',');
                 // Already canonical JSON (built by the parser) — travels raw, parses back.
                 writeKey(sb, "suggestions").append(':').append(action.getSuggestionsJson());
+            } else if (action.getType() == ConceptAction.Type.PROBE) {
+                sb.append(',');
+                // scope_probe (AP3): the terms travel raw like the offer's suggestions — a
+                // history replay must not lose the ONE field the action has.
+                writeKey(sb, "terms").append(':').append(action.getTermsJson());
             } else if (action.getType() == ConceptAction.Type.RENAME) {
                 sb.append(',');
                 writeKey(sb, "path").append(':');
