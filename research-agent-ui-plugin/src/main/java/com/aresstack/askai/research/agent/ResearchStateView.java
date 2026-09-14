@@ -122,7 +122,7 @@ public final class ResearchStateView extends JPanel {
         row.setLayout(new BoxLayout(row, BoxLayout.Y_AXIS));
 
         boolean active = phaseId.equals(snapshot.getCurrentPhaseId());
-        JLabel title = new JLabel(upper(phaseId));
+        JLabel title = new JLabel(phaseDisplayName(phaseId));
         title.setFont(title.getFont().deriveFont(Font.BOLD, 12f));
         title.setForeground(active ? palette.getInk() : palette.getInk().brighter());
         JPanel titleRow = new JPanel(new BorderLayout());
@@ -279,7 +279,7 @@ public final class ResearchStateView extends JPanel {
         StringBuilder sb = new StringBuilder();
         List<String> completed = s.getCompletedPhaseIds();
         for (String phaseId : s.getPhaseOrder()) {
-            sb.append(upper(phaseId)).append('\n');
+            sb.append(phaseDisplayName(phaseId)).append('\n');
             if (phaseId.equals(s.getCurrentPhaseId())) {
                 sb.append("  active");
                 if (s.isTerminal()) {
@@ -337,6 +337,23 @@ public final class ResearchStateView extends JPanel {
 
     private static String upper(String id) {
         return id == null ? "" : id.toUpperCase();
+    }
+
+    /**
+     * #43: the timeline shows the PRODUCT names — the technical compat ids (scoping/research/
+     * draft) never surface as the product model. Inner run states stay technical vocabulary.
+     */
+    private static String phaseDisplayName(String phaseId) {
+        if (com.aresstack.askai.research.state.oo.ResearchStateIds.SCOPING.equals(phaseId)) {
+            return "CONCEPT";
+        }
+        if (com.aresstack.askai.research.state.oo.ResearchStateIds.RESEARCH.equals(phaseId)) {
+            return "SOURCES";
+        }
+        if (com.aresstack.askai.research.state.oo.ResearchStateIds.DRAFT.equals(phaseId)) {
+            return "DOCUMENT";
+        }
+        return upper(phaseId);
     }
 
     // ------------------------------------------------------------------ test accessors

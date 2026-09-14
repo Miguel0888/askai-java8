@@ -26,7 +26,7 @@ public class ResearchStateViewTest {
     public void showsCurrentPhaseAndSubstate() {
         String text = ResearchStateView.render(
                 snapshot(ResearchStateIds.RESEARCH, ResearchStateIds.RUNNING, null, null, 5L, ""));
-        assertTrue(text.contains("RESEARCH"));
+        assertTrue("the product name, never the compat id", text.contains("SOURCES"));
         assertTrue(text.contains("active"));
         assertTrue(text.contains("RUNNING"));
         assertTrue(text.contains("revision: 5"));
@@ -70,7 +70,7 @@ public class ResearchStateViewTest {
     public void showsCompletedAndCancelled() {
         String completed = ResearchStateView.render(
                 snapshot(ResearchStateIds.DRAFT, ResearchStateIds.COMPLETED, null, null, 20L, ""));
-        assertTrue(completed.contains("DRAFT"));
+        assertTrue("the product name, never the compat id", completed.contains("DOCUMENT"));
         assertTrue(completed.contains("COMPLETED"));
 
         String cancelled = ResearchStateView.render(
