@@ -150,6 +150,7 @@ public final class ConceptToolRounds {
         boolean budgetExhausted = false;
         boolean offeredThisTurn = false;
         boolean offerNudgeSpent = false;
+        boolean suggestionGroundingSpent = false;
         // The AUTHORITATIVE change receipts, carried across the rounds: every feedback lists
         // WHICH actions were applied and WHICH were rejected (and why), plus the CURRENT
         // persisted concept after any mutation attempt — a lone boolean once let one applied
@@ -199,6 +200,22 @@ public final class ConceptToolRounds {
                         intermediateSink.intermediate(output);
                     }
                     result = turn.run(TeamAgentPlaybook.offerSearchesMissing(germanFeedback));
+                    continue;
+                }
+                if (offerNudgeSpent && !offeredThisTurn && !suggestionGroundingSpent
+                        && !budgetExhausted) {
+                    // Offer-receipt grounding (the turn-1 finding): the nudge was sent and NO
+                    // OFFERED receipt exists in this turn, yet the close once claimed "einige
+                    // erste Suchvorschläge gemacht" over zero tags. The OBJECTIVE condition
+                    // (nudge fired, receipt absent) replaces any keyword truth guard; with an
+                    // OFFERED receipt this block never runs.
+                    suggestionGroundingSpent = true;
+                    trace.line("offer nudge unanswered — search-suggestion grounding turn");
+                    if (intermediateSink != null) {
+                        intermediateSink.intermediate(output);
+                    }
+                    result = turn.run(
+                            TeamAgentPlaybook.searchSuggestionsGrounding(germanFeedback));
                     continue;
                 }
                 // The model finished without a further action — the normal end.

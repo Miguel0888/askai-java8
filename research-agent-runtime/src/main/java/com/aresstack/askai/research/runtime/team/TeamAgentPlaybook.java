@@ -977,6 +977,22 @@ public final class TeamAgentPlaybook {
      * machinery instructions do). Sent when a turn built concept cards but the session still
      * has no exploration tags; asks for EXACTLY the missing step and nothing else.
      */
+    /**
+     * Offer-receipt grounding: the nudge ran, no OFFERED receipt exists — the final answer
+     * must not claim suggestions (a turn once said "einige erste Suchvorschläge gemacht"
+     * over zero tags). Machine block English; the instruction follows the language selector.
+     */
+    public static String searchSuggestionsGrounding(boolean german) {
+        String block = "SEARCH SUGGESTIONS\n"
+                + "No search suggestions were actually offered in this turn.\n"
+                + "Do not claim that suggestions were provided or are available.\n\n";
+        return block + (german
+                ? "Formuliere deine finale assistantMessage entsprechend — ohne behauptete "
+                        + "Suchvorschläge. Keine weiteren Aktionen nötig: type \"none\"."
+                : "Write your final assistantMessage accordingly — without claimed search "
+                        + "suggestions. No further actions needed: type \"none\".");
+    }
+
     public static String offerSearchesMissing(boolean german) {
         return german
                 ? "SEARCH TAGS MISSING — der Nutzer hat noch keine gelben Erkundungs-Tags.\n"

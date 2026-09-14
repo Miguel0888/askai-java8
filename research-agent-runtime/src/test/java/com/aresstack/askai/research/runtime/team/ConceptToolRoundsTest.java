@@ -545,6 +545,43 @@ public class ConceptToolRoundsTest {
         assertEquals("Schau sie dir an.",
                 ((ScopingAssistantOutput) result.getOutput()).getAssistantMessage());
         assertTrue(trace.toString(), trace.toString().contains("offer nudge turn"));
+        assertTrue("an OFFERED receipt means NO grounding turn", !trace.contains(
+                "offer nudge unanswered — search-suggestion grounding turn"));
+    }
+
+    /**
+     * The turn-1 finding: nudge fired, the model answered with PROSE about suggestions but
+     * no offer action — the objective condition (no OFFERED receipt) triggers ONE grounding
+     * turn so the visible close cannot claim tags that do not exist.
+     */
+    @Test
+    public void anUnansweredOfferNudgeGetsOneSearchSuggestionGroundingTurn() throws Exception {
+        ScriptedTurns turns = new ScriptedTurns();
+        ScriptedTool tool = new ScriptedTool();
+        tool.byDescription.put("add_cards parent=[] names=[\"FreeRTOS\"]",
+                "added \"FreeRTOS\" revision=1");
+        turns.script.add(turn("fertig", null)); // no offer -> nudge
+        turns.script.add(turn("Wir haben einige erste Suchvorschläge gemacht.", null));
+        turns.script.add(turn("Struktur angelegt — Suchvorschläge folgen später.", null));
+
+        TeamAgentResult result = ConceptToolRounds.run(
+                turn("lege an", "{\"type\":\"add_cards\",\"parent\":[],"
+                        + "\"names\":[\"FreeRTOS\"]}"),
+                turns, tool, 6, 2, false, null, traceSink, true);
+
+        assertTrue(trace.contains(
+                "offer nudge unanswered — search-suggestion grounding turn"));
+        String grounding = turns.feedbackSeen.get(2);
+        assertTrue(grounding.startsWith("SEARCH SUGGESTIONS"));
+        assertTrue(grounding.contains(
+                "No search suggestions were actually offered in this turn."));
+        assertTrue(grounding.contains(
+                "Do not claim that suggestions were provided or are available."));
+        assertEquals("the grounded close is the visible answer",
+                "Struktur angelegt — Suchvorschläge folgen später.",
+                ((ScopingAssistantOutput) result.getOutput()).getAssistantMessage());
+        assertEquals("exactly ONE grounding turn, then the turn ends",
+                3, turns.feedbackSeen.size());
     }
 
     @Test
