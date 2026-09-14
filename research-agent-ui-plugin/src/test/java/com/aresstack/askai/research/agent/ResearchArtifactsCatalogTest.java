@@ -49,9 +49,11 @@ public class ResearchArtifactsCatalogTest {
 
     @Test
     public void theDocumentIsTheOnlyPlainMarkdownWorkProductBesideTheOutline() {
+        // #43 slice 9: the document owns its page view now (type research.document) while the
+        // persisted file stays the SAME document.md — the store contract did not move.
         for (AgentArtifact artifact : ResearchArtifacts.all()) {
             if ("document".equals(artifact.getId())) {
-                assertEquals(ResearchArtifacts.TYPE_MARKDOWN, artifact.getArtifactTypeId());
+                assertEquals(ResearchArtifacts.TYPE_DOCUMENT, artifact.getArtifactTypeId());
                 assertEquals("document.md", artifact.getRelativePath());
             }
         }

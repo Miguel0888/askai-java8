@@ -4892,6 +4892,30 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         }
     }
 
+    /** #43 slice 9: the Sources view registers how a source gets focused (spike contract). */
+    public interface SourcesFocusHandler {
+        void focusSource(String sourceId);
+    }
+
+    private volatile SourcesFocusHandler sourcesFocusHandler;
+
+    public void setSourcesFocusHandler(SourcesFocusHandler handler) {
+        this.sourcesFocusHandler = handler;
+    }
+
+    /** Document [n] badge → reveal the Sources tab and focus that source (best effort). */
+    public void revealSourceInSourcesTab(final String sourceId) {
+        openArtifactView("sources");
+        final SourcesFocusHandler handler = sourcesFocusHandler;
+        if (handler != null) {
+            uiExecutor.execute(new Runnable() {
+                public void run() {
+                    handler.focusSource(sourceId);
+                }
+            });
+        }
+    }
+
     /** Reveal an artifact tab via the host service; degrade VISIBLY when the host offers none. */
     private void openArtifactView(String artifactId) {
         com.aresstack.askai.plugin.api.service.ArtifactViewOpener opener = hostContext == null

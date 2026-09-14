@@ -39,6 +39,12 @@ public final class ResearchSourcesViewContribution implements ArtifactViewContri
                     view.refresh();
                 }
             });
+            // #43 slice 9: a Document [n] badge reveals this tab and focuses the source.
+            research.setSourcesFocusHandler(new ResearchAgentSession.SourcesFocusHandler() {
+                public void focusSource(String sourceId) {
+                    view.focusSource(sourceId);
+                }
+            });
             return view;
         }
         JPanel placeholder = new JPanel(new BorderLayout());

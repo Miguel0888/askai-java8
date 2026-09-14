@@ -23,6 +23,7 @@ public final class ResearchArtifacts {
     public static final String TYPE_STATE = "research.state";
     public static final String TYPE_BRIEF = "research.brief";
     public static final String TYPE_OUTLINE = "research.outline";
+    public static final String TYPE_DOCUMENT = "research.document";
     public static final String TYPE_RUNTIME = "research.runtime";
     public static final String TYPE_SEARCH_SETTINGS = "research.search.settings";
 
@@ -45,7 +46,9 @@ public final class ResearchArtifacts {
         // ONE canonical working document (issue #32): DRAFT and FINALIZATION both work on it. The legacy
         // concept/research-notes/findings/draft/final artifacts are deliberately NOT listed anymore — old
         // files stay untouched on disk, but they get no tabs and no active-workflow writes.
-        list.add(markdown("document", "Document", "document.md"));
+        // #43 slice 9: the document gets its own page view (chapter hierarchy + clickable
+        // [n] source badges); the plain editor stays one toggle away inside that view.
+        list.add(new Artifact("document", "Document", TYPE_DOCUMENT, "document.md"));
         list.add(new Artifact("state", "State", TYPE_STATE, ""));
         // Runtime + search settings are deliberately NOT artifacts anymore: they live as the plugin's
         // settings pages in the host's gear menu (session-based), the artifact area holds work products.

@@ -418,6 +418,26 @@ public final class ResearchSourcesView extends JPanel {
         }
     }
 
+    /**
+     * #43 slice 9: focus ONE source by id (a Document [n] badge navigated here) — selects its
+     * row and scrolls it into view; an unknown id changes nothing.
+     */
+    public void focusSource(String sourceId) {
+        if (sourceId == null || sourceId.trim().isEmpty()) {
+            return;
+        }
+        for (int modelRow = 0; modelRow < tableModel.getRowCount(); modelRow++) {
+            if (sourceId.equals(tableModel.rowAt(modelRow).getSourceId())) {
+                selectModelRow(modelRow);
+                int viewRow = table.convertRowIndexToView(modelRow);
+                if (viewRow >= 0) {
+                    table.scrollRectToVisible(table.getCellRect(viewRow, 0, true));
+                }
+                return;
+            }
+        }
+    }
+
     /** Selection is a VIEW concern: with the sorter active, model row i is not view row i. */
     private void selectModelRow(int modelRow) {
         int viewRow = table.convertRowIndexToView(modelRow);
