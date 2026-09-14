@@ -30,6 +30,12 @@ public final class ResearchOutlineView extends JPanel {
     private final JLabel staleNote = new JLabel();
     private final JButton generateButton = new JButton("Inhaltsverzeichnis erzeugen");
     private final MarkdownView markdownView;
+    // #43 slice 8: the graphical numbered chapter tree is the DEFAULT face of the outline;
+    // the markdown stays reachable behind the toggle (and remains the face of meta states).
+    private final OutlineTreeView treeView = new OutlineTreeView();
+    private final JButton viewToggle = new JButton("Text");
+    private final JPanel center = new JPanel(new java.awt.CardLayout());
+    private boolean showingTree = true;
 
     public ResearchOutlineView(MarkdownViewFactory markdownViewFactory) {
         super(new BorderLayout());
@@ -39,9 +45,33 @@ public final class ResearchOutlineView extends JPanel {
         JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
         toolbar.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
         toolbar.add(generateButton);
+        viewToggle.setToolTipText("Switch between the chapter tree and the markdown text");
+        viewToggle.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                showingTree = !showingTree;
+                showCard();
+            }
+        });
+        toolbar.add(viewToggle);
         toolbar.add(staleNote);
         add(toolbar, BorderLayout.NORTH);
-        add(markdownView.getComponent(), BorderLayout.CENTER);
+        javax.swing.JScrollPane treeScroll = new javax.swing.JScrollPane(treeView);
+        treeScroll.setBorder(BorderFactory.createEmptyBorder());
+        treeScroll.getViewport().setOpaque(false);
+        treeScroll.setOpaque(false);
+        center.setOpaque(false);
+        center.add(treeScroll, "tree");
+        center.add(markdownView.getComponent(), "markdown");
+        add(center, BorderLayout.CENTER);
+        showCard();
+    }
+
+    /** Flip the visible card; the toggle names the OTHER view (what a click switches to). */
+    private void showCard() {
+        boolean tree = showingTree && treeView.hasRows();
+        ((java.awt.CardLayout) center.getLayout()).show(center, tree ? "tree" : "markdown");
+        viewToggle.setText(tree ? "Text" : "Tree");
+        viewToggle.setEnabled(treeView.hasRows());
     }
 
     /** The explicit rebuild trigger (issue #29) — the ONLY thing that starts topic/outline processing. */
@@ -52,6 +82,8 @@ public final class ResearchOutlineView extends JPanel {
                     // A lightweight progress hint; the next projection-update refresh replaces it with the
                     // rebuilt outline (the rebuild itself is debounced and runs off the EDT).
                     markdownView.setMarkdown(GENERATING);
+                    treeView.setRows(java.util.Collections.<OutlineTreeModel.Row>emptyList());
+                    showCard();
                     action.run();
                 }
             }
@@ -70,11 +102,15 @@ public final class ResearchOutlineView extends JPanel {
         boolean showStale = capabilityAvailable && hasOutline && stale.booleanValue();
         staleNote.setText(showStale ? STALE_NOTE : "");
         staleNote.setVisible(showStale);
+        treeView.setRows(hasOutline ? OutlineTreeModel.parse(outlineMarkdown)
+                : java.util.Collections.<OutlineTreeModel.Row>emptyList());
         if (!capabilityAvailable) {
             markdownView.setMarkdown(hasOutline ? outlineMarkdown : UNAVAILABLE);
+            showCard();
             return;
         }
         markdownView.setMarkdown(hasOutline ? outlineMarkdown : NOT_GENERATED);
+        showCard();
     }
 
     public void dispose() {
