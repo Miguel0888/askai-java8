@@ -289,6 +289,12 @@ public final class ConceptBranchService {
                 : identity.pathOfId(parseOrEmpty(store.effectiveContent()), nodeId);
     }
 
+    /** All positive concept node ids (novelty window: renames/moves mint none). */
+    public synchronized java.util.List<String> allNodeIds() {
+        return identity == null ? java.util.Collections.<String>emptyList()
+                : identity.allIds();
+    }
+
     /** Fail-closed state (manifest and backup invalid): every write is refused. */
     public synchronized boolean isFailClosed() {
         return failClosed;

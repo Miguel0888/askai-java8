@@ -21,6 +21,30 @@ public final class ResearchRuntimeSettings {
     static final String KEY_SIDECAR_JAR = "research.runtime.sidecarJar";
     static final String KEY_BROWSER_CHANNEL = "research.runtime.browserChannel";
     static final String KEY_HEADLESS = "research.runtime.headless";
+    /** Conversation-policy thresholds (documented defaults; adjustable WITHOUT a rebuild via
+     *  the env hand-off — the same mechanism as the concept loop budgets; a settings-UI row
+     *  can layer on loadPositiveInt later). */
+    public static final int DEFAULT_POLICY_SPARSE_CARDS = 4;
+    public static final int DEFAULT_POLICY_NOVELTY_TURNS = 3;
+
+    public static int policySparseCards() {
+        return envOverride("ASKAI_POLICY_SPARSE_CARDS", DEFAULT_POLICY_SPARSE_CARDS);
+    }
+
+    public static int policyNoveltyTurns() {
+        return envOverride("ASKAI_POLICY_NOVELTY_TURNS", DEFAULT_POLICY_NOVELTY_TURNS);
+    }
+
+    private static int envOverride(String name, int fallback) {
+        try {
+            String value = System.getenv(name);
+            return value == null || value.trim().isEmpty()
+                    ? fallback : Math.max(1, Integer.parseInt(value.trim()));
+        } catch (NumberFormatException invalid) {
+            return fallback;
+        }
+    }
+
     /** DEAD legacy override — kept ONLY so load() can destroy a persisted leftover value. */
     static final String KEY_SEARCH_URL = "research.runtime.searchUrl";
     static final String KEY_ALLOW_PRIVATE = "research.runtime.allowPrivateNetworks";

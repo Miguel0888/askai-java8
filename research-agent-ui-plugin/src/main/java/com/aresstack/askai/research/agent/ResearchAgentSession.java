@@ -896,6 +896,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             // FIRST message IS the mission until they restate it. No model turn ever begs
             // for setMission again.
             recordMissionIfAbsent(text);
+            refreshConversationPolicy(); // once per user turn, before the fence carries it
             publishScopeFence(); // authoritative scope FIRST, then the turn that may change it
             beginAgentTurn(); // busy + preempt visualizer; cleared by the turn's terminal event
             backend.submitPrompt(handle, new ResearchPrompt(text, activeSectionId));
@@ -2692,6 +2693,7 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
             return;
         }
         appendScopeCheckTechnicalLog(report);
+        latestScopeCheckReport = report; // the policy consumes it while its revision is current
         switch (report.getKind()) {
             case ASKED:
                 // The deliverable: the agent asks its ONE question. The user's answer flows
@@ -3002,6 +3004,86 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
                     new java.util.LinkedHashMap<String, ConceptConflictRef>());
     private final java.util.concurrent.atomic.AtomicLong conflictIds =
             new java.util.concurrent.atomic.AtomicLong();
+
+    // ------------------------------------------------ conversation policy (ratified slice)
+    /** The latest finished scope check; the policy IGNORES it once its revision is stale. */
+    private volatile com.aresstack.askai.research.scope.ScopeCheckReport latestScopeCheckReport;
+    /** The node-ID novelty window: renames/moves mint no ids and are correctly no novelty. */
+    private java.util.Set<String> noveltyPreviousIds = new java.util.HashSet<String>();
+    private String noveltyEpoch;
+    private int turnsWithoutNewCards;
+    /** The ephemeral fence block, recomputed once per user turn — NEVER persisted state. */
+    private volatile String conversationPolicyBlock = "";
+
+    /**
+     * Recompute the ratified conversation policy for the upcoming turn: pure projection over
+     * the CURRENT snapshot (node-ID novelty, OPEN boundary material, the scope check only
+     * while its revision is current) — no second state machine, only this observation window.
+     */
+    private void refreshConversationPolicy() {
+        com.aresstack.askai.research.concept.ConceptBranchService service =
+                conceptBranchService();
+        com.aresstack.askai.research.scope.ResearchScopeCoordinator coordinator =
+                scopeCoordinator();
+        if (service == null || coordinator == null || !coordinator.isUsable()) {
+            conversationPolicyBlock = "";
+            return;
+        }
+        java.util.Set<String> ids =
+                new java.util.HashSet<String>(service.allNodeIds());
+        String epoch = service.currentEpoch();
+        if (noveltyEpoch != null && noveltyEpoch.equals(epoch)) {
+            boolean newCards = false;
+            for (String id : ids) {
+                if (!noveltyPreviousIds.contains(id)) {
+                    newCards = true;
+                    break;
+                }
+            }
+            turnsWithoutNewCards = newCards ? 0 : turnsWithoutNewCards + 1;
+        } else {
+            turnsWithoutNewCards = 0; // a fresh epoch restarts the observation window
+        }
+        noveltyPreviousIds = ids;
+        noveltyEpoch = epoch;
+
+        com.aresstack.askai.research.domain.scope.ResearchScopeDraft draft = coordinator.current();
+        boolean missionPresent = draft.getMission() != null
+                && !draft.getMission().trim().isEmpty();
+        boolean openConflict = false;
+        int candidates = 0;
+        synchronized (conceptConflicts) {
+            for (ConceptConflictRef ref : conceptConflicts.values()) {
+                if (ref.open) {
+                    openConflict = true;
+                } else {
+                    candidates++;
+                }
+            }
+        }
+        com.aresstack.askai.research.scope.ScopeCheckReport report = latestScopeCheckReport;
+        boolean reportCurrent = report != null
+                && report.getOutcome().getScopeRevision() == draft.getRevision();
+        com.aresstack.askai.research.scope.ScopeCheckReport.Kind kind =
+                reportCurrent ? report.getKind() : null;
+        boolean calibrationWeak = reportCurrent && report.getOutcome().getStatus()
+                == com.aresstack.askai.research.domain.scope.ScopeSweepOutcome.Status
+                        .CALIBRATION_WEAK;
+        int driftGuards = reportCurrent && report.getOutcome().getAdviceSet() != null
+                ? report.getOutcome().getAdviceSet().getDriftGuards().size() : 0;
+        boolean openBoundaryWork = openConflict || candidates > 0 || driftGuards > 0
+                || kind == com.aresstack.askai.research.scope.ScopeCheckReport.Kind.ASKED;
+        ConversationPolicyProjection.Inputs inputs = new ConversationPolicyProjection.Inputs(
+                missionPresent, ids.size(), turnsWithoutNewCards, openBoundaryWork,
+                openConflict, reportCurrent, kind, calibrationWeak, driftGuards,
+                com.aresstack.askai.research.host.ResearchRuntimeSettings.policySparseCards(),
+                com.aresstack.askai.research.host.ResearchRuntimeSettings.policyNoveltyTurns());
+        ConversationPolicyProjection.Stage stage =
+                ConversationPolicyProjection.stageOf(inputs);
+        conversationPolicyBlock =
+                ConversationPolicyProjection.hintBlock(stage, calibrationWeak);
+        technicalLog(ConversationPolicyProjection.logLine(stage, inputs));
+    }
 
     /** Whether any ANSWERABLE (open) conflict exists — candidates never arm anything. */
     private boolean hasOpenConflict() {
@@ -3574,6 +3656,9 @@ public final class ResearchAgentSession implements AgentSession, ResearchSession
         // (The host intercepts unambiguous yes/no answers itself; this block guides the model
         // through everything ELSE said while a conflict is open.)
         fence = fence + openConflictBlock(openConflictPaths());
+        // The ratified conversation policy travels in the same host envelope, but its header
+        // states explicitly that it is guidance — never part of the Weidezaun itself.
+        fence = fence + conversationPolicyBlock;
         backend.submitServiceCommand(handle,
                 com.aresstack.askai.research.search.ResearchServiceCommandWire.setScope(fence));
     }

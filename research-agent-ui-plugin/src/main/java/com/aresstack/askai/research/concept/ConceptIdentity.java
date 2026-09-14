@@ -193,6 +193,20 @@ public final class ConceptIdentity {
         return node == null ? null : node.id;
     }
 
+    /** Every node id of this identity, document order (the novelty window's raw material). */
+    public List<String> allIds() {
+        List<String> ids = new ArrayList<String>();
+        collectIds(nodes, ids);
+        return ids;
+    }
+
+    private static void collectIds(List<Node> nodes, List<String> ids) {
+        for (Node node : nodes) {
+            ids.add(node.id);
+            collectIds(node.children, ids);
+        }
+    }
+
     /** The current name path of the card carrying {@code id}, or {@code null} when gone. */
     public List<String> pathOfId(JsonElement documentRoot, String id) {
         return findPath(nodes, cardEntries(conceptArrayOf(documentRoot)), id,
